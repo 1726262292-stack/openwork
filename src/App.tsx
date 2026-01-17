@@ -1606,6 +1606,8 @@ export default function App() {
     if (!isTauriRuntime()) {
       setPluginStatus("Plugin management is only available in Host mode.");
       setPluginList([]);
+      setSidebarPluginStatus("Plugins are only available in Host mode.");
+      setSidebarPluginList([]);
       return;
     }
 
@@ -1615,18 +1617,32 @@ export default function App() {
     if (scope === "project" && !targetDir) {
       setPluginStatus("Pick a project folder to manage project plugins.");
       setPluginList([]);
+      setSidebarPluginStatus("Pick a project folder to load active plugins.");
+      setSidebarPluginList([]);
       return;
     }
 
     try {
       setPluginStatus(null);
+      setSidebarPluginStatus(null);
       const config = await readOpencodeConfig(scope, targetDir);
       setPluginConfig(config);
 
       if (!config.exists) {
         setPluginList([]);
         setPluginStatus("No opencode.json found yet. Add a plugin to create one.");
+        setSidebarPluginList([]);
+        setSidebarPluginStatus("No opencode.json in this workspace yet.");
         return;
+      }
+
+      try {
+        const parsed = parse(config.content ?? "") as Record<string, unknown> | undefined;
+        const next = normalizePluginList(parsed?.plugin);
+        setSidebarPluginList(next);
+      } catch {
+        setSidebarPluginList([]);
+        setSidebarPluginStatus("Failed to parse opencode.json");
       }
 
       loadPluginsFromConfig(config);
@@ -1634,6 +1650,8 @@ export default function App() {
       setPluginConfig(null);
       setPluginList([]);
       setPluginStatus(e instanceof Error ? e.message : "Failed to load opencode.json");
+      setSidebarPluginStatus("Failed to load active plugins.");
+      setSidebarPluginList([]);
     }
   }
 
@@ -2986,6 +3004,12 @@ export default function App() {
       if (tab() === "plugins") {
         refreshPlugins().catch(() => undefined);
       }
+
+      // Keep session sidebar context fresh.
+      if (tab() === "sessions" || view() === "session") {
+        refreshSkills().catch(() => undefined);
+        refreshPlugins("project").catch(() => undefined);
+      }
     });
 
     const navItem = (t: DashboardTab, label: string, icon: any) => {
@@ -4202,7 +4226,7 @@ export default function App() {
 
           <div class="flex-1 flex overflow-hidden">
             <div class="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
-              <div class="max-w-2xl mx-auto space-y-6 pb-32">
+               <div class="max-w-2xl mx-auto space-y-6 pb-32">
                 <Show when={messages().length === 0}>
                   <div class="text-center py-20 space-y-4">
                     <div class="w-16 h-16 bg-zinc-900 rounded-3xl mx-auto flex items-center justify-center border border-zinc-800">
@@ -4213,6 +4237,10 @@ export default function App() {
                       Describe a task. I’ll show progress and ask for permissions when needed.
                     </p>
                   </div>
+                </Show>
+
+                <Show when={busyLabel() === "Running"}>
+                  <ThinkingBlock steps={[{ status: "running", text: "Working…" } satisfies ThinkingStep]} />
                 </Show>
 
                 <For each={messages()}>
