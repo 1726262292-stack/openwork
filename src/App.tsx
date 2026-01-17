@@ -5244,16 +5244,9 @@ export default function App() {
                             </For>
                           </Show>
                         </div>
-                      </div>
-                    </div>
-                  </Show>
-                </div>
               </div>
             </aside>
 
-                </div>
-              </div>
-            </aside>
           </div>
 
           <div class="p-4 border-t border-zinc-800 bg-zinc-950 sticky bottom-0 z-20">
