@@ -40,6 +40,7 @@ import {
   Shield,
   Smartphone,
   Trash2,
+  Search,
   Upload,
   X,
   Zap,
@@ -622,6 +623,7 @@ export default function App() {
   const [defaultModel, setDefaultModel] = createSignal<ModelRef>(DEFAULT_MODEL);
   const [modelPickerOpen, setModelPickerOpen] = createSignal(false);
   const [modelPickerTarget, setModelPickerTarget] = createSignal<"session" | "default">("session");
+  const [modelPickerQuery, setModelPickerQuery] = createSignal("");
   const [sessionModelOverrideById, setSessionModelOverrideById] = createSignal<Record<string, ModelRef>>({});
   const [sessionModelById, setSessionModelById] = createSignal<Record<string, ModelRef>>({});
 
@@ -857,13 +859,28 @@ export default function App() {
     return next;
   });
 
+  const filteredModelOptions = createMemo(() => {
+    const q = modelPickerQuery().trim().toLowerCase();
+    const options = modelOptions();
+    if (!q) return options;
+
+    return options.filter((opt) => {
+      const haystack = [opt.title, opt.description ?? "", opt.footer ?? "", `${opt.providerID}/${opt.modelID}`]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  });
+
   function openSessionModelPicker() {
     setModelPickerTarget("session");
+    setModelPickerQuery("");
     setModelPickerOpen(true);
   }
 
   function openDefaultModelPicker() {
     setModelPickerTarget("default");
+    setModelPickerQuery("");
     setModelPickerOpen(true);
   }
 
@@ -4448,8 +4465,26 @@ export default function App() {
                 </Button>
               </div>
 
-              <div class="mt-6 space-y-2 overflow-y-auto pr-1 -mr-1 min-h-0">
-                 <For each={modelOptions()}>
+              <div class="mt-5">
+                <div class="relative">
+                  <Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                  <input
+                    type="text"
+                    value={modelPickerQuery()}
+                    onInput={(e) => setModelPickerQuery(e.currentTarget.value)}
+                    placeholder="Search models…"
+                    class="w-full bg-zinc-950/40 border border-zinc-800 rounded-xl py-2.5 pl-9 pr-3 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-600 focus:border-zinc-600"
+                  />
+                </div>
+                <Show when={modelPickerQuery().trim()}>
+                  <div class="mt-2 text-xs text-zinc-500">
+                    Showing {filteredModelOptions().length} of {modelOptions().length}
+                  </div>
+                </Show>
+              </div>
+
+              <div class="mt-4 space-y-2 overflow-y-auto pr-1 -mr-1 min-h-0">
+                 <For each={filteredModelOptions()}>
                    {(opt) => {
                      const active = () =>
                        modelEquals(modelPickerCurrent(), {
@@ -4506,7 +4541,7 @@ export default function App() {
                  </For>
               </div>
 
-              <div class="mt-6 flex justify-end shrink-0">
+              <div class="mt-5 flex justify-end shrink-0">
                 <Button variant="outline" onClick={() => setModelPickerOpen(false)}>
                   Done
                 </Button>
