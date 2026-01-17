@@ -53,6 +53,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import Button from "./components/Button";
 import OpenWorkLogo from "./components/OpenWorkLogo";
 import PartView from "./components/PartView";
+import ThinkingBlock, { type ThinkingStep } from "./components/ThinkingBlock";
 import TextInput from "./components/TextInput";
 import { createClient, unwrap, waitForHealthy } from "./lib/opencode";
 import {
@@ -185,6 +186,8 @@ type ModelOption = {
   description?: string;
   footer?: string;
   disabled?: boolean;
+  isFree: boolean;
+  isConnected: boolean;
 };
 
 const MODEL_PREF_KEY = "openwork.defaultModel";
@@ -606,6 +609,9 @@ export default function App() {
   const [pluginStatus, setPluginStatus] = createSignal<string | null>(null);
   const [activePluginGuide, setActivePluginGuide] = createSignal<string | null>(null);
 
+  const [sidebarPluginList, setSidebarPluginList] = createSignal<string[]>([]);
+  const [sidebarPluginStatus, setSidebarPluginStatus] = createSignal<string | null>(null);
+
   const [reloadRequired, setReloadRequired] = createSignal(false);
   const [reloadReasons, setReloadReasons] = createSignal<ReloadReason[]>([]);
   const [reloadLastTriggeredAt, setReloadLastTriggeredAt] = createSignal<number | null>(null);
@@ -807,17 +813,19 @@ export default function App() {
     const allProviders = providers();
     const defaults = providerDefaults();
 
-    if (!allProviders.length) {
-      return [
-        {
-          providerID: DEFAULT_MODEL.providerID,
-          modelID: DEFAULT_MODEL.modelID,
-          title: DEFAULT_MODEL.modelID,
-          description: DEFAULT_MODEL.providerID,
-          footer: "Fallback",
-        },
-      ];
-    }
+     if (!allProviders.length) {
+       return [
+         {
+           providerID: DEFAULT_MODEL.providerID,
+           modelID: DEFAULT_MODEL.modelID,
+           title: DEFAULT_MODEL.modelID,
+           description: DEFAULT_MODEL.providerID,
+           footer: "Fallback",
+           isFree: false,
+           isConnected: true,
+         },
+       ];
+     }
 
     const sortedProviders = allProviders.slice().sort((a, b) => {
       const aIsOpencode = a.id === "opencode";
@@ -828,35 +836,45 @@ export default function App() {
 
     const next: ModelOption[] = [];
 
-    for (const provider of sortedProviders) {
-      const defaultModelID = defaults[provider.id];
-      const models = Object.values(provider.models ?? {}).filter((m) => m.status !== "deprecated");
-
-      models.sort((a, b) => {
-        const aFree = a.cost?.input === 0 && a.cost?.output === 0;
-        const bFree = b.cost?.input === 0 && b.cost?.output === 0;
-        if (aFree !== bFree) return aFree ? -1 : 1;
-        return (a.name ?? a.id).localeCompare(b.name ?? b.id);
-      });
-
-      for (const model of models) {
-        const footerBits: string[] = [];
-        if (defaultModelID === model.id) footerBits.push("Default");
-        if (model.cost?.input === 0 && model.cost?.output === 0) footerBits.push("Free");
-        if (model.capabilities?.reasoning) footerBits.push("Reasoning");
-
-        next.push({
-          providerID: provider.id,
-          modelID: model.id,
-          title: model.name ?? model.id,
-          description: provider.name,
-          footer: footerBits.length ? footerBits.slice(0, 2).join(" · ") : undefined,
-          disabled: !providerConnectedIds().includes(provider.id),
-        });
-      }
-    }
-
-    return next;
+     for (const provider of sortedProviders) {
+       const defaultModelID = defaults[provider.id];
+       const isConnected = providerConnectedIds().includes(provider.id);
+       const models = Object.values(provider.models ?? {}).filter((m) => m.status !== "deprecated");
+ 
+       models.sort((a, b) => {
+         const aFree = a.cost?.input === 0 && a.cost?.output === 0;
+         const bFree = b.cost?.input === 0 && b.cost?.output === 0;
+         if (aFree !== bFree) return aFree ? -1 : 1;
+         return (a.name ?? a.id).localeCompare(b.name ?? b.id);
+       });
+ 
+       for (const model of models) {
+         const isFree = model.cost?.input === 0 && model.cost?.output === 0;
+         const footerBits: string[] = [];
+         if (defaultModelID === model.id) footerBits.push("Default");
+         if (isFree) footerBits.push("Free");
+         if (model.capabilities?.reasoning) footerBits.push("Reasoning");
+ 
+         next.push({
+           providerID: provider.id,
+           modelID: model.id,
+           title: model.name ?? model.id,
+           description: provider.name,
+           footer: footerBits.length ? footerBits.slice(0, 2).join(" · ") : undefined,
+           disabled: !isConnected,
+           isFree,
+           isConnected,
+         });
+       }
+     }
+ 
+     next.sort((a, b) => {
+       if (a.isConnected !== b.isConnected) return a.isConnected ? -1 : 1;
+       if (a.isFree !== b.isFree) return a.isFree ? -1 : 1;
+       return a.title.localeCompare(b.title);
+     });
+ 
+     return next;
   });
 
   const filteredModelOptions = createMemo(() => {
@@ -865,7 +883,14 @@ export default function App() {
     if (!q) return options;
 
     return options.filter((opt) => {
-      const haystack = [opt.title, opt.description ?? "", opt.footer ?? "", `${opt.providerID}/${opt.modelID}`]
+      const haystack = [
+        opt.title,
+        opt.description ?? "",
+        opt.footer ?? "",
+        `${opt.providerID}/${opt.modelID}`,
+        opt.isConnected ? "connected" : "disconnected",
+        opt.isFree ? "free" : "paid",
+      ]
         .join(" ")
         .toLowerCase();
       return haystack.includes(q);
@@ -4245,79 +4270,130 @@ export default function App() {
 
             <div class="hidden lg:flex w-80 border-l border-zinc-800 bg-zinc-950 flex-col">
               <div class="p-4 border-b border-zinc-800 font-medium text-sm text-zinc-400 flex items-center justify-between">
-                <span>Execution Plan</span>
-                <span class="text-xs bg-zinc-800 px-2 py-0.5 rounded text-zinc-500">
-                  {todos().filter((t) => t.status === "completed").length}/{todos().length}
-                </span>
+                <span>Workspace</span>
               </div>
-              <div class="p-4 space-y-4 overflow-y-auto flex-1">
-                <Show
-                  when={todos().length}
-                  fallback={
-                    <div class="text-zinc-600 text-sm text-center py-10 italic">
-                      Plan will appear here...
-                    </div>
-                  }
-                >
-                  <For each={todos()}>
-                    {(t, idx) => (
-                      <div class="relative pl-6 pb-6 last:pb-0">
-                        <Show when={idx() !== todos().length - 1}>
-                          <div
-                            class={`absolute left-[9px] top-6 bottom-0 w-px ${
-                              t.status === "completed" ? "bg-emerald-500/20" : "bg-zinc-800"
-                            }`}
-                          />
-                        </Show>
+              <div class="p-4 space-y-5 overflow-y-auto flex-1">
+                <div>
+                  <div class="flex items-center justify-between text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                    <span>Skills</span>
+                    <span class="text-[11px] text-zinc-600">{skills().length}</span>
+                  </div>
+                  <div class="mt-3 space-y-2">
+                    <Show when={skills().length} fallback={<div class="text-xs text-zinc-600 italic">No skills found</div>}>
+                      <For each={skills().slice(0, 12)}>
+                        {(s) => (
+                          <div class="rounded-xl border border-zinc-800/70 bg-zinc-900/30 px-3 py-2">
+                            <div class="text-sm text-zinc-200 truncate">{s.name}</div>
+                            <Show when={s.description}>
+                              <div class="mt-1 text-xs text-zinc-500 line-clamp-2">{s.description}</div>
+                            </Show>
+                          </div>
+                        )}
+                      </For>
+                      <Show when={skills().length > 12}>
+                        <div class="text-xs text-zinc-600">+{skills().length - 12} more</div>
+                      </Show>
+                    </Show>
+                  </div>
+                </div>
 
-                        <div
-                          class={`absolute left-0 top-1 w-5 h-5 rounded-full border flex items-center justify-center bg-zinc-950 z-10 ${
-                            t.status === "completed"
-                              ? "border-emerald-500 text-emerald-500"
-                              : t.status === "in_progress"
-                                ? "border-blue-500 text-blue-500"
-                                : t.status === "cancelled"
-                                  ? "border-zinc-600 text-zinc-600"
-                                  : "border-zinc-700 text-zinc-700"
-                          }`}
-                        >
-                          <Show
-                            when={t.status === "completed"}
-                            fallback={
+                <div>
+                  <div class="flex items-center justify-between text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                    <span>Plugins</span>
+                    <span class="text-[11px] text-zinc-600">{sidebarPluginList().length}</span>
+                  </div>
+                  <div class="mt-3 space-y-2">
+                    <Show
+                      when={sidebarPluginList().length}
+                      fallback={<div class="text-xs text-zinc-600 italic">{sidebarPluginStatus() ?? "No plugins configured"}</div>}
+                    >
+                      <For each={sidebarPluginList().slice(0, 16)}>
+                        {(p) => (
+                          <div class="rounded-xl border border-zinc-800/70 bg-zinc-900/30 px-3 py-2">
+                            <div class="text-sm text-zinc-200 font-mono truncate">{p}</div>
+                          </div>
+                        )}
+                      </For>
+                      <Show when={sidebarPluginList().length > 16}>
+                        <div class="text-xs text-zinc-600">+{sidebarPluginList().length - 16} more</div>
+                      </Show>
+                    </Show>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="flex items-center justify-between text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                    <span>Execution Plan</span>
+                    <span class="text-xs bg-zinc-800 px-2 py-0.5 rounded text-zinc-500">
+                      {todos().filter((t) => t.status === "completed").length}/{todos().length}
+                    </span>
+                  </div>
+                  <div class="mt-3 space-y-2">
+                    <Show
+                      when={todos().length}
+                      fallback={<div class="text-xs text-zinc-600 italic">Plan will appear here…</div>}
+                    >
+                      <For each={todos()}>
+                        {(t, idx) => (
+                          <div class="relative pl-6 pb-6 last:pb-0">
+                            <Show when={idx() !== todos().length - 1}>
+                              <div
+                                class={`absolute left-[9px] top-6 bottom-0 w-px ${
+                                  t.status === "completed" ? "bg-emerald-500/20" : "bg-zinc-800"
+                                }`}
+                              />
+                            </Show>
+
+                            <div
+                              class={`absolute left-0 top-1 w-5 h-5 rounded-full border flex items-center justify-center bg-zinc-950 z-10 ${
+                                t.status === "completed"
+                                  ? "border-emerald-500 text-emerald-500"
+                                  : t.status === "in_progress"
+                                    ? "border-blue-500 text-blue-500"
+                                    : t.status === "cancelled"
+                                      ? "border-zinc-600 text-zinc-600"
+                                      : "border-zinc-700 text-zinc-700"
+                              }`}
+                            >
                               <Show
-                                when={t.status === "in_progress"}
+                                when={t.status === "completed"}
                                 fallback={
                                   <Show
-                                    when={t.status === "cancelled"}
-                                    fallback={<Circle size={10} />}
+                                    when={t.status === "in_progress"}
+                                    fallback={
+                                      <Show
+                                        when={t.status === "cancelled"}
+                                        fallback={<Circle size={10} />}
+                                      >
+                                        <X size={12} />
+                                      </Show>
+                                    }
                                   >
-                                    <X size={12} />
+                                    <div class="w-2 h-2 rounded-full bg-current animate-pulse" />
                                   </Show>
                                 }
                               >
-                                <div class="w-2 h-2 rounded-full bg-current animate-pulse" />
+                                <CheckCircle2 size={12} />
                               </Show>
-                            }
-                          >
-                            <CheckCircle2 size={12} />
-                          </Show>
-                        </div>
+                            </div>
 
-                        <div
-                          class={`text-sm ${
-                            t.status === "completed"
-                              ? "text-zinc-400"
-                              : t.status === "in_progress"
-                                ? "text-blue-100"
-                                : "text-zinc-500"
-                          }`}
-                        >
-                          {t.content}
-                        </div>
-                      </div>
-                    )}
-                  </For>
-                </Show>
+                            <div
+                              class={`text-sm ${
+                                t.status === "completed"
+                                  ? "text-zinc-400"
+                                  : t.status === "in_progress"
+                                    ? "text-blue-100"
+                                    : "text-zinc-500"
+                              }`}
+                            >
+                              {t.content}
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </Show>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
