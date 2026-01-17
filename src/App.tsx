@@ -4425,9 +4425,9 @@ export default function App() {
       </Show>
 
       <Show when={modelPickerOpen()}>
-        <div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div class="bg-zinc-900 border border-zinc-800/70 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden">
-            <div class="p-6">
+        <div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto">
+          <div class="bg-zinc-900 border border-zinc-800/70 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col">
+            <div class="p-6 flex flex-col min-h-0">
               <div class="flex items-start justify-between gap-4">
                 <div>
                   <h3 class="text-lg font-semibold text-white">
@@ -4448,7 +4448,7 @@ export default function App() {
                 </Button>
               </div>
 
-              <div class="mt-6 space-y-2">
+              <div class="mt-6 space-y-2 overflow-y-auto pr-1 -mr-1 min-h-0">
                  <For each={modelOptions()}>
                    {(opt) => {
                      const active = () =>
@@ -4506,7 +4506,7 @@ export default function App() {
                  </For>
               </div>
 
-              <div class="mt-6 flex justify-end">
+              <div class="mt-6 flex justify-end shrink-0">
                 <Button variant="outline" onClick={() => setModelPickerOpen(false)}>
                   Done
                 </Button>
@@ -4517,10 +4517,10 @@ export default function App() {
       </Show>
 
       <Show when={templateModalOpen()}>
-        <div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div class="bg-zinc-900 border border-zinc-800/70 w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden">
-            <div class="p-6">
-              <div class="flex items-start justify-between gap-4">
+         <div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+           <div class="bg-zinc-900 border border-zinc-800/70 w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden">
+             <div class="p-6">
+               <div class="flex items-start justify-between gap-4">
                 <div>
                   <h3 class="text-lg font-semibold text-white">Save Template</h3>
                   <p class="text-sm text-zinc-400 mt-1">Reuse a workflow with one tap.</p>
