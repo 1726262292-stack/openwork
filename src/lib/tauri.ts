@@ -23,6 +23,18 @@ export type EngineDoctorResult = {
   serveHelpStderr: string | null;
 };
 
+export type WorkspaceInfo = {
+  id: string;
+  name: string;
+  path: string;
+  preset: string;
+};
+
+export type WorkspaceList = {
+  activeId: string;
+  workspaces: WorkspaceInfo[];
+};
+
 export async function engineStart(
   projectDir: string,
   options?: { preferSidecar?: boolean },
@@ -30,6 +42,93 @@ export async function engineStart(
   return invoke<EngineInfo>("engine_start", {
     projectDir,
     preferSidecar: options?.preferSidecar ?? false,
+  });
+}
+
+export async function workspaceBootstrap(): Promise<WorkspaceList> {
+  return invoke<WorkspaceList>("workspace_bootstrap");
+}
+
+export async function workspaceSetActive(workspaceId: string): Promise<WorkspaceList> {
+  return invoke<WorkspaceList>("workspace_set_active", { workspaceId });
+}
+
+export async function workspaceCreate(input: {
+  folderPath: string;
+  name: string;
+  preset: string;
+}): Promise<WorkspaceList> {
+  return invoke<WorkspaceList>("workspace_create", {
+    folderPath: input.folderPath,
+    name: input.name,
+    preset: input.preset,
+  });
+}
+
+export async function workspaceAddAuthorizedRoot(input: {
+  workspacePath: string;
+  folderPath: string;
+}): Promise<ExecResult> {
+  return invoke<ExecResult>("workspace_add_authorized_root", {
+    workspacePath: input.workspacePath,
+    folderPath: input.folderPath,
+  });
+}
+
+export type WorkspaceTemplate = {
+  id: string;
+  title: string;
+  description: string;
+  prompt: string;
+  createdAt: number;
+  scope?: "workspace" | "global";
+};
+
+export type WorkspaceOpenworkConfig = {
+  version: number;
+  workspace?: {
+    name?: string | null;
+    createdAt?: number | null;
+    preset?: string | null;
+  } | null;
+  authorizedRoots: string[];
+};
+
+export async function workspaceOpenworkRead(input: {
+  workspacePath: string;
+}): Promise<WorkspaceOpenworkConfig> {
+  return invoke<WorkspaceOpenworkConfig>("workspace_openwork_read", {
+    workspacePath: input.workspacePath,
+  });
+}
+
+export async function workspaceOpenworkWrite(input: {
+  workspacePath: string;
+  config: WorkspaceOpenworkConfig;
+}): Promise<ExecResult> {
+  return invoke<ExecResult>("workspace_openwork_write", {
+    workspacePath: input.workspacePath,
+    config: input.config,
+  });
+}
+
+export async function workspaceTemplateWrite(input: {
+  workspacePath: string;
+  template: WorkspaceTemplate;
+}): Promise<ExecResult> {
+  return invoke<ExecResult>("workspace_template_write", {
+    workspacePath: input.workspacePath,
+    template: input.template,
+  });
+}
+
+export async function workspaceTemplateDelete(input: {
+  workspacePath: string;
+  templateId: string;
+}): Promise<ExecResult> {
+  return invoke<ExecResult>("workspace_template_delete", {
+    workspacePath: input.workspacePath,
+    templateId: input.templateId,
   });
 }
 
