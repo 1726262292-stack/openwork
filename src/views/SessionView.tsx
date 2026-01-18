@@ -1,0 +1,581 @@
+import { For, Show, createEffect, createMemo } from "solid-js";
+import type { Part } from "@opencode-ai/sdk/v2/client";
+import type {
+  ArtifactItem,
+  DashboardTab,
+  MessageGroup,
+  MessageWithParts,
+  PendingPermission,
+  TodoItem,
+  View,
+  WorkspaceDisplay,
+} from "../app/types";
+
+import {
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Circle,
+  File,
+  FileText,
+  Folder,
+  HardDrive,
+  Plus,
+  Shield,
+  Zap,
+} from "lucide-solid";
+
+import Button from "../components/Button";
+import PartView from "../components/PartView";
+import ThinkingBlock, { type ThinkingStep } from "../components/ThinkingBlock";
+import WorkspaceChip from "../components/WorkspaceChip";
+
+export type SessionViewProps = {
+  selectedSessionId: string | null;
+  setView: (view: View) => void;
+  setTab: (tab: DashboardTab) => void;
+  activeWorkspaceDisplay: WorkspaceDisplay;
+  setWorkspaceSearch: (value: string) => void;
+  setWorkspacePickerOpen: (open: boolean) => void;
+  headerStatus: string;
+  busyHint: string | null;
+  createSessionAndOpen: () => void;
+  sendPromptAsync: () => Promise<void>;
+  newTaskDisabled: boolean;
+  sessions: Array<{ id: string; title: string; slug?: string | null }>;
+  selectSession: (sessionId: string) => Promise<void> | void;
+  messages: MessageWithParts[];
+  todos: TodoItem[];
+  busyLabel: string | null;
+  developerMode: boolean;
+  showThinking: boolean;
+  groupMessageParts: (parts: Part[], messageId: string) => MessageGroup[];
+  summarizeStep: (part: Part) => { title: string; detail?: string };
+  expandedStepIds: Set<string>;
+  setExpandedStepIds: (updater: (current: Set<string>) => Set<string>) => Set<string>;
+  expandedSidebarSections: { progress: boolean; artifacts: boolean; context: boolean };
+  setExpandedSidebarSections: (
+    updater: (current: { progress: boolean; artifacts: boolean; context: boolean }) => {
+      progress: boolean;
+      artifacts: boolean;
+      context: boolean;
+    },
+  ) => { progress: boolean; artifacts: boolean; context: boolean };
+  artifacts: ArtifactItem[];
+  workingFiles: string[];
+  authorizedDirs: string[];
+  busy: boolean;
+  prompt: string;
+  setPrompt: (value: string) => void;
+  sendPrompt: () => Promise<void>;
+  activePermission: PendingPermission | null;
+  permissionReplyBusy: boolean;
+  respondPermission: (requestID: string, reply: "once" | "always" | "reject") => void;
+  respondPermissionAndRemember: (requestID: string, reply: "once" | "always" | "reject") => void;
+  safeStringify: (value: unknown) => string;
+};
+
+export default function SessionView(props: SessionViewProps) {
+  let messagesEndEl: HTMLDivElement | undefined;
+
+  createEffect(() => {
+    props.messages.length;
+    props.todos.length;
+    messagesEndEl?.scrollIntoView({ behavior: "smooth" });
+  });
+
+  const progressDots = createMemo(() => {
+    const total = props.todos.length || 3;
+    const completed = props.todos.filter((t) => t.status === "completed").length;
+    return Array.from({ length: total }, (_, idx) => idx < completed);
+  });
+
+  const toggleSteps = (id: string) => {
+    props.setExpandedStepIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSidebar = (key: "progress" | "artifacts" | "context") => {
+    props.setExpandedSidebarSections((current) => ({ ...current, [key]: !current[key] }));
+  };
+
+  return (
+    <Show
+      when={props.selectedSessionId}
+      fallback={
+        <div class="min-h-screen flex items-center justify-center bg-zinc-950 text-white p-6">
+          <div class="text-center space-y-4">
+            <div class="text-lg font-medium">No session selected</div>
+            <Button
+              onClick={() => {
+                props.setView("dashboard");
+                props.setTab("sessions");
+              }}
+            >
+              Back to dashboard
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <div class="h-screen flex flex-col bg-zinc-950 text-white relative">
+        <header class="h-16 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950/80 backdrop-blur-md z-10 sticky top-0">
+          <div class="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              class="!p-2 rounded-full"
+              onClick={() => {
+                props.setView("dashboard");
+                props.setTab("sessions");
+              }}
+            >
+              <ArrowRight class="rotate-180 w-5 h-5" />
+            </Button>
+            <WorkspaceChip
+              workspace={props.activeWorkspaceDisplay}
+              onClick={() => {
+                props.setWorkspaceSearch("");
+                props.setWorkspacePickerOpen(true);
+              }}
+            />
+            <span class="text-xs text-zinc-600">{props.headerStatus}</span>
+            <Show when={props.busyHint}>
+              <span class="text-xs text-zinc-500">· {props.busyHint}</span>
+            </Show>
+          </div>
+        </header>
+
+        <div class="flex-1 flex overflow-hidden">
+          <aside class="hidden lg:flex w-72 border-r border-zinc-800 bg-zinc-950 flex-col">
+            <div class="p-4 border-b border-zinc-800">
+              <div class="text-[11px] uppercase tracking-wider text-zinc-500">Workspace</div>
+              <div class="mt-2">
+                <WorkspaceChip
+                  workspace={props.activeWorkspaceDisplay}
+                  onClick={() => {
+                    props.setWorkspaceSearch("");
+                    props.setWorkspacePickerOpen(true);
+                  }}
+                />
+              </div>
+            </div>
+
+            <div class="px-4 pt-4">
+              <button
+                class="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-white text-black text-sm font-medium shadow-lg shadow-white/10"
+                onClick={props.createSessionAndOpen}
+                disabled={props.newTaskDisabled}
+              >
+                <Plus size={16} />
+                New task
+              </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto px-4 py-4">
+              <div class="text-xs text-zinc-500 uppercase tracking-wide mb-3">Recents</div>
+              <div class="space-y-2">
+                <For each={props.sessions.slice(0, 8)}>
+                  {(session) => (
+                    <button
+                      class={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                        session.id === props.selectedSessionId
+                          ? "bg-zinc-900 text-zinc-100"
+                          : "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900/50"
+                      }`}
+                      onClick={async () => {
+                        await props.selectSession(session.id);
+                        props.setView("session");
+                        props.setTab("sessions");
+                      }}
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="truncate">{session.title}</span>
+                      </div>
+                    </button>
+                  )}
+                </For>
+              </div>
+              <div class="mt-6 text-xs text-zinc-500">
+                These tasks run locally and aren't synced across devices.
+              </div>
+            </div>
+          </aside>
+
+          <div class="flex-1 overflow-y-auto p-6 md:p-10 scroll-smooth">
+            <div class="max-w-2xl mx-auto space-y-6 pb-32">
+              <Show when={props.messages.length === 0}>
+                <div class="text-center py-20 space-y-4">
+                  <div class="w-16 h-16 bg-zinc-900 rounded-3xl mx-auto flex items-center justify-center border border-zinc-800">
+                    <Zap class="text-zinc-600" />
+                  </div>
+                  <h3 class="text-xl font-medium">Ready to work</h3>
+                  <p class="text-zinc-500 text-sm max-w-xs mx-auto">
+                    Describe a task. I'll show progress and ask for permissions when needed.
+                  </p>
+                </div>
+              </Show>
+
+              <Show when={props.busyLabel === "Running"}>
+                <ThinkingBlock
+                  steps={[{ status: "running", text: "Working..." } satisfies ThinkingStep]}
+                />
+              </Show>
+
+              <For each={props.messages}>
+                {(msg) => {
+                  const renderableParts = () =>
+                    msg.parts.filter((p) => {
+                      if (p.type === "reasoning") {
+                        return props.developerMode && props.showThinking;
+                      }
+
+                      if (p.type === "step-start" || p.type === "step-finish") {
+                        return props.developerMode;
+                      }
+
+                      if (p.type === "text" || p.type === "tool") {
+                        return true;
+                      }
+
+                      return props.developerMode;
+                    });
+
+                  const groups = () =>
+                    props.groupMessageParts(renderableParts(), String((msg.info as any).id ?? "message"));
+
+                  return (
+                    <Show when={renderableParts().length > 0}>
+                      <div class="flex">
+                        <div
+                          class={`w-full p-4 text-sm leading-relaxed rounded-2xl ${
+                            (msg.info as any).role === "user"
+                              ? "bg-white text-black shadow-xl shadow-white/5 max-w-[520px] ml-auto"
+                              : "bg-zinc-900/80 border border-zinc-800 text-zinc-200"
+                          }`}
+                        >
+                          <For each={groups()}>
+                            {(group, idx) => (
+                              <div class={idx() === groups().length - 1 ? "" : "mb-3"}>
+                                <Show when={group.kind === "text"}>
+                                  <PartView
+                                    part={(group as { kind: "text"; part: Part }).part}
+                                    developerMode={props.developerMode}
+                                    showThinking={props.showThinking}
+                                    tone={(msg.info as any).role === "user" ? "dark" : "light"}
+                                  />
+                                </Show>
+                                <Show when={group.kind === "steps"}>
+                                  <div class="mt-2">
+                                    <button
+                                      class="flex items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300"
+                                      onClick={() => toggleSteps((group as any).id)}
+                                    >
+                                      <span>
+                                        {props.expandedStepIds.has((group as any).id) ? "Hide steps" : "View steps"}
+                                      </span>
+                                      <ChevronDown
+                                        size={14}
+                                        class={`transition-transform ${props.expandedStepIds.has((group as any).id) ? "rotate-180" : ""}`.trim()}
+                                      />
+                                    </button>
+                                    <Show when={props.expandedStepIds.has((group as any).id)}>
+                                      <div class="mt-3 space-y-3 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
+                                        <For each={(group as any).parts as Part[]}>
+                                          {(part) => {
+                                            const summary = props.summarizeStep(part);
+                                            return (
+                                              <div class="flex items-start gap-3 text-xs text-zinc-300">
+                                                <div class="mt-0.5 h-5 w-5 rounded-full border border-zinc-700 flex items-center justify-center text-zinc-500">
+                                                  {part.type === "tool" ? <File size={12} /> : <Circle size={8} />}
+                                                </div>
+                                                <div>
+                                                  <div class="text-zinc-200">{summary.title}</div>
+                                                  <Show when={summary.detail}>
+                                                    <div class="mt-1 text-zinc-500">{summary.detail}</div>
+                                                  </Show>
+                                                  <Show when={props.developerMode && (part.type !== "tool" || props.showThinking)}>
+                                                    <div class="mt-2 text-xs text-zinc-500">
+                                                      <PartView
+                                                        part={part}
+                                                        developerMode={props.developerMode}
+                                                        showThinking={props.showThinking}
+                                                        tone={(msg.info as any).role === "user" ? "dark" : "light"}
+                                                      />
+                                                    </div>
+                                                  </Show>
+                                                </div>
+                                              </div>
+                                            );
+                                          }}
+                                        </For>
+                                      </div>
+                                    </Show>
+                                  </div>
+                                </Show>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                      </div>
+                    </Show>
+                  );
+                }}
+              </For>
+
+              <For each={props.artifacts}>
+                {(artifact) => (
+                  <div class="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                      <div class="h-10 w-10 rounded-xl bg-zinc-900 flex items-center justify-center">
+                        <FileText size={18} class="text-zinc-400" />
+                      </div>
+                      <div>
+                        <div class="text-sm text-zinc-100">{artifact.name}</div>
+                        <div class="text-xs text-zinc-500">Document</div>
+                      </div>
+                    </div>
+                    <Button variant="outline" class="text-xs" disabled>
+                      Open
+                    </Button>
+                  </div>
+                )}
+              </For>
+
+              <div ref={(el) => (messagesEndEl = el)} />
+            </div>
+          </div>
+
+          <aside class="hidden lg:flex w-80 border-l border-zinc-800 bg-zinc-950 flex-col">
+            <div class="p-4 space-y-4 overflow-y-auto flex-1">
+              <div class="rounded-2xl border border-zinc-800 bg-zinc-950/60">
+                <button
+                  class="w-full px-4 py-3 flex items-center justify-between text-sm text-zinc-200"
+                  onClick={() => toggleSidebar("progress")}
+                >
+                  <span>Progress</span>
+                  <ChevronDown
+                    size={16}
+                    class={`transition-transform ${props.expandedSidebarSections.progress ? "rotate-180" : ""}`.trim()}
+                  />
+                </button>
+                <Show when={props.expandedSidebarSections.progress}>
+                  <div class="px-4 pb-4 pt-1">
+                    <div class="flex items-center gap-2">
+                      <For each={progressDots()}>
+                        {(done) => (
+                          <div
+                            class={`h-6 w-6 rounded-full border flex items-center justify-center ${
+                              done ? "border-emerald-400 text-emerald-400" : "border-zinc-700 text-zinc-700"
+                            }`}
+                          >
+                            <Show when={done}>
+                              <Check size={14} />
+                            </Show>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                    <div class="mt-2 text-xs text-zinc-500">Steps will show as the task unfolds.</div>
+                  </div>
+                </Show>
+              </div>
+
+              <div class="rounded-2xl border border-zinc-800 bg-zinc-950/60">
+                <button
+                  class="w-full px-4 py-3 flex items-center justify-between text-sm text-zinc-200"
+                  onClick={() => toggleSidebar("artifacts")}
+                >
+                  <span>Artifacts</span>
+                  <ChevronDown
+                    size={16}
+                    class={`transition-transform ${props.expandedSidebarSections.artifacts ? "rotate-180" : ""}`.trim()}
+                  />
+                </button>
+                <Show when={props.expandedSidebarSections.artifacts}>
+                  <div class="px-4 pb-4 pt-1 space-y-3">
+                    <Show
+                      when={props.artifacts.length}
+                      fallback={<div class="text-xs text-zinc-600">No artifacts yet.</div>}
+                    >
+                      <For each={props.artifacts}>
+                        {(artifact) => (
+                          <div class="flex items-center gap-3 text-sm text-zinc-300">
+                            <div class="h-8 w-8 rounded-lg bg-zinc-900 flex items-center justify-center">
+                              <FileText size={16} class="text-zinc-500" />
+                            </div>
+                            <div class="min-w-0">
+                              <div class="truncate text-zinc-200">{artifact.name}</div>
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </Show>
+                  </div>
+                </Show>
+              </div>
+
+              <div class="rounded-2xl border border-zinc-800 bg-zinc-950/60">
+                <button
+                  class="w-full px-4 py-3 flex items-center justify-between text-sm text-zinc-200"
+                  onClick={() => toggleSidebar("context")}
+                >
+                  <span>Context</span>
+                  <ChevronDown
+                    size={16}
+                    class={`transition-transform ${props.expandedSidebarSections.context ? "rotate-180" : ""}`.trim()}
+                  />
+                </button>
+                <Show when={props.expandedSidebarSections.context}>
+                  <div class="px-4 pb-4 pt-1 space-y-4">
+                    <div>
+                      <div class="flex items-center justify-between text-xs text-zinc-500">
+                        <span>Selected folders</span>
+                        <span>{props.authorizedDirs.length}</span>
+                      </div>
+                      <div class="mt-2 space-y-2">
+                        <For each={props.authorizedDirs.slice(0, 3)}>
+                          {(folder) => (
+                            <div class="flex items-center gap-2 text-xs text-zinc-300">
+                              <Folder size={12} class="text-zinc-500" />
+                              <span class="truncate">{folder}</span>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div class="text-xs text-zinc-500">Working files</div>
+                      <div class="mt-2 space-y-2">
+                        <Show
+                          when={props.workingFiles.length}
+                          fallback={<div class="text-xs text-zinc-600">None yet.</div>}
+                        >
+                          <For each={props.workingFiles}>
+                            {(file) => (
+                              <div class="flex items-center gap-2 text-xs text-zinc-300">
+                                <File size={12} class="text-zinc-500" />
+                                <span class="truncate">{file}</span>
+                              </div>
+                            )}
+                          </For>
+                        </Show>
+                      </div>
+                    </div>
+                  </div>
+                </Show>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="p-4 border-t border-zinc-800 bg-zinc-950 sticky bottom-0 z-20">
+          <div class="max-w-2xl mx-auto relative">
+              <input
+                type="text"
+                disabled={props.busy}
+                value={props.prompt}
+                onInput={(e) => props.setPrompt(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    props.sendPromptAsync().catch(() => undefined);
+                  }
+                }}
+                placeholder={props.busy ? "Working..." : "Ask OpenWork to do something..."}
+                class="w-full bg-zinc-900 border border-zinc-800 rounded-2xl py-4 pl-5 pr-14 text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-600 focus:border-zinc-600 transition-all disabled:opacity-50"
+              />
+              <button
+                disabled={!props.prompt.trim() || props.busy}
+                onClick={() => props.sendPromptAsync().catch(() => undefined)}
+                class="absolute right-2 top-2 p-2 bg-white text-black rounded-xl hover:scale-105 active:scale-95 transition-all disabled:opacity-0 disabled:scale-75"
+                title="Run"
+              >
+
+              <ArrowRight size={20} />
+            </button>
+          </div>
+        </div>
+
+        <Show when={props.activePermission}>
+          <div class="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="bg-zinc-900 border border-amber-500/30 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+              <div class="p-6">
+                <div class="flex items-start gap-4 mb-4">
+                  <div class="p-3 bg-amber-500/10 rounded-full text-amber-500">
+                    <Shield size={24} />
+                  </div>
+                  <div>
+                    <h3 class="text-lg font-semibold text-white">Permission Required</h3>
+                    <p class="text-sm text-zinc-400 mt-1">OpenCode is requesting permission to continue.</p>
+                  </div>
+                </div>
+
+                <div class="bg-zinc-950/50 rounded-xl p-4 border border-zinc-800 mb-6">
+                  <div class="text-xs text-zinc-500 uppercase tracking-wider mb-2 font-semibold">Permission</div>
+                  <div class="text-sm text-zinc-200 font-mono">{props.activePermission?.permission}</div>
+
+                  <div class="text-xs text-zinc-500 uppercase tracking-wider mt-4 mb-2 font-semibold">Scope</div>
+                  <div class="flex items-center gap-2 text-sm font-mono text-amber-200 bg-amber-950/30 px-2 py-1 rounded border border-amber-500/20">
+                    <HardDrive size={12} />
+                    {props.activePermission?.patterns.join(", ")}
+                  </div>
+
+                  <Show when={Object.keys(props.activePermission?.metadata ?? {}).length > 0}>
+                    <details class="mt-4 rounded-lg bg-black/20 p-2">
+                      <summary class="cursor-pointer text-xs text-zinc-400">Details</summary>
+                      <pre class="mt-2 whitespace-pre-wrap break-words text-xs text-zinc-200">
+                        {props.safeStringify(props.activePermission?.metadata)}
+                      </pre>
+                    </details>
+                  </Show>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <Button
+                      variant="outline"
+                      class="w-full border-red-500/20 text-red-400 hover:bg-red-950/30"
+                      onClick={() =>
+                        props.activePermission && props.respondPermission(props.activePermission.id, "reject")
+                      }
+                      disabled={props.permissionReplyBusy}
+                    >
+
+                    Deny
+                  </Button>
+                  <div class="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="secondary"
+                      class="text-xs"
+                      onClick={() => props.activePermission && props.respondPermission(props.activePermission.id, "once")}
+                      disabled={props.permissionReplyBusy}
+                    >
+                      Once
+                    </Button>
+                    <Button
+                      variant="primary"
+                      class="text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black border-none shadow-amber-500/20"
+                      onClick={() =>
+                        props.activePermission &&
+                        props.respondPermissionAndRemember(props.activePermission.id, "always")
+                      }
+                      disabled={props.permissionReplyBusy}
+                    >
+                      Allow for session
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Show>
+      </div>
+    </Show>
+  );
+}

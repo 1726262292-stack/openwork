@@ -12,56 +12,81 @@ import {
 
 import { applyEdits, modify, parse } from "jsonc-parser";
 
-import type {
-  Message,
-  Part,
-  PermissionRequest as ApiPermissionRequest,
-  Provider,
-  Session,
-} from "@opencode-ai/sdk/v2/client";
+import type { Message, Part, Provider, Session } from "@opencode-ai/sdk/v2/client";
 
-import {
-  ArrowRight,
-  CheckCircle2,
-  ChevronRight,
-  Circle,
-  Clock,
-  Command,
-  Cpu,
-  FileText,
-  Folder,
-  HardDrive,
-  Menu,
-  Package,
-  Play,
-  Plus,
-  RefreshCcw,
-  Settings,
-  Shield,
-  Smartphone,
-  Trash2,
-  Search,
-  Upload,
-  X,
-  Zap,
-  ChevronDown,
-  File,
-  Check,
-} from "lucide-solid";
+import { CheckCircle2, Circle, Search, X } from "lucide-solid";
 
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { getVersion } from "@tauri-apps/api/app";
 
 import Button from "./components/Button";
-import CreateWorkspaceModal from "./components/CreateWorkspaceModal";
-import OpenWorkLogo from "./components/OpenWorkLogo";
-import PartView from "./components/PartView";
-import ThinkingBlock, { type ThinkingStep } from "./components/ThinkingBlock";
 import TextInput from "./components/TextInput";
-import WorkspaceChip from "./components/WorkspaceChip";
-import WorkspacePicker from "./components/WorkspacePicker";
+import OnboardingView from "./views/OnboardingView";
+import DashboardView from "./views/DashboardView";
+import SessionView from "./views/SessionView";
 import { createClient, unwrap, waitForHealthy } from "./lib/opencode";
+import {
+  CURATED_PACKAGES,
+  DEFAULT_MODEL,
+  MODEL_PREF_KEY,
+  SUGGESTED_PLUGINS,
+  THINKING_PREF_KEY,
+  VARIANT_PREF_KEY,
+} from "./app/constants";
+import type {
+  Client,
+  CuratedPackage,
+  DashboardTab,
+  MessageInfo,
+  MessageWithParts,
+  Mode,
+  ModelOption,
+  ModelRef,
+  OnboardingStep,
+  OpencodeEvent,
+  PendingPermission,
+  PluginScope,
+  ReloadReason,
+  ResetOpenworkMode,
+  SkillCard,
+  SuggestedPlugin,
+  TodoItem,
+  UpdateHandle,
+  View,
+  WorkspaceDisplay,
+  WorkspaceOpenworkConfig,
+  WorkspacePreset,
+  WorkspaceTemplate,
+} from "./app/types";
+import {
+  clearModePreference,
+  deriveArtifacts,
+  deriveWorkingFiles,
+  formatBytes,
+  formatModelLabel,
+  formatModelRef,
+  formatRelativeTime,
+  groupMessageParts,
+  isTauriRuntime,
+  isWindowsPlatform,
+  lastUserModelFromMessages,
+  modelEquals,
+  modelFromUserMessage,
+  normalizeEvent,
+  normalizeSessionStatus,
+  parseModelRef,
+  readModePreference,
+  removePart,
+  safeParseJson,
+  safeStringify,
+  summarizeStep,
+  templatePathFromWorkspaceRoot,
+  upsertMessage,
+  upsertPart,
+  upsertSession,
+  writeModePreference,
+} from "./app/utils";
 import {
   engineDoctor,
   engineInfo,
@@ -90,651 +115,6 @@ import {
   type WorkspaceInfo,
 } from "./lib/tauri";
 
-type Client = ReturnType<typeof createClient>;
-
-type PlaceholderAssistantMessage = {
-  id: string;
-  sessionID: string;
-  role: "assistant";
-  time: {
-    created: number;
-    completed?: number;
-  };
-  parentID: string;
-  modelID: string;
-  providerID: string;
-  mode: string;
-  agent: string;
-  path: {
-    cwd: string;
-    root: string;
-  };
-  cost: number;
-  tokens: {
-    input: number;
-    output: number;
-    reasoning: number;
-    cache: {
-      read: number;
-      write: number;
-    };
-  };
-};
-
-type MessageInfo = Message | PlaceholderAssistantMessage;
-
-type MessageWithParts = {
-  info: MessageInfo;
-  parts: Part[];
-};
-
-type MessageGroup =
-  | { kind: "text"; part: Part }
-  | { kind: "steps"; id: string; parts: Part[] };
-
-type ArtifactItem = {
-  id: string;
-  name: string;
-  path?: string;
-  kind: "file" | "text";
-  size?: string;
-};
-
-type OpencodeEvent = {
-  type: string;
-  properties?: unknown;
-};
-
-type View = "onboarding" | "dashboard" | "session";
-
-type Mode = "host" | "client";
-
-type OnboardingStep = "mode" | "host" | "client" | "connecting";
-
-type DashboardTab = "home" | "sessions" | "templates" | "skills" | "plugins" | "settings";
-
-type WorkspacePreset = "starter" | "automation" | "minimal";
-
-type ResetOpenworkMode = "onboarding" | "all";
-
-type WorkspaceTemplate = Template & {
-  scope: "workspace" | "global";
-};
-
-type WorkspaceOpenworkConfig = {
-  version: number;
-  workspace?: {
-    name?: string | null;
-    createdAt?: number | null;
-    preset?: string | null;
-  } | null;
-  authorizedRoots: string[];
-};
-
-type Template = {
-  id: string;
-  title: string;
-  description: string;
-  prompt: string;
-  createdAt: number;
-};
-
-type SkillCard = {
-  name: string;
-  path: string;
-  description?: string;
-};
-
-type CuratedPackage = {
-  name: string;
-  source: string;
-  description: string;
-  tags: string[];
-  installable: boolean;
-};
-
-type PluginInstallStep = {
-  title: string;
-  description: string;
-  command?: string;
-  url?: string;
-  path?: string;
-  note?: string;
-};
-
-type SuggestedPlugin = {
-  name: string;
-  packageName: string;
-  description: string;
-  tags: string[];
-  aliases?: string[];
-  installMode?: "simple" | "guided";
-  steps?: PluginInstallStep[];
-};
-
-type PluginScope = "project" | "global";
-
-type ReloadReason = "plugins" | "skills";
-
-type PendingPermission = ApiPermissionRequest & {
-  receivedAt: number;
-};
-
-type ModelRef = {
-  providerID: string;
-  modelID: string;
-};
-
-type ModelOption = {
-  providerID: string;
-  modelID: string;
-  title: string;
-  description?: string;
-  footer?: string;
-  disabled?: boolean;
-  isFree: boolean;
-  isConnected: boolean;
-};
-
-const MODEL_PREF_KEY = "openwork.defaultModel";
-const THINKING_PREF_KEY = "openwork.showThinking";
-const VARIANT_PREF_KEY = "openwork.modelVariant";
-
-const DEFAULT_MODEL: ModelRef = {
-  providerID: "opencode",
-  modelID: "gpt-5-nano",
-};
-
-function formatModelRef(model: ModelRef) {
-  return `${model.providerID}/${model.modelID}`;
-}
-
-function parseModelRef(raw: string | null): ModelRef | null {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const [providerID, ...rest] = trimmed.split("/");
-  if (!providerID || rest.length === 0) return null;
-  return { providerID, modelID: rest.join("/") };
-}
-
-function modelEquals(a: ModelRef, b: ModelRef) {
-  return a.providerID === b.providerID && a.modelID === b.modelID;
-}
-
-function formatModelLabel(model: ModelRef, providers: Provider[] = []) {
-  const provider = providers.find((p) => p.id === model.providerID);
-  const modelInfo = provider?.models?.[model.modelID];
-
-  const providerLabel = provider?.name ?? model.providerID;
-  const modelLabel = modelInfo?.name ?? model.modelID;
-
-  return `${providerLabel} · ${modelLabel}`;
-}
-
-const CURATED_PACKAGES: CuratedPackage[] = [
-  {
-    name: "OpenPackage Essentials",
-    source: "essentials",
-    description: "Starter rules, commands, and skills from the OpenPackage registry.",
-    tags: ["registry", "starter"],
-    installable: true,
-  },
-  {
-    name: "Claude Code Plugins",
-    source: "github:anthropics/claude-code",
-    description: "Official Claude Code plugin pack from GitHub.",
-    tags: ["github", "claude"],
-    installable: true,
-  },
-  {
-    name: "Claude Code Commit Commands",
-    source: "github:anthropics/claude-code#subdirectory=plugins/commit-commands",
-    description: "Commit message helper commands (Claude Code plugin).",
-    tags: ["github", "workflow"],
-    installable: true,
-  },
-  {
-    name: "Awesome OpenPackage",
-    source: "git:https://github.com/enulus/awesome-openpackage.git",
-    description: "Community collection of OpenPackage examples and templates.",
-    tags: ["community"],
-    installable: true,
-  },
-  {
-    name: "Awesome Claude Skills",
-    source: "https://github.com/ComposioHQ/awesome-claude-skills",
-    description: "Curated list of Claude skills and prompts (not an OpenPackage yet).",
-    tags: ["community", "list"],
-    installable: false,
-  },
-];
-
-const SUGGESTED_PLUGINS: SuggestedPlugin[] = [
-  {
-    name: "opencode-scheduler",
-    packageName: "opencode-scheduler",
-    description: "Run scheduled jobs with the OpenCode scheduler plugin.",
-    tags: ["automation", "jobs"],
-    installMode: "simple",
-  },
-  {
-    name: "opencode-browser",
-    packageName: "@different-ai/opencode-browser",
-    description: "Browser automation with a local extension + native host.",
-    tags: ["browser", "extension"],
-    aliases: ["opencode-browser"],
-    installMode: "guided",
-    steps: [
-      {
-        title: "Run the installer",
-        description: "Installs the extension + native host and prepares the local broker.",
-        command: "bunx @different-ai/opencode-browser@latest install",
-        note: "Use npx @different-ai/opencode-browser@latest install if you do not have bunx.",
-      },
-      {
-        title: "Load the extension",
-        description:
-          "Open chrome://extensions, enable Developer mode, click Load unpacked, and select the extension folder.",
-        url: "chrome://extensions",
-        path: "~/.opencode-browser/extension",
-      },
-      {
-        title: "Pin the extension",
-        description: "Pin OpenCode Browser Automation in your browser toolbar.",
-      },
-      {
-        title: "Add plugin to config",
-        description: "Click Add to write @different-ai/opencode-browser into opencode.json.",
-      },
-    ],
-  },
-];
-
-function isTauriRuntime() {
-  return typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ != null;
-}
-
-function isWindowsPlatform() {
-  if (typeof navigator === "undefined") return false;
-
-  const ua = typeof navigator.userAgent === "string" ? navigator.userAgent : "";
-  const platform =
-    typeof (navigator as any).userAgentData?.platform === "string"
-      ? (navigator as any).userAgentData.platform
-      : typeof navigator.platform === "string"
-        ? navigator.platform
-        : "";
-
-  return /windows/i.test(platform) || /windows/i.test(ua);
-}
-
-function readModePreference(): Mode | null {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const pref =
-      window.localStorage.getItem("openwork.modePref") ??
-      window.localStorage.getItem("openwork_mode_pref");
-
-    if (pref === "host" || pref === "client") {
-      // Migrate legacy key if needed.
-      try {
-        window.localStorage.setItem("openwork.modePref", pref);
-      } catch {
-        // ignore
-      }
-      return pref;
-    }
-  } catch {
-    // ignore
-  }
-
-  return null;
-}
-
-function writeModePreference(nextMode: Mode) {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.localStorage.setItem("openwork.modePref", nextMode);
-    // Keep legacy key for now.
-    window.localStorage.setItem("openwork_mode_pref", nextMode);
-  } catch {
-    // ignore
-  }
-}
-
-function clearModePreference() {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.localStorage.removeItem("openwork.modePref");
-    window.localStorage.removeItem("openwork_mode_pref");
-  } catch {
-    // ignore
-  }
-}
-
-function safeStringify(value: unknown) {
-  const seen = new WeakSet<object>();
-
-  try {
-    return JSON.stringify(
-      value,
-      (key, val) => {
-        if (val && typeof val === "object") {
-          if (seen.has(val as object)) {
-            return "<circular>";
-          }
-          seen.add(val as object);
-        }
-
-        const lowerKey = key.toLowerCase();
-        if (
-          lowerKey === "reasoningencryptedcontent" ||
-          lowerKey.includes("api_key") ||
-          lowerKey.includes("apikey") ||
-          lowerKey.includes("access_token") ||
-          lowerKey.includes("refresh_token") ||
-          lowerKey.includes("token") ||
-          lowerKey.includes("authorization") ||
-          lowerKey.includes("cookie") ||
-          lowerKey.includes("secret")
-        ) {
-          return "[redacted]";
-        }
-
-        return val;
-      },
-      2,
-    );
-  } catch {
-    return "<unserializable>";
-  }
-}
-
-function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"] as const;
-  const idx = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
-  const value = bytes / Math.pow(1024, idx);
-  const rounded = idx === 0 ? Math.round(value) : Math.round(value * 10) / 10;
-  return `${rounded} ${units[idx]}`;
-}
-
-function normalizeEvent(raw: unknown): OpencodeEvent | null {
-  if (!raw || typeof raw !== "object") {
-    return null;
-  }
-
-  const record = raw as Record<string, unknown>;
-
-  if (typeof record.type === "string") {
-    return {
-      type: record.type,
-      properties: record.properties,
-    };
-  }
-
-  if (record.payload && typeof record.payload === "object") {
-    const payload = record.payload as Record<string, unknown>;
-    if (typeof payload.type === "string") {
-      return {
-        type: payload.type,
-        properties: payload.properties,
-      };
-    }
-  }
-
-  return null;
-}
-
-function formatRelativeTime(timestampMs: number) {
-  const delta = Date.now() - timestampMs;
-
-  if (delta < 0) {
-    return "just now";
-  }
-
-  if (delta < 60_000) {
-    return `${Math.max(1, Math.round(delta / 1000))}s ago`;
-  }
-
-  if (delta < 60 * 60_000) {
-    return `${Math.max(1, Math.round(delta / 60_000))}m ago`;
-  }
-
-  if (delta < 24 * 60 * 60_000) {
-    return `${Math.max(1, Math.round(delta / (60 * 60_000)))}h ago`;
-  }
-
-  return new Date(timestampMs).toLocaleDateString();
-}
-
-function templatePathFromWorkspaceRoot(workspaceRoot: string, templateId: string) {
-  const root = workspaceRoot.trim().replace(/\/+$/, "");
-  const id = templateId.trim();
-  if (!root || !id) return null;
-  return `${root}/.openwork/templates/${id}.json`;
-}
-
-function safeParseJson<T>(raw: string): T | null {
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
-
-function upsertSession(list: Session[], next: Session) {
-  const idx = list.findIndex((s) => s.id === next.id);
-  if (idx === -1) return [...list, next];
-
-  const copy = list.slice();
-  copy[idx] = next;
-  return copy;
-}
-
-function upsertMessage(list: MessageWithParts[], nextInfo: Message) {
-  const idx = list.findIndex((m) => m.info.id === nextInfo.id);
-  if (idx === -1) {
-    return list.concat({ info: nextInfo, parts: [] });
-  }
-
-  const copy = list.slice();
-  copy[idx] = { ...copy[idx], info: nextInfo };
-  return copy;
-}
-
-function upsertPart(list: MessageWithParts[], nextPart: Part) {
-  const msgIdx = list.findIndex((m) => m.info.id === nextPart.messageID);
-  if (msgIdx === -1) {
-    // Streaming events can arrive before we receive `message.updated`.
-    // Create a placeholder assistant message so the UI renders the part
-    // immediately, then `message.updated` will fill in the rest.
-    const placeholder: PlaceholderAssistantMessage = {
-      id: nextPart.messageID,
-      sessionID: nextPart.sessionID,
-      role: "assistant",
-      time: { created: Date.now() },
-      parentID: "",
-      modelID: "",
-      providerID: "",
-      mode: "",
-      agent: "",
-      path: { cwd: "", root: "" },
-      cost: 0,
-      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-    };
-
-    return list.concat({ info: placeholder, parts: [nextPart] });
-  }
-
-  const copy = list.slice();
-  const msg = copy[msgIdx];
-  const parts = msg.parts.slice();
-  const partIdx = parts.findIndex((p) => p.id === nextPart.id);
-
-  if (partIdx === -1) {
-    parts.push(nextPart);
-  } else {
-    parts[partIdx] = nextPart;
-  }
-
-  copy[msgIdx] = { ...msg, parts };
-  return copy;
-}
-
-function removePart(list: MessageWithParts[], messageID: string, partID: string) {
-  const msgIdx = list.findIndex((m) => m.info.id === messageID);
-  if (msgIdx === -1) return list;
-
-  const copy = list.slice();
-  const msg = copy[msgIdx];
-  copy[msgIdx] = { ...msg, parts: msg.parts.filter((p) => p.id !== partID) };
-  return copy;
-}
-
-function normalizeSessionStatus(status: unknown) {
-  if (!status || typeof status !== "object") return "idle";
-  const record = status as Record<string, unknown>;
-  if (record.type === "busy") return "running";
-  if (record.type === "retry") return "retry";
-  if (record.type === "idle") return "idle";
-  return "idle";
-}
-
-function modelFromUserMessage(info: MessageInfo): ModelRef | null {
-  if (!info || typeof info !== "object") return null;
-  if ((info as any).role !== "user") return null;
-
-  const model = (info as any).model as unknown;
-  if (!model || typeof model !== "object") return null;
-
-  const providerID = (model as any).providerID;
-  const modelID = (model as any).modelID;
-
-  if (typeof providerID !== "string" || typeof modelID !== "string") return null;
-  return { providerID, modelID };
-}
-
-function lastUserModelFromMessages(list: MessageWithParts[]): ModelRef | null {
-  for (let i = list.length - 1; i >= 0; i -= 1) {
-    const model = modelFromUserMessage(list[i]?.info);
-    if (model) return model;
-  }
-
-  return null;
-}
-
-function isStepPart(part: Part) {
-  return part.type === "reasoning" || part.type === "tool" || part.type === "step-start" || part.type === "step-finish";
-}
-
-function groupMessageParts(parts: Part[], messageId: string): MessageGroup[] {
-  const groups: MessageGroup[] = [];
-  const steps: Part[] = [];
-
-  parts.forEach((part) => {
-    if (part.type === "text") {
-      groups.push({ kind: "text", part });
-      return;
-    }
-
-    if (isStepPart(part)) {
-      steps.push(part);
-      return;
-    }
-
-    steps.push(part);
-  });
-
-  if (steps.length) {
-    groups.push({ kind: "steps", id: `steps-${messageId}`, parts: steps });
-  }
-
-  return groups;
-}
-
-function summarizeStep(part: Part): { title: string; detail?: string } {
-  if (part.type === "tool") {
-    const record = part as any;
-    const toolName = record.tool ? String(record.tool) : "Tool";
-    const state = record.state ?? {};
-    const title = state.title ? String(state.title) : toolName;
-    const output = typeof state.output === "string" && state.output.trim() ? state.output.trim() : null;
-    if (output) {
-      const short = output.length > 160 ? `${output.slice(0, 160)}…` : output;
-      return { title, detail: short };
-    }
-    return { title };
-  }
-
-  if (part.type === "reasoning") {
-    const record = part as any;
-    const text = typeof record.text === "string" ? record.text.trim() : "";
-    if (!text) return { title: "Planning" };
-    const short = text.length > 120 ? `${text.slice(0, 120)}…` : text;
-    return { title: "Thinking", detail: short };
-  }
-
-  if (part.type === "step-start" || part.type === "step-finish") {
-    const reason = (part as any).reason;
-    return { title: part.type === "step-start" ? "Step started" : "Step finished", detail: reason ? String(reason) : undefined };
-  }
-
-  return { title: "Step" };
-}
-
-function deriveArtifacts(list: MessageWithParts[]): ArtifactItem[] {
-  const results: ArtifactItem[] = [];
-  const seen = new Set<string>();
-  const filePattern = /([\w./\-]+\.(?:pdf|docx|doc|txt|md|csv|json|js|ts|tsx|xlsx|pptx|png|jpg|jpeg))/gi;
-
-  list.forEach((message) => {
-    message.parts.forEach((part) => {
-      if (part.type !== "tool") return;
-      const record = part as any;
-      const state = record.state ?? {};
-
-      const candidates: string[] = [];
-      if (typeof state.title === "string") candidates.push(state.title);
-      if (typeof state.output === "string") candidates.push(state.output);
-      if (typeof state.path === "string") candidates.push(state.path);
-      if (typeof state.file === "string") candidates.push(state.file);
-      if (Array.isArray(state.files)) {
-        state.files.filter((f: unknown) => typeof f === "string").forEach((f: string) => candidates.push(f));
-      }
-
-      const combined = candidates.join(" ");
-      if (!combined) return;
-
-      const matches = Array.from(combined.matchAll(filePattern)).map((m) => m[1]);
-      if (!matches.length) return;
-
-      matches.forEach((match) => {
-        const name = match.split("/").pop() ?? match;
-        const id = `artifact-${record.id ?? name}`;
-        if (seen.has(id)) return;
-        seen.add(id);
-
-        results.push({
-          id,
-          name,
-          kind: "file",
-          size: state.size ? String(state.size) : undefined,
-        });
-      });
-    });
-  });
-
-  return results;
-}
-
-function deriveWorkingFiles(items: ArtifactItem[]): string[] {
-  return items.map((item) => item.name).slice(0, 5);
-}
 
 export default function App() {
   const [view, setView] = createSignal<View>("onboarding");
@@ -759,6 +139,9 @@ export default function App() {
 
   const [workspaceConfig, setWorkspaceConfig] = createSignal<WorkspaceOpenworkConfig | null>(null);
   const [workspaceConfigLoaded, setWorkspaceConfigLoaded] = createSignal(false);
+  const [workspaceSearch, setWorkspaceSearch] = createSignal("");
+  const [workspacePickerOpen, setWorkspacePickerOpen] = createSignal(false);
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = createSignal(false);
 
   const [baseUrl, setBaseUrl] = createSignal("http://127.0.0.1:4096");
   const [clientDirectory, setClientDirectory] = createSignal("");
@@ -772,9 +155,7 @@ export default function App() {
   const [sessionStatusById, setSessionStatusById] = createSignal<Record<string, string>>({});
 
   const [messages, setMessages] = createSignal<MessageWithParts[]>([]);
-  const [todos, setTodos] = createSignal<
-    Array<{ id: string; content: string; status: string; priority: string }>
-  >([]);
+  const [todos, setTodos] = createSignal<TodoItem[]>([]);
   const [pendingPermissions, setPendingPermissions] = createSignal<PendingPermission[]>([]);
   const [permissionReplyBusy, setPermissionReplyBusy] = createSignal(false);
 
@@ -794,6 +175,9 @@ export default function App() {
   const [templateDraftPrompt, setTemplateDraftPrompt] = createSignal("");
   const [templateDraftScope, setTemplateDraftScope] = createSignal<"workspace" | "global">("workspace");
 
+  const workspaceTemplates = createMemo(() => templates().filter((t) => t.scope === "workspace"));
+  const globalTemplates = createMemo(() => templates().filter((t) => t.scope === "global"));
+
   const [skills, setSkills] = createSignal<SkillCard[]>([]);
   const [skillsStatus, setSkillsStatus] = createSignal<string | null>(null);
   const [openPackageSource, setOpenPackageSource] = createSignal("");
@@ -805,242 +189,6 @@ export default function App() {
   const [pluginInput, setPluginInput] = createSignal("");
   const [pluginStatus, setPluginStatus] = createSignal<string | null>(null);
   const [activePluginGuide, setActivePluginGuide] = createSignal<string | null>(null);
-
-  const activeWorkspace = createMemo(() => {
-    const id = activeWorkspaceId();
-    return workspaces().find((w) => w.id === id) ?? null;
-  });
-
-  const activeWorkspacePath = createMemo(() => activeWorkspace()?.path ?? "");
-
-  const activeWorkspaceRoot = createMemo(() => {
-    const ws = activeWorkspace();
-    if (!ws) return "";
-    const path = ws.path.trim();
-    if (!path) return "";
-    return path.replace(/\/+$/, "");
-  });
-
-  const defaultWorkspaceTemplates = createMemo<WorkspaceTemplate[]>(() => [
-    {
-      id: "tmpl_understand_workspace",
-      title: "Understand this workspace",
-      description: "Explains local vs global tools",
-      prompt:
-        "Explain how this workspace is configured and what tools are available locally. Be concise and actionable.",
-      createdAt: 0,
-      scope: "workspace",
-    },
-    {
-      id: "tmpl_create_skill",
-      title: "Create a new skill",
-      description: "Guide to adding capabilities",
-      prompt: "I want to create a new skill for this workspace. Guide me through it.",
-      createdAt: 0,
-      scope: "workspace",
-    },
-    {
-      id: "tmpl_run_scheduled_task",
-      title: "Run a scheduled task",
-      description: "Demo of the scheduler plugin",
-      prompt: "Show me how to schedule a task to run every morning.",
-      createdAt: 0,
-      scope: "workspace",
-    },
-    {
-      id: "tmpl_task_to_template",
-      title: "Turn task into template",
-      description: "Save workflow for later",
-      prompt: "Help me turn the last task into a reusable template.",
-      createdAt: 0,
-      scope: "workspace",
-    },
-  ]);
-
-  const workspaceTemplates = createMemo(() => {
-    const explicit = templates().filter((t) => t.scope === "workspace");
-    if (explicit.length) return explicit;
-    return workspaceTemplatesLoaded() ? [] : defaultWorkspaceTemplates();
-  });
-
-  const globalTemplates = createMemo(() => templates().filter((t) => t.scope === "global"));
-
-  const activeWorkspaceDisplay = createMemo(() => {
-    const ws = activeWorkspace();
-    if (!ws) {
-      return {
-        id: "starter",
-        name: "Workspace",
-        path: "",
-        preset: "starter",
-      } satisfies WorkspaceInfo;
-    }
-    return ws;
-  });
-
-  const showWorkspacePicker = createSignal(false);
-  const showCreateWorkspaceModal = createSignal(false);
-
-  const [workspacePickerOpen, setWorkspacePickerOpen] = showWorkspacePicker;
-  const [createWorkspaceOpen, setCreateWorkspaceOpen] = showCreateWorkspaceModal;
-
-  const [workspaceSearch, setWorkspaceSearch] = createSignal("");
-
-  const filteredWorkspaces = createMemo(() => {
-    const query = workspaceSearch().trim().toLowerCase();
-    if (!query) return workspaces();
-
-    return workspaces().filter((w) => {
-      const haystack = `${w.name} ${w.path}`.toLowerCase();
-      return haystack.includes(query);
-    });
-  });
-
-  async function activateWorkspace(workspaceId: string) {
-    const id = workspaceId.trim();
-    if (!id) return;
-
-    const next = workspaces().find((w) => w.id === id) ?? null;
-    if (!next) return;
-
-    setActiveWorkspaceId(id);
-    setProjectDir(next.path);
-
-    // Load workspace-scoped OpenWork config (authorized roots, metadata).
-    if (isTauriRuntime()) {
-      setWorkspaceConfigLoaded(false);
-      try {
-        const cfg = await workspaceOpenworkRead({ workspacePath: next.path });
-        setWorkspaceConfig(cfg);
-        setWorkspaceConfigLoaded(true);
-
-        const roots = Array.isArray(cfg.authorizedRoots) ? cfg.authorizedRoots : [];
-        if (roots.length) {
-          setAuthorizedDirs(roots);
-        } else {
-          setAuthorizedDirs([next.path]);
-        }
-      } catch {
-        setWorkspaceConfig(null);
-        setWorkspaceConfigLoaded(true);
-        setAuthorizedDirs([next.path]);
-      }
-
-      try {
-        await workspaceSetActive(id);
-      } catch {
-        // ignore
-      }
-    } else {
-      // Web runtime: at least keep the current workspace root in memory.
-      if (!authorizedDirs().includes(next.path)) {
-        setAuthorizedDirs((current) => {
-          const merged = current.length ? current.slice() : [];
-          if (!merged.includes(next.path)) merged.push(next.path);
-          return merged;
-        });
-      }
-    }
-
-    await loadWorkspaceTemplates({ workspaceRoot: next.path }).catch(() => undefined);
-
-    if (mode() === "host" && engine()?.running && engine()?.baseUrl) {
-      // Already connected to an engine; keep current connection for now.
-      // Future: support multi-workspace host connections.
-      return;
-    }
-  }
-
-  async function loadWorkspaceTemplates(options?: { workspaceRoot?: string; quiet?: boolean }) {
-    const c = client();
-    const root = (options?.workspaceRoot ?? activeWorkspaceRoot()).trim();
-    if (!c || !root) return;
-
-    try {
-      const templatesPath = ".openwork/templates";
-      const nodes = unwrap(await c.file.list({ directory: root, path: templatesPath }));
-      const jsonFiles = nodes
-        .filter((n) => n.type === "file" && !n.ignored)
-        .filter((n) => n.name.toLowerCase().endsWith(".json"));
-
-      const loaded: WorkspaceTemplate[] = [];
-
-      for (const node of jsonFiles) {
-        const content = unwrap(await c.file.read({ directory: root, path: node.path }));
-        if (content.type !== "text") continue;
-
-        const parsed = safeParseJson<Partial<WorkspaceTemplate> & Record<string, unknown>>(content.content);
-        if (!parsed) continue;
-
-        const title = typeof parsed.title === "string" ? parsed.title : "Untitled";
-        const prompt = typeof parsed.prompt === "string" ? parsed.prompt : "";
-        if (!prompt.trim()) continue;
-
-        loaded.push({
-          id: typeof parsed.id === "string" ? parsed.id : node.name.replace(/\.json$/i, ""),
-          title,
-          description: typeof parsed.description === "string" ? parsed.description : "",
-          prompt,
-          createdAt: typeof parsed.createdAt === "number" ? parsed.createdAt : Date.now(),
-          scope: "workspace",
-        });
-      }
-
-      const stable = loaded.slice().sort((a, b) => b.createdAt - a.createdAt);
-
-      setTemplates((current) => {
-        const globals = current.filter((t) => t.scope === "global");
-        return [...stable, ...globals];
-      });
-      setWorkspaceTemplatesLoaded(true);
-    } catch (e) {
-      setWorkspaceTemplatesLoaded(true);
-      if (!options?.quiet) {
-        setError(e instanceof Error ? e.message : safeStringify(e));
-      }
-    }
-  }
-
-  async function createWorkspaceFlow(preset: WorkspacePreset) {
-    if (!isTauriRuntime()) {
-      setError("Workspace creation requires the Tauri app runtime.");
-      return;
-    }
-
-    try {
-      const selection = await pickDirectory({ title: "Choose workspace folder" });
-      const folder =
-        typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
-
-      if (!folder) return;
-
-      setBusy(true);
-      setBusyLabel("Creating workspace");
-      setBusyStartedAt(Date.now());
-      setError(null);
-
-      const name = folder.split("/").filter(Boolean).pop() ?? "Workspace";
-      const ws = await workspaceCreate({ folderPath: folder, name, preset });
-      setWorkspaces(ws.workspaces);
-      setActiveWorkspaceId(ws.activeId);
-
-      const active = ws.workspaces.find((w) => w.id === ws.activeId) ?? null;
-      if (active) {
-        setProjectDir(active.path);
-        setAuthorizedDirs([active.path]);
-        await loadWorkspaceTemplates({ workspaceRoot: active.path, quiet: true }).catch(() => undefined);
-      }
-
-      setWorkspacePickerOpen(false);
-      setCreateWorkspaceOpen(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : safeStringify(e));
-    } finally {
-      setBusy(false);
-      setBusyLabel(null);
-      setBusyStartedAt(null);
-    }
-  }
 
   const [sidebarPluginList, setSidebarPluginList] = createSignal<string[]>([]);
   const [sidebarPluginStatus, setSidebarPluginStatus] = createSignal<string | null>(null);
@@ -1075,9 +223,6 @@ export default function App() {
     context: true,
   });
 
-  const tabs = ["Chat", "Cowork", "Code"] as const;
-  const [activeLeftTab, setActiveLeftTab] = createSignal<typeof tabs[number]>("Cowork");
-
   const [busy, setBusy] = createSignal(false);
   const [busyLabel, setBusyLabel] = createSignal<string | null>(null);
   const [busyStartedAt, setBusyStartedAt] = createSignal<number | null>(null);
@@ -1093,19 +238,6 @@ export default function App() {
   const [resetModalMode, setResetModalMode] = createSignal<ResetOpenworkMode>("onboarding");
   const [resetModalText, setResetModalText] = createSignal("");
   const [resetModalBusy, setResetModalBusy] = createSignal(false);
-
-  type UpdateHandle = {
-    available: boolean;
-    currentVersion: string;
-    version: string;
-    date?: string;
-    body?: string;
-    rawJson: Record<string, unknown>;
-    close: () => Promise<void>;
-    download: (onEvent?: (event: any) => void) => Promise<void>;
-    install: () => Promise<void>;
-    downloadAndInstall: (onEvent?: (event: any) => void) => Promise<void>;
-  };
 
   const [updateStatus, setUpdateStatus] = createSignal<
     | { state: "idle"; lastCheckedAt: number | null }
@@ -1260,19 +392,19 @@ export default function App() {
     const allProviders = providers();
     const defaults = providerDefaults();
 
-     if (!allProviders.length) {
-       return [
-         {
-           providerID: DEFAULT_MODEL.providerID,
-           modelID: DEFAULT_MODEL.modelID,
-           title: DEFAULT_MODEL.modelID,
-           description: DEFAULT_MODEL.providerID,
-           footer: "Fallback",
-           isFree: false,
-           isConnected: true,
-         },
-       ];
-     }
+    if (!allProviders.length) {
+      return [
+        {
+          providerID: DEFAULT_MODEL.providerID,
+          modelID: DEFAULT_MODEL.modelID,
+          title: DEFAULT_MODEL.modelID,
+          description: DEFAULT_MODEL.providerID,
+          footer: "Fallback",
+          isFree: true,
+          isConnected: false,
+        },
+      ];
+    }
 
     const sortedProviders = allProviders.slice().sort((a, b) => {
       const aIsOpencode = a.id === "opencode";
@@ -1283,45 +415,45 @@ export default function App() {
 
     const next: ModelOption[] = [];
 
-     for (const provider of sortedProviders) {
-       const defaultModelID = defaults[provider.id];
-       const isConnected = providerConnectedIds().includes(provider.id);
-       const models = Object.values(provider.models ?? {}).filter((m) => m.status !== "deprecated");
- 
-       models.sort((a, b) => {
-         const aFree = a.cost?.input === 0 && a.cost?.output === 0;
-         const bFree = b.cost?.input === 0 && b.cost?.output === 0;
-         if (aFree !== bFree) return aFree ? -1 : 1;
-         return (a.name ?? a.id).localeCompare(b.name ?? b.id);
-       });
- 
-       for (const model of models) {
-         const isFree = model.cost?.input === 0 && model.cost?.output === 0;
-         const footerBits: string[] = [];
-         if (defaultModelID === model.id) footerBits.push("Default");
-         if (isFree) footerBits.push("Free");
-         if (model.capabilities?.reasoning) footerBits.push("Reasoning");
- 
-         next.push({
-           providerID: provider.id,
-           modelID: model.id,
-           title: model.name ?? model.id,
-           description: provider.name,
-           footer: footerBits.length ? footerBits.slice(0, 2).join(" · ") : undefined,
-           disabled: !isConnected,
-           isFree,
-           isConnected,
-         });
-       }
-     }
- 
-     next.sort((a, b) => {
-       if (a.isConnected !== b.isConnected) return a.isConnected ? -1 : 1;
-       if (a.isFree !== b.isFree) return a.isFree ? -1 : 1;
-       return a.title.localeCompare(b.title);
-     });
- 
-     return next;
+    for (const provider of sortedProviders) {
+      const defaultModelID = defaults[provider.id];
+      const isConnected = providerConnectedIds().includes(provider.id);
+      const models = Object.values(provider.models ?? {}).filter((m) => m.status !== "deprecated");
+
+      models.sort((a, b) => {
+        const aFree = a.cost?.input === 0 && a.cost?.output === 0;
+        const bFree = b.cost?.input === 0 && b.cost?.output === 0;
+        if (aFree !== bFree) return aFree ? -1 : 1;
+        return (a.name ?? a.id).localeCompare(b.name ?? b.id);
+      });
+
+      for (const model of models) {
+        const isFree = model.cost?.input === 0 && model.cost?.output === 0;
+        const footerBits: string[] = [];
+        if (defaultModelID === model.id) footerBits.push("Default");
+        if (isFree) footerBits.push("Free");
+        if (model.capabilities?.reasoning) footerBits.push("Reasoning");
+
+        next.push({
+          providerID: provider.id,
+          modelID: model.id,
+          title: model.name ?? model.id,
+          description: provider.name,
+          footer: footerBits.length ? footerBits.slice(0, 2).join(" · ") : undefined,
+          disabled: !isConnected,
+          isFree,
+          isConnected,
+        });
+      }
+    }
+
+    next.sort((a, b) => {
+      if (a.isConnected !== b.isConnected) return a.isConnected ? -1 : 1;
+      if (a.isFree !== b.isFree) return a.isFree ? -1 : 1;
+      return a.title.localeCompare(b.title);
+    });
+
+    return next;
   });
 
   const filteredModelOptions = createMemo(() => {
@@ -1715,9 +847,11 @@ export default function App() {
     }
   }
 
-  async function loadSessions(c: Client) {
+  async function loadSessions(c: Client, options?: { scopeRoot?: string }) {
     const list = unwrap(await c.session.list());
-    setSessions(list);
+    const root = (options?.scopeRoot ?? activeWorkspaceRoot()).trim();
+    const filtered = root ? list.filter((session) => session.directory === root) : list;
+    setSessions(filtered);
   }
 
   async function refreshPendingPermissions(c: Client) {
@@ -1728,6 +862,57 @@ export default function App() {
       const byId = new Map(current.map((p) => [p.id, p] as const));
       return list.map((p) => ({ ...p, receivedAt: byId.get(p.id)?.receivedAt ?? now }));
     });
+  }
+
+  async function activateWorkspace(workspaceId: string) {
+    const id = workspaceId.trim();
+    if (!id) return;
+
+    const next = workspaces().find((w) => w.id === id) ?? null;
+    if (!next) return;
+
+    setActiveWorkspaceId(id);
+    setProjectDir(next.path);
+
+    if (isTauriRuntime()) {
+      setWorkspaceConfigLoaded(false);
+      try {
+        const cfg = await workspaceOpenworkRead({ workspacePath: next.path });
+        setWorkspaceConfig(cfg);
+        setWorkspaceConfigLoaded(true);
+
+        const roots = Array.isArray(cfg.authorizedRoots) ? cfg.authorizedRoots : [];
+        if (roots.length) {
+          setAuthorizedDirs(roots);
+        } else {
+          setAuthorizedDirs([next.path]);
+        }
+      } catch {
+        setWorkspaceConfig(null);
+        setWorkspaceConfigLoaded(true);
+        setAuthorizedDirs([next.path]);
+      }
+
+      try {
+        await workspaceSetActive(id);
+      } catch {
+        // ignore
+      }
+    } else {
+      if (!authorizedDirs().includes(next.path)) {
+        setAuthorizedDirs((current) => {
+          const merged = current.length ? current.slice() : [];
+          if (!merged.includes(next.path)) merged.push(next.path);
+          return merged;
+        });
+      }
+    }
+
+    await loadWorkspaceTemplates({ workspaceRoot: next.path }).catch(() => undefined);
+
+    if (mode() === "host" && engine()?.running && engine()?.baseUrl) {
+      return;
+    }
   }
 
   async function connectToServer(nextBaseUrl: string, directory?: string) {
@@ -1745,7 +930,7 @@ export default function App() {
       setConnectedVersion(health.version);
       setBaseUrl(nextBaseUrl);
 
-      await loadSessions(nextClient);
+      await loadSessions(nextClient, { scopeRoot: activeWorkspaceRoot() });
       await refreshPendingPermissions(nextClient);
 
       try {
@@ -1785,7 +970,9 @@ export default function App() {
           }
 
           if (!already) {
-            const session = unwrap(await nextClient.session.create({ directory: wsRoot, title: "Welcome to OpenWork" }));
+            const session = unwrap(
+              await nextClient.session.create({ directory: wsRoot, title: "Welcome to OpenWork" }),
+            );
             await nextClient.session.promptAsync({
               directory: wsRoot,
               sessionID: session.id,
@@ -1806,7 +993,8 @@ export default function App() {
               // ignore
             }
 
-            await loadSessions(nextClient).catch(() => undefined);
+            await loadSessions(nextClient, { scopeRoot: activeWorkspaceRoot() }).catch(() => undefined);
+
           }
         }
       } catch {
@@ -1822,6 +1010,47 @@ export default function App() {
       setConnectedVersion(null);
       setError(e instanceof Error ? e.message : safeStringify(e));
       return false;
+    } finally {
+      setBusy(false);
+      setBusyLabel(null);
+      setBusyStartedAt(null);
+    }
+  }
+
+  async function createWorkspaceFlow(preset: WorkspacePreset) {
+    if (!isTauriRuntime()) {
+      setError("Workspace creation requires the Tauri app runtime.");
+      return;
+    }
+
+    try {
+      const selection = await pickDirectory({ title: "Choose workspace folder" });
+      const folder =
+        typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
+
+      if (!folder) return;
+
+      setBusy(true);
+      setBusyLabel("Creating workspace");
+      setBusyStartedAt(Date.now());
+      setError(null);
+
+      const name = folder.split("/").filter(Boolean).pop() ?? "Workspace";
+      const ws = await workspaceCreate({ folderPath: folder, name, preset });
+      setWorkspaces(ws.workspaces);
+      setActiveWorkspaceId(ws.activeId);
+
+      const active = ws.workspaces.find((w) => w.id === ws.activeId) ?? null;
+      if (active) {
+        setProjectDir(active.path);
+        setAuthorizedDirs([active.path]);
+        await loadWorkspaceTemplates({ workspaceRoot: active.path, quiet: true }).catch(() => undefined);
+      }
+
+      setWorkspacePickerOpen(false);
+      setCreateWorkspaceOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : safeStringify(e));
     } finally {
       setBusy(false);
       setBusyLabel(null);
@@ -1982,8 +1211,8 @@ export default function App() {
     setError(null);
 
     try {
-      const session = unwrap(await c.session.create({ title: "New task" }));
-      await loadSessions(c);
+      const session = unwrap(await c.session.create({ title: "New task", directory: activeWorkspaceRoot().trim() }));
+      await loadSessions(c, { scopeRoot: activeWorkspaceRoot() });
       await selectSession(session.id);
       setView("session");
     } catch (e) {
@@ -2014,28 +1243,30 @@ export default function App() {
 
       const model = selectedSessionModel();
 
-       await c.session.promptAsync({
-         sessionID,
-         model,
-         variant: modelVariant() ?? undefined,
-         parts: [{ type: "text", text: content }],
-       });
+      await c.session.promptAsync({
+        sessionID,
+        model,
+        variant: modelVariant() ?? undefined,
+        parts: [{ type: "text", text: content }],
+      });
 
-       setSessionModelById((current) => ({
-         ...current,
-         [sessionID]: model,
-       }));
 
-       setSessionModelOverrideById((current) => {
-         if (!current[sessionID]) return current;
-         const copy = { ...current };
-         delete copy[sessionID];
-         return copy;
-       });
+      setSessionModelById((current) => ({
+        ...current,
+        [sessionID]: model,
+      }));
 
-       // Streaming UI is driven by SSE; do not block on fetching the full
-       // message list here.
-       await loadSessions(c).catch(() => undefined);
+      setSessionModelOverrideById((current) => {
+        if (!current[sessionID]) return current;
+        const copy = { ...current };
+        delete copy[sessionID];
+        return copy;
+      });
+
+      // Streaming UI is driven by SSE; do not block on fetching the full
+      // message list here.
+      await loadSessions(c, { scopeRoot: activeWorkspaceRoot() }).catch(() => undefined);
+
     } catch (e) {
       setError(e instanceof Error ? e.message : safeStringify(e));
     } finally {
@@ -2151,19 +1382,21 @@ export default function App() {
     setError(null);
 
     try {
-      const session = unwrap(await c.session.create({ title: template.title }));
-      await loadSessions(c);
+      const session = unwrap(
+        await c.session.create({ title: template.title, directory: activeWorkspaceRoot().trim() }),
+      );
+      await loadSessions(c, { scopeRoot: activeWorkspaceRoot() });
       await selectSession(session.id);
       setView("session");
 
       const model = defaultModel();
 
-       await c.session.promptAsync({
-         sessionID: session.id,
-         model,
-         variant: modelVariant() ?? undefined,
-         parts: [{ type: "text", text: template.prompt }],
-       });
+      await c.session.promptAsync({
+        sessionID: session.id,
+        model,
+        variant: modelVariant() ?? undefined,
+        parts: [{ type: "text", text: template.prompt }],
+      });
 
       setSessionModelById((current) => ({
         ...current,
@@ -2176,6 +1409,56 @@ export default function App() {
     }
   }
 
+  async function loadWorkspaceTemplates(options?: { workspaceRoot?: string; quiet?: boolean }) {
+    const c = client();
+    const root = (options?.workspaceRoot ?? activeWorkspaceRoot()).trim();
+    if (!c || !root) return;
+
+    try {
+      const templatesPath = ".openwork/templates";
+      const nodes = unwrap(await c.file.list({ directory: root, path: templatesPath }));
+      const jsonFiles = nodes
+        .filter((n) => n.type === "file" && !n.ignored)
+        .filter((n) => n.name.toLowerCase().endsWith(".json"));
+
+      const loaded: WorkspaceTemplate[] = [];
+
+      for (const node of jsonFiles) {
+        const content = unwrap(await c.file.read({ directory: root, path: node.path }));
+        if (content.type !== "text") continue;
+
+        const parsed = safeParseJson<Partial<WorkspaceTemplate> & Record<string, unknown>>(content.content);
+        if (!parsed) continue;
+
+        const title = typeof parsed.title === "string" ? parsed.title : "Untitled";
+        const promptText = typeof parsed.prompt === "string" ? parsed.prompt : "";
+        if (!promptText.trim()) continue;
+
+        loaded.push({
+          id: typeof parsed.id === "string" ? parsed.id : node.name.replace(/\.json$/i, ""),
+          title,
+          description: typeof parsed.description === "string" ? parsed.description : "",
+          prompt: promptText,
+          createdAt: typeof parsed.createdAt === "number" ? parsed.createdAt : Date.now(),
+          scope: "workspace",
+        });
+      }
+
+      const stable = loaded.slice().sort((a, b) => b.createdAt - a.createdAt);
+
+      setTemplates((current) => {
+        const globals = current.filter((t) => t.scope === "global");
+        return [...stable, ...globals];
+      });
+      setWorkspaceTemplatesLoaded(true);
+    } catch (e) {
+      setWorkspaceTemplatesLoaded(true);
+      if (!options?.quiet) {
+        setError(e instanceof Error ? e.message : safeStringify(e));
+      }
+    }
+  }
+
   async function refreshSkills() {
     const c = client();
     if (!c) return;
@@ -2183,6 +1466,7 @@ export default function App() {
     try {
       setSkillsStatus(null);
       const nodes = unwrap(await c.file.list({ directory: activeWorkspaceRoot().trim(), path: ".opencode/skill" }));
+
       const dirs = nodes.filter((n) => n.type === "directory" && !n.ignored);
 
       const next: SkillCard[] = [];
@@ -3028,35 +2312,36 @@ export default function App() {
               const record = event.properties as Record<string, unknown>;
               if (record.part && typeof record.part === "object") {
                 const part = record.part as Part;
-                 if (selectedSessionId() && part.sessionID === selectedSessionId()) {
-                   setMessages((current) => {
-                     const next = upsertPart(current, part);
+                if (selectedSessionId() && part.sessionID === selectedSessionId()) {
+                  setMessages((current) => {
+                    const next = upsertPart(current, part);
 
-                     // Some streaming servers only send `delta` updates and keep
-                     // `part.text` as the full aggregation; others send the
-                     // full part each time. If we have a delta, apply it to the
-                     // latest text part to ensure visible streaming.
-                     if (typeof record.delta === "string" && record.delta && part.type === "text") {
-                       const msgIdx = next.findIndex((m) => m.info.id === part.messageID);
-                       if (msgIdx !== -1) {
-                         const msg = next[msgIdx];
-                         const parts = msg.parts.slice();
-                         const pIdx = parts.findIndex((p) => p.id === part.id);
-                         if (pIdx !== -1) {
-                           const currentPart = parts[pIdx] as any;
-                           if (typeof currentPart.text === "string" && currentPart.text.endsWith(record.delta) === false) {
-                             parts[pIdx] = { ...(parts[pIdx] as any), text: `${currentPart.text}${record.delta}` };
-                             const copy = next.slice();
-                             copy[msgIdx] = { ...msg, parts };
-                             return copy;
-                           }
-                         }
-                       }
-                     }
+                    // Some streaming servers only send `delta` updates and keep
+                    // `part.text` as the full aggregation; others send the
+                    // full part each time. If we have a delta, apply it to the
+                    // latest text part to ensure visible streaming.
+                    if (typeof record.delta === "string" && record.delta && part.type === "text") {
+                      const msgIdx = next.findIndex((m) => m.info.id === part.messageID);
+                      if (msgIdx !== -1) {
+                        const msg = next[msgIdx];
+                        const parts = msg.parts.slice();
+                        const pIdx = parts.findIndex((p) => p.id === part.id);
+                        if (pIdx !== -1) {
+                          const currentPart = parts[pIdx] as any;
+                          if (typeof currentPart.text === "string" && currentPart.text.endsWith(record.delta) === false) {
+                            parts[pIdx] = { ...(parts[pIdx] as any), text: `${currentPart.text}${record.delta}` };
+                            const copy = next.slice();
+                            copy[msgIdx] = { ...msg, parts };
+                            return copy;
+                          }
+                        }
+                      }
+                    }
 
-                     return next;
-                   });
-                 }
+                    return next;
+                  });
+                }
+
               }
             }
           }
@@ -3134,2240 +2419,297 @@ export default function App() {
     }
   });
 
-  function OnboardingView() {
-    return (
-      <Switch>
-        <Match when={onboardingStep() === "connecting"}>
-          <div class="min-h-screen flex flex-col items-center justify-center bg-black text-white p-6 relative overflow-hidden">
-            <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-zinc-900 via-black to-black opacity-50" />
-            <div class="z-10 flex flex-col items-center gap-6">
-              <div class="relative">
-                <div class="w-16 h-16 rounded-full border-2 border-zinc-800 flex items-center justify-center animate-spin-slow">
-                  <div class="w-12 h-12 rounded-full border-2 border-t-white border-zinc-800 animate-spin flex items-center justify-center bg-black">
-                    <OpenWorkLogo size={20} class="text-white" />
-                  </div>
-                </div>
-              </div>
-              <div class="text-center">
-                <h2 class="text-xl font-medium mb-2">
-                  {mode() === "host" ? "Starting OpenCode Engine..." : "Searching for Host..."}
-                </h2>
-                <p class="text-zinc-500 text-sm">
-                  {mode() === "host" ? `Initializing ${localHostLabel()}` : "Verifying secure handshake"}
-                </p>
-              </div>
-            </div>
-          </div>
-        </Match>
-
-        <Match when={onboardingStep() === "host"}>
-          <div class="min-h-screen flex flex-col items-center justify-center bg-black text-white p-6 relative">
-            <div class="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-zinc-900 to-transparent opacity-20 pointer-events-none" />
-
-            <div class="max-w-md w-full z-10 space-y-8">
-              <div class="text-center space-y-2">
-                <div class="w-12 h-12 bg-white rounded-2xl mx-auto flex items-center justify-center shadow-2xl shadow-white/10 mb-6">
-                  <Folder size={22} class="text-black" />
-                </div>
-                <h2 class="text-2xl font-bold tracking-tight">Create your first workspace</h2>
-                <p class="text-zinc-400 text-sm leading-relaxed">
-                  A workspace is a <span class="font-semibold text-white">folder</span> with its own skills, plugins, and templates.
-                </p>
-              </div>
-
-              <div class="space-y-4">
-                <div class="bg-zinc-900/30 border border-zinc-800/60 rounded-2xl p-5 space-y-3">
-                  <div class="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Workspace</div>
-
-                  <div class="space-y-2">
-                    <div class="text-sm font-medium text-white">Starter Workspace</div>
-                    <div class="text-xs text-zinc-500">
-                      OpenWork will create a ready-to-run folder and start OpenCode inside it.
-                    </div>
-                    <div class="text-xs text-zinc-600 font-mono break-all">{activeWorkspacePath() || "(initializing...)"}</div>
-                  </div>
-
-                  <div class="pt-3 border-t border-zinc-800/60 space-y-2">
-                    <div class="text-xs font-semibold text-zinc-500 uppercase tracking-wider">What you get</div>
-                    <div class="space-y-2">
-                      <div class="flex items-center gap-3 text-sm text-zinc-300">
-                        <div class="w-2 h-2 rounded-full bg-emerald-500" />
-                        Scheduler plugin (workspace-scoped)
-                      </div>
-                      <div class="flex items-center gap-3 text-sm text-zinc-300">
-                        <div class="w-2 h-2 rounded-full bg-emerald-500" />
-                        Starter templates ("Understand this workspace", etc.)
-                      </div>
-                      <div class="flex items-center gap-3 text-sm text-zinc-300">
-                        <div class="w-2 h-2 rounded-full bg-emerald-500" />
-                        You can add more folders when prompted
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <Button
-                  onClick={async () => {
-                    setMode("host");
-                    setOnboardingStep("connecting");
-                    const ok = await startHost({ workspacePath: activeWorkspacePath().trim() });
-                    if (!ok) {
-                      setOnboardingStep("host");
-                    }
-                  }}
-                  disabled={busy() || !activeWorkspacePath().trim()}
-                  class="w-full py-3 text-base"
-                >
-                  Start Engine
-                </Button>
-
-                <div class="text-xs text-zinc-600">
-                  Authorized folders live in <span class="font-mono">.opencode/openwork.json</span> and can be updated here anytime.
-                </div>
-
-                <div class="space-y-3">
-                  <div class="flex gap-2">
-                    <input
-                      class="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-600 focus:border-zinc-600 transition-all"
-                      placeholder="Add folder path…"
-                      value={newAuthorizedDir()}
-                      onInput={(e) => setNewAuthorizedDir(e.currentTarget.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          addAuthorizedDir();
-                        }
-                      }}
-                    />
-                    <Show when={isTauriRuntime()}>
-                      <Button
-                        variant="outline"
-                        onClick={() => addAuthorizedDirFromPicker({ persistToWorkspace: true })}
-                        disabled={busy()}
-                      >
-                        Pick
-                      </Button>
-                    </Show>
-                    <Button
-                      variant="secondary"
-                      onClick={addAuthorizedDir}
-                      disabled={!newAuthorizedDir().trim()}
-                    >
-                      <Plus size={16} />
-                      Add
-                    </Button>
-                  </div>
-
-                  <Show when={authorizedDirs().length}>
-                    <div class="space-y-2">
-                      <For each={authorizedDirs()}>
-                        {(dir, idx) => (
-                          <div class="flex items-center justify-between gap-3 rounded-xl bg-black/20 border border-zinc-800 px-3 py-2">
-                            <div class="min-w-0 text-xs font-mono text-zinc-300 truncate">{dir}</div>
-                            <Button
-                              variant="ghost"
-                              class="!p-2 rounded-lg"
-                              onClick={() => removeAuthorizedDir(idx())}
-                              disabled={busy()}
-                              title="Remove"
-                            >
-                              <Trash2 size={14} />
-                            </Button>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                </div>
-
-                <Show when={isTauriRuntime()}>
-                  <div class="rounded-2xl bg-zinc-900/40 border border-zinc-800 p-4">
-                    <div class="flex items-start justify-between gap-4">
-                      <div class="min-w-0">
-                        <div class="text-sm font-medium text-white">OpenCode CLI</div>
-                        <div class="mt-1 text-xs text-zinc-500">
-                          <Show when={engineDoctorResult()} fallback={<span>Checking install…</span>}>
-                            <Show
-                              when={engineDoctorResult()?.found}
-                              fallback={<span>Not found. Install to run Host mode.</span>}
-                            >
-                              <span class="font-mono">
-                                {engineDoctorResult()?.version ?? "Installed"}
-                              </span>
-                              <Show when={engineDoctorResult()?.resolvedPath}>
-                                <span class="text-zinc-600"> · </span>
-                                <span class="font-mono text-zinc-600 truncate">
-                                  {engineDoctorResult()?.resolvedPath}
-                                </span>
-                              </Show>
-                            </Show>
-                          </Show>
-                        </div>
-                      </div>
-
-                      <Button
-                        variant="secondary"
-                        onClick={async () => {
-                          setEngineInstallLogs(null);
-                          await refreshEngineDoctor();
-                        }}
-                        disabled={busy()}
-                      >
-                        Re-check
-                      </Button>
-                    </div>
-
-                    <Show when={engineDoctorResult() && !engineDoctorResult()!.found}>
-                      <div class="mt-4 space-y-2">
-                        <Show
-                          when={isWindowsPlatform()}
-                          fallback={
-                            <>
-                              <div class="text-xs text-zinc-500">Install one of these:</div>
-                              <div class="rounded-xl bg-black/40 border border-zinc-800 px-3 py-2 font-mono text-xs text-zinc-300">
-                                brew install anomalyco/tap/opencode
-                              </div>
-                              <div class="rounded-xl bg-black/40 border border-zinc-800 px-3 py-2 font-mono text-xs text-zinc-300">
-                                curl -fsSL https://opencode.ai/install | bash
-                              </div>
-                            </>
-                          }
-                        >
-                          <>
-                            <div class="text-xs text-zinc-500">Install OpenCode for Windows:</div>
-                            <div class="rounded-xl bg-black/40 border border-zinc-800 px-3 py-2 font-mono text-xs text-zinc-300">
-                              https://opencode.ai/install
-                            </div>
-                            <div class="text-[11px] text-zinc-600">
-                              After installing, make sure `opencode.exe` is available on PATH (try `opencode --version`).
-                            </div>
-                          </>
-                        </Show>
-
-                        <div class="flex gap-2 pt-2">
-                          <Show
-                            when={!isWindowsPlatform()}
-                            fallback={
-                              <Button
-                                variant="outline"
-                                onClick={() => {
-                                  setEngineInstallLogs(
-                                    "Windows install is currently manual. Visit https://opencode.ai/install then restart OpenWork. If OpenCode is installed but not detected, ensure opencode.exe is on PATH.",
-                                  );
-                                }}
-                                disabled={busy()}
-                              >
-                                Show Windows install notes
-                              </Button>
-                            }
-                          >
-                            <Button
-                              onClick={async () => {
-                                setError(null);
-                                setEngineInstallLogs(null);
-                                setBusy(true);
-                                setBusyLabel("Installing OpenCode");
-                                setBusyStartedAt(Date.now());
-
-                                try {
-                                  const result = await engineInstall();
-                                  const combined = `${result.stdout}${result.stderr ? `\n${result.stderr}` : ""}`.trim();
-                                  setEngineInstallLogs(combined || null);
-
-                                  if (!result.ok) {
-                                    setError(result.stderr.trim() || "OpenCode install failed. See logs above.");
-                                  }
-
-                                  await refreshEngineDoctor();
-                                } catch (e) {
-                                  setError(e instanceof Error ? e.message : safeStringify(e));
-                                } finally {
-                                  setBusy(false);
-                                  setBusyLabel(null);
-                                  setBusyStartedAt(null);
-                                }
-                              }}
-                              disabled={busy()}
-                            >
-                              Install OpenCode
-                            </Button>
-                          </Show>
-                          <Button
-                            variant="outline"
-                            onClick={() => {
-                              const notes = engineDoctorResult()?.notes?.join("\n") ?? "";
-                              setEngineInstallLogs(notes || null);
-                            }}
-                            disabled={busy()}
-                          >
-                            Show search notes
-                          </Button>
-                        </div>
-                      </div>
-                    </Show>
-
-                    <Show when={engineInstallLogs()}>
-                      <pre class="mt-4 max-h-48 overflow-auto rounded-xl bg-black/50 border border-zinc-800 p-3 text-xs text-zinc-300 whitespace-pre-wrap">{engineInstallLogs()}</pre>
-                    </Show>
-
-                    <Show when={engineDoctorCheckedAt()}>
-                      <div class="mt-3 text-[11px] text-zinc-600">
-                        Last checked {new Date(engineDoctorCheckedAt()!).toLocaleTimeString()}
-                      </div>
-                    </Show>
-                  </div>
-                </Show>
-
-                <Button
-                  onClick={async () => {
-
-                    setMode("host");
-                    setOnboardingStep("connecting");
-                    const ok = await startHost();
-                    if (!ok) {
-                      setOnboardingStep("host");
-                    }
-                  }}
-                  disabled={
-                    busy() ||
-                    (isTauriRuntime() &&
-                      (engineDoctorResult()?.found === false ||
-                        engineDoctorResult()?.supportsServe === false))
-                  }
-                  class="w-full py-3 text-base"
-                >
-                  Confirm & Start Engine
-                </Button>
-
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setMode(null);
-                    setOnboardingStep("mode");
-                  }}
-                  disabled={busy()}
-                  class="text-zinc-600 hover:text-zinc-400 text-sm font-medium transition-colors flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-zinc-900/50"
-                >
-                  Back
-                </Button>
-              </div>
-
-              <Show when={error()}>
-                <div class="rounded-2xl bg-red-950/40 px-5 py-4 text-sm text-red-200 border border-red-500/20">
-                  {error()}
-                </div>
-              </Show>
-            </div>
-          </div>
-        </Match>
-
-        <Match when={onboardingStep() === "client"}>
-          <div class="min-h-screen flex flex-col items-center justify-center bg-black text-white p-6 relative">
-            <div class="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-zinc-900 to-transparent opacity-20 pointer-events-none" />
-
-            <div class="max-w-md w-full z-10 space-y-8">
-              <div class="text-center space-y-2">
-                <div class="w-12 h-12 bg-zinc-900 rounded-2xl mx-auto flex items-center justify-center border border-zinc-800 mb-6">
-                  <Smartphone class="text-zinc-400" />
-                </div>
-                <h2 class="text-2xl font-bold tracking-tight">Connect to Host</h2>
-                <p class="text-zinc-400 text-sm leading-relaxed">
-                  Pair with an existing OpenCode server (LAN or tunnel).
-                </p>
-              </div>
-
-              <div class="space-y-4">
-                <TextInput
-                  label="Server URL"
-                  placeholder="http://127.0.0.1:4096"
-                  value={baseUrl()}
-                  onInput={(e) => setBaseUrl(e.currentTarget.value)}
-                />
-                <TextInput
-                  label="Directory (optional)"
-                  placeholder="/path/to/project"
-                  value={clientDirectory()}
-                  onInput={(e) => setClientDirectory(e.currentTarget.value)}
-                  hint="Use if your host runs multiple workspaces."
-                />
-
-                <Button
-                  onClick={async () => {
-                    setMode("client");
-                    setOnboardingStep("connecting");
-
-                    const ok = await connectToServer(
-                      baseUrl().trim(),
-                      clientDirectory().trim() ? clientDirectory().trim() : undefined,
-                    );
-
-                    if (!ok) {
-                      setOnboardingStep("client");
-                    }
-                  }}
-                  disabled={busy() || !baseUrl().trim()}
-                  class="w-full py-3 text-base"
-                >
-                  Connect
-                </Button>
-
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setMode(null);
-                    setOnboardingStep("mode");
-                  }}
-                  disabled={busy()}
-                  class="w-full"
-                >
-                  Back
-                </Button>
-
-                <Show when={error()}>
-                  <div class="rounded-2xl bg-red-950/40 px-5 py-4 text-sm text-red-200 border border-red-500/20">
-                    {error()}
-                  </div>
-                </Show>
-              </div>
-            </div>
-          </div>
-        </Match>
-
-        <Match when={true}>
-          <div class="min-h-screen flex flex-col items-center justify-center bg-black text-white p-6 relative">
-            <div class="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-zinc-900 to-transparent opacity-20 pointer-events-none" />
-
-            <div class="max-w-xl w-full z-10 space-y-12">
-              <div class="text-center space-y-4">
-                <div class="flex items-center justify-center gap-3 mb-6">
-                  <div class="w-12 h-12 bg-white rounded-xl flex items-center justify-center">
-                    <OpenWorkLogo size={24} class="text-black" />
-                  </div>
-                  <h1 class="text-3xl font-bold tracking-tight">OpenWork</h1>
-                </div>
-                <h2 class="text-xl text-zinc-400 font-light">How would you like to run OpenWork today?</h2>
-              </div>
-
-              <div class="space-y-4">
-                <button
-                  onClick={() => {
-                    if (rememberModeChoice()) {
-                      writeModePreference("host");
-                    }
-                    setMode("host");
-                    setOnboardingStep("host");
-                  }}
-                  class="group w-full relative bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 p-6 md:p-8 rounded-3xl text-left transition-all duration-300 hover:shadow-2xl hover:shadow-indigo-500/10 hover:-translate-y-0.5 flex items-start gap-6"
-                >
-                  <div class="shrink-0 w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center border border-indigo-500/20 group-hover:border-indigo-500/40 transition-colors">
-                    <HardDrive class="text-indigo-400 w-7 h-7" />
-                  </div>
-                  <div>
-                    <h3 class="text-xl font-medium text-white mb-2">Start Host Engine</h3>
-                    <p class="text-zinc-500 text-sm leading-relaxed mb-4">
-                      Run OpenCode locally. Best for your primary computer.
-                    </p>
-                    <div class="flex items-center gap-2 text-xs font-mono text-indigo-400/80 bg-indigo-900/10 w-fit px-2 py-1 rounded border border-indigo-500/10">
-                      <div class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-                      {localHostLabel()}
-                    </div>
-                  </div>
-                  <div class="absolute top-8 right-8 text-zinc-700 group-hover:text-zinc-500 transition-colors">
-                    <ArrowRight size={24} />
-                  </div>
-                </button>
-
-                <Show when={engine()?.running && engine()?.baseUrl}>
-                  <div class="rounded-2xl bg-zinc-900/40 border border-zinc-800 p-5 flex items-center justify-between">
-                    <div>
-                      <div class="text-sm text-white font-medium">Engine already running</div>
-                      <div class="text-xs text-zinc-500 font-mono truncate max-w-[14rem] md:max-w-[22rem]">
-                        {engine()?.baseUrl}
-                      </div>
-                    </div>
-                    <Button
-                      variant="secondary"
-                      onClick={async () => {
-                        setMode("host");
-                        setOnboardingStep("connecting");
-                        const ok = await connectToServer(
-                          engine()!.baseUrl!,
-                          engine()!.projectDir ?? undefined,
-                        );
-                        if (!ok) {
-                          setMode(null);
-                          setOnboardingStep("mode");
-                        }
-                      }}
-                      disabled={busy()}
-                    >
-                      Attach
-                    </Button>
-                  </div>
-                </Show>
-
-                <div class="flex items-center gap-2 px-2 py-1">
-                  <button
-                    onClick={() => setRememberModeChoice((v) => !v)}
-                    class="flex items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors group"
-                  >
-                    <div
-                      class={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
-                        rememberModeChoice()
-                          ? "bg-indigo-500 border-indigo-500 text-black"
-                          : "border-zinc-700 bg-transparent group-hover:border-zinc-500"
-                      }`}
-                    >
-                      <Show when={rememberModeChoice()}>
-                        <CheckCircle2 size={10} />
-                      </Show>
-                    </div>
-                    Remember my choice for next time
-                  </button>
-                </div>
-
-                <div class="pt-6 border-t border-zinc-900 flex justify-center">
-                  <button
-                    onClick={() => {
-                      if (rememberModeChoice()) {
-                        writeModePreference("client");
-                      }
-                      setMode("client");
-                      setOnboardingStep("client");
-                    }}
-                    class="text-zinc-600 hover:text-zinc-400 text-sm font-medium transition-colors flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-zinc-900/50"
-                  >
-                    <Smartphone size={16} />
-                    Or connect as a Client (Remote Pairing)
-                  </button>
-                </div>
-
-                <Show when={error()}>
-                  <div class="rounded-2xl bg-red-950/40 px-5 py-4 text-sm text-red-200 border border-red-500/20">
-                    {error()}
-                  </div>
-                </Show>
-
-                <div class="text-center text-xs text-zinc-700">{headerStatus()}</div>
-              </div>
-            </div>
-          </div>
-        </Match>
-      </Switch>
-    );
-  }
-
-  function DashboardView() {
-    const title = createMemo(() => {
-      switch (tab()) {
-        case "sessions":
-          return "Sessions";
-        case "templates":
-          return "Templates";
-        case "skills":
-          return "Skills";
-        case "plugins":
-          return "Plugins";
-        case "settings":
-          return "Settings";
-        default:
-          return "Dashboard";
+  const onboardingProps = () => ({
+    mode: mode(),
+    onboardingStep: onboardingStep(),
+    rememberModeChoice: rememberModeChoice(),
+    busy: busy(),
+    baseUrl: baseUrl(),
+    clientDirectory: clientDirectory(),
+    newAuthorizedDir: newAuthorizedDir(),
+    authorizedDirs: authorizedDirs(),
+    activeWorkspacePath: activeWorkspacePath(),
+    localHostLabel: localHostLabel(),
+    engineRunning: Boolean(engine()?.running),
+    engineBaseUrl: engine()?.baseUrl ?? null,
+    engineDoctorFound: engineDoctorResult()?.found ?? null,
+    engineDoctorSupportsServe: engineDoctorResult()?.supportsServe ?? null,
+    engineDoctorVersion: engineDoctorResult()?.version ?? null,
+    engineDoctorResolvedPath: engineDoctorResult()?.resolvedPath ?? null,
+    engineDoctorNotes: engineDoctorResult()?.notes ?? [],
+    engineDoctorCheckedAt: engineDoctorCheckedAt(),
+    engineInstallLogs: engineInstallLogs(),
+    error: error(),
+    onBaseUrlChange: setBaseUrl,
+    onClientDirectoryChange: setClientDirectory,
+    onModeSelect: (nextMode: Mode) => {
+      if (nextMode === "host" && rememberModeChoice()) {
+        writeModePreference("host");
       }
-    });
-
-    const quickTemplates = createMemo(() => workspaceTemplates().slice(0, 3));
-
-    createEffect(() => {
-      if (tab() === "skills") {
-        refreshSkills().catch(() => undefined);
+      if (nextMode === "client" && rememberModeChoice()) {
+        writeModePreference("client");
       }
-      if (tab() === "plugins") {
-        refreshPlugins().catch(() => undefined);
+      setMode(nextMode);
+      setOnboardingStep(nextMode === "host" ? "host" : "client");
+    },
+    onRememberModeToggle: () => setRememberModeChoice((v) => !v),
+    onStartHost: async () => {
+      setMode("host");
+      setOnboardingStep("connecting");
+      const ok = await startHost({ workspacePath: activeWorkspacePath().trim() });
+      if (!ok) {
+        setOnboardingStep("host");
       }
-
-      // Keep session sidebar context fresh.
-      if (tab() === "sessions" || view() === "session") {
-        refreshSkills().catch(() => undefined);
-        refreshPlugins("project").catch(() => undefined);
+    },
+    onAttachHost: async () => {
+      setMode("host");
+      setOnboardingStep("connecting");
+      const ok = await connectToServer(engine()?.baseUrl ?? "", engine()?.projectDir ?? undefined);
+      if (!ok) {
+        setMode(null);
+        setOnboardingStep("mode");
       }
-    });
-
-    const navItem = (t: DashboardTab, label: string, icon: any) => {
-      const active = () => tab() === t;
-      return (
-        <button
-          class={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-            active() ? "bg-zinc-900 text-white" : "text-zinc-500 hover:text-white hover:bg-zinc-900/50"
-          }`}
-          onClick={() => setTab(t)}
-        >
-          {icon}
-          {label}
-        </button>
+    },
+    onConnectClient: async () => {
+      setMode("client");
+      setOnboardingStep("connecting");
+      const ok = await connectToServer(
+        baseUrl().trim(),
+        clientDirectory().trim() ? clientDirectory().trim() : undefined,
       );
-    };
-
-
-    const content = () => (
-      <Switch>
-        <Match when={tab() === "home"}>
-          <section>
-            <div class="bg-gradient-to-r from-zinc-900 to-zinc-800 rounded-3xl p-1 border border-zinc-800 shadow-2xl">
-              <div class="bg-zinc-950 rounded-[22px] p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6">
-                <div class="space-y-2 text-center md:text-left">
-                  <h2 class="text-2xl font-semibold text-white">What should we do today?</h2>
-                  <p class="text-zinc-400">
-                    Describe an outcome. OpenWork will run it and keep an audit trail.
-                  </p>
-                </div>
-                <Button
-                  onClick={createSessionAndOpen}
-                  disabled={newTaskDisabled()}
-                  title={newTaskDisabled() ? busyHint() ?? "Busy" : ""}
-                  class="w-full md:w-auto py-3 px-6 text-base"
-                >
-                  <Play size={18} />
-                  New Task
-                </Button>
-              </div>
-            </div>
-          </section>
-
-          <section>
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="text-sm font-medium text-zinc-400 uppercase tracking-wider">Quick Start Templates</h3>
-              <button
-                class="text-sm text-zinc-500 hover:text-white"
-                onClick={() => setTab("templates")}
-              >
-                View all
-              </button>
-            </div>
-
-            <Show
-              when={quickTemplates().length}
-              fallback={
-                 <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-6 text-sm text-zinc-500">
-                   No templates yet. Starter templates will appear here.
-                 </div>
-              }
-            >
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <For each={quickTemplates()}>
-                  {(t) => (
-                    <button
-                      onClick={() => runTemplate(t)}
-                      class="group p-5 rounded-2xl bg-zinc-900/30 border border-zinc-800/50 hover:bg-zinc-900 hover:border-zinc-700 transition-all text-left"
-                    >
-                      <div class="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                        <FileText size={20} class="text-indigo-400" />
-                      </div>
-                      <h4 class="font-medium text-white mb-1">{t.title}</h4>
-                      <p class="text-sm text-zinc-500">{t.description || "Run a saved workflow"}</p>
-                    </button>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </section>
-
-          <section>
-            <h3 class="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-4">Recent Sessions</h3>
-
-            <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl overflow-hidden">
-              <For each={sessions().slice(0, 12)}>
-                {(s, idx) => (
-                  <button
-                    class={`w-full p-4 flex items-center justify-between hover:bg-zinc-800/50 transition-colors text-left ${
-                      idx() !== Math.min(sessions().length, 12) - 1 ? "border-b border-zinc-800/50" : ""
-                    }`}
-                    onClick={async () => {
-                      await selectSession(s.id);
-                      setView("session");
-                      setTab("sessions");
-                    }}
-                  >
-                    <div class="flex items-center gap-4">
-                      <div class="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs text-zinc-500 font-mono">
-                        #{s.slug?.slice(0, 2) ?? ".."}
-                      </div>
-                      <div>
-                        <div class="font-medium text-sm text-zinc-200">{s.title}</div>
-                        <div class="text-xs text-zinc-500 flex items-center gap-2">
-                          <Clock size={10} /> {formatRelativeTime(s.time.updated)}
-                          <Show when={activeWorkspaceRoot().trim() && s.directory === activeWorkspaceRoot().trim()}>
-                            <span class="text-[11px] px-2 py-0.5 rounded-full border border-zinc-700/60 text-zinc-500">
-                              this workspace
-                            </span>
-                          </Show>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-4">
-                      <span class="text-xs px-2 py-0.5 rounded-full border border-zinc-700/60 text-zinc-400 flex items-center gap-1.5">
-                        <span class="w-1.5 h-1.5 rounded-full bg-current" />
-                        {sessionStatusById()[s.id] ?? "idle"}
-                      </span>
-                      <ChevronRight size={16} class="text-zinc-600" />
-                    </div>
-                  </button>
-                )}
-              </For>
-
-              <Show when={!sessions().length}>
-                <div class="p-6 text-sm text-zinc-500">No sessions yet.</div>
-              </Show>
-            </div>
-          </section>
-        </Match>
-
-        <Match when={tab() === "sessions"}>
-          <section>
-            <h3 class="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-4">All Sessions</h3>
-
-            <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl overflow-hidden">
-              <For each={sessions()}>
-                {(s, idx) => (
-                  <button
-                    class={`w-full p-4 flex items-center justify-between hover:bg-zinc-800/50 transition-colors text-left ${
-                      idx() !== sessions().length - 1 ? "border-b border-zinc-800/50" : ""
-                    }`}
-                    onClick={async () => {
-                      await selectSession(s.id);
-                      setView("session");
-                    }}
-                  >
-                    <div class="flex items-center gap-4">
-                      <div class="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs text-zinc-500 font-mono">
-                        #{s.slug?.slice(0, 2) ?? ".."}
-                      </div>
-                      <div>
-                        <div class="font-medium text-sm text-zinc-200">{s.title}</div>
-                        <div class="text-xs text-zinc-500 flex items-center gap-2">
-                          <Clock size={10} /> {formatRelativeTime(s.time.updated)}
-                          <Show when={activeWorkspaceRoot().trim() && s.directory === activeWorkspaceRoot().trim()}>
-                            <span class="text-[11px] px-2 py-0.5 rounded-full border border-zinc-700/60 text-zinc-500">
-                              this workspace
-                            </span>
-                          </Show>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-4">
-                      <span class="text-xs px-2 py-0.5 rounded-full border border-zinc-700/60 text-zinc-400 flex items-center gap-1.5">
-                        <span class="w-1.5 h-1.5 rounded-full bg-current" />
-                        {sessionStatusById()[s.id] ?? "idle"}
-                      </span>
-                      <ChevronRight size={16} class="text-zinc-600" />
-                    </div>
-                  </button>
-                )}
-              </For>
-
-              <Show when={!sessions().length}>
-                <div class="p-6 text-sm text-zinc-500">No sessions yet.</div>
-              </Show>
-            </div>
-          </section>
-        </Match>
-
-        <Match when={tab() === "templates"}>
-          <section class="space-y-4">
-            <div class="flex items-center justify-between">
-              <h3 class="text-sm font-medium text-zinc-400 uppercase tracking-wider">Templates</h3>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setTemplateDraftTitle("");
-                  setTemplateDraftDescription("");
-                  setTemplateDraftPrompt("");
-                  setTemplateModalOpen(true);
-                }}
-                disabled={busy()}
-              >
-                <Plus size={16} />
-                New
-              </Button>
-            </div>
-
-            <Show
-              when={workspaceTemplates().length || globalTemplates().length}
-              fallback={
-                <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-6 text-sm text-zinc-500">
-                  Starter templates will appear here. Create one or save from a session.
-                </div>
-              }
-            >
-              <div class="space-y-6">
-                <Show when={workspaceTemplates().length}>
-                  <div class="space-y-3">
-                    <div class="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Workspace</div>
-                    <For each={workspaceTemplates()}>
-                      {(t) => (
-                        <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-5 flex items-start justify-between gap-4">
-                          <div class="min-w-0">
-                            <div class="flex items-center gap-2">
-                              <FileText size={16} class="text-indigo-400" />
-                              <div class="font-medium text-white truncate">{t.title}</div>
-                            </div>
-                            <div class="mt-1 text-sm text-zinc-500">{t.description || ""}</div>
-                            <div class="mt-2 text-xs text-zinc-600 font-mono">{formatRelativeTime(t.createdAt)}</div>
-                          </div>
-                          <div class="shrink-0 flex gap-2">
-                            <Button variant="secondary" onClick={() => runTemplate(t)} disabled={busy()}>
-                              <Play size={16} />
-                              Run
-                            </Button>
-                            <Button variant="danger" onClick={() => deleteTemplate(t.id)} disabled={busy()}>
-                              <Trash2 size={16} />
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-
-                <Show when={globalTemplates().length}>
-                  <div class="space-y-3">
-                    <div class="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Global</div>
-                    <For each={globalTemplates()}>
-                      {(t) => (
-                        <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-5 flex items-start justify-between gap-4">
-                          <div class="min-w-0">
-                            <div class="flex items-center gap-2">
-                              <FileText size={16} class="text-emerald-400" />
-                              <div class="font-medium text-white truncate">{t.title}</div>
-                            </div>
-                            <div class="mt-1 text-sm text-zinc-500">{t.description || ""}</div>
-                            <div class="mt-2 text-xs text-zinc-600 font-mono">{formatRelativeTime(t.createdAt)}</div>
-                          </div>
-                          <div class="shrink-0 flex gap-2">
-                            <Button variant="secondary" onClick={() => runTemplate(t)} disabled={busy()}>
-                              <Play size={16} />
-                              Run
-                            </Button>
-                            <Button variant="danger" onClick={() => deleteTemplate(t.id)} disabled={busy()}>
-                              <Trash2 size={16} />
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-              </div>
-            </Show>
-          </section>
-        </Match>
-
-        <Match when={tab() === "skills"}>
-          <section class="space-y-6">
-            <div class="flex items-center justify-between">
-              <h3 class="text-sm font-medium text-zinc-400 uppercase tracking-wider">Skills</h3>
-              <Button variant="secondary" onClick={() => refreshSkills()} disabled={busy()}>
-                Refresh
-              </Button>
-            </div>
-
-            <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-5 space-y-4">
-              <div class="flex items-center justify-between gap-3">
-                <div class="text-sm font-medium text-white">Install from OpenPackage</div>
-                <Show when={mode() !== "host"}>
-                  <div class="text-xs text-zinc-500">Host mode only</div>
-                </Show>
-              </div>
-              <div class="flex flex-col md:flex-row gap-2">
-                <input
-                  class="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-600 focus:border-zinc-600 transition-all"
-                  placeholder="github:anthropics/claude-code"
-                  value={openPackageSource()}
-                  onInput={(e) => setOpenPackageSource(e.currentTarget.value)}
-                />
-                <Button
-                  onClick={() => installFromOpenPackage()}
-                  disabled={busy() || mode() !== "host" || !isTauriRuntime()}
-                  class="md:w-auto"
-                >
-                  <Package size={16} />
-                  Install
-                </Button>
-              </div>
-              <div class="text-xs text-zinc-500">
-                Installs OpenPackage packages into the current workspace. Skills should land in `.opencode/skill`.
-              </div>
-
-              <div class="flex items-center justify-between gap-3 pt-2 border-t border-zinc-800/60">
-                <div class="text-sm font-medium text-white">Import local skill</div>
-                <Button
-                  variant="secondary"
-                  onClick={importLocalSkill}
-                  disabled={busy() || mode() !== "host" || !isTauriRuntime()}
-                >
-                  <Upload size={16} />
-                  Import
-                </Button>
-              </div>
-
-              <Show when={skillsStatus()}>
-                <div class="rounded-xl bg-black/20 border border-zinc-800 p-3 text-xs text-zinc-300 whitespace-pre-wrap break-words">
-                  {skillsStatus()}
-                </div>
-              </Show>
-            </div>
-
-            <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-5 space-y-4">
-              <div class="flex items-center justify-between">
-                <div class="text-sm font-medium text-white">Curated packages</div>
-                <div class="text-xs text-zinc-500">{filteredPackages().length}</div>
-              </div>
-
-              <input
-                class="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-600 focus:border-zinc-600 transition-all"
-                placeholder="Search packages or lists (e.g. claude, registry, community)"
-                value={packageSearch()}
-                onInput={(e) => setPackageSearch(e.currentTarget.value)}
-              />
-
-              <Show
-                when={filteredPackages().length}
-                fallback={
-                  <div class="rounded-xl bg-black/20 border border-zinc-800 p-3 text-xs text-zinc-400">
-                    No curated matches. Try a different search.
-                  </div>
-                }
-              >
-                <div class="space-y-3">
-                  <For each={filteredPackages()}>
-                    {(pkg) => (
-                      <div class="rounded-xl border border-zinc-800/70 bg-zinc-950/40 p-4">
-                        <div class="flex items-start justify-between gap-4">
-                          <div class="space-y-2">
-                            <div class="text-sm font-medium text-white">{pkg.name}</div>
-                            <div class="text-xs text-zinc-500 font-mono break-all">{pkg.source}</div>
-                            <div class="text-sm text-zinc-500">{pkg.description}</div>
-                            <div class="flex flex-wrap gap-2">
-                              <For each={pkg.tags}>
-                                {(tag) => (
-                                  <span class="text-[10px] uppercase tracking-wide bg-zinc-800/70 text-zinc-400 px-2 py-0.5 rounded-full">
-                                    {tag}
-                                  </span>
-                                )}
-                              </For>
-                            </div>
-                          </div>
-                          <Button
-                            variant={pkg.installable ? "secondary" : "outline"}
-                            onClick={() => useCuratedPackage(pkg)}
-                            disabled={
-                              busy() ||
-                              (pkg.installable && (mode() !== "host" || !isTauriRuntime()))
-                            }
-                          >
-                            {pkg.installable ? "Install" : "View"}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
-
-              <div class="text-xs text-zinc-500">
-                Publishing to the OpenPackage registry (`opkg push`) requires authentication today. A registry search + curated list sync is planned.
-              </div>
-            </div>
-
-
-            <div>
-              <div class="flex items-center justify-between mb-3">
-                <div class="text-sm font-medium text-white">Installed skills</div>
-                <div class="text-xs text-zinc-500">{skills().length}</div>
-              </div>
-
-              <Show
-                when={skills().length}
-                fallback={
-                  <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-6 text-sm text-zinc-500">
-                    No skills detected in `.opencode/skill`.
-                  </div>
-                }
-              >
-                <div class="grid gap-3">
-                  <For each={skills()}>
-                    {(s) => (
-                      <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-5">
-                        <div class="flex items-center gap-2">
-                          <Package size={16} class="text-zinc-400" />
-                          <div class="font-medium text-white">{s.name}</div>
-                        </div>
-                        <Show when={s.description}>
-                          <div class="mt-1 text-sm text-zinc-500">{s.description}</div>
-                        </Show>
-                        <div class="mt-2 text-xs text-zinc-600 font-mono">{s.path}</div>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
-            </div>
-          </section>
-        </Match>
-
-        <Match when={tab() === "plugins"}>
-          <section class="space-y-6">
-            <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-5 space-y-4">
-              <div class="flex items-start justify-between gap-4">
-                <div class="space-y-1">
-                  <div class="text-sm font-medium text-white">OpenCode plugins</div>
-                  <div class="text-xs text-zinc-500">
-                    Manage `opencode.json` for your project or global OpenCode plugins.
-                  </div>
-                </div>
-                <div class="flex items-center gap-2">
-                  <button
-                    class={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                      pluginScope() === "project"
-                        ? "bg-white/10 text-white border-white/20"
-                        : "text-zinc-500 border-zinc-800 hover:text-white"
-                    }`}
-                    onClick={() => {
-                      setPluginScope("project");
-                      refreshPlugins("project").catch(() => undefined);
-                    }}
-                  >
-                    Project
-                  </button>
-                  <button
-                    class={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                      pluginScope() === "global"
-                        ? "bg-white/10 text-white border-white/20"
-                        : "text-zinc-500 border-zinc-800 hover:text-white"
-                    }`}
-                    onClick={() => {
-                      setPluginScope("global");
-                      refreshPlugins("global").catch(() => undefined);
-                    }}
-                  >
-                    Global
-                  </button>
-                  <Button variant="ghost" onClick={() => refreshPlugins().catch(() => undefined)}>
-                    Refresh
-                  </Button>
-                </div>
-              </div>
-
-              <div class="flex flex-col gap-1 text-xs text-zinc-500">
-                <div>Config</div>
-                <div class="text-zinc-600 font-mono truncate">
-                  {pluginConfig()?.path ?? "Not loaded yet"}
-                </div>
-              </div>
-
-              <div class="space-y-3">
-                <div class="text-xs font-medium text-zinc-400 uppercase tracking-wider">Suggested plugins</div>
-                <div class="grid gap-3">
-                  <For each={SUGGESTED_PLUGINS}>
-                    {(plugin) => {
-                      const isGuided = () => plugin.installMode === "guided";
-                      const isInstalled = () =>
-                        isPluginInstalled(plugin.packageName, plugin.aliases ?? []);
-                      const isGuideOpen = () => activePluginGuide() === plugin.packageName;
-
-                      return (
-                        <div class="rounded-2xl border border-zinc-800/60 bg-zinc-950/40 p-4 space-y-3">
-                          <div class="flex items-start justify-between gap-4">
-                            <div>
-                              <div class="text-sm font-medium text-white font-mono">{plugin.name}</div>
-                              <div class="text-xs text-zinc-500 mt-1">{plugin.description}</div>
-                              <Show when={plugin.packageName !== plugin.name}>
-                                <div class="text-xs text-zinc-600 font-mono mt-1">
-                                  {plugin.packageName}
-                                </div>
-                              </Show>
-                            </div>
-                            <div class="flex items-center gap-2">
-                              <Show when={isGuided()}>
-                                <Button
-                                  variant="ghost"
-                                  onClick={() =>
-                                    setActivePluginGuide(isGuideOpen() ? null : plugin.packageName)
-                                  }
-                                >
-                                  {isGuideOpen() ? "Hide setup" : "Setup"}
-                                </Button>
-                              </Show>
-                              <Button
-                                variant={isInstalled() ? "outline" : "secondary"}
-                                onClick={() => addPlugin(plugin.packageName)}
-                                disabled={
-                                  busy() ||
-                                  isInstalled() ||
-                                  !isTauriRuntime() ||
-                                  (pluginScope() === "project" && !projectDir().trim())
-                                }
-                              >
-                                {isInstalled() ? "Added" : "Add"}
-                              </Button>
-                            </div>
-                          </div>
-                          <div class="flex flex-wrap gap-2">
-                            <For each={plugin.tags}>
-                              {(tag) => (
-                                <span class="text-[10px] uppercase tracking-wide bg-zinc-800/70 text-zinc-400 px-2 py-0.5 rounded-full">
-                                  {tag}
-                                </span>
-                              )}
-                            </For>
-                          </div>
-                          <Show when={isGuided() && isGuideOpen()}>
-                            <div class="rounded-xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3">
-                              <For each={plugin.steps ?? []}>
-                                {(step, idx) => (
-                                  <div class="space-y-1">
-                                    <div class="text-xs font-medium text-zinc-300">
-                                      {idx() + 1}. {step.title}
-                                    </div>
-                                    <div class="text-xs text-zinc-500">{step.description}</div>
-                                    <Show when={step.command}>
-                                      <div class="text-xs font-mono text-zinc-200 bg-zinc-900/60 border border-zinc-800/70 rounded-lg px-3 py-2">
-                                        {step.command}
-                                      </div>
-                                    </Show>
-                                    <Show when={step.note}>
-                                      <div class="text-xs text-zinc-500">{step.note}</div>
-                                    </Show>
-                                    <Show when={step.url}>
-                                      <div class="text-xs text-zinc-500">
-                                        Open: <span class="font-mono text-zinc-400">{step.url}</span>
-                                      </div>
-                                    </Show>
-                                    <Show when={step.path}>
-                                      <div class="text-xs text-zinc-500">
-                                        Path: <span class="font-mono text-zinc-400">{step.path}</span>
-                                      </div>
-                                    </Show>
-                                  </div>
-                                )}
-                              </For>
-                            </div>
-                          </Show>
-                        </div>
-                      );
-                    }}
-                  </For>
-                </div>
-              </div>
-
-              <Show
-                when={pluginList().length}
-                fallback={
-                  <div class="rounded-xl border border-zinc-800/60 bg-zinc-950/40 p-4 text-sm text-zinc-500">
-                    No plugins configured yet.
-                  </div>
-                }
-              >
-                <div class="grid gap-2">
-                  <For each={pluginList()}>
-                    {(pluginName) => (
-                      <div class="flex items-center justify-between rounded-xl border border-zinc-800/60 bg-zinc-950/40 px-4 py-2.5">
-                        <div class="text-sm text-zinc-200 font-mono">{pluginName}</div>
-                        <div class="text-[10px] uppercase tracking-wide text-zinc-500">Enabled</div>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
-
-              <div class="flex flex-col gap-3">
-                <div class="flex flex-col md:flex-row gap-3">
-                  <div class="flex-1">
-                    <TextInput
-                      label="Add plugin"
-                      placeholder="opencode-wakatime"
-                      value={pluginInput()}
-                      onInput={(e) => setPluginInput(e.currentTarget.value)}
-                      hint="Add npm package names, e.g. opencode-wakatime"
-                    />
-                  </div>
-                  <Button
-                    variant="secondary"
-                    onClick={() => addPlugin()}
-                    disabled={busy() || !pluginInput().trim()}
-                    class="md:mt-6"
-                  >
-                    Add
-                  </Button>
-                </div>
-                <Show when={pluginStatus()}>
-                  <div class="text-xs text-zinc-500">{pluginStatus()}</div>
-                </Show>
-              </div>
-            </div>
-          </section>
-        </Match>
-
-        <Match when={tab() === "settings"}>
-          <section class="space-y-6">
-            <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-5 space-y-3">
-              <div class="text-sm font-medium text-white">Connection</div>
-              <div class="text-xs text-zinc-500">{headerStatus()}</div>
-              <div class="text-xs text-zinc-600 font-mono">{baseUrl()}</div>
-              <div class="pt-2 flex flex-wrap gap-2">
-                <Button variant="secondary" onClick={() => setDeveloperMode((v) => !v)}>
-                  <Shield size={16} />
-                  {developerMode() ? "Disable Developer Mode" : "Enable Developer Mode"}
-                </Button>
-                <Show when={mode() === "host"}>
-                  <Button variant="danger" onClick={stopHost} disabled={busy()}>
-                    Stop engine
-                  </Button>
-                </Show>
-                <Show when={mode() === "client"}>
-                  <Button variant="outline" onClick={stopHost} disabled={busy()}>
-                    Disconnect
-                  </Button>
-                </Show>
-              </div>
-
-              <Show when={isTauriRuntime() && mode() === "host"}>
-                <div class="pt-4 border-t border-zinc-800/60 space-y-3">
-                  <div class="text-xs text-zinc-500">Engine source</div>
-                  <div class="grid grid-cols-2 gap-2">
-                    <Button
-                      variant={engineSource() === "path" ? "secondary" : "outline"}
-                      onClick={() => setEngineSource("path")}
-                      disabled={busy()}
-                    >
-                      PATH
-                    </Button>
-                    <Button
-                      variant={engineSource() === "sidecar" ? "secondary" : "outline"}
-                      onClick={() => setEngineSource("sidecar")}
-                      disabled={busy() || isWindowsPlatform()}
-                      title={isWindowsPlatform() ? "Sidecar is not supported on Windows yet" : ""}
-                    >
-                      Sidecar
-                    </Button>
-                  </div>
-                  <div class="text-[11px] text-zinc-600">
-                    PATH uses your installed OpenCode (default). Sidecar will use a bundled binary when available.
-                    <Show when={isWindowsPlatform()}>
-                      <span class="text-zinc-500"> Sidecar is currently unavailable on Windows.</span>
-                    </Show>
-                  </div>
-                </div>
-              </Show>
-            </div>
-
-            <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-5 space-y-4">
-              <div>
-                <div class="text-sm font-medium text-white">Model</div>
-                <div class="text-xs text-zinc-500">Defaults + thinking controls for runs.</div>
-              </div>
-
-              <div class="flex items-center justify-between bg-zinc-950 p-3 rounded-xl border border-zinc-800 gap-3">
-                <div class="min-w-0">
-                  <div class="text-sm text-zinc-200 truncate">{formatModelLabel(defaultModel(), providers())}</div>
-                  <div class="text-xs text-zinc-600 font-mono truncate">{formatModelRef(defaultModel())}</div>
-                </div>
-                <Button
-                  variant="outline"
-                  class="text-xs h-8 py-0 px-3 shrink-0"
-                  onClick={openDefaultModelPicker}
-                  disabled={busy()}
-                >
-                  Change
-                </Button>
-              </div>
-
-              <div class="flex items-center justify-between bg-zinc-950 p-3 rounded-xl border border-zinc-800 gap-3">
-                <div class="min-w-0">
-                  <div class="text-sm text-zinc-200">Thinking</div>
-                  <div class="text-xs text-zinc-600">Show thinking parts (Developer mode only).</div>
-                </div>
-                <Button
-                  variant="outline"
-                  class="text-xs h-8 py-0 px-3 shrink-0"
-                  onClick={() => setShowThinking((v) => !v)}
-                  disabled={busy()}
-                >
-                  {showThinking() ? "On" : "Off"}
-                </Button>
-              </div>
-
-              <div class="flex items-center justify-between bg-zinc-950 p-3 rounded-xl border border-zinc-800 gap-3">
-                <div class="min-w-0">
-                  <div class="text-sm text-zinc-200">Model variant</div>
-                  <div class="text-xs text-zinc-600 font-mono truncate">
-                    {modelVariant() ? modelVariant() : "(default)"}
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  class="text-xs h-8 py-0 px-3 shrink-0"
-                  onClick={() => {
-                    const next = window.prompt(
-                      "Model variant (provider-specific, e.g. high/max/minimal). Leave blank to clear.",
-                      modelVariant() ?? "",
-                    );
-                    if (next == null) return;
-                    const trimmed = next.trim();
-                    setModelVariant(trimmed ? trimmed : null);
-                  }}
-                  disabled={busy()}
-                >
-                  Edit
-                </Button>
-              </div>
-            </div>
-
-            <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-5 space-y-3">
-              <div class="flex items-start justify-between gap-4">
-                <div>
-                  <div class="text-sm font-medium text-white">Updates</div>
-                  <div class="text-xs text-zinc-500">Keep OpenWork up to date.</div>
-                </div>
-                <div class="text-xs text-zinc-600 font-mono">{appVersion() ? `v${appVersion()}` : ""}</div>
-              </div>
-
-              <Show
-                when={!isTauriRuntime()}
-                fallback={
-                  <Show
-                    when={updateEnv() && !updateEnv()!.supported}
-                    fallback={
-                      <>
-                        <div class="flex items-center justify-between bg-zinc-950 p-3 rounded-xl border border-zinc-800">
-                          <div class="space-y-0.5">
-                            <div class="text-sm text-white">Automatic checks</div>
-                            <div class="text-xs text-zinc-600">Once per day (quiet)</div>
-                          </div>
-                          <button
-                            class={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                              updateAutoCheck()
-                                ? "bg-white/10 text-white border-white/20"
-                                : "text-zinc-500 border-zinc-800 hover:text-white"
-                            }`}
-                            onClick={() => setUpdateAutoCheck((v) => !v)}
-                          >
-                            {updateAutoCheck() ? "On" : "Off"}
-                          </button>
-                        </div>
-
-                        <div class="flex items-center justify-between gap-3 bg-zinc-950 p-3 rounded-xl border border-zinc-800">
-                          <div class="space-y-0.5">
-                            <div class="text-sm text-white">
-                              <Switch>
-                                <Match when={updateStatus().state === "checking"}>Checking…</Match>
-                                <Match when={updateStatus().state === "available"}>
-                                  Update available: v{(updateStatus() as any).version}
-                                </Match>
-                                <Match when={updateStatus().state === "downloading"}>Downloading…</Match>
-                                <Match when={updateStatus().state === "ready"}>
-                                  Ready to install: v{(updateStatus() as any).version}
-                                </Match>
-                                <Match when={updateStatus().state === "error"}>Update check failed</Match>
-                                <Match when={true}>Up to date</Match>
-                              </Switch>
-                            </div>
-                            <Show
-                              when={
-                                updateStatus().state === "idle" &&
-                                (updateStatus() as { state: "idle"; lastCheckedAt: number | null }).lastCheckedAt
-                              }
-                            >
-                              <div class="text-xs text-zinc-600">
-                                Last checked {formatRelativeTime((updateStatus() as { state: "idle"; lastCheckedAt: number | null }).lastCheckedAt!)}
-                              </div>
-                            </Show>
-                            <Show when={updateStatus().state === "available" && (updateStatus() as any).date}>
-                              <div class="text-xs text-zinc-600">Published {(updateStatus() as any).date}</div>
-                            </Show>
-                            <Show when={updateStatus().state === "downloading"}>
-                              <div class="text-xs text-zinc-600">
-                                {formatBytes((updateStatus() as any).downloadedBytes)}
-                                <Show when={(updateStatus() as any).totalBytes != null}>
-                                  {` / ${formatBytes((updateStatus() as any).totalBytes)}`}
-                                </Show>
-                              </div>
-                            </Show>
-                            <Show when={updateStatus().state === "error"}>
-                              <div class="text-xs text-red-300">{(updateStatus() as any).message}</div>
-                            </Show>
-                          </div>
-
-                          <div class="flex items-center gap-2">
-                            <Button
-                              variant="outline"
-                              class="text-xs h-8 py-0 px-3"
-                              onClick={() => checkForUpdates()}
-                              disabled={busy() || updateStatus().state === "checking" || updateStatus().state === "downloading"}
-                            >
-                              Check
-                            </Button>
-
-                            <Show when={updateStatus().state === "available"}>
-                              <Button
-                                variant="secondary"
-                                class="text-xs h-8 py-0 px-3"
-                                onClick={() => downloadUpdate()}
-                                disabled={busy() || updateStatus().state === "downloading"}
-                              >
-                                Download
-                              </Button>
-                            </Show>
-
-                            <Show when={updateStatus().state === "ready"}>
-                              <Button
-                                variant="secondary"
-                                class="text-xs h-8 py-0 px-3"
-                                onClick={() => installUpdateAndRestart()}
-                                disabled={busy() || anyActiveRuns()}
-                                title={anyActiveRuns() ? "Stop active runs to update" : ""}
-                              >
-                                Install & Restart
-                              </Button>
-                            </Show>
-                          </div>
-                        </div>
-
-                        <Show when={updateStatus().state === "available" && (updateStatus() as any).notes}>
-                          <div class="rounded-xl bg-black/20 border border-zinc-800 p-3 text-xs text-zinc-400 whitespace-pre-wrap max-h-40 overflow-auto">
-                            {(updateStatus() as any).notes}
-                          </div>
-                        </Show>
-                      </>
-                    }
-                  >
-                    <div class="rounded-xl bg-black/20 border border-zinc-800 p-3 text-sm text-zinc-400">
-                      {updateEnv()?.reason ?? "Updates are not supported in this environment."}
-                    </div>
-                  </Show>
-                }
-              >
-                <div class="rounded-xl bg-black/20 border border-zinc-800 p-3 text-sm text-zinc-400">
-                  Updates are only available in the desktop app.
-                </div>
-              </Show>
-            </div>
-
-            <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-5 space-y-3">
-              <div class="text-sm font-medium text-white">Startup</div>
-
-              <div class="flex items-center justify-between bg-zinc-950 p-3 rounded-xl border border-zinc-800">
-                <div class="flex items-center gap-3">
-                  <div
-                    class={`p-2 rounded-lg ${
-                      mode() === "host"
-                        ? "bg-indigo-500/10 text-indigo-400"
-                        : "bg-emerald-500/10 text-emerald-400"
-                    }`}
-                  >
-                    <Show when={mode() === "host"} fallback={<Smartphone size={18} />}>
-                      <HardDrive size={18} />
-                    </Show>
-                  </div>
-                  <span class="capitalize text-sm font-medium text-white">{mode()} mode</span>
-                </div>
-                <Button variant="outline" class="text-xs h-8 py-0 px-3" onClick={stopHost} disabled={busy()}>
-                  Switch
-                </Button>
-              </div>
-
-              <Button
-                variant="secondary"
-                class="w-full justify-between group"
-                onClick={() => {
-                  clearModePreference();
-                }}
-              >
-                <span class="text-zinc-300">Reset default startup mode</span>
-                <RefreshCcw size={14} class="text-zinc-500 group-hover:rotate-180 transition-transform" />
-              </Button>
-
-              <p class="text-xs text-zinc-600">
-                This clears your saved preference and shows mode selection on next launch.
-              </p>
-            </div>
-
-            <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-5 space-y-4">
-              <div>
-                <div class="text-sm font-medium text-white">Advanced</div>
-                <div class="text-xs text-zinc-500">Reset OpenWork local state to retest onboarding.</div>
-              </div>
-
-              <div class="flex items-center justify-between bg-zinc-950 p-3 rounded-xl border border-zinc-800 gap-3">
-                <div class="min-w-0">
-                  <div class="text-sm text-zinc-200">Reset onboarding</div>
-                  <div class="text-xs text-zinc-600">Clears OpenWork preferences and restarts the app.</div>
-                </div>
-                <Button
-                  variant="outline"
-                  class="text-xs h-8 py-0 px-3 shrink-0"
-                  onClick={() => openResetModal("onboarding")}
-                  disabled={busy() || resetModalBusy() || anyActiveRuns()}
-                  title={anyActiveRuns() ? "Stop active runs to reset" : ""}
-                >
-                  Reset
-                </Button>
-              </div>
-
-              <div class="flex items-center justify-between bg-zinc-950 p-3 rounded-xl border border-zinc-800 gap-3">
-                <div class="min-w-0">
-                  <div class="text-sm text-zinc-200">Reset app data</div>
-                  <div class="text-xs text-zinc-600">More aggressive. Clears OpenWork cache + app data.</div>
-                </div>
-                <Button
-                  variant="danger"
-                  class="text-xs h-8 py-0 px-3 shrink-0"
-                  onClick={() => openResetModal("all")}
-                  disabled={busy() || resetModalBusy() || anyActiveRuns()}
-                  title={anyActiveRuns() ? "Stop active runs to reset" : ""}
-                >
-                  Reset
-                </Button>
-              </div>
-
-              <div class="text-xs text-zinc-600">
-                Requires typing <span class="font-mono text-zinc-400">RESET</span> and will restart the app.
-              </div>
-            </div>
-
-            <Show when={developerMode()}>
-              <section>
-                <h3 class="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-4">Developer</h3>
-
-                <div class="grid md:grid-cols-2 gap-4">
-                  <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-4">
-                    <div class="text-xs text-zinc-500 mb-2">Pending permissions</div>
-                    <pre class="text-xs text-zinc-200 whitespace-pre-wrap break-words max-h-64 overflow-auto">
-                      {safeStringify(pendingPermissions())}
-                    </pre>
-                  </div>
-                  <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-4">
-                    <div class="text-xs text-zinc-500 mb-2">Recent events</div>
-                    <pre class="text-xs text-zinc-200 whitespace-pre-wrap break-words max-h-64 overflow-auto">
-                      {safeStringify(events())}
-                    </pre>
-                  </div>
-                </div>
-              </section>
-            </Show>
-          </section>
-        </Match>
-      </Switch>
-    );
-
-    return (
-      <div class="flex h-screen bg-zinc-950 text-white overflow-hidden">
-        <aside class="w-64 border-r border-zinc-800 p-6 hidden md:flex flex-col justify-between bg-zinc-950">
-          <div>
-            <div class="flex items-center gap-3 mb-10 px-2">
-              <div class="w-8 h-8 bg-white rounded-lg flex items-center justify-center">
-                <OpenWorkLogo size={18} class="text-black" />
-              </div>
-              <span class="font-bold text-lg tracking-tight">OpenWork</span>
-            </div>
-
-            <nav class="space-y-1">
-              {navItem("home", "Dashboard", <Command size={18} />)}
-              {navItem("sessions", "Sessions", <Play size={18} />)}
-              {navItem("templates", "Templates", <FileText size={18} />)}
-              {navItem("skills", "Skills", <Package size={18} />)}
-              {navItem("plugins", "Plugins", <Cpu size={18} />)}
-              {navItem("settings", "Settings", <Settings size={18} />)}
-            </nav>
-          </div>
-
-          <div class="space-y-4">
-            <div class="px-3 py-3 rounded-xl bg-zinc-900/50 border border-zinc-800">
-              <div class="flex items-center gap-2 text-xs font-medium text-zinc-400 mb-2">
-                {mode() === "host" ? <Cpu size={12} /> : <Smartphone size={12} />}
-                {mode() === "host" ? "Local Engine" : "Client Mode"}
-              </div>
-              <div class="flex items-center gap-2">
-                <div
-                  class={`w-2 h-2 rounded-full ${
-                    client() ? "bg-emerald-500 animate-pulse" : "bg-zinc-600"
-                  }`}
-                />
-                <span
-                  class={`text-sm font-mono ${client() ? "text-emerald-500" : "text-zinc-500"}`}
-                >
-                  {client() ? "Connected" : "Disconnected"}
-                </span>
-              </div>
-              <div class="mt-2 text-[11px] text-zinc-600 font-mono truncate">{baseUrl()}</div>
-            </div>
-
-            <Show when={mode() === "host"}>
-              <Button variant="danger" onClick={stopHost} disabled={busy()} class="w-full">
-                Stop & Disconnect
-              </Button>
-            </Show>
-
-            <Show when={mode() === "client"}>
-              <Button variant="outline" onClick={stopHost} disabled={busy()} class="w-full">
-                Disconnect
-              </Button>
-            </Show>
-          </div>
-        </aside>
-
-        <main class="flex-1 overflow-y-auto relative pb-24 md:pb-0">
-          <header class="h-16 flex items-center justify-between px-6 md:px-10 border-b border-zinc-800 sticky top-0 bg-zinc-950/80 backdrop-blur-md z-10">
-            <div class="flex items-center gap-3">
-              <div class="md:hidden">
-                <Menu class="text-zinc-400" />
-              </div>
-              <WorkspaceChip
-                workspace={activeWorkspaceDisplay()}
-                onClick={() => {
-                  setWorkspaceSearch("");
-                  setWorkspacePickerOpen(true);
-                }}
-              />
-              <h1 class="text-lg font-medium">{title()}</h1>
-              <span class="text-xs text-zinc-600">{headerStatus()}</span>
-              <Show when={busyHint()}>
-                <span class="text-xs text-zinc-500">· {busyHint()}</span>
-              </Show>
-            </div>
-            <div class="flex items-center gap-2">
-              <Show when={tab() === "home" || tab() === "sessions"}>
-                <Button onClick={createSessionAndOpen} disabled={newTaskDisabled()} title={newTaskDisabled() ? busyHint() ?? "Busy" : ""}>
-                  <Play size={16} />
-                  New Task
-                </Button>
-              </Show>
-              <Show when={tab() === "templates"}>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setTemplateDraftTitle("");
-                    setTemplateDraftDescription("");
-                    setTemplateDraftPrompt("");
-                    setTemplateModalOpen(true);
-                  }}
-                  disabled={busy()}
-                >
-                  <Plus size={16} />
-                  New
-                </Button>
-              </Show>
-              <Button variant="ghost" onClick={() => setDeveloperMode((v) => !v)}>
-                <Shield size={16} />
-              </Button>
-            </div>
-          </header>
-
-          <div class="p-6 md:p-10 max-w-5xl mx-auto space-y-10">{content()}</div>
-
-          <Show when={error()}>
-            <div class="mx-auto max-w-5xl px-6 md:px-10 pb-24 md:pb-10">
-              <div class="rounded-2xl bg-red-950/40 px-5 py-4 text-sm text-red-200 border border-red-500/20">
-                {error()}
-              </div>
-            </div>
-          </Show>
-
-          <WorkspacePicker
-            open={workspacePickerOpen()}
-            workspaces={filteredWorkspaces()}
-            activeWorkspaceId={activeWorkspaceId()}
-            search={workspaceSearch()}
-            onSearch={setWorkspaceSearch}
-            onClose={() => setWorkspacePickerOpen(false)}
-            onSelect={activateWorkspace}
-            onCreateNew={() => setCreateWorkspaceOpen(true)}
-          />
-
-          <CreateWorkspaceModal
-            open={createWorkspaceOpen()}
-            onClose={() => setCreateWorkspaceOpen(false)}
-            onConfirm={(preset) => createWorkspaceFlow(preset)}
-          />
-
-          <nav class="md:hidden fixed bottom-0 left-0 right-0 border-t border-zinc-800 bg-zinc-950/90 backdrop-blur-md">
-            <div class="mx-auto max-w-5xl px-4 py-3 grid grid-cols-6 gap-2">
-              <button
-                class={`flex flex-col items-center gap-1 text-xs ${
-                  tab() === "home" ? "text-white" : "text-zinc-500"
-                }`}
-                onClick={() => setTab("home")}
-              >
-                <Command size={18} />
-                Home
-              </button>
-              <button
-                class={`flex flex-col items-center gap-1 text-xs ${
-                  tab() === "sessions" ? "text-white" : "text-zinc-500"
-                }`}
-                onClick={() => setTab("sessions")}
-              >
-                <Play size={18} />
-                Runs
-              </button>
-              <button
-                class={`flex flex-col items-center gap-1 text-xs ${
-                  tab() === "templates" ? "text-white" : "text-zinc-500"
-                }`}
-                onClick={() => setTab("templates")}
-              >
-                <FileText size={18} />
-                Templates
-              </button>
-              <button
-                class={`flex flex-col items-center gap-1 text-xs ${
-                  tab() === "skills" ? "text-white" : "text-zinc-500"
-                }`}
-                onClick={() => setTab("skills")}
-              >
-                <Package size={18} />
-                Skills
-              </button>
-              <button
-                class={`flex flex-col items-center gap-1 text-xs ${
-                  tab() === "plugins" ? "text-white" : "text-zinc-500"
-                }`}
-                onClick={() => setTab("plugins")}
-              >
-                <Cpu size={18} />
-                Plugins
-              </button>
-              <button
-                class={`flex flex-col items-center gap-1 text-xs ${
-                  tab() === "settings" ? "text-white" : "text-zinc-500"
-                }`}
-                onClick={() => setTab("settings")}
-              >
-                <Settings size={18} />
-                Settings
-              </button>
-            </div>
-          </nav>
-        </main>
-      </div>
-    );
-  }
-
-  function SessionView() {
-    let messagesEndEl: HTMLDivElement | undefined;
-
-    createEffect(() => {
-      messages();
-      todos();
-      messagesEndEl?.scrollIntoView({ behavior: "smooth" });
-    });
-
-    const progressDots = createMemo(() => {
-      const total = todos().length || 3;
-      const completed = todos().filter((t) => t.status === "completed").length;
-      return Array.from({ length: total }, (_, idx) => idx < completed);
-    });
-
-    const toggleSteps = (id: string) => {
-      setExpandedStepIds((current) => {
-        const next = new Set(current);
-        if (next.has(id)) {
-          next.delete(id);
-        } else {
-          next.add(id);
+      if (!ok) {
+        setOnboardingStep("client");
+      }
+    },
+    onBackToMode: () => {
+      setMode(null);
+      setOnboardingStep("mode");
+    },
+    onSetAuthorizedDir: setNewAuthorizedDir,
+    onAddAuthorizedDir: addAuthorizedDir,
+    onAddAuthorizedDirFromPicker: () => addAuthorizedDirFromPicker({ persistToWorkspace: true }),
+    onRemoveAuthorizedDir: removeAuthorizedDir,
+    onRefreshEngineDoctor: async () => {
+      setEngineInstallLogs(null);
+      await refreshEngineDoctor();
+    },
+    onInstallEngine: async () => {
+      setError(null);
+      setEngineInstallLogs(null);
+      setBusy(true);
+      setBusyLabel("Installing OpenCode");
+      setBusyStartedAt(Date.now());
+
+      try {
+        const result = await engineInstall();
+        const combined = `${result.stdout}${result.stderr ? `\n${result.stderr}` : ""}`.trim();
+        setEngineInstallLogs(combined || null);
+
+        if (!result.ok) {
+          setError(result.stderr.trim() || "OpenCode install failed. See logs above.");
         }
-        return next;
-      });
-    };
 
-    const toggleSidebar = (key: "progress" | "artifacts" | "context") => {
-      setExpandedSidebarSections((current) => ({ ...current, [key]: !current[key] }));
-    };
+        await refreshEngineDoctor();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : safeStringify(e));
+      } finally {
+        setBusy(false);
+        setBusyLabel(null);
+        setBusyStartedAt(null);
+      }
+    },
+    onShowSearchNotes: () => {
+      const notes = engineDoctorResult()?.notes?.join("\n") ?? "";
+      setEngineInstallLogs(notes || null);
+    },
+  });
 
-    return (
-      <Show
-        when={selectedSessionId()}
-        fallback={
-          <div class="min-h-screen flex items-center justify-center bg-zinc-950 text-white p-6">
-            <div class="text-center space-y-4">
-              <div class="text-lg font-medium">No session selected</div>
-              <Button
-                onClick={() => {
-                  setView("dashboard");
-                  setTab("sessions");
-                }}
-              >
-                Back to dashboard
-              </Button>
-            </div>
-          </div>
-        }
-      >
-        <div class="h-screen flex flex-col bg-zinc-950 text-white relative">
-          <header class="h-16 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950/80 backdrop-blur-md z-10 sticky top-0">
-            <div class="flex items-center gap-3">
-              <div class="md:hidden">
-                <Menu class="text-zinc-400" />
-              </div>
-              <div class="flex items-center gap-2">
-                <h2 class="font-medium text-sm text-zinc-200">{selectedSession()?.title ?? "Session"}</h2>
-                <ChevronDown size={14} class="text-zinc-500" />
-              </div>
-            </div>
+  const dashboardProps = () => ({
+    tab: tab(),
+    setTab,
+    view: view(),
+    setView,
+    mode: mode(),
+    baseUrl: baseUrl(),
+    clientConnected: Boolean(client()),
+    busy: busy(),
+    busyHint: busyHint(),
+    busyLabel: busyLabel(),
+    newTaskDisabled: newTaskDisabled(),
+    headerStatus: headerStatus(),
+    error: error(),
+    activeWorkspaceDisplay: activeWorkspaceDisplay(),
+    workspaceSearch: workspaceSearch(),
+    setWorkspaceSearch,
+    workspacePickerOpen: workspacePickerOpen(),
+    setWorkspacePickerOpen,
+    workspaces: workspaces(),
+    filteredWorkspaces: filteredWorkspaces(),
+    activeWorkspaceId: activeWorkspaceId(),
+    activateWorkspace,
+    createWorkspaceOpen: createWorkspaceOpen(),
+    setCreateWorkspaceOpen,
+    createWorkspaceFlow,
+    sessions: sessions().map((s) => ({
+      id: s.id,
+      slug: s.slug,
+      title: s.title,
+      time: s.time,
+      directory: s.directory,
+    })),
+    sessionStatusById: sessionStatusById(),
+    activeWorkspaceRoot: activeWorkspaceRoot().trim(),
+    workspaceTemplates: workspaceTemplates(),
+    globalTemplates: globalTemplates(),
+    setTemplateDraftTitle,
+    setTemplateDraftDescription,
+    setTemplateDraftPrompt,
+    setTemplateDraftScope,
+    openTemplateModal,
+    runTemplate,
+    deleteTemplate,
+    refreshSkills: () => refreshSkills().catch(() => undefined),
+    refreshPlugins: (scopeOverride?: PluginScope) => refreshPlugins(scopeOverride).catch(() => undefined),
+    skills: skills(),
+    skillsStatus: skillsStatus(),
+    openPackageSource: openPackageSource(),
+    setOpenPackageSource,
+    installFromOpenPackage: () => installFromOpenPackage(),
+    importLocalSkill,
+    packageSearch: packageSearch(),
+    setPackageSearch,
+    filteredPackages: filteredPackages(),
+    useCuratedPackage,
+    pluginScope: pluginScope(),
+    setPluginScope,
+    pluginConfigPath: pluginConfig()?.path ?? null,
+    pluginList: pluginList(),
+    pluginInput: pluginInput(),
+    setPluginInput,
+    pluginStatus: pluginStatus(),
+    activePluginGuide: activePluginGuide(),
+    setActivePluginGuide,
+    isPluginInstalled,
+    suggestedPlugins: SUGGESTED_PLUGINS,
+    addPlugin,
+    createSessionAndOpen,
+    selectSession,
+    defaultModelLabel: formatModelLabel(defaultModel(), providers()),
+    defaultModelRef: formatModelRef(defaultModel()),
+    openDefaultModelPicker,
+    showThinking: showThinking(),
+    toggleShowThinking: () => setShowThinking((v) => !v),
+    modelVariantLabel: modelVariant() ?? "(default)",
+    editModelVariant: () => {
+      const next = window.prompt(
+        "Model variant (provider-specific, e.g. high/max/minimal). Leave blank to clear.",
+        modelVariant() ?? "",
+      );
+      if (next == null) return;
+      const trimmed = next.trim();
+      setModelVariant(trimmed ? trimmed : null);
+    },
+    updateAutoCheck: updateAutoCheck(),
+    toggleUpdateAutoCheck: () => setUpdateAutoCheck((v) => !v),
+    updateStatus: updateStatus(),
+    updateEnv: updateEnv(),
+    appVersion: appVersion(),
+    checkForUpdates: () => checkForUpdates(),
+    downloadUpdate: () => downloadUpdate(),
+    installUpdateAndRestart,
+    anyActiveRuns: anyActiveRuns(),
+    engineSource: engineSource(),
+    setEngineSource,
+    isWindows: isWindowsPlatform(),
+    toggleDeveloperMode: () => setDeveloperMode((v) => !v),
+    developerMode: developerMode(),
+    stopHost,
+    openResetModal,
+    resetModalBusy: resetModalBusy(),
+    onResetStartupPreference: () => clearModePreference(),
+    pendingPermissions: pendingPermissions(),
+    events: events(),
+    safeStringify,
+  });
 
-            <div class="flex gap-2 items-center">
-              <button
-                class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900/60 border border-zinc-800 text-xs text-zinc-200 hover:bg-zinc-900/80 transition-colors max-w-[220px]"
-                onClick={openSessionModelPicker}
-                title="Change model"
-              >
-                <span class="truncate">{selectedSessionModelLabel()}</span>
-                <ChevronRight size={14} class="text-zinc-500" />
-              </button>
-
-              <Button variant="ghost" class="text-xs" onClick={openTemplateModal} disabled={busy()}>
-                <FileText size={14} />
-              </Button>
-              <Button variant="ghost" class="text-xs" onClick={() => setDeveloperMode((v) => !v)}>
-                <Shield size={14} />
-              </Button>
-            </div>
-          </header>
-
-          <div class="flex-1 flex overflow-hidden">
-            <aside class="hidden lg:flex w-72 border-r border-zinc-800 bg-zinc-950 flex-col">
-              <div class="p-4 border-b border-zinc-800">
-                <div class="flex items-center gap-2 bg-zinc-900/60 rounded-full p-1">
-                  <For each={tabs}>
-                    {(tabLabel) => (
-                      <button
-                        class={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                          activeLeftTab() === tabLabel
-                            ? "bg-zinc-50 text-zinc-900"
-                            : "text-zinc-400 hover:text-zinc-200"
-                        }`}
-                        onClick={() => setActiveLeftTab(tabLabel)}
-                      >
-                        {tabLabel}
-                      </button>
-                    )}
-                  </For>
-                </div>
-                <button
-                  class="mt-4 w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-white text-black text-sm font-medium shadow-lg shadow-white/10"
-                  onClick={createSessionAndOpen}
-                  disabled={newTaskDisabled()}
-                >
-                  <Plus size={16} />
-                  New task
-                </button>
-              </div>
-
-              <div class="flex-1 overflow-y-auto px-4 py-4">
-                <div class="text-xs text-zinc-500 uppercase tracking-wide mb-3">Recents</div>
-                <div class="space-y-2">
-                  <For each={sessions().slice(0, 8)}>
-                    {(session) => (
-                      <button
-                        class={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                          session.id === selectedSessionId()
-                            ? "bg-zinc-900 text-zinc-100"
-                            : "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900/50"
-                        }`}
-                        onClick={async () => {
-                          await selectSession(session.id);
-                          setView("session");
-                          setTab("sessions");
-                        }}
-                      >
-                        <div class="flex items-center justify-between gap-2">
-                          <span class="truncate">{session.title}</span>
-                          <span class="text-zinc-600">
-                            <ChevronRight size={12} />
-                          </span>
-                        </div>
-                      </button>
-                    )}
-                  </For>
-                </div>
-                <div class="mt-6 text-xs text-zinc-500">
-                  These tasks run locally and aren’t synced across devices.
-                </div>
-              </div>
-
-              <div class="border-t border-zinc-800 px-4 py-4 flex items-center gap-3">
-                <div class="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-medium">B</div>
-                <div class="flex-1">
-                  <div class="text-sm text-zinc-200">ben</div>
-                  <div class="text-xs text-zinc-500">Max plan</div>
-                </div>
-                <button class="text-zinc-500 hover:text-zinc-300">
-                  <Settings size={16} />
-                </button>
-              </div>
-            </aside>
-
-            <div class="flex-1 overflow-y-auto p-6 md:p-10 scroll-smooth">
-              <div class="max-w-2xl mx-auto space-y-6 pb-32">
-                <Show when={messages().length === 0}>
-                  <div class="text-center py-20 space-y-4">
-                    <div class="w-16 h-16 bg-zinc-900 rounded-3xl mx-auto flex items-center justify-center border border-zinc-800">
-                      <Zap class="text-zinc-600" />
-                    </div>
-                    <h3 class="text-xl font-medium">Ready to work</h3>
-                    <p class="text-zinc-500 text-sm max-w-xs mx-auto">
-                      Describe a task. I’ll show progress and ask for permissions when needed.
-                    </p>
-                  </div>
-                </Show>
-
-                <Show when={busyLabel() === "Running"}>
-                  <ThinkingBlock steps={[{ status: "running", text: "Working…" } satisfies ThinkingStep]} />
-                </Show>
-
-                <For each={messages()}>
-                  {(msg) => {
-                    const renderableParts = () =>
-                      msg.parts.filter((p) => {
-                        if (p.type === "reasoning") {
-                          return developerMode() && showThinking();
-                        }
-
-                        if (p.type === "step-start" || p.type === "step-finish") {
-                          return developerMode();
-                        }
-
-                        if (p.type === "text" || p.type === "tool") {
-                          return true;
-                        }
-
-                        return developerMode();
-                      });
-
-                    const groups = () => groupMessageParts(renderableParts(), String((msg.info as any).id ?? "message"));
-
-                    return (
-                      <Show when={renderableParts().length > 0}>
-                        <div class={`flex ${(msg.info as any).role === "user" ? "justify-end" : "justify-start"}`}>
-                          <div
-                            class={`max-w-[88%] p-4 rounded-2xl text-sm leading-relaxed ${
-                              (msg.info as any).role === "user"
-                                ? "bg-white text-black rounded-tr-sm shadow-xl shadow-white/5"
-                                : "bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-tl-sm"
-                            }`}
-                          >
-                            <For each={groups()}>
-                              {(group, idx) => (
-                                <div class={idx() === groups().length - 1 ? "" : "mb-3"}>
-                                  <Show when={group.kind === "text"}>
-                                    <PartView
-                                      part={(group as { kind: "text"; part: Part }).part}
-                                      developerMode={developerMode()}
-                                      showThinking={showThinking()}
-                                      tone={(msg.info as any).role === "user" ? "dark" : "light"}
-                                    />
-                                  </Show>
-                                  <Show when={group.kind === "steps"}>
-                                    <div class="mt-2">
-                                      <button
-                                        class="flex items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300"
-                                        onClick={() => toggleSteps((group as any).id)}
-                                      >
-                                        <span>View steps</span>
-                                        <ChevronDown
-                                          size={14}
-                                          class={`transition-transform ${expandedStepIds().has((group as any).id) ? "rotate-180" : ""}`.trim()}
-                                        />
-                                      </button>
-                                      <Show when={expandedStepIds().has((group as any).id)}>
-                                        <div class="mt-3 space-y-3 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
-                                          <For each={(group as any).parts as Part[]}>
-                                            {(part) => {
-                                              const summary = summarizeStep(part);
-                                              return (
-                                                <div class="flex items-start gap-3 text-xs text-zinc-300">
-                                                  <div class="mt-0.5 h-5 w-5 rounded-full border border-zinc-700 flex items-center justify-center text-zinc-500">
-                                                    {part.type === "tool" ? <File size={12} /> : <Circle size={8} />}
-                                                  </div>
-                                                  <div>
-                                                    <div class="text-zinc-200">{summary.title}</div>
-                                                    <Show when={summary.detail}>
-                                                      <div class="mt-1 text-zinc-500">{summary.detail}</div>
-                                                    </Show>
-                                                    <Show when={developerMode() && (part.type !== "tool" || showThinking())}>
-                                                      <div class="mt-2 text-xs text-zinc-500">
-                                                        <PartView
-                                                          part={part}
-                                                          developerMode={developerMode()}
-                                                          showThinking={showThinking()}
-                                                          tone={(msg.info as any).role === "user" ? "dark" : "light"}
-                                                        />
-                                                      </div>
-                                                    </Show>
-                                                  </div>
-                                                </div>
-                                              );
-                                            }}
-                                          </For>
-                                        </div>
-                                      </Show>
-                                    </div>
-                                  </Show>
-                                </div>
-                              )}
-                            </For>
-                          </div>
-                        </div>
-                      </Show>
-                    );
-                  }}
-                </For>
-
-                <For each={artifacts()}>
-                  {(artifact) => (
-                    <div class="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 flex items-center justify-between">
-                      <div class="flex items-center gap-3">
-                        <div class="h-10 w-10 rounded-xl bg-zinc-900 flex items-center justify-center">
-                          <FileText size={18} class="text-zinc-400" />
-                        </div>
-                        <div>
-                          <div class="text-sm text-zinc-100">{artifact.name}</div>
-                          <div class="text-xs text-zinc-500">Document</div>
-                        </div>
-                      </div>
-                      <Button variant="outline" class="text-xs" disabled>
-                        Open
-                      </Button>
-                    </div>
-                  )}
-                </For>
-
-                <div ref={(el) => (messagesEndEl = el)} />
-              </div>
-            </div>
-
-            <aside class="hidden lg:flex w-80 border-l border-zinc-800 bg-zinc-950 flex-col">
-              <div class="p-4 space-y-4 overflow-y-auto flex-1">
-                <div class="rounded-2xl border border-zinc-800 bg-zinc-950/60">
-                  <button
-                    class="w-full px-4 py-3 flex items-center justify-between text-sm text-zinc-200"
-                    onClick={() => toggleSidebar("progress")}
-                  >
-                    <span>Progress</span>
-                    <ChevronDown size={16} class={`transition-transform ${expandedSidebarSections().progress ? "rotate-180" : ""}`.trim()} />
-                  </button>
-                  <Show when={expandedSidebarSections().progress}>
-                    <div class="px-4 pb-4 pt-1">
-                      <div class="flex items-center gap-2">
-                        <For each={progressDots()}>
-                          {(done) => (
-                            <div class={`h-6 w-6 rounded-full border flex items-center justify-center ${done ? "border-emerald-400 text-emerald-400" : "border-zinc-700 text-zinc-700"}`}>
-                              <Show when={done}>
-                                <Check size={14} />
-                              </Show>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                      <div class="mt-2 text-xs text-zinc-500">Steps will show as the task unfolds.</div>
-                    </div>
-                  </Show>
-                </div>
-
-                <div class="rounded-2xl border border-zinc-800 bg-zinc-950/60">
-                  <button
-                    class="w-full px-4 py-3 flex items-center justify-between text-sm text-zinc-200"
-                    onClick={() => toggleSidebar("artifacts")}
-                  >
-                    <span>Artifacts</span>
-                    <ChevronDown size={16} class={`transition-transform ${expandedSidebarSections().artifacts ? "rotate-180" : ""}`.trim()} />
-                  </button>
-                  <Show when={expandedSidebarSections().artifacts}>
-                    <div class="px-4 pb-4 pt-1 space-y-3">
-                      <Show
-                        when={artifacts().length}
-                        fallback={<div class="text-xs text-zinc-600">No artifacts yet.</div>}
-                      >
-                        <For each={artifacts()}>
-                          {(artifact) => (
-                            <div class="flex items-center gap-3 text-sm text-zinc-300">
-                              <div class="h-8 w-8 rounded-lg bg-zinc-900 flex items-center justify-center">
-                                <FileText size={16} class="text-zinc-500" />
-                              </div>
-                              <div class="min-w-0">
-                                <div class="truncate text-zinc-200">{artifact.name}</div>
-                              </div>
-                            </div>
-                          )}
-                        </For>
-                      </Show>
-                    </div>
-                  </Show>
-                </div>
-
-                <div class="rounded-2xl border border-zinc-800 bg-zinc-950/60">
-                  <button
-                    class="w-full px-4 py-3 flex items-center justify-between text-sm text-zinc-200"
-                    onClick={() => toggleSidebar("context")}
-                  >
-                    <span>Context</span>
-                    <ChevronDown size={16} class={`transition-transform ${expandedSidebarSections().context ? "rotate-180" : ""}`.trim()} />
-                  </button>
-                  <Show when={expandedSidebarSections().context}>
-                    <div class="px-4 pb-4 pt-1 space-y-4">
-                      <div>
-                        <div class="flex items-center justify-between text-xs text-zinc-500">
-                          <span>Selected folders</span>
-                          <span>{authorizedDirs().length}</span>
-                        </div>
-                        <div class="mt-2 space-y-2">
-                          <For each={authorizedDirs().slice(0, 3)}>
-                            {(folder) => (
-                              <div class="flex items-center gap-2 text-xs text-zinc-300">
-                                <Folder size={12} class="text-zinc-500" />
-                                <span class="truncate">{folder}</span>
-                              </div>
-                            )}
-                          </For>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div class="text-xs text-zinc-500">Working files</div>
-                        <div class="mt-2 space-y-2">
-                          <Show when={workingFiles().length} fallback={<div class="text-xs text-zinc-600">None yet.</div>}>
-                            <For each={workingFiles()}>
-                              {(file) => (
-                                <div class="flex items-center gap-2 text-xs text-zinc-300">
-                                  <File size={12} class="text-zinc-500" />
-                                  <span class="truncate">{file}</span>
-                                </div>
-                              )}
-                            </For>
-                          </Show>
-                        </div>
-                      </div>
-                    </div>
-                  </Show>
-                </div>
-              </div>
-            </aside>
-
-          </div>
-
-          <div class="p-4 border-t border-zinc-800 bg-zinc-950 sticky bottom-0 z-20">
-            <div class="max-w-2xl mx-auto relative">
-              <input
-                type="text"
-                disabled={busy()}
-                value={prompt()}
-                onInput={(e) => setPrompt(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    sendPrompt().catch(() => undefined);
-                  }
-                }}
-                placeholder={busy() ? "Working..." : "Ask OpenWork to do something..."}
-                class="w-full bg-zinc-900 border border-zinc-800 rounded-2xl py-4 pl-5 pr-14 text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-600 focus:border-zinc-600 transition-all disabled:opacity-50"
-              />
-              <button
-                disabled={!prompt().trim() || busy()}
-                onClick={() => sendPrompt().catch(() => undefined)}
-                class="absolute right-2 top-2 p-2 bg-white text-black rounded-xl hover:scale-105 active:scale-95 transition-all disabled:opacity-0 disabled:scale-75"
-                title="Run"
-              >
-                <ArrowRight size={20} />
-              </button>
-            </div>
-          </div>
-
-          <Show when={activePermission()}>
-            <div class="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-              <div class="bg-zinc-900 border border-amber-500/30 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
-                <div class="p-6">
-                  <div class="flex items-start gap-4 mb-4">
-                    <div class="p-3 bg-amber-500/10 rounded-full text-amber-500">
-                      <Shield size={24} />
-                    </div>
-                    <div>
-                      <h3 class="text-lg font-semibold text-white">Permission Required</h3>
-                      <p class="text-sm text-zinc-400 mt-1">
-                        OpenCode is requesting permission to continue.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div class="bg-zinc-950/50 rounded-xl p-4 border border-zinc-800 mb-6">
-                    <div class="text-xs text-zinc-500 uppercase tracking-wider mb-2 font-semibold">
-                      Permission
-                    </div>
-                    <div class="text-sm text-zinc-200 font-mono">{activePermission()!.permission}</div>
-
-                    <div class="text-xs text-zinc-500 uppercase tracking-wider mt-4 mb-2 font-semibold">
-                      Scope
-                    </div>
-                    <div class="flex items-center gap-2 text-sm font-mono text-amber-200 bg-amber-950/30 px-2 py-1 rounded border border-amber-500/20">
-                      <HardDrive size={12} />
-                      {activePermission()!.patterns.join(", ")}
-                    </div>
-
-                    <Show when={Object.keys(activePermission()!.metadata ?? {}).length > 0}>
-                      <details class="mt-4 rounded-lg bg-black/20 p-2">
-                        <summary class="cursor-pointer text-xs text-zinc-400">Details</summary>
-                        <pre class="mt-2 whitespace-pre-wrap break-words text-xs text-zinc-200">
-                          {safeStringify(activePermission()!.metadata)}
-                        </pre>
-                      </details>
-                    </Show>
-                  </div>
-
-                  <div class="grid grid-cols-2 gap-3">
-                    <Button
-                      variant="outline"
-                      class="w-full border-red-500/20 text-red-400 hover:bg-red-950/30"
-                      onClick={() => respondPermission(activePermission()!.id, "reject")}
-                      disabled={permissionReplyBusy()}
-                    >
-                      Deny
-                    </Button>
-                    <div class="grid grid-cols-2 gap-2">
-                      <Button
-                        variant="secondary"
-                        class="text-xs"
-                        onClick={() => respondPermission(activePermission()!.id, "once")}
-                        disabled={permissionReplyBusy()}
-                      >
-                        Once
-                      </Button>
-                      <Button
-                        variant="primary"
-                        class="text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black border-none shadow-amber-500/20"
-                         onClick={() => respondPermissionAndRemember(activePermission()!.id, "always")}
-                         disabled={permissionReplyBusy()}
-                       >
-                         Allow for session
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </Show>
-        </div>
-      </Show>
-    );
-  }
+  const activeWorkspaceInfo = createMemo(() => workspaces().find((w) => w.id === activeWorkspaceId()) ?? null);
+  const activeWorkspaceDisplay = createMemo<WorkspaceDisplay>(() => {
+    const ws = activeWorkspaceInfo();
+    if (!ws) {
+      return {
+        id: "",
+        name: "Workspace",
+        path: "",
+        preset: "starter",
+      };
+    }
+    return { ...ws, name: ws.name || ws.path || "Workspace" };
+  });
+  const activeWorkspacePath = createMemo(() => activeWorkspaceInfo()?.path ?? "");
+  const activeWorkspaceRoot = createMemo(() => activeWorkspacePath().trim());
+  const filteredWorkspaces = createMemo(() => {
+    const query = workspaceSearch().trim().toLowerCase();
+    if (!query) return workspaces();
+    return workspaces().filter((ws) => {
+      const haystack = `${ws.name ?? ""} ${ws.path ?? ""}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  });
 
   return (
     <>
-      <Show when={client()} fallback={<OnboardingView />}>
+      <Show when={client()} fallback={<OnboardingView {...onboardingProps()} />}>
         <Switch>
           <Match when={view() === "dashboard"}>
-            <DashboardView />
+            <DashboardView {...dashboardProps()} />
           </Match>
           <Match when={view() === "session"}>
-            <SessionView />
+            <SessionView
+                selectedSessionId={selectedSessionId()}
+                setView={setView}
+                setTab={setTab}
+                activeWorkspaceDisplay={activeWorkspaceDisplay()}
+                setWorkspaceSearch={setWorkspaceSearch}
+                setWorkspacePickerOpen={setWorkspacePickerOpen}
+                headerStatus={headerStatus()}
+                busyHint={busyHint()}
+                createSessionAndOpen={createSessionAndOpen}
+                sendPromptAsync={sendPrompt}
+                newTaskDisabled={newTaskDisabled()}
+                sessions={sessions().map((session) => ({
+                  id: session.id,
+                  title: session.title,
+                  slug: session.slug,
+                }))}
+                selectSession={selectSession}
+                messages={messages()}
+                todos={todos()}
+                busyLabel={busyLabel()}
+                developerMode={developerMode()}
+                showThinking={showThinking()}
+                groupMessageParts={groupMessageParts}
+                summarizeStep={summarizeStep}
+                expandedStepIds={expandedStepIds()}
+                setExpandedStepIds={setExpandedStepIds}
+                expandedSidebarSections={expandedSidebarSections()}
+                setExpandedSidebarSections={setExpandedSidebarSections}
+                artifacts={artifacts()}
+                workingFiles={workingFiles()}
+                authorizedDirs={authorizedDirs()}
+                busy={busy()}
+                prompt={prompt()}
+                setPrompt={setPrompt}
+                sendPrompt={sendPrompt}
+                activePermission={activePermission()}
+                permissionReplyBusy={permissionReplyBusy()}
+                respondPermission={respondPermission}
+                respondPermissionAndRemember={respondPermissionAndRemember}
+                safeStringify={safeStringify}
+
+            />
           </Match>
           <Match when={true}>
-            <DashboardView />
+            <DashboardView {...dashboardProps()} />
           </Match>
         </Switch>
       </Show>
