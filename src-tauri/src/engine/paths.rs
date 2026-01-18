@@ -31,10 +31,11 @@ pub fn candidate_opencode_paths() -> Vec<PathBuf> {
     }
 
     if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
-      let npm = PathBuf::from(local_app_data).join("npm");
+      let base = PathBuf::from(&local_app_data);
+      let npm = base.join("npm");
       candidates.push(npm.join(OPENCODE_EXECUTABLE));
       candidates.push(npm.join(OPENCODE_CMD));
-      candidates.push(PathBuf::from(local_app_data).join("OpenCode").join(OPENCODE_EXECUTABLE));
+      candidates.push(base.join("OpenCode").join(OPENCODE_EXECUTABLE));
     }
 
     if let Some(home) = home_dir() {
