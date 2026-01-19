@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch, createEffect, createMemo } from "solid-js";
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type {
   CuratedPackage,
   DashboardTab,
@@ -199,18 +199,55 @@ export default function DashboardView(props: DashboardViewProps) {
     }, 0);
   };
 
+  // Track last refreshed tab to avoid duplicate calls
+  const [lastRefreshedTab, setLastRefreshedTab] = createSignal<string | null>(null);
+  const [refreshInProgress, setRefreshInProgress] = createSignal(false);
+
   createEffect(() => {
-    if (props.tab === "skills") {
-      props.refreshSkills();
-    }
-    if (props.tab === "plugins") {
-      props.refreshPlugins();
+    const currentTab = props.tab;
+
+    // Skip if we already refreshed this tab or a refresh is in progress
+    if (lastRefreshedTab() === currentTab || refreshInProgress()) {
+      return;
     }
 
-    if (props.tab === "sessions" || props.view === "session") {
-      props.refreshSkills();
-      props.refreshPlugins("project");
-    }
+    // Track that we're refreshing this tab
+    setRefreshInProgress(true);
+    setLastRefreshedTab(currentTab);
+
+    // Use a cancelled flag to prevent stale updates after navigation
+    let cancelled = false;
+
+    const doRefresh = async () => {
+      try {
+        if (currentTab === "skills" && !cancelled) {
+          await props.refreshSkills();
+        }
+        if (currentTab === "plugins" && !cancelled) {
+          await props.refreshPlugins();
+        }
+        if (currentTab === "sessions" && !cancelled) {
+          // Stagger these calls to avoid request stacking
+          await props.refreshSkills();
+          if (!cancelled) {
+            await props.refreshPlugins("project");
+          }
+        }
+      } catch {
+        // Ignore errors during navigation
+      } finally {
+        if (!cancelled) {
+          setRefreshInProgress(false);
+        }
+      }
+    };
+
+    doRefresh();
+
+    onCleanup(() => {
+      cancelled = true;
+      setRefreshInProgress(false);
+    });
   });
 
   const navItem = (t: DashboardTab, label: string, icon: any) => {
@@ -444,11 +481,11 @@ export default function DashboardView(props: DashboardViewProps) {
                 </h3>
 
                 <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl overflow-hidden">
-                  <For each={props.sessions.slice(0, 12)}>
+                  <For each={props.sessions.slice(0, 3)}>
                     {(s, idx) => (
                       <button
                         class={`w-full p-4 flex items-center justify-between hover:bg-zinc-800/50 transition-colors text-left ${
-                          idx() !== Math.min(props.sessions.length, 12) - 1
+                          idx() !== Math.min(props.sessions.length, 3) - 1
                             ? "border-b border-zinc-800/50"
                             : ""
                         }`}
@@ -506,15 +543,15 @@ export default function DashboardView(props: DashboardViewProps) {
             <Match when={props.tab === "sessions"}>
               <section>
                 <h3 class="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-4">
-                  All Sessions
+                  Recent Sessions
                 </h3>
 
                 <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl overflow-hidden">
-                  <For each={props.sessions}>
+                  <For each={props.sessions.slice(0, 3)}>
                     {(s, idx) => (
                       <button
                         class={`w-full p-4 flex items-center justify-between hover:bg-zinc-800/50 transition-colors text-left ${
-                          idx() !== props.sessions.length - 1
+                          idx() !== Math.min(props.sessions.length, 3) - 1
                             ? "border-b border-zinc-800/50"
                             : ""
                         }`}

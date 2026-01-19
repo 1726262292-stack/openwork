@@ -726,6 +726,7 @@ export default function App() {
     installFromOpenPackage,
     useCuratedPackage,
     importLocalSkill,
+    abortRefreshes,
   } = extensionsStore;
 
   const [providers, setProviders] = createSignal<Provider[]>([]);
@@ -1637,6 +1638,8 @@ export default function App() {
 
   async function createSessionAndOpen() {
     console.log("[DEBUG] createSessionAndOpen");
+    console.log("[DEBUG] current baseUrl:", baseUrl());
+    console.log("[DEBUG] engine info:", engine());
     if (isDemoMode()) {
       setView("session");
       return;
@@ -1644,7 +1647,17 @@ export default function App() {
 
     console.log("[DEBUG] creating session");
     const c = client();
-    if (!c) return;
+    if (!c) {
+      console.log("[DEBUG] no client available!");
+      return;
+    }
+
+    // Abort any in-flight refresh operations to free up connection resources
+    console.log("[DEBUG] aborting in-flight refreshes");
+    abortRefreshes();
+
+    // Small delay to allow pending requests to settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     console.log("[DEBUG] client found");
     setBusy(true);
@@ -1699,6 +1712,16 @@ export default function App() {
     })();
 
     try {
+      // Quick health check to detect stale connection
+      mark("checking health");
+      try {
+        const healthResult = await withTimeout(c.global.health(), 3_000, "health");
+        mark("health ok", healthResult);
+      } catch (healthErr) {
+        mark("health FAILED", healthErr);
+        throw new Error("Server connection lost. Please reload.");
+      }
+
       let rawResult: Awaited<ReturnType<typeof c.session.create>>;
       try {
         mark("creating session");

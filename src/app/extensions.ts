@@ -56,6 +56,12 @@ export function createExtensionsStore(options: {
   const [sidebarPluginList, setSidebarPluginList] = createSignal<string[]>([]);
   const [sidebarPluginStatus, setSidebarPluginStatus] = createSignal<string | null>(null);
 
+  // Track in-flight requests to prevent duplicate calls
+  let refreshSkillsInFlight = false;
+  let refreshPluginsInFlight = false;
+  let refreshSkillsAborted = false;
+  let refreshPluginsAborted = false;
+
   const isPluginInstalledByName = (pluginName: string, aliases: string[] = []) =>
     isPluginInstalled(pluginList(), pluginName, aliases);
 
@@ -67,11 +73,24 @@ export function createExtensionsStore(options: {
     const c = options.client();
     if (!c) return;
 
+    // Skip if already in flight
+    if (refreshSkillsInFlight) {
+      return;
+    }
+
+    refreshSkillsInFlight = true;
+    refreshSkillsAborted = false;
+
     try {
       setSkillsStatus(null);
+
+      if (refreshSkillsAborted) return;
+
       const nodes = unwrap(
         await c.file.list({ directory: options.activeWorkspaceRoot().trim(), path: ".opencode/skill" }),
       );
+
+      if (refreshSkillsAborted) return;
 
       const dirs = nodes.filter((n) => n.type === "directory" && !n.ignored);
 
@@ -79,6 +98,8 @@ export function createExtensionsStore(options: {
       const root = options.activeWorkspaceRoot().trim();
 
       for (const dir of dirs) {
+        if (refreshSkillsAborted) return;
+
         let description: string | undefined;
         const fallback = skillDocFallbacks[dir.name];
         const docKey = skillDocKey(root, dir.name);
@@ -118,13 +139,18 @@ export function createExtensionsStore(options: {
         next.push({ name: dir.name, path: dir.path, description });
       }
 
+      if (refreshSkillsAborted) return;
+
       setSkills(next);
       if (!next.length) {
         setSkillsStatus("No skills found in .opencode/skill");
       }
     } catch (e) {
+      if (refreshSkillsAborted) return;
       setSkills([]);
       setSkillsStatus(e instanceof Error ? e.message : "Failed to load skills");
+    } finally {
+      refreshSkillsInFlight = false;
     }
   }
 
@@ -137,6 +163,14 @@ export function createExtensionsStore(options: {
       return;
     }
 
+    // Skip if already in flight
+    if (refreshPluginsInFlight) {
+      return;
+    }
+
+    refreshPluginsInFlight = true;
+    refreshPluginsAborted = false;
+
     const scope = scopeOverride ?? pluginScope();
     const targetDir = options.projectDir().trim();
 
@@ -145,13 +179,20 @@ export function createExtensionsStore(options: {
       setPluginList([]);
       setSidebarPluginStatus("Pick a project folder to load active plugins.");
       setSidebarPluginList([]);
+      refreshPluginsInFlight = false;
       return;
     }
 
     try {
       setPluginStatus(null);
       setSidebarPluginStatus(null);
+
+      if (refreshPluginsAborted) return;
+
       const config = await readOpencodeConfig(scope, targetDir);
+
+      if (refreshPluginsAborted) return;
+
       setPluginConfig(config);
 
       if (!config.exists) {
@@ -172,11 +213,14 @@ export function createExtensionsStore(options: {
 
       loadPluginsFromConfig(config);
     } catch (e) {
+      if (refreshPluginsAborted) return;
       setPluginConfig(null);
       setPluginList([]);
       setPluginStatus(e instanceof Error ? e.message : "Failed to load opencode.json");
       setSidebarPluginStatus("Failed to load active plugins.");
       setSidebarPluginList([]);
+    } finally {
+      refreshPluginsInFlight = false;
     }
   }
 
@@ -347,6 +391,11 @@ export function createExtensionsStore(options: {
     }
   }
 
+  function abortRefreshes() {
+    refreshSkillsAborted = true;
+    refreshPluginsAborted = true;
+  }
+
   return {
     skills,
     skillsStatus,
@@ -372,5 +421,6 @@ export function createExtensionsStore(options: {
     installFromOpenPackage,
     useCuratedPackage,
     importLocalSkill,
+    abortRefreshes,
   };
 }

@@ -104,10 +104,34 @@ export function createSessionStore(options: {
     const c = options.client();
     if (!c) return;
 
+    const runId = (() => {
+      const key = "__openwork_select_session_run__";
+      const w = window as typeof window & { [key]?: number };
+      w[key] = (w[key] ?? 0) + 1;
+      return w[key];
+    })();
+    const mark = (() => {
+      const start = Date.now();
+      return (label: string) => console.log(`[selectSession run ${runId}] ${label} (+${Date.now() - start}ms)`);
+    })();
+
+    mark("start");
     options.setSelectedSessionId(sessionID);
     options.setError(null);
 
+    // Quick health check before making API calls
+    mark("checking health");
+    try {
+      await withTimeout(c.global.health(), 3_000, "health");
+      mark("health ok");
+    } catch (healthErr) {
+      mark("health FAILED");
+      throw new Error("Server connection lost. Please reload.");
+    }
+
+    mark("calling session.messages");
     const msgs = unwrap(await withTimeout(c.session.messages({ sessionID }), 12_000, "session.messages"));
+    mark("session.messages done");
     setMessages(msgs);
 
     const model = options.lastUserModelFromMessages(msgs);
@@ -126,17 +150,23 @@ export function createSessionStore(options: {
     }
 
     try {
+      mark("calling session.todo");
       setTodos(unwrap(await withTimeout(c.session.todo({ sessionID }), 8_000, "session.todo")));
+      mark("session.todo done");
     } catch {
+      mark("session.todo failed/timeout");
       setTodos([]);
     }
 
     try {
+      mark("calling permission.list");
       await withTimeout(refreshPendingPermissions(), 6_000, "permission.list");
+      mark("permission.list done");
     } catch {
-      // ignore
+      mark("permission.list failed/timeout");
     }
 
+    mark("selectSession complete");
   }
 
   async function respondPermission(requestID: string, reply: "once" | "always" | "reject") {
