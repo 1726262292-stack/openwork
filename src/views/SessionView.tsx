@@ -79,6 +79,7 @@ export type SessionViewProps = {
   respondPermission: (requestID: string, reply: "once" | "always" | "reject") => void;
   respondPermissionAndRemember: (requestID: string, reply: "once" | "always" | "reject") => void;
   safeStringify: (value: unknown) => string;
+  error: string | null;
 };
 
 export default function SessionView(props: SessionViewProps) {
@@ -282,6 +283,14 @@ export default function SessionView(props: SessionViewProps) {
 
           </div>
         </header>
+
+        <Show when={props.error}>
+          <div class="mx-auto max-w-5xl w-full px-6 md:px-10 pt-4">
+            <div class="rounded-2xl bg-red-950/40 px-5 py-4 text-sm text-red-200 border border-red-500/20">
+              {props.error}
+            </div>
+          </div>
+        </Show>
 
         <div class="flex-1 flex overflow-hidden">
           <aside class="hidden lg:flex w-72 border-r border-zinc-800 bg-zinc-950 flex-col">

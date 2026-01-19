@@ -101,7 +101,6 @@ without having to understand MCP tools or write prompts from scratch.
 - What is the minimal Notion OAuth scope for the CRM demo?
 - Should MCP reload be automatic or user-initiated?
 - Where should curated Notion skill live (OpenPackage vs local curated list)?
-
 ## What Needs To Be Built
 - MCP surface placement: a single “Connect Notion” card in Settings (or a small MCPs section in Settings) so the flow is discoverable without adding a new top-level tab.
 - Connection state UI: status row with three states (Not connected, Connecting…, Connected) plus a one-line value statement (“Connect Notion to power your CRM workflow”).

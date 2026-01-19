@@ -54,6 +54,20 @@ export function createSessionStore(options: {
     options.setError(addOpencodeCacheHint(message));
   };
 
+  const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string) => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), ms);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  };
+
   const selectedSession = createMemo(() => {
     const id = options.selectedSessionId();
     if (!id) return null;
@@ -93,7 +107,7 @@ export function createSessionStore(options: {
     options.setSelectedSessionId(sessionID);
     options.setError(null);
 
-    const msgs = unwrap(await c.session.messages({ sessionID }));
+    const msgs = unwrap(await withTimeout(c.session.messages({ sessionID }), 12_000, "session.messages"));
     setMessages(msgs);
 
     const model = options.lastUserModelFromMessages(msgs);
@@ -112,16 +126,17 @@ export function createSessionStore(options: {
     }
 
     try {
-      setTodos(unwrap(await c.session.todo({ sessionID })));
+      setTodos(unwrap(await withTimeout(c.session.todo({ sessionID }), 8_000, "session.todo")));
     } catch {
       setTodos([]);
     }
 
     try {
-      await refreshPendingPermissions();
+      await withTimeout(refreshPendingPermissions(), 6_000, "permission.list");
     } catch {
       // ignore
     }
+
   }
 
   async function respondPermission(requestID: string, reply: "once" | "always" | "reject") {
@@ -151,7 +166,6 @@ export function createSessionStore(options: {
     (async () => {
       try {
         const sub = await c.event.subscribe(undefined, { signal: controller.signal });
-
         for await (const raw of sub.stream) {
           if (cancelled) break;
 

@@ -9,7 +9,6 @@ import {
   onMount,
 } from "solid-js";
 
-
 import type { Provider } from "@opencode-ai/sdk/v2/client";
 
 import { check } from "@tauri-apps/plugin-updater";
@@ -78,7 +77,11 @@ import {
   writeModePreference,
   addOpencodeCacheHint,
 } from "./app/utils";
-import { buildTemplateDraft, createTemplateRecord, resetTemplateDraft } from "./app/templates";
+import {
+  buildTemplateDraft,
+  createTemplateRecord,
+  resetTemplateDraft,
+} from "./app/templates";
 import { createUpdaterState } from "./app/updater";
 import { createSessionStore } from "./app/session";
 import { createExtensionsStore } from "./app/extensions";
@@ -93,23 +96,38 @@ import {
   writeOpencodeConfig,
 } from "./lib/tauri";
 
-
 export default function App() {
-  const [view, setView] = createSignal<View>("onboarding");
+  const [view, _setView] = createSignal<View>("onboarding");
+  const [creatingSession, setCreatingSession] = createSignal(false);
+  const [sessionViewLockUntil, setSessionViewLockUntil] = createSignal(0);
+  const setView = (next: View) => {
+    // Guard: Don't allow view to change to dashboard while creating session.
+    if (next === "dashboard" && creatingSession()) {
+      return;
+    }
+    if (next === "dashboard" && Date.now() < sessionViewLockUntil()) {
+      return;
+    }
+    _setView(next);
+  };
   const [mode, setMode] = createSignal<Mode | null>(null);
-  const [onboardingStep, setOnboardingStep] = createSignal<OnboardingStep>("mode");
+  const [onboardingStep, setOnboardingStep] =
+    createSignal<OnboardingStep>("mode");
   const [rememberModeChoice, setRememberModeChoice] = createSignal(false);
   const [tab, setTab] = createSignal<DashboardTab>("home");
 
-  const [engineSource, setEngineSource] = createSignal<"path" | "sidecar">("path");
+  const [engineSource, setEngineSource] = createSignal<"path" | "sidecar">(
+    "path"
+  );
 
   const [baseUrl, setBaseUrl] = createSignal("http://127.0.0.1:4096");
   const [clientDirectory, setClientDirectory] = createSignal("");
 
   const [client, setClient] = createSignal<Client | null>(null);
-  const [connectedVersion, setConnectedVersion] = createSignal<string | null>(null);
+  const [connectedVersion, setConnectedVersion] = createSignal<string | null>(
+    null
+  );
   const [sseConnected, setSseConnected] = createSignal(false);
-
 
   const [busy, setBusy] = createSignal(false);
   const [busyLabel, setBusyLabel] = createSignal<string | null>(null);
@@ -117,17 +135,29 @@ export default function App() {
   const [error, setError] = createSignal<string | null>(null);
   const [developerMode, setDeveloperMode] = createSignal(false);
 
-  const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(null);
-  const [sessionModelOverrideById, setSessionModelOverrideById] = createSignal<Record<string, ModelRef>>({});
-  const [sessionModelById, setSessionModelById] = createSignal<Record<string, ModelRef>>({});
+  const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(
+    null
+  );
+  const [sessionModelOverrideById, setSessionModelOverrideById] = createSignal<
+    Record<string, ModelRef>
+  >({});
+  const [sessionModelById, setSessionModelById] = createSignal<
+    Record<string, ModelRef>
+  >({});
 
   const sessionStore = createSessionStore({
     client,
     selectedSessionId,
     setSelectedSessionId,
-    sessionModelState: () => ({ overrides: sessionModelOverrideById(), resolved: sessionModelById() }),
+    sessionModelState: () => ({
+      overrides: sessionModelOverrideById(),
+      resolved: sessionModelById(),
+    }),
     setSessionModelState: (updater) => {
-      const next = updater({ overrides: sessionModelOverrideById(), resolved: sessionModelById() });
+      const next = updater({
+        overrides: sessionModelOverrideById(),
+        resolved: sessionModelById(),
+      });
       setSessionModelOverrideById(next.overrides);
       setSessionModelById(next.resolved);
       return next;
@@ -161,17 +191,29 @@ export default function App() {
   } = sessionStore;
 
   const [demoMode, setDemoMode] = createSignal(false);
-  const [demoSequence, setDemoSequence] = createSignal<DemoSequence>("cold-open");
+  const [demoSequence, setDemoSequence] =
+    createSignal<DemoSequence>("cold-open");
 
-  const [demoSessions, setDemoSessions] = createSignal<ReturnType<typeof sessions>>([]);
-  const [demoSessionStatusById, setDemoSessionStatusById] = createSignal<Record<string, string>>({});
+  const [demoSessions, setDemoSessions] = createSignal<
+    ReturnType<typeof sessions>
+  >([]);
+  const [demoSessionStatusById, setDemoSessionStatusById] = createSignal<
+    Record<string, string>
+  >({});
   const [demoMessages, setDemoMessages] = createSignal<MessageWithParts[]>([]);
   const [demoTodos, setDemoTodos] = createSignal<TodoItem[]>([]);
-  const [demoArtifacts, setDemoArtifacts] = createSignal<ReturnType<typeof deriveArtifacts>>([]);
-  const [demoSelectedSessionId, setDemoSelectedSessionId] = createSignal<string | null>(null);
+  const [demoArtifacts, setDemoArtifacts] = createSignal<
+    ReturnType<typeof deriveArtifacts>
+  >([]);
+  const [demoSelectedSessionId, setDemoSelectedSessionId] = createSignal<
+    string | null
+  >(null);
   const [demoWorkingFiles, setDemoWorkingFiles] = createSignal<string[]>([]);
-  const [demoAuthorizedDirs, setDemoAuthorizedDirs] = createSignal<string[]>([]);
-  const [demoActiveWorkspaceDisplay, setDemoActiveWorkspaceDisplay] = createSignal<WorkspaceDisplay>({
+  const [demoAuthorizedDirs, setDemoAuthorizedDirs] = createSignal<string[]>(
+    []
+  );
+  const [demoActiveWorkspaceDisplay, setDemoActiveWorkspaceDisplay] =
+    createSignal<WorkspaceDisplay>({
     id: "demo",
     name: "Demo",
     path: "~/OpenWork Demo",
@@ -185,7 +227,13 @@ export default function App() {
 
     setDemoSelectedSessionId(null);
 
-    const makeToolPart = (tool: string, title: string, output: string, path?: string) => ({
+    const makeToolPart = (
+      tool: string,
+      title: string,
+      output: string,
+      path?: string
+    ) =>
+      ({
       id: `tool-${sequence}-${Math.random().toString(36).slice(2, 8)}`,
       type: "tool",
       sessionID: `demo-${sequence}`,
@@ -199,7 +247,8 @@ export default function App() {
       },
     } as any);
 
-    const makeTextPart = (text: string) => ({
+    const makeTextPart = (text: string) =>
+      ({
       id: `text-${sequence}-${Math.random().toString(36).slice(2, 8)}`,
       type: "text",
       sessionID: `demo-${sequence}`,
@@ -231,28 +280,33 @@ export default function App() {
 
     if (sequence === "cold-open") {
       const parts = [
-        makeTextPart("Scheduled weekly finance recap and prepared the grocery draft."),
+        makeTextPart(
+          "Scheduled weekly finance recap and prepared the grocery draft."
+        ),
         makeToolPart(
           "schedule_job",
           "Scheduled weekly finance recap",
-          "Next run: Monday 9:00 AM",
+          "Next run: Monday 9:00 AM"
         ),
         makeToolPart(
           "read",
           "Summarized meeting notes",
           "Generated notes summary: highlights + follow-ups.",
-          "notes/summary.md",
+          "notes/summary.md"
         ),
         makeToolPart(
           "write",
           "Prepared grocery order",
           "Cart ready with 14 items.",
-          "home/grocery-list.md",
+          "home/grocery-list.md"
         ),
       ];
 
       const messages = [
-        { info: baseUser, parts: [{ type: "text", text: "Run the weekly stack." } as any] },
+        {
+          info: baseUser,
+          parts: [{ type: "text", text: "Run the weekly stack." } as any],
+        },
         { info: baseAssistant, parts },
       ];
 
@@ -266,9 +320,24 @@ export default function App() {
       setDemoSessionStatusById({ [baseSession.id]: "completed" });
       setDemoMessages(messages);
       setDemoTodos([
-        { id: "cold-1", content: "Schedule recurring recap", status: "completed", priority: "high" },
-        { id: "cold-2", content: "Summarize notes", status: "completed", priority: "medium" },
-        { id: "cold-3", content: "Prepare grocery order", status: "completed", priority: "medium" },
+        {
+          id: "cold-1",
+          content: "Schedule recurring recap",
+          status: "completed",
+          priority: "high",
+        },
+        {
+          id: "cold-2",
+          content: "Summarize notes",
+          status: "completed",
+          priority: "medium",
+        },
+        {
+          id: "cold-3",
+          content: "Prepare grocery order",
+          status: "completed",
+          priority: "medium",
+        },
       ]);
       setDemoAuthorizedDirs(["~/OpenWork Demo", "~/Documents/Notes"]);
       setDemoSelectedSessionId(baseSession.id);
@@ -284,17 +353,20 @@ export default function App() {
         makeToolPart(
           "schedule_job",
           "Weekly finance recap",
-          "Next run: Monday 9:00 AM",
+          "Next run: Monday 9:00 AM"
         ),
         makeToolPart(
           "schedule_job",
           "Weekly report export",
-          "Next run: Friday 4:00 PM",
+          "Next run: Friday 4:00 PM"
         ),
       ];
 
       const messages = [
-        { info: baseUser, parts: [{ type: "text", text: "Set up weekly finance jobs." } as any] },
+        {
+          info: baseUser,
+          parts: [{ type: "text", text: "Set up weekly finance jobs." } as any],
+        },
         { info: baseAssistant, parts },
       ];
 
@@ -308,8 +380,18 @@ export default function App() {
       setDemoSessionStatusById({ [baseSession.id]: "completed" });
       setDemoMessages(messages);
       setDemoTodos([
-        { id: "sched-1", content: "Create weekly recap", status: "completed", priority: "high" },
-        { id: "sched-2", content: "Schedule export", status: "completed", priority: "medium" },
+        {
+          id: "sched-1",
+          content: "Create weekly recap",
+          status: "completed",
+          priority: "high",
+        },
+        {
+          id: "sched-2",
+          content: "Schedule export",
+          status: "completed",
+          priority: "medium",
+        },
       ]);
       setDemoAuthorizedDirs(["~/OpenWork Demo/finance"]);
       setDemoSelectedSessionId(baseSession.id);
@@ -321,23 +403,28 @@ export default function App() {
 
     if (sequence === "summaries") {
       const parts = [
-        makeTextPart("Compiled the latest meeting notes and flagged action items."),
+        makeTextPart(
+          "Compiled the latest meeting notes and flagged action items."
+        ),
         makeToolPart(
           "read",
           "Summarized Q1 planning notes",
           "Summary saved with 6 action items.",
-          "notes/summary.md",
+          "notes/summary.md"
         ),
         makeToolPart(
           "write",
           "Created follow-up list",
           "Action items captured in follow-ups.md",
-          "notes/follow-ups.md",
+          "notes/follow-ups.md"
         ),
       ];
 
       const messages = [
-        { info: baseUser, parts: [{ type: "text", text: "Summarize the latest notes." } as any] },
+        {
+          info: baseUser,
+          parts: [{ type: "text", text: "Summarize the latest notes." } as any],
+        },
         { info: baseAssistant, parts },
       ];
 
@@ -351,9 +438,24 @@ export default function App() {
       setDemoSessionStatusById({ [baseSession.id]: "completed" });
       setDemoMessages(messages);
       setDemoTodos([
-        { id: "sum-1", content: "Read recent notes", status: "completed", priority: "high" },
-        { id: "sum-2", content: "Create summary", status: "completed", priority: "medium" },
-        { id: "sum-3", content: "Publish follow-ups", status: "completed", priority: "medium" },
+        {
+          id: "sum-1",
+          content: "Read recent notes",
+          status: "completed",
+          priority: "high",
+        },
+        {
+          id: "sum-2",
+          content: "Create summary",
+          status: "completed",
+          priority: "medium",
+        },
+        {
+          id: "sum-3",
+          content: "Publish follow-ups",
+          status: "completed",
+          priority: "medium",
+        },
       ]);
       setDemoAuthorizedDirs(["~/OpenWork Demo/notes"]);
       setDemoSelectedSessionId(baseSession.id);
@@ -364,28 +466,35 @@ export default function App() {
     }
 
     const parts = [
-      makeTextPart("Prepared a checkout-ready grocery cart from this week's meal plan."),
+      makeTextPart(
+        "Prepared a checkout-ready grocery cart from this week's meal plan."
+      ),
       makeToolPart(
         "read",
         "Parsed meal plan",
         "Identified 14 ingredients needed.",
-        "home/meal-plan.md",
+        "home/meal-plan.md"
       ),
       makeToolPart(
         "write",
         "Generated grocery list",
         "Grocery list ready for review.",
-        "home/grocery-list.md",
+        "home/grocery-list.md"
       ),
       makeToolPart(
         "tool.browser",
         "Built Instacart draft",
-        "Cart ready with 14 items.",
+        "Cart ready with 14 items."
       ),
     ];
 
     const messages = [
-      { info: baseUser, parts: [{ type: "text", text: "Prep grocery order for this week." } as any] },
+      {
+        info: baseUser,
+        parts: [
+          { type: "text", text: "Prep grocery order for this week." } as any,
+        ],
+      },
       { info: baseAssistant, parts },
     ];
 
@@ -399,9 +508,24 @@ export default function App() {
     setDemoSessionStatusById({ [baseSession.id]: "completed" });
     setDemoMessages(messages);
     setDemoTodos([
-      { id: "gro-1", content: "Read meal plan", status: "completed", priority: "high" },
-      { id: "gro-2", content: "Generate list", status: "completed", priority: "medium" },
-      { id: "gro-3", content: "Prepare checkout cart", status: "completed", priority: "medium" },
+      {
+        id: "gro-1",
+        content: "Read meal plan",
+        status: "completed",
+        priority: "high",
+      },
+      {
+        id: "gro-2",
+        content: "Generate list",
+        status: "completed",
+        priority: "medium",
+      },
+      {
+        id: "gro-3",
+        content: "Prepare checkout cart",
+        status: "completed",
+        priority: "medium",
+      },
     ]);
     setDemoAuthorizedDirs(["~/OpenWork Demo/home"]);
     setDemoSelectedSessionId(baseSession.id);
@@ -413,13 +537,25 @@ export default function App() {
   const artifacts = createMemo(() => deriveArtifacts(messages()));
   const workingFiles = createMemo(() => deriveWorkingFiles(artifacts()));
 
-  const activeSessionId = createMemo(() => (isDemoMode() ? demoSelectedSessionId() : selectedSessionId()));
-  const activeSessions = createMemo(() => (isDemoMode() ? demoSessions() : sessions()));
-  const activeSessionStatusById = createMemo(() => (isDemoMode() ? demoSessionStatusById() : sessionStatusById()));
-  const activeMessages = createMemo(() => (isDemoMode() ? demoMessages() : messages()));
+  const activeSessionId = createMemo(() =>
+    isDemoMode() ? demoSelectedSessionId() : selectedSessionId()
+  );
+  const activeSessions = createMemo(() =>
+    isDemoMode() ? demoSessions() : sessions()
+  );
+  const activeSessionStatusById = createMemo(() =>
+    isDemoMode() ? demoSessionStatusById() : sessionStatusById()
+  );
+  const activeMessages = createMemo(() =>
+    isDemoMode() ? demoMessages() : messages()
+  );
   const activeTodos = createMemo(() => (isDemoMode() ? demoTodos() : todos()));
-  const activeArtifacts = createMemo(() => (isDemoMode() ? demoArtifacts() : artifacts()));
-  const activeWorkingFiles = createMemo(() => (isDemoMode() ? demoWorkingFiles() : workingFiles()));
+  const activeArtifacts = createMemo(() =>
+    isDemoMode() ? demoArtifacts() : artifacts()
+  );
+  const activeWorkingFiles = createMemo(() =>
+    isDemoMode() ? demoWorkingFiles() : workingFiles()
+  );
 
   const selectDemoSession = (sessionId: string) => {
     setDemoSelectedSessionId(sessionId);
@@ -477,7 +613,9 @@ export default function App() {
         return copy;
       });
 
-      await loadSessions(workspaceStore.activeWorkspaceRoot().trim()).catch(() => undefined);
+      await loadSessions(workspaceStore.activeWorkspaceRoot().trim()).catch(
+        () => undefined
+      );
     } catch (e) {
       const message = e instanceof Error ? e.message : safeStringify(e);
       setError(addOpencodeCacheHint(message));
@@ -489,19 +627,30 @@ export default function App() {
   }
 
   const [templates, setTemplates] = createSignal<WorkspaceTemplate[]>([]);
-  const [workspaceTemplatesLoaded, setWorkspaceTemplatesLoaded] = createSignal(false);
+  const [workspaceTemplatesLoaded, setWorkspaceTemplatesLoaded] =
+    createSignal(false);
   const [globalTemplatesLoaded, setGlobalTemplatesLoaded] = createSignal(false);
 
   const [templateModalOpen, setTemplateModalOpen] = createSignal(false);
   const [templateDraftTitle, setTemplateDraftTitle] = createSignal("");
-  const [templateDraftDescription, setTemplateDraftDescription] = createSignal("");
+  const [templateDraftDescription, setTemplateDraftDescription] =
+    createSignal("");
   const [templateDraftPrompt, setTemplateDraftPrompt] = createSignal("");
-  const [templateDraftScope, setTemplateDraftScope] = createSignal<"workspace" | "global">("workspace");
+  const [templateDraftScope, setTemplateDraftScope] = createSignal<
+    "workspace" | "global"
+  >("workspace");
 
-  const workspaceTemplates = createMemo(() => templates().filter((t) => t.scope === "workspace"));
-  const globalTemplates = createMemo(() => templates().filter((t) => t.scope === "global"));
+  const workspaceTemplates = createMemo(() =>
+    templates().filter((t) => t.scope === "workspace")
+  );
+  const globalTemplates = createMemo(() =>
+    templates().filter((t) => t.scope === "global")
+  );
 
-  async function respondPermissionAndRemember(requestID: string, reply: "once" | "always" | "reject") {
+  async function respondPermissionAndRemember(
+    requestID: string,
+    reply: "once" | "always" | "reject"
+  ) {
     // Intentional no-op: permission prompts grant session-scoped access only.
     // Persistent workspace roots must be managed explicitly via workspace settings.
     await respondPermission(requestID, reply);
@@ -509,7 +658,9 @@ export default function App() {
 
   const [reloadRequired, setReloadRequired] = createSignal(false);
   const [reloadReasons, setReloadReasons] = createSignal<ReloadReason[]>([]);
-  const [reloadLastTriggeredAt, setReloadLastTriggeredAt] = createSignal<number | null>(null);
+  const [reloadLastTriggeredAt, setReloadLastTriggeredAt] = createSignal<
+    number | null
+  >(null);
   const [reloadBusy, setReloadBusy] = createSignal(false);
   const [reloadError, setReloadError] = createSignal<string | null>(null);
   const [notionStatus, setNotionStatus] = createSignal<"disconnected" | "connecting" | "connected" | "error">(
@@ -522,7 +673,9 @@ export default function App() {
   const [tryNotionPromptVisible, setTryNotionPromptVisible] = createSignal(false);
   const notionIsActive = createMemo(() => notionStatus() === "connected");
   const [cacheRepairBusy, setCacheRepairBusy] = createSignal(false);
-  const [cacheRepairResult, setCacheRepairResult] = createSignal<string | null>(null);
+  const [cacheRepairResult, setCacheRepairResult] = createSignal<string | null>(
+    null
+  );
 
 
   const extensionsStore = createExtensionsStore({
@@ -576,12 +729,18 @@ export default function App() {
   } = extensionsStore;
 
   const [providers, setProviders] = createSignal<Provider[]>([]);
-  const [providerDefaults, setProviderDefaults] = createSignal<Record<string, string>>({});
-  const [providerConnectedIds, setProviderConnectedIds] = createSignal<string[]>([]);
+  const [providerDefaults, setProviderDefaults] = createSignal<
+    Record<string, string>
+  >({});
+  const [providerConnectedIds, setProviderConnectedIds] = createSignal<
+    string[]
+  >([]);
 
   const [defaultModel, setDefaultModel] = createSignal<ModelRef>(DEFAULT_MODEL);
   const [modelPickerOpen, setModelPickerOpen] = createSignal(false);
-  const [modelPickerTarget, setModelPickerTarget] = createSignal<"session" | "default">("session");
+  const [modelPickerTarget, setModelPickerTarget] = createSignal<
+    "session" | "default"
+  >("session");
   const [modelPickerQuery, setModelPickerQuery] = createSignal("");
 
   const [showThinking, setShowThinking] = createSignal(false);
@@ -590,7 +749,11 @@ export default function App() {
   function openTemplateModal() {
     const seedTitle = selectedSession()?.title ?? "";
     const seedPrompt = lastPromptSent() || prompt();
-    const nextDraft = buildTemplateDraft({ seedTitle, seedPrompt, scope: "workspace" });
+    const nextDraft = buildTemplateDraft({
+      seedTitle,
+      seedPrompt,
+      scope: "workspace",
+    });
 
     resetTemplateDraft(
       {
@@ -599,7 +762,7 @@ export default function App() {
         setPrompt: setTemplateDraftPrompt,
         setScope: setTemplateDraftScope,
       },
-      nextDraft.scope,
+      nextDraft.scope
     );
 
     setTemplateDraftTitle(nextDraft.title);
@@ -632,7 +795,11 @@ export default function App() {
     }
 
     setBusy(true);
-    setBusyLabel(draft.scope === "workspace" ? "Saving workspace template" : "Saving template");
+    setBusyLabel(
+      draft.scope === "workspace"
+        ? "Saving workspace template"
+        : "Saving template"
+    );
     setBusyStartedAt(Date.now());
     setError(null);
 
@@ -641,7 +808,10 @@ export default function App() {
 
       if (draft.scope === "workspace") {
         const workspaceRoot = workspaceStore.activeWorkspaceRoot().trim();
-        await workspaceTemplateWrite({ workspacePath: workspaceRoot, template });
+        await workspaceTemplateWrite({
+          workspacePath: workspaceRoot,
+          template,
+        });
         await loadWorkspaceTemplates({ workspaceRoot, quiet: true });
       } else {
         setTemplates((current) => [template, ...current]);
@@ -673,13 +843,15 @@ export default function App() {
       setError(null);
 
       try {
-        await workspaceTemplateDelete({ workspacePath: workspaceRoot, templateId });
+        await workspaceTemplateDelete({
+          workspacePath: workspaceRoot,
+          templateId,
+        });
         await loadWorkspaceTemplates({ workspaceRoot, quiet: true });
     } catch (e) {
       const message = e instanceof Error ? e.message : safeStringify(e);
       setError(addOpencodeCacheHint(message));
     } finally {
-
         setBusy(false);
         setBusyLabel(null);
         setBusyStartedAt(null);
@@ -706,7 +878,10 @@ export default function App() {
 
     try {
       const session = unwrap(
-        await c.session.create({ title: template.title, directory: workspaceStore.activeWorkspaceRoot().trim() }),
+        await c.session.create({
+          title: template.title,
+          directory: workspaceStore.activeWorkspaceRoot().trim(),
+        })
       );
       await loadSessions(workspaceStore.activeWorkspaceRoot().trim());
       await selectSession(session.id);
@@ -788,14 +963,20 @@ export default function App() {
   } = workspaceStore;
 
   const activeAuthorizedDirs = createMemo(() =>
-    isDemoMode() ? demoAuthorizedDirs() : workspaceStore.authorizedDirs(),
+    isDemoMode() ? demoAuthorizedDirs() : workspaceStore.authorizedDirs()
   );
   const activeWorkspaceDisplay = createMemo(() =>
-    isDemoMode() ? demoActiveWorkspaceDisplay() : workspaceStore.activeWorkspaceDisplay(),
+    isDemoMode()
+      ? demoActiveWorkspaceDisplay()
+      : workspaceStore.activeWorkspaceDisplay()
   );
-  const activePermissionMemo = createMemo(() => (isDemoMode() ? null : activePermission()));
+  const activePermissionMemo = createMemo(() =>
+    isDemoMode() ? null : activePermission()
+  );
 
-  const [expandedStepIds, setExpandedStepIds] = createSignal<Set<string>>(new Set());
+  const [expandedStepIds, setExpandedStepIds] = createSignal<Set<string>>(
+    new Set()
+  );
   const [expandedSidebarSections, setExpandedSidebarSections] = createSignal({
     progress: true,
     artifacts: true,
@@ -817,7 +998,8 @@ export default function App() {
   } = updater;
 
   const [resetModalOpen, setResetModalOpen] = createSignal(false);
-  const [resetModalMode, setResetModalMode] = createSignal<ResetOpenworkMode>("onboarding");
+  const [resetModalMode, setResetModalMode] =
+    createSignal<ResetOpenworkMode>("onboarding");
   const [resetModalText, setResetModalText] = createSignal("");
   const [resetModalBusy, setResetModalBusy] = createSignal(false);
 
@@ -833,7 +1015,12 @@ export default function App() {
     if (busy() && label === "Running") return false;
 
     // Otherwise, block during engine / connection transitions.
-    if (busy() && (label === "Connecting" || label === "Starting engine" || label === "Disconnecting")) {
+    if (
+      busy() &&
+      (label === "Connecting" ||
+        label === "Starting engine" ||
+        label === "Disconnecting")
+    ) {
       return true;
     }
 
@@ -845,7 +1032,12 @@ export default function App() {
     if (!query) return CURATED_PACKAGES;
 
     return CURATED_PACKAGES.filter((pkg) => {
-      const haystack = [pkg.name, pkg.source, pkg.description, pkg.tags.join(" ")]
+      const haystack = [
+        pkg.name,
+        pkg.source,
+        pkg.description,
+        pkg.tags.join(" "),
+      ]
         .join(" ")
         .toLowerCase();
       return haystack.includes(query);
@@ -868,10 +1060,12 @@ export default function App() {
     return defaultModel();
   });
 
-  const selectedSessionModelLabel = createMemo(() => formatModelLabel(selectedSessionModel(), providers()));
+  const selectedSessionModelLabel = createMemo(() =>
+    formatModelLabel(selectedSessionModel(), providers())
+  );
 
   const modelPickerCurrent = createMemo(() =>
-    modelPickerTarget() === "default" ? defaultModel() : selectedSessionModel(),
+    modelPickerTarget() === "default" ? defaultModel() : selectedSessionModel()
   );
 
   const modelOptions = createMemo<ModelOption[]>(() => {
@@ -904,7 +1098,9 @@ export default function App() {
     for (const provider of sortedProviders) {
       const defaultModelID = defaults[provider.id];
       const isConnected = providerConnectedIds().includes(provider.id);
-      const models = Object.values(provider.models ?? {}).filter((m) => m.status !== "deprecated");
+      const models = Object.values(provider.models ?? {}).filter(
+        (m) => m.status !== "deprecated"
+      );
 
       models.sort((a, b) => {
         const aFree = a.cost?.input === 0 && a.cost?.output === 0;
@@ -925,7 +1121,9 @@ export default function App() {
           modelID: model.id,
           title: model.name ?? model.id,
           description: provider.name,
-          footer: footerBits.length ? footerBits.slice(0, 2).join(" · ") : undefined,
+          footer: footerBits.length
+            ? footerBits.slice(0, 2).join(" · ")
+            : undefined,
           disabled: !isConnected,
           isFree,
           isConnected,
@@ -991,10 +1189,11 @@ export default function App() {
     setModelPickerOpen(false);
   }
 
-
   function anyActiveRuns() {
     const statuses = sessionStatusById();
-    return sessions().some((s) => statuses[s.id] === "running" || statuses[s.id] === "retry");
+    return sessions().some(
+      (s) => statuses[s.id] === "running" || statuses[s.id] === "retry"
+    );
   }
 
   function clearOpenworkLocalStorage() {
@@ -1061,7 +1260,9 @@ export default function App() {
   function markReloadRequired(reason: ReloadReason) {
     setReloadRequired(true);
     setReloadLastTriggeredAt(Date.now());
-    setReloadReasons((current) => (current.includes(reason) ? current : [...current, reason]));
+    setReloadReasons((current) =>
+      current.includes(reason) ? current : [...current, reason]
+    );
   }
 
   function clearReloadRequired() {
@@ -1130,7 +1331,9 @@ export default function App() {
     }
 
     if (anyActiveRuns()) {
-      setReloadError("A run is in progress. Stop it before reloading the engine.");
+      setReloadError(
+        "A run is in progress. Stop it before reloading the engine."
+      );
       return;
     }
 
@@ -1212,7 +1415,9 @@ export default function App() {
       }
 
       if (result.removed.length) {
-        setCacheRepairResult("OpenCode cache repaired. Restart the engine if it was running.");
+        setCacheRepairResult(
+          "OpenCode cache repaired. Restart the engine if it was running."
+        );
       } else {
         setCacheRepairResult("No OpenCode cache found. Nothing to repair.");
       }
@@ -1233,9 +1438,15 @@ export default function App() {
           state: "error",
           lastCheckedAt:
             updateStatus().state === "idle"
-              ? (updateStatus() as { state: "idle"; lastCheckedAt: number | null }).lastCheckedAt
+              ? (
+                  updateStatus() as {
+                    state: "idle";
+                    lastCheckedAt: number | null;
+                  }
+                ).lastCheckedAt
               : null,
-          message: env.reason ?? "Updates are not supported in this environment.",
+          message:
+            env.reason ?? "Updates are not supported in this environment.",
         });
       }
       return;
@@ -1285,7 +1496,8 @@ export default function App() {
     setError(null);
 
     const state = updateStatus();
-    const lastCheckedAt = state.state === "available" ? state.lastCheckedAt : Date.now();
+    const lastCheckedAt =
+      state.state === "available" ? state.lastCheckedAt : Date.now();
 
     setUpdateStatus({
       state: "downloading",
@@ -1306,14 +1518,21 @@ export default function App() {
 
           if (record.event === "Started") {
             const total =
-              record.data && typeof record.data.contentLength === "number" ? record.data.contentLength : null;
+              record.data && typeof record.data.contentLength === "number"
+                ? record.data.contentLength
+                : null;
             return { ...current, totalBytes: total };
           }
 
           if (record.event === "Progress") {
             const chunk =
-              record.data && typeof record.data.chunkLength === "number" ? record.data.chunkLength : 0;
-            return { ...current, downloadedBytes: current.downloadedBytes + chunk };
+              record.data && typeof record.data.chunkLength === "number"
+                ? record.data.chunkLength
+                : 0;
+            return {
+              ...current,
+              downloadedBytes: current.downloadedBytes + chunk,
+            };
           }
 
           return current;
@@ -1417,42 +1636,122 @@ export default function App() {
   }
 
   async function createSessionAndOpen() {
+    console.log("[DEBUG] createSessionAndOpen");
     if (isDemoMode()) {
       setView("session");
       return;
     }
 
+    console.log("[DEBUG] creating session");
     const c = client();
     if (!c) return;
 
+    console.log("[DEBUG] client found");
     setBusy(true);
-    setBusyLabel("Creating session");
+    console.log("[DEBUG] busy set");
+    setBusyLabel("Creating new task");
+    console.log("[DEBUG] busy label set");
     setBusyStartedAt(Date.now());
+    console.log("[DEBUG] busy started at set");
     setError(null);
+    console.log("[DEBUG] error set");
+    setCreatingSession(true);
+
+    console.log("[DEBUG] with timeout defined");
+    const withTimeout = async <T,>(
+      promise: Promise<T>,
+      ms: number,
+      label: string
+    ) => {
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error(`Timed out waiting for ${label}`)),
+          ms
+        );
+      });
+      try {
+        return await Promise.race([promise, timeoutPromise]);
+      } finally {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      }
+    };
+
+    const runId = (() => {
+      const key = "__openwork_create_session_run__";
+      const w = window as typeof window & { [key]?: number };
+      w[key] = (w[key] ?? 0) + 1;
+      return w[key];
+    })();
+
+    const mark = (() => {
+      const start = Date.now();
+      return (label: string, payload?: unknown) => {
+        const elapsedMs = Date.now() - start;
+        if (payload === undefined) {
+          console.log(`[run ${runId}] ${label} (+${elapsedMs}ms)`);
+        } else {
+          console.log(`[run ${runId}] ${label} (+${elapsedMs}ms)`, payload);
+        }
+      };
+    })();
 
     try {
-      const session = unwrap(
-        await c.session.create({ title: "New task", directory: workspaceStore.activeWorkspaceRoot().trim() }),
+      let rawResult: Awaited<ReturnType<typeof c.session.create>>;
+      try {
+        mark("creating session");
+        rawResult = await c.session.create({
+          directory: workspaceStore.activeWorkspaceRoot().trim(),
+        });
+        mark("session created");
+      } catch (createErr) {
+        mark("session create error", createErr);
+        throw createErr;
+      }
+      mark("raw result received");
+      const session = unwrap(rawResult);
+      mark("session unwrapped");
+      // Set selectedSessionId BEFORE switching view to avoid "No session selected" flash
+      setBusyLabel("Loading session");
+      await withTimeout(
+        loadSessions(workspaceStore.activeWorkspaceRoot().trim()),
+        12_000,
+        "session.list"
       );
-      await loadSessions(workspaceStore.activeWorkspaceRoot().trim());
+      mark("sessions loaded");
       await selectSession(session.id);
+      mark("session selected");
+      // Now switch view AFTER session is selected
+      mark("view set to session");
+      // setSessionViewLockUntil(Date.now() + 1200);
       setView("session");
     } catch (e) {
+      mark("error caught", e);
       const message = e instanceof Error ? e.message : "Unknown error";
       setError(addOpencodeCacheHint(message));
     } finally {
+      setCreatingSession(false);
       setBusy(false);
     }
   }
 
-  async function loadWorkspaceTemplates(options?: { workspaceRoot?: string; quiet?: boolean }) {
+  async function loadWorkspaceTemplates(options?: {
+    workspaceRoot?: string;
+    quiet?: boolean;
+  }) {
     const c = client();
-    const root = (options?.workspaceRoot ?? workspaceStore.activeWorkspaceRoot()).trim();
+    const root = (
+      options?.workspaceRoot ?? workspaceStore.activeWorkspaceRoot()
+    ).trim();
     if (!c || !root) return;
 
     try {
       const templatesPath = ".openwork/templates";
-      const nodes = unwrap(await c.file.list({ directory: root, path: templatesPath }));
+      const nodes = unwrap(
+        await c.file.list({ directory: root, path: templatesPath })
+      );
       const entries = nodes.filter((n) => !n.ignored);
       const templateFiles = entries.filter((n) => n.type === "file");
       const templateDirs = entries.filter((n) => n.type === "directory");
@@ -1470,7 +1769,8 @@ export default function App() {
         const parsedFrontmatter = parseTemplateFrontmatter(raw);
         if (parsedFrontmatter) {
           const meta = parsedFrontmatter.data;
-          const title = typeof meta.title === "string" ? meta.title : "Untitled";
+          const title =
+            typeof meta.title === "string" ? meta.title : "Untitled";
           const promptText = parsedFrontmatter.body ?? "";
           if (!promptText.trim()) return false;
 
@@ -1478,27 +1778,39 @@ export default function App() {
           pushTemplate({
             id: typeof meta.id === "string" ? meta.id : fallbackId,
             title,
-            description: typeof meta.description === "string" ? meta.description : "",
+            description:
+              typeof meta.description === "string" ? meta.description : "",
             prompt: promptText,
-            createdAt: Number.isFinite(createdAtValue) && createdAtValue > 0 ? createdAtValue : Date.now(),
+            createdAt:
+              Number.isFinite(createdAtValue) && createdAtValue > 0
+                ? createdAtValue
+                : Date.now(),
             scope: "workspace",
           });
           return true;
         }
 
-        const parsed = safeParseJson<Partial<WorkspaceTemplate> & Record<string, unknown>>(raw);
+        const parsed = safeParseJson<
+          Partial<WorkspaceTemplate> & Record<string, unknown>
+        >(raw);
         if (!parsed) return false;
 
-        const title = typeof parsed.title === "string" ? parsed.title : "Untitled";
-        const promptText = typeof parsed.prompt === "string" ? parsed.prompt : "";
+        const title =
+          typeof parsed.title === "string" ? parsed.title : "Untitled";
+        const promptText =
+          typeof parsed.prompt === "string" ? parsed.prompt : "";
         if (!promptText.trim()) return false;
 
         pushTemplate({
           id: typeof parsed.id === "string" ? parsed.id : fallbackId,
           title,
-          description: typeof parsed.description === "string" ? parsed.description : "",
+          description:
+            typeof parsed.description === "string" ? parsed.description : "",
           prompt: promptText,
-          createdAt: typeof parsed.createdAt === "number" ? parsed.createdAt : Date.now(),
+          createdAt:
+            typeof parsed.createdAt === "number"
+              ? parsed.createdAt
+              : Date.now(),
           scope: "workspace",
         });
 
@@ -1517,15 +1829,23 @@ export default function App() {
 
       for (const dir of templateDirs) {
         const basePath = `${templatesPath}/${dir.name}`;
-        const candidates = [`${basePath}/template.yml`, `${basePath}/template.yaml`, `${basePath}/template.json`];
+        const candidates = [
+          `${basePath}/template.yml`,
+          `${basePath}/template.yaml`,
+          `${basePath}/template.json`,
+        ];
         for (const candidate of candidates) {
           const loadedTemplate = await readTemplatePath(candidate, dir.name);
           if (loadedTemplate) break;
         }
       }
 
-      const frontmatterFiles = templateFiles.filter((n) => /\.(yml|yaml)$/i.test(n.name));
-      const jsonFiles = templateFiles.filter((n) => n.name.toLowerCase().endsWith(".json"));
+      const frontmatterFiles = templateFiles.filter((n) =>
+        /\.(yml|yaml)$/i.test(n.name)
+      );
+      const jsonFiles = templateFiles.filter((n) =>
+        n.name.toLowerCase().endsWith(".json")
+      );
 
       for (const node of frontmatterFiles) {
         const fallbackId = node.name.replace(/\.(yml|yaml)$/i, "");
@@ -1553,7 +1873,6 @@ export default function App() {
     }
   }
 
-
   onMount(async () => {
     const modePref = readModePreference();
     if (modePref) {
@@ -1567,16 +1886,19 @@ export default function App() {
           setBaseUrl(storedBaseUrl);
         }
 
-        const storedClientDir = window.localStorage.getItem("openwork.clientDirectory");
+        const storedClientDir = window.localStorage.getItem(
+          "openwork.clientDirectory"
+        );
         if (storedClientDir) {
           setClientDirectory(storedClientDir);
         }
 
-        const storedEngineSource = window.localStorage.getItem("openwork.engineSource");
+        const storedEngineSource = window.localStorage.getItem(
+          "openwork.engineSource"
+        );
         if (storedEngineSource === "path" || storedEngineSource === "sidecar") {
           setEngineSource(storedEngineSource);
         }
-
 
         const storedDefaultModel = window.localStorage.getItem(MODEL_PREF_KEY);
         const parsedDefaultModel = parseModelRef(storedDefaultModel);
@@ -1585,7 +1907,10 @@ export default function App() {
         } else {
           setDefaultModel(DEFAULT_MODEL);
           try {
-            window.localStorage.setItem(MODEL_PREF_KEY, formatModelRef(DEFAULT_MODEL));
+            window.localStorage.setItem(
+              MODEL_PREF_KEY,
+              formatModelRef(DEFAULT_MODEL)
+            );
           } catch {
             // ignore
           }
@@ -1613,7 +1938,9 @@ export default function App() {
           setDemoMode(storedDemoMode === "1");
         }
 
-        const storedDemoSequence = window.localStorage.getItem(DEMO_SEQUENCE_PREF_KEY);
+        const storedDemoSequence = window.localStorage.getItem(
+          DEMO_SEQUENCE_PREF_KEY
+        );
         if (
           storedDemoSequence === "cold-open" ||
           storedDemoSequence === "scheduler" ||
@@ -1623,12 +1950,16 @@ export default function App() {
           setDemoSequence(storedDemoSequence);
         }
 
-        const storedUpdateAutoCheck = window.localStorage.getItem("openwork.updateAutoCheck");
+        const storedUpdateAutoCheck = window.localStorage.getItem(
+          "openwork.updateAutoCheck"
+        );
         if (storedUpdateAutoCheck === "0" || storedUpdateAutoCheck === "1") {
           setUpdateAutoCheck(storedUpdateAutoCheck === "1");
         }
 
-        const storedUpdateCheckedAt = window.localStorage.getItem("openwork.updateLastCheckedAt");
+        const storedUpdateCheckedAt = window.localStorage.getItem(
+          "openwork.updateLastCheckedAt"
+        );
         if (storedUpdateCheckedAt) {
           const parsed = Number(storedUpdateCheckedAt);
           if (Number.isFinite(parsed) && parsed > 0) {
@@ -1684,7 +2015,8 @@ export default function App() {
 
       if (updateAutoCheck()) {
         const state = updateStatus();
-        const lastCheckedAt = state.state === "idle" ? state.lastCheckedAt : null;
+        const lastCheckedAt =
+          state.state === "idle" ? state.lastCheckedAt : null;
         if (!lastCheckedAt || Date.now() - lastCheckedAt > 24 * 60 * 60_000) {
           checkForUpdates({ quiet: true }).catch(() => undefined);
         }
@@ -1712,7 +2044,10 @@ export default function App() {
   createEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      window.localStorage.setItem("openwork.clientDirectory", clientDirectory());
+      window.localStorage.setItem(
+        "openwork.clientDirectory",
+        clientDirectory()
+      );
     } catch {
       // ignore
     }
@@ -1737,7 +2072,6 @@ export default function App() {
     }
   });
 
-
   createEffect(() => {
     if (typeof window === "undefined") return;
     if (!globalTemplatesLoaded()) return;
@@ -1754,7 +2088,10 @@ export default function App() {
           scope: t.scope,
         }));
 
-      window.localStorage.setItem("openwork.templates", JSON.stringify(payload));
+      window.localStorage.setItem(
+        "openwork.templates",
+        JSON.stringify(payload)
+      );
     } catch {
       // ignore
     }
@@ -1763,7 +2100,10 @@ export default function App() {
   createEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      window.localStorage.setItem(MODEL_PREF_KEY, formatModelRef(defaultModel()));
+      window.localStorage.setItem(
+        MODEL_PREF_KEY,
+        formatModelRef(defaultModel())
+      );
     } catch {
       // ignore
     }
@@ -1772,7 +2112,10 @@ export default function App() {
   createEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      window.localStorage.setItem("openwork.updateAutoCheck", updateAutoCheck() ? "1" : "0");
+      window.localStorage.setItem(
+        "openwork.updateAutoCheck",
+        updateAutoCheck() ? "1" : "0"
+      );
     } catch {
       // ignore
     }
@@ -1781,7 +2124,10 @@ export default function App() {
   createEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      window.localStorage.setItem(THINKING_PREF_KEY, JSON.stringify(showThinking()));
+      window.localStorage.setItem(
+        THINKING_PREF_KEY,
+        JSON.stringify(showThinking())
+      );
     } catch {
       // ignore
     }
@@ -1824,13 +2170,15 @@ export default function App() {
     if (typeof window === "undefined") return;
     if (state.state === "idle" && state.lastCheckedAt) {
       try {
-        window.localStorage.setItem("openwork.updateLastCheckedAt", String(state.lastCheckedAt));
+        window.localStorage.setItem(
+          "openwork.updateLastCheckedAt",
+          String(state.lastCheckedAt)
+        );
       } catch {
         // ignore
       }
     }
   });
-
 
   const headerStatus = createMemo(() => {
     if (!client() || !connectedVersion()) return "Disconnected";
@@ -1899,7 +2247,8 @@ export default function App() {
     onBackToMode: workspaceStore.onBackToMode,
     onSetAuthorizedDir: workspaceStore.setNewAuthorizedDir,
     onAddAuthorizedDir: workspaceStore.addAuthorizedDir,
-    onAddAuthorizedDirFromPicker: () => workspaceStore.addAuthorizedDirFromPicker({ persistToWorkspace: true }),
+    onAddAuthorizedDirFromPicker: () =>
+      workspaceStore.addAuthorizedDirFromPicker({ persistToWorkspace: true }),
     onRemoveAuthorizedDir: workspaceStore.removeAuthorizedDirAtIndex,
     onRefreshEngineDoctor: async () => {
       workspaceStore.setEngineInstallLogs(null);
@@ -1907,7 +2256,8 @@ export default function App() {
     },
     onInstallEngine: workspaceStore.onInstallEngine,
     onShowSearchNotes: () => {
-      const notes = workspaceStore.engineDoctorResult()?.notes?.join("\n") ?? "";
+      const notes =
+        workspaceStore.engineDoctorResult()?.notes?.join("\n") ?? "";
       workspaceStore.setEngineInstallLogs(notes || null);
     },
   });
@@ -1947,7 +2297,9 @@ export default function App() {
       directory: s.directory,
     })),
     sessionStatusById: activeSessionStatusById(),
-    activeWorkspaceRoot: isDemoMode() ? demoActiveWorkspaceDisplay().path : workspaceStore.activeWorkspaceRoot().trim(),
+    activeWorkspaceRoot: isDemoMode()
+      ? demoActiveWorkspaceDisplay().path
+      : workspaceStore.activeWorkspaceRoot().trim(),
     workspaceTemplates: workspaceTemplates(),
     globalTemplates: globalTemplates(),
     setTemplateDraftTitle,
@@ -1962,13 +2314,14 @@ export default function App() {
           setPrompt: setTemplateDraftPrompt,
           setScope: setTemplateDraftScope,
         },
-        scope,
+        scope
       ),
     openTemplateModal,
     runTemplate,
     deleteTemplate,
     refreshSkills: () => refreshSkills().catch(() => undefined),
-    refreshPlugins: (scopeOverride?: PluginScope) => refreshPlugins(scopeOverride).catch(() => undefined),
+    refreshPlugins: (scopeOverride?: PluginScope) =>
+      refreshPlugins(scopeOverride).catch(() => undefined),
     skills: skills(),
     skillsStatus: skillsStatus(),
     openPackageSource: openPackageSource(),
@@ -2002,7 +2355,7 @@ export default function App() {
     editModelVariant: () => {
       const next = window.prompt(
         "Model variant (provider-specific, e.g. high/max/minimal). Leave blank to clear.",
-        modelVariant() ?? "",
+        modelVariant() ?? ""
       );
       if (next == null) return;
       const trimmed = next.trim();
@@ -2043,16 +2396,17 @@ export default function App() {
     connectNotion,
   });
 
-
   return (
     <>
-      <Show when={client()} fallback={<OnboardingView {...onboardingProps()} />}>
+      <Show
+        when={client()}
+        fallback={<OnboardingView {...onboardingProps()} />}
+      >
         <Switch>
           <Match when={view() === "dashboard"}>
             <DashboardView {...dashboardProps()} />
           </Match>
           <Match when={view() === "session"}>
-
             <SessionView
                 selectedSessionId={activeSessionId()}
                 setView={setView}
@@ -2066,9 +2420,7 @@ export default function App() {
                 openSessionModelPicker={openSessionModelPicker}
                 activePlugins={sidebarPluginList()}
                 activePluginStatus={sidebarPluginStatus()}
-
                 createSessionAndOpen={createSessionAndOpen}
-
                 sendPromptAsync={sendPrompt}
                 newTaskDisabled={newTaskDisabled()}
                 sessions={activeSessions().map((session) => ({
@@ -2112,6 +2464,7 @@ export default function App() {
                   }
                 }}
 
+              error={error()}
             />
           </Match>
           <Match when={true}>
@@ -2137,7 +2490,11 @@ export default function App() {
         mode={resetModalMode()}
         text={resetModalText()}
         busy={resetModalBusy()}
-        canReset={!resetModalBusy() && !anyActiveRuns() && resetModalText().trim().toUpperCase() === "RESET"}
+        canReset={
+          !resetModalBusy() &&
+          !anyActiveRuns() &&
+          resetModalText().trim().toUpperCase() === "RESET"
+        }
         hasActiveRuns={anyActiveRuns()}
         onClose={() => setResetModalOpen(false)}
         onConfirm={confirmReset}
@@ -2173,7 +2530,9 @@ export default function App() {
         open={workspaceStore.createWorkspaceOpen()}
         onClose={() => workspaceStore.setCreateWorkspaceOpen(false)}
         onPickFolder={workspaceStore.pickWorkspaceFolder}
-        onConfirm={(preset, folder) => workspaceStore.createWorkspaceFlow(preset, folder)}
+        onConfirm={(preset, folder) =>
+          workspaceStore.createWorkspaceFlow(preset, folder)
+        }
       />
     </>
   );

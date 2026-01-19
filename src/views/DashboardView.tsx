@@ -1,5 +1,11 @@
 import { For, Match, Show, Switch, createEffect, createMemo } from "solid-js";
-import type { CuratedPackage, DashboardTab, PluginScope, SkillCard, WorkspaceTemplate } from "../app/types";
+import type {
+  CuratedPackage,
+  DashboardTab,
+  PluginScope,
+  SkillCard,
+  WorkspaceTemplate,
+} from "../app/types";
 import type { WorkspaceInfo } from "../lib/tauri";
 import { formatRelativeTime } from "../app/utils";
 
@@ -10,7 +16,16 @@ import PluginsView from "./PluginsView";
 import SettingsView from "./SettingsView";
 import SkillsView from "./SkillsView";
 import TemplatesView from "./TemplatesView";
-import { Command, Cpu, FileText, Package, Play, Plus, Settings, Smartphone } from "lucide-solid";
+import {
+  Command,
+  Cpu,
+  FileText,
+  Package,
+  Play,
+  Plus,
+  Settings,
+  Smartphone,
+} from "lucide-solid";
 
 export type DashboardViewProps = {
   tab: DashboardTab;
@@ -37,9 +52,18 @@ export type DashboardViewProps = {
   activateWorkspace: (id: string) => void;
   createWorkspaceOpen: boolean;
   setCreateWorkspaceOpen: (open: boolean) => void;
-  createWorkspaceFlow: (preset: "starter" | "automation" | "minimal", folder: string | null) => void;
+  createWorkspaceFlow: (
+    preset: "starter" | "automation" | "minimal",
+    folder: string | null
+  ) => void;
   pickWorkspaceFolder: () => Promise<string | null>;
-  sessions: Array<{ id: string; slug?: string | null; title: string; time: { updated: number }; directory?: string | null }>;
+  sessions: Array<{
+    id: string;
+    slug?: string | null;
+    title: string;
+    time: { updated: number };
+    directory?: string | null;
+  }>;
   sessionStatusById: Record<string, string>;
   activeWorkspaceRoot: string;
   workspaceTemplates: WorkspaceTemplate[];
@@ -117,21 +141,21 @@ export type DashboardViewProps = {
   checkForUpdates: () => void;
   downloadUpdate: () => void;
   installUpdateAndRestart: () => void;
-   anyActiveRuns: boolean;
-   engineSource: "path" | "sidecar";
-   setEngineSource: (value: "path" | "sidecar") => void;
-   isWindows: boolean;
-   toggleDeveloperMode: () => void;
-   developerMode: boolean;
-   stopHost: () => void;
-   openResetModal: (mode: "onboarding" | "all") => void;
-   resetModalBusy: boolean;
-   onResetStartupPreference: () => void;
-   pendingPermissions: unknown;
-   events: unknown;
-   safeStringify: (value: unknown) => string;
-   repairOpencodeCache: () => void;
-   cacheRepairBusy: boolean;
+  anyActiveRuns: boolean;
+  engineSource: "path" | "sidecar";
+  setEngineSource: (value: "path" | "sidecar") => void;
+  isWindows: boolean;
+  toggleDeveloperMode: () => void;
+  developerMode: boolean;
+  stopHost: () => void;
+  openResetModal: (mode: "onboarding" | "all") => void;
+  resetModalBusy: boolean;
+  onResetStartupPreference: () => void;
+  pendingPermissions: unknown;
+  events: unknown;
+  safeStringify: (value: unknown) => string;
+  repairOpencodeCache: () => void;
+  cacheRepairBusy: boolean;
   cacheRepairResult: string | null;
   notionStatus: "disconnected" | "connecting" | "connected" | "error";
   notionStatusDetail: string | null;
@@ -139,12 +163,12 @@ export type DashboardViewProps = {
   notionBusy: boolean;
   connectNotion: () => void;
   demoMode: boolean;
-
-   toggleDemoMode: () => void;
-   demoSequence: "cold-open" | "scheduler" | "summaries" | "groceries";
-   setDemoSequence: (value: "cold-open" | "scheduler" | "summaries" | "groceries") => void;
- };
-
+  toggleDemoMode: () => void;
+  demoSequence: "cold-open" | "scheduler" | "summaries" | "groceries";
+  setDemoSequence: (
+    value: "cold-open" | "scheduler" | "summaries" | "groceries"
+  ) => void;
+};
 
 export default function DashboardView(props: DashboardViewProps) {
   const title = createMemo(() => {
@@ -166,6 +190,15 @@ export default function DashboardView(props: DashboardViewProps) {
 
   const quickTemplates = createMemo(() => props.workspaceTemplates.slice(0, 3));
 
+  const openSessionFromList = (sessionId: string) => {
+    // Defer view switch to avoid click-through on the same event frame.
+    window.setTimeout(() => {
+      props.setView("session");
+      props.setTab("sessions");
+      void props.selectSession(sessionId);
+    }, 0);
+  };
+
   createEffect(() => {
     if (props.tab === "skills") {
       props.refreshSkills();
@@ -185,7 +218,9 @@ export default function DashboardView(props: DashboardViewProps) {
     return (
       <button
         class={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-          active() ? "bg-zinc-900 text-white" : "text-zinc-500 hover:text-white hover:bg-zinc-900/50"
+          active()
+            ? "bg-zinc-900 text-white"
+            : "text-zinc-500 hover:text-white hover:bg-zinc-900/50"
         }`}
         onClick={() => props.setTab(t)}
       >
@@ -219,32 +254,52 @@ export default function DashboardView(props: DashboardViewProps) {
         <div class="space-y-4">
           <div class="px-3 py-3 rounded-xl bg-zinc-900/50 border border-zinc-800">
             <div class="flex items-center gap-2 text-xs font-medium text-zinc-400 mb-2">
-              {props.mode === "host" ? <Cpu size={12} /> : <Smartphone size={12} />}
+              {props.mode === "host" ? (
+                <Cpu size={12} />
+              ) : (
+                <Smartphone size={12} />
+              )}
               {props.mode === "host" ? "Local Engine" : "Client Mode"}
             </div>
             <div class="flex items-center gap-2">
               <div
                 class={`w-2 h-2 rounded-full ${
-                  props.clientConnected ? "bg-emerald-500 animate-pulse" : "bg-zinc-600"
+                  props.clientConnected
+                    ? "bg-emerald-500 animate-pulse"
+                    : "bg-zinc-600"
                 }`}
               />
               <span
-                class={`text-sm font-mono ${props.clientConnected ? "text-emerald-500" : "text-zinc-500"}`}
+                class={`text-sm font-mono ${
+                  props.clientConnected ? "text-emerald-500" : "text-zinc-500"
+                }`}
               >
                 {props.clientConnected ? "Connected" : "Disconnected"}
               </span>
             </div>
-            <div class="mt-2 text-[11px] text-zinc-600 font-mono truncate">{props.baseUrl}</div>
+            <div class="mt-2 text-[11px] text-zinc-600 font-mono truncate">
+              {props.baseUrl}
+            </div>
           </div>
 
           <Show when={props.mode === "host"}>
-            <Button variant="danger" onClick={props.stopHost} disabled={props.busy} class="w-full">
+            <Button
+              variant="danger"
+              onClick={props.stopHost}
+              disabled={props.busy}
+              class="w-full"
+            >
               Stop & Disconnect
             </Button>
           </Show>
 
           <Show when={props.mode === "client"}>
-            <Button variant="outline" onClick={props.stopHost} disabled={props.busy} class="w-full">
+            <Button
+              variant="outline"
+              onClick={props.stopHost}
+              disabled={props.busy}
+              class="w-full"
+            >
               Disconnect
             </Button>
           </Show>
@@ -272,7 +327,13 @@ export default function DashboardView(props: DashboardViewProps) {
           <div class="flex items-center gap-2">
             <Show when={props.tab === "home" || props.tab === "sessions"}>
               <Button
-                onClick={props.createSessionAndOpen}
+                onPointerDown={(e) => {
+                  e.currentTarget.setPointerCapture?.(e.pointerId);
+                }}
+                onPointerUp={() => {
+                  console.log("[DEBUG] new task button pointerup");
+                  props.createSessionAndOpen();
+                }}
                 disabled={props.newTaskDisabled}
                 title={props.newTaskDisabled ? props.busyHint ?? "Busy" : ""}
               >
@@ -285,17 +346,16 @@ export default function DashboardView(props: DashboardViewProps) {
               <Button
                 variant="secondary"
                 onClick={() => {
-                    const reset = props.resetTemplateDraft;
-                    if (reset) {
-                      reset("workspace");
-                    } else {
-                      props.setTemplateDraftTitle("");
-                      props.setTemplateDraftDescription("");
-                      props.setTemplateDraftPrompt("");
-                      props.setTemplateDraftScope("workspace");
-                    }
-                    props.openTemplateModal();
-
+                  const reset = props.resetTemplateDraft;
+                  if (reset) {
+                    reset("workspace");
+                  } else {
+                    props.setTemplateDraftTitle("");
+                    props.setTemplateDraftDescription("");
+                    props.setTemplateDraftPrompt("");
+                    props.setTemplateDraftScope("workspace");
+                  }
+                  props.openTemplateModal();
                 }}
                 disabled={props.busy}
               >
@@ -313,15 +373,20 @@ export default function DashboardView(props: DashboardViewProps) {
                 <div class="bg-gradient-to-r from-zinc-900 to-zinc-800 rounded-3xl p-1 border border-zinc-800 shadow-2xl">
                   <div class="bg-zinc-950 rounded-[22px] p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6">
                     <div class="space-y-2 text-center md:text-left">
-                      <h2 class="text-2xl font-semibold text-white">What should we do today?</h2>
+                      <h2 class="text-2xl font-semibold text-white">
+                        What should we do today?
+                      </h2>
                       <p class="text-zinc-400">
-                        Describe an outcome. OpenWork will run it and keep an audit trail.
+                        Describe an outcome. OpenWork will run it and keep an
+                        audit trail.
                       </p>
                     </div>
                     <Button
                       onClick={props.createSessionAndOpen}
                       disabled={props.newTaskDisabled}
-                      title={props.newTaskDisabled ? props.busyHint ?? "Busy" : ""}
+                      title={
+                        props.newTaskDisabled ? props.busyHint ?? "Busy" : ""
+                      }
                       class="w-full md:w-auto py-3 px-6 text-base"
                     >
                       <Play size={18} />
@@ -333,7 +398,9 @@ export default function DashboardView(props: DashboardViewProps) {
 
               <section>
                 <div class="flex items-center justify-between mb-4">
-                  <h3 class="text-sm font-medium text-zinc-400 uppercase tracking-wider">Quick Start Templates</h3>
+                  <h3 class="text-sm font-medium text-zinc-400 uppercase tracking-wider">
+                    Quick Start Templates
+                  </h3>
                   <button
                     class="text-sm text-zinc-500 hover:text-white"
                     onClick={() => props.setTab("templates")}
@@ -361,7 +428,9 @@ export default function DashboardView(props: DashboardViewProps) {
                             <FileText size={20} class="text-indigo-400" />
                           </div>
                           <h4 class="font-medium text-white mb-1">{t.title}</h4>
-                          <p class="text-sm text-zinc-500">{t.description || "Run a saved workflow"}</p>
+                          <p class="text-sm text-zinc-500">
+                            {t.description || "Run a saved workflow"}
+                          </p>
                         </button>
                       )}
                     </For>
@@ -370,19 +439,24 @@ export default function DashboardView(props: DashboardViewProps) {
               </section>
 
               <section>
-                <h3 class="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-4">Recent Sessions</h3>
+                <h3 class="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-4">
+                  Recent Sessions
+                </h3>
 
                 <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl overflow-hidden">
                   <For each={props.sessions.slice(0, 12)}>
                     {(s, idx) => (
                       <button
                         class={`w-full p-4 flex items-center justify-between hover:bg-zinc-800/50 transition-colors text-left ${
-                          idx() !== Math.min(props.sessions.length, 12) - 1 ? "border-b border-zinc-800/50" : ""
+                          idx() !== Math.min(props.sessions.length, 12) - 1
+                            ? "border-b border-zinc-800/50"
+                            : ""
                         }`}
-                        onClick={async () => {
-                          await props.selectSession(s.id);
-                          props.setView("session");
-                          props.setTab("sessions");
+                        onPointerDown={(e) => {
+                          e.currentTarget.setPointerCapture?.(e.pointerId);
+                        }}
+                        onPointerUp={() => {
+                          openSessionFromList(s.id);
                         }}
                       >
                         <div class="flex items-center gap-4">
@@ -390,10 +464,19 @@ export default function DashboardView(props: DashboardViewProps) {
                             #{s.slug?.slice(0, 2) ?? ".."}
                           </div>
                           <div>
-                            <div class="font-medium text-sm text-zinc-200">{s.title}</div>
+                            <div class="font-medium text-sm text-zinc-200">
+                              {s.title}
+                            </div>
                             <div class="text-xs text-zinc-500 flex items-center gap-2">
-                              <span class="flex items-center gap-1">{formatRelativeTime(s.time.updated)}</span>
-                              <Show when={props.activeWorkspaceRoot && s.directory === props.activeWorkspaceRoot}>
+                              <span class="flex items-center gap-1">
+                                {formatRelativeTime(s.time.updated)}
+                              </span>
+                              <Show
+                                when={
+                                  props.activeWorkspaceRoot &&
+                                  s.directory === props.activeWorkspaceRoot
+                                }
+                              >
                                 <span class="text-[11px] px-2 py-0.5 rounded-full border border-zinc-700/60 text-zinc-500">
                                   this workspace
                                 </span>
@@ -412,7 +495,9 @@ export default function DashboardView(props: DashboardViewProps) {
                   </For>
 
                   <Show when={!props.sessions.length}>
-                    <div class="p-6 text-sm text-zinc-500">No sessions yet.</div>
+                    <div class="p-6 text-sm text-zinc-500">
+                      No sessions yet.
+                    </div>
                   </Show>
                 </div>
               </section>
@@ -420,18 +505,24 @@ export default function DashboardView(props: DashboardViewProps) {
 
             <Match when={props.tab === "sessions"}>
               <section>
-                <h3 class="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-4">All Sessions</h3>
+                <h3 class="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-4">
+                  All Sessions
+                </h3>
 
                 <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl overflow-hidden">
                   <For each={props.sessions}>
                     {(s, idx) => (
                       <button
                         class={`w-full p-4 flex items-center justify-between hover:bg-zinc-800/50 transition-colors text-left ${
-                          idx() !== props.sessions.length - 1 ? "border-b border-zinc-800/50" : ""
+                          idx() !== props.sessions.length - 1
+                            ? "border-b border-zinc-800/50"
+                            : ""
                         }`}
-                        onClick={async () => {
-                          await props.selectSession(s.id);
-                          props.setView("session");
+                        onPointerDown={(e) => {
+                          e.currentTarget.setPointerCapture?.(e.pointerId);
+                        }}
+                        onPointerUp={() => {
+                          openSessionFromList(s.id);
                         }}
                       >
                         <div class="flex items-center gap-4">
@@ -439,10 +530,19 @@ export default function DashboardView(props: DashboardViewProps) {
                             #{s.slug?.slice(0, 2) ?? ".."}
                           </div>
                           <div>
-                            <div class="font-medium text-sm text-zinc-200">{s.title}</div>
+                            <div class="font-medium text-sm text-zinc-200">
+                              {s.title}
+                            </div>
                             <div class="text-xs text-zinc-500 flex items-center gap-2">
-                              <span class="flex items-center gap-1">{formatRelativeTime(s.time.updated)}</span>
-                              <Show when={props.activeWorkspaceRoot && s.directory === props.activeWorkspaceRoot}>
+                              <span class="flex items-center gap-1">
+                                {formatRelativeTime(s.time.updated)}
+                              </span>
+                              <Show
+                                when={
+                                  props.activeWorkspaceRoot &&
+                                  s.directory === props.activeWorkspaceRoot
+                                }
+                              >
                                 <span class="text-[11px] px-2 py-0.5 rounded-full border border-zinc-700/60 text-zinc-500">
                                   this workspace
                                 </span>
@@ -461,7 +561,9 @@ export default function DashboardView(props: DashboardViewProps) {
                   </For>
 
                   <Show when={!props.sessions.length}>
-                    <div class="p-6 text-sm text-zinc-500">No sessions yet.</div>
+                    <div class="p-6 text-sm text-zinc-500">
+                      No sessions yet.
+                    </div>
                   </Show>
                 </div>
               </section>
@@ -596,7 +698,9 @@ export default function DashboardView(props: DashboardViewProps) {
                     Retry
                   </Button>
                   <Show when={props.cacheRepairResult}>
-                    <span class="text-xs text-red-200/80">{props.cacheRepairResult}</span>
+                    <span class="text-xs text-red-200/80">
+                      {props.cacheRepairResult}
+                    </span>
                   </Show>
                 </div>
               </Show>
