@@ -1,34 +1,83 @@
-# OpenWork Product Requirements Document (PRD)
+# OpenWork Motivations and Philosophy
 
-## Summary
-
-OpenWork is an open-source **native GUI** (Tauri) that makes OpenCode feel like a polished consumer app for non-technical people.
 
 - OpenCode is the **engine**.
 - OpenWork is the **experience**: onboarding, safety, permissions, progress, artifacts, and a premium-feeling UI.
 
 OpenWork competes directly with Anthropic’s Cowork conceptually, but stays open, local-first, and standards-based.
 
-## Goals
-
-- Deliver a **premium, extremely slick** user experience (desktop + mobile).
-- Make OpenCode usable without a terminal.
-- Launch/attach to an OpenCode instance automatically when OpenWork starts.
-- Expose OpenCode primitives (sessions, messages, tools, permissions, files) in a non-technical UI.
-- Provide long-running tasks with resumability.
-- Provide explicit, understandable permissions and auditing.
 - Work with **only the folders the user authorizes**.
-- Treat **plugins + skills** as the primary extensibility system.
+- Treat **plugins + skills + commands + mcp** as the primary extensibility system. These are native to OpenCode and OpenWork must be a thin layer on top of them. They're mostly fs based:
+
+## opencode primitives
+how to pick the right extension abstraction for 
+@opencode
+
+
+opencode has a lot of extensibility options:
+mcp / plugins / skills / bash / agents / commands
+
+- mcp
+use when you need authenticated third-party flows (oauth) and want to expose that safely to end users
+good fit when “auth + capability surface” is the product boundary
+downside: you’re limited to whatever surface area the server exposes
+
+- bash / raw cli
+use only for the most advanced users or internal power workflows
+highest risk, easiest to get out of hand (context creep + permission creep + footguns)
+great for power users and prototyping, terrifying as a default for non-tech users
+
+- plugins
+use when you need real tools in code and want to scope permissions around them
+good middle ground: safer than raw cli, more flexible than mcp, reusable and testable
+basically “guardrails + capability packaging”
+
+- skills
+use when you want reliable plain-english patterns that shape behavior
+best for repeatability and making workflows legible
+pro tip: pair skills with plugins or cli (i literally embed skills inside plugins right now and expose commands like get_skills / retrieve)
+
+- agents
+use when you need to create tasks that are executed by different models than the main one and might have some extra context to find skills or interact with mcps.
+
+- commands 
+`/` commands that trigger tools
+
+These are all opencode primitives you can read the docs to find out exactly how to set them up.
+
+## Core Concepts of OpenWork
+
+- uses all these primitives
+- adds new concept of "template"  simple files stored in .openwork/templates in markdown (look at repo to see how)
+- adds a new abstraction "workspace" is a project fodler and a simple .json file that includes a list of opencode primitives that map perfectly to an opencode workdir (not fully implemented)
+  - openwork can open a workpace.json and decide where to populate a folder with thse settings (not implemented today
+
 
 ## Non-Goals
 
 - Replacing OpenCode’s CLI/TUI.
-- Shipping a hosted SaaS in v1.
 - Creating bespoke “magic” capabilities that don’t map to OpenCode APIs.
 
 ## Target Users
 
-1. **Non-technical knowledge worker**: “Do this for me” workflows with guardrails.
+> Bob the IT guy.
+Bob might already use opencode, he can setup agents and workflows and share them with his team. The only thing he needs is a way to share this. The way he does is by using OpenWork and creating "workpaces".
+
+> Susan in accounting
+
+Susan in accounting doesn't use opencode. She certaintly doesn't paly aorund to create workflow create agents. She wants something that works.
+Openwork should be given to give her a good taste of what she can do. 
+We should also eventually guide ther to:
+- creating her own skills
+- adding custom MCP / login into mcp oauth servers through ui)
+- adding skills from a list of skills
+- adding plugins from a list of plugins
+- create her own commands
+
+
+
+
+1. **knowledge worker**: “Do this for me” workflows with guardrails.
 2. **Mobile-first user**: start/monitor tasks from phone.
 3. **Power user**: wants UI parity + speed + inspection.
 4. **Admin/host**: manages a shared machine + profiles.
@@ -54,13 +103,13 @@ OpenWork competes directly with Anthropic’s Cowork conceptually, but stays ope
 
 OpenWork is a Tauri application with two runtime modes:
 
-### Mode A — Host (Desktop)
+### Mode A — Host (Desktop/Server)
 
 - OpenWork runs on a desktop/laptop and **starts** OpenCode locally.
 - The OpenCode server runs on loopback (default `127.0.0.1:4096`).
 - OpenWork UI connects via the official SDK and listens to events.
 
-### Mode B — Client (Mobile)
+### Mode B — Client (Desktop/Mobile)
 
 - OpenWork runs on iOS/Android as a **remote controller**.
 - It connects to an already-running OpenCode server hosted by a trusted device.
@@ -476,128 +525,3 @@ Every run provides an exportable audit log:
 - Best packaging strategy for Host mode engine (bundled vs user-installed Node/runtime).
 - Best remote transport for mobile client (LAN only vs optional tunnel).
 - Scheduling API surface (native in OpenCode server vs OpenWork-managed scheduler).
-
----
-
-## Milestones
-
-### v0.1 — Engine + Client
-
-- Host mode: start OpenCode via `createOpencode()`.
-- Client mode: connect via `createOpencodeClient()`.
-- Health screen + basic sessions list.
-
-### v0.2 — Full Run Loop
-
-- create session
-- send prompt
-- stream events
-- display step timeline
-- permission prompts
-
-### v0.3 — Premium UX
-
-- micro-interactions and animations
-- mobile layouts + gestures
-- templates
-
-### v1.0 — Public Open Source Release
-
-- strong onboarding
-- multi-device pairing
-- audit/export
-- docs + examples
-
----
-
-## UI/UX Cleaning PRD (Cowork-inspired Session View)
-
-### Summary
-
-Align the session experience with the Cowork-style reference so OpenWork feels calm, friendly, and non-technical by default, while preserving transparency through opt-in details.
-
-### Target Users
-
-- Non-technical operators who want outcomes rather than logs
-- Knowledge workers who prefer simple status cues over verbose diagnostics
-
-### Goals
-
-- Replace multi-block technical chatter with a single, collapsible "View steps" per assistant response batch
-- Provide a clear, minimal progress indicator that communicates task state at a glance
-- Surface artifacts and context in a structured, approachable sidebar
-- Preserve an approachable, consumer-grade visual tone
-
-### Non-Goals
-
-- Changing engine behavior or SDK event formats
-- Adding new backend data sources beyond existing session/todo/context signals
-
-### Experience Requirements
-
-#### Left Sidebar (Persistent)
-
-- Show tabs (Chat / Cowork / Code)
-- Primary action: New task
-- Recents list (session titles)
-- User profile + plan/footer area
-
-#### Center Feed (Primary Narrative)
-
-- User text appears in short, clean bubbles
-- Assistant text appears as narrative with clear spacing
-- Non-text parts (reasoning/tool/output) are grouped into a single collapsible "View steps" section
-- Collapsed by default; expanded reveals step items
-
-#### Right Sidebar (Context)
-
-- Section 1: Progress (horizontal step dots with checkmarks)
-- Section 2: Artifacts (file list with action affordance)
-- Section 3: Context (selected folders + working files)
-- Each section is collapsible with a small caret
-
-### Information Hierarchy
-
-- Default view emphasizes human-readable outcomes
-- Technical detail is opt-in via "View steps"
-- Artifacts are promoted above raw tool output
-
-### Functional Requirements
-
-1) Steps grouping
-- Group consecutive non-text parts into a single "steps" block
-- Render a single toggle: "View steps"
-- Expanded content uses a tidy list style (icon + short label)
-
-2) Progress indicator
-- Convert todos into a horizontal sequence
-- Completed = checkmark, pending = empty circle
-- Add helper text: "Steps will show as the task unfolds."
-
-3) Artifacts
-- Render created files as cards in the feed
-- Mirror artifacts in sidebar list with Open/Reveal action
-
-4) Context surface
-- Show selected folders (authorized roots)
-- Show working files (from active run context)
-
-### Visual/Interaction Guidelines
-
-- Reduce density; increase whitespace and line height
-- Avoid raw JSON or log blocks in default view
-- Use soft borders and subtle separators
-- Keep typography calm and legible; avoid aggressive contrast blocks
-
-### Data + State Requirements
-
-- Derived grouping of message parts into text vs steps
-- Artifact list state, synced to session events
-- Context list state (authorized folders + working files)
-
-### Acceptance Criteria
-
-- A single assistant response shows at most one "View steps" block
-- No raw tool output appears unless expanded
-- Progress, artifacts, and context appear in the right sidebar
-- Session view matches the three-column layout and calm tone
