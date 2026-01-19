@@ -1,15 +1,14 @@
 # AGENTS.md
 
-OpenWork exists to bring OpenCode's agentic power to non-technical people through an accessible, transparent **native GUI**. It is an open-source competitor to Anthropic's Cowork and must stay faithful to OpenCode's principles: self-building, self-referential, standards-first, and graceful degradation.
+OpenWork is an open-source alternative to Claude Cowork. 
 
 ## Why OpenWork Exists
 
-1. **OpenCode is powerful but terminal-only.** Non-technical users can't access it.
-2. **Cowork is closed-source and locked to Claude Max.** We need an open alternative.
-3. **Mobile-first matters.** People want to run tasks from their phones.
-4. **Slick UI is non-negotiable.** The experience must feel premium, not utilitarian.
+**Cowork is closed-source and locked to Claude Max.** We need an open alternative.
+**Mobile-first matters.** People want to run tasks from their phones.
+**Slick UI is non-negotiable.** The experience must feel premium, not utilitarian.
 
-## Core Expectations
+## Agent Guidelines for development
 
 - **Purpose-first UI**: prioritize clarity, safety, and approachability for non-technical users.
 - **Parity with OpenCode**: anything the UI can do must map cleanly to OpenCode tools.
@@ -32,17 +31,15 @@ OpenWork exists to bring OpenCode's agentic power to non-technical people throug
 
 ## Repository Guidance
 
-- Always read `design-prd.md` at session start for product intent and user flows.
-- Write new PRDs under `pr/<prd-name>.md` (see `.opencode/skill/prd-conventions/SKILL.md`).
-- Keep `design-prd.md` and `.opencode/skill/*/SKILL.md` updated when behavior changes.
-- Use `.opencode/skill/` for repeatable workflows and domain vocabulary.
+- Write new PRDs under `prd/<prd-name>.md` (see `.opencode/skill/prd-conventions/SKILL.md`).
+- Use MOTIVATION-PHILOSOPHY.md to understand the "why" of OpenWork so you can guide your decisions.
 
 ## Local Structure
 
 ```
 vendor/openwork/
   AGENTS.md           # This file
-  design-prd.md       # Exhaustive PRD and user flow map
+  MOTIVATION-PHILOSOPHY.md       # Exhaustive PRD and user flow map
   .gitignore          # Ignores vendor/opencode, node_modules, etc.
   .opencode/
     skill/            # Skills for product workflows
@@ -60,7 +57,6 @@ OpenWork integrates with OpenCode via:
 
 1. **Non-interactive mode**: `opencode -p "prompt" -f json -q`
 2. **Database access**: Read `.opencode/opencode.db` for sessions and messages.
-3. **MCP bridge**: OpenWork as an MCP server for real-time permissions and streaming.
 
 Key primitives to expose:
 - `session.Service` — Task runs, history
@@ -73,7 +69,6 @@ Key primitives to expose:
 
 - Default to least-privilege permissions and explicit user approvals.
 - Provide transparent status, progress, and reasoning at every step.
-- Use progressive disclosure for advanced controls.
 - WCAG 2.1 AA compliance.
 - Screen reader labels for all interactive elements.
 
