@@ -17,23 +17,38 @@ jobs:
     name: Prepare Prerelease
     runs-on: ubuntu-latest
 
+    outputs:
+      release_tag: ${{ steps.prerelease-meta.outputs.release_tag }}
+      release_name: ${{ steps.prerelease-meta.outputs.release_name }}
+      release_body: ${{ steps.prerelease-meta.outputs.release_body }}
+
     steps:
       - name: Set prerelease metadata
+        id: prerelease-meta
         shell: bash
         run: |
           set -euo pipefail
 
           short_sha=$(echo "$GITHUB_SHA" | cut -c1-7)
           tag="v${short_sha}-dev"
+          name="OpenWork ${tag}"
+          body="Automated prerelease from ${GITHUB_REF_NAME} (${GITHUB_SHA})."
 
           echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
-          echo "RELEASE_NAME=OpenWork ${tag}" >> "$GITHUB_ENV"
-
+          echo "RELEASE_NAME=$name" >> "$GITHUB_ENV"
           {
             echo "RELEASE_BODY<<__OPENWORK_RELEASE_BODY_EOF__"
-            echo "Automated prerelease from ${GITHUB_REF_NAME} (${GITHUB_SHA})."
+            echo "$body"
             echo "__OPENWORK_RELEASE_BODY_EOF__"
           } >> "$GITHUB_ENV"
+
+          echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release_name=$name" >> "$GITHUB_OUTPUT"
+          {
+            echo "release_body<<__OPENWORK_RELEASE_BODY_EOF__"
+            echo "$body"
+            echo "__OPENWORK_RELEASE_BODY_EOF__"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create prerelease
         shell: bash
@@ -61,6 +76,11 @@ jobs:
     needs: prepare-release
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 360
+
+    env:
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
+      RELEASE_NAME: ${{ needs.prepare-release.outputs.release_name }}
+      RELEASE_BODY: ${{ needs.prepare-release.outputs.release_body }}
 
     strategy:
       fail-fast: false
@@ -158,6 +178,7 @@ jobs:
           releaseName: ${{ env.RELEASE_NAME }}
           releaseBody: ${{ env.RELEASE_BODY }}
           prerelease: true
+          releaseDraft: false
           projectPath: .
           tauriScript: pnpm exec tauri -vvv
           args: ${{ matrix.args }}
