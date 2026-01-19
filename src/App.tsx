@@ -2486,7 +2486,7 @@ export default function App() {
                     // ignore
                   }
                 }}
-
+                sessionStatus={selectedSessionStatus()}
               error={error()}
             />
           </Match>

@@ -80,6 +80,7 @@ export type SessionViewProps = {
   respondPermissionAndRemember: (requestID: string, reply: "once" | "always" | "reject") => void;
   safeStringify: (value: unknown) => string;
   error: string | null;
+  sessionStatus: string;
 };
 
 export default function SessionView(props: SessionViewProps) {
@@ -88,6 +89,7 @@ export default function SessionView(props: SessionViewProps) {
   createEffect(() => {
     props.messages.length;
     props.todos.length;
+    showAnticipatoryCursor();
     messagesEndEl?.scrollIntoView({ behavior: "smooth" });
   });
 
@@ -231,7 +233,7 @@ export default function SessionView(props: SessionViewProps) {
   });
 
   const showAnticipatoryCursor = createMemo(() => {
-    if (props.busyLabel !== "Running") return false;
+    if (props.busyLabel !== "Running" && props.sessionStatus !== "running") return false;
     return !hasAssistantTextAfterLastUser();
   });
 
@@ -349,16 +351,6 @@ export default function SessionView(props: SessionViewProps) {
                 </div>
               </Show>
 
-              <Show when={showAnticipatoryCursor()}>
-                <div class="flex justify-start">
-                  <div class="max-w-[68ch] text-[15px] leading-7 text-zinc-200">
-                    <div class="flex items-center h-[1.625rem]">
-                      <div class="h-2 w-2 rounded-full bg-zinc-400/80 animate-pulse motion-reduce:animate-none shadow-[0_0_8px_rgba(255,255,255,0.12)]" />
-                    </div>
-                  </div>
-                </div>
-              </Show>
-
               <For each={props.messages}>
                 {(msg) => {
                   const isUser = () => (msg.info as any).role === "user";
@@ -469,6 +461,12 @@ export default function SessionView(props: SessionViewProps) {
                   );
                 }}
               </For>
+
+              <Show when={showAnticipatoryCursor()}>
+                <div class="flex justify-start py-4 px-2">
+                  <Zap size={14} class="text-zinc-600 animate-soft-pulse" />
+                </div>
+              </Show>
 
               <For each={props.artifacts}>
                 {(artifact) => (
@@ -652,66 +650,54 @@ export default function SessionView(props: SessionViewProps) {
         </div>
 
         <div class="p-4 border-t border-zinc-800 bg-zinc-950 sticky bottom-0 z-20">
-          <div class="max-w-2xl mx-auto flex flex-col gap-3">
-            <button
-              type="button"
-              class="w-full flex items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/70 px-4 py-3 text-left text-sm text-zinc-200 transition-colors hover:border-zinc-700 hover:bg-zinc-900/90 disabled:opacity-70"
-              onClick={() => props.openSessionModelPicker()}
-              disabled={props.busy}
-            >
-              <div class="flex items-center gap-3">
-                <div class="h-9 w-9 rounded-xl bg-zinc-950/60 border border-zinc-800 flex items-center justify-center text-zinc-400">
-                  <Zap size={16} />
+          <div class="max-w-2xl mx-auto">
+            <div class="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden focus-within:ring-1 focus-within:ring-zinc-700 transition-all shadow-2xl relative group/input">
+              <button
+                type="button"
+                class="absolute top-2 left-4 flex items-center gap-1 text-[10px] font-bold text-zinc-600 hover:text-zinc-300 transition-colors uppercase tracking-widest z-10"
+                onClick={() => props.openSessionModelPicker()}
+                disabled={props.busy}
+              >
+                <Zap size={10} class="text-zinc-600 group-hover:text-amber-400 transition-colors" />
+                <span>{isModelUnknown() ? "Standard" : modelLabelParts().model}</span>
+              </button>
+
+              <div class="p-2 pt-6 pb-3 px-4">
+                <Show when={props.showTryNotionPrompt}>
+                  <button
+                    type="button"
+                    class="w-full mb-2 flex items-center justify-between gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-left text-sm text-emerald-100 transition-colors hover:bg-emerald-500/15"
+                    onClick={() => props.onTryNotionPrompt()}
+                  >
+                    <span>Try it now: set up my CRM in Notion</span>
+                    <span class="text-xs text-emerald-200 font-medium">Insert prompt</span>
+                  </button>
+                </Show>
+
+                <div class="relative flex items-center">
+                  <input
+                    type="text"
+                    disabled={props.busy}
+                    value={props.prompt}
+                    onInput={(e) => props.setPrompt(e.currentTarget.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        props.sendPromptAsync().catch(() => undefined);
+                      }
+                    }}
+                    placeholder="Ask OpenWork..."
+                    class="flex-1 bg-transparent border-none p-0 text-zinc-100 placeholder-zinc-500 focus:ring-0 text-[15px] leading-relaxed"
+                  />
+
+                  <button
+                    disabled={!props.prompt.trim() || props.busy}
+                    onClick={() => props.sendPromptAsync().catch(() => undefined)}
+                    class="p-1.5 bg-white text-black rounded-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-0 disabled:scale-75 shadow-lg shrink-0 ml-2"
+                    title="Run"
+                  >
+                    <ArrowRight size={18} />
+                  </button>
                 </div>
-                <div>
-                  <div class="text-[11px] uppercase tracking-wide text-zinc-500">Assistant</div>
-                  <div class="text-sm text-zinc-100 font-medium">
-                    {isModelUnknown() ? "Standard" : modelLabelParts().model}
-                  </div>
-                  <div class="text-[11px] text-zinc-500">{modelLabelParts().provider}</div>
-                  <Show when={modelUnavailableDetail()}>
-                    <div class="text-[11px] text-zinc-600">{modelUnavailableDetail()}</div>
-                  </Show>
-                </div>
-              </div>
-              <div class="flex items-center gap-2 text-xs text-zinc-500">
-                <span>Change</span>
-                <ChevronDown size={16} class="text-zinc-600" />
-              </div>
-            </button>
-            <div class="space-y-2">
-              <Show when={props.showTryNotionPrompt}>
-                <button
-                  type="button"
-                  class="w-full flex items-center justify-between gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-left text-sm text-emerald-100 transition-colors hover:bg-emerald-500/15"
-                  onClick={() => props.onTryNotionPrompt()}
-                >
-                  <span>Try it now: set up my CRM in Notion</span>
-                  <span class="text-xs text-emerald-200">Insert prompt</span>
-                </button>
-              </Show>
-              <div class="relative">
-                <input
-                  type="text"
-                  disabled={props.busy}
-                  value={props.prompt}
-                  onInput={(e) => props.setPrompt(e.currentTarget.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      props.sendPromptAsync().catch(() => undefined);
-                    }
-                  }}
-                  placeholder={props.busy ? "Working..." : "Ask OpenWork to do something..."}
-                  class="w-full bg-zinc-900 border border-zinc-800 rounded-2xl py-4 pl-5 pr-14 text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-600 focus:border-zinc-600 transition-all disabled:opacity-50"
-                />
-                <button
-                  disabled={!props.prompt.trim() || props.busy}
-                  onClick={() => props.sendPromptAsync().catch(() => undefined)}
-                  class="absolute right-2 top-2 p-2 bg-white text-black rounded-xl hover:scale-105 active:scale-95 transition-all disabled:opacity-0 disabled:scale-75"
-                  title="Run"
-                >
-                  <ArrowRight size={20} />
-                </button>
               </div>
             </div>
           </div>

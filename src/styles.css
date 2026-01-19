@@ -23,4 +23,18 @@ body {
   .animate-spin-slow {
     animation: spin 3s linear infinite;
   }
+
+  @keyframes soft-pulse {
+    0%, 100% {
+      transform: scale(1);
+      opacity: 0.4;
+    }
+    50% {
+      transform: scale(1.15);
+      opacity: 1;
+    }
+  }
+  .animate-soft-pulse {
+    animation: soft-pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
 }
