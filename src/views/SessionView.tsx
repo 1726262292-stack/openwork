@@ -352,154 +352,181 @@ export default function SessionView(props: SessionViewProps) {
               </Show>
 
               {(() => {
-                // Collect all step parts from all messages for aggregated view
-                const allStepsFromAllMessages = createMemo(() => {
+                // Pre-process messages into display chunks
+                // Group consecutive step-only assistant messages together
+                type DisplayChunk =
+                  | { type: "user"; message: MessageWithParts; textParts: Part[] }
+                  | { type: "assistant-text"; message: MessageWithParts; textParts: Part[] }
+                  | { type: "steps"; id: string; steps: Part[] };
+
+                const getMessageData = (msg: MessageWithParts) => {
+                  const renderableParts = msg.parts.filter((p) => {
+                    if (p.type === "reasoning") return props.developerMode && props.showThinking;
+                    if (p.type === "step-start" || p.type === "step-finish") return props.developerMode;
+                    if (p.type === "text" || p.type === "tool") return true;
+                    return props.developerMode;
+                  });
+                  const groups = props.groupMessageParts(renderableParts, String((msg.info as any).id ?? "message"));
+
+                  const textParts = groups
+                    .filter((g) => g.kind === "text")
+                    .map((g) => (g as { kind: "text"; part: Part }).part)
+                    .filter((p) => p.type === "text" && p.text?.trim());
+
                   const steps: Part[] = [];
+                  for (const g of groups) {
+                    if (g.kind === "steps") {
+                      steps.push(...(g as any).parts);
+                    }
+                  }
+
+                  return { textParts, steps };
+                };
+
+                const displayChunks = createMemo(() => {
+                  const chunks: DisplayChunk[] = [];
+                  let pendingSteps: Part[] = [];
+                  let stepsGroupId = 0;
+
+                  const flushSteps = () => {
+                    if (pendingSteps.length > 0) {
+                      chunks.push({ type: "steps", id: `steps-group-${stepsGroupId++}`, steps: [...pendingSteps] });
+                      pendingSteps = [];
+                    }
+                  };
+
                   for (const msg of props.messages) {
-                    const renderableParts = msg.parts.filter((p) => {
-                      if (p.type === "reasoning") return props.developerMode && props.showThinking;
-                      if (p.type === "step-start" || p.type === "step-finish") return props.developerMode;
-                      if (p.type === "text" || p.type === "tool") return true;
-                      return props.developerMode;
-                    });
-                    const groups = props.groupMessageParts(renderableParts, String((msg.info as any).id ?? "message"));
-                    for (const group of groups) {
-                      if (group.kind === "steps") {
-                        steps.push(...(group as any).parts);
+                    const isUser = (msg.info as any).role === "user";
+                    const { textParts, steps } = getMessageData(msg);
+
+                    if (isUser) {
+                      flushSteps();
+                      if (textParts.length > 0) {
+                        chunks.push({ type: "user", message: msg, textParts });
+                      }
+                    } else {
+                      // Assistant message
+                      if (textParts.length > 0) {
+                        // Has text - flush any pending steps first, then add this message
+                        flushSteps();
+                        chunks.push({ type: "assistant-text", message: msg, textParts });
+                        // Add this message's steps to pending (will be shown after text)
+                        pendingSteps.push(...steps);
+                      } else {
+                        // Step-only message - accumulate steps
+                        pendingSteps.push(...steps);
                       }
                     }
                   }
-                  return steps;
+
+                  // Flush any remaining steps
+                  flushSteps();
+
+                  return chunks;
                 });
 
-                const globalStepsId = "global-all-steps";
-                const isGlobalStepsExpanded = () => props.expandedStepIds.has(globalStepsId);
-                const toggleGlobalSteps = () => {
-                  props.setExpandedStepIds((current) => {
-                    const next = new Set(current);
-                    if (next.has(globalStepsId)) {
-                      next.delete(globalStepsId);
-                    } else {
-                      next.add(globalStepsId);
-                    }
-                    return next;
-                  });
-                };
-
                 return (
-                  <>
-                    <For each={props.messages}>
-                      {(msg) => {
-                        const isUser = () => (msg.info as any).role === "user";
-                        const renderableParts = () =>
-                          msg.parts.filter((p) => {
-                            if (p.type === "reasoning") {
-                              return props.developerMode && props.showThinking;
+                  <For each={displayChunks()}>
+                    {(chunk) => {
+                      if (chunk.type === "user") {
+                        return (
+                          <div class="flex justify-end">
+                            <div class="max-w-[480px] rounded-xl bg-zinc-800 text-zinc-100 px-3 py-2 text-sm leading-normal">
+                              <For each={chunk.textParts}>
+                                {(part, idx) => (
+                                  <div class={idx() === chunk.textParts.length - 1 ? "" : "mb-2"}>
+                                    <PartView
+                                      part={part}
+                                      developerMode={props.developerMode}
+                                      showThinking={props.showThinking}
+                                      tone="light"
+                                    />
+                                  </div>
+                                )}
+                              </For>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (chunk.type === "assistant-text") {
+                        return (
+                          <div class="flex justify-start">
+                            <div class="max-w-[68ch] text-sm leading-relaxed text-zinc-300">
+                              <For each={chunk.textParts}>
+                                {(part, idx) => (
+                                  <div class={idx() === chunk.textParts.length - 1 ? "" : "mb-2"}>
+                                    <PartView
+                                      part={part}
+                                      developerMode={props.developerMode}
+                                      showThinking={props.showThinking}
+                                      tone="light"
+                                    />
+                                  </div>
+                                )}
+                              </For>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (chunk.type === "steps") {
+                        const isExpanded = () => props.expandedStepIds.has(chunk.id);
+                        const toggle = () => {
+                          props.setExpandedStepIds((current) => {
+                            const next = new Set(current);
+                            if (next.has(chunk.id)) {
+                              next.delete(chunk.id);
+                            } else {
+                              next.add(chunk.id);
                             }
-                            if (p.type === "step-start" || p.type === "step-finish") {
-                              return props.developerMode;
-                            }
-                            if (p.type === "text" || p.type === "tool") {
-                              return true;
-                            }
-                            return props.developerMode;
+                            return next;
                           });
-
-                        const groups = () =>
-                          props.groupMessageParts(renderableParts(), String((msg.info as any).id ?? "message"));
-                        const groupSpacing = () => (isUser() ? "mb-2" : "mb-2");
-
-                        // Only get text groups with actual content - steps will be shown in aggregated view
-                        const textGroups = () => groups().filter((g) => {
-                          if (g.kind !== "text") return false;
-                          const part = (g as { kind: "text"; part: Part }).part;
-                          // Check if the text part has actual non-empty content
-                          if (part.type === "text" && part.text?.trim()) return true;
-                          return false;
-                        });
-
-                        // Only render if there's actual text content
-                        const hasTextContent = () => textGroups().length > 0;
+                        };
 
                         return (
-                          <Show when={hasTextContent()}>
-                            <div class={`flex ${isUser() ? "justify-end" : "justify-start"}`.trim()}>
-                              <div
-                                class={`w-full ${
-                                  isUser()
-                                    ? "max-w-[480px] rounded-xl bg-zinc-800 text-zinc-100 px-3 py-2 text-sm leading-normal"
-                                    : "max-w-[68ch] text-sm leading-relaxed text-zinc-300"
-                                }`}
-                              >
-                                <For each={textGroups()}>
-                                  {(group, idx) => (
-                                    <div class={idx() === textGroups().length - 1 ? "" : groupSpacing()}>
-                                      <PartView
-                                        part={(group as { kind: "text"; part: Part }).part}
-                                        developerMode={props.developerMode}
-                                        showThinking={props.showThinking}
-                                        tone="light"
-                                      />
-                                    </div>
-                                  )}
+                          <div class="space-y-2">
+                            <button
+                              class="flex items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                              onClick={toggle}
+                            >
+                              <span>
+                                {isExpanded() ? "Hide" : "View"} {chunk.steps.length} step{chunk.steps.length !== 1 ? "s" : ""}
+                              </span>
+                              <ChevronDown
+                                size={14}
+                                class={`transition-transform ${isExpanded() ? "rotate-180" : ""}`.trim()}
+                              />
+                            </button>
+                            <Show when={isExpanded()}>
+                              <div class="rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-3 space-y-2 max-h-60 overflow-y-auto">
+                                <For each={chunk.steps}>
+                                  {(part) => {
+                                    const summary = props.summarizeStep(part);
+                                    return (
+                                      <div class="flex items-start gap-2 text-xs text-zinc-300">
+                                        <div class="mt-0.5 h-4 w-4 flex-shrink-0 rounded-full border border-zinc-700 flex items-center justify-center text-zinc-500">
+                                          {part.type === "tool" ? <File size={10} /> : <Circle size={6} />}
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                          <span class="text-zinc-300">{summary.title}</span>
+                                          <Show when={summary.detail}>
+                                            <span class="text-zinc-500 ml-1">- {summary.detail}</span>
+                                          </Show>
+                                        </div>
+                                      </div>
+                                    );
+                                  }}
                                 </For>
                               </div>
-                            </div>
-                          </Show>
-                        );
-                      }}
-                    </For>
-
-                    {/* Aggregated steps viewer */}
-                    <Show when={allStepsFromAllMessages().length > 0}>
-                      <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
-                        <button
-                          class="w-full px-3 py-2 flex items-center justify-between text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
-                          onClick={toggleGlobalSteps}
-                        >
-                          <span class="font-medium">
-                            {allStepsFromAllMessages().length} step{allStepsFromAllMessages().length !== 1 ? "s" : ""} completed
-                          </span>
-                          <ChevronDown
-                            size={14}
-                            class={`transition-transform ${isGlobalStepsExpanded() ? "rotate-180" : ""}`.trim()}
-                          />
-                        </button>
-                        <Show when={isGlobalStepsExpanded()}>
-                          <div class="border-t border-zinc-800/60 p-3 space-y-3 max-h-80 overflow-y-auto">
-                            <For each={allStepsFromAllMessages()}>
-                              {(part) => {
-                                const summary = props.summarizeStep(part);
-                                return (
-                                  <div class="flex items-start gap-3 text-xs text-zinc-300">
-                                    <div class="mt-0.5 h-5 w-5 flex-shrink-0 rounded-full border border-zinc-700 flex items-center justify-center text-zinc-500">
-                                      {part.type === "tool" ? <File size={12} /> : <Circle size={8} />}
-                                    </div>
-                                    <div class="min-w-0">
-                                      <div class="text-zinc-200">{summary.title}</div>
-                                      <Show when={summary.detail}>
-                                        <div class="mt-1 text-zinc-500 truncate">{summary.detail}</div>
-                                      </Show>
-                                      <Show when={props.developerMode && (part.type !== "tool" || props.showThinking)}>
-                                        <div class="mt-2 text-xs text-zinc-500">
-                                          <PartView
-                                            part={part}
-                                            developerMode={props.developerMode}
-                                            showThinking={props.showThinking}
-                                            tone="light"
-                                          />
-                                        </div>
-                                      </Show>
-                                    </div>
-                                  </div>
-                                );
-                              }}
-                            </For>
+                            </Show>
                           </div>
-                        </Show>
-                      </div>
-                    </Show>
-                  </>
+                        );
+                      }
+
+                      return null;
+                    }}
+                  </For>
                 );
               })()}
 
