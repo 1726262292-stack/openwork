@@ -1,5 +1,3 @@
-use tauri::Manager;
-
 use std::collections::HashSet;
 use std::path::PathBuf;
 
