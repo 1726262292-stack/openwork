@@ -337,8 +337,8 @@ export default function SessionView(props: SessionViewProps) {
             </div>
           </aside>
 
-          <div class="flex-1 overflow-y-auto p-6 md:p-10 scroll-smooth">
-            <div class="max-w-2xl mx-auto space-y-6 pb-32">
+          <div class="flex-1 overflow-y-auto p-4 md:p-6 scroll-smooth">
+            <div class="max-w-2xl mx-auto space-y-3 pb-32">
               <Show when={props.messages.length === 0}>
                 <div class="text-center py-20 space-y-4">
                   <div class="w-16 h-16 bg-zinc-900 rounded-3xl mx-auto flex items-center justify-center border border-zinc-800">
@@ -407,12 +407,18 @@ export default function SessionView(props: SessionViewProps) {
 
                         const groups = () =>
                           props.groupMessageParts(renderableParts(), String((msg.info as any).id ?? "message"));
-                        const groupSpacing = () => (isUser() ? "mb-3" : "mb-4");
+                        const groupSpacing = () => (isUser() ? "mb-2" : "mb-2");
 
-                        // Only get text groups - steps will be shown in aggregated view
-                        const textGroups = () => groups().filter((g) => g.kind === "text");
+                        // Only get text groups with actual content - steps will be shown in aggregated view
+                        const textGroups = () => groups().filter((g) => {
+                          if (g.kind !== "text") return false;
+                          const part = (g as { kind: "text"; part: Part }).part;
+                          // Check if the text part has actual non-empty content
+                          if (part.type === "text" && part.text?.trim()) return true;
+                          return false;
+                        });
 
-                        // Only render if there's text content
+                        // Only render if there's actual text content
                         const hasTextContent = () => textGroups().length > 0;
 
                         return (
@@ -421,8 +427,8 @@ export default function SessionView(props: SessionViewProps) {
                               <div
                                 class={`w-full ${
                                   isUser()
-                                    ? "max-w-[520px] rounded-2xl bg-white text-black shadow-xl shadow-white/5 p-4 text-sm leading-relaxed"
-                                    : "max-w-[68ch] text-[15px] leading-7 text-zinc-200"
+                                    ? "max-w-[480px] rounded-xl bg-zinc-800 text-zinc-100 px-3 py-2 text-sm leading-normal"
+                                    : "max-w-[68ch] text-sm leading-relaxed text-zinc-300"
                                 }`}
                               >
                                 <For each={textGroups()}>
@@ -432,7 +438,7 @@ export default function SessionView(props: SessionViewProps) {
                                         part={(group as { kind: "text"; part: Part }).part}
                                         developerMode={props.developerMode}
                                         showThinking={props.showThinking}
-                                        tone={isUser() ? "dark" : "light"}
+                                        tone="light"
                                       />
                                     </div>
                                   )}
