@@ -11,7 +11,10 @@ fn main() {
 }
 
 fn ensure_opencode_sidecar() {
-  let target = env::var("CARGO_CFG_TARGET_TRIPLE").unwrap_or_default();
+  let target = env::var("CARGO_CFG_TARGET_TRIPLE")
+    .or_else(|_| env::var("TARGET"))
+    .or_else(|_| env::var("TAURI_ENV_TARGET_TRIPLE"))
+    .unwrap_or_default();
   if target.is_empty() {
     return;
   }
@@ -27,6 +30,10 @@ fn ensure_opencode_sidecar() {
   }
   let dest_path = sidecar_dir.join(file_name);
 
+  println!("cargo:warning=OpenWork sidecar target={}", target);
+  println!("cargo:warning=OpenWork sidecar manifest_dir={}", manifest_dir.display());
+  println!("cargo:warning=OpenWork sidecar dest_path={}", dest_path.display());
+
   if dest_path.exists() {
     return;
   }
@@ -37,7 +44,14 @@ fn ensure_opencode_sidecar() {
     .filter(|path| path.is_file())
     .or_else(|| find_in_path(if target.contains("windows") { "opencode.exe" } else { "opencode" }));
 
+  if let Some(path) = source_path.as_ref() {
+    println!("cargo:warning=OpenWork sidecar source_path={}", path.display());
+  } else {
+    println!("cargo:warning=OpenWork sidecar source_path=missing");
+  }
+
   let profile = env::var("PROFILE").unwrap_or_default();
+  println!("cargo:warning=OpenWork sidecar profile={}", profile);
 
   let Some(source_path) = source_path else {
     println!(
