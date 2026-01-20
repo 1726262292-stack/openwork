@@ -3,11 +3,21 @@ import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import type { McpServerEntry, McpStatusMap } from "../types";
 import type { McpDirectoryInfo } from "../constants";
 import { formatRelativeTime, isTauriRuntime, isWindowsPlatform } from "../utils";
-import TextInput from "../components/text-input";
 import { readOpencodeConfig, type OpencodeConfigFile } from "../lib/tauri";
 
 import Button from "../components/button";
-import { CheckCircle2, CircleAlert, Loader2, PlugZap, Settings, TriangleAlert, ChevronDown, ChevronRight, ExternalLink, FolderOpen, RefreshCcw, Server, Copy } from "lucide-solid";
+import {
+  CheckCircle2,
+  CircleAlert,
+  Loader2,
+  PlugZap,
+  Settings,
+  TriangleAlert,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  FolderOpen,
+} from "lucide-solid";
 
 export type McpViewProps = {
   mode: "host" | "client" | null;
@@ -24,16 +34,6 @@ export type McpViewProps = {
   connectMcp: (entry: McpDirectoryInfo) => void;
   showMcpReloadBanner: boolean;
   reloadMcpEngine: () => void;
-  advancedName: string;
-  setAdvancedName: (value: string) => void;
-  advancedUrl: string;
-  setAdvancedUrl: (value: string) => void;
-  advancedOAuth: boolean;
-  setAdvancedOAuth: (value: boolean) => void;
-  advancedEnabled: boolean;
-  setAdvancedEnabled: (value: boolean) => void;
-  addAdvancedMcp: () => void;
-  testAdvancedMcp: () => void;
 };
 
 const statusBadge = (status: "connected" | "needs_auth" | "needs_client_registration" | "failed" | "disabled" | "disconnected") => {
@@ -71,7 +71,6 @@ const statusLabel = (status: "connected" | "needs_auth" | "needs_client_registra
 
 export default function McpView(props: McpViewProps) {
   const [showDangerousContent, setShowDangerousContent] = createSignal(true);
-  const [advancedOpen, setAdvancedOpen] = createSignal(false);
 
   const [configScope, setConfigScope] = createSignal<"project" | "global">("project");
   const [projectConfig, setProjectConfig] = createSignal<OpencodeConfigFile | null>(null);
