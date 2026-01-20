@@ -244,6 +244,10 @@ export function createWorkspaceStore(options: {
         options.setView("dashboard");
         options.setTab("home");
       }
+
+      // If the user successfully connected, treat onboarding as complete so we
+      // don't force the onboarding flow on subsequent launches.
+      markOnboardingComplete();
       return true;
     } catch (e) {
       options.setClient(null);
@@ -427,7 +431,17 @@ export function createWorkspaceStore(options: {
 
       options.setMode(null);
       options.setOnboardingStep("mode");
-      options.setView("onboarding");
+
+      const showOnboarding = (() => {
+        if (typeof window === "undefined") return true;
+        try {
+          return window.localStorage.getItem("openwork.onboardingComplete") !== "1";
+        } catch {
+          return true;
+        }
+      })();
+
+      options.setView(showOnboarding ? "onboarding" : "dashboard");
     } catch (e) {
       const message = e instanceof Error ? e.message : safeStringify(e);
       options.setError(addOpencodeCacheHint(message));

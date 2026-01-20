@@ -96,7 +96,18 @@ import {
 } from "./lib/tauri";
 
 export default function App() {
-  const [view, _setView] = createSignal<View>("onboarding");
+  const initialView: View = (() => {
+    if (typeof window === "undefined") return "onboarding";
+    try {
+      return window.localStorage.getItem("openwork.onboardingComplete") === "1"
+        ? "dashboard"
+        : "onboarding";
+    } catch {
+      return "onboarding";
+    }
+  })();
+
+  const [view, _setView] = createSignal<View>(initialView);
   const [creatingSession, setCreatingSession] = createSignal(false);
   const [sessionViewLockUntil, setSessionViewLockUntil] = createSignal(0);
   const setView = (next: View) => {
@@ -572,6 +583,10 @@ export default function App() {
   });
 
   const newTaskDisabled = createMemo(() => {
+    if (!isDemoMode() && !client()) {
+      return true;
+    }
+
     const label = busyLabel();
     // Allow creating a new session even while a run is in progress.
     if (busy() && label === "Running") return false;
@@ -587,6 +602,16 @@ export default function App() {
     }
 
     return busy();
+  });
+
+  createEffect(() => {
+    // If we lose the client (disconnect / stop engine), don't strand the user
+    // in a session view that can't operate.
+    if (view() !== "session") return;
+    if (isDemoMode()) return;
+    if (creatingSession()) return;
+    if (client()) return;
+    setView("dashboard");
   });
 
   const filteredPackages = createMemo(() => {
@@ -1703,80 +1728,75 @@ export default function App() {
 
   return (
     <>
-      <Show
-        when={client()}
-        fallback={<OnboardingView {...onboardingProps()} />}
-      >
-        <Switch>
-          <Match when={view() === "dashboard"}>
-            <DashboardView {...dashboardProps()} />
-          </Match>
-          <Match when={view() === "session"}>
-            <SessionView
-                selectedSessionId={activeSessionId()}
-                setView={setView}
-                setTab={setTab}
-                activeWorkspaceDisplay={activeWorkspaceDisplay()}
-                setWorkspaceSearch={workspaceStore.setWorkspaceSearch}
-                setWorkspacePickerOpen={workspaceStore.setWorkspacePickerOpen}
-                headerStatus={headerStatus()}
-                busyHint={busyHint()}
-                selectedSessionModelLabel={selectedSessionModelLabel()}
-                openSessionModelPicker={openSessionModelPicker}
-                activePlugins={sidebarPluginList()}
-                activePluginStatus={sidebarPluginStatus()}
-                createSessionAndOpen={createSessionAndOpen}
-                sendPromptAsync={sendPrompt}
-                newTaskDisabled={newTaskDisabled()}
-                sessions={activeSessions().map((session) => ({
-                  id: session.id,
-                  title: session.title,
-                  slug: session.slug,
-                }))}
-                selectSession={isDemoMode() ? selectDemoSession : selectSession}
-                messages={activeMessages()}
-                todos={activeTodos()}
-                busyLabel={busyLabel()}
-                developerMode={developerMode()}
-                showThinking={showThinking()}
-                groupMessageParts={groupMessageParts}
-                summarizeStep={summarizeStep}
-                expandedStepIds={expandedStepIds()}
-                setExpandedStepIds={setExpandedStepIds}
-                expandedSidebarSections={expandedSidebarSections()}
-                setExpandedSidebarSections={setExpandedSidebarSections}
-                artifacts={activeArtifacts()}
-                workingFiles={activeWorkingFiles()}
-                authorizedDirs={activeAuthorizedDirs()}
-                busy={busy()}
-                prompt={prompt()}
-                setPrompt={setPrompt}
-                sendPrompt={sendPrompt}
-                activePermission={activePermissionMemo()}
-                permissionReplyBusy={permissionReplyBusy()}
-                respondPermission={respondPermission}
-                respondPermissionAndRemember={respondPermissionAndRemember}
-                safeStringify={safeStringify}
-                showTryNotionPrompt={tryNotionPromptVisible() && notionIsActive()}
-                onTryNotionPrompt={() => {
-                  setPrompt("setup my crm");
-                  setTryNotionPromptVisible(false);
-                  setNotionSkillInstalled(true);
-                  try {
-                    window.localStorage.setItem("openwork.notionSkillInstalled", "1");
-                  } catch {
-                    // ignore
-                  }
-                }}
-                sessionStatus={selectedSessionStatus()}
-              error={error()}
-            />
-          </Match>
-          <Match when={true}>
-            <DashboardView {...dashboardProps()} />
-          </Match>
-        </Switch>
-      </Show>
+      <Switch>
+        <Match when={view() === "onboarding"}>
+          <OnboardingView {...onboardingProps()} />
+        </Match>
+        <Match when={view() === "session"}>
+          <SessionView
+              selectedSessionId={activeSessionId()}
+              setView={setView}
+              setTab={setTab}
+              activeWorkspaceDisplay={activeWorkspaceDisplay()}
+              setWorkspaceSearch={workspaceStore.setWorkspaceSearch}
+              setWorkspacePickerOpen={workspaceStore.setWorkspacePickerOpen}
+              headerStatus={headerStatus()}
+              busyHint={busyHint()}
+              selectedSessionModelLabel={selectedSessionModelLabel()}
+              openSessionModelPicker={openSessionModelPicker}
+              activePlugins={sidebarPluginList()}
+              activePluginStatus={sidebarPluginStatus()}
+              createSessionAndOpen={createSessionAndOpen}
+              sendPromptAsync={sendPrompt}
+              newTaskDisabled={newTaskDisabled()}
+              sessions={activeSessions().map((session) => ({
+                id: session.id,
+                title: session.title,
+                slug: session.slug,
+              }))}
+              selectSession={isDemoMode() ? selectDemoSession : selectSession}
+              messages={activeMessages()}
+              todos={activeTodos()}
+              busyLabel={busyLabel()}
+              developerMode={developerMode()}
+              showThinking={showThinking()}
+              groupMessageParts={groupMessageParts}
+              summarizeStep={summarizeStep}
+              expandedStepIds={expandedStepIds()}
+              setExpandedStepIds={setExpandedStepIds}
+              expandedSidebarSections={expandedSidebarSections()}
+              setExpandedSidebarSections={setExpandedSidebarSections}
+              artifacts={activeArtifacts()}
+              workingFiles={activeWorkingFiles()}
+              authorizedDirs={activeAuthorizedDirs()}
+              busy={busy()}
+              prompt={prompt()}
+              setPrompt={setPrompt}
+              sendPrompt={sendPrompt}
+              activePermission={activePermissionMemo()}
+              permissionReplyBusy={permissionReplyBusy()}
+              respondPermission={respondPermission}
+              respondPermissionAndRemember={respondPermissionAndRemember}
+              safeStringify={safeStringify}
+              showTryNotionPrompt={tryNotionPromptVisible() && notionIsActive()}
+              onTryNotionPrompt={() => {
+                setPrompt("setup my crm");
+                setTryNotionPromptVisible(false);
+                setNotionSkillInstalled(true);
+                try {
+                  window.localStorage.setItem("openwork.notionSkillInstalled", "1");
+                } catch {
+                  // ignore
+                }
+              }}
+              sessionStatus={selectedSessionStatus()}
+            error={error()}
+          />
+        </Match>
+        <Match when={true}>
+          <DashboardView {...dashboardProps()} />
+        </Match>
+      </Switch>
 
       <ModelPickerModal
         open={modelPickerOpen()}

@@ -354,6 +354,17 @@ export default function DashboardView(props: DashboardViewProps) {
             </Show>
           </div>
 
+          <Show when={!props.clientConnected && !props.demoMode}>
+            <Button
+              variant="secondary"
+              onClick={() => props.setView("onboarding")}
+              disabled={props.busy}
+              class="w-full"
+            >
+              Connect
+            </Button>
+          </Show>
+
           <Show when={props.mode === "host"}>
             <Button
               variant="danger"
