@@ -141,6 +141,84 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Download OpenCode sidecar
+        shell: bash
+        env:
+          OPENCODE_VERSION: 1.1.25
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          version="${OPENCODE_VERSION}"
+          if [ -n "${GITHUB_TOKEN:-}" ]; then
+            latest=$(curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              https://api.github.com/repos/anomalyco/opencode/releases/latest \
+              | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
+            if [ -n "$latest" ]; then
+              version="$latest"
+            fi
+          fi
+
+          case "${{ matrix.target }}" in
+            aarch64-apple-darwin)
+              opencode_asset="opencode-darwin-arm64.zip"
+              ;;
+            x86_64-apple-darwin)
+              opencode_asset="opencode-darwin-x64-baseline.zip"
+              ;;
+            x86_64-unknown-linux-gnu)
+              opencode_asset="opencode-linux-x64-baseline.tar.gz"
+              ;;
+            x86_64-pc-windows-msvc)
+              opencode_asset="opencode-windows-x64-baseline.zip"
+              ;;
+            *)
+              echo "Unsupported target: ${{ matrix.target }}"
+              exit 1
+              ;;
+          esac
+
+          url="https://github.com/anomalyco/opencode/releases/download/v${version}/${opencode_asset}"
+          tmp_dir="$RUNNER_TEMP/opencode"
+          extract_dir="$tmp_dir/extracted"
+          rm -rf "$tmp_dir"
+          mkdir -p "$extract_dir"
+          curl -fsSL -o "$tmp_dir/$opencode_asset" "$url"
+
+          if [[ "$opencode_asset" == *.tar.gz ]]; then
+            tar -xzf "$tmp_dir/$opencode_asset" -C "$extract_dir"
+          else
+            if command -v unzip >/dev/null 2>&1; then
+              unzip -q "$tmp_dir/$opencode_asset" -d "$extract_dir"
+            elif command -v 7z >/dev/null 2>&1; then
+              7z x "$tmp_dir/$opencode_asset" -o"$extract_dir" >/dev/null
+            else
+              echo "No unzip utility available"
+              exit 1
+            fi
+          fi
+
+          if [ -f "$extract_dir/opencode" ]; then
+            bin_path="$extract_dir/opencode"
+          elif [ -f "$extract_dir/opencode.exe" ]; then
+            bin_path="$extract_dir/opencode.exe"
+          else
+            echo "OpenCode binary not found in archive"
+            ls -la "$extract_dir"
+            exit 1
+          fi
+
+          target_name="opencode-${{ matrix.target }}"
+          if [ "${{ matrix.os_type }}" = "windows" ]; then
+            target_name="${target_name}.exe"
+          fi
+
+          mkdir -p src-tauri/sidecars
+          cp "$bin_path" "src-tauri/sidecars/${target_name}"
+          chmod 755 "src-tauri/sidecars/${target_name}"
+
       - name: Write notary API key
         if: matrix.os_type == 'macos'
         env:
