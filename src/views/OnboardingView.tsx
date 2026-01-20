@@ -1,7 +1,7 @@
-import { For, Match, Show, Switch } from "solid-js";
+import { For, Match, Show, Switch, createSignal } from "solid-js";
 import type { Mode, OnboardingStep } from "../app/types";
 import type { WorkspaceInfo } from "../lib/tauri";
-import { ArrowLeftRight, CheckCircle2, Circle } from "lucide-solid";
+import { ArrowLeftRight, CheckCircle2, Circle, ChevronRight } from "lucide-solid";
 
 import Button from "../components/Button";
 import OnboardingWorkspaceSelector from "../components/OnboardingWorkspaceSelector";
@@ -54,6 +54,8 @@ export type OnboardingViewProps = {
 };
 
 export default function OnboardingView(props: OnboardingViewProps) {
+  const [showAdvanced, setShowAdvanced] = createSignal(false);
+
   const engineDoctorAvailable = () =>
     props.engineDoctorFound === true && props.engineDoctorSupportsServe === true;
 
@@ -125,106 +127,125 @@ export default function OnboardingView(props: OnboardingViewProps) {
               onConfirm={props.onCreateWorkspace}
               onPickFolder={props.onPickWorkspaceFolder}
             />
-
-            <div class="rounded-2xl bg-zinc-900/40 border border-zinc-800 p-4 space-y-3">
-              <div class="flex items-center justify-between gap-3">
-                <div class="text-sm font-medium text-white">OpenCode engine</div>
-                <Button
-                  variant="outline"
-                  class="text-xs h-8 py-0 px-3"
-                  onClick={props.onRefreshEngineDoctor}
-                  disabled={props.busy}
-                >
-                  Refresh
-                </Button>
-              </div>
-              <div class="text-xs text-zinc-500">{engineStatusLabel()}</div>
-
-              <Show when={!engineDoctorAvailable()}>
-                <div class="text-xs text-zinc-500">
-                  {props.isWindows
-                    ? "Install OpenCode for Windows, then restart OpenWork. Ensure opencode.exe is on PATH."
-                    : "Install OpenCode to enable host mode (no terminal required)."}
-                </div>
-                <div class="flex flex-wrap gap-2">
-                  <Button
-                    variant="secondary"
-                    onClick={props.onInstallEngine}
-                    disabled={props.busy || props.isWindows}
-                    title={props.isWindows ? "OpenCode install is manual on Windows." : ""}
-                  >
-                    Install OpenCode
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={props.onRefreshEngineDoctor}
-                    disabled={props.busy}
-                  >
-                    Re-check
-                  </Button>
-                </div>
-              </Show>
-
-              <Show when={engineDoctorAvailable()}>
-                <div class="text-xs text-zinc-600">
-                  OpenCode is ready to start in host mode.
-                </div>
-              </Show>
-
-              <Show
-                when={
-                  props.engineDoctorResolvedPath ||
-                  props.engineDoctorVersion ||
-                  props.engineDoctorNotes.length ||
-                  serveHelpOutput()
-                }
-              >
-                <div class="rounded-xl bg-black/20 border border-zinc-800 p-3 space-y-3 text-xs text-zinc-400">
-                  <Show when={props.engineDoctorResolvedPath}>
-                    <div>
-                      <div class="text-[11px] text-zinc-500">Resolved path</div>
-                      <div class="font-mono break-all">{props.engineDoctorResolvedPath}</div>
-                    </div>
-                  </Show>
-                  <Show when={props.engineDoctorVersion}>
-                    <div>
-                      <div class="text-[11px] text-zinc-500">Version</div>
-                      <div class="font-mono">{props.engineDoctorVersion}</div>
-                    </div>
-                  </Show>
-                  <Show when={props.engineDoctorNotes.length}>
-                    <div>
-                      <div class="text-[11px] text-zinc-500">Search notes</div>
-                      <pre class="whitespace-pre-wrap break-words text-xs text-zinc-400">
-                        {props.engineDoctorNotes.join("\n")}
-                      </pre>
-                    </div>
-                  </Show>
-                  <Show when={serveHelpOutput()}>
-                    <div>
-                      <div class="text-[11px] text-zinc-500">serve --help output</div>
-                      <pre class="whitespace-pre-wrap break-words text-xs text-zinc-400">
-                        {serveHelpOutput()}
-                      </pre>
-                    </div>
-                  </Show>
-                </div>
-              </Show>
-
-              <Show when={props.engineInstallLogs}>
-                <div class="rounded-xl bg-black/20 border border-zinc-800 p-3 text-xs text-zinc-400 whitespace-pre-wrap max-h-40 overflow-auto font-mono">
-                  {props.engineInstallLogs}
-                </div>
-              </Show>
-            </div>
-
-            <Button onClick={props.onStartHost} disabled={props.busy || !props.activeWorkspacePath.trim()} class="w-full py-3 text-base">
+              <Button onClick={props.onStartHost} disabled={props.busy || !props.activeWorkspacePath.trim()} class="w-full py-3 text-base">
               Start OpenWork
             </Button>
 
             <Button variant="ghost" onClick={props.onBackToMode} disabled={props.busy} class="w-full">
               Back
             </Button>
+
+            <div class="pt-2">
+              <button
+                onClick={() => setShowAdvanced(!showAdvanced())}
+                class="flex items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors group px-1"
+              >
+                <ChevronRight
+                  size={12}
+                  class="transition-transform duration-200"
+                  classList={{ "rotate-90": showAdvanced() }}
+                />
+                Advanced settings
+              </button>
+
+              <Show when={showAdvanced()}>
+                <div class="mt-3 space-y-3">
+                  <div class="rounded-2xl bg-zinc-900/40 border border-zinc-800 p-4 space-y-3">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="text-sm font-medium text-white">OpenCode engine</div>
+                      <Button
+                        variant="outline"
+                        class="text-xs h-8 py-0 px-3"
+                        onClick={props.onRefreshEngineDoctor}
+                        disabled={props.busy}
+                      >
+                        Refresh
+                      </Button>
+                    </div>
+                    <div class="text-xs text-zinc-500">{engineStatusLabel()}</div>
+
+                    <Show when={!engineDoctorAvailable()}>
+                      <div class="text-xs text-zinc-500">
+                        {props.isWindows
+                          ? "Install OpenCode for Windows, then restart OpenWork. Ensure opencode.exe is on PATH."
+                          : "Install OpenCode to enable host mode (no terminal required)."}
+                      </div>
+                      <div class="flex flex-wrap gap-2">
+                        <Button
+                          variant="secondary"
+                          onClick={props.onInstallEngine}
+                          disabled={props.busy || props.isWindows}
+                          title={props.isWindows ? "OpenCode install is manual on Windows." : ""}
+                        >
+                          Install OpenCode
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={props.onRefreshEngineDoctor}
+                          disabled={props.busy}
+                        >
+                          Re-check
+                        </Button>
+                      </div>
+                    </Show>
+
+                    <Show when={engineDoctorAvailable()}>
+                      <div class="text-xs text-zinc-600">
+                        OpenCode is ready to start in host mode.
+                      </div>
+                    </Show>
+
+                    <Show
+                      when={
+                        props.engineDoctorResolvedPath ||
+                        props.engineDoctorVersion ||
+                        props.engineDoctorNotes.length ||
+                        serveHelpOutput()
+                      }
+                    >
+                      <div class="rounded-xl bg-black/20 border border-zinc-800 p-3 space-y-3 text-xs text-zinc-400">
+                        <Show when={props.engineDoctorResolvedPath}>
+                          <div>
+                            <div class="text-[11px] text-zinc-500">Resolved path</div>
+                            <div class="font-mono break-all">{props.engineDoctorResolvedPath}</div>
+                          </div>
+                        </Show>
+                        <Show when={props.engineDoctorVersion}>
+                          <div>
+                            <div class="text-[11px] text-zinc-500">Version</div>
+                            <div class="font-mono">{props.engineDoctorVersion}</div>
+                          </div>
+                        </Show>
+                        <Show when={props.engineDoctorNotes.length}>
+                          <div>
+                            <div class="text-[11px] text-zinc-500">Search notes</div>
+                            <pre class="whitespace-pre-wrap break-words text-xs text-zinc-400">
+                              {props.engineDoctorNotes.join("\n")}
+                            </pre>
+                          </div>
+                        </Show>
+                        <Show when={serveHelpOutput()}>
+                          <div>
+                            <div class="text-[11px] text-zinc-500">serve --help output</div>
+                            <pre class="whitespace-pre-wrap break-words text-xs text-zinc-400">
+                              {serveHelpOutput()}
+                            </pre>
+                          </div>
+                        </Show>
+                      </div>
+                    </Show>
+
+                    <Show when={props.engineInstallLogs}>
+                      <div class="rounded-xl bg-black/20 border border-zinc-800 p-3 text-xs text-zinc-400 whitespace-pre-wrap max-h-40 overflow-auto font-mono">
+                        {props.engineInstallLogs}
+                      </div>
+                    </Show>
+                  </div>
+                </div>
+              </Show>
+            </div>
+
+           
 
             <Show when={props.error}>
               <div class="rounded-2xl bg-red-950/40 px-5 py-4 text-sm text-red-200 border border-red-500/20">

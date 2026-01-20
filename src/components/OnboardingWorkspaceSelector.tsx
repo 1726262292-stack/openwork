@@ -132,15 +132,6 @@ export default function OnboardingWorkspaceSelector(props: {
         </div>
       </div>
 
-      <div class="p-6 border-t border-zinc-800 bg-zinc-950 flex justify-end gap-3">
-        <Button
-          onClick={() => props.onConfirm(preset(), selectedFolder())}
-          disabled={!canContinue()}
-          title={!canContinue() ? "Choose a folder to continue." : undefined}
-        >
-          Create workspace
-        </Button>
-      </div>
     </div>
   );
 }
