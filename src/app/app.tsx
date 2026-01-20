@@ -294,22 +294,10 @@ export default function App() {
   const [mcpStatuses, setMcpStatuses] = createSignal<McpStatusMap>({});
   const [mcpConnectingName, setMcpConnectingName] = createSignal<string | null>(null);
   const [selectedMcp, setSelectedMcp] = createSignal<string | null>(null);
-  const [advancedMcpName, setAdvancedMcpName] = createSignal("");
-  const [advancedMcpUrl, setAdvancedMcpUrl] = createSignal("");
-  const [advancedMcpOAuth, setAdvancedMcpOAuth] = createSignal(true);
-  const [advancedMcpEnabled, setAdvancedMcpEnabled] = createSignal(true);
-  const advancedCommand = createMemo(() => "opencode mcp add");
 
   // MCP OAuth modal state
   const [mcpAuthModalOpen, setMcpAuthModalOpen] = createSignal(false);
   const [mcpAuthEntry, setMcpAuthEntry] = createSignal<(typeof MCP_QUICK_CONNECT)[number] | null>(null);
-
-  const advancedAuthCommand = createMemo(() => {
-    const name = advancedMcpName().trim() || "my-mcp";
-    return `opencode mcp auth ${name}`;
-  });
-
-
 
   let markReloadRequiredRef: (reason: ReloadReason) => void = () => {};
 
@@ -1022,74 +1010,6 @@ export default function App() {
     }
   }
 
-  async function addAdvancedMcp() {
-    const name = advancedMcpName().trim();
-    const url = advancedMcpUrl().trim();
-
-    if (!name || !url) {
-      setMcpStatus("Enter a server name and URL.");
-      return;
-    }
-
-    const projectDir = workspaceProjectDir().trim();
-    if (!projectDir) {
-      setMcpStatus("Pick a workspace folder first.");
-      return;
-    }
-
-    const activeClient = client();
-    if (!activeClient) {
-      setMcpStatus("Connect to the OpenCode server first.");
-      return;
-    }
-
-    try {
-      setMcpStatus(null);
-      const config = await readOpencodeConfig("project", projectDir);
-      if (!config.exists || !config.content?.trim()) {
-        const baseConfig = {
-          $schema: "https://opencode.ai/config.json",
-          autoupdate: true,
-        };
-        const result = await writeOpencodeConfig("project", projectDir, `${JSON.stringify(baseConfig, null, 2)}\n`);
-        if (!result.ok) {
-          throw new Error(result.stderr || result.stdout || "Failed to create opencode.json");
-        }
-      }
-
-      const status = unwrap(
-        await activeClient.mcp.add({
-          directory: projectDir,
-          name,
-          config: {
-            type: "remote",
-            url,
-            enabled: advancedMcpEnabled(),
-            ...(advancedMcpOAuth() ? { oauth: {} } : { oauth: false }),
-          },
-        })
-      );
-
-      setMcpStatuses(status as McpStatusMap);
-      markReloadRequired("mcp");
-      setMcpStatus("Reload required to activate the new MCP.");
-      setAdvancedMcpName("");
-      setAdvancedMcpUrl("");
-      await refreshMcpServers();
-    } catch (e) {
-      setMcpStatus(e instanceof Error ? e.message : "Failed to add MCP.");
-    }
-  }
-
-  async function testAdvancedMcp() {
-    if (!advancedMcpUrl().trim()) {
-      setMcpStatus("Enter a server URL first.");
-      return;
-    }
-
-    setMcpStatus("Use opencode mcp debug <name> to validate connection.");
-  }
-
   async function createSessionAndOpen() {
     console.log("[DEBUG] createSessionAndOpen");
     console.log("[DEBUG] current baseUrl:", baseUrl());
@@ -1749,19 +1669,7 @@ export default function App() {
     setSelectedMcp,
     quickConnect: MCP_QUICK_CONNECT,
     connectMcp,
-    addAdvancedMcp,
-    testAdvancedMcp,
     refreshMcpServers,
-    advancedName: advancedMcpName(),
-    setAdvancedName: setAdvancedMcpName,
-    advancedUrl: advancedMcpUrl(),
-    setAdvancedUrl: setAdvancedMcpUrl,
-    advancedOAuth: advancedMcpOAuth(),
-    setAdvancedOAuth: setAdvancedMcpOAuth,
-    advancedEnabled: advancedMcpEnabled(),
-    setAdvancedEnabled: setAdvancedMcpEnabled,
-    advancedCommand: advancedCommand(),
-    advancedAuthCommand: advancedAuthCommand(),
     showMcpReloadBanner: reloadRequired() && reloadReasons().includes("mcp"),
     reloadMcpEngine: () => reloadEngineInstance(),
   });
@@ -1921,6 +1829,7 @@ export default function App() {
         onConfirm={(preset, folder) =>
           workspaceStore.createWorkspaceFlow(preset, folder)
         }
+        submitting={busy() && busyLabel() === "Creating workspace"}
       />
     </>
   );

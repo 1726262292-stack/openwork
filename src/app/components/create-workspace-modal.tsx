@@ -9,6 +9,7 @@ export default function CreateWorkspaceModal(props: {
   onClose: () => void;
   onConfirm: (preset: "starter" | "automation" | "minimal", folder: string | null) => void;
   onPickFolder: () => Promise<string | null>;
+  submitting?: boolean;
   inline?: boolean;
   showClose?: boolean;
   title?: string;
@@ -64,6 +65,7 @@ export default function CreateWorkspaceModal(props: {
   const subtitle = () => props.subtitle ?? "Initialize a new folder-based workspace.";
   const confirmLabel = () => props.confirmLabel ?? "Create Workspace";
   const isInline = () => props.inline ?? false;
+  const submitting = () => props.submitting ?? false;
 
   const content = (
     <div class="bg-zinc-900 border border-zinc-800 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -73,7 +75,11 @@ export default function CreateWorkspaceModal(props: {
           <p class="text-zinc-500 text-sm">{subtitle()}</p>
         </div>
         <Show when={showClose()}>
-          <button onClick={props.onClose} class="hover:bg-zinc-800 p-1 rounded-full">
+          <button
+            onClick={props.onClose}
+            disabled={submitting()}
+            class={`hover:bg-zinc-800 p-1 rounded-full ${submitting() ? "opacity-50 cursor-not-allowed" : ""}`.trim()}
+          >
             <X size={20} class="text-zinc-500" />
           </button>
         </Show>
@@ -91,7 +97,7 @@ export default function CreateWorkspaceModal(props: {
                 <button
                   type="button"
                   onClick={handlePickFolder}
-                  disabled={pickingFolder()}
+                  disabled={pickingFolder() || submitting()}
                   class={`w-full border border-dashed border-zinc-700 bg-zinc-900/50 rounded-xl p-4 text-left transition ${
                     pickingFolder() ? "opacity-70 cursor-wait" : "hover:border-zinc-500"
                   }`.trim()}
@@ -129,13 +135,14 @@ export default function CreateWorkspaceModal(props: {
                     <div
                       onClick={() => {
                         if (!selectedFolder()) return;
+                        if (submitting()) return;
                         setPreset(opt.id);
                       }}
                       class={`p-4 rounded-xl border cursor-pointer transition-all ${
                         preset() === opt.id
                           ? "bg-indigo-500/10 border-indigo-500/50"
                           : "bg-zinc-900 border-zinc-800 hover:border-zinc-700"
-                      } ${!selectedFolder() ? "pointer-events-none" : ""}`.trim()}
+                      } ${!selectedFolder() || submitting() ? "pointer-events-none" : ""}`.trim()}
                     >
                       <div class="flex justify-between items-start">
                         <div>
@@ -161,16 +168,24 @@ export default function CreateWorkspaceModal(props: {
 
       <div class="p-6 border-t border-zinc-800 bg-zinc-950 flex justify-end gap-3">
         <Show when={showClose()}>
-          <Button variant="ghost" onClick={props.onClose}>
+          <Button variant="ghost" onClick={props.onClose} disabled={submitting()}>
             Cancel
           </Button>
         </Show>
         <Button
           onClick={() => props.onConfirm(preset(), selectedFolder())}
-          disabled={!selectedFolder()}
+          disabled={!selectedFolder() || submitting()}
           title={!selectedFolder() ? "Choose a folder to continue." : undefined}
         >
-          {confirmLabel()}
+          <Show
+            when={submitting()}
+            fallback={confirmLabel()}
+          >
+            <span class="inline-flex items-center gap-2">
+              <Loader2 size={16} class="animate-spin" />
+              Creating...
+            </span>
+          </Show>
         </Button>
       </div>
     </div>

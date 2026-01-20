@@ -129,18 +129,6 @@ export type DashboardViewProps = {
   setSelectedMcp: (value: string | null) => void;
   quickConnect: McpDirectoryInfo[];
   connectMcp: (entry: McpDirectoryInfo) => void;
-  addAdvancedMcp: () => void;
-  testAdvancedMcp: () => void;
-  advancedName: string;
-  setAdvancedName: (value: string) => void;
-  advancedUrl: string;
-  setAdvancedUrl: (value: string) => void;
-  advancedOAuth: boolean;
-  setAdvancedOAuth: (value: boolean) => void;
-  advancedEnabled: boolean;
-  setAdvancedEnabled: (value: boolean) => void;
-  advancedCommand: string;
-  advancedAuthCommand: string;
   showMcpReloadBanner: boolean;
   reloadMcpEngine: () => void;
   createSessionAndOpen: () => void;
@@ -719,18 +707,6 @@ export default function DashboardView(props: DashboardViewProps) {
                 setSelectedMcp={props.setSelectedMcp}
                 quickConnect={props.quickConnect}
                 connectMcp={props.connectMcp}
-                addAdvancedMcp={props.addAdvancedMcp}
-                testAdvancedMcp={props.testAdvancedMcp}
-                advancedName={props.advancedName}
-                setAdvancedName={props.setAdvancedName}
-                advancedUrl={props.advancedUrl}
-                setAdvancedUrl={props.setAdvancedUrl}
-                advancedOAuth={props.advancedOAuth}
-                setAdvancedOAuth={props.setAdvancedOAuth}
-                advancedEnabled={props.advancedEnabled}
-                setAdvancedEnabled={props.setAdvancedEnabled}
-                advancedCommand={props.advancedCommand}
-                advancedAuthCommand={props.advancedAuthCommand}
                 showMcpReloadBanner={props.showMcpReloadBanner}
                 reloadMcpEngine={props.reloadMcpEngine}
               />

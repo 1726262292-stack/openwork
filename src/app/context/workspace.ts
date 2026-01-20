@@ -269,19 +269,17 @@ export function createWorkspaceStore(options: {
       return;
     }
 
-    const resolvedFolder = await resolveWorkspacePath(folder);
-    if (!resolvedFolder) {
-      options.setError("Choose a folder to create the workspace.");
-      return;
-    }
-
-    setCreateWorkspaceOpen(false);
+    options.setBusy(true);
+    options.setBusyLabel("Creating workspace");
+    options.setBusyStartedAt(Date.now());
+    options.setError(null);
 
     try {
-      options.setBusy(true);
-      options.setBusyLabel("Creating workspace");
-      options.setBusyStartedAt(Date.now());
-      options.setError(null);
+      const resolvedFolder = await resolveWorkspacePath(folder);
+      if (!resolvedFolder) {
+        options.setError("Choose a folder to create the workspace.");
+        return;
+      }
 
       const name = resolvedFolder.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? "Workspace";
       const ws = await workspaceCreate({ folderPath: resolvedFolder, name, preset });
@@ -296,6 +294,7 @@ export function createWorkspaceStore(options: {
       }
 
       setWorkspacePickerOpen(false);
+      setCreateWorkspaceOpen(false);
       options.setView("dashboard");
       options.setTab("home");
       markOnboardingComplete();

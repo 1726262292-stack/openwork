@@ -1,12 +1,12 @@
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 
 import type { McpServerEntry, McpStatusMap } from "../types";
 import type { McpDirectoryInfo } from "../constants";
-import { formatRelativeTime, isTauriRuntime } from "../utils";
+import { formatRelativeTime, isTauriRuntime, isWindowsPlatform } from "../utils";
+import { readOpencodeConfig, type OpencodeConfigFile } from "../lib/tauri";
 
 import Button from "../components/button";
-import TextInput from "../components/text-input";
-import { CheckCircle2, CircleAlert, Copy, Loader2, PlugZap, RefreshCcw, Server, Settings, TriangleAlert, ChevronDown, ChevronRight, ExternalLink } from "lucide-solid";
+import { CheckCircle2, CircleAlert, Loader2, PlugZap, Settings, TriangleAlert, ChevronDown, ChevronRight, ExternalLink, FolderOpen } from "lucide-solid";
 
 export type McpViewProps = {
   mode: "host" | "client" | null;
@@ -21,18 +21,6 @@ export type McpViewProps = {
   setSelectedMcp: (name: string | null) => void;
   quickConnect: McpDirectoryInfo[];
   connectMcp: (entry: McpDirectoryInfo) => void;
-  addAdvancedMcp: () => void;
-  testAdvancedMcp: () => void;
-  advancedName: string;
-  setAdvancedName: (value: string) => void;
-  advancedUrl: string;
-  setAdvancedUrl: (value: string) => void;
-  advancedOAuth: boolean;
-  setAdvancedOAuth: (value: boolean) => void;
-  advancedEnabled: boolean;
-  setAdvancedEnabled: (value: boolean) => void;
-  advancedCommand: string;
-  advancedAuthCommand: string;
   showMcpReloadBanner: boolean;
   reloadMcpEngine: () => void;
 };
@@ -71,8 +59,13 @@ const statusLabel = (status: "connected" | "needs_auth" | "needs_client_registra
 };
 
 export default function McpView(props: McpViewProps) {
-  const [advancedOpen, setAdvancedOpen] = createSignal(false);
   const [showDangerousContent, setShowDangerousContent] = createSignal(true);
+
+  const [configScope, setConfigScope] = createSignal<"project" | "global">("project");
+  const [projectConfig, setProjectConfig] = createSignal<OpencodeConfigFile | null>(null);
+  const [globalConfig, setGlobalConfig] = createSignal<OpencodeConfigFile | null>(null);
+  const [configError, setConfigError] = createSignal<string | null>(null);
+  const [revealBusy, setRevealBusy] = createSignal(false);
 
   const selectedEntry = createMemo(() =>
     props.mcpServers.find((entry) => entry.name === props.selectedMcp) ?? null,
@@ -82,8 +75,78 @@ export default function McpView(props: McpViewProps) {
     props.quickConnect.filter((entry) => entry.oauth),
   );
 
-  const advancedCommand = () => props.advancedCommand;
-  const advancedAuthCommand = () => props.advancedAuthCommand;
+  let configRequestId = 0;
+  createEffect(() => {
+    const root = props.activeWorkspaceRoot.trim();
+    const nextId = (configRequestId += 1);
+
+    if (!isTauriRuntime()) {
+      setProjectConfig(null);
+      setGlobalConfig(null);
+      setConfigError(null);
+      return;
+    }
+
+    void (async () => {
+      try {
+        setConfigError(null);
+
+        const [project, global] = await Promise.all([
+          root ? readOpencodeConfig("project", root) : Promise.resolve(null),
+          readOpencodeConfig("global", root),
+        ]);
+
+        if (nextId !== configRequestId) return;
+        setProjectConfig(project);
+        setGlobalConfig(global);
+      } catch (e) {
+        if (nextId !== configRequestId) return;
+        setProjectConfig(null);
+        setGlobalConfig(null);
+        setConfigError(e instanceof Error ? e.message : "Failed to load config path");
+      }
+    })();
+  });
+
+  const activeConfig = createMemo(() =>
+    configScope() === "project" ? projectConfig() : globalConfig(),
+  );
+
+  const revealLabel = () => (isWindowsPlatform() ? "Open file" : "Reveal in Finder");
+
+  const canRevealConfig = () => {
+    if (!isTauriRuntime() || revealBusy()) return false;
+    if (configScope() === "project" && !props.activeWorkspaceRoot.trim()) return false;
+    return Boolean(activeConfig()?.exists);
+  };
+
+  const revealConfig = async () => {
+    if (!isTauriRuntime()) return;
+    if (revealBusy()) return;
+    const root = props.activeWorkspaceRoot.trim();
+
+    if (configScope() === "project" && !root) {
+      setConfigError("Pick a workspace folder to reveal the project opencode.json.");
+      return;
+    }
+
+    setRevealBusy(true);
+    setConfigError(null);
+    try {
+      const resolved = await readOpencodeConfig(configScope(), root);
+
+      const { openPath, revealItemInDir } = await import("@tauri-apps/plugin-opener");
+      if (isWindowsPlatform()) {
+        await openPath(resolved.path);
+      } else {
+        await revealItemInDir(resolved.path);
+      }
+    } catch (e) {
+      setConfigError(e instanceof Error ? e.message : "Failed to reveal config");
+    } finally {
+      setRevealBusy(false);
+    }
+  };
 
   // Convert name to slug (same logic used when adding MCPs)
   const toSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -101,8 +164,6 @@ export default function McpView(props: McpViewProps) {
 
   const canConnect = (entry: McpDirectoryInfo) =>
     props.mode === "host" && isTauriRuntime() && !props.busy && !!props.activeWorkspaceRoot.trim();
-
-  const advancedReady = () => props.advancedName.trim() && props.advancedUrl.trim();
 
   return (
     <section class="space-y-6">
@@ -252,7 +313,7 @@ export default function McpView(props: McpViewProps) {
             <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-5 space-y-4">
               <div class="flex items-center justify-between">
                 <div class="text-sm font-medium text-white">Connected</div>
-                <div class="text-[11px] text-zinc-500">From opencode.json</div>
+                <div class="text-[11px] text-zinc-500">From project opencode.json</div>
               </div>
               <Show
                 when={props.mcpServers.length}
@@ -302,98 +363,80 @@ export default function McpView(props: McpViewProps) {
             </div>
 
             <div class="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-5 space-y-4">
-              <button
-                class="w-full flex items-center justify-between text-left"
-                onClick={() => setAdvancedOpen((prev) => !prev)}
-              >
-                <div>
-                  <div class="text-sm font-medium text-white">Advanced</div>
-                  <div class="text-xs text-zinc-500">Manual setup for custom servers.</div>
+              <div class="flex items-start justify-between gap-4">
+                <div class="space-y-1">
+                  <div class="text-sm font-medium text-white">Edit MCP config</div>
+                  <div class="text-xs text-zinc-500">
+                    MCP servers live in OpenCode&apos;s <span class="font-mono">opencode.json</span>.
+                  </div>
                 </div>
-                <div class="text-xs text-zinc-500">{advancedOpen() ? "Hide" : "Show"}</div>
-              </button>
+                <a
+                  href="https://opencode.ai/docs/mcp-servers/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-200 underline decoration-zinc-500/30 underline-offset-4 transition-colors"
+                >
+                  <ExternalLink size={12} />
+                  Docs
+                </a>
+              </div>
 
-              <Show when={advancedOpen()}>
-                <div class="space-y-4">
-                  <div class="grid gap-3 md:grid-cols-2">
-                    <TextInput
-                      label="Server name"
-                      placeholder="sentry"
-                      value={props.advancedName}
-                      onInput={(e) => props.setAdvancedName(e.currentTarget.value)}
-                    />
-                    <TextInput
-                      label="Server URL"
-                      placeholder="https://mcp.sentry.dev/mcp"
-                      value={props.advancedUrl}
-                      onInput={(e) => props.setAdvancedUrl(e.currentTarget.value)}
-                    />
-                  </div>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <Button
-                      variant={props.advancedOAuth ? "secondary" : "outline"}
-                      onClick={() => props.setAdvancedOAuth(true)}
-                    >
-                      OAuth
-                    </Button>
-                    <Button
-                      variant={!props.advancedOAuth ? "secondary" : "outline"}
-                      onClick={() => props.setAdvancedOAuth(false)}
-                    >
-                      API key
-                    </Button>
-                    <Button
-                      variant={props.advancedEnabled ? "secondary" : "outline"}
-                      onClick={() => props.setAdvancedEnabled(!props.advancedEnabled)}
-                    >
-                      {props.advancedEnabled ? "Enabled" : "Disabled"}
-                    </Button>
-                  </div>
-                  <div class="flex flex-col md:flex-row md:items-end gap-3">
-                    <Button
-                      variant="secondary"
-                      onClick={() => props.addAdvancedMcp()}
-                      disabled={!advancedReady() || props.busy}
-                    >
-                      <Server size={16} />
-                      Add MCP
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      onClick={() => props.testAdvancedMcp()}
-                      disabled={!advancedReady() || props.busy}
-                    >
-                      <RefreshCcw size={16} />
-                      Verify connection
-                    </Button>
-                  </div>
-                  <div class="space-y-2">
-                    <div class="text-xs text-zinc-500">CLI guidance (run from your workspace)</div>
-                    <div class="rounded-xl bg-zinc-950/70 border border-zinc-800/70 px-3 py-2 text-xs font-mono text-zinc-200 flex items-center justify-between gap-2">
-                      <span class="truncate">{advancedCommand()}</span>
-                      <button
-                        type="button"
-                        class="text-zinc-400 hover:text-zinc-200"
-                        onClick={() => navigator.clipboard?.writeText(advancedCommand())}
-                      >
-                        <Copy size={14} />
-                      </button>
-                    </div>
-                    <div class="rounded-xl bg-zinc-950/70 border border-zinc-800/70 px-3 py-2 text-xs font-mono text-zinc-200 flex items-center justify-between gap-2">
-                      <span class="truncate">{advancedAuthCommand()}</span>
-                      <button
-                        type="button"
-                        class="text-zinc-400 hover:text-zinc-200"
-                        onClick={() => navigator.clipboard?.writeText(advancedAuthCommand())}
-                      >
-                        <Copy size={14} />
-                      </button>
-                    </div>
-                    <div class="text-[11px] text-zinc-600">
-                      Config can live in opencode.json, opencode.jsonc, or .opencode/opencode.json.
-                    </div>
-                  </div>
+              <div class="flex items-center gap-2">
+                <button
+                  class={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    configScope() === "project"
+                      ? "bg-white/10 text-white border-white/20"
+                      : "text-zinc-500 border-zinc-800 hover:text-white"
+                  }`}
+                  onClick={() => setConfigScope("project")}
+                >
+                  Project
+                </button>
+                <button
+                  class={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    configScope() === "global"
+                      ? "bg-white/10 text-white border-white/20"
+                      : "text-zinc-500 border-zinc-800 hover:text-white"
+                  }`}
+                  onClick={() => setConfigScope("global")}
+                >
+                  Global
+                </button>
+              </div>
+
+              <div class="flex flex-col gap-1 text-xs text-zinc-500">
+                <div>Config</div>
+                <div class="text-zinc-600 font-mono truncate">
+                  {activeConfig()?.path ?? "Not loaded yet"}
                 </div>
+              </div>
+
+              <div class="flex items-center justify-between gap-3">
+                <Button
+                  variant="secondary"
+                  onClick={revealConfig}
+                  disabled={!canRevealConfig()}
+                >
+                  <Show
+                    when={revealBusy()}
+                    fallback={
+                      <>
+                        <FolderOpen size={16} />
+                        {revealLabel()}
+                      </>
+                    }
+                  >
+                    <Loader2 size={16} class="animate-spin" />
+                    Opening
+                  </Show>
+                </Button>
+                <Show when={activeConfig() && activeConfig()!.exists === false}>
+                  <div class="text-[11px] text-zinc-600">File not found</div>
+                </Show>
+              </div>
+
+              <Show when={configError()}>
+                <div class="text-xs text-red-300">{configError()}</div>
               </Show>
             </div>
           </div>
