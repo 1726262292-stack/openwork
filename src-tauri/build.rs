@@ -37,27 +37,15 @@ fn ensure_opencode_sidecar() {
     .filter(|path| path.is_file())
     .or_else(|| find_in_path(if target.contains("windows") { "opencode.exe" } else { "opencode" }));
 
+  let profile = env::var("PROFILE").unwrap_or_default();
+
   let Some(source_path) = source_path else {
-    let profile = env::var("PROFILE").unwrap_or_default();
     println!(
       "cargo:warning=OpenCode sidecar missing at {} (set OPENCODE_BIN_PATH or install OpenCode)",
       dest_path.display()
     );
 
-    if profile == "debug" && !target.contains("windows") {
-      if fs::create_dir_all(&sidecar_dir).is_err() {
-        return;
-      }
-
-      let stub = "#!/usr/bin/env bash\n\
-echo 'OpenCode sidecar missing. Install OpenCode or set OPENCODE_BIN_PATH.'\n\
-exit 1\n";
-      if fs::write(&dest_path, stub).is_ok() {
-        #[cfg(unix)]
-        let _ = fs::set_permissions(&dest_path, fs::Permissions::from_mode(0o755));
-      }
-    }
-
+    create_debug_stub(&dest_path, &sidecar_dir, &profile, &target);
     return;
   };
 
@@ -65,13 +53,34 @@ exit 1\n";
     return;
   }
 
-  if fs::copy(&source_path, &dest_path).is_err() {
-    return;
-  }
+  let mut copied = fs::copy(&source_path, &dest_path).is_ok();
 
   #[cfg(unix)]
-  {
-    let _ = fs::set_permissions(&dest_path, fs::Permissions::from_mode(0o755));
+  if !copied {
+    if std::os::unix::fs::symlink(&source_path, &dest_path).is_ok() {
+      copied = true;
+    }
+  }
+
+  #[cfg(windows)]
+  if !copied {
+    if fs::hard_link(&source_path, &dest_path).is_ok() {
+      copied = true;
+    }
+  }
+
+  if copied {
+    #[cfg(unix)]
+    {
+      let _ = fs::set_permissions(&dest_path, fs::Permissions::from_mode(0o755));
+    }
+  } else {
+    println!(
+      "cargo:warning=Failed to copy OpenCode sidecar from {} to {}",
+      source_path.display(),
+      dest_path.display()
+    );
+    create_debug_stub(&dest_path, &sidecar_dir, &profile, &target);
   }
 }
 
@@ -85,4 +94,22 @@ fn find_in_path(binary: &str) -> Option<PathBuf> {
       None
     }
   })
+}
+
+fn create_debug_stub(dest_path: &PathBuf, sidecar_dir: &PathBuf, profile: &str, target: &str) {
+  if profile != "debug" || target.contains("windows") {
+    return;
+  }
+
+  if fs::create_dir_all(sidecar_dir).is_err() {
+    return;
+  }
+
+  let stub = "#!/usr/bin/env bash\n\
+echo 'OpenCode sidecar missing. Install OpenCode or set OPENCODE_BIN_PATH.'\n\
+exit 1\n";
+  if fs::write(dest_path, stub).is_ok() {
+    #[cfg(unix)]
+    let _ = fs::set_permissions(dest_path, fs::Permissions::from_mode(0o755));
+  }
 }
