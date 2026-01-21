@@ -1,10 +1,12 @@
 import { createSignal } from "solid-js";
 
 import { applyEdits, modify } from "jsonc-parser";
+import { join } from "@tauri-apps/api/path";
 import { currentLocale, t } from "../../i18n";
 
 import type { Client, CuratedPackage, Mode, PluginScope, ReloadReason, SkillCard } from "../types";
 import { addOpencodeCacheHint, isTauriRuntime } from "../utils";
+import skillCreatorTemplate from "../data/skill-creator.md?raw";
 import {
   isPluginInstalled,
   loadPluginsFromConfig as loadPluginsFromConfigHelpers,
@@ -13,6 +15,8 @@ import {
 } from "../utils/plugins";
 import {
   importSkill,
+  installSkillTemplate,
+  listLocalSkills,
   opkgInstall,
   pickDirectory,
   readOpencodeConfig,
@@ -71,17 +75,65 @@ export function createExtensionsStore(options: {
   };
 
   async function refreshSkills(optionsOverride?: { force?: boolean }) {
-    const c = options.client();
-    if (!c) {
-      setSkills([]);
-      setSkillsStatus(translate("skills.connect_host_to_load"));
-      return;
-    }
-
     const root = options.activeWorkspaceRoot().trim();
     if (!root) {
       setSkills([]);
       setSkillsStatus(translate("skills.pick_workspace_first"));
+      return;
+    }
+
+    // Host/Tauri mode: read directly from `.opencode/skill(s)` so the UI still works
+    // even if the OpenCode engine is stopped or unreachable.
+    if (options.mode() === "host" && isTauriRuntime()) {
+      if (root !== skillsRoot) {
+        skillsLoaded = false;
+      }
+
+      if (!optionsOverride?.force && skillsLoaded) {
+        return;
+      }
+
+      if (refreshSkillsInFlight) {
+        return;
+      }
+
+      refreshSkillsInFlight = true;
+      refreshSkillsAborted = false;
+
+      try {
+        setSkillsStatus(null);
+        const local = await listLocalSkills(root);
+        if (refreshSkillsAborted) return;
+
+        const next: SkillCard[] = Array.isArray(local)
+          ? local.map((entry) => ({
+              name: entry.name,
+              description: entry.description,
+              path: entry.path,
+            }))
+          : [];
+
+        setSkills(next);
+        if (!next.length) {
+          setSkillsStatus(translate("skills.no_skills_found"));
+        }
+        skillsLoaded = true;
+        skillsRoot = root;
+      } catch (e) {
+        if (refreshSkillsAborted) return;
+        setSkills([]);
+        setSkillsStatus(e instanceof Error ? e.message : translate("skills.failed_to_load"));
+      } finally {
+        refreshSkillsInFlight = false;
+      }
+
+      return;
+    }
+
+    const c = options.client();
+    if (!c) {
+      setSkills([]);
+      setSkillsStatus(translate("skills.connect_host_to_load"));
       return;
     }
 
@@ -383,6 +435,83 @@ export function createExtensionsStore(options: {
     }
   }
 
+  async function installSkillCreator() {
+    if (!isTauriRuntime()) {
+      setSkillsStatus(translate("skills.desktop_required"));
+      return;
+    }
+
+    if (options.mode() !== "host") {
+      options.setError(translate("skills.host_only_error"));
+      return;
+    }
+
+    const targetDir = options.activeWorkspaceRoot().trim();
+    if (!targetDir) {
+      setSkillsStatus(translate("skills.pick_workspace_first"));
+      return;
+    }
+
+    options.setBusy(true);
+    options.setError(null);
+    setSkillsStatus(translate("skills.installing_skill_creator"));
+
+    try {
+      const result = await installSkillTemplate(targetDir, "skill-creator", skillCreatorTemplate, { overwrite: false });
+
+      if (!result.ok && /already exists/i.test(result.stderr)) {
+        setSkillsStatus(translate("skills.skill_creator_already_installed"));
+      } else if (!result.ok) {
+        setSkillsStatus(result.stderr || result.stdout || translate("skills.install_failed"));
+      } else {
+        setSkillsStatus(result.stdout || translate("skills.skill_creator_installed"));
+        options.markReloadRequired("skills");
+      }
+
+      await refreshSkills({ force: true });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : translate("skills.unknown_error");
+      options.setError(addOpencodeCacheHint(message));
+    } finally {
+      options.setBusy(false);
+    }
+  }
+
+  async function revealSkillsFolder() {
+    if (!isTauriRuntime()) {
+      setSkillsStatus(translate("skills.desktop_required"));
+      return;
+    }
+
+    const root = options.activeWorkspaceRoot().trim();
+    if (!root) {
+      setSkillsStatus(translate("skills.pick_workspace_first"));
+      return;
+    }
+
+    try {
+      const { openPath, revealItemInDir } = await import("@tauri-apps/plugin-opener");
+      const plural = await join(root, ".opencode", "skills");
+      const singular = await join(root, ".opencode", "skill");
+
+      const tryOpen = async (target: string) => {
+        try {
+          await openPath(target);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      // Prefer opening the folder. `revealItemInDir` expects a file path on macOS.
+      if (await tryOpen(plural)) return;
+      if (await tryOpen(singular)) return;
+      await revealItemInDir(singular);
+    } catch (e) {
+      setSkillsStatus(e instanceof Error ? e.message : translate("skills.reveal_failed"));
+    }
+  }
+
   function abortRefreshes() {
     refreshSkillsAborted = true;
     refreshPluginsAborted = true;
@@ -413,6 +542,8 @@ export function createExtensionsStore(options: {
     installFromOpenPackage,
     useCuratedPackage,
     importLocalSkill,
+    installSkillCreator,
+    revealSkillsFolder,
     abortRefreshes,
   };
 }

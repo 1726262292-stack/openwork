@@ -89,6 +89,8 @@ export type DashboardViewProps = {
   setOpenPackageSource: (value: string) => void;
   installFromOpenPackage: () => void;
   importLocalSkill: () => void;
+  installSkillCreator: () => void;
+  revealSkillsFolder: () => void;
   packageSearch: string;
   setPackageSearch: (value: string) => void;
   filteredPackages: CuratedPackage[];
@@ -679,6 +681,8 @@ export default function DashboardView(props: DashboardViewProps) {
                 setOpenPackageSource={props.setOpenPackageSource}
                 installFromOpenPackage={props.installFromOpenPackage}
                 importLocalSkill={props.importLocalSkill}
+                installSkillCreator={props.installSkillCreator}
+                revealSkillsFolder={props.revealSkillsFolder}
                 packageSearch={props.packageSearch}
                 setPackageSearch={props.setPackageSearch}
                 filteredPackages={props.filteredPackages}

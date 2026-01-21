@@ -371,6 +371,8 @@ export default function App() {
     installFromOpenPackage,
     useCuratedPackage,
     importLocalSkill,
+    installSkillCreator,
+    revealSkillsFolder,
     abortRefreshes,
   } = extensionsStore;
 
@@ -1661,6 +1663,8 @@ export default function App() {
     setOpenPackageSource,
     installFromOpenPackage: () => installFromOpenPackage(),
     importLocalSkill,
+    installSkillCreator,
+    revealSkillsFolder,
     packageSearch: packageSearch(),
     setPackageSearch,
     filteredPackages: filteredPackages(),

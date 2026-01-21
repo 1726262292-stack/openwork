@@ -4,7 +4,7 @@ import type { CuratedPackage, SkillCard } from "../types";
 import { isTauriRuntime } from "../utils";
 
 import Button from "../components/button";
-import { Package, Upload } from "lucide-solid";
+import { FolderOpen, Package, Upload } from "lucide-solid";
 import { currentLocale, t } from "../../i18n";
 
 export type SkillsViewProps = {
@@ -17,6 +17,8 @@ export type SkillsViewProps = {
   setOpenPackageSource: (value: string) => void;
   installFromOpenPackage: () => void;
   importLocalSkill: () => void;
+  installSkillCreator: () => void;
+  revealSkillsFolder: () => void;
   packageSearch: string;
   setPackageSearch: (value: string) => void;
   filteredPackages: CuratedPackage[];
@@ -52,7 +54,7 @@ export default function SkillsView(props: SkillsViewProps) {
           />
           <Button
             onClick={props.installFromOpenPackage}
-            disabled={props.busy || props.mode !== "host" || !isTauriRuntime()}
+            disabled={props.busy}
             class="md:w-auto"
           >
             <Package size={16} />
@@ -64,14 +66,30 @@ export default function SkillsView(props: SkillsViewProps) {
         </div>
 
         <div class="flex items-center justify-between gap-3 pt-2 border-t border-zinc-800/60">
+          <div class="text-sm font-medium text-gray-12">{translate("skills.install_skill_creator")}</div>
+          <Button variant="secondary" onClick={props.installSkillCreator} disabled={props.busy}>
+            <Package size={16} />
+            {translate("skills.install")}
+          </Button>
+        </div>
+
+        <div class="flex items-center justify-between gap-3 pt-2 border-t border-zinc-800/60">
           <div class="text-sm font-medium text-gray-12">{translate("skills.import_local")}</div>
           <Button
             variant="secondary"
             onClick={props.importLocalSkill}
-            disabled={props.busy || props.mode !== "host" || !isTauriRuntime()}
+            disabled={props.busy}
           >
             <Upload size={16} />
             {translate("skills.import")}
+          </Button>
+        </div>
+
+        <div class="flex items-center justify-between gap-3 pt-2 border-t border-zinc-800/60">
+          <div class="text-sm font-medium text-gray-12">{translate("skills.reveal_folder")}</div>
+          <Button variant="secondary" onClick={props.revealSkillsFolder} disabled={props.busy}>
+            <FolderOpen size={16} />
+            {translate("skills.reveal_button")}
           </Button>
         </div>
 
