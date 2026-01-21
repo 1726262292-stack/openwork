@@ -34,23 +34,25 @@ pnpm tauri android build
 ## Project Structure
 
 ```
-vendor/openwork/
-  src-tauri/
-    src/
-      main.rs           # Rust entry point
-      lib.rs            # Tauri commands and state
-    Cargo.toml          # Rust dependencies
-    tauri.conf.json     # Tauri configuration
-    capabilities/       # Permission capabilities
-  src/
-    App.tsx             # SolidJS root component
-    index.tsx           # Entry point
-  components/         # UI components
-  stores/             # Solid stores for state
-  lib/                # Utilities and OpenCode bridge
-  index.html            # HTML template
-  package.json          # Frontend dependencies
-  vite.config.ts        # Vite configuration
+openwork/
+  packages/
+    desktop/
+      src-tauri/
+        src/
+          main.rs           # Rust entry point
+          lib.rs            # Tauri commands and state
+        Cargo.toml          # Rust dependencies
+        tauri.conf.json     # Tauri configuration
+        capabilities/       # Permission capabilities
+      src/
+        App.tsx             # SolidJS root component
+        index.tsx           # Entry point
+      components/           # UI components
+      stores/               # Solid stores for state
+      lib/                  # Utilities and OpenCode bridge
+      index.html            # HTML template
+      package.json          # Frontend dependencies
+      vite.config.ts        # Vite configuration
 ```
 
 
@@ -89,7 +91,7 @@ serde_json = "1"
 ## Tauri Commands (Rust -> JS)
 
 ```rust
-// src-tauri/src/lib.rs
+// packages/desktop/src-tauri/src/lib.rs
 use tauri::Manager;
 
 #[tauri::command]

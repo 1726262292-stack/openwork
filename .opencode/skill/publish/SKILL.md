@@ -23,16 +23,16 @@ git status
 
 ### 2) Bump version everywhere
 
-- `package.json` (`version`)
-- `src-tauri/tauri.conf.json` (`version`)
-- `src-tauri/Cargo.toml` (`version`)
+- `packages/desktop/package.json` (`version`)
+- `packages/desktop/src-tauri/tauri.conf.json` (`version`)
+- `packages/desktop/src-tauri/Cargo.toml` (`version`)
 
 ### 3) Validate builds
 
 ```bash
 pnpm typecheck
 pnpm build:web
-cargo check --manifest-path src-tauri/Cargo.toml
+cargo check --manifest-path packages/desktop/src-tauri/Cargo.toml
 ```
 
 ### 4) Build DMG
@@ -43,7 +43,7 @@ pnpm tauri build --bundles dmg
 
 Expected output (Apple Silicon example):
 
-- `src-tauri/target/release/bundle/dmg/OpenWork_<version>_aarch64.dmg`
+- `packages/desktop/src-tauri/target/release/bundle/dmg/OpenWork_<version>_aarch64.dmg`
 
 ### 5) Commit + tag
 
@@ -61,7 +61,7 @@ gh release create vX.Y.Z \
   --title "OpenWork vX.Y.Z" \
   --notes "<summary>"
 
-gh release upload vX.Y.Z "src-tauri/target/release/bundle/dmg/<DMG_NAME>.dmg" --clobber
+gh release upload vX.Y.Z "packages/desktop/src-tauri/target/release/bundle/dmg/<DMG_NAME>.dmg" --clobber
 ```
 
 ## Helper

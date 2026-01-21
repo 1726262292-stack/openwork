@@ -20,6 +20,9 @@ git -C vendor/opencode pull --ff-only
 pnpm tauri dev          # Desktop development
 pnpm tauri ios dev      # iOS development
 pnpm tauri android dev  # Android development
+
+# Or run directly in the desktop package:
+pnpm -C packages/desktop tauri dev
 ```
 
 ## OpenCode Integration

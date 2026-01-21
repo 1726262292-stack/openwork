@@ -54,7 +54,7 @@ Add a single script so every step runs the same command.
 
 Each step ends with the same two actions:
 
-1) Run `pnpm -C vendor/openwork test:refactor`
+1) Run `pnpm test:refactor`
 2) If it fails, stop and fix or revert the last step.
 
 ### Step 0 - Baseline and guardrails
@@ -65,7 +65,7 @@ Each step ends with the same two actions:
 - Pay attention:
   - Do not change any runtime logic while adding the script.
 - Check:
-  - Run `pnpm -C vendor/openwork test:refactor`.
+  - Run `pnpm test:refactor`.
 
 ### Step 1 - Demo mode state
 
@@ -82,7 +82,7 @@ Each step ends with the same two actions:
   - Ensure demo state is reset when sequence changes.
   - All `active*` memos must still switch between demo and real state.
 - Check:
-  - Run `pnpm -C vendor/openwork test:refactor`.
+  - Run `pnpm test:refactor`.
 
 ### Step 2 - Template management
 
@@ -100,7 +100,7 @@ Each step ends with the same two actions:
   - Preserve busy label values and error messages.
   - `loadWorkspaceTemplates` is used by `createWorkspaceStore` and must keep its signature.
 - Check:
-  - Run `pnpm -C vendor/openwork test:refactor`.
+  - Run `pnpm test:refactor`.
 
 ### Step 3 - Update, reload, reset, cache repair
 
@@ -118,7 +118,7 @@ Each step ends with the same two actions:
   - Reload gating must still block during active runs and non-host mode.
   - Reset must still clear local storage before relaunch/reload.
 - Check:
-  - Run `pnpm -C vendor/openwork test:refactor`.
+  - Run `pnpm test:refactor`.
 
 ### Step 4 - Provider and model selection
 
@@ -133,7 +133,7 @@ Each step ends with the same two actions:
   - Keep sorting logic identical (connected and free first).
   - Preserve default model fallback behavior when no providers are loaded.
 - Check:
-  - Run `pnpm -C vendor/openwork test:refactor`.
+  - Run `pnpm test:refactor`.
 
 ### Step 5 - Preferences and local storage
 
@@ -148,7 +148,7 @@ Each step ends with the same two actions:
   - Keep legacy keys for compatibility (e.g. `openwork_mode_pref`, `openwork.projectDir`).
   - Do not change any localStorage key names or value formats.
 - Check:
-  - Run `pnpm -C vendor/openwork test:refactor`.
+  - Run `pnpm test:refactor`.
 
 ### Step 6 - View prop builders
 
@@ -162,15 +162,15 @@ Each step ends with the same two actions:
   - Every prop name must match the current view usage.
   - Do not remove any callbacks or rename handlers.
 - Check:
-  - Run `pnpm -C vendor/openwork test:refactor`.
+  - Run `pnpm test:refactor`.
 
 ### Step 7 - App.tsx cleanup
 
 - Remove unused imports and reorder remaining imports.
 - App.tsx should only create signals, wire factories, and render views/modals.
 - Check:
-  - Run `pnpm -C vendor/openwork test:refactor`.
-  - Run `pnpm -C vendor/openwork test:e2e`.
+  - Run `pnpm test:refactor`.
+  - Run `pnpm test:e2e`.
 
 ## Attention Checklist (every step)
 
@@ -182,14 +182,14 @@ Each step ends with the same two actions:
 
 ## Regression Checks (every step)
 
-- `pnpm -C vendor/openwork test:refactor`
-- Manual smoke (optional): `pnpm -C vendor/openwork dev:web` and verify onboarding and dashboard render.
+- `pnpm test:refactor`
+- Manual smoke (optional): `pnpm dev:web` and verify onboarding and dashboard render.
 
 ## Acceptance Criteria
 
 - `src/App.tsx` <= 1100 lines.
 - All test gates pass after each step.
-- Final `pnpm -C vendor/openwork test:e2e` passes.
+- Final `pnpm test:e2e` passes.
 - No UI or behavior changes.
 
 ## Open Questions

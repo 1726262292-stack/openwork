@@ -75,7 +75,7 @@ Refactor the UI architecture to establish a clean, layered structure:
 ### Target Directory Structure
 
 ```
-vendor/openwork/src/
+packages/desktop/src/
   app/
     connection.ts
     updates.ts

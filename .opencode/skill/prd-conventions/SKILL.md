@@ -7,12 +7,12 @@ description: PRD authoring conventions for OpenWork
 
 All new PRDs for OpenWork must live at:
 
-- `vendor/openwork/pr/<prd-name>.md`
+- `packages/desktop/pr/<prd-name>.md`
 
 Examples:
 
-- `vendor/openwork/pr/onboarding-1.0.md`
-- `vendor/openwork/pr/folder-workspaces-jit.md`
+- `packages/desktop/pr/onboarding-1.0.md`
+- `packages/desktop/pr/ui-dark-radix.md`
 
 ## Why
 
