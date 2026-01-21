@@ -27,16 +27,16 @@ git status
 
 ### 2) Bump version everywhere
 
-- `package.json` (`version`)
-- `src-tauri/tauri.conf.json` (`version`)
-- `src-tauri/Cargo.toml` (`version`)
+- `packages/desktop/package.json` (`version`)
+- `packages/desktop/src-tauri/tauri.conf.json` (`version`)
+- `packages/desktop/src-tauri/Cargo.toml` (`version`)
 
 ### 3) Validate builds
 
 ```bash
 pnpm typecheck
 pnpm build:web
-cargo check --manifest-path src-tauri/Cargo.toml
+cargo check --manifest-path packages/desktop/src-tauri/Cargo.toml
 ```
 
 ### 4) Build DMG
@@ -47,7 +47,7 @@ pnpm tauri build --bundles dmg
 
 This should produce something like:
 
-- `src-tauri/target/release/bundle/dmg/OpenWork_<version>_aarch64.dmg`
+- `packages/desktop/src-tauri/target/release/bundle/dmg/OpenWork_<version>_aarch64.dmg`
 
 ### 5) Verify “unsigned” state
 
@@ -57,7 +57,7 @@ Quick checks:
 
 ```bash
 # mount the dmg read-only
-hdiutil attach -nobrowse -readonly "src-tauri/target/release/bundle/dmg/<DMG_NAME>.dmg"
+hdiutil attach -nobrowse -readonly "packages/desktop/src-tauri/target/release/bundle/dmg/<DMG_NAME>.dmg"
 
 # verify signature details (expect ad-hoc or not notarized)
 codesign -dv --verbose=4 "/Volumes/<VOLUME>/<APP>.app"
@@ -85,7 +85,7 @@ gh release create vX.Y.Z \
   --title "OpenWork vX.Y.Z" \
   --notes "<human summary>"
 
-gh release upload vX.Y.Z "src-tauri/target/release/bundle/dmg/<DMG_NAME>.dmg" --clobber
+gh release upload vX.Y.Z "packages/desktop/src-tauri/target/release/bundle/dmg/<DMG_NAME>.dmg" --clobber
 ```
 
 ## Local helper scripts

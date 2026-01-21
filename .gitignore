@@ -1,11 +1,13 @@
 node_modules/
+packages/*/node_modules/
 .next/
 out/
 dist/
+packages/*/dist/
 
 # Tauri/Rust
-src-tauri/target/
-src-tauri/sidecars/
+packages/desktop/src-tauri/target/
+packages/desktop/src-tauri/sidecars/
 
 # Env
 .env

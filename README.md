@@ -67,6 +67,8 @@ OpenWork is designed to be:
 pnpm install
 ```
 
+OpenWork now lives in `packages/desktop`. Root scripts forward to that package.
+
 ### Run (Desktop)
 
 ```bash
@@ -95,7 +97,7 @@ pnpm dev:web
 
 The folder picker uses the Tauri dialog plugin.
 Capability permissions are defined in:
-- `src-tauri/capabilities/default.json`
+- `packages/desktop/src-tauri/capabilities/default.json`
 
 ## OpenPackage Notes
 
@@ -140,7 +142,7 @@ pnpm test:e2e
 - Review `AGENTS.md` and `MOTIVATIONS-PHILOSOPHY.md` to understand the product goals before making changes.
 - Ensure Node.js, `pnpm`, the Rust toolchain, and `opencode` are installed before working inside the repo.
 - Run `pnpm install` once per checkout, then verify your change with `pnpm typecheck` plus `pnpm test:e2e` (or the targeted subset of scripts) before opening a PR.
-- Add new PRDs to `prd/<name>.md` following the `.opencode/skill/prd-conventions/SKILL.md` conventions described in `AGENTS.md`.
+- Add new PRDs to `packages/desktop/pr/<name>.md` following the `.opencode/skill/prd-conventions/SKILL.md` conventions described in `AGENTS.md`.
 
 ## License
 
