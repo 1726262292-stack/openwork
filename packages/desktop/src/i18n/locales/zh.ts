@@ -146,9 +146,11 @@ export default {
 
   // ==================== Skills ====================
   "skills.refresh": "刷新",
+  "skills.add_title": "添加 skills",
   "skills.install_from_openpackage": "从 OpenPackage 安装",
   "skills.host_mode_only": "仅主机模式",
   "skills.install": "安装",
+  "skills.installed_label": "已安装",
   "skills.install_hint": "将 OpenPackage 包安装到当前工作区。Skills 应放在 `.opencode/skill` 中。",
   "skills.import_local": "导入本地 skill",
   "skills.import": "导入",

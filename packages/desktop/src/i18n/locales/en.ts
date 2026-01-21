@@ -145,9 +145,11 @@ export default {
 
   // ==================== Skills ====================
   "skills.refresh": "Refresh",
+  "skills.add_title": "Add skills",
   "skills.install_from_openpackage": "Install from OpenPackage",
   "skills.host_mode_only": "Host mode only",
   "skills.install": "Install",
+  "skills.installed_label": "Installed",
   "skills.install_hint": "Installs OpenPackage packages into the current workspace. Skills should land in `.opencode/skill`.",
   "skills.import_local": "Import local skill",
   "skills.import": "Import",

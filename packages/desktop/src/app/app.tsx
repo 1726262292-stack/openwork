@@ -25,7 +25,6 @@ import DashboardView from "./pages/dashboard";
 import SessionView from "./pages/session";
 import { createClient, unwrap, waitForHealthy } from "./lib/opencode";
 import {
-  CURATED_PACKAGES,
   DEFAULT_MODEL,
   DEMO_MODE_PREF_KEY,
   DEMO_SEQUENCE_PREF_KEY,
@@ -38,7 +37,6 @@ import {
 import { parseMcpServersFromContent } from "./mcp";
 import type {
   Client,
-  CuratedPackage,
   DashboardTab,
   DemoSequence,
   MessageWithParts,
@@ -349,10 +347,6 @@ export default function App() {
   const {
     skills,
     skillsStatus,
-    openPackageSource,
-    setOpenPackageSource,
-    packageSearch,
-    setPackageSearch,
     pluginScope,
     setPluginScope,
     pluginConfig,
@@ -368,8 +362,6 @@ export default function App() {
     refreshSkills,
     refreshPlugins,
     addPlugin,
-    installFromOpenPackage,
-    useCuratedPackage,
     importLocalSkill,
     installSkillCreator,
     revealSkillsFolder,
@@ -617,23 +609,6 @@ export default function App() {
     if (creatingSession()) return;
     if (client()) return;
     setView("dashboard");
-  });
-
-  const filteredPackages = createMemo(() => {
-    const query = packageSearch().trim().toLowerCase();
-    if (!query) return CURATED_PACKAGES;
-
-    return CURATED_PACKAGES.filter((pkg) => {
-      const haystack = [
-        pkg.name,
-        pkg.source,
-        pkg.description,
-        pkg.tags.join(" "),
-      ]
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(query);
-    });
   });
 
   const selectedSessionModel = createMemo<ModelRef>(() => {
@@ -1659,16 +1634,9 @@ export default function App() {
       refreshPlugins(scopeOverride).catch(() => undefined),
     skills: skills(),
     skillsStatus: skillsStatus(),
-    openPackageSource: openPackageSource(),
-    setOpenPackageSource,
-    installFromOpenPackage: () => installFromOpenPackage(),
     importLocalSkill,
     installSkillCreator,
     revealSkillsFolder,
-    packageSearch: packageSearch(),
-    setPackageSearch,
-    filteredPackages: filteredPackages(),
-    useCuratedPackage,
     pluginScope: pluginScope(),
     setPluginScope,
     pluginConfigPath: pluginConfig()?.path ?? null,

@@ -4,7 +4,7 @@ import { applyEdits, modify } from "jsonc-parser";
 import { join } from "@tauri-apps/api/path";
 import { currentLocale, t } from "../../i18n";
 
-import type { Client, CuratedPackage, Mode, PluginScope, ReloadReason, SkillCard } from "../types";
+import type { Client, Mode, PluginScope, ReloadReason, SkillCard } from "../types";
 import { addOpencodeCacheHint, isTauriRuntime } from "../utils";
 import skillCreatorTemplate from "../data/skill-creator.md?raw";
 import {
@@ -17,13 +17,11 @@ import {
   importSkill,
   installSkillTemplate,
   listLocalSkills,
-  opkgInstall,
   pickDirectory,
   readOpencodeConfig,
   writeOpencodeConfig,
   type OpencodeConfigFile,
 } from "../lib/tauri";
-import { unwrap } from "../lib/opencode";
 
 export type ExtensionsStore = ReturnType<typeof createExtensionsStore>;
 
@@ -44,8 +42,6 @@ export function createExtensionsStore(options: {
 
   const [skills, setSkills] = createSignal<SkillCard[]>([]);
   const [skillsStatus, setSkillsStatus] = createSignal<string | null>(null);
-  const [openPackageSource, setOpenPackageSource] = createSignal("");
-  const [packageSearch, setPackageSearch] = createSignal("");
 
   const formatSkillPath = (location: string) => location.replace(/[/\\]SKILL\.md$/i, "");
 
@@ -338,62 +334,6 @@ export function createExtensionsStore(options: {
     }
   }
 
-  async function installFromOpenPackage(sourceOverride?: string) {
-    if (options.mode() !== "host" || !isTauriRuntime()) {
-      options.setError(translate("skills.opackage_install_host_only"));
-      return;
-    }
-
-    const targetDir = options.projectDir().trim();
-    const pkg = (sourceOverride ?? openPackageSource()).trim();
-    const isNotionSkillInstall = pkg.toLowerCase().includes("manage-crm-notion");
-
-    if (!targetDir) {
-      options.setError(translate("skills.pick_project_first"));
-      return;
-    }
-
-    if (!pkg) {
-      options.setError(translate("skills.enter_opackage_source"));
-      return;
-    }
-
-    setOpenPackageSource(pkg);
-    options.setBusy(true);
-    options.setError(null);
-    setSkillsStatus(translate("skills.installing_opackage"));
-
-    try {
-      const result = await opkgInstall(targetDir, pkg);
-      if (!result.ok) {
-        setSkillsStatus(result.stderr || result.stdout || `opkg failed (${result.status})`);
-      } else {
-        setSkillsStatus(result.stdout || translate("skills.install_complete"));
-        options.markReloadRequired("skills");
-        if (isNotionSkillInstall) {
-          options.onNotionSkillInstalled?.();
-        }
-      }
-
-      await refreshSkills({ force: true });
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      options.setError(addOpencodeCacheHint(message));
-    } finally {
-      options.setBusy(false);
-    }
-  }
-
-  async function useCuratedPackage(pkg: CuratedPackage) {
-    if (pkg.installable) {
-      await installFromOpenPackage(pkg.source);
-      return;
-    }
-
-    setOpenPackageSource(pkg.source);
-    setSkillsStatus(translate("skills.curated_list_notice"));
-  }
-
   async function importLocalSkill() {
     if (options.mode() !== "host" || !isTauriRuntime()) {
       options.setError(translate("skills.import_host_only"));
@@ -520,10 +460,6 @@ export function createExtensionsStore(options: {
   return {
     skills,
     skillsStatus,
-    openPackageSource,
-    setOpenPackageSource,
-    packageSearch,
-    setPackageSearch,
     pluginScope,
     setPluginScope,
     pluginConfig,
@@ -539,8 +475,6 @@ export function createExtensionsStore(options: {
     refreshSkills,
     refreshPlugins,
     addPlugin,
-    installFromOpenPackage,
-    useCuratedPackage,
     importLocalSkill,
     installSkillCreator,
     revealSkillsFolder,
