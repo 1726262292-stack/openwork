@@ -47,6 +47,10 @@ jobs:
         with:
           targets: x86_64-unknown-linux-gnu
 
+      - name: Create CI Tauri config (no updater artifacts)
+        run: |
+          node -e "const fs=require('fs'); const configPath='packages/desktop/src-tauri/tauri.conf.json'; const ciPath='packages/desktop/src-tauri/tauri.conf.ci.json'; const config=JSON.parse(fs.readFileSync(configPath,'utf8')); config.bundle={...config.bundle, createUpdaterArtifacts:false}; fs.writeFileSync(ciPath, JSON.stringify(config, null, 2));"
+
       - name: Download OpenCode sidecar
         shell: bash
         env:
@@ -90,4 +94,4 @@ jobs:
           chmod 755 "packages/desktop/src-tauri/sidecars/${target_name}"
 
       - name: Build desktop app
-        run: pnpm --filter @different-ai/openwork exec tauri build --target x86_64-unknown-linux-gnu --bundles deb
+        run: pnpm --filter @different-ai/openwork exec tauri build --config packages/desktop/src-tauri/tauri.conf.ci.json --target x86_64-unknown-linux-gnu --bundles deb
