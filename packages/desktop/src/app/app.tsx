@@ -782,6 +782,12 @@ export default function App() {
 
     setSessionModelOverrideById((current) => ({ ...current, [id]: next }));
     setModelPickerOpen(false);
+
+    if (typeof window !== "undefined" && view() === "session") {
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent("openwork:focusPrompt"));
+      });
+    }
   }
 
 

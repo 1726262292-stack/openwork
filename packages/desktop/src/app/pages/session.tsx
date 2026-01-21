@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type { Part } from "@opencode-ai/sdk/v2/client";
 import type {
   ArtifactItem,
@@ -108,6 +108,24 @@ export default function SessionView(props: SessionViewProps) {
   const [commandIndex, setCommandIndex] = createSignal(0);
 
   let promptInputEl: HTMLTextAreaElement | undefined;
+
+  createEffect(() => {
+    const handler = () => {
+      if (props.busy) return;
+      const el = promptInputEl;
+      if (!el) return;
+      el.focus();
+      try {
+        const len = el.value.length;
+        el.setSelectionRange(len, len);
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener("openwork:focusPrompt", handler);
+    onCleanup(() => window.removeEventListener("openwork:focusPrompt", handler));
+  });
 
   createEffect(() => {
     if (!artifactToast()) return;
