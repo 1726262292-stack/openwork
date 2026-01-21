@@ -140,8 +140,8 @@ jobs:
             args: "--target x86_64-apple-darwin --bundles dmg,app"
           - platform: ubuntu-22.04
             os_type: linux
-            target: aarch64-unknown-linux-gnu
-            args: "--target aarch64-unknown-linux-gnu --bundles deb,rpm"
+            target: x86_64-unknown-linux-gnu
+            args: "--target x86_64-unknown-linux-gnu --bundles deb,rpm"
           - platform: windows-2022
             os_type: windows
             target: x86_64-pc-windows-msvc
