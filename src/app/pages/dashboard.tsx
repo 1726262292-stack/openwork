@@ -294,9 +294,9 @@ export default function DashboardView(props: DashboardViewProps) {
     <div class="flex h-screen bg-gray-1 text-gray-12 overflow-hidden">
       <aside class="w-64 border-r border-gray-6 p-6 hidden md:flex flex-col justify-between bg-gray-1">
         <div>
-          <div class="flex items-center gap-3 mb-10 px-2">
-            <div class="w-8 h-8 bg-gray-12 rounded-lg flex items-center justify-center">
-              <OpenWorkLogo size={18} class="text-gray-1" />
+            <div class="flex items-center gap-3 mb-10 px-2">
+            <div class="">
+              <OpenWorkLogo size={32} />
             </div>
             <span class="font-bold text-lg tracking-tight">OpenWork</span>
           </div>
@@ -335,13 +335,13 @@ export default function DashboardView(props: DashboardViewProps) {
               <div
                 class={`w-2 h-2 rounded-full ${
                   props.clientConnected
-                    ? "bg-green-7 animate-pulse"
+                    ? "bg-green-9 animate-pulse"
                     : "bg-gray-6"
                 }`}
               />
               <span
                 class={`text-sm font-medium ${
-                  props.clientConnected ? "text-green-6" : "text-gray-10"
+                  props.clientConnected ? "text-green-11" : "text-gray-10"
                 }`}
               >
                 {props.clientConnected ? "Connected" : "Not connected"}
@@ -453,7 +453,7 @@ export default function DashboardView(props: DashboardViewProps) {
           <Switch>
             <Match when={props.tab === "home"}>
               <section>
-                <div class="bg-gradient-to-r from-gray-2 to-gray-4 rounded-3xl p-1 border border-gray-6 shadow-2xl">
+                <div class="bg-gradient-to-r from-gray-2 to-gray-4 rounded-3xl p-1 ">
                   <div class="bg-gray-1 rounded-[22px] p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6">
                     <div class="space-y-2 text-center md:text-left">
                       <h2 class="text-2xl font-semibold text-gray-12">

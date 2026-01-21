@@ -19,7 +19,6 @@ import {
   RefreshCcw,
   Server,
   Settings,
-  TriangleAlert,
 } from "lucide-solid";
 import TextInput from "../components/text-input";
 import { currentLocale, t, type Language } from "../../i18n";
@@ -185,7 +184,6 @@ export default function McpView(props: McpViewProps) {
 
   return (
     <section class="space-y-6">
-      <div class="space-y-4">
         <div class="space-y-1">
           <h2 class="text-lg font-semibold text-gray-12">{translate("mcp.title")}</h2>
           <p class="text-sm text-gray-11">
@@ -193,44 +191,6 @@ export default function McpView(props: McpViewProps) {
           </p>
         </div>
 
-        <div class="bg-amber-7/10 border border-amber-7/20 rounded-2xl p-5 space-y-4">
-          <div class="flex items-start gap-3">
-            <TriangleAlert size={20} class="text-amber-11 shrink-0 mt-0.5" />
-            <div class="space-y-3">
-              <div class="text-sm font-medium text-amber-12">
-                {translate("mcp.alpha_banner_title")}
-              </div>
-              <div class="flex flex-col gap-2">
-                <a
-                  href="https://github.com/anomalyco/opencode/issues/9510"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="inline-flex items-center gap-1.5 text-xs text-amber-11/80 hover:text-amber-11 underline decoration-amber-5/30 underline-offset-4 transition-colors"
-                >
-                  <ExternalLink size={12} />
-                  {translate("mcp.github_issue")}
-                </a>
-                <p class="text-xs text-gray-11 leading-relaxed">
-                  {translate("mcp.alpha_banner_help")}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setShowDangerousContent(!showDangerousContent())}
-          class="flex items-center gap-2 px-4 py-2 text-xs font-medium text-gray-10 hover:text-gray-11 transition-colors group"
-        >
-          <Show when={showDangerousContent()} fallback={<ChevronRight size={14} class="group-hover:translate-x-0.5 transition-transform" />}>
-            <ChevronDown size={14} />
-          </Show>
-          {showDangerousContent() ? translate("mcp.hide_advanced") : translate("mcp.show_advanced")}
-        </button>
-      </div>
-
-      <Show when={showDangerousContent()}>
         <div class="grid gap-6 lg:grid-cols-[1.5fr_1fr] animate-in fade-in slide-in-from-top-11 duration-300">
           <div class="space-y-6">
             <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
@@ -541,7 +501,6 @@ export default function McpView(props: McpViewProps) {
             </Show>
           </div>
         </div>
-      </Show>
     </section>
   );
 }

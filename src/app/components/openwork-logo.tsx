@@ -13,7 +13,7 @@ export default function OpenWorkLogo(props: Props): JSX.Element {
       alt="OpenWork"
       width={size}
       height={size}
-      class={`inline-block rounded-[20%] ${props.class ?? ""}`}
+      class={`inline-block ${props.class ?? ""}`}
     />
   );
 }

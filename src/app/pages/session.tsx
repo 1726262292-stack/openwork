@@ -847,7 +847,7 @@ export default function SessionView(props: SessionViewProps) {
 
         <div class="p-4 border-t border-gray-6 bg-gray-1 sticky bottom-0 z-20">
           <div class="max-w-2xl mx-auto">
-            <div class="bg-gray-2 border border-gray-6 rounded-2xl overflow-hidden focus-within:ring-1 focus-within:ring-gray-7 transition-all shadow-2xl relative group/input">
+            <div class="bg-gray-2 border border-gray-6 rounded-2xl overflow-visible focus-within:ring-1 focus-within:ring-gray-7 transition-all shadow-2xl relative group/input">
               <button
                 type="button"
                 class="absolute top-2 left-4 flex items-center gap-1 text-[10px] font-bold text-gray-7 hover:text-gray-11 transition-colors uppercase tracking-widest z-10"
@@ -872,7 +872,7 @@ export default function SessionView(props: SessionViewProps) {
 
                 <div class="relative">
                   <Show when={commandMenuOpen()}>
-                    <div class="absolute bottom-full left-0 right-0 mb-2 z-20">
+                    <div class="absolute bottom-full left-0 right-0 mb-2 z-30">
                       <div class="rounded-2xl border border-gray-6/70 bg-gray-1/95 shadow-xl backdrop-blur-sm">
                         <div class="px-3 pt-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-8">
                           Commands
@@ -913,7 +913,7 @@ export default function SessionView(props: SessionViewProps) {
                   </Show>
 
                   <Show when={commandToast()}>
-                    <div class="absolute bottom-full right-0 mb-2 z-20 rounded-xl border border-gray-6 bg-gray-1/90 px-3 py-2 text-xs text-gray-11 shadow-lg">
+                    <div class="absolute bottom-full right-0 mb-2 z-30 rounded-xl border border-gray-6 bg-gray-1/90 px-3 py-2 text-xs text-gray-11 shadow-lg">
                       {commandToast()}
                     </div>
                   </Show>
@@ -936,7 +936,7 @@ export default function SessionView(props: SessionViewProps) {
                     <button
                       disabled={!props.prompt.trim() || props.busy}
                       onClick={handlePrimaryAction}
-                      class="p-1.5 bg-gray-12 text-gray-12 rounded-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-0 disabled:scale-75 shadow-lg shrink-0"
+                      class="p-1.5 bg-gray-12 text-gray-1 rounded-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-0 disabled:scale-75 shadow-lg shrink-0"
                       title="Run"
                     >
                       <ArrowRight size={18} />

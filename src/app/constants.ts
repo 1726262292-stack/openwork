@@ -89,12 +89,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     url: "https://mcp.sentry.dev/mcp",
     oauth: true,
   },
-  {
-    name: "Figma",
-    description: "Pull specs and assets from design files.",
-    url: "https://mcp.figma.com/mcp",
-    oauth: true,
-  },
+  
   {
     name: "Stripe",
     description: "Inspect payments, invoices, and subscriptions.",
