@@ -160,6 +160,10 @@ export function createWorkspaceStore(options: {
     const next = workspaces().find((w) => w.id === id) ?? null;
     if (!next) return;
 
+    const wasHostMode = options.mode() === "host" && options.client();
+    const oldWorkspacePath = projectDir();
+    const workspaceChanged = oldWorkspacePath !== next.path;
+
     syncActiveWorkspaceId(id);
     setProjectDir(next.path);
 
@@ -196,6 +200,48 @@ export function createWorkspaceStore(options: {
     }
 
     await options.loadWorkspaceTemplates({ workspaceRoot: next.path }).catch(() => undefined);
+
+    if (workspaceChanged && options.client() && !wasHostMode) {
+      options.setSelectedSessionId(null);
+      options.setMessages([]);
+      options.setTodos([]);
+      options.setPendingPermissions([]);
+      options.setSessionStatusById({});
+      await options.loadSessions(next.path).catch(() => undefined);
+    }
+
+    // In Host mode, restart the engine when workspace changes
+    if (wasHostMode && workspaceChanged) {
+      options.setError(null);
+      options.setBusy(true);
+      options.setBusyLabel("status.restarting_engine");
+      options.setBusyStartedAt(Date.now());
+
+      try {
+        // Stop the current engine
+        const info = await engineStop();
+        setEngine(info);
+
+        // Start engine with new workspace directory
+        const newInfo = await engineStart(next.path, { preferSidecar: options.engineSource() === "sidecar" });
+        setEngine(newInfo);
+
+        // Reconnect to server
+        if (newInfo.baseUrl) {
+          const ok = await connectToServer(newInfo.baseUrl, newInfo.projectDir ?? undefined);
+          if (!ok) {
+            options.setError("Failed to reconnect after workspace switch");
+          }
+        }
+      } catch (e) {
+        const message = e instanceof Error ? e.message : safeStringify(e);
+        options.setError(addOpencodeCacheHint(message));
+      } finally {
+        options.setBusy(false);
+        options.setBusyLabel(null);
+        options.setBusyStartedAt(null);
+      }
+    }
   }
 
   async function connectToServer(nextBaseUrl: string, directory?: string) {
