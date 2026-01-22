@@ -310,6 +310,13 @@ export default function SessionView(props: SessionViewProps) {
     return body.slice(spaceIndex + 1).trim();
   };
 
+  const activeSessionTitle = createMemo(() => {
+    const selectedId = props.selectedSessionId;
+    if (!selectedId) return "";
+    const entry = props.sessions.find((session) => session.id === selectedId);
+    return entry?.title ?? "";
+  });
+
   const commandList = createMemo(() => [
     {
       id: "models",
@@ -331,9 +338,18 @@ export default function SessionView(props: SessionViewProps) {
           return;
         }
 
-        const nextTitle = extractCommandArgs(props.prompt);
+        let nextTitle = extractCommandArgs(props.prompt);
         if (!nextTitle) {
-          setCommandToast("Usage: /rename <title>");
+          const fallback = activeSessionTitle();
+          const prompted = window.prompt("Rename session", fallback);
+          if (prompted == null) {
+            return;
+          }
+          nextTitle = prompted.trim();
+        }
+
+        if (!nextTitle) {
+          setCommandToast("Session name is required");
           return;
         }
 
