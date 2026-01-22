@@ -123,34 +123,6 @@ export default function SettingsView(props: SettingsViewProps) {
           </Show>
         </div>
 
-        <Show when={isTauriRuntime() && props.mode === "host"}>
-          <div class="pt-4 border-t border-gray-6/60 space-y-3">
-            <div class="text-xs text-gray-10">Engine source</div>
-            <div class="grid grid-cols-2 gap-2">
-              <Button
-                variant={props.engineSource === "path" ? "secondary" : "outline"}
-                onClick={() => props.setEngineSource("path")}
-                disabled={props.busy}
-              >
-                PATH
-              </Button>
-              <Button
-                variant={props.engineSource === "sidecar" ? "secondary" : "outline"}
-                onClick={() => props.setEngineSource("sidecar")}
-                disabled={props.busy || props.isWindows}
-                title={props.isWindows ? "Sidecar is not supported on Windows yet" : ""}
-              >
-                Sidecar
-              </Button>
-            </div>
-            <div class="text-[11px] text-gray-7">
-              PATH uses your installed OpenCode (default). Sidecar will use a bundled binary when available.
-              <Show when={props.isWindows}>
-                <span class="text-gray-10"> Sidecar is currently unavailable on Windows.</span>
-              </Show>
-            </div>
-          </div>
-        </Show>
       </div>
 
 
@@ -460,8 +432,37 @@ export default function SettingsView(props: SettingsViewProps) {
       <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
         <div>
           <div class="text-sm font-medium text-gray-12">Advanced</div>
-          <div class="text-xs text-gray-10">Reset OpenWork local state to retest onboarding.</div>
+          <div class="text-xs text-gray-10">Power options for the engine and reset actions.</div>
         </div>
+
+        <Show when={isTauriRuntime() && props.mode === "host"}>
+          <div class="space-y-3">
+            <div class="text-xs text-gray-10">Engine source</div>
+            <div class="grid grid-cols-2 gap-2">
+              <Button
+                variant={props.engineSource === "sidecar" ? "secondary" : "outline"}
+                onClick={() => props.setEngineSource("sidecar")}
+                disabled={props.busy || props.isWindows}
+                title={props.isWindows ? "Bundled engine is not supported on Windows yet" : ""}
+              >
+                Bundled (recommended)
+              </Button>
+              <Button
+                variant={props.engineSource === "path" ? "secondary" : "outline"}
+                onClick={() => props.setEngineSource("path")}
+                disabled={props.busy}
+              >
+                System install (PATH)
+              </Button>
+            </div>
+            <div class="text-[11px] text-gray-7">
+              Bundled engine is the most reliable option. Use System install only if you manage OpenCode yourself.
+              <Show when={props.isWindows}>
+                <span class="text-gray-10"> Bundled engine is currently unavailable on Windows.</span>
+              </Show>
+            </div>
+          </div>
+        </Show>
 
         <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
           <div class="min-w-0">

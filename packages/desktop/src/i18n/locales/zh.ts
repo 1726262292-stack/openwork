@@ -564,6 +564,8 @@ export default {
   "onboarding.access_label": "访问权限",
   "onboarding.folders_allowed": "{count} 个文件夹{plural}已授权",
   "onboarding.manage_access_hint": "您可以在高级设置中管理访问权限。",
+  "onboarding.open_settings_hint": "需要引擎或访问选项？打开设置。",
+  "onboarding.open_settings": "打开设置",
   "onboarding.add_folder_path": "添加文件夹路径",
   "onboarding.pick": "选择",
   "onboarding.add": "添加",

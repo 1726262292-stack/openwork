@@ -557,6 +557,8 @@ export default {
   "onboarding.access_label": "Access",
   "onboarding.folders_allowed": "{count} folder{plural} allowed",
   "onboarding.manage_access_hint": "You can manage access in advanced settings.",
+  "onboarding.open_settings_hint": "Need engine or access options? Open Settings.",
+  "onboarding.open_settings": "Open Settings",
   "onboarding.add_folder_path": "Add folder path",
   "onboarding.pick": "Pick",
   "onboarding.add": "Add",

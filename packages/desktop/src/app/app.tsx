@@ -1573,6 +1573,10 @@ export default function App() {
         workspaceStore.engineDoctorResult()?.notes?.join("\n") ?? "";
       workspaceStore.setEngineInstallLogs(notes || null);
     },
+    onOpenSettings: () => {
+      setView("dashboard");
+      setTab("settings");
+    },
     themeMode: themeMode(),
     setThemeMode,
   });

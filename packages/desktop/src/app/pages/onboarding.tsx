@@ -53,6 +53,7 @@ export type OnboardingViewProps = {
   onRefreshEngineDoctor: () => void;
   onInstallEngine: () => void;
   onShowSearchNotes: () => void;
+  onOpenSettings: () => void;
   themeMode: "light" | "dark" | "system";
   setThemeMode: (value: "light" | "dark" | "system") => void;
 };
@@ -207,6 +208,17 @@ export default function OnboardingView(props: OnboardingViewProps) {
               </summary>
               <div class="pt-3 space-y-3">
                 <div class="text-xs text-gray-10">{translate("onboarding.manage_access_hint")}</div>
+
+                <div class="flex items-center justify-between gap-3 rounded-xl border border-gray-6 bg-gray-1/40 px-3 py-2">
+                  <div class="text-xs text-gray-10">{translate("onboarding.open_settings_hint")}</div>
+                  <Button
+                    variant="outline"
+                    class="text-xs h-8 py-0 px-3 shrink-0"
+                    onClick={props.onOpenSettings}
+                  >
+                    {translate("onboarding.open_settings")}
+                  </Button>
+                </div>
 
                 <div class="space-y-3">
                   <div class="flex gap-2">
