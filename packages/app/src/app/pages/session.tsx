@@ -422,7 +422,7 @@ export default function SessionView(props: SessionViewProps) {
         try {
           const providerId = extractCommandArgs(props.prompt);
           if (providerId) {
-            const message = await props.startProviderAuth(providerId || undefined);
+            const message = await props.startProviderAuth(providerId);
             setCommandToast(message || "Auth flow started");
             clearPrompt();
             return;
@@ -457,6 +457,7 @@ export default function SessionView(props: SessionViewProps) {
           const agents = await props.listAgents();
           if (!agents.length) {
             setCommandToast("No agents available");
+            clearPrompt();
             return;
           }
 
@@ -472,6 +473,7 @@ export default function SessionView(props: SessionViewProps) {
 
           if (!candidate) {
             setCommandToast("Agent name is required");
+            clearPrompt();
             return;
           }
 
@@ -480,6 +482,7 @@ export default function SessionView(props: SessionViewProps) {
           );
           if (!match) {
             setCommandToast(`Unknown agent. Available: ${formatListHint(agentNames)}`);
+            clearPrompt();
             return;
           }
 
@@ -530,6 +533,7 @@ export default function SessionView(props: SessionViewProps) {
 
         if (!nextTitle) {
           setCommandToast("Session name is required");
+          clearPrompt();
           return;
         }
 
@@ -664,12 +668,8 @@ export default function SessionView(props: SessionViewProps) {
       }
       if (event.key === "Enter") {
         event.preventDefault();
-        const active = matches[commandIndex()];
-        if (active) {
-          applyCommandCompletion(active.id);
-          runCommand(active.id);
-          return;
-        }
+        handlePrimaryAction();
+        return;
       }
     }
 
