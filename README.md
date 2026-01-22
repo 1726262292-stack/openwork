@@ -1,3 +1,5 @@
+https://discord.gg/VEhNQXxYMB
+
 # OpenWork
 
 OpenWork is an **extensible, open-source “Claude Work” style system for knowledge workers**.
