@@ -1656,6 +1656,7 @@ export default function App() {
     suggestedPlugins: SUGGESTED_PLUGINS,
     addPlugin,
     createSessionAndOpen,
+    setPrompt,
     selectSession: isDemoMode() ? selectDemoSession : selectSession,
     defaultModelLabel: formatModelLabel(defaultModel(), providers()),
     defaultModelRef: formatModelRef(defaultModel()),

@@ -127,6 +127,7 @@ export type DashboardViewProps = {
   showMcpReloadBanner: boolean;
   reloadMcpEngine: () => void;
   createSessionAndOpen: () => void;
+  setPrompt: (value: string) => void;
   selectSession: (sessionId: string) => Promise<void> | void;
   defaultModelLabel: string;
   defaultModelRef: string;
@@ -217,6 +218,19 @@ export default function DashboardView(props: DashboardViewProps) {
   // Track last refreshed tab to avoid duplicate calls
   const [lastRefreshedTab, setLastRefreshedTab] = createSignal<string | null>(null);
   const [refreshInProgress, setRefreshInProgress] = createSignal(false);
+  const [taskDraft, setTaskDraft] = createSignal("");
+
+  const canCreateTask = createMemo(
+    () => !props.newTaskDisabled && taskDraft().trim().length > 0
+  );
+
+  const startTask = () => {
+    const value = taskDraft().trim();
+    if (!value || props.newTaskDisabled) return;
+    props.setPrompt(value);
+    props.createSessionAndOpen();
+    setTaskDraft("");
+  };
 
   createEffect(() => {
     const currentTab = props.tab;
@@ -459,17 +473,38 @@ export default function DashboardView(props: DashboardViewProps) {
                         audit trail.
                       </p>
                     </div>
-                    <Button
-                      onClick={props.createSessionAndOpen}
-                      disabled={props.newTaskDisabled}
-                      title={
-                        props.newTaskDisabled ? props.busyHint ?? "Busy" : ""
-                      }
-                      class="w-full md:w-auto py-3 px-6 text-base"
-                    >
-                      <Play size={18} />
-                      New Task
-                    </Button>
+                    <div class="w-full md:w-[360px]">
+                      <div class="flex items-center gap-2 rounded-2xl border border-gray-6/60 bg-gray-2/50 px-4 py-3 shadow-lg shadow-gray-12/5 focus-within:border-gray-7 focus-within:bg-gray-2 transition-all">
+                        <input
+                          value={taskDraft()}
+                          onInput={(event) => setTaskDraft(event.currentTarget.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" && !event.shiftKey) {
+                              event.preventDefault();
+                              startTask();
+                            }
+                          }}
+                          placeholder="Draft a task to run..."
+                          class="flex-1 bg-transparent border-none p-0 text-sm text-gray-12 placeholder-gray-7 focus:ring-0"
+                          aria-label="Describe a task"
+                          disabled={props.newTaskDisabled}
+                        />
+                        <button
+                          type="button"
+                          onClick={startTask}
+                          disabled={!canCreateTask()}
+                          class="rounded-xl bg-gray-12 px-3 py-1.5 text-xs font-semibold text-gray-1 shadow-md transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-40 disabled:hover:scale-100"
+                          title={
+                            props.newTaskDisabled ? props.busyHint ?? "Busy" : ""
+                          }
+                        >
+                          Run
+                        </button>
+                      </div>
+                      <div class="mt-2 text-[11px] text-gray-9 text-center md:text-left">
+                        Press Enter to start a new session.
+                      </div>
+                    </div>
                   </div>
                 </div>
               </section>
