@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
-import type { Part } from "@opencode-ai/sdk/v2/client";
+import type { Agent, Part } from "@opencode-ai/sdk/v2/client";
 import type {
   ArtifactItem,
   DashboardTab,
@@ -82,6 +82,11 @@ export type SessionViewProps = {
   error: string | null;
   sessionStatus: string;
   renameSession: (sessionId: string, title: string) => Promise<void> | void;
+  openConnect: () => void;
+  startProviderAuth: (providerId?: string) => Promise<string>;
+  listAgents: () => Promise<Agent[]>;
+  setSessionAgent: (sessionId: string, agent: string | null) => void;
+  saveSession: (sessionId: string) => Promise<string>;
 };
 
 export default function SessionView(props: SessionViewProps) {
@@ -310,6 +315,21 @@ export default function SessionView(props: SessionViewProps) {
     return body.slice(spaceIndex + 1).trim();
   };
 
+  const requireSessionId = () => {
+    const sessionId = props.selectedSessionId;
+    if (!sessionId) {
+      setCommandToast("No session selected");
+      return null;
+    }
+    return sessionId;
+  };
+
+  const formatListHint = (items: string[]) => {
+    if (!items.length) return "";
+    const preview = items.slice(0, 4).join(", ");
+    return items.length > 4 ? `${preview}, ...` : preview;
+  };
+
   const activeSessionTitle = createMemo(() => {
     const selectedId = props.selectedSessionId;
     if (!selectedId) return "";
@@ -318,6 +338,15 @@ export default function SessionView(props: SessionViewProps) {
   });
 
   const commandList = createMemo(() => [
+    {
+      id: "model",
+      label: "Model",
+      description: "Choose a model",
+      run: () => {
+        props.openSessionModelPicker();
+        clearPrompt();
+      },
+    },
     {
       id: "models",
       label: "Models",
@@ -328,15 +357,111 @@ export default function SessionView(props: SessionViewProps) {
       },
     },
     {
+      id: "connect",
+      label: "Connect",
+      description: "Connect to a server",
+      run: () => {
+        props.openConnect();
+        setCommandToast("Opening connection settings");
+        clearPrompt();
+      },
+    },
+    {
+      id: "auth",
+      label: "Auth",
+      description: "Authenticate a provider",
+      run: async () => {
+        try {
+          const providerId = extractCommandArgs(props.prompt);
+          const message = await props.startProviderAuth(providerId || undefined);
+          setCommandToast(message || "Auth flow started");
+          clearPrompt();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Auth failed";
+          setCommandToast(message);
+        }
+      },
+    },
+    {
+      id: "agent",
+      label: "Agent",
+      description: "Choose an agent",
+      run: async () => {
+        const sessionId = requireSessionId();
+        if (!sessionId) return;
+
+        try {
+          const rawArg = extractCommandArgs(props.prompt);
+          if (/^(none|clear|default)$/i.test(rawArg)) {
+            props.setSessionAgent(sessionId, null);
+            setCommandToast("Agent cleared");
+            clearPrompt();
+            return;
+          }
+
+          const agents = await props.listAgents();
+          if (!agents.length) {
+            setCommandToast("No agents available");
+            return;
+          }
+
+          const agentNames = agents.map((agent) => agent.name);
+          let candidate = rawArg;
+          if (!candidate) {
+            const hint = formatListHint(agentNames);
+            const promptLabel = hint ? `Agent name (e.g. ${hint})` : "Agent name";
+            const prompted = window.prompt(promptLabel, agentNames[0] ?? "");
+            if (prompted == null) return;
+            candidate = prompted.trim();
+          }
+
+          if (!candidate) {
+            setCommandToast("Agent name is required");
+            return;
+          }
+
+          const match = agents.find(
+            (agent) => agent.name.toLowerCase() === candidate.toLowerCase(),
+          );
+          if (!match) {
+            setCommandToast(`Unknown agent. Available: ${formatListHint(agentNames)}`);
+            return;
+          }
+
+          props.setSessionAgent(sessionId, match.name);
+          setCommandToast(`Agent set to ${match.name}`);
+          clearPrompt();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Agent selection failed";
+          setCommandToast(message);
+        }
+      },
+    },
+    {
+      id: "save",
+      label: "Save",
+      description: "Export session JSON",
+      run: async () => {
+        const sessionId = requireSessionId();
+        if (!sessionId) return;
+
+        try {
+          const fileName = await props.saveSession(sessionId);
+          setCommandToast(`Saved ${fileName}`);
+          clearPrompt();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Save failed";
+          setCommandToast(message);
+        }
+      },
+    },
+    {
       id: "rename",
       label: "Rename",
       description: "Rename this session",
       run: async () => {
-        const sessionId = props.selectedSessionId;
-        if (!sessionId) {
-          setCommandToast("No session selected");
-          return;
-        }
+        const sessionId = requireSessionId();
+        if (!sessionId) return;
 
         let nextTitle = extractCommandArgs(props.prompt);
         if (!nextTitle) {
@@ -368,7 +493,7 @@ export default function SessionView(props: SessionViewProps) {
       label: "Help",
       description: "Show available commands",
       run: () => {
-        setCommandToast("Commands: /models, /rename, /help, /clear");
+        setCommandToast("Commands: /model, /models, /connect, /auth, /agent, /save, /rename, /help, /clear");
         clearPrompt();
       },
     },

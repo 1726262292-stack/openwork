@@ -9,7 +9,7 @@ import {
   onMount,
 } from "solid-js";
 
-import type { Provider } from "@opencode-ai/sdk/v2/client";
+import type { Agent, Provider } from "@opencode-ai/sdk/v2/client";
 
 import { getVersion } from "@tauri-apps/api/app";
 import { parse } from "jsonc-parser";
@@ -157,6 +157,7 @@ export default function App() {
   const [sessionModelById, setSessionModelById] = createSignal<
     Record<string, ModelRef>
   >({});
+  const [sessionAgentById, setSessionAgentById] = createSignal<Record<string, string>>({});
 
   const sessionStore = createSessionStore({
     client,
@@ -258,10 +259,12 @@ export default function App() {
       setPrompt("");
 
       const model = selectedSessionModel();
+      const agent = selectedSessionAgent();
 
       await c.session.promptAsync({
         sessionID,
         model,
+        agent: agent ?? undefined,
         variant: modelVariant() ?? undefined,
         parts: [{ type: "text", text: content }],
       });
@@ -303,6 +306,130 @@ export default function App() {
     }
 
     await renameSession(sessionID, trimmed);
+  }
+
+  async function openConnectFlow() {
+    setView("onboarding");
+    setMode("client");
+    setOnboardingStep("client");
+  }
+
+  async function listAgents(): Promise<Agent[]> {
+    const c = client();
+    if (!c) return [];
+    const list = unwrap(await c.app.agents());
+    return list.filter((agent) => !agent.hidden && agent.mode !== "subagent");
+  }
+
+  function setSessionAgent(sessionID: string, agent: string | null) {
+    const trimmed = agent?.trim() ?? "";
+    setSessionAgentById((current) => {
+      const next = { ...current };
+      if (!trimmed) {
+        delete next[sessionID];
+        return next;
+      }
+      next[sessionID] = trimmed;
+      return next;
+    });
+  }
+
+  async function startProviderAuth(providerId?: string) {
+    const c = client();
+    if (!c) {
+      throw new Error("Not connected to a server");
+    }
+
+    const authMethods = unwrap(await c.provider.auth());
+    const providerIds = Object.keys(authMethods).sort();
+    if (!providerIds.length) {
+      throw new Error("No providers available");
+    }
+
+    let resolved = providerId?.trim() ?? "";
+    if (!resolved || !authMethods[resolved]) {
+      const suggested = providerIds.slice(0, 4).join(", ");
+      const promptLabel = `Provider ID${suggested ? ` (e.g. ${suggested})` : ""}`;
+      const candidate = window.prompt(promptLabel, providerIds[0]);
+      if (candidate == null) return "Auth cancelled";
+      resolved = candidate.trim();
+    }
+
+    const methods = authMethods[resolved];
+    if (!methods || !methods.length) {
+      throw new Error(`No auth methods for ${resolved}`);
+    }
+
+    const oauthIndex = methods.findIndex((method) => method.type === "oauth");
+    if (oauthIndex === -1) {
+      return `Configure ${resolved} API keys in opencode.json`;
+    }
+
+    const auth = unwrap(await c.provider.oauth.authorize({ providerID: resolved, method: oauthIndex }));
+    if (isTauriRuntime()) {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      await openUrl(auth.url);
+    } else {
+      window.open(auth.url, "_blank", "noopener,noreferrer");
+    }
+
+    return auth.instructions || `Opened ${resolved} auth in browser`;
+  }
+
+  async function saveSessionExport(sessionID: string) {
+    if (isDemoMode()) {
+      const payload = {
+        sessionID,
+        messages: activeMessages(),
+        todos: activeTodos(),
+        exportedAt: new Date().toISOString(),
+        source: "openwork",
+      };
+      return downloadSessionExport(payload, `session-${sessionID}.json`);
+    }
+
+    const c = client();
+    if (!c) {
+      throw new Error("Not connected to a server");
+    }
+
+    const session = unwrap(await c.session.get({ sessionID }));
+    const messages = unwrap(await c.session.messages({ sessionID }));
+    let todos: TodoItem[] = [];
+    try {
+      todos = unwrap(await c.session.todo({ sessionID }));
+    } catch {
+      // ignore
+    }
+
+    const payload = {
+      session,
+      messages,
+      todos,
+      exportedAt: new Date().toISOString(),
+      source: "openwork",
+    };
+
+    const baseName = session.title || session.slug || session.id;
+    const safeName = baseName
+      .toLowerCase()
+      .replace(/[^a-z0-9\-_.]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80);
+    const fileName = `session-${safeName || session.id}.json`;
+    return downloadSessionExport(payload, fileName);
+  }
+
+  function downloadSessionExport(payload: unknown, fileName: string) {
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(url);
+    return fileName;
   }
 
 
@@ -643,6 +770,12 @@ export default function App() {
     if (fromMessages) return fromMessages;
 
     return defaultModel();
+  });
+
+  const selectedSessionAgent = createMemo(() => {
+    const id = selectedSessionId();
+    if (!id) return null;
+    return sessionAgentById()[id] ?? null;
   });
 
   const selectedSessionModelLabel = createMemo(() =>
@@ -1795,6 +1928,11 @@ export default function App() {
               respondPermissionAndRemember={respondPermissionAndRemember}
               safeStringify={safeStringify}
               showTryNotionPrompt={tryNotionPromptVisible() && notionIsActive()}
+              openConnect={openConnectFlow}
+              startProviderAuth={startProviderAuth}
+              listAgents={listAgents}
+              setSessionAgent={setSessionAgent}
+              saveSession={saveSessionExport}
               onTryNotionPrompt={() => {
                 setPrompt("setup my crm");
                 setTryNotionPromptVisible(false);
