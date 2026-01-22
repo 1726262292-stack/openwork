@@ -331,7 +331,7 @@ jobs:
           echo "NOTARY_KEY_PATH=$NOTARY_KEY_PATH" >> "$GITHUB_ENV"
 
       - name: Build + upload
-        uses: tauri-apps/tauri-action@v0.5.17
+        uses: tauri-apps/tauri-action@390cbe447412ced1303d35abe75287949e43437a
         env:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -360,3 +360,5 @@ jobs:
           args: ${{ matrix.args }}
           retryAttempts: 3
           includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+          releaseAssetNamePattern: openwork-desktop-[platform]-[arch][ext]
