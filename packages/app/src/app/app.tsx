@@ -166,6 +166,7 @@ export default function App() {
   const [sessionModelOverridesReady, setSessionModelOverridesReady] = createSignal(false);
   const [workspaceDefaultModelReady, setWorkspaceDefaultModelReady] = createSignal(false);
   const [legacyDefaultModel, setLegacyDefaultModel] = createSignal<ModelRef>(DEFAULT_MODEL);
+  const [defaultModelExplicit, setDefaultModelExplicit] = createSignal(false);
   const [sessionAgentById, setSessionAgentById] = createSignal<Record<string, string>>({});
   const [providerAuthModalOpen, setProviderAuthModalOpen] = createSignal(false);
   const [providerAuthBusy, setProviderAuthBusy] = createSignal(false);
@@ -286,6 +287,13 @@ export default function App() {
         ...current,
         [sessionID]: model,
       }));
+
+      setSessionModelOverrideById((current) => {
+        if (!current[sessionID]) return current;
+        const copy = { ...current };
+        delete copy[sessionID];
+        return copy;
+      });
 
       await loadSessions(workspaceStore.activeWorkspaceRoot().trim()).catch(
         () => undefined
@@ -1000,6 +1008,7 @@ export default function App() {
 
   function applyModelSelection(next: ModelRef) {
     if (modelPickerTarget() === "default") {
+      setDefaultModelExplicit(true);
       setDefaultModel(next);
       setModelPickerOpen(false);
       return;
@@ -1012,6 +1021,8 @@ export default function App() {
     }
 
     setSessionModelOverrideById((current) => ({ ...current, [id]: next }));
+    setDefaultModelExplicit(true);
+    setDefaultModel(next);
     setModelPickerOpen(false);
 
     if (typeof window !== "undefined" && view() === "session") {
@@ -1649,6 +1660,7 @@ export default function App() {
         }
       }
 
+      setDefaultModelExplicit(Boolean(configDefault));
       const nextDefault = configDefault ?? legacyDefaultModel();
       const currentDefault = untrack(defaultModel);
       if (nextDefault && !modelEquals(currentDefault, nextDefault)) {
@@ -1670,6 +1682,7 @@ export default function App() {
   createEffect(() => {
     if (!workspaceDefaultModelReady()) return;
     if (!isTauriRuntime()) return;
+    if (!defaultModelExplicit()) return;
 
     const workspace = workspaceStore.activeWorkspaceDisplay();
     if (workspace.workspaceType !== "local") return;
