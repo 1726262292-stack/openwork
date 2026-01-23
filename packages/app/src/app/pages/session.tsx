@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
-import type { Part } from "@opencode-ai/sdk/v2/client";
+import type { Agent, Part, Provider } from "@opencode-ai/sdk/v2/client";
 import type {
   ArtifactItem,
   DashboardTab,
@@ -28,6 +28,7 @@ import {
 import Button from "../components/button";
 import PartView from "../components/part-view";
 import WorkspaceChip from "../components/workspace-chip";
+import ProviderAuthModal from "../components/provider-auth-modal";
 import { isTauriRuntime, isWindowsPlatform } from "../utils";
 
 export type SessionViewProps = {
@@ -81,6 +82,20 @@ export type SessionViewProps = {
   safeStringify: (value: unknown) => string;
   error: string | null;
   sessionStatus: string;
+  renameSession: (sessionId: string, title: string) => Promise<void> | void;
+  openConnect: () => void;
+  startProviderAuth: (providerId?: string) => Promise<string>;
+  openProviderAuthModal: () => Promise<void>;
+  closeProviderAuthModal: () => void;
+  providerAuthModalOpen: boolean;
+  providerAuthBusy: boolean;
+  providerAuthError: string | null;
+  providerAuthMethods: Record<string, { type: "oauth" | "api"; label: string }[]>;
+  providers: Provider[];
+  providerConnectedIds: string[];
+  listAgents: () => Promise<Agent[]>;
+  setSessionAgent: (sessionId: string, agent: string | null) => void;
+  saveSession: (sessionId: string) => Promise<string>;
 };
 
 export default function SessionView(props: SessionViewProps) {
@@ -106,21 +121,26 @@ export default function SessionView(props: SessionViewProps) {
   const [artifactToast, setArtifactToast] = createSignal<string | null>(null);
   const [commandToast, setCommandToast] = createSignal<string | null>(null);
   const [commandIndex, setCommandIndex] = createSignal(0);
+  const [providerAuthActionBusy, setProviderAuthActionBusy] = createSignal(false);
 
   let promptInputEl: HTMLTextAreaElement | undefined;
 
+  const focusPromptInput = () => {
+    if (props.busy) return;
+    const el = promptInputEl;
+    if (!el) return;
+    el.focus();
+    try {
+      const len = el.value.length;
+      el.setSelectionRange(len, len);
+    } catch {
+      // ignore
+    }
+  };
+
   createEffect(() => {
     const handler = () => {
-      if (props.busy) return;
-      const el = promptInputEl;
-      if (!el) return;
-      el.focus();
-      try {
-        const len = el.value.length;
-        el.setSelectionRange(len, len);
-      } catch {
-        // ignore
-      }
+      focusPromptInput();
     };
 
     window.addEventListener("openwork:focusPrompt", handler);
@@ -300,7 +320,85 @@ export default function SessionView(props: SessionViewProps) {
     queueMicrotask(syncPromptHeight);
   };
 
+  const extractCommandArgs = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed.startsWith("/")) return "";
+    const body = trimmed.slice(1).trim();
+    const spaceIndex = body.indexOf(" ");
+    if (spaceIndex === -1) return "";
+    return body.slice(spaceIndex + 1).trim();
+  };
+
+  const extractCommandRemainder = (raw: string) => {
+    if (!raw.startsWith("/")) return "";
+    const body = raw.slice(1);
+    const spaceIndex = body.search(/\s/);
+    if (spaceIndex === -1) return "";
+    return body.slice(spaceIndex);
+  };
+
+  const applyCommandCompletion = (commandId: string) => {
+    if (!commandId) return;
+    const remainder = extractCommandRemainder(props.prompt);
+    const next = `/${commandId}${remainder}`;
+    if (next === props.prompt) return;
+    props.setPrompt(next);
+    queueMicrotask(() => {
+      syncPromptHeight();
+      if (!promptInputEl) return;
+      const length = promptInputEl.value.length;
+      promptInputEl.focus();
+      promptInputEl.setSelectionRange(length, length);
+    });
+  };
+
+  const requireSessionId = () => {
+    const sessionId = props.selectedSessionId;
+    if (!sessionId) {
+      setCommandToast("No session selected");
+      return null;
+    }
+    return sessionId;
+  };
+
+  const formatListHint = (items: string[]) => {
+    if (!items.length) return "";
+    const preview = items.slice(0, 4).join(", ");
+    return items.length > 4 ? `${preview}, ...` : preview;
+  };
+
+  const activeSessionTitle = createMemo(() => {
+    const selectedId = props.selectedSessionId;
+    if (!selectedId) return "";
+    const entry = props.sessions.find((session) => session.id === selectedId);
+    return entry?.title ?? "";
+  });
+
+  const handleProviderAuthSelect = async (providerId: string) => {
+    if (providerAuthActionBusy()) return;
+    setProviderAuthActionBusy(true);
+    try {
+      const message = await props.startProviderAuth(providerId);
+      setCommandToast(message || "Auth flow started");
+      props.closeProviderAuthModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Auth failed";
+      setCommandToast(message);
+    } finally {
+      setProviderAuthActionBusy(false);
+    }
+  };
+
   const commandList = createMemo(() => [
+    {
+      id: "model",
+      label: "Model",
+      description: "Choose a model",
+      run: () => {
+        props.openSessionModelPicker();
+        clearPrompt();
+      },
+    },
     {
       id: "models",
       label: "Models",
@@ -311,11 +409,154 @@ export default function SessionView(props: SessionViewProps) {
       },
     },
     {
+      id: "connect",
+      label: "Connect",
+      description: "Connect to a server",
+      run: () => {
+        props.openConnect();
+        setCommandToast("Opening connection settings");
+        clearPrompt();
+      },
+    },
+    {
+      id: "auth",
+      label: "Auth",
+      description: "Authenticate a provider",
+      run: async () => {
+        try {
+          const providerId = extractCommandArgs(props.prompt);
+          if (providerId) {
+            const message = await props.startProviderAuth(providerId);
+            setCommandToast(message || "Auth flow started");
+            clearPrompt();
+            return;
+          }
+
+          await props.openProviderAuthModal();
+          setCommandToast("Select a provider to authenticate");
+          clearPrompt();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Auth failed";
+          setCommandToast(message);
+        }
+      },
+    },
+    {
+      id: "agent",
+      label: "Agent",
+      description: "Choose an agent",
+      run: async () => {
+        const sessionId = requireSessionId();
+        if (!sessionId) return;
+
+        try {
+          const rawArg = extractCommandArgs(props.prompt);
+          if (/^(none|clear|default)$/i.test(rawArg)) {
+            props.setSessionAgent(sessionId, null);
+            setCommandToast("Agent cleared");
+            clearPrompt();
+            return;
+          }
+
+          const agents = await props.listAgents();
+          if (!agents.length) {
+            setCommandToast("No agents available");
+            clearPrompt();
+            return;
+          }
+
+          const agentNames = agents.map((agent) => agent.name);
+          let candidate = rawArg;
+          if (!candidate) {
+            const hint = formatListHint(agentNames);
+            const promptLabel = hint ? `Agent name (e.g. ${hint})` : "Agent name";
+            const prompted = window.prompt(promptLabel, agentNames[0] ?? "");
+            if (prompted == null) return;
+            candidate = prompted.trim();
+          }
+
+          if (!candidate) {
+            setCommandToast("Agent name is required");
+            clearPrompt();
+            return;
+          }
+
+          const match = agents.find(
+            (agent) => agent.name.toLowerCase() === candidate.toLowerCase(),
+          );
+          if (!match) {
+            setCommandToast(`Unknown agent. Available: ${formatListHint(agentNames)}`);
+            clearPrompt();
+            return;
+          }
+
+          props.setSessionAgent(sessionId, match.name);
+          setCommandToast(`Agent set to ${match.name}`);
+          clearPrompt();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Agent selection failed";
+          setCommandToast(message);
+        }
+      },
+    },
+    {
+      id: "save",
+      label: "Save",
+      description: "Export session JSON",
+      run: async () => {
+        const sessionId = requireSessionId();
+        if (!sessionId) return;
+
+        try {
+          const fileName = await props.saveSession(sessionId);
+          setCommandToast(`Saved ${fileName}`);
+          clearPrompt();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Save failed";
+          setCommandToast(message);
+        }
+      },
+    },
+    {
+      id: "rename",
+      label: "Rename",
+      description: "Rename this session",
+      run: async () => {
+        const sessionId = requireSessionId();
+        if (!sessionId) return;
+
+        let nextTitle = extractCommandArgs(props.prompt);
+        if (!nextTitle) {
+          const fallback = activeSessionTitle();
+          const prompted = window.prompt("Rename session", fallback);
+          if (prompted == null) {
+            return;
+          }
+          nextTitle = prompted.trim();
+        }
+
+        if (!nextTitle) {
+          setCommandToast("Session name is required");
+          clearPrompt();
+          return;
+        }
+
+        try {
+          await props.renameSession(sessionId, nextTitle);
+          setCommandToast("Session renamed");
+          clearPrompt();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Rename failed";
+          setCommandToast(message);
+        }
+      },
+    },
+    {
       id: "help",
       label: "Help",
       description: "Show available commands",
       run: () => {
-        setCommandToast("Commands: /models, /help, /clear");
+        setCommandToast("Commands: /model, /models, /connect, /auth, /agent, /save, /rename, /help, /clear");
         clearPrompt();
       },
     },
@@ -351,6 +592,23 @@ export default function SessionView(props: SessionViewProps) {
   const commandMenuOpen = createMemo(() => commandInput() !== null && !props.busy);
 
   createEffect(() => {
+    if (!commandMenuOpen()) return;
+    queueMicrotask(focusPromptInput);
+  });
+
+  const moveCommandIndex = (delta: number) => {
+    const matches = commandMatches();
+    if (!matches.length) return;
+    setCommandIndex((current) => {
+      const next = current + delta;
+      if (next < 0) return 0;
+      if (next >= matches.length) return matches.length - 1;
+      return next;
+    });
+  };
+
+
+  createEffect(() => {
     const matches = commandMatches();
     if (!matches.length) {
       setCommandIndex(0);
@@ -367,21 +625,34 @@ export default function SessionView(props: SessionViewProps) {
   const runCommand = (commandId?: string) => {
     if (!commandId) {
       setCommandToast("Unknown command");
-      return;
+      return null;
     }
     const command = commandList().find((entry) => entry.id === commandId);
     if (!command) {
       setCommandToast("Unknown command");
+      return null;
+    }
+    return command.run();
+  };
+
+  const selectCommand = (commandId?: string) => {
+    if (!commandId) {
+      setCommandToast("Unknown command");
       return;
     }
-    command.run();
+    applyCommandCompletion(commandId);
+    const result = runCommand(commandId);
+    if (result === null) return;
+    Promise.resolve(result).finally(() => {
+      clearPrompt();
+    });
   };
 
   const handlePrimaryAction = () => {
     if (commandMenuOpen()) {
       const matches = commandMatches();
-      const active = matches[commandIndex()];
-      runCommand(active?.id);
+      const active = matches[commandIndex()] ?? matches[0];
+      selectCommand(active?.id);
       return;
     }
     props.sendPromptAsync().catch(() => undefined);
@@ -392,26 +663,33 @@ export default function SessionView(props: SessionViewProps) {
     if (event.isComposing && event.key !== "Enter") return;
 
     const menuOpen = commandMenuOpen();
-    const matches = commandMatches();
-
     if (menuOpen) {
+      const matches = commandMatches();
+      if (event.key === "Enter") {
+        event.preventDefault();
+        handlePrimaryAction();
+      }
       if (event.key === "ArrowDown") {
         event.preventDefault();
         if (!matches.length) return;
-        setCommandIndex((current) => Math.min(current + 1, matches.length - 1));
+        moveCommandIndex(1);
         return;
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
         if (!matches.length) return;
-        setCommandIndex((current) => Math.max(current - 1, 0));
+        moveCommandIndex(-1);
+        return;
+      }
+      if (event.key === "Tab") {
+        event.preventDefault();
         return;
       }
       if (event.key === "Escape") {
         event.preventDefault();
         clearPrompt();
-        return;
       }
+      return;
     }
 
     if (event.key === "Enter") {
@@ -915,9 +1193,12 @@ export default function SessionView(props: SessionViewProps) {
                                   }`}
                                   onMouseDown={(event) => {
                                     event.preventDefault();
-                                    runCommand(command.id);
+                                    selectCommand(command.id);
                                   }}
-                                  onMouseEnter={() => setCommandIndex(idx())}
+                                  onMouseEnter={() => {
+                                    setCommandIndex(idx());
+                                    promptInputEl?.focus();
+                                  }}
                                 >
                                   <div class="text-xs font-semibold text-gray-12">/{command.id}</div>
                                   <div class="text-[11px] text-gray-9">{command.description}</div>
@@ -965,6 +1246,18 @@ export default function SessionView(props: SessionViewProps) {
             </div>
           </div>
         </div>
+
+        <ProviderAuthModal
+          open={props.providerAuthModalOpen}
+          loading={props.providerAuthBusy}
+          submitting={providerAuthActionBusy()}
+          error={props.providerAuthError}
+          providers={props.providers}
+          connectedProviderIds={props.providerConnectedIds}
+          authMethods={props.providerAuthMethods}
+          onSelect={handleProviderAuthSelect}
+          onClose={props.closeProviderAuthModal}
+        />
 
         <Show when={props.activePermission}>
           <div class="absolute inset-0 z-50 bg-gray-1/60 backdrop-blur-sm flex items-center justify-center p-4">
