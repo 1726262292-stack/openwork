@@ -266,13 +266,6 @@ export function createSessionStore(options: {
         overrides: current.overrides,
         resolved: { ...current.resolved, [sessionID]: model },
       }));
-
-      options.setSessionModelState((current) => {
-        if (!current.overrides[sessionID]) return current;
-        const copy = { ...current.overrides };
-        delete copy[sessionID];
-        return { ...current, overrides: copy };
-      });
     }
 
     try {
@@ -416,13 +409,6 @@ export function createSessionStore(options: {
               overrides: current.overrides,
               resolved: { ...current.resolved, [info.sessionID]: model },
             }));
-
-            options.setSessionModelState((current) => {
-              if (!current.overrides[info.sessionID]) return current;
-              const copy = { ...current.overrides };
-              delete copy[info.sessionID];
-              return { ...current, overrides: copy };
-            });
           }
 
           setStore("messages", info.sessionID, (current = []) => upsertMessageInfo(current, info));

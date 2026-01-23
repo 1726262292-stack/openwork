@@ -1,10 +1,20 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ModelRef {
+    #[serde(rename = "providerID")]
+    pub provider_id: String,
+    #[serde(rename = "modelID")]
+    pub model_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceOpenworkConfig {
     pub version: u32,
     pub workspace: Option<WorkspaceOpenworkWorkspace>,
+    #[serde(default)]
+    pub default_model: Option<ModelRef>,
     #[serde(default, alias = "authorizedRoots")]
     pub authorized_roots: Vec<String>,
 }
@@ -14,6 +24,7 @@ impl Default for WorkspaceOpenworkConfig {
         Self {
             version: 1,
             workspace: None,
+            default_model: None,
             authorized_roots: Vec::new(),
         }
     }
@@ -45,6 +56,7 @@ impl WorkspaceOpenworkConfig {
                 created_at: Some(now_ms),
                 preset: Some(preset.to_string()),
             }),
+            default_model: None,
             authorized_roots: vec![workspace_path.to_string()],
         }
     }

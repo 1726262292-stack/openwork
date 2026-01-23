@@ -7,6 +7,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  untrack,
 } from "solid-js";
 
 import type { Agent, Provider } from "@opencode-ai/sdk/v2/client";
@@ -32,9 +33,11 @@ import {
   DEMO_SEQUENCE_PREF_KEY,
   MCP_QUICK_CONNECT,
   MODEL_PREF_KEY,
+  SESSION_MODEL_PREF_KEY,
   SUGGESTED_PLUGINS,
   THINKING_PREF_KEY,
   VARIANT_PREF_KEY,
+  WORKSPACE_MODEL_PREF_KEY,
 } from "./constants";
 import { parseMcpServersFromContent } from "./mcp";
 import type {
@@ -55,6 +58,7 @@ import type {
   WorkspaceDisplay,
   McpServerEntry,
   McpStatusMap,
+  WorkspaceOpenworkConfig,
   WorkspaceTemplate,
   UpdateHandle,
 } from "./types";
@@ -66,6 +70,7 @@ import {
   formatRelativeTime,
   groupMessageParts,
   isTauriRuntime,
+  modelEquals,
 } from "./utils";
 import { currentLocale, setLocale, t, type Language } from "../i18n";
 import {
@@ -96,6 +101,7 @@ import {
   updaterEnvironment,
   readOpencodeConfig,
   writeOpencodeConfig,
+  workspaceOpenworkWrite,
 } from "./lib/tauri";
 
 export default function App() {
@@ -160,6 +166,9 @@ export default function App() {
   const [sessionModelById, setSessionModelById] = createSignal<
     Record<string, ModelRef>
   >({});
+  const [sessionModelOverridesReady, setSessionModelOverridesReady] = createSignal(false);
+  const [workspaceDefaultModelReady, setWorkspaceDefaultModelReady] = createSignal(false);
+  const [legacyDefaultModel, setLegacyDefaultModel] = createSignal<ModelRef>(DEFAULT_MODEL);
   const [sessionAgentById, setSessionAgentById] = createSignal<Record<string, string>>({});
   const [providerAuthModalOpen, setProviderAuthModalOpen] = createSignal(false);
   const [providerAuthBusy, setProviderAuthBusy] = createSignal(false);
@@ -280,13 +289,6 @@ export default function App() {
         ...current,
         [sessionID]: model,
       }));
-
-      setSessionModelOverrideById((current) => {
-        if (!current[sessionID]) return current;
-        const copy = { ...current };
-        delete copy[sessionID];
-        return copy;
-      });
 
       await loadSessions(workspaceStore.activeWorkspaceRoot().trim()).catch(
         () => undefined
@@ -553,6 +555,50 @@ export default function App() {
   >([]);
 
   const [defaultModel, setDefaultModel] = createSignal<ModelRef>(DEFAULT_MODEL);
+
+  const workspaceDefaultModelKey = (workspaceId: string) =>
+    `${WORKSPACE_MODEL_PREF_KEY}.${workspaceId}`;
+  const sessionModelOverridesKey = (workspaceId: string) =>
+    `${SESSION_MODEL_PREF_KEY}.${workspaceId}`;
+
+  const parseSessionModelOverrides = (raw: string | null) => {
+    if (!raw) return {} as Record<string, ModelRef>;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return {} as Record<string, ModelRef>;
+      }
+      const next: Record<string, ModelRef> = {};
+      for (const [sessionId, value] of Object.entries(parsed)) {
+        if (typeof value === "string") {
+          const model = parseModelRef(value);
+          if (model) next[sessionId] = model;
+          continue;
+        }
+        if (!value || typeof value !== "object") continue;
+        const record = value as Record<string, unknown>;
+        if (typeof record.providerID === "string" && typeof record.modelID === "string") {
+          next[sessionId] = {
+            providerID: record.providerID,
+            modelID: record.modelID,
+          };
+        }
+      }
+      return next;
+    } catch {
+      return {} as Record<string, ModelRef>;
+    }
+  };
+
+  const serializeSessionModelOverrides = (overrides: Record<string, ModelRef>) => {
+    const entries = Object.entries(overrides);
+    if (!entries.length) return null;
+    const payload: Record<string, string> = {};
+    for (const [sessionId, model] of entries) {
+      payload[sessionId] = formatModelRef(model);
+    }
+    return JSON.stringify(payload);
+  };
   const [modelPickerOpen, setModelPickerOpen] = createSignal(false);
   const [modelPickerTarget, setModelPickerTarget] = createSignal<
     "session" | "default"
@@ -1387,8 +1433,10 @@ export default function App() {
         const parsedDefaultModel = parseModelRef(storedDefaultModel);
         if (parsedDefaultModel) {
           setDefaultModel(parsedDefaultModel);
+          setLegacyDefaultModel(parsedDefaultModel);
         } else {
           setDefaultModel(DEFAULT_MODEL);
+          setLegacyDefaultModel(DEFAULT_MODEL);
           try {
             window.localStorage.setItem(
               MODEL_PREF_KEY,
@@ -1509,6 +1557,108 @@ export default function App() {
     }
 
     void workspaceStore.bootstrapOnboarding();
+  });
+
+  createEffect(() => {
+    if (typeof window === "undefined") return;
+    const workspaceId = workspaceStore.activeWorkspaceId();
+    if (!workspaceId) return;
+
+    setSessionModelOverridesReady(false);
+    const raw = window.localStorage.getItem(sessionModelOverridesKey(workspaceId));
+    setSessionModelOverrideById(parseSessionModelOverrides(raw));
+    setSessionModelOverridesReady(true);
+  });
+
+  createEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!sessionModelOverridesReady()) return;
+    const workspaceId = workspaceStore.activeWorkspaceId();
+    if (!workspaceId) return;
+
+    const payload = serializeSessionModelOverrides(sessionModelOverrideById());
+    try {
+      if (payload) {
+        window.localStorage.setItem(sessionModelOverridesKey(workspaceId), payload);
+      } else {
+        window.localStorage.removeItem(sessionModelOverridesKey(workspaceId));
+      }
+    } catch {
+      // ignore
+    }
+  });
+
+  createEffect(() => {
+    if (typeof window === "undefined") return;
+    const workspaceId = workspaceStore.activeWorkspaceId();
+    if (!workspaceId) return;
+
+    setWorkspaceDefaultModelReady(false);
+    const workspaceType = workspaceStore.activeWorkspaceDisplay().workspaceType;
+    if (isTauriRuntime() && workspaceType === "local" && !workspaceStore.workspaceConfigLoaded()) {
+      return;
+    }
+
+    const configDefault =
+      workspaceType === "local" ? workspaceStore.workspaceConfig()?.defaultModel ?? null : null;
+    const validConfigDefault =
+      configDefault && configDefault.providerID && configDefault.modelID ? configDefault : null;
+    const storedDefault = parseModelRef(
+      window.localStorage.getItem(workspaceDefaultModelKey(workspaceId))
+    );
+    const nextDefault = validConfigDefault ?? storedDefault ?? legacyDefaultModel();
+    const currentDefault = untrack(defaultModel);
+    if (nextDefault && !modelEquals(currentDefault, nextDefault)) {
+      setDefaultModel(nextDefault);
+    }
+    setWorkspaceDefaultModelReady(true);
+  });
+
+  createEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!workspaceDefaultModelReady()) return;
+    const workspaceId = workspaceStore.activeWorkspaceId();
+    if (!workspaceId) return;
+    try {
+      window.localStorage.setItem(
+        workspaceDefaultModelKey(workspaceId),
+        formatModelRef(defaultModel())
+      );
+    } catch {
+      // ignore
+    }
+  });
+
+  createEffect(() => {
+    if (!workspaceDefaultModelReady()) return;
+    if (!isTauriRuntime()) return;
+
+    const workspace = workspaceStore.activeWorkspaceDisplay();
+    if (workspace.workspaceType !== "local") return;
+    if (!workspaceStore.workspaceConfigLoaded()) return;
+
+    const root = workspaceStore.activeWorkspacePath().trim();
+    if (!root) return;
+
+    const existing = workspaceStore.workspaceConfig();
+    const nextModel = defaultModel();
+    if (existing?.defaultModel && modelEquals(existing.defaultModel, nextModel)) return;
+
+    const cfg = {
+      version: existing?.version ?? 1,
+      workspace: existing?.workspace ?? null,
+      authorizedRoots: existing?.authorizedRoots ?? workspaceStore.authorizedDirs(),
+      defaultModel: nextModel,
+    } as WorkspaceOpenworkConfig;
+
+    void workspaceOpenworkWrite({ workspacePath: root, config: cfg })
+      .then(() => {
+        workspaceStore.setWorkspaceConfig(cfg);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : safeStringify(error);
+        setError(addOpencodeCacheHint(message));
+      });
   });
 
   createEffect(() => {

@@ -83,6 +83,7 @@ export type WorkspaceOpenworkConfig = {
     createdAt?: number | null;
     preset?: string | null;
   } | null;
+  defaultModel?: ModelRef | null;
   authorizedRoots: string[];
 };
 
