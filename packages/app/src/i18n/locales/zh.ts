@@ -143,6 +143,10 @@ export default {
   "session.recents_label": "最近",
   "session.model_standard": "标准",
   "session.run_button_title": "运行",
+  "session.rename_title": "重命名会话",
+  "session.rename_description": "更新此会话名称。",
+  "session.rename_label": "会话名称",
+  "session.rename_placeholder": "输入新的名称",
 
   // ==================== Templates ====================
   "templates.new": "新建",

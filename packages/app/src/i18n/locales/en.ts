@@ -143,6 +143,10 @@ export default {
   "session.recents_label": "Recents",
   "session.model_standard": "Standard",
   "session.run_button_title": "Run",
+  "session.rename_title": "Rename session",
+  "session.rename_description": "Update the name for this session.",
+  "session.rename_label": "Session name",
+  "session.rename_placeholder": "Enter a new name",
   // ==================== Templates ====================
   "templates.new": "New",
   "templates.empty_state": "Starter templates will appear here. Create one or save from a session.",

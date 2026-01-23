@@ -464,7 +464,6 @@ export default function App() {
   }
 
 
-
   async function respondPermissionAndRemember(
     requestID: string,
     reply: "once" | "always" | "reject"
