@@ -27,6 +27,7 @@ import {
 
 import Button from "../components/button";
 import PartView from "../components/part-view";
+import RenameSessionModal from "../components/rename-session-modal";
 import WorkspaceChip from "../components/workspace-chip";
 import ProviderAuthModal from "../components/provider-auth-modal";
 import { isTauriRuntime, isWindowsPlatform } from "../utils";
@@ -82,7 +83,7 @@ export type SessionViewProps = {
   safeStringify: (value: unknown) => string;
   error: string | null;
   sessionStatus: string;
-  renameSession: (sessionId: string, title: string) => Promise<void> | void;
+  renameSession: (sessionId: string, title: string) => Promise<void>;
   openConnect: () => void;
   startProviderAuth: (providerId?: string) => Promise<string>;
   openProviderAuthModal: () => Promise<void>;
@@ -122,6 +123,9 @@ export default function SessionView(props: SessionViewProps) {
   const [commandToast, setCommandToast] = createSignal<string | null>(null);
   const [commandIndex, setCommandIndex] = createSignal(0);
   const [providerAuthActionBusy, setProviderAuthActionBusy] = createSignal(false);
+  const [renameModalOpen, setRenameModalOpen] = createSignal(false);
+  const [renameTitle, setRenameTitle] = createSignal("");
+  const [renameBusy, setRenameBusy] = createSignal(false);
 
   let promptInputEl: HTMLTextAreaElement | undefined;
 
@@ -315,6 +319,50 @@ export default function SessionView(props: SessionViewProps) {
     return !hasAssistantTextAfterLastUser();
   });
 
+  const selectedSessionTitle = createMemo(() => {
+    const id = props.selectedSessionId;
+    if (!id) return "";
+    return props.sessions.find((session) => session.id === id)?.title ?? "";
+  });
+
+  const renameCanSave = createMemo(() => {
+    if (renameBusy()) return false;
+    const next = renameTitle().trim();
+    if (!next) return false;
+    return next !== selectedSessionTitle().trim();
+  });
+
+  const openRenameModal = () => {
+    if (!props.selectedSessionId) {
+      setCommandToast("No session selected");
+      return;
+    }
+    setRenameTitle(selectedSessionTitle());
+    setRenameModalOpen(true);
+  };
+
+  const closeRenameModal = () => {
+    if (renameBusy()) return;
+    setRenameModalOpen(false);
+  };
+
+  const submitRename = async () => {
+    const sessionId = props.selectedSessionId;
+    if (!sessionId) return;
+    const next = renameTitle().trim();
+    if (!next || !renameCanSave()) return;
+    setRenameBusy(true);
+    try {
+      await props.renameSession(sessionId, next);
+      setRenameModalOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : props.safeStringify(error);
+      setCommandToast(message);
+    } finally {
+      setRenameBusy(false);
+    }
+  };
+
   const clearPrompt = () => {
     props.setPrompt("");
     queueMicrotask(syncPromptHeight);
@@ -366,13 +414,6 @@ export default function SessionView(props: SessionViewProps) {
     const preview = items.slice(0, 4).join(", ");
     return items.length > 4 ? `${preview}, ...` : preview;
   };
-
-  const activeSessionTitle = createMemo(() => {
-    const selectedId = props.selectedSessionId;
-    if (!selectedId) return "";
-    const entry = props.sessions.find((session) => session.id === selectedId);
-    return entry?.title ?? "";
-  });
 
   const handleProviderAuthSelect = async (providerId: string) => {
     if (providerAuthActionBusy()) return;
@@ -521,34 +562,9 @@ export default function SessionView(props: SessionViewProps) {
       id: "rename",
       label: "Rename",
       description: "Rename this session",
-      run: async () => {
-        const sessionId = requireSessionId();
-        if (!sessionId) return;
-
-        let nextTitle = extractCommandArgs(props.prompt);
-        if (!nextTitle) {
-          const fallback = activeSessionTitle();
-          const prompted = window.prompt("Rename session", fallback);
-          if (prompted == null) {
-            return;
-          }
-          nextTitle = prompted.trim();
-        }
-
-        if (!nextTitle) {
-          setCommandToast("Session name is required");
-          clearPrompt();
-          return;
-        }
-
-        try {
-          await props.renameSession(sessionId, nextTitle);
-          setCommandToast("Session renamed");
-          clearPrompt();
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "Rename failed";
-          setCommandToast(message);
-        }
+      run: () => {
+        openRenameModal();
+        clearPrompt();
       },
     },
     {
@@ -1257,6 +1273,16 @@ export default function SessionView(props: SessionViewProps) {
           authMethods={props.providerAuthMethods}
           onSelect={handleProviderAuthSelect}
           onClose={props.closeProviderAuthModal}
+        />
+
+        <RenameSessionModal
+          open={renameModalOpen()}
+          title={renameTitle()}
+          busy={renameBusy()}
+          canSave={renameCanSave()}
+          onClose={closeRenameModal}
+          onSave={submitRename}
+          onTitleChange={setRenameTitle}
         />
 
         <Show when={props.activePermission}>
