@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Agent, Part, Provider } from "@opencode-ai/sdk/v2/client";
 import type {
   ArtifactItem,
@@ -365,11 +365,23 @@ export default function SessionView(props: SessionViewProps) {
     }
   });
 
-  createEffect(() => {
-    props.messages.length;
-    props.todos.length;
-    messagesEndEl?.scrollIntoView({ behavior: "smooth" });
-  });
+  createEffect(
+    on(
+      () => [
+        props.messages.length,
+        props.todos.length,
+        props.messages.reduce((acc, m) => acc + m.parts.length, 0),
+      ],
+      (current, previous) => {
+        if (!previous) return;
+        const [mLen, tLen, pCount] = current;
+        const [prevM, prevT, prevP] = previous;
+        if (mLen > prevM || tLen > prevT || pCount > prevP) {
+          messagesEndEl?.scrollIntoView({ behavior: "smooth" });
+        }
+      },
+    ),
+  );
 
   const triggerFlyout = (
     sourceEl: Element | null,
