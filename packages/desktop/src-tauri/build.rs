@@ -24,14 +24,28 @@ fn ensure_opencode_sidecar() {
     .unwrap_or_else(|_| PathBuf::from("."));
   let sidecar_dir = manifest_dir.join("sidecars");
 
-  let mut file_name = format!("opencode-{target}");
+  let canonical_name = if target.contains("windows") {
+    "opencode.exe"
+  } else {
+    "opencode"
+  };
+
+  let mut target_name = format!("opencode-{target}");
   if target.contains("windows") {
-    file_name.push_str(".exe");
+    target_name.push_str(".exe");
   }
-  let dest_path = sidecar_dir.join(file_name);
+
+  let dest_path = sidecar_dir.join(canonical_name);
+  let target_dest_path = sidecar_dir.join(target_name);
 
   if dest_path.exists() {
     return;
+  }
+
+  if target_dest_path.exists() {
+    if copy_sidecar(&target_dest_path, &dest_path, &target) {
+      return;
+    }
   }
 
   let source_path = env::var("OPENCODE_BIN_PATH")
@@ -56,27 +70,14 @@ fn ensure_opencode_sidecar() {
     return;
   }
 
-  let mut copied = fs::copy(&source_path, &dest_path).is_ok();
-
-  #[cfg(unix)]
-  if !copied {
-    if std::os::unix::fs::symlink(&source_path, &dest_path).is_ok() {
-      copied = true;
-    }
-  }
-
-  #[cfg(windows)]
-  if !copied {
-    if fs::hard_link(&source_path, &dest_path).is_ok() {
-      copied = true;
-    }
-  }
+  let copied = copy_sidecar(&source_path, &dest_path, &target);
 
   if copied {
     #[cfg(unix)]
     {
       let _ = fs::set_permissions(&dest_path, fs::Permissions::from_mode(0o755));
     }
+    let _ = copy_sidecar(&dest_path, &target_dest_path, &target);
   } else {
     println!(
       "cargo:warning=Failed to copy OpenCode sidecar from {} to {}",
@@ -85,6 +86,35 @@ fn ensure_opencode_sidecar() {
     );
     create_debug_stub(&dest_path, &sidecar_dir, &profile, &target);
   }
+}
+
+fn copy_sidecar(source_path: &PathBuf, dest_path: &PathBuf, target: &str) -> bool {
+  let mut copied = fs::copy(source_path, dest_path).is_ok();
+
+  #[cfg(unix)]
+  if !copied {
+    if std::os::unix::fs::symlink(source_path, dest_path).is_ok() {
+      copied = true;
+    }
+  }
+
+  #[cfg(windows)]
+  if !copied {
+    if fs::hard_link(source_path, dest_path).is_ok() {
+      copied = true;
+    }
+  }
+
+  if copied {
+    #[cfg(unix)]
+    {
+      let _ = fs::set_permissions(dest_path, fs::Permissions::from_mode(0o755));
+    }
+  } else if target.contains("windows") {
+    let _ = fs::remove_file(dest_path);
+  }
+
+  copied
 }
 
 fn find_in_path(binary: &str) -> Option<PathBuf> {
