@@ -7,6 +7,7 @@ use crate::utils::truncate_output;
 
 pub fn opencode_version(program: &OsStr) -> Option<String> {
     let output = command_for_program(Path::new(program))
+        .env("OPENCODE_DISABLE_MODELS_FETCH", "1")
         .arg("--version")
         .output()
         .ok()?;
@@ -25,6 +26,7 @@ pub fn opencode_version(program: &OsStr) -> Option<String> {
 
 pub fn opencode_serve_help(program: &OsStr) -> (bool, Option<i32>, Option<String>, Option<String>) {
     match command_for_program(Path::new(program))
+        .env("OPENCODE_DISABLE_MODELS_FETCH", "1")
         .arg("serve")
         .arg("--help")
         .output()
