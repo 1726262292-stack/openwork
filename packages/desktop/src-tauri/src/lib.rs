@@ -27,6 +27,7 @@ use commands::workspace::{
     workspace_update_remote,
 };
 use engine::manager::EngineManager;
+use workspace::watch::WorkspaceWatchState;
 
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -40,6 +41,7 @@ pub fn run() {
 
     builder
         .manage(EngineManager::default())
+        .manage(WorkspaceWatchState::default())
         .invoke_handler(tauri::generate_handler![
             engine_start,
             engine_stop,

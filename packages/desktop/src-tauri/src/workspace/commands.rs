@@ -45,13 +45,31 @@ pub fn serialize_command_frontmatter(command: &OpencodeCommand) -> Result<String
 
     let mut out = String::new();
     out.push_str("---\n");
-    if let Some(description) = command.description.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-        out.push_str(&format!("description: {}\n", escape_yaml_scalar(description)));
+    if let Some(description) = command
+        .description
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        out.push_str(&format!(
+            "description: {}\n",
+            escape_yaml_scalar(description)
+        ));
     }
-    if let Some(agent) = command.agent.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+    if let Some(agent) = command
+        .agent
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
         out.push_str(&format!("agent: {}\n", escape_yaml_scalar(agent)));
     }
-    if let Some(model) = command.model.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+    if let Some(model) = command
+        .model
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
         out.push_str(&format!("model: {}\n", escape_yaml_scalar(model)));
     }
     if command.subtask.unwrap_or(false) {

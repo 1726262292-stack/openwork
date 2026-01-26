@@ -22,6 +22,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 
 import { getVersion } from "@tauri-apps/api/app";
+import { listen, type Event as TauriEvent } from "@tauri-apps/api/event";
 import { parse } from "jsonc-parser";
 
 import ModelPickerModal from "./components/model-picker-modal";
@@ -1369,6 +1370,30 @@ export default function App() {
     if (!reloadRequired()) {
       setReloadToastDismissedAt(null);
     }
+  });
+
+  onMount(() => {
+    if (!isTauriRuntime()) return;
+    let unlisten: (() => void) | null = null;
+    void listen("openwork://reload-required", (event: TauriEvent<{ reason?: string }>) => {
+      const rawReason = event.payload?.reason;
+      const reason: ReloadReason =
+        rawReason === "plugins" ||
+        rawReason === "skills" ||
+        rawReason === "config" ||
+        rawReason === "mcp"
+          ? rawReason
+          : "config";
+      markReloadRequired(reason);
+    })
+      .then((stop) => {
+        unlisten = stop;
+      })
+      .catch(() => undefined);
+
+    onCleanup(() => {
+      unlisten?.();
+    });
   });
 
   markReloadRequiredRef = markReloadRequired;

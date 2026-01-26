@@ -11,7 +11,9 @@ fn resolve_commands_dir(scope: &str, project_dir: &str) -> Result<PathBuf, Strin
             if project_dir.trim().is_empty() {
                 return Err("projectDir is required".to_string());
             }
-            Ok(PathBuf::from(project_dir).join(".opencode").join("commands"))
+            Ok(PathBuf::from(project_dir)
+                .join(".opencode")
+                .join("commands"))
         }
         "global" => {
             let base = if let Ok(dir) = env::var("XDG_CONFIG_HOME") {
@@ -68,8 +70,7 @@ pub fn opencode_command_write(
         fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create {}: {e}", parent.display()))?;
     }
-    fs::create_dir_all(&dir)
-        .map_err(|e| format!("Failed to create {}: {e}", dir.display()))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create {}: {e}", dir.display()))?;
 
     let payload = OpencodeCommand {
         name: safe_name.clone(),

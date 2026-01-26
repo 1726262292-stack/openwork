@@ -1,15 +1,22 @@
 use std::fs;
 use std::path::PathBuf;
 
-use crate::types::{ExecResult, WorkspaceInfo, WorkspaceList, WorkspaceOpenworkConfig, WorkspaceType};
+use crate::types::{
+    ExecResult, WorkspaceInfo, WorkspaceList, WorkspaceOpenworkConfig, WorkspaceType,
+};
 use crate::workspace::files::ensure_workspace_files;
 use crate::workspace::state::{
     ensure_starter_workspace, load_workspace_state, save_workspace_state, stable_workspace_id,
     stable_workspace_id_for_remote,
 };
+use crate::workspace::watch::{update_workspace_watch, WorkspaceWatchState};
+use tauri::State;
 
 #[tauri::command]
-pub fn workspace_bootstrap(app: tauri::AppHandle) -> Result<WorkspaceList, String> {
+pub fn workspace_bootstrap(
+    app: tauri::AppHandle,
+    watch_state: State<WorkspaceWatchState>,
+) -> Result<WorkspaceList, String> {
     println!("[workspace] bootstrap");
     let mut state = load_workspace_state(&app)?;
 
@@ -29,6 +36,8 @@ pub fn workspace_bootstrap(app: tauri::AppHandle) -> Result<WorkspaceList, Strin
     }
 
     save_workspace_state(&app, &state)?;
+    let active_workspace = state.workspaces.iter().find(|w| w.id == state.active_id);
+    update_workspace_watch(&app, watch_state, active_workspace)?;
 
     Ok(WorkspaceList {
         active_id: state.active_id,
@@ -40,6 +49,7 @@ pub fn workspace_bootstrap(app: tauri::AppHandle) -> Result<WorkspaceList, Strin
 pub fn workspace_forget(
     app: tauri::AppHandle,
     workspace_id: String,
+    watch_state: State<WorkspaceWatchState>,
 ) -> Result<WorkspaceList, String> {
     println!("[workspace] forget request: {workspace_id}");
     let mut state = load_workspace_state(&app)?;
@@ -71,6 +81,8 @@ pub fn workspace_forget(
     }
 
     save_workspace_state(&app, &state)?;
+    let active_workspace = state.workspaces.iter().find(|w| w.id == state.active_id);
+    update_workspace_watch(&app, watch_state, active_workspace)?;
     println!("[workspace] forget complete");
 
     Ok(WorkspaceList {
@@ -83,6 +95,7 @@ pub fn workspace_forget(
 pub fn workspace_set_active(
     app: tauri::AppHandle,
     workspace_id: String,
+    watch_state: State<WorkspaceWatchState>,
 ) -> Result<WorkspaceList, String> {
     println!("[workspace] set_active request: {workspace_id}");
     let mut state = load_workspace_state(&app)?;
@@ -98,6 +111,8 @@ pub fn workspace_set_active(
 
     state.active_id = id.to_string();
     save_workspace_state(&app, &state)?;
+    let active_workspace = state.workspaces.iter().find(|w| w.id == state.active_id);
+    update_workspace_watch(&app, watch_state, active_workspace)?;
     println!("[workspace] set_active complete: {id}");
 
     Ok(WorkspaceList {
@@ -112,6 +127,7 @@ pub fn workspace_create(
     folder_path: String,
     name: String,
     preset: String,
+    watch_state: State<WorkspaceWatchState>,
 ) -> Result<WorkspaceList, String> {
     println!("[workspace] create local request");
     let folder = folder_path.trim().to_string();
@@ -153,6 +169,8 @@ pub fn workspace_create(
 
     state.active_id = id.clone();
     save_workspace_state(&app, &state)?;
+    let active_workspace = state.workspaces.iter().find(|w| w.id == state.active_id);
+    update_workspace_watch(&app, watch_state, active_workspace)?;
     println!("[workspace] create local complete: {id}");
 
     Ok(WorkspaceList {
@@ -167,6 +185,7 @@ pub fn workspace_create_remote(
     base_url: String,
     directory: Option<String>,
     display_name: Option<String>,
+    watch_state: State<WorkspaceWatchState>,
 ) -> Result<WorkspaceList, String> {
     println!("[workspace] create remote request");
     let base_url = base_url.trim().to_string();
@@ -202,6 +221,8 @@ pub fn workspace_create_remote(
     });
     state.active_id = id.clone();
     save_workspace_state(&app, &state)?;
+    let active_workspace = state.workspaces.iter().find(|w| w.id == state.active_id);
+    update_workspace_watch(&app, watch_state, active_workspace)?;
     println!("[workspace] create remote complete: {id}");
 
     Ok(WorkspaceList {
