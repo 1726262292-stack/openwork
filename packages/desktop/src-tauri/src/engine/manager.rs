@@ -1,5 +1,6 @@
-use std::process::Child;
 use std::sync::{Arc, Mutex};
+
+use tauri_plugin_shell::process::CommandChild;
 
 use crate::types::EngineInfo;
 
@@ -10,7 +11,8 @@ pub struct EngineManager {
 
 #[derive(Default)]
 pub struct EngineState {
-    pub child: Option<Child>,
+    pub child: Option<CommandChild>,
+    pub child_exited: bool,
     pub project_dir: Option<String>,
     pub hostname: Option<String>,
     pub port: Option<u16>,
@@ -21,16 +23,13 @@ pub struct EngineState {
 
 impl EngineManager {
     pub fn snapshot_locked(state: &mut EngineState) -> EngineInfo {
-        let (running, pid) = match state.child.as_mut() {
+        let (running, pid) = match state.child.as_ref() {
             None => (false, None),
-            Some(child) => match child.try_wait() {
-                Ok(Some(_status)) => {
-                    state.child = None;
-                    (false, None)
-                }
-                Ok(None) => (true, Some(child.id())),
-                Err(_) => (true, Some(child.id())),
-            },
+            Some(child) if state.child_exited => {
+                state.child = None;
+                (false, None)
+            }
+            Some(child) => (true, Some(child.pid())),
         };
 
         EngineInfo {
@@ -48,8 +47,8 @@ impl EngineManager {
     pub fn stop_locked(state: &mut EngineState) {
         if let Some(mut child) = state.child.take() {
             let _ = child.kill();
-            let _ = child.wait();
         }
+        state.child_exited = true;
         state.base_url = None;
         state.project_dir = None;
         state.hostname = None;

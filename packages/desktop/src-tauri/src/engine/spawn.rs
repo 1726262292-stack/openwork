@@ -1,8 +1,10 @@
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+
+use tauri::AppHandle;
+use tauri_plugin_shell::process::{CommandChild, CommandEventReceiver};
+use tauri_plugin_shell::ShellExt;
 
 use crate::paths::{candidate_xdg_config_dirs, candidate_xdg_data_dirs, maybe_infer_xdg_home};
-use crate::platform::configure_hidden;
 
 pub fn find_free_port() -> Result<u16, String> {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
@@ -10,30 +12,43 @@ pub fn find_free_port() -> Result<u16, String> {
     Ok(port)
 }
 
-pub fn build_engine_command(
+pub fn build_engine_args(hostname: &str, port: u16) -> Vec<String> {
+    vec![
+        "serve".to_string(),
+        "--hostname".to_string(),
+        hostname.to_string(),
+        "--port".to_string(),
+        port.to_string(),
+        "--cors".to_string(),
+        "http://localhost:5173".to_string(),
+        "--cors".to_string(),
+        "tauri://localhost".to_string(),
+        "--cors".to_string(),
+        "http://tauri.localhost".to_string(),
+    ]
+}
+
+pub fn spawn_engine(
+    app: &AppHandle,
     program: &Path,
     hostname: &str,
     port: u16,
     project_dir: &str,
-) -> Command {
-    let mut command = crate::platform::command_for_program(program);
-    configure_hidden(&mut command);
-    command
-        .arg("serve")
-        .arg("--hostname")
-        .arg(hostname)
-        .arg("--port")
-        .arg(port.to_string())
-        .arg("--cors")
-        .arg("http://localhost:5173")
-        .arg("--cors")
-        .arg("tauri://localhost")
-        .arg("--cors")
-        .arg("http://tauri.localhost")
-        .current_dir(project_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    use_sidecar: bool,
+) -> Result<(CommandEventReceiver, CommandChild), String> {
+    let args = build_engine_args(hostname, port);
+
+    let mut command = if use_sidecar {
+        app
+            .shell()
+            .sidecar("opencode")
+            .map_err(|e| format!("Failed to locate bundled OpenCode sidecar: {e}"))?
+    } else {
+        app.shell().command(program)
+    };
+
+    command.args(args);
+    command.current_dir(project_dir);
 
     if let Some(xdg_data_home) = maybe_infer_xdg_home(
         "XDG_DATA_HOME",
@@ -62,10 +77,7 @@ pub fn build_engine_command(
 
     command.env("OPENCODE_CLIENT", "openwork");
     command.env("OPENWORK", "1");
-    command
-}
 
-pub fn spawn_engine(command: &mut Command) -> Result<Child, String> {
     command
         .spawn()
         .map_err(|e| format!("Failed to start opencode: {e}"))
