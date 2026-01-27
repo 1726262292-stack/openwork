@@ -51,10 +51,12 @@ export default function ReloadWorkspaceToast(props: ReloadWorkspaceToastProps) {
               </Show>
             </div>
             
-            <Show when={props.description}>
+            <Show when={props.description || props.error}>
               <div class="text-xs text-gray-10 truncate leading-none mt-0.5">
                 {props.hasActiveRuns 
                   ? <span class="text-amber-11 font-medium">Reloading will stop active tasks.</span>
+                  : props.error 
+                  ? <span class="text-red-9 font-medium">{props.error}</span>
                   : props.description
                 }
               </div>

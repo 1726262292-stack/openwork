@@ -40,6 +40,7 @@ export function createSystemState(options: {
   const [reloadRequired, setReloadRequired] = createSignal(false);
   const [reloadReasons, setReloadReasons] = createSignal<ReloadReason[]>([]);
   const [reloadLastTriggeredAt, setReloadLastTriggeredAt] = createSignal<number | null>(null);
+  const [reloadLastFinishedAt, setReloadLastFinishedAt] = createSignal<number | null>(null);
   const [reloadBusy, setReloadBusy] = createSignal(false);
   const [reloadError, setReloadError] = createSignal<string | null>(null);
 
@@ -285,6 +286,7 @@ export function createSystemState(options: {
       setReloadError(e instanceof Error ? e.message : safeStringify(e));
     } finally {
       setReloadBusy(false);
+      setReloadLastFinishedAt(Date.now());
     }
   }
 
@@ -453,6 +455,8 @@ export function createSystemState(options: {
     reloadRequired,
     reloadReasons,
     reloadLastTriggeredAt,
+    reloadLastFinishedAt,
+    setReloadLastFinishedAt,
     reloadBusy,
     reloadError,
     reloadCopy,

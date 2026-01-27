@@ -86,14 +86,33 @@ pub fn update_workspace_watch(
         };
 
         match event.kind {
-            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {}
+            EventKind::Create(_) | EventKind::Remove(_) => {}
+            EventKind::Modify(mod_kind) => match mod_kind {
+                notify::event::ModifyKind::Data(_)
+                | notify::event::ModifyKind::Name(_)
+                | notify::event::ModifyKind::Any => {}
+                _ => return,
+            },
             _ => return,
         }
 
         for path in event.paths {
+            if path.is_dir() {
+                continue;
+            }
+
             let Some(reason) = reason_for_path(&path) else {
                 continue;
             };
+
+            let lower = path.to_string_lossy().to_lowercase();
+            if lower.ends_with(".ds_store")
+                || lower.ends_with("desktop.ini")
+                || lower.ends_with(".localized")
+            {
+                continue;
+            }
+
             if !should_emit(&last_emit) {
                 break;
             }

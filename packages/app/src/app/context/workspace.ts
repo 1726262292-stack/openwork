@@ -81,6 +81,7 @@ export function createWorkspaceStore(options: {
   setView: (value: any) => void;
   setTab: (value: any) => void;
   isWindowsPlatform: () => boolean;
+  onEngineStable?: () => void;
 }) {
 
   const [engine, setEngine] = createSignal<EngineInfo | null>(null);
@@ -425,6 +426,7 @@ export function createWorkspaceStore(options: {
       // If the user successfully connected, treat onboarding as complete so we
       // don't force the onboarding flow on subsequent launches.
       markOnboardingComplete();
+      options.onEngineStable?.();
       return true;
     } catch (e) {
       options.setClient(null);
@@ -1070,7 +1072,9 @@ export function createWorkspaceStore(options: {
 
     if (isTauriRuntime()) {
       try {
-        setWorkspaces((await workspaceBootstrap()).workspaces);
+        const ws = await workspaceBootstrap();
+        setWorkspaces(ws.workspaces);
+        syncActiveWorkspaceId(ws.activeId);
       } catch {
         // ignore
       }
@@ -1080,41 +1084,34 @@ export function createWorkspaceStore(options: {
     await refreshEngineDoctor();
 
     if (isTauriRuntime()) {
-      try {
-        const ws = await workspaceBootstrap();
-        setWorkspaces(ws.workspaces);
-        syncActiveWorkspaceId(ws.activeId);
-        const active = ws.workspaces.find((w) => w.id === ws.activeId) ?? null;
-        if (active) {
-          if (active.workspaceType === "remote") {
-            setProjectDir(active.directory?.trim() ?? "");
+      const active = workspaces().find((w) => w.id === activeWorkspaceId()) ?? null;
+      if (active) {
+        if (active.workspaceType === "remote") {
+          setProjectDir(active.directory?.trim() ?? "");
+          setWorkspaceConfig(null);
+          setWorkspaceConfigLoaded(true);
+          setAuthorizedDirs([]);
+          if (active.baseUrl) {
+            options.setBaseUrl(active.baseUrl);
+          }
+        } else {
+          setProjectDir(active.path);
+          try {
+            const cfg = await workspaceOpenworkRead({ workspacePath: active.path });
+            setWorkspaceConfig(cfg);
+            setWorkspaceConfigLoaded(true);
+            const roots = Array.isArray(cfg.authorizedRoots) ? cfg.authorizedRoots : [];
+            setAuthorizedDirs(roots.length ? roots : [active.path]);
+          } catch {
             setWorkspaceConfig(null);
             setWorkspaceConfigLoaded(true);
-            setAuthorizedDirs([]);
-            if (active.baseUrl) {
-              options.setBaseUrl(active.baseUrl);
-            }
-          } else {
-            setProjectDir(active.path);
-            try {
-              const cfg = await workspaceOpenworkRead({ workspacePath: active.path });
-              setWorkspaceConfig(cfg);
-              setWorkspaceConfigLoaded(true);
-              const roots = Array.isArray(cfg.authorizedRoots) ? cfg.authorizedRoots : [];
-              setAuthorizedDirs(roots.length ? roots : [active.path]);
-            } catch {
-              setWorkspaceConfig(null);
-              setWorkspaceConfigLoaded(true);
-              setAuthorizedDirs([active.path]);
-            }
-
-            await options
-              .loadCommands({ workspaceRoot: active.path, quiet: true })
-              .catch(() => undefined);
+            setAuthorizedDirs([active.path]);
           }
+
+          await options
+            .loadCommands({ workspaceRoot: active.path, quiet: true })
+            .catch(() => undefined);
         }
-      } catch {
-        // ignore
       }
     }
 

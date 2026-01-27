@@ -96,7 +96,7 @@ import { currentLocale, setLocale, t, type Language } from "../i18n";
 import {
   isWindowsPlatform,
   lastUserModelFromMessages,
-  normalizeDirectoryPath,
+  // normalizeDirectoryPath,
   parseModelRef,
   readModePreference,
   safeStringify,
@@ -317,8 +317,10 @@ export default function App() {
   const [busyStartedAt, setBusyStartedAt] = createSignal<number | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [booting, setBooting] = createSignal(true);
+  const mountTime = Date.now();
   const [developerMode, setDeveloperMode] = createSignal(false);
   let markReloadRequiredRef: (reason: ReloadReason) => void = () => {};
+  let setReloadLastFinishedAtRef: (value: number) => void = () => {};
 
   const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(
     null
@@ -988,6 +990,7 @@ export default function App() {
     setView,
     setTab,
     isWindowsPlatform,
+    onEngineStable: () => setReloadLastFinishedAtRef(Date.now()),
   });
 
   createEffect(() => {
@@ -1486,10 +1489,12 @@ export default function App() {
     reloadRequired,
     reloadReasons,
     reloadLastTriggeredAt,
+    reloadLastFinishedAt,
+    setReloadLastFinishedAt,
     reloadBusy,
     reloadError,
     canReloadEngine,
-    markReloadRequired,
+    markReloadRequired: markReloadRequiredRaw,
     clearReloadRequired,
     reloadWorkspaceEngine,
     cacheRepairBusy,
@@ -1517,6 +1522,25 @@ export default function App() {
     confirmReset,
     anyActiveRuns,
   } = systemState;
+
+  const markReloadRequired = (reason: ReloadReason, options?: { force?: boolean }) => {
+    if (booting() || reloadBusy()) return;
+    if (!options?.force) {
+      const label = busyLabel();
+      if (
+        busy() &&
+        label &&
+        (label.includes("engine") || label.includes("workspace") || label.includes("connecting"))
+      ) {
+        return;
+      }
+      const now = Date.now();
+      if (now - mountTime < 3000) return;
+      const lastFinishedAt = reloadLastFinishedAt();
+      if (lastFinishedAt && now - lastFinishedAt < 2000) return;
+    }
+    markReloadRequiredRaw(reason);
+  };
 
   const [reloadToastDismissedAt, setReloadToastDismissedAt] = createSignal<number | null>(null);
 
@@ -1567,7 +1591,7 @@ export default function App() {
         rawReason === "mcp"
           ? rawReason
           : "config";
-      markReloadRequired(reason);
+      markReloadRequired(reason, { force: false });
     })
       .then((stop) => {
         unlisten = stop;
@@ -1579,7 +1603,8 @@ export default function App() {
     });
   });
 
-  markReloadRequiredRef = markReloadRequired;
+  markReloadRequiredRef = (reason) => markReloadRequired(reason, { force: true });
+  setReloadLastFinishedAtRef = (value) => setReloadLastFinishedAt(value);
 
   const {
     engine,
@@ -1597,6 +1622,7 @@ export default function App() {
     if (!isTauriRuntime() || isDemoMode()) return;
     workspaceStore.activeWorkspaceId();
     workspaceProjectDir();
+    clearReloadRequired();
     void refreshMcpServers();
   });
 
