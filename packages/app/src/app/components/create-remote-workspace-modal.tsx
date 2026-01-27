@@ -17,6 +17,7 @@ export default function CreateRemoteWorkspaceModal(props: {
   subtitle?: string;
   confirmLabel?: string;
 }) {
+  let inputRef: HTMLInputElement | undefined;
   const translate = (key: string) => t(key, currentLocale());
 
   const [baseUrl, setBaseUrl] = createSignal("");
@@ -31,6 +32,12 @@ export default function CreateRemoteWorkspaceModal(props: {
   const submitting = () => props.submitting ?? false;
 
   const canSubmit = createMemo(() => baseUrl().trim().length > 0 && !submitting());
+
+  createEffect(() => {
+    if (props.open) {
+      requestAnimationFrame(() => inputRef?.focus());
+    }
+  });
 
   createEffect(() => {
     if (!props.open) return;
@@ -70,6 +77,7 @@ export default function CreateRemoteWorkspaceModal(props: {
 
         <div class="space-y-4">
           <TextInput
+            ref={inputRef}
             label={translate("dashboard.remote_base_url_label")}
             placeholder={translate("dashboard.remote_base_url_placeholder")}
             value={baseUrl()}

@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
 import { ArrowRight, AtSign, ChevronDown, File, Paperclip, X, Zap } from "lucide-solid";
 
@@ -275,8 +275,27 @@ export default function Composer(props: ComposerProps) {
   const [variantMenuOpen, setVariantMenuOpen] = createSignal(false);
   const activeVariant = createMemo(() => props.modelVariant ?? "none");
 
+  onMount(() => {
+    queueMicrotask(() => focusEditorEnd());
+  });
+
   const commandMenuOpen = createMemo(() => {
-    return props.prompt.trim().startsWith("/") && !props.busy && mode() === "prompt" && !mentionOpen();
+    const prompt = props.prompt.trim();
+    // Close menu if user has typed a space (likely typing args)
+    if (prompt.includes(" ")) return false;
+    return prompt.startsWith("/") && !props.busy && mode() === "prompt" && !mentionOpen();
+  });
+
+  createEffect(() => {
+    if (commandMenuOpen()) {
+      props.prompt; setCommandIndex(0);
+    }
+  });
+
+  createEffect(() => {
+    if (mentionOpen()) {
+      mentionQuery(); setMentionIndex(0);
+    }
   });
 
   const mentionSections = createMemo<MentionSection[]>(() => {
@@ -515,6 +534,7 @@ export default function Composer(props: ComposerProps) {
     setAttachments([]);
     setEditorText("");
     emitDraftChange();
+    queueMicrotask(() => focusEditorEnd());
   };
 
   const recordHistory = (draft: ComposerDraft) => {
@@ -622,6 +642,12 @@ export default function Composer(props: ComposerProps) {
         setMentionQuery("");
         return;
       }
+      if (event.key === "Tab") {
+        event.preventDefault();
+        const active = options[mentionIndex()] ?? options[0];
+        if (active) insertMention(active);
+        return;
+      }
     }
 
     if (commandMenuOpen()) {
@@ -692,21 +718,10 @@ export default function Composer(props: ComposerProps) {
 
     if (event.key === "Enter") {
       event.preventDefault();
+      if (props.busy) return;
       sendDraft();
     }
   };
-
-  createEffect(() => {
-    if (commandMenuOpen()) {
-      setCommandIndex(0);
-    }
-  });
-
-  createEffect(() => {
-    if (mentionOpen()) {
-      setMentionIndex(0);
-    }
-  });
 
   createEffect(() => {
     if (!mentionOpen() || agentLoaded()) return;
@@ -754,6 +769,7 @@ export default function Composer(props: ComposerProps) {
       setMode("shell");
       setEditorText(value.slice(1).trimStart());
       emitDraftChange();
+      queueMicrotask(() => focusEditorEnd());
       return;
     }
     setEditorText(value);
@@ -761,9 +777,9 @@ export default function Composer(props: ComposerProps) {
       setAttachments([]);
       setHistoryIndex((currentIndex: { prompt: number; shell: number }) => ({ ...currentIndex, [mode()]: -1 }));
       setHistorySnapshot(null);
-      queueMicrotask(() => focusEditorEnd());
     }
     emitDraftChange();
+    queueMicrotask(() => focusEditorEnd());
   });
 
   createEffect(() => {
@@ -1025,7 +1041,7 @@ export default function Composer(props: ComposerProps) {
                     </Show>
                     <div
                       ref={editorRef}
-                      contentEditable={!props.busy}
+                      contentEditable={true}
                       role="textbox"
                       aria-multiline="true"
                       onInput={() => {

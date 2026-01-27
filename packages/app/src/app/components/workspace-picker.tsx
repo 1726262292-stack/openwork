@@ -1,4 +1,4 @@
-import { For, Show, createMemo } from "solid-js";
+import { For, Show, createEffect, createMemo } from "solid-js";
 
 import { Check, Globe, Loader2, Plus, Search, Trash2, Upload } from "lucide-solid";
 import { t, currentLocale } from "../../i18n";
@@ -33,6 +33,13 @@ export default function WorkspacePicker(props: {
   });
 
   const totalCount = createMemo(() => props.workspaces.length);
+  let searchInputRef: HTMLInputElement | undefined;
+
+  createEffect(() => {
+    if (props.open) {
+      requestAnimationFrame(() => searchInputRef?.focus());
+    }
+  });
 
   return (
     <Show when={props.open}>
@@ -48,6 +55,7 @@ export default function WorkspacePicker(props: {
             <div class="relative">
               <Search size={14} class="absolute left-3 top-2.5 text-gray-10" />
               <input
+                ref={(el) => (searchInputRef = el)}
                 type="text"
                 placeholder={translate("dashboard.find_workspace")}
                 value={props.search}

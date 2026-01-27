@@ -1,5 +1,4 @@
-import { Show } from "solid-js";
-
+import { Show, createEffect } from "solid-js";
 import { X } from "lucide-solid";
 import type { WorkspaceCommand } from "../types";
 import { t, currentLocale } from "../../i18n";
@@ -17,9 +16,23 @@ export type CommandRunModalProps = {
 };
 
 export default function CommandRunModal(props: CommandRunModalProps) {
+  let inputRef: HTMLInputElement | undefined;
   const translate = (key: string) => t(key, currentLocale());
   const name = () => props.command?.name ?? "";
   const description = () => props.command?.description ?? "";
+
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      props.onRun();
+    }
+  };
+
+  createEffect(() => {
+    if (props.open && props.command) {
+      requestAnimationFrame(() => inputRef?.focus());
+    }
+  });
 
   return (
     <Show when={props.open && props.command}>
@@ -46,9 +59,11 @@ export default function CommandRunModal(props: CommandRunModalProps) {
               </div>
 
               <TextInput
+                ref={inputRef}
                 label={translate("commands.details_label")}
                 value={props.details}
                 onInput={(event) => props.onDetailsChange(event.currentTarget.value)}
+                onKeyDown={handleKeyDown}
                 placeholder={translate("commands.details_placeholder")}
                 hint={translate("commands.details_hint")}
               />
