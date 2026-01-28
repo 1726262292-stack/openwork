@@ -1090,7 +1090,6 @@ export default function App() {
     defaultModel,
     modelVariant,
     setView,
-    isDemoMode,
     activeWorkspaceRoot: () => workspaceStore.activeWorkspaceRoot(),
     workspaceType: () => workspaceStore.activeWorkspaceDisplay().workspaceType,
     openworkServerClient,

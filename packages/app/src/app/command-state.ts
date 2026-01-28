@@ -43,7 +43,6 @@ export function createCommandState(options: {
   defaultModel: Accessor<ModelRef>;
   modelVariant: Accessor<string | null>;
   setView: (view: "onboarding" | "dashboard" | "session") => void;
-  isDemoMode: Accessor<boolean>;
   activeWorkspaceRoot: Accessor<string>;
   workspaceType: Accessor<"local" | "remote">;
   openworkServerClient: Accessor<OpenworkServerClient | null>;
@@ -284,11 +283,6 @@ export function createCommandState(options: {
   }
 
   async function runCommand(command: WorkspaceCommand, details?: string) {
-    if (options.isDemoMode()) {
-      options.setView("session");
-      return;
-    }
-
     const c = options.client();
     if (!c) return;
 
