@@ -624,25 +624,24 @@ export default function DashboardView(props: DashboardViewProps) {
                             {workspace.workspaceType === "remote" ? "Remote" : "Local"}
                           </span>
                         </div>
-                        <div class="flex items-center justify-between text-xs text-gray-9">
-                          <span>
-                            {workspace.id === props.activeWorkspaceId ? "Active" : "Inactive"}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            class="text-xs px-2 py-1"
-                            onClick={() => props.activateWorkspace(workspace.id)}
-                            disabled={
-                              workspace.id === props.activeWorkspaceId ||
-                              props.connectingWorkspaceId === workspace.id
-                            }
-                          >
-                            {workspace.id === props.activeWorkspaceId
-                              ? "Active"
-                              : props.connectingWorkspaceId === workspace.id
+                        <div class="flex items-center justify-end text-xs text-gray-9 h-8">
+                          <Show when={workspace.id === props.activeWorkspaceId}>
+                            <span class="text-green-11 font-medium flex items-center gap-1.5 !px-2">
+                              Active
+                            </span>
+                          </Show>
+                          <Show when={workspace.id !== props.activeWorkspaceId}>
+                            <Button
+                              variant="ghost"
+                              class="text-xs !px-2 py-1"
+                              onClick={() => props.activateWorkspace(workspace.id)}
+                              disabled={props.connectingWorkspaceId === workspace.id}
+                            >
+                              {props.connectingWorkspaceId === workspace.id
                                 ? "Switching..."
                                 : "Switch"}
-                          </Button>
+                            </Button>
+                          </Show>
                         </div>
                       </div>
                     )}

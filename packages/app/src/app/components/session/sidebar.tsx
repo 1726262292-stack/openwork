@@ -64,10 +64,10 @@ export default function SessionSidebar(props: SidebarProps) {
                   onClick={() => props.onSelectSession(session.id)}
                 >
                     <div class="flex items-center justify-between gap-2 w-full overflow-hidden">
-                      <div class="min-w-0">
+                      <div class="min-w-0 flex items-center gap-2">
                         <div class="truncate">{session.title}</div>
                         <Show when={session.workspaceLabel}>
-                          <div class="text-[10px] text-gray-9 truncate">
+                          <div class="shrink-0 text-[9px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-gray-4 text-gray-10 border border-gray-6/50">
                             {session.workspaceLabel}
                           </div>
                         </Show>

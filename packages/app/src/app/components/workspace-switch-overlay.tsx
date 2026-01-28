@@ -120,10 +120,7 @@ export default function WorkspaceSwitchOverlay(props: {
                 <span>{statusLine()}</span>
               </div>
               <div class="h-1 w-56 overflow-hidden rounded-full bg-gray-4/50">
-                <div
-                  class="h-full w-1/2 rounded-full bg-gradient-to-r from-transparent via-indigo-6/50 to-transparent motion-safe:animate-pulse motion-reduce:opacity-70"
-                  style={{ "animation-duration": "2.8s" }}
-                />
+                <div class="h-full w-1/2 rounded-full bg-gradient-to-r from-transparent via-indigo-6/50 to-transparent animate-progress-shimmer" />
               </div>
             </div>
 
