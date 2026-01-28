@@ -18,7 +18,10 @@ const bunTypesPath = join(serverDir, "node_modules", "bun-types", "package.json"
 const resolveBun = () => {
   if (process.env.BUN_PATH) return process.env.BUN_PATH;
   const result = spawnSync("bun", ["--version"], { stdio: "ignore" });
-  return result.status === 0 ? "bun" : null;
+  if (result.status === 0) return "bun";
+  const which = spawnSync("bash", ["-lc", "command -v bun"], { encoding: "utf8" });
+  const bunPath = which.stdout?.trim();
+  return bunPath ? bunPath : null;
 };
 
 const resolveBunTarget = (target) => {
@@ -114,9 +117,13 @@ const ensureOpenworkServerSidecar = () => {
   }
 
   mkdirSync(sidecarDir, { recursive: true });
-  const nodePath = process.execPath.replace(/"/g, "\\\"");
+  const bunPath = resolveBun();
   const cliPath = serverCli.replace(/"/g, "\\\"");
-  const launcher = `#!/usr/bin/env bash\n"${nodePath}" "${cliPath}" "$@"\n`;
+  const launcher = bunPath
+    ? `#!/usr/bin/env bash\n"${bunPath.replace(/"/g, "\\\"")}" "${cliPath}" "$@"\n`
+    : "#!/usr/bin/env bash\n" +
+      "echo 'Bun is required to run the OpenWork server. Install bun.sh and re-run pnpm dev.'\n" +
+      "exit 1\n";
 
   writeFileSync(devSidecarPath, launcher, "utf8");
   chmodSync(devSidecarPath, 0o755);
