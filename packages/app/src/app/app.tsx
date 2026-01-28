@@ -366,6 +366,7 @@ export default function App() {
   const [error, setError] = createSignal<string | null>(null);
   const [booting, setBooting] = createSignal(true);
   const mountTime = Date.now();
+  const [lastKnownConfigSnapshot, setLastKnownConfigSnapshot] = createSignal("");
   const [developerMode, setDeveloperMode] = createSignal(false);
   let markReloadRequiredRef: (reason: ReloadReason) => void = () => {};
   let setReloadLastFinishedAtRef: (value: number) => void = () => {};
@@ -912,6 +913,21 @@ export default function App() {
 
     config.model = formatModelRef(model);
     return `${JSON.stringify(config, null, 2)}\n`;
+  };
+
+  const getConfigSnapshot = (content: string | null) => {
+    if (!content?.trim()) return "";
+    try {
+      const parsed = parse(content) as Record<string, unknown>;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const copy = { ...parsed };
+        delete copy.model;
+        return JSON.stringify(copy);
+      }
+      return content;
+    } catch {
+      return content;
+    }
   };
   const [modelPickerOpen, setModelPickerOpen] = createSignal(false);
   const [modelPickerTarget, setModelPickerTarget] = createSignal<
@@ -1539,6 +1555,7 @@ export default function App() {
       }
       const now = Date.now();
       if (now - mountTime < 3000) return;
+
       const lastFinishedAt = reloadLastFinishedAt();
       if (lastFinishedAt && now - lastFinishedAt < 2000) return;
     }
@@ -1585,7 +1602,7 @@ export default function App() {
   onMount(() => {
     if (!isTauriRuntime()) return;
     let unlisten: (() => void) | null = null;
-    void listen("openwork://reload-required", (event: TauriEvent<{ reason?: string }>) => {
+    void listen("openwork://reload-required", async (event: TauriEvent<{ reason?: string }>) => {
       const rawReason = event.payload?.reason;
       const reason: ReloadReason =
         rawReason === "plugins" ||
@@ -1594,6 +1611,28 @@ export default function App() {
         rawReason === "mcp"
           ? rawReason
           : "config";
+
+      if (reason === "config") {
+        const root = workspaceStore.activeWorkspacePath().trim();
+        if (root) {
+          try {
+            const configFile = await readOpencodeConfig("project", root);
+            const nextSnapshot = getConfigSnapshot(configFile.content);
+            if (nextSnapshot === untrack(lastKnownConfigSnapshot)) {
+              // Only model (or nothing) changed. Update UI but skip reload toast.
+              const nextModel = parseDefaultModelFromConfig(configFile.content);
+              if (nextModel && !modelEquals(untrack(defaultModel), nextModel)) {
+                setDefaultModel(nextModel);
+              }
+              return;
+            }
+            setLastKnownConfigSnapshot(nextSnapshot);
+          } catch {
+            // If we can't read/parse, fall back to showing the toast
+          }
+        }
+      }
+
       markReloadRequired(reason, { force: false });
     })
       .then((stop) => {
@@ -2539,10 +2578,12 @@ export default function App() {
 
     const applyDefault = async () => {
       let configDefault: ModelRef | null = null;
+      let configFileContent: string | null = null;
 
       if (isTauriRuntime() && workspaceType === "local" && workspaceRoot) {
         try {
           const configFile = await readOpencodeConfig("project", workspaceRoot);
+          configFileContent = configFile.content;
           configDefault = parseDefaultModelFromConfig(configFile.content);
         } catch {
           // ignore
@@ -2565,6 +2606,10 @@ export default function App() {
       const currentDefault = untrack(defaultModel);
       if (nextDefault && !modelEquals(currentDefault, nextDefault)) {
         setDefaultModel(nextDefault);
+      }
+
+      if (workspaceType === "local" && workspaceRoot) {
+        setLastKnownConfigSnapshot(getConfigSnapshot(configFileContent));
       }
 
       if (!cancelled) {
@@ -2603,7 +2648,8 @@ export default function App() {
         if (!result.ok) {
           throw new Error(result.stderr || result.stdout || "Failed to update opencode.json");
         }
-        markReloadRequired("config");
+        setLastKnownConfigSnapshot(getConfigSnapshot(content));
+        // markReloadRequired("config");
       } catch (error) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : safeStringify(error);
