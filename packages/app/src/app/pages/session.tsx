@@ -490,6 +490,11 @@ export default function SessionView(props: SessionViewProps) {
     return props.sessions.find((session) => session.id === id)?.title ?? "";
   });
 
+  const handleCreateSkill = () => {
+    props.setPrompt("/skill create ");
+    window.dispatchEvent(new CustomEvent("openwork:focusPrompt"));
+  };
+
   const renameCanSave = createMemo(() => {
     if (renameBusy()) return false;
     const next = renameTitle().trim();
@@ -958,25 +963,7 @@ export default function SessionView(props: SessionViewProps) {
   };
 
   return (
-    <Show
-      when={props.selectedSessionId}
-      fallback={
-        <div class="min-h-screen flex items-center justify-center bg-gray-1 text-gray-12 p-6">
-          <div class="text-center space-y-4">
-            <div class="text-lg font-medium">No session selected</div>
-            <Button
-              onClick={() => {
-                props.setTab("sessions");
-                props.setView("dashboard");
-              }}
-            >
-              Back to dashboard
-            </Button>
-          </div>
-        </div>
-      }
-    >
-      <div class="h-screen flex flex-col bg-gray-1 text-gray-12 relative">
+    <div class="h-screen flex flex-col bg-gray-1 text-gray-12 relative">
         <header class="h-16 border-b border-gray-6 flex items-center justify-between px-6 bg-gray-1/80 backdrop-blur-md z-10 sticky top-0">
           <div class="flex items-center gap-3">
             <Button
@@ -1040,14 +1027,21 @@ export default function SessionView(props: SessionViewProps) {
             ref={(el) => (chatContainerEl = el)}
           >
             <Show when={props.messages.length === 0}>
-              <div class="text-center py-20 space-y-4">
+              <div class="text-center py-16 px-6 space-y-6">
                 <div class="w-16 h-16 bg-gray-2 rounded-3xl mx-auto flex items-center justify-center border border-gray-6">
                   <Zap class="text-gray-7" />
                 </div>
-                <h3 class="text-xl font-medium">Ready to work</h3>
-                <p class="text-gray-10 text-sm max-w-xs mx-auto">
-                  Describe a task. I'll show progress and ask for permissions when needed.
-                </p>
+                <div class="space-y-2">
+                  <h3 class="text-xl font-medium">Start with a skill</h3>
+                  <p class="text-gray-10 text-sm max-w-sm mx-auto">
+                    Tell OpenWork what you want to reuse. We&apos;ll shape it into a skill you can run anytime.
+                  </p>
+                </div>
+                <div class="flex justify-center">
+                  <Button variant="primary" class="h-11 px-5" onClick={handleCreateSkill}>
+                    Create your first skill
+                  </Button>
+                </div>
               </div>
             </Show>
 
@@ -1274,7 +1268,6 @@ export default function SessionView(props: SessionViewProps) {
         <For each={flyouts()}>
           {(item) => <FlyoutItem item={item} />}
         </For>
-      </div>
-    </Show>
+    </div>
   );
 }
