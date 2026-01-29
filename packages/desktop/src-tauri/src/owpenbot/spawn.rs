@@ -9,12 +9,13 @@ pub fn build_owpenbot_args(
     workspace_path: &str,
     opencode_url: Option<&str>,
 ) -> Vec<String> {
-    let args = vec!["start".to_string(), workspace_path.to_string()];
+    let mut args = vec!["start".to_string(), workspace_path.to_string()];
 
     if let Some(url) = opencode_url {
-        if !url.trim().is_empty() {
-            // Set via environment variable instead since CLI doesn't have --opencode-url flag
-            // The bridge will use OPENCODE_URL env var
+        let trimmed = url.trim();
+        if !trimmed.is_empty() {
+            args.push("--opencode-url".to_string());
+            args.push(trimmed.to_string());
         }
     }
 
@@ -33,19 +34,9 @@ pub fn spawn_owpenbot(
 
     let args = build_owpenbot_args(workspace_path, opencode_url);
     
-    let mut cmd = command.args(args);
-    
-    // Pass opencode URL via environment if provided
-    if let Some(url) = opencode_url {
-        if !url.trim().is_empty() {
-            cmd = cmd.env("OPENCODE_URL", url);
-        }
-    }
-    
-    // Set the opencode directory
-    cmd = cmd.env("OPENCODE_DIRECTORY", workspace_path);
-    
-    cmd.current_dir(Path::new(workspace_path))
+    command
+        .args(args)
+        .current_dir(Path::new(workspace_path))
         .spawn()
         .map_err(|e| format!("Failed to start owpenbot: {e}"))
 }

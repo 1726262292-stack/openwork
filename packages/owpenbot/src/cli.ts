@@ -131,9 +131,12 @@ function parseConfigValue(value: string): unknown {
 // Start command
 // -----------------------------------------------------------------------------
 
-async function runStart(pathOverride?: string) {
+async function runStart(pathOverride?: string, options?: { opencodeUrl?: string }) {
   if (pathOverride?.trim()) {
     process.env.OPENCODE_DIRECTORY = pathOverride.trim();
+  }
+  if (options?.opencodeUrl?.trim()) {
+    process.env.OPENCODE_URL = options.opencodeUrl.trim();
   }
   const config = loadConfig();
   const logger = createAppLogger(config);
@@ -223,7 +226,8 @@ program
   .command("start")
   .description("Start the bridge")
   .argument("[path]", "OpenCode workspace path")
-  .action((pathArg?: string) => runStart(pathArg));
+  .option("--opencode-url <url>", "OpenCode server URL")
+  .action((pathArg?: string, options?: { opencodeUrl?: string }) => runStart(pathArg, options));
 
 // -----------------------------------------------------------------------------
 // health command
