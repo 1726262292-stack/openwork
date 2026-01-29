@@ -6,7 +6,9 @@ use crate::engine::doctor::{
 };
 use crate::engine::manager::EngineManager;
 use crate::engine::spawn::{find_free_port, spawn_engine};
+use crate::commands::owpenbot::owpenbot_start;
 use crate::openwork_server::{manager::OpenworkServerManager, resolve_connect_url, start_openwork_server};
+use crate::owpenbot::manager::OwpenbotManager;
 use crate::types::{EngineDoctorResult, EngineInfo, ExecResult};
 use crate::utils::truncate_output;
 use serde_json::json;
@@ -30,11 +32,15 @@ pub fn engine_info(manager: State<EngineManager>) -> EngineInfo {
 pub fn engine_stop(
     manager: State<EngineManager>,
     openwork_manager: State<OpenworkServerManager>,
+    owpenbot_manager: State<OwpenbotManager>,
 ) -> EngineInfo {
     let mut state = manager.inner.lock().expect("engine mutex poisoned");
     EngineManager::stop_locked(&mut state);
     if let Ok(mut openwork_state) = openwork_manager.inner.lock() {
         OpenworkServerManager::stop_locked(&mut openwork_state);
+    }
+    if let Ok(mut owpenbot_state) = owpenbot_manager.inner.lock() {
+        OwpenbotManager::stop_locked(&mut owpenbot_state);
     }
     EngineManager::snapshot_locked(&mut state)
 }
@@ -123,6 +129,7 @@ pub fn engine_start(
     app: AppHandle,
     manager: State<EngineManager>,
     openwork_manager: State<OpenworkServerManager>,
+    owpenbot_manager: State<OwpenbotManager>,
     project_dir: String,
     prefer_sidecar: Option<bool>,
 ) -> Result<EngineInfo, String> {
@@ -293,7 +300,7 @@ pub fn engine_start(
     }
 
     state.child = Some(child);
-    state.project_dir = Some(project_dir);
+    state.project_dir = Some(project_dir.clone());
     state.hostname = Some(client_host.clone());
     state.port = Some(port);
     state.base_url = Some(format!("http://{client_host}:{port}"));
@@ -306,6 +313,15 @@ pub fn engine_start(
         Some(&opencode_connect_url),
     ) {
         state.last_stderr = Some(truncate_output(&format!("OpenWork server: {error}"), 8000));
+    }
+
+    if let Err(error) = owpenbot_start(
+        app.clone(),
+        owpenbot_manager,
+        project_dir.clone(),
+        Some(opencode_connect_url),
+    ) {
+        state.last_stderr = Some(truncate_output(&format!("Owpenbot: {error}"), 8000));
     }
 
     Ok(EngineManager::snapshot_locked(&mut state))
