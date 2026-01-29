@@ -12,6 +12,7 @@ import type {
   McpStatusMap,
   PendingPermission,
   ProviderListItem,
+  SettingsTab,
   SkillCard,
   TodoItem,
   View,
@@ -32,6 +33,8 @@ import Button from "../components/button";
 import RenameSessionModal from "../components/rename-session-modal";
 import WorkspaceChip from "../components/workspace-chip";
 import ProviderAuthModal from "../components/provider-auth-modal";
+import StatusBar from "../components/status-bar";
+import type { OpenworkServerStatus } from "../lib/openwork-server";
 
 import MessageList from "../components/session/message-list";
 import Composer from "../components/session/composer";
@@ -43,9 +46,14 @@ export type SessionViewProps = {
   selectedSessionId: string | null;
   setView: (view: View, sessionId?: string) => void;
   setTab: (tab: DashboardTab) => void;
+  setSettingsTab: (tab: SettingsTab) => void;
   activeWorkspaceDisplay: WorkspaceDisplay;
   setWorkspaceSearch: (value: string) => void;
   setWorkspacePickerOpen: (open: boolean) => void;
+  mode: "host" | "client" | null;
+  clientConnected: boolean;
+  openworkServerStatus: OpenworkServerStatus;
+  stopHost: () => void;
   headerStatus: string;
   busyHint: string | null;
   createSessionAndOpen: () => void;
@@ -958,8 +966,14 @@ export default function SessionView(props: SessionViewProps) {
     props.setPrompt(draft.text);
   };
 
+  const openSettings = (tab: SettingsTab = "general") => {
+    props.setSettingsTab(tab);
+    props.setTab("settings");
+    props.setView("dashboard");
+  };
+
   return (
-    <div class="h-screen flex flex-col bg-gray-1 text-gray-12 relative">
+    <div class="h-screen flex flex-col bg-gray-1 text-gray-12 relative pb-16 md:pb-12">
         <header class="h-16 border-b border-gray-6 flex items-center justify-between px-6 bg-gray-1/80 backdrop-blur-md z-10 sticky top-0">
           <div class="flex items-center gap-3">
             <Button
@@ -1160,6 +1174,19 @@ export default function SessionView(props: SessionViewProps) {
           searchFiles={props.searchFiles}
           isRemoteWorkspace={props.activeWorkspaceDisplay.workspaceType === "remote"}
         />
+
+        <div class="fixed bottom-0 left-0 right-0">
+          <StatusBar
+            mode={props.mode}
+            busy={props.busy}
+            stopHost={props.stopHost}
+            clientConnected={props.clientConnected}
+            openworkServerStatus={props.openworkServerStatus}
+            developerMode={props.developerMode}
+            onOpenSettings={() => openSettings("general")}
+            onOpenMessaging={() => openSettings("messaging")}
+          />
+        </div>
 
         <ProviderAuthModal
           open={props.providerAuthModalOpen}

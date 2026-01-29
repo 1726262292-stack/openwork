@@ -4,6 +4,7 @@ import type {
   McpServerEntry,
   McpStatusMap,
   PluginScope,
+  SettingsTab,
   SkillCard,
   WorkspaceCommand,
   View,
@@ -22,13 +23,13 @@ import SettingsView from "./settings";
 import type { KeybindSetting } from "../components/settings-keybinds";
 import SkillsView from "./skills";
 import CommandsView from "./commands";
+import StatusBar from "../components/status-bar";
 import {
   Command,
   Cpu,
   Package,
   Play,
   Plus,
-  Settings,
   Server,
   Terminal,
 } from "lucide-solid";
@@ -36,6 +37,8 @@ import {
 export type DashboardViewProps = {
   tab: DashboardTab;
   setTab: (tab: DashboardTab) => void;
+  settingsTab: SettingsTab;
+  setSettingsTab: (tab: SettingsTab) => void;
   view: View;
   setView: (view: View, sessionId?: string) => void;
   mode: "host" | "client" | null;
@@ -346,22 +349,10 @@ export default function DashboardView(props: DashboardViewProps) {
     );
   };
 
-  const opencodeStatusMeta = createMemo(() => ({
-    dot: props.clientConnected ? "bg-green-9" : "bg-gray-6",
-    text: props.clientConnected ? "text-green-11" : "text-gray-10",
-    label: props.clientConnected ? "Connected" : "Not connected",
-  }));
-
-  const openworkStatusMeta = createMemo(() => {
-    switch (props.openworkServerStatus) {
-      case "connected":
-        return { dot: "bg-green-9", text: "text-green-11", label: "Ready" };
-      case "limited":
-        return { dot: "bg-amber-9", text: "text-amber-11", label: "Limited access" };
-      default:
-        return { dot: "bg-gray-6", text: "text-gray-10", label: "Unavailable" };
-    }
-  });
+  const openSettings = (tab: SettingsTab = "general") => {
+    props.setSettingsTab(tab);
+    props.setTab("settings");
+  };
 
   return (
     <div class="flex h-screen bg-gray-1 text-gray-12 overflow-hidden">
@@ -390,7 +381,6 @@ export default function DashboardView(props: DashboardViewProps) {
               </span>,
               <Server size={18} />,
             )}
-            {navItem("settings", "Settings", <Settings size={18} />)}
           </nav>
         </div>
 
@@ -866,6 +856,8 @@ export default function DashboardView(props: DashboardViewProps) {
                   baseUrl={props.baseUrl}
                   headerStatus={props.headerStatus}
                   busy={props.busy}
+                  settingsTab={props.settingsTab}
+                  setSettingsTab={props.setSettingsTab}
                   openworkServerStatus={props.openworkServerStatus}
                   openworkServerUrl={props.openworkServerUrl}
                   openworkServerSettings={props.openworkServerSettings}
@@ -962,43 +954,16 @@ export default function DashboardView(props: DashboardViewProps) {
         </Show>
 
         <div class="fixed bottom-0 left-0 right-0">
-          <div class="border-t border-gray-6 bg-gray-1/90 backdrop-blur-md">
-            <div class="mx-auto max-w-5xl px-4 py-2 flex flex-wrap items-center gap-3 text-xs">
-              <div class="flex items-center gap-2">
-                <span class={`w-2 h-2 rounded-full ${opencodeStatusMeta().dot}`} />
-                <span class="text-gray-11 font-medium">OpenCode Engine</span>
-                <span class={opencodeStatusMeta().text}>{opencodeStatusMeta().label}</span>
-              </div>
-              <div class="w-px h-4 bg-gray-6/70" />
-              <div class="flex items-center gap-2">
-                <span class={`w-2 h-2 rounded-full ${openworkStatusMeta().dot}`} />
-                <span class="text-gray-11 font-medium">OpenWork Server</span>
-                <span class={openworkStatusMeta().text}>{openworkStatusMeta().label}</span>
-              </div>
-              <div class="ml-auto flex items-center gap-2">
-                <Show when={props.mode === "host"}>
-                  <Button
-                    variant="danger"
-                    onClick={props.stopHost}
-                    disabled={props.busy}
-                    class="text-xs h-7 px-3"
-                  >
-                    Stop & Disconnect
-                  </Button>
-                </Show>
-                <Show when={props.mode === "client"}>
-                  <Button
-                    variant="outline"
-                    onClick={props.stopHost}
-                    disabled={props.busy}
-                    class="text-xs h-7 px-3"
-                  >
-                    Disconnect
-                  </Button>
-                </Show>
-              </div>
-            </div>
-          </div>
+          <StatusBar
+            mode={props.mode}
+            busy={props.busy}
+            stopHost={props.stopHost}
+            clientConnected={props.clientConnected}
+            openworkServerStatus={props.openworkServerStatus}
+            developerMode={props.developerMode}
+            onOpenSettings={() => openSettings("general")}
+            onOpenMessaging={() => openSettings("messaging")}
+          />
           <nav class="md:hidden border-t border-gray-6 bg-gray-1/90 backdrop-blur-md">
             <div class="mx-auto max-w-5xl px-4 py-3 grid grid-cols-6 gap-2">
               <button
@@ -1054,15 +1019,6 @@ export default function DashboardView(props: DashboardViewProps) {
               >
                 <Server size={18} />
                 MCPs
-              </button>
-              <button
-                class={`flex flex-col items-center gap-1 text-xs ${
-                  props.tab === "settings" ? "text-gray-12" : "text-gray-10"
-                }`}
-                onClick={() => props.setTab("settings")}
-              >
-                <Settings size={18} />
-                Settings
               </button>
             </div>
           </nav>

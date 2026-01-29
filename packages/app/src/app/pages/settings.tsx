@@ -6,6 +6,7 @@ import Button from "../components/button";
 import TextInput from "../components/text-input";
 import SettingsKeybinds, { type KeybindSetting } from "../components/settings-keybinds";
 import { ChevronDown, HardDrive, MessageCircle, RefreshCcw, Shield, Smartphone, X } from "lucide-solid";
+import type { SettingsTab } from "../types";
 import type { OpenworkAuditEntry, OpenworkServerCapabilities, OpenworkServerSettings, OpenworkServerStatus } from "../lib/openwork-server";
 import type {
   EngineInfo,
@@ -30,6 +31,8 @@ export type SettingsViewProps = {
   baseUrl: string;
   headerStatus: string;
   busy: boolean;
+  settingsTab: SettingsTab;
+  setSettingsTab: (tab: SettingsTab) => void;
   openworkServerStatus: OpenworkServerStatus;
   openworkServerUrl: string;
   openworkServerSettings: OpenworkServerSettings;
@@ -582,6 +585,36 @@ export default function SettingsView(props: SettingsViewProps) {
     return "bg-green-7/10 text-green-11 border-green-7/20";
   });
 
+  const tabLabel = (tab: SettingsTab) => {
+    switch (tab) {
+      case "remote":
+        return "Remote";
+      case "messaging":
+        return "Messaging Bridge";
+      case "debug":
+        return "Debug";
+      default:
+        return "General";
+    }
+  };
+
+  const availableTabs = createMemo<SettingsTab[]>(() => {
+    const tabs: SettingsTab[] = ["general", "remote", "messaging"];
+    if (props.developerMode) tabs.push("debug");
+    return tabs;
+  });
+
+  const activeTab = createMemo<SettingsTab>(() => {
+    const tabs = availableTabs();
+    return tabs.includes(props.settingsTab) ? props.settingsTab : "general";
+  });
+
+  createEffect(() => {
+    if (props.settingsTab !== activeTab()) {
+      props.setSettingsTab(activeTab());
+    }
+  });
+
   const formatActor = (entry: OpenworkAuditEntry) => {
     const actor = entry.actor;
     if (!actor) return "unknown";
@@ -682,765 +715,796 @@ export default function SettingsView(props: SettingsViewProps) {
 
   return (
     <section class="space-y-6">
-      <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
-        <div class="text-sm font-medium text-gray-12">Connection</div>
-        <div class="text-xs text-gray-10">{props.headerStatus}</div>
-        <div class="text-xs text-gray-7 font-mono">{props.baseUrl}</div>
-        <div class="pt-2 flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={props.toggleDeveloperMode}>
-            <Shield size={16} />
-            {props.developerMode ? "Disable Developer Mode" : "Enable Developer Mode"}
-          </Button>
-          <Show when={props.mode === "host"}>
-            <Button variant="danger" onClick={props.stopHost} disabled={props.busy}>
-              Stop engine
-            </Button>
-          </Show>
-          <Show when={props.mode === "client"}>
-            <Button variant="outline" onClick={props.stopHost} disabled={props.busy}>
-              Disconnect
-            </Button>
-          </Show>
-        </div>
-
-      </div>
-
-      <Show when={props.mode === "host"}>
-        <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
-          <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div class="text-sm font-medium text-gray-12">Host pairing</div>
-              <div class="text-xs text-gray-10">Share these details with a trusted device.</div>
-            </div>
-            <div class={`text-xs px-2 py-1 rounded-full border ${hostStatusStyle()}`}>
-              {hostStatusLabel()}
-            </div>
-          </div>
-
-          <div class="grid gap-3">
-            <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-              <div class="min-w-0">
-                <div class="text-xs font-medium text-gray-11">OpenWork Server URL</div>
-                <div class="text-xs text-gray-7 font-mono truncate">
-                  {hostConnectUrl() || "Starting server…"}
-                </div>
-                <Show when={hostConnectUrl()}>
-                  <div class="text-[11px] text-gray-8 mt-1">
-                    {hostConnectUrlUsesMdns()
-                      ? ".local names are easier to remember but may not resolve on all networks."
-                      : "Use your local IP on the same Wi-Fi for the fastest connection."}
-                  </div>
-                </Show>
-              </div>
-              <Button
-                variant="outline"
-                class="text-xs h-8 py-0 px-3 shrink-0"
-                onClick={() => handleCopy(hostConnectUrl(), "host-url")}
-                disabled={!hostConnectUrl()}
-              >
-                {copyingField() === "host-url" ? "Copied" : "Copy"}
-              </Button>
-            </div>
-
-            <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-              <div class="min-w-0">
-                <div class="text-xs font-medium text-gray-11">Client token</div>
-                <div class="text-xs text-gray-7 font-mono truncate">
-                  {clientTokenVisible()
-                    ? hostInfo()?.clientToken || "—"
-                    : hostInfo()?.clientToken
-                      ? "••••••••••••"
-                      : "—"}
-                </div>
-                <div class="text-[11px] text-gray-8 mt-1">Use on phones or laptops connecting to this host.</div>
-              </div>
-              <div class="flex items-center gap-2 shrink-0">
-                <Button
-                  variant="outline"
-                  class="text-xs h-8 py-0 px-3"
-                  onClick={() => setClientTokenVisible((prev) => !prev)}
-                  disabled={!hostInfo()?.clientToken}
-                >
-                  {clientTokenVisible() ? "Hide" : "Show"}
-                </Button>
-                <Button
-                  variant="outline"
-                  class="text-xs h-8 py-0 px-3"
-                  onClick={() => handleCopy(hostInfo()?.clientToken ?? "", "client-token")}
-                  disabled={!hostInfo()?.clientToken}
-                >
-                  {copyingField() === "client-token" ? "Copied" : "Copy"}
-                </Button>
-              </div>
-            </div>
-
-            <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-              <div class="min-w-0">
-                <div class="text-xs font-medium text-gray-11">Host token</div>
-                <div class="text-xs text-gray-7 font-mono truncate">
-                  {hostTokenVisible()
-                    ? hostInfo()?.hostToken || "—"
-                    : hostInfo()?.hostToken
-                      ? "••••••••••••"
-                      : "—"}
-                </div>
-                <div class="text-[11px] text-gray-8 mt-1">Keep private. Required for host approvals.</div>
-              </div>
-              <div class="flex items-center gap-2 shrink-0">
-                <Button
-                  variant="outline"
-                  class="text-xs h-8 py-0 px-3"
-                  onClick={() => setHostTokenVisible((prev) => !prev)}
-                  disabled={!hostInfo()?.hostToken}
-                >
-                  {hostTokenVisible() ? "Hide" : "Show"}
-                </Button>
-                <Button
-                  variant="outline"
-                  class="text-xs h-8 py-0 px-3"
-                  onClick={() => handleCopy(hostInfo()?.hostToken ?? "", "host-token")}
-                  disabled={!hostInfo()?.hostToken}
-                >
-                  {copyingField() === "host-token" ? "Copied" : "Copy"}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Show>
-
-      <Show when={props.mode === "client"}>
-        <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
-          <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div class="flex items-center gap-2">
-                <div class="text-sm font-medium text-gray-12">OpenWork host</div>
-                <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-7/10 text-amber-11 border border-amber-7/30">
-                  Alpha
-                </span>
-              </div>
-              <div class="text-xs text-gray-10">
-                OpenWork discovers your OpenCode address and port from the host. Use a host URL to connect across devices.
-              </div>
-            </div>
-            <div class={`text-xs px-2 py-1 rounded-full border ${openworkStatusStyle()}`}>
-              {openworkStatusLabel()}
-            </div>
-          </div>
-
-          <div class="grid gap-3">
-            <TextInput
-              label="OpenWork host URL"
-              value={openworkUrl()}
-              onInput={(event) => setOpenworkUrl(event.currentTarget.value)}
-              placeholder="http://127.0.0.1:8787"
-              hint="Use the host URL shared during pairing."
-              disabled={props.busy}
-            />
-
-            <label class="block">
-              <div class="mb-1 text-xs font-medium text-gray-11">Client token</div>
-              <div class="flex items-center gap-2">
-                <input
-                  type={openworkTokenVisible() ? "text" : "password"}
-                  value={openworkToken()}
-                  onInput={(event) => setOpenworkToken(event.currentTarget.value)}
-                  placeholder="Paste your token"
-                  disabled={props.busy}
-                  class="w-full rounded-xl bg-gray-2/60 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-10 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] focus:outline-none focus:ring-2 focus:ring-gray-6/20"
-                />
-                <Button
-                  variant="outline"
-                  class="text-xs h-9 px-3 shrink-0"
-                  onClick={() => setOpenworkTokenVisible((prev) => !prev)}
-                  disabled={props.busy}
-                >
-                  {openworkTokenVisible() ? "Hide" : "Show"}
-                </Button>
-              </div>
-              <div class="mt-1 text-xs text-gray-10">Optional. Paste the client token from the host to pair.</div>
-            </label>
-          </div>
-
-          <div class="text-[11px] text-gray-7 font-mono truncate">
-            Resolved host: {props.openworkServerUrl || "Not set"}
-          </div>
-
-          <div class="flex flex-wrap gap-2">
-            <Button
-              variant="secondary"
-              onClick={async () => {
-                const next = buildOpenworkSettings();
-                props.updateOpenworkServerSettings(next);
-                await props.testOpenworkServerConnection(next);
-              }}
-              disabled={props.busy}
-            >
-              Test connection
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => props.updateOpenworkServerSettings(buildOpenworkSettings())}
-              disabled={props.busy || !hasOpenworkChanges()}
-            >
-              Save
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={props.resetOpenworkServerSettings}
-              disabled={props.busy}
-            >
-              Clear
-            </Button>
-          </div>
-
-          <details class="rounded-2xl border border-gray-6 bg-gray-1/40 px-4 py-3">
-            <summary class="flex items-center justify-between cursor-pointer text-xs text-gray-10">
-              Advanced: OpenCode direct
-              <ChevronDown size={14} class="text-gray-7" />
-            </summary>
-            <div class="pt-3 space-y-3">
-              <div class="text-xs text-gray-10">Connect straight to an OpenCode engine when no host is available.</div>
-              <div class="text-[11px] text-gray-7 font-mono truncate">
-                Current engine: {props.baseUrl || "Not connected"}
-              </div>
-              <div class="text-xs text-gray-8">Manage direct connections from the workspace picker.</div>
-            </div>
-          </details>
-        </div>
-      </Show>
-
-
-      <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
-        <div>
-          <div class="text-sm font-medium text-gray-12">Model</div>
-          <div class="text-xs text-gray-10">Defaults + thinking controls for runs.</div>
-        </div>
-
-        <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-          <div class="min-w-0">
-            <div class="text-sm text-gray-12 truncate">{props.defaultModelLabel}</div>
-            <div class="text-xs text-gray-7 font-mono truncate">{props.defaultModelRef}</div>
-          </div>
-          <Button
-            variant="outline"
-            class="text-xs h-8 py-0 px-3 shrink-0"
-            onClick={props.openDefaultModelPicker}
-            disabled={props.busy}
-          >
-            Change
-          </Button>
-        </div>
-
-        <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-          <div class="min-w-0">
-            <div class="text-sm text-gray-12">Thinking</div>
-            <div class="text-xs text-gray-7">Show thinking parts (Developer mode only).</div>
-          </div>
-          <Button
-            variant="outline"
-            class="text-xs h-8 py-0 px-3 shrink-0"
-            onClick={props.toggleShowThinking}
-            disabled={props.busy}
-          >
-            {props.showThinking ? "On" : "Off"}
-          </Button>
-        </div>
-
-        <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-          <div class="min-w-0">
-            <div class="text-sm text-gray-12">Model variant</div>
-            <div class="text-xs text-gray-7 font-mono truncate">{props.modelVariantLabel}</div>
-          </div>
-          <Button
-            variant="outline"
-            class="text-xs h-8 py-0 px-3 shrink-0"
-            onClick={props.editModelVariant}
-            disabled={props.busy}
-          >
-            Edit
-          </Button>
-        </div>
-      </div>
-
-      <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
-        <div>
-          <div class="text-sm font-medium text-gray-12">Appearance</div>
-          <div class="text-xs text-gray-10">Match the system or force light/dark mode.</div>
-        </div>
-
-        <div class="flex flex-wrap gap-2">
-          <Button
-            variant={props.themeMode === "system" ? "secondary" : "outline"}
-            class="text-xs h-8 py-0 px-3"
-            onClick={() => props.setThemeMode("system")}
-            disabled={props.busy}
-          >
-            System
-          </Button>
-          <Button
-            variant={props.themeMode === "light" ? "secondary" : "outline"}
-            class="text-xs h-8 py-0 px-3"
-            onClick={() => props.setThemeMode("light")}
-            disabled={props.busy}
-          >
-            Light
-          </Button>
-          <Button
-            variant={props.themeMode === "dark" ? "secondary" : "outline"}
-            class="text-xs h-8 py-0 px-3"
-            onClick={() => props.setThemeMode("dark")}
-            disabled={props.busy}
-          >
-            Dark
-          </Button>
-        </div>
-
-        <div class="text-xs text-gray-7">
-          System mode follows your OS preference automatically.
-        </div>
-      </div>
-
-      <OwpenbotSettings busy={props.busy} />
-
-      <SettingsKeybinds
-        items={props.keybindItems}
-        onOverride={props.onOverrideKeybind}
-        onReset={props.onResetKeybind}
-        onResetAll={props.onResetAllKeybinds}
-      />
-
-      <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <div class="text-sm font-medium text-gray-12">Updates</div>
-            <div class="text-xs text-gray-10">Keep OpenWork up to date.</div>
-          </div>
-          <div class="text-xs text-gray-7 font-mono">{props.appVersion ? `v${props.appVersion}` : ""}</div>
-        </div>
-
-        <Show
-          when={!isTauriRuntime()}
-          fallback={
-            <Show
-              when={props.updateEnv && props.updateEnv.supported === false}
-              fallback={
-                <>
-                  <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6">
-                    <div class="space-y-0.5">
-                      <div class="text-sm text-gray-12">Automatic checks</div>
-                      <div class="text-xs text-gray-7">Once per day (quiet)</div>
-                    </div>
-                    <button
-                      class={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                        props.updateAutoCheck
-                          ? "bg-gray-12/10 text-gray-12 border-gray-6/20"
-                          : "text-gray-10 border-gray-6 hover:text-gray-12"
-                      }`}
-                      onClick={props.toggleUpdateAutoCheck}
-                    >
-                      {props.updateAutoCheck ? "On" : "Off"}
-                    </button>
-                  </div>
-
-                  <div class="flex items-center justify-between gap-3 bg-gray-1 p-3 rounded-xl border border-gray-6">
-                    <div class="space-y-0.5">
-                      <div class="text-sm text-gray-12">
-                        <Switch>
-                          <Match when={updateState() === "checking"}>Checking...</Match>
-                          <Match when={updateState() === "available"}>Update available: v{updateVersion()}</Match>
-                          <Match when={updateState() === "downloading"}>Downloading...</Match>
-                          <Match when={updateState() === "ready"}>Ready to install: v{updateVersion()}</Match>
-                          <Match when={updateState() === "error"}>Update check failed</Match>
-                          <Match when={true}>Up to date</Match>
-                        </Switch>
-                      </div>
-                      <Show when={updateState() === "idle" && updateLastCheckedAt()}>
-                        <div class="text-xs text-gray-7">
-                          Last checked {formatRelativeTime(updateLastCheckedAt() as number)}
-                        </div>
-                      </Show>
-                      <Show when={updateState() === "available" && updateDate()}>
-                        <div class="text-xs text-gray-7">Published {updateDate()}</div>
-                      </Show>
-                      <Show when={updateState() === "downloading"}>
-                        <div class="text-xs text-gray-7">
-                          {formatBytes((updateDownloadedBytes() as number) ?? 0)}
-                          <Show when={updateTotalBytes() != null}>
-                            {` / ${formatBytes(updateTotalBytes() as number)}`}
-                          </Show>
-                        </div>
-                      </Show>
-                      <Show when={updateState() === "error"}>
-                        <div class="text-xs text-red-11">{updateErrorMessage()}</div>
-                      </Show>
-                    </div>
-
-                    <div class="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        class="text-xs h-8 py-0 px-3"
-                        onClick={props.checkForUpdates}
-                        disabled={props.busy || updateState() === "checking" || updateState() === "downloading"}
-                      >
-                        Check
-                      </Button>
-
-                      <Show when={updateState() === "available"}>
-                        <Button
-                          variant="secondary"
-                          class="text-xs h-8 py-0 px-3"
-                          onClick={props.downloadUpdate}
-                          disabled={props.busy || updateState() === "downloading"}
-                        >
-                          Download
-                        </Button>
-                      </Show>
-
-                      <Show when={updateState() === "ready"}>
-                        <Button
-                          variant="secondary"
-                          class="text-xs h-8 py-0 px-3"
-                          onClick={props.installUpdateAndRestart}
-                          disabled={props.busy || props.anyActiveRuns}
-                          title={props.anyActiveRuns ? "Stop active runs to update" : ""}
-                        >
-                          Install & Restart
-                        </Button>
-                      </Show>
-                    </div>
-                  </div>
-
-                  <Show when={updateState() === "available" && updateNotes()}>
-                    <div class="rounded-xl bg-gray-1/20 border border-gray-6 p-3 text-xs text-gray-11 whitespace-pre-wrap max-h-40 overflow-auto">
-                      {updateNotes()}
-                    </div>
-                  </Show>
-                </>
-              }
-            >
-              <div class="rounded-xl bg-gray-1/20 border border-gray-6 p-3 text-sm text-gray-11">
-                {props.updateEnv?.reason ?? "Updates are not supported in this environment."}
-              </div>
-            </Show>
-          }
-        >
-          <div class="rounded-xl bg-gray-1/20 border border-gray-6 p-3 text-sm text-gray-11">
-            Updates are only available in the desktop app.
-          </div>
-        </Show>
-      </div>
-
-      <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
-        <div class="text-sm font-medium text-gray-12">Startup</div>
-
-        <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6">
-          <div class="flex items-center gap-3">
-            <div
-              class={`p-2 rounded-lg ${
-                props.mode === "host" ? "bg-indigo-7/10 text-indigo-11" : "bg-green-7/10 text-green-11"
+      <div class="flex flex-wrap gap-2">
+        <For each={availableTabs()}>
+          {(tab) => (
+            <button
+              class={`px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
+                activeTab() === tab
+                  ? "bg-gray-12/10 text-gray-12 border-gray-6/30"
+                  : "text-gray-10 border-gray-6/50 hover:text-gray-12 hover:bg-gray-2/40"
               }`}
+              onClick={() => props.setSettingsTab(tab)}
             >
-              <Show when={props.mode === "host"} fallback={<Smartphone size={18} />}>
-                <HardDrive size={18} />
-              </Show>
-            </div>
-            <span class="capitalize text-sm font-medium text-gray-12">{props.mode} mode</span>
-          </div>
-          <Button variant="outline" class="text-xs h-8 py-0 px-3" onClick={props.stopHost} disabled={props.busy}>
-            Switch
-          </Button>
-        </div>
-
-        <Button variant="secondary" class="w-full justify-between group" onClick={props.onResetStartupPreference}>
-          <span class="text-gray-11">Reset default startup mode</span>
-          <RefreshCcw size={14} class="text-gray-10 group-hover:rotate-180 transition-transform" />
-        </Button>
-
-        <p class="text-xs text-gray-7">
-          This clears your saved preference and shows mode selection on next launch.
-        </p>
+              {tabLabel(tab)}
+            </button>
+          )}
+        </For>
       </div>
 
-      <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
-        <div>
-          <div class="text-sm font-medium text-gray-12">Advanced</div>
-          <div class="text-xs text-gray-10">Power options for the engine and reset actions.</div>
-        </div>
-
-        <Show when={isTauriRuntime() && props.mode === "host"}>
-          <div class="space-y-3">
-            <div class="text-xs text-gray-10">Engine source</div>
-            <div class="grid grid-cols-2 gap-2">
-              <Button
-                variant={props.engineSource === "sidecar" ? "secondary" : "outline"}
-                onClick={() => props.setEngineSource("sidecar")}
-                disabled={props.busy}
-              >
-                Bundled (recommended)
-              </Button>
-              <Button
-                variant={props.engineSource === "path" ? "secondary" : "outline"}
-                onClick={() => props.setEngineSource("path")}
-                disabled={props.busy}
-              >
-                System install (PATH)
-              </Button>
-            </div>
-            <div class="text-[11px] text-gray-7">
-              Bundled engine is the most reliable option. Use System install only if you manage OpenCode yourself.
-            </div>
-          </div>
-        </Show>
-
-        <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-          <div class="min-w-0">
-            <div class="text-sm text-gray-12">Reset onboarding</div>
-            <div class="text-xs text-gray-7">Clears OpenWork preferences and restarts the app.</div>
-          </div>
-          <Button
-            variant="outline"
-            class="text-xs h-8 py-0 px-3 shrink-0"
-            onClick={() => props.openResetModal("onboarding")}
-            disabled={props.busy || props.resetModalBusy || props.anyActiveRuns}
-            title={props.anyActiveRuns ? "Stop active runs to reset" : ""}
-          >
-            Reset
-          </Button>
-        </div>
-
-        <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-          <div class="min-w-0">
-            <div class="text-sm text-gray-12">Reset app data</div>
-            <div class="text-xs text-gray-7">More aggressive. Clears OpenWork cache + app data.</div>
-          </div>
-          <Button
-            variant="danger"
-            class="text-xs h-8 py-0 px-3 shrink-0"
-            onClick={() => props.openResetModal("all")}
-            disabled={props.busy || props.resetModalBusy || props.anyActiveRuns}
-            title={props.anyActiveRuns ? "Stop active runs to reset" : ""}
-          >
-            Reset
-          </Button>
-        </div>
-
-        <div class="text-xs text-gray-7">
-          Requires typing <span class="font-mono text-gray-11">RESET</span> and will restart the app.
-        </div>
-      </div>
-
-      <Show when={props.developerMode}>
-        <section>
-          <h3 class="text-sm font-medium text-gray-11 uppercase tracking-wider mb-4">Developer</h3>
-
-          <div class="space-y-4">
-            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div class="min-w-0">
-                <div class="text-sm text-gray-12">OpenCode cache</div>
-                <div class="text-xs text-gray-7">
-                  Repairs cached data used to start the engine. Safe to run.
-                </div>
-                <Show when={props.cacheRepairResult}>
-                  <div class="text-xs text-gray-11 mt-2">{props.cacheRepairResult}</div>
+      <Switch>
+        <Match when={activeTab() === "general"}>
+          <div class="space-y-6">
+            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
+              <div class="text-sm font-medium text-gray-12">Connection</div>
+              <div class="text-xs text-gray-10">{props.headerStatus}</div>
+              <div class="text-xs text-gray-7 font-mono">{props.baseUrl}</div>
+              <div class="pt-2 flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={props.toggleDeveloperMode}>
+                  <Shield size={16} />
+                  {props.developerMode ? "Disable Developer Mode" : "Enable Developer Mode"}
+                </Button>
+                <Show when={props.mode === "host"}>
+                  <Button variant="danger" onClick={props.stopHost} disabled={props.busy}>
+                    Stop engine
+                  </Button>
+                </Show>
+                <Show when={props.mode === "client"}>
+                  <Button variant="outline" onClick={props.stopHost} disabled={props.busy}>
+                    Disconnect
+                  </Button>
                 </Show>
               </div>
-              <Button
-                variant="secondary"
-                class="text-xs h-8 py-0 px-3 shrink-0"
-                onClick={props.repairOpencodeCache}
-                disabled={props.cacheRepairBusy || !isTauriRuntime()}
-                title={isTauriRuntime() ? "" : "Cache repair requires the desktop app"}
-              >
-                {props.cacheRepairBusy ? "Repairing cache" : "Repair cache"}
-              </Button>
             </div>
 
             <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
               <div>
-                <div class="text-sm font-medium text-gray-12">Devtools</div>
-                <div class="text-xs text-gray-10">Sidecar health, capabilities, and audit trail.</div>
+                <div class="text-sm font-medium text-gray-12">Model</div>
+                <div class="text-xs text-gray-10">Defaults + thinking controls for runs.</div>
               </div>
 
-              <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
-                  <div class="flex items-center justify-between gap-3">
-                    <div>
-                      <div class="text-sm font-medium text-gray-12">OpenCode engine</div>
-                      <div class="text-xs text-gray-10">Local execution sidecar.</div>
-                    </div>
-                    <div class={`text-xs px-2 py-1 rounded-full border ${engineStatusStyle()}`}>
-                      {engineStatusLabel()}
-                    </div>
-                  </div>
-                  <div class="space-y-1">
-                    <div class="text-[11px] text-gray-7 font-mono truncate">
-                      {props.engineInfo?.baseUrl ?? "Base URL unavailable"}
-                    </div>
-                    <div class="text-[11px] text-gray-7 font-mono truncate">
-                      {props.engineInfo?.projectDir ?? "No project directory"}
-                    </div>
-                    <div class="text-[11px] text-gray-7 font-mono truncate">PID: {props.engineInfo?.pid ?? "—"}</div>
-                  </div>
-                  <div class="grid gap-2">
-                    <div>
-                      <div class="text-[11px] text-gray-9 mb-1">Last stdout</div>
-                      <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-24 overflow-auto bg-gray-2/50 border border-gray-6 rounded-lg p-2">
-                        {engineStdout()}
-                      </pre>
-                    </div>
-                    <div>
-                      <div class="text-[11px] text-gray-9 mb-1">Last stderr</div>
-                      <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-24 overflow-auto bg-gray-2/50 border border-gray-6 rounded-lg p-2">
-                        {engineStderr()}
-                      </pre>
-                    </div>
-                  </div>
+              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm text-gray-12 truncate">{props.defaultModelLabel}</div>
+                  <div class="text-xs text-gray-7 font-mono truncate">{props.defaultModelRef}</div>
                 </div>
-
-                <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
-                  <div class="flex items-center justify-between gap-3">
-                    <div>
-                      <div class="text-sm font-medium text-gray-12">OpenWork server</div>
-                      <div class="text-xs text-gray-10">Config and approvals sidecar.</div>
-                    </div>
-                    <div class={`text-xs px-2 py-1 rounded-full border ${openworkStatusStyle()}`}>
-                      {openworkStatusLabel()}
-                    </div>
-                  </div>
-                  <div class="space-y-1">
-                    <div class="text-[11px] text-gray-7 font-mono truncate">
-                      {(props.openworkServerHostInfo?.baseUrl ?? props.openworkServerUrl) || "Base URL unavailable"}
-                    </div>
-                    <div class="text-[11px] text-gray-7 font-mono truncate">PID: {props.openworkServerHostInfo?.pid ?? "—"}</div>
-                  </div>
-                  <div class="grid gap-2">
-                    <div>
-                      <div class="text-[11px] text-gray-9 mb-1">Last stdout</div>
-                      <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-24 overflow-auto bg-gray-2/50 border border-gray-6 rounded-lg p-2">
-                        {openworkStdout()}
-                      </pre>
-                    </div>
-                    <div>
-                      <div class="text-[11px] text-gray-9 mb-1">Last stderr</div>
-                      <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-24 overflow-auto bg-gray-2/50 border border-gray-6 rounded-lg p-2">
-                        {openworkStderr()}
-                      </pre>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
-                  <div class="flex items-center justify-between gap-3">
-                    <div>
-                      <div class="text-sm font-medium text-gray-12">Owpenbot sidecar</div>
-                      <div class="text-xs text-gray-10">Messaging bridge service.</div>
-                    </div>
-                    <div class={`text-xs px-2 py-1 rounded-full border ${owpenbotStatusStyle()}`}>
-                      {owpenbotStatusLabel()}
-                    </div>
-                  </div>
-                  <div class="space-y-1">
-                    <div class="text-[11px] text-gray-7 font-mono truncate">
-                      {props.owpenbotInfo?.opencodeUrl?.trim() || "OpenCode URL unavailable"}
-                    </div>
-                    <div class="text-[11px] text-gray-7 font-mono truncate">
-                      {props.owpenbotInfo?.workspacePath?.trim() || "No workspace directory"}
-                    </div>
-                    <div class="text-[11px] text-gray-7 font-mono truncate">PID: {props.owpenbotInfo?.pid ?? "—"}</div>
-                  </div>
-                  <div class="grid gap-2">
-                    <div>
-                      <div class="text-[11px] text-gray-9 mb-1">Last stdout</div>
-                      <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-24 overflow-auto bg-gray-2/50 border border-gray-6 rounded-lg p-2">
-                        {owpenbotStdout()}
-                      </pre>
-                    </div>
-                    <div>
-                      <div class="text-[11px] text-gray-9 mb-1">Last stderr</div>
-                      <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-24 overflow-auto bg-gray-2/50 border border-gray-6 rounded-lg p-2">
-                        {owpenbotStderr()}
-                      </pre>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="text-sm font-medium text-gray-12">OpenWork server capabilities</div>
-                  <div class="text-[11px] text-gray-8 font-mono truncate">
-                    {props.openworkServerWorkspaceId ? `Workspace ${props.openworkServerWorkspaceId}` : "Workspace unresolved"}
-                  </div>
-                </div>
-                <Show
-                  when={props.openworkServerCapabilities}
-                  fallback={<div class="text-xs text-gray-9">Capabilities unavailable. Connect with a client token.</div>}
+                <Button
+                  variant="outline"
+                  class="text-xs h-8 py-0 px-3 shrink-0"
+                  onClick={props.openDefaultModelPicker}
+                  disabled={props.busy}
                 >
-                  {(caps) => (
-                    <div class="grid md:grid-cols-2 gap-2 text-xs text-gray-11">
-                      <div>Skills: {formatCapability(caps().skills)}</div>
-                      <div>Plugins: {formatCapability(caps().plugins)}</div>
-                      <div>MCP: {formatCapability(caps().mcp)}</div>
-                      <div>Commands: {formatCapability(caps().commands)}</div>
-                      <div>Config: {formatCapability(caps().config)}</div>
-                    </div>
-                  )}
-                </Show>
+                  Change
+                </Button>
               </div>
 
-              <div class="grid md:grid-cols-2 gap-4">
-                <div class="bg-gray-1 border border-gray-6 rounded-xl p-4">
-                  <div class="text-xs text-gray-10 mb-2">Pending permissions</div>
-                  <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-64 overflow-auto">
-                    {props.safeStringify(props.pendingPermissions)}
-                  </pre>
+              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm text-gray-12">Thinking</div>
+                  <div class="text-xs text-gray-7">Show thinking parts (Developer mode only).</div>
                 </div>
-                <div class="bg-gray-1 border border-gray-6 rounded-xl p-4">
-                  <div class="text-xs text-gray-10 mb-2">Recent events</div>
-                  <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-64 overflow-auto">
-                    {props.safeStringify(props.events)}
-                  </pre>
-                </div>
-              </div>
-
-              <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="text-sm font-medium text-gray-12">Audit log</div>
-                  <div class={`text-xs px-2 py-1 rounded-full border ${openworkAuditStatusStyle()}`}>
-                    {openworkAuditStatusLabel()}
-                  </div>
-                </div>
-                <Show when={props.openworkAuditError}>
-                  <div class="text-xs text-red-11">{props.openworkAuditError}</div>
-                </Show>
-                <Show
-                  when={props.openworkAuditEntries.length > 0}
-                  fallback={<div class="text-xs text-gray-9">No audit entries yet.</div>}
+                <Button
+                  variant="outline"
+                  class="text-xs h-8 py-0 px-3 shrink-0"
+                  onClick={props.toggleShowThinking}
+                  disabled={props.busy}
                 >
-                  <div class="divide-y divide-gray-6/50">
-                    <For each={props.openworkAuditEntries}>
-                      {(entry) => (
-                        <div class="flex items-start justify-between gap-4 py-2">
-                          <div class="min-w-0">
-                            <div class="text-sm text-gray-12 truncate">{entry.summary}</div>
-                            <div class="text-[11px] text-gray-9 truncate">
-                              {entry.action} · {entry.target} · {formatActor(entry)}
-                            </div>
+                  {props.showThinking ? "On" : "Off"}
+                </Button>
+              </div>
+
+              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm text-gray-12">Model variant</div>
+                  <div class="text-xs text-gray-7 font-mono truncate">{props.modelVariantLabel}</div>
+                </div>
+                <Button
+                  variant="outline"
+                  class="text-xs h-8 py-0 px-3 shrink-0"
+                  onClick={props.editModelVariant}
+                  disabled={props.busy}
+                >
+                  Edit
+                </Button>
+              </div>
+            </div>
+
+            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+              <div>
+                <div class="text-sm font-medium text-gray-12">Appearance</div>
+                <div class="text-xs text-gray-10">Match the system or force light/dark mode.</div>
+              </div>
+
+              <div class="flex flex-wrap gap-2">
+                <Button
+                  variant={props.themeMode === "system" ? "secondary" : "outline"}
+                  class="text-xs h-8 py-0 px-3"
+                  onClick={() => props.setThemeMode("system")}
+                  disabled={props.busy}
+                >
+                  System
+                </Button>
+                <Button
+                  variant={props.themeMode === "light" ? "secondary" : "outline"}
+                  class="text-xs h-8 py-0 px-3"
+                  onClick={() => props.setThemeMode("light")}
+                  disabled={props.busy}
+                >
+                  Light
+                </Button>
+                <Button
+                  variant={props.themeMode === "dark" ? "secondary" : "outline"}
+                  class="text-xs h-8 py-0 px-3"
+                  onClick={() => props.setThemeMode("dark")}
+                  disabled={props.busy}
+                >
+                  Dark
+                </Button>
+              </div>
+
+              <div class="text-xs text-gray-7">
+                System mode follows your OS preference automatically.
+              </div>
+            </div>
+
+            <SettingsKeybinds
+              items={props.keybindItems}
+              onOverride={props.onOverrideKeybind}
+              onReset={props.onResetKeybind}
+              onResetAll={props.onResetAllKeybinds}
+            />
+
+            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <div class="text-sm font-medium text-gray-12">Updates</div>
+                  <div class="text-xs text-gray-10">Keep OpenWork up to date.</div>
+                </div>
+                <div class="text-xs text-gray-7 font-mono">{props.appVersion ? `v${props.appVersion}` : ""}</div>
+              </div>
+
+              <Show
+                when={!isTauriRuntime()}
+                fallback={
+                  <Show
+                    when={props.updateEnv && props.updateEnv.supported === false}
+                    fallback={
+                      <>
+                        <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6">
+                          <div class="space-y-0.5">
+                            <div class="text-sm text-gray-12">Automatic checks</div>
+                            <div class="text-xs text-gray-7">Once per day (quiet)</div>
                           </div>
-                          <div class="text-[11px] text-gray-9 whitespace-nowrap">
-                            {entry.timestamp ? formatRelativeTime(entry.timestamp) : "—"}
+                          <button
+                            class={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                              props.updateAutoCheck
+                                ? "bg-gray-12/10 text-gray-12 border-gray-6/20"
+                                : "text-gray-10 border-gray-6 hover:text-gray-12"
+                            }`}
+                            onClick={props.toggleUpdateAutoCheck}
+                          >
+                            {props.updateAutoCheck ? "On" : "Off"}
+                          </button>
+                        </div>
+
+                        <div class="flex items-center justify-between gap-3 bg-gray-1 p-3 rounded-xl border border-gray-6">
+                          <div class="space-y-0.5">
+                            <div class="text-sm text-gray-12">
+                              <Switch>
+                                <Match when={updateState() === "checking"}>Checking...</Match>
+                                <Match when={updateState() === "available"}>Update available: v{updateVersion()}</Match>
+                                <Match when={updateState() === "downloading"}>Downloading...</Match>
+                                <Match when={updateState() === "ready"}>Ready to install: v{updateVersion()}</Match>
+                                <Match when={updateState() === "error"}>Update check failed</Match>
+                                <Match when={true}>Up to date</Match>
+                              </Switch>
+                            </div>
+                            <Show when={updateState() === "idle" && updateLastCheckedAt()}>
+                              <div class="text-xs text-gray-7">
+                                Last checked {formatRelativeTime(updateLastCheckedAt() as number)}
+                              </div>
+                            </Show>
+                            <Show when={updateState() === "available" && updateDate()}>
+                              <div class="text-xs text-gray-7">Published {updateDate()}</div>
+                            </Show>
+                            <Show when={updateState() === "downloading"}>
+                              <div class="text-xs text-gray-7">
+                                {formatBytes((updateDownloadedBytes() as number) ?? 0)}
+                                <Show when={updateTotalBytes() != null}>
+                                  {` / ${formatBytes(updateTotalBytes() as number)}`}
+                                </Show>
+                              </div>
+                            </Show>
+                            <Show when={updateState() === "error"}>
+                              <div class="text-xs text-red-11">{updateErrorMessage()}</div>
+                            </Show>
+                          </div>
+
+                          <div class="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              class="text-xs h-8 py-0 px-3"
+                              onClick={props.checkForUpdates}
+                              disabled={props.busy || updateState() === "checking" || updateState() === "downloading"}
+                            >
+                              Check
+                            </Button>
+
+                            <Show when={updateState() === "available"}>
+                              <Button
+                                variant="secondary"
+                                class="text-xs h-8 py-0 px-3"
+                                onClick={props.downloadUpdate}
+                                disabled={props.busy || updateState() === "downloading"}
+                              >
+                                Download
+                              </Button>
+                            </Show>
+
+                            <Show when={updateState() === "ready"}>
+                              <Button
+                                variant="secondary"
+                                class="text-xs h-8 py-0 px-3"
+                                onClick={props.installUpdateAndRestart}
+                                disabled={props.busy || props.anyActiveRuns}
+                                title={props.anyActiveRuns ? "Stop active runs to update" : ""}
+                              >
+                                Install & Restart
+                              </Button>
+                            </Show>
                           </div>
                         </div>
-                      )}
-                    </For>
+
+                        <Show when={updateState() === "available" && updateNotes()}>
+                          <div class="rounded-xl bg-gray-1/20 border border-gray-6 p-3 text-xs text-gray-11 whitespace-pre-wrap max-h-40 overflow-auto">
+                            {updateNotes()}
+                          </div>
+                        </Show>
+                      </>
+                    }
+                  >
+                    <div class="rounded-xl bg-gray-1/20 border border-gray-6 p-3 text-sm text-gray-11">
+                      {props.updateEnv?.reason ?? "Updates are not supported in this environment."}
+                    </div>
+                  </Show>
+                }
+              >
+                <div class="rounded-xl bg-gray-1/20 border border-gray-6 p-3 text-sm text-gray-11">
+                  Updates are only available in the desktop app.
+                </div>
+              </Show>
+            </div>
+
+            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
+              <div class="text-sm font-medium text-gray-12">Startup</div>
+
+              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6">
+                <div class="flex items-center gap-3">
+                  <div
+                    class={`p-2 rounded-lg ${
+                      props.mode === "host" ? "bg-indigo-7/10 text-indigo-11" : "bg-green-7/10 text-green-11"
+                    }`}
+                  >
+                    <Show when={props.mode === "host"} fallback={<Smartphone size={18} />}>
+                      <HardDrive size={18} />
+                    </Show>
                   </div>
-                </Show>
+                  <span class="capitalize text-sm font-medium text-gray-12">{props.mode} mode</span>
+                </div>
+                <Button variant="outline" class="text-xs h-8 py-0 px-3" onClick={props.stopHost} disabled={props.busy}>
+                  Switch
+                </Button>
+              </div>
+
+              <Button variant="secondary" class="w-full justify-between group" onClick={props.onResetStartupPreference}>
+                <span class="text-gray-11">Reset default startup mode</span>
+                <RefreshCcw size={14} class="text-gray-10 group-hover:rotate-180 transition-transform" />
+              </Button>
+
+              <p class="text-xs text-gray-7">
+                This clears your saved preference and shows mode selection on next launch.
+              </p>
+            </div>
+
+            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+              <div>
+                <div class="text-sm font-medium text-gray-12">Advanced</div>
+                <div class="text-xs text-gray-10">Power options for the engine and reset actions.</div>
+              </div>
+
+              <Show when={isTauriRuntime() && props.mode === "host"}>
+                <div class="space-y-3">
+                  <div class="text-xs text-gray-10">Engine source</div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <Button
+                      variant={props.engineSource === "sidecar" ? "secondary" : "outline"}
+                      onClick={() => props.setEngineSource("sidecar")}
+                      disabled={props.busy}
+                    >
+                      Bundled (recommended)
+                    </Button>
+                    <Button
+                      variant={props.engineSource === "path" ? "secondary" : "outline"}
+                      onClick={() => props.setEngineSource("path")}
+                      disabled={props.busy}
+                    >
+                      System install (PATH)
+                    </Button>
+                  </div>
+                  <div class="text-[11px] text-gray-7">
+                    Bundled engine is the most reliable option. Use System install only if you manage OpenCode yourself.
+                  </div>
+                </div>
+              </Show>
+
+              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm text-gray-12">Reset onboarding</div>
+                  <div class="text-xs text-gray-7">Clears OpenWork preferences and restarts the app.</div>
+                </div>
+                <Button
+                  variant="outline"
+                  class="text-xs h-8 py-0 px-3 shrink-0"
+                  onClick={() => props.openResetModal("onboarding")}
+                  disabled={props.busy || props.resetModalBusy || props.anyActiveRuns}
+                  title={props.anyActiveRuns ? "Stop active runs to reset" : ""}
+                >
+                  Reset
+                </Button>
+              </div>
+
+              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm text-gray-12">Reset app data</div>
+                  <div class="text-xs text-gray-7">More aggressive. Clears OpenWork cache + app data.</div>
+                </div>
+                <Button
+                  variant="danger"
+                  class="text-xs h-8 py-0 px-3 shrink-0"
+                  onClick={() => props.openResetModal("all")}
+                  disabled={props.busy || props.resetModalBusy || props.anyActiveRuns}
+                  title={props.anyActiveRuns ? "Stop active runs to reset" : ""}
+                >
+                  Reset
+                </Button>
+              </div>
+
+              <div class="text-xs text-gray-7">
+                Requires typing <span class="font-mono text-gray-11">RESET</span> and will restart the app.
               </div>
             </div>
           </div>
-        </section>
-      </Show>
+        </Match>
+
+        <Match when={activeTab() === "remote"}>
+          <div class="space-y-6">
+            <Show when={props.mode === "host"}>
+              <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+                <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div class="text-sm font-medium text-gray-12">Host pairing</div>
+                    <div class="text-xs text-gray-10">Share these details with a trusted device.</div>
+                  </div>
+                  <div class={`text-xs px-2 py-1 rounded-full border ${hostStatusStyle()}`}>
+                    {hostStatusLabel()}
+                  </div>
+                </div>
+
+                <div class="grid gap-3">
+                  <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                    <div class="min-w-0">
+                      <div class="text-xs font-medium text-gray-11">OpenWork Server URL</div>
+                      <div class="text-xs text-gray-7 font-mono truncate">
+                        {hostConnectUrl() || "Starting server…"}
+                      </div>
+                      <Show when={hostConnectUrl()}>
+                        <div class="text-[11px] text-gray-8 mt-1">
+                          {hostConnectUrlUsesMdns()
+                            ? ".local names are easier to remember but may not resolve on all networks."
+                            : "Use your local IP on the same Wi-Fi for the fastest connection."}
+                        </div>
+                      </Show>
+                    </div>
+                    <Button
+                      variant="outline"
+                      class="text-xs h-8 py-0 px-3 shrink-0"
+                      onClick={() => handleCopy(hostConnectUrl(), "host-url")}
+                      disabled={!hostConnectUrl()}
+                    >
+                      {copyingField() === "host-url" ? "Copied" : "Copy"}
+                    </Button>
+                  </div>
+
+                  <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                    <div class="min-w-0">
+                      <div class="text-xs font-medium text-gray-11">Client token</div>
+                      <div class="text-xs text-gray-7 font-mono truncate">
+                        {clientTokenVisible()
+                          ? hostInfo()?.clientToken || "—"
+                          : hostInfo()?.clientToken
+                            ? "••••••••••••"
+                            : "—"}
+                      </div>
+                      <div class="text-[11px] text-gray-8 mt-1">Use on phones or laptops connecting to this host.</div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        class="text-xs h-8 py-0 px-3"
+                        onClick={() => setClientTokenVisible((prev) => !prev)}
+                        disabled={!hostInfo()?.clientToken}
+                      >
+                        {clientTokenVisible() ? "Hide" : "Show"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        class="text-xs h-8 py-0 px-3"
+                        onClick={() => handleCopy(hostInfo()?.clientToken ?? "", "client-token")}
+                        disabled={!hostInfo()?.clientToken}
+                      >
+                        {copyingField() === "client-token" ? "Copied" : "Copy"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                    <div class="min-w-0">
+                      <div class="text-xs font-medium text-gray-11">Host token</div>
+                      <div class="text-xs text-gray-7 font-mono truncate">
+                        {hostTokenVisible()
+                          ? hostInfo()?.hostToken || "—"
+                          : hostInfo()?.hostToken
+                            ? "••••••••••••"
+                            : "—"}
+                      </div>
+                      <div class="text-[11px] text-gray-8 mt-1">Keep private. Required for host approvals.</div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        class="text-xs h-8 py-0 px-3"
+                        onClick={() => setHostTokenVisible((prev) => !prev)}
+                        disabled={!hostInfo()?.hostToken}
+                      >
+                        {hostTokenVisible() ? "Hide" : "Show"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        class="text-xs h-8 py-0 px-3"
+                        onClick={() => handleCopy(hostInfo()?.hostToken ?? "", "host-token")}
+                        disabled={!hostInfo()?.hostToken}
+                      >
+                        {copyingField() === "host-token" ? "Copied" : "Copy"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Show>
+
+            <Show when={props.mode === "client"}>
+              <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+                <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <div class="text-sm font-medium text-gray-12">OpenWork host</div>
+                      <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-7/10 text-amber-11 border border-amber-7/30">
+                        Alpha
+                      </span>
+                    </div>
+                    <div class="text-xs text-gray-10">
+                      OpenWork discovers your OpenCode address and port from the host. Use a host URL to connect across devices.
+                    </div>
+                  </div>
+                  <div class={`text-xs px-2 py-1 rounded-full border ${openworkStatusStyle()}`}>
+                    {openworkStatusLabel()}
+                  </div>
+                </div>
+
+                <div class="grid gap-3">
+                  <TextInput
+                    label="OpenWork host URL"
+                    value={openworkUrl()}
+                    onInput={(event) => setOpenworkUrl(event.currentTarget.value)}
+                    placeholder="http://127.0.0.1:8787"
+                    hint="Use the host URL shared during pairing."
+                    disabled={props.busy}
+                  />
+
+                  <label class="block">
+                    <div class="mb-1 text-xs font-medium text-gray-11">Client token</div>
+                    <div class="flex items-center gap-2">
+                      <input
+                        type={openworkTokenVisible() ? "text" : "password"}
+                        value={openworkToken()}
+                        onInput={(event) => setOpenworkToken(event.currentTarget.value)}
+                        placeholder="Paste your token"
+                        disabled={props.busy}
+                        class="w-full rounded-xl bg-gray-2/60 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-10 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] focus:outline-none focus:ring-2 focus:ring-gray-6/20"
+                      />
+                      <Button
+                        variant="outline"
+                        class="text-xs h-9 px-3 shrink-0"
+                        onClick={() => setOpenworkTokenVisible((prev) => !prev)}
+                        disabled={props.busy}
+                      >
+                        {openworkTokenVisible() ? "Hide" : "Show"}
+                      </Button>
+                    </div>
+                    <div class="mt-1 text-xs text-gray-10">Optional. Paste the client token from the host to pair.</div>
+                  </label>
+                </div>
+
+                <div class="text-[11px] text-gray-7 font-mono truncate">
+                  Resolved host: {props.openworkServerUrl || "Not set"}
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={async () => {
+                      const next = buildOpenworkSettings();
+                      props.updateOpenworkServerSettings(next);
+                      await props.testOpenworkServerConnection(next);
+                    }}
+                    disabled={props.busy}
+                  >
+                    Test connection
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => props.updateOpenworkServerSettings(buildOpenworkSettings())}
+                    disabled={props.busy || !hasOpenworkChanges()}
+                  >
+                    Save
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={props.resetOpenworkServerSettings}
+                    disabled={props.busy}
+                  >
+                    Clear
+                  </Button>
+                </div>
+
+                <details class="rounded-2xl border border-gray-6 bg-gray-1/40 px-4 py-3">
+                  <summary class="flex items-center justify-between cursor-pointer text-xs text-gray-10">
+                    Advanced: OpenCode direct
+                    <ChevronDown size={14} class="text-gray-7" />
+                  </summary>
+                  <div class="pt-3 space-y-3">
+                    <div class="text-xs text-gray-10">Connect straight to an OpenCode engine when no host is available.</div>
+                    <div class="text-[11px] text-gray-7 font-mono truncate">
+                      Current engine: {props.baseUrl || "Not connected"}
+                    </div>
+                    <div class="text-xs text-gray-8">Manage direct connections from the workspace picker.</div>
+                  </div>
+                </details>
+              </div>
+            </Show>
+          </div>
+        </Match>
+
+        <Match when={activeTab() === "messaging"}>
+          <div class="space-y-6">
+            <OwpenbotSettings busy={props.busy} />
+          </div>
+        </Match>
+
+        <Match when={activeTab() === "debug"}>
+          <Show when={props.developerMode}>
+            <section>
+              <h3 class="text-sm font-medium text-gray-11 uppercase tracking-wider mb-4">Developer</h3>
+
+              <div class="space-y-4">
+                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div class="min-w-0">
+                    <div class="text-sm text-gray-12">OpenCode cache</div>
+                    <div class="text-xs text-gray-7">
+                      Repairs cached data used to start the engine. Safe to run.
+                    </div>
+                    <Show when={props.cacheRepairResult}>
+                      <div class="text-xs text-gray-11 mt-2">{props.cacheRepairResult}</div>
+                    </Show>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    class="text-xs h-8 py-0 px-3 shrink-0"
+                    onClick={props.repairOpencodeCache}
+                    disabled={props.cacheRepairBusy || !isTauriRuntime()}
+                    title={isTauriRuntime() ? "" : "Cache repair requires the desktop app"}
+                  >
+                    {props.cacheRepairBusy ? "Repairing cache" : "Repair cache"}
+                  </Button>
+                </div>
+
+                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+                  <div>
+                    <div class="text-sm font-medium text-gray-12">Devtools</div>
+                    <div class="text-xs text-gray-10">Sidecar health, capabilities, and audit trail.</div>
+                  </div>
+
+                  <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
+                      <div class="flex items-center justify-between gap-3">
+                        <div>
+                          <div class="text-sm font-medium text-gray-12">OpenCode engine</div>
+                          <div class="text-xs text-gray-10">Local execution sidecar.</div>
+                        </div>
+                        <div class={`text-xs px-2 py-1 rounded-full border ${engineStatusStyle()}`}>
+                          {engineStatusLabel()}
+                        </div>
+                      </div>
+                      <div class="space-y-1">
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          {props.engineInfo?.baseUrl ?? "Base URL unavailable"}
+                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          {props.engineInfo?.projectDir ?? "No project directory"}
+                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">PID: {props.engineInfo?.pid ?? "—"}</div>
+                      </div>
+                      <div class="grid gap-2">
+                        <div>
+                          <div class="text-[11px] text-gray-9 mb-1">Last stdout</div>
+                          <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-24 overflow-auto bg-gray-2/50 border border-gray-6 rounded-lg p-2">
+                            {engineStdout()}
+                          </pre>
+                        </div>
+                        <div>
+                          <div class="text-[11px] text-gray-9 mb-1">Last stderr</div>
+                          <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-24 overflow-auto bg-gray-2/50 border border-gray-6 rounded-lg p-2">
+                            {engineStderr()}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
+                      <div class="flex items-center justify-between gap-3">
+                        <div>
+                          <div class="text-sm font-medium text-gray-12">OpenWork server</div>
+                          <div class="text-xs text-gray-10">Config and approvals sidecar.</div>
+                        </div>
+                        <div class={`text-xs px-2 py-1 rounded-full border ${openworkStatusStyle()}`}>
+                          {openworkStatusLabel()}
+                        </div>
+                      </div>
+                      <div class="space-y-1">
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          {(props.openworkServerHostInfo?.baseUrl ?? props.openworkServerUrl) || "Base URL unavailable"}
+                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">PID: {props.openworkServerHostInfo?.pid ?? "—"}</div>
+                      </div>
+                      <div class="grid gap-2">
+                        <div>
+                          <div class="text-[11px] text-gray-9 mb-1">Last stdout</div>
+                          <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-24 overflow-auto bg-gray-2/50 border border-gray-6 rounded-lg p-2">
+                            {openworkStdout()}
+                          </pre>
+                        </div>
+                        <div>
+                          <div class="text-[11px] text-gray-9 mb-1">Last stderr</div>
+                          <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-24 overflow-auto bg-gray-2/50 border border-gray-6 rounded-lg p-2">
+                            {openworkStderr()}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
+                      <div class="flex items-center justify-between gap-3">
+                        <div>
+                          <div class="text-sm font-medium text-gray-12">Owpenbot sidecar</div>
+                          <div class="text-xs text-gray-10">Messaging bridge service.</div>
+                        </div>
+                        <div class={`text-xs px-2 py-1 rounded-full border ${owpenbotStatusStyle()}`}>
+                          {owpenbotStatusLabel()}
+                        </div>
+                      </div>
+                      <div class="space-y-1">
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          {props.owpenbotInfo?.opencodeUrl?.trim() || "OpenCode URL unavailable"}
+                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          {props.owpenbotInfo?.workspacePath?.trim() || "No workspace directory"}
+                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">PID: {props.owpenbotInfo?.pid ?? "—"}</div>
+                      </div>
+                      <div class="grid gap-2">
+                        <div>
+                          <div class="text-[11px] text-gray-9 mb-1">Last stdout</div>
+                          <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-24 overflow-auto bg-gray-2/50 border border-gray-6 rounded-lg p-2">
+                            {owpenbotStdout()}
+                          </pre>
+                        </div>
+                        <div>
+                          <div class="text-[11px] text-gray-9 mb-1">Last stderr</div>
+                          <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-24 overflow-auto bg-gray-2/50 border border-gray-6 rounded-lg p-2">
+                            {owpenbotStderr()}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="text-sm font-medium text-gray-12">OpenWork server capabilities</div>
+                      <div class="text-[11px] text-gray-8 font-mono truncate">
+                        {props.openworkServerWorkspaceId ? `Workspace ${props.openworkServerWorkspaceId}` : "Workspace unresolved"}
+                      </div>
+                    </div>
+                    <Show
+                      when={props.openworkServerCapabilities}
+                      fallback={<div class="text-xs text-gray-9">Capabilities unavailable. Connect with a client token.</div>}
+                    >
+                      {(caps) => (
+                        <div class="grid md:grid-cols-2 gap-2 text-xs text-gray-11">
+                          <div>Skills: {formatCapability(caps().skills)}</div>
+                          <div>Plugins: {formatCapability(caps().plugins)}</div>
+                          <div>MCP: {formatCapability(caps().mcp)}</div>
+                          <div>Commands: {formatCapability(caps().commands)}</div>
+                          <div>Config: {formatCapability(caps().config)}</div>
+                        </div>
+                      )}
+                    </Show>
+                  </div>
+
+                  <div class="grid md:grid-cols-2 gap-4">
+                    <div class="bg-gray-1 border border-gray-6 rounded-xl p-4">
+                      <div class="text-xs text-gray-10 mb-2">Pending permissions</div>
+                      <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-64 overflow-auto">
+                        {props.safeStringify(props.pendingPermissions)}
+                      </pre>
+                    </div>
+                    <div class="bg-gray-1 border border-gray-6 rounded-xl p-4">
+                      <div class="text-xs text-gray-10 mb-2">Recent events</div>
+                      <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-64 overflow-auto">
+                        {props.safeStringify(props.events)}
+                      </pre>
+                    </div>
+                  </div>
+
+                  <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="text-sm font-medium text-gray-12">Audit log</div>
+                      <div class={`text-xs px-2 py-1 rounded-full border ${openworkAuditStatusStyle()}`}>
+                        {openworkAuditStatusLabel()}
+                      </div>
+                    </div>
+                    <Show when={props.openworkAuditError}>
+                      <div class="text-xs text-red-11">{props.openworkAuditError}</div>
+                    </Show>
+                    <Show
+                      when={props.openworkAuditEntries.length > 0}
+                      fallback={<div class="text-xs text-gray-9">No audit entries yet.</div>}
+                    >
+                      <div class="divide-y divide-gray-6/50">
+                        <For each={props.openworkAuditEntries}>
+                          {(entry) => (
+                            <div class="flex items-start justify-between gap-4 py-2">
+                              <div class="min-w-0">
+                                <div class="text-sm text-gray-12 truncate">{entry.summary}</div>
+                                <div class="text-[11px] text-gray-9 truncate">
+                                  {entry.action} · {entry.target} · {formatActor(entry)}
+                                </div>
+                              </div>
+                              <div class="text-[11px] text-gray-9 whitespace-nowrap">
+                                {entry.timestamp ? formatRelativeTime(entry.timestamp) : "—"}
+                              </div>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </Show>
+        </Match>
+      </Switch>
     </section>
   );
 }

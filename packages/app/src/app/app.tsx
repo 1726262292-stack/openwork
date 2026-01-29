@@ -62,6 +62,7 @@ import type {
   PluginScope,
   ReloadReason,
   ResetOpenworkMode,
+  SettingsTab,
   SkillCard,
   TodoItem,
   View,
@@ -157,6 +158,7 @@ export default function App() {
   });
 
   const [tab, setTabState] = createSignal<DashboardTab>("home");
+  const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("general");
 
   const goToDashboard = (nextTab: DashboardTab, options?: { replace?: boolean }) => {
     setTabState(nextTab);
@@ -3383,6 +3385,8 @@ export default function App() {
     return {
     tab: tab(),
     setTab,
+    settingsTab: settingsTab(),
+    setSettingsTab,
     view: currentView(),
     setView,
     mode: mode(),
@@ -3579,9 +3583,14 @@ export default function App() {
     selectedSessionId: activeSessionId(),
     setView,
     setTab,
+    setSettingsTab,
     activeWorkspaceDisplay: activeWorkspaceDisplay(),
     setWorkspaceSearch: workspaceStore.setWorkspaceSearch,
     setWorkspacePickerOpen: workspaceStore.setWorkspacePickerOpen,
+    mode: mode(),
+    clientConnected: Boolean(client()),
+    openworkServerStatus: openworkServerStatus(),
+    stopHost,
     headerStatus: headerStatus(),
     busyHint: busyHint(),
     selectedSessionModelLabel: selectedSessionModelLabel(),
