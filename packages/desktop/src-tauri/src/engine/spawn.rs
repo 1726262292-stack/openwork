@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use tauri::AppHandle;
 use tauri::async_runtime::Receiver;
+use tauri::AppHandle;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
@@ -20,12 +20,10 @@ pub fn build_engine_args(bind_host: &str, port: u16) -> Vec<String> {
         bind_host.to_string(),
         "--port".to_string(),
         port.to_string(),
+        // Allow all origins since the engine may be accessed remotely from client
+        // devices or from the dev UI running on localhost:5173.
         "--cors".to_string(),
-        "http://localhost:5173".to_string(),
-        "--cors".to_string(),
-        "tauri://localhost".to_string(),
-        "--cors".to_string(),
-        "http://tauri.localhost".to_string(),
+        "*".to_string(),
     ]
 }
 
@@ -40,8 +38,7 @@ pub fn spawn_engine(
     let args = build_engine_args(hostname, port);
 
     let command = if use_sidecar {
-        app
-            .shell()
+        app.shell()
             .sidecar("opencode")
             .map_err(|e| format!("Failed to locate bundled OpenCode sidecar: {e}"))?
     } else {

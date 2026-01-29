@@ -1,8 +1,8 @@
 use std::net::TcpListener;
 use std::path::Path;
 
-use tauri::AppHandle;
 use tauri::async_runtime::Receiver;
+use tauri::AppHandle;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
@@ -37,18 +37,12 @@ pub fn build_openwork_args(
         host_token.to_string(),
         "--workspace".to_string(),
         workspace_path.to_string(),
+        // Always allow all origins since the OpenWork server is designed to accept
+        // remote connections from client devices (phones, laptops) which may use
+        // different origins (localhost dev servers, tauri apps, web browsers).
         "--cors".to_string(),
-        "http://localhost:5173".to_string(),
-        "--cors".to_string(),
-        "tauri://localhost".to_string(),
-        "--cors".to_string(),
-        "http://tauri.localhost".to_string(),
+        "*".to_string(),
     ];
-
-    if cfg!(debug_assertions) {
-        args.push("--cors".to_string());
-        args.push("*".to_string());
-    }
 
     if let Some(base_url) = opencode_base_url {
         if !base_url.trim().is_empty() {
