@@ -35,9 +35,6 @@ import WorkspaceChip from "../components/workspace-chip";
 import ProviderAuthModal from "../components/provider-auth-modal";
 import StatusBar from "../components/status-bar";
 import type { OpenworkServerStatus } from "../lib/openwork-server";
-import browserSetupCommandTemplate from "../data/commands/browser-setup.md?raw";
-import { opencodeCommandWrite } from "../lib/tauri";
-import { isTauriRuntime, parseTemplateFrontmatter } from "../utils";
 import { join } from "@tauri-apps/api/path";
 import browserSetupCommandTemplate from "../data/commands/browser-setup.md?raw";
 import { opencodeCommandWrite } from "../lib/tauri";
@@ -237,7 +234,6 @@ export default function SessionView(props: SessionViewProps) {
       return null;
     }
   };
-
   const loadAgentOptions = async (force = false) => {
     if (agentPickerBusy()) return agentOptions();
     if (agentPickerReady() && !force) return agentOptions();
