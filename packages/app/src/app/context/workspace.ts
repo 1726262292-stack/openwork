@@ -240,14 +240,16 @@ export function createWorkspaceStore(options: {
       const info = await engineInfo();
       setEngine(info);
 
+      const syncLocalState = options.mode() !== "client";
+
       const username = info.opencodeUsername?.trim() ?? "";
       const password = info.opencodePassword?.trim() ?? "";
       setEngineAuth(username && password ? { username, password } : null);
 
-      if (info.projectDir) {
+      if (info.projectDir && syncLocalState) {
         setProjectDir(info.projectDir);
       }
-      if (info.baseUrl) {
+      if (info.baseUrl && syncLocalState) {
         options.setBaseUrl(info.baseUrl);
       }
     } catch {

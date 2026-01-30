@@ -425,6 +425,29 @@ export default function App() {
 
   createEffect(() => {
     if (!isTauriRuntime()) return;
+    if (!developerMode()) return;
+
+    let busy = false;
+
+    const run = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        await workspaceStore.refreshEngine();
+      } finally {
+        busy = false;
+      }
+    };
+
+    run();
+    const interval = window.setInterval(run, 10_000);
+    onCleanup(() => {
+      window.clearInterval(interval);
+    });
+  });
+
+  createEffect(() => {
+    if (!isTauriRuntime()) return;
     if (!developerMode()) {
       setOwpenbotInfoState(null);
       return;
