@@ -151,6 +151,7 @@ export type SkillCard = {
   name: string;
   path: string;
   description?: string;
+  trigger?: string;
 };
 
 export type PluginInstallStep = {

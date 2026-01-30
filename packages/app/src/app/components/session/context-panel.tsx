@@ -15,6 +15,7 @@ export type ContextPanelProps = {
   skillsStatus: string | null;
   authorizedDirs: string[];
   workingFiles: string[];
+  workspaceRoot?: string;
   expandedSections: {
     context: boolean;
     plugins: boolean;
@@ -23,6 +24,7 @@ export type ContextPanelProps = {
     authorizedFolders: boolean;
   };
   onToggleSection: (section: "context" | "plugins" | "mcp" | "skills" | "authorizedFolders") => void;
+  onFileClick?: (path: string) => void;
 };
 
 const humanizePlugin = (name: string) => {
@@ -63,6 +65,48 @@ const humanizeSkill = (name: string) => {
     .trim();
 };
 
+const splitPathSegments = (value: string) => value.split(/[/\\]/).filter(Boolean);
+
+const toWorkspaceRelative = (file: string, root?: string) => {
+  const normalizedRoot = (root ?? "").trim().replace(/[\\/]+/g, "/").replace(/\/+$/, "");
+  if (!normalizedRoot) return file;
+  const normalizedFile = file.replace(/[\\/]+/g, "/");
+  const rootKey = normalizedRoot.toLowerCase();
+  const fileKey = normalizedFile.toLowerCase();
+  if (fileKey === rootKey) return normalizedFile.split("/").pop() ?? normalizedFile;
+  if (fileKey.startsWith(`${rootKey}/`)) {
+    return normalizedFile.slice(normalizedRoot.length + 1);
+  }
+  return normalizedFile;
+};
+
+const getSmartFileName = (files: string[], file: string): string => {
+  if (!file) return "";
+  const segments = splitPathSegments(file);
+  const basename = segments[segments.length - 1] ?? file;
+
+  const duplicates = files.filter((candidate) => {
+    const candidateSegments = splitPathSegments(candidate);
+    return (candidateSegments[candidateSegments.length - 1] ?? candidate) === basename;
+  });
+
+  if (duplicates.length <= 1) {
+    return basename;
+  }
+
+  for (let i = 2; i <= segments.length; i += 1) {
+    const shortPath = segments.slice(-i).join("/");
+    const isUnique = duplicates.every((candidate) => {
+      if (candidate === file) return true;
+      const candidateSegments = splitPathSegments(candidate);
+      return candidateSegments.slice(-i).join("/") !== shortPath;
+    });
+    if (isUnique) return shortPath;
+  }
+
+  return file;
+};
+
 const mcpStatusLabel = (status?: McpStatus, disabled?: boolean) => {
   if (disabled) return "Disabled";
   if (!status) return "Disconnected";
@@ -97,6 +141,9 @@ const mcpStatusDot = (status?: McpStatus, disabled?: boolean) => {
 };
 
 export default function ContextPanel(props: ContextPanelProps) {
+  const displayFiles = () =>
+    props.workingFiles.map((entry) => toWorkspaceRelative(entry, props.workspaceRoot));
+
   return (
     <div class="flex flex-col h-full overflow-hidden">
       <div class="flex-1 overflow-y-auto px-4 py-4 space-y-4">
@@ -123,12 +170,27 @@ export default function ContextPanel(props: ContextPanelProps) {
                     fallback={<div class="text-xs text-gray-9">None yet.</div>}
                   >
                     <For each={props.workingFiles}>
-                      {(file) => (
-                        <div class="flex items-center gap-2 text-xs text-gray-11">
-                          <File size={12} class="text-gray-9" />
-                          <span class="truncate">{file}</span>
-                        </div>
-                      )}
+                      {(file) => {
+                        const displayPath = () => toWorkspaceRelative(file, props.workspaceRoot);
+                        const label = () => getSmartFileName(displayFiles(), displayPath());
+                        const canOpen = () => typeof props.onFileClick === "function";
+                        return (
+                          <button
+                            type="button"
+                            class={`flex items-center gap-2 text-xs text-gray-11 rounded px-1 -mx-1 transition-colors w-full text-left ${
+                              canOpen()
+                                ? "hover:text-gray-12 hover:bg-gray-3"
+                                : "cursor-default opacity-70"
+                            }`.trim()}
+                            onClick={() => props.onFileClick?.(file)}
+                            title={canOpen() ? `Open ${displayPath()}` : displayPath()}
+                            disabled={!canOpen()}
+                          >
+                            <File size={12} class="text-gray-9" />
+                            <span class="truncate">{label()}</span>
+                          </button>
+                        );
+                      }}
                     </For>
                   </Show>
                 </div>
@@ -263,14 +325,16 @@ export default function ContextPanel(props: ContextPanelProps) {
                     {(skill) => {
                       const label = humanizeSkill(skill.name) || skill.name;
                       const description = skill.description?.trim();
+                      const trigger = skill.trigger?.trim();
+                      const subtitle = trigger || description;
                       return (
                         <div class="flex items-start gap-2 text-xs text-gray-11">
                           <Package size={12} class="text-gray-9 mt-0.5" />
                           <div class="min-w-0">
                             <div class="truncate">{label}</div>
-                            <Show when={description}>
-                              <div class="text-[11px] text-gray-9 truncate" title={description}>
-                                {description}
+                            <Show when={subtitle}>
+                              <div class="text-[11px] text-gray-9 truncate" title={subtitle}>
+                                {subtitle}
                               </div>
                             </Show>
                           </div>

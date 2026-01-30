@@ -22,6 +22,33 @@ async function findWorkspaceRoots(workspaceRoot: string): Promise<string[]> {
   return roots;
 }
 
+const extractTriggerFromBody = (body: string) => {
+  const lines = body.split(/\r?\n/);
+  let inWhenSection = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    if (/^#{1,6}\s+/.test(trimmed)) {
+      const heading = trimmed.replace(/^#{1,6}\s+/, "").trim();
+      inWhenSection = /^when to use$/i.test(heading);
+      continue;
+    }
+
+    if (!inWhenSection) continue;
+
+    const cleaned = trimmed
+      .replace(/^[-*+]\s+/, "")
+      .replace(/^\d+[.)]\s+/, "")
+      .trim();
+
+    if (cleaned) return cleaned;
+  }
+
+  return "";
+};
+
 async function listSkillsInDir(dir: string, scope: "project" | "global"): Promise<SkillItem[]> {
   if (!(await exists(dir))) return [];
   const entries = await readdir(dir, { withFileTypes: true });
@@ -31,9 +58,15 @@ async function listSkillsInDir(dir: string, scope: "project" | "global"): Promis
     const skillPath = join(dir, entry.name, "SKILL.md");
     if (!(await exists(skillPath))) continue;
     const content = await readFile(skillPath, "utf8");
-    const { data } = parseFrontmatter(content);
+    const { data, body } = parseFrontmatter(content);
     const name = typeof data.name === "string" ? data.name : entry.name;
     const description = typeof data.description === "string" ? data.description : "";
+    const trigger =
+      typeof data.trigger === "string"
+        ? data.trigger
+        : typeof data.when === "string"
+          ? data.when
+          : extractTriggerFromBody(body);
     try {
       validateSkillName(name);
       validateDescription(description);
@@ -46,6 +79,7 @@ async function listSkillsInDir(dir: string, scope: "project" | "global"): Promis
       description,
       path: skillPath,
       scope,
+      trigger: trigger.trim() || undefined,
     });
   }
   return items;

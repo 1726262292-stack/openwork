@@ -129,6 +129,7 @@ export function createExtensionsStore(options: {
               name: entry.name,
               description: entry.description,
               path: entry.path,
+              trigger: entry.trigger,
             }))
           : [];
         setSkills(next);
@@ -176,6 +177,7 @@ export function createExtensionsStore(options: {
               name: entry.name,
               description: entry.description,
               path: entry.path,
+              trigger: entry.trigger,
             }))
           : [];
 

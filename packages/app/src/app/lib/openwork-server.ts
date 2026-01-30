@@ -39,6 +39,7 @@ export type OpenworkSkillItem = {
   path: string;
   description: string;
   scope: "project" | "global";
+  trigger?: string;
 };
 
 export type OpenworkCommandItem = {

@@ -164,6 +164,88 @@ pub struct LocalSkillCard {
     pub name: String,
     pub path: String,
     pub description: Option<String>,
+    pub trigger: Option<String>,
+}
+
+fn extract_frontmatter_value(raw: &str, keys: &[&str]) -> Option<String> {
+    let mut lines = raw.lines();
+    let first = lines.next()?.trim();
+    if first != "---" {
+        return None;
+    }
+
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed == "---" {
+            break;
+        }
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once(':') else {
+            continue;
+        };
+        if !keys.iter().any(|candidate| candidate.eq_ignore_ascii_case(key.trim())) {
+            continue;
+        }
+        let mut cleaned = value.trim().to_string();
+        if (cleaned.starts_with('"') && cleaned.ends_with('"'))
+            || (cleaned.starts_with('\'') && cleaned.ends_with('\''))
+        {
+            if cleaned.len() >= 2 {
+                cleaned = cleaned[1..cleaned.len() - 1].to_string();
+            }
+        }
+        let cleaned = cleaned.trim();
+        if cleaned.is_empty() {
+            continue;
+        }
+        return Some(cleaned.to_string());
+    }
+
+    None
+}
+
+fn extract_trigger(raw: &str) -> Option<String> {
+    if let Some(frontmatter) = extract_frontmatter_value(raw, &["trigger", "when"]) {
+        return Some(frontmatter);
+    }
+
+    let mut in_frontmatter = false;
+    let mut in_when_section = false;
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed == "---" {
+            in_frontmatter = !in_frontmatter;
+            continue;
+        }
+        if in_frontmatter {
+            continue;
+        }
+        if trimmed.starts_with('#') {
+            let heading = trimmed.trim_start_matches('#').trim();
+            in_when_section = heading.eq_ignore_ascii_case("When to use");
+            continue;
+        }
+        if !in_when_section {
+            continue;
+        }
+
+        let cleaned = trimmed
+            .trim_start_matches(|c: char| c == '-' || c == '*' || c == '+')
+            .trim_start_matches(|c: char| c.is_whitespace())
+            .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ')')
+            .trim();
+        if !cleaned.is_empty() {
+            return Some(cleaned.to_string());
+        }
+    }
+
+    None
 }
 
 fn extract_description(raw: &str) -> Option<String> {
@@ -221,15 +303,16 @@ pub fn list_local_skills(project_dir: String) -> Result<Vec<LocalSkillCard>, Str
             continue;
         };
 
-        let description = match fs::read_to_string(path.join("SKILL.md")) {
-            Ok(raw) => extract_description(&raw),
-            Err(_) => None,
+        let (description, trigger) = match fs::read_to_string(path.join("SKILL.md")) {
+            Ok(raw) => (extract_description(&raw), extract_trigger(&raw)),
+            Err(_) => (None, None),
         };
 
         out.push(LocalSkillCard {
             name: name.to_string(),
             path: path.to_string_lossy().to_string(),
             description,
+            trigger,
         });
     }
 
