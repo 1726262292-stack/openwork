@@ -1204,167 +1204,182 @@ export default function SettingsView(props: SettingsViewProps) {
         <Match when={activeTab() === "remote"}>
           <div class="space-y-6">
             <Show when={props.mode === "host"}>
-              <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
-                <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <div class="text-sm font-medium text-gray-12">Host pairing</div>
-                    <div class="text-xs text-gray-10">Share these details with a trusted device.</div>
+              <div class="space-y-4">
+                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+                  <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div class="text-sm font-medium text-gray-12">OpenWork host pairing</div>
+                      <div class="text-xs text-gray-10">
+                        Share these details with a trusted device. Keep the host on the same network for the fastest setup.
+                      </div>
+                    </div>
+                    <div class={`text-xs px-2 py-1 rounded-full border ${hostStatusStyle()}`}>
+                      {hostStatusLabel()}
+                    </div>
                   </div>
-                  <div class={`text-xs px-2 py-1 rounded-full border ${hostStatusStyle()}`}>
-                    {hostStatusLabel()}
+
+                  <div class="grid gap-3">
+                    <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                      <div class="min-w-0">
+                        <div class="text-xs font-medium text-gray-11">OpenWork Server URL</div>
+                        <div class="text-xs text-gray-7 font-mono truncate">
+                          {hostConnectUrl() || "Starting server…"}
+                        </div>
+                        <Show when={hostConnectUrl()}>
+                          <div class="text-[11px] text-gray-8 mt-1">
+                            {hostConnectUrlUsesMdns()
+                              ? ".local names are easier to remember but may not resolve on all networks."
+                              : "Use your local IP on the same Wi-Fi for the fastest connection."}
+                          </div>
+                        </Show>
+                      </div>
+                      <Button
+                        variant="outline"
+                        class="text-xs h-8 py-0 px-3 shrink-0"
+                        onClick={() => handleCopy(hostConnectUrl(), "host-url")}
+                        disabled={!hostConnectUrl()}
+                      >
+                        {copyingField() === "host-url" ? "Copied" : "Copy"}
+                      </Button>
+                    </div>
+
+                    <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                      <div class="min-w-0">
+                        <div class="text-xs font-medium text-gray-11">Client token</div>
+                        <div class="text-xs text-gray-7 font-mono truncate">
+                          {clientTokenVisible()
+                            ? hostInfo()?.clientToken || "—"
+                            : hostInfo()?.clientToken
+                              ? "••••••••••••"
+                              : "—"}
+                        </div>
+                        <div class="text-[11px] text-gray-8 mt-1">Use on phones or laptops connecting to this host.</div>
+                      </div>
+                      <div class="flex items-center gap-2 shrink-0">
+                        <Button
+                          variant="outline"
+                          class="text-xs h-8 py-0 px-3"
+                          onClick={() => setClientTokenVisible((prev) => !prev)}
+                          disabled={!hostInfo()?.clientToken}
+                        >
+                          {clientTokenVisible() ? "Hide" : "Show"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          class="text-xs h-8 py-0 px-3"
+                          onClick={() => handleCopy(hostInfo()?.clientToken ?? "", "client-token")}
+                          disabled={!hostInfo()?.clientToken}
+                        >
+                          {copyingField() === "client-token" ? "Copied" : "Copy"}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                      <div class="min-w-0">
+                        <div class="text-xs font-medium text-gray-11">Host token</div>
+                        <div class="text-xs text-gray-7 font-mono truncate">
+                          {hostTokenVisible()
+                            ? hostInfo()?.hostToken || "—"
+                            : hostInfo()?.hostToken
+                              ? "••••••••••••"
+                              : "—"}
+                        </div>
+                        <div class="text-[11px] text-gray-8 mt-1">Keep private. Required for host approvals.</div>
+                      </div>
+                      <div class="flex items-center gap-2 shrink-0">
+                        <Button
+                          variant="outline"
+                          class="text-xs h-8 py-0 px-3"
+                          onClick={() => setHostTokenVisible((prev) => !prev)}
+                          disabled={!hostInfo()?.hostToken}
+                        >
+                          {hostTokenVisible() ? "Hide" : "Show"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          class="text-xs h-8 py-0 px-3"
+                          onClick={() => handleCopy(hostInfo()?.hostToken ?? "", "host-token")}
+                          disabled={!hostInfo()?.hostToken}
+                        >
+                          {copyingField() === "host-token" ? "Copied" : "Copy"}
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div class="grid gap-3">
-                  <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                    <div class="min-w-0">
-                      <div class="text-xs font-medium text-gray-11">OpenWork Server URL</div>
-                      <div class="text-xs text-gray-7 font-mono truncate">
-                        {hostConnectUrl() || "Starting server…"}
-                      </div>
-                      <Show when={hostConnectUrl()}>
-                        <div class="text-[11px] text-gray-8 mt-1">
-                          {hostConnectUrlUsesMdns()
-                            ? ".local names are easier to remember but may not resolve on all networks."
-                            : "Use your local IP on the same Wi-Fi for the fastest connection."}
+                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+                  <div>
+                    <div class="text-sm font-medium text-gray-12">OpenCode direct access</div>
+                    <div class="text-xs text-gray-10">
+                      Use these credentials when a client connects directly to OpenCode without an OpenWork host.
+                    </div>
+                  </div>
+
+                  <div class="grid gap-3">
+                    <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                      <div class="min-w-0">
+                        <div class="text-xs font-medium text-gray-11">OpenCode username</div>
+                        <div class="text-xs text-gray-7 font-mono truncate">
+                          {opencodeUserVisible()
+                            ? opencodeUsername() || "—"
+                            : opencodeUsername()
+                              ? "••••••••"
+                              : "—"}
                         </div>
-                      </Show>
-                    </div>
-                    <Button
-                      variant="outline"
-                      class="text-xs h-8 py-0 px-3 shrink-0"
-                      onClick={() => handleCopy(hostConnectUrl(), "host-url")}
-                      disabled={!hostConnectUrl()}
-                    >
-                      {copyingField() === "host-url" ? "Copied" : "Copy"}
-                    </Button>
-                  </div>
-
-                  <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                    <div class="min-w-0">
-                      <div class="text-xs font-medium text-gray-11">Client token</div>
-                      <div class="text-xs text-gray-7 font-mono truncate">
-                        {clientTokenVisible()
-                          ? hostInfo()?.clientToken || "—"
-                          : hostInfo()?.clientToken
-                            ? "••••••••••••"
-                            : "—"}
+                        <div class="text-[11px] text-gray-8 mt-1">Use with the password when connecting directly.</div>
                       </div>
-                      <div class="text-[11px] text-gray-8 mt-1">Use on phones or laptops connecting to this host.</div>
-                    </div>
-                    <div class="flex items-center gap-2 shrink-0">
-                      <Button
-                        variant="outline"
-                        class="text-xs h-8 py-0 px-3"
-                        onClick={() => setClientTokenVisible((prev) => !prev)}
-                        disabled={!hostInfo()?.clientToken}
-                      >
-                        {clientTokenVisible() ? "Hide" : "Show"}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        class="text-xs h-8 py-0 px-3"
-                        onClick={() => handleCopy(hostInfo()?.clientToken ?? "", "client-token")}
-                        disabled={!hostInfo()?.clientToken}
-                      >
-                        {copyingField() === "client-token" ? "Copied" : "Copy"}
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                    <div class="min-w-0">
-                      <div class="text-xs font-medium text-gray-11">Host token</div>
-                      <div class="text-xs text-gray-7 font-mono truncate">
-                        {hostTokenVisible()
-                          ? hostInfo()?.hostToken || "—"
-                          : hostInfo()?.hostToken
-                            ? "••••••••••••"
-                            : "—"}
+                      <div class="flex items-center gap-2 shrink-0">
+                        <Button
+                          variant="outline"
+                          class="text-xs h-8 py-0 px-3"
+                          onClick={() => setOpencodeUserVisible((prev) => !prev)}
+                          disabled={!opencodeUsername()}
+                        >
+                          {opencodeUserVisible() ? "Hide" : "Show"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          class="text-xs h-8 py-0 px-3"
+                          onClick={() => handleCopy(opencodeUsername(), "opencode-user")}
+                          disabled={!opencodeUsername()}
+                        >
+                          {copyingField() === "opencode-user" ? "Copied" : "Copy"}
+                        </Button>
                       </div>
-                      <div class="text-[11px] text-gray-8 mt-1">Keep private. Required for host approvals.</div>
                     </div>
-                    <div class="flex items-center gap-2 shrink-0">
-                      <Button
-                        variant="outline"
-                        class="text-xs h-8 py-0 px-3"
-                        onClick={() => setHostTokenVisible((prev) => !prev)}
-                        disabled={!hostInfo()?.hostToken}
-                      >
-                        {hostTokenVisible() ? "Hide" : "Show"}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        class="text-xs h-8 py-0 px-3"
-                        onClick={() => handleCopy(hostInfo()?.hostToken ?? "", "host-token")}
-                        disabled={!hostInfo()?.hostToken}
-                      >
-                        {copyingField() === "host-token" ? "Copied" : "Copy"}
-                      </Button>
-                    </div>
-                  </div>
 
-                  <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                    <div class="min-w-0">
-                      <div class="text-xs font-medium text-gray-11">OpenCode username</div>
-                      <div class="text-xs text-gray-7 font-mono truncate">
-                        {opencodeUserVisible()
-                          ? opencodeUsername() || "—"
-                          : opencodeUsername()
-                            ? "••••••••"
-                            : "—"}
+                    <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                      <div class="min-w-0">
+                        <div class="text-xs font-medium text-gray-11">OpenCode password</div>
+                        <div class="text-xs text-gray-7 font-mono truncate">
+                          {opencodePasswordVisible()
+                            ? opencodePassword() || "—"
+                            : opencodePassword()
+                              ? "••••••••"
+                              : "—"}
+                        </div>
+                        <div class="text-[11px] text-gray-8 mt-1">Keep private. Required for direct OpenCode access.</div>
                       </div>
-                      <div class="text-[11px] text-gray-8 mt-1">Use with the password when connecting directly.</div>
-                    </div>
-                    <div class="flex items-center gap-2 shrink-0">
-                      <Button
-                        variant="outline"
-                        class="text-xs h-8 py-0 px-3"
-                        onClick={() => setOpencodeUserVisible((prev) => !prev)}
-                        disabled={!opencodeUsername()}
-                      >
-                        {opencodeUserVisible() ? "Hide" : "Show"}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        class="text-xs h-8 py-0 px-3"
-                        onClick={() => handleCopy(opencodeUsername(), "opencode-user")}
-                        disabled={!opencodeUsername()}
-                      >
-                        {copyingField() === "opencode-user" ? "Copied" : "Copy"}
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                    <div class="min-w-0">
-                      <div class="text-xs font-medium text-gray-11">OpenCode password</div>
-                      <div class="text-xs text-gray-7 font-mono truncate">
-                        {opencodePasswordVisible()
-                          ? opencodePassword() || "—"
-                          : opencodePassword()
-                            ? "••••••••"
-                            : "—"}
+                      <div class="flex items-center gap-2 shrink-0">
+                        <Button
+                          variant="outline"
+                          class="text-xs h-8 py-0 px-3"
+                          onClick={() => setOpencodePasswordVisible((prev) => !prev)}
+                          disabled={!opencodePassword()}
+                        >
+                          {opencodePasswordVisible() ? "Hide" : "Show"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          class="text-xs h-8 py-0 px-3"
+                          onClick={() => handleCopy(opencodePassword(), "opencode-pass")}
+                          disabled={!opencodePassword()}
+                        >
+                          {copyingField() === "opencode-pass" ? "Copied" : "Copy"}
+                        </Button>
                       </div>
-                      <div class="text-[11px] text-gray-8 mt-1">Keep private. Required for direct OpenCode access.</div>
-                    </div>
-                    <div class="flex items-center gap-2 shrink-0">
-                      <Button
-                        variant="outline"
-                        class="text-xs h-8 py-0 px-3"
-                        onClick={() => setOpencodePasswordVisible((prev) => !prev)}
-                        disabled={!opencodePassword()}
-                      >
-                        {opencodePasswordVisible() ? "Hide" : "Show"}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        class="text-xs h-8 py-0 px-3"
-                        onClick={() => handleCopy(opencodePassword(), "opencode-pass")}
-                        disabled={!opencodePassword()}
-                      >
-                        {copyingField() === "opencode-pass" ? "Copied" : "Copy"}
-                      </Button>
                     </div>
                   </div>
                 </div>
@@ -1372,103 +1387,103 @@ export default function SettingsView(props: SettingsViewProps) {
             </Show>
 
             <Show when={props.mode === "client"}>
-              <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
-                <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div class="space-y-4">
+                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+                  <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <div class="text-sm font-medium text-gray-12">OpenWork host</div>
+                        <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-7/10 text-amber-11 border border-amber-7/30">
+                          Alpha
+                        </span>
+                      </div>
+                      <div class="text-xs text-gray-10">
+                        Connect to a host running OpenWork on another device. Use the host URL and client token from pairing.
+                      </div>
+                    </div>
+                    <div class={`text-xs px-2 py-1 rounded-full border ${openworkStatusStyle()}`}>
+                      {openworkStatusLabel()}
+                    </div>
+                  </div>
+
+                  <div class="grid gap-3">
+                    <TextInput
+                      label="OpenWork host URL"
+                      value={openworkUrl()}
+                      onInput={(event) => setOpenworkUrl(event.currentTarget.value)}
+                      placeholder="http://127.0.0.1:8787"
+                      hint="Use the host URL shared during pairing."
+                      disabled={props.busy}
+                    />
+
+                    <label class="block">
+                      <div class="mb-1 text-xs font-medium text-gray-11">Client token</div>
+                      <div class="flex items-center gap-2">
+                        <input
+                          type={openworkTokenVisible() ? "text" : "password"}
+                          value={openworkToken()}
+                          onInput={(event) => setOpenworkToken(event.currentTarget.value)}
+                          placeholder="Paste your token"
+                          disabled={props.busy}
+                          class="w-full rounded-xl bg-gray-2/60 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-10 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] focus:outline-none focus:ring-2 focus:ring-gray-6/20"
+                        />
+                        <Button
+                          variant="outline"
+                          class="text-xs h-9 px-3 shrink-0"
+                          onClick={() => setOpenworkTokenVisible((prev) => !prev)}
+                          disabled={props.busy}
+                        >
+                          {openworkTokenVisible() ? "Hide" : "Show"}
+                        </Button>
+                      </div>
+                      <div class="mt-1 text-xs text-gray-10">Optional. Paste the client token from the host to pair.</div>
+                    </label>
+                  </div>
+
+                  <div class="text-[11px] text-gray-7 font-mono truncate">
+                    Resolved host: {props.openworkServerUrl || "Not set"}
+                  </div>
+
+                  <div class="flex flex-wrap gap-2">
+                    <Button
+                      variant="secondary"
+                      onClick={async () => {
+                        const next = buildOpenworkSettings();
+                        props.updateOpenworkServerSettings(next);
+                        await props.testOpenworkServerConnection(next);
+                      }}
+                      disabled={props.busy}
+                    >
+                      Test connection
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => props.updateOpenworkServerSettings(buildOpenworkSettings())}
+                      disabled={props.busy || !hasOpenworkChanges()}
+                    >
+                      Save
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={props.resetOpenworkServerSettings}
+                      disabled={props.busy}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+
+                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
                   <div>
-                    <div class="flex items-center gap-2">
-                      <div class="text-sm font-medium text-gray-12">OpenWork host</div>
-                      <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-7/10 text-amber-11 border border-amber-7/30">
-                        Alpha
-                      </span>
-                    </div>
+                    <div class="text-sm font-medium text-gray-12">OpenCode direct</div>
                     <div class="text-xs text-gray-10">
-                      OpenWork discovers your OpenCode address and port from the host. Use a host URL to connect across devices.
+                      Use this only when no OpenWork host is available. Manage direct engine connections from the workspace picker.
                     </div>
                   </div>
-                  <div class={`text-xs px-2 py-1 rounded-full border ${openworkStatusStyle()}`}>
-                    {openworkStatusLabel()}
+                  <div class="text-[11px] text-gray-7 font-mono truncate">
+                    Current engine: {props.baseUrl || "Not connected"}
                   </div>
                 </div>
-
-                <div class="grid gap-3">
-                  <TextInput
-                    label="OpenWork host URL"
-                    value={openworkUrl()}
-                    onInput={(event) => setOpenworkUrl(event.currentTarget.value)}
-                    placeholder="http://127.0.0.1:8787"
-                    hint="Use the host URL shared during pairing."
-                    disabled={props.busy}
-                  />
-
-                  <label class="block">
-                    <div class="mb-1 text-xs font-medium text-gray-11">Client token</div>
-                    <div class="flex items-center gap-2">
-                      <input
-                        type={openworkTokenVisible() ? "text" : "password"}
-                        value={openworkToken()}
-                        onInput={(event) => setOpenworkToken(event.currentTarget.value)}
-                        placeholder="Paste your token"
-                        disabled={props.busy}
-                        class="w-full rounded-xl bg-gray-2/60 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-10 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] focus:outline-none focus:ring-2 focus:ring-gray-6/20"
-                      />
-                      <Button
-                        variant="outline"
-                        class="text-xs h-9 px-3 shrink-0"
-                        onClick={() => setOpenworkTokenVisible((prev) => !prev)}
-                        disabled={props.busy}
-                      >
-                        {openworkTokenVisible() ? "Hide" : "Show"}
-                      </Button>
-                    </div>
-                    <div class="mt-1 text-xs text-gray-10">Optional. Paste the client token from the host to pair.</div>
-                  </label>
-                </div>
-
-                <div class="text-[11px] text-gray-7 font-mono truncate">
-                  Resolved host: {props.openworkServerUrl || "Not set"}
-                </div>
-
-                <div class="flex flex-wrap gap-2">
-                  <Button
-                    variant="secondary"
-                    onClick={async () => {
-                      const next = buildOpenworkSettings();
-                      props.updateOpenworkServerSettings(next);
-                      await props.testOpenworkServerConnection(next);
-                    }}
-                    disabled={props.busy}
-                  >
-                    Test connection
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => props.updateOpenworkServerSettings(buildOpenworkSettings())}
-                    disabled={props.busy || !hasOpenworkChanges()}
-                  >
-                    Save
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={props.resetOpenworkServerSettings}
-                    disabled={props.busy}
-                  >
-                    Clear
-                  </Button>
-                </div>
-
-                <details class="rounded-2xl border border-gray-6 bg-gray-1/40 px-4 py-3">
-                  <summary class="flex items-center justify-between cursor-pointer text-xs text-gray-10">
-                    Advanced: OpenCode direct
-                    <ChevronDown size={14} class="text-gray-7" />
-                  </summary>
-                  <div class="pt-3 space-y-3">
-                    <div class="text-xs text-gray-10">Connect straight to an OpenCode engine when no host is available.</div>
-                    <div class="text-[11px] text-gray-7 font-mono truncate">
-                      Current engine: {props.baseUrl || "Not connected"}
-                    </div>
-                    <div class="text-xs text-gray-8">Manage direct connections from the workspace picker.</div>
-                  </div>
-                </details>
               </div>
             </Show>
           </div>
