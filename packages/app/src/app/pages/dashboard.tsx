@@ -26,6 +26,7 @@ import type { KeybindSetting } from "../components/settings-keybinds";
 import SkillsView from "./skills";
 import CommandsView from "./commands";
 import StatusBar from "../components/status-bar";
+import ProviderAuthModal from "../components/provider-auth-modal";
 import {
   Command,
   Cpu,
@@ -44,7 +45,12 @@ export type DashboardViewProps = {
   providers: ProviderListItem[];
   providerConnectedIds: string[];
   providerAuthBusy: boolean;
+  providerAuthModalOpen: boolean;
+  providerAuthError: string | null;
+  providerAuthMethods: Record<string, { type: "oauth" | "api"; label: string }[]>;
   openProviderAuthModal: () => Promise<void>;
+  closeProviderAuthModal: () => void;
+  startProviderAuth: (providerId?: string) => Promise<string>;
   view: View;
   setView: (view: View, sessionId?: string) => void;
   mode: "host" | "client" | null;
@@ -276,6 +282,7 @@ export default function DashboardView(props: DashboardViewProps) {
   const [lastRefreshedTab, setLastRefreshedTab] = createSignal<string | null>(null);
   const [refreshInProgress, setRefreshInProgress] = createSignal(false);
   const [taskDraft, setTaskDraft] = createSignal("");
+  const [providerAuthActionBusy, setProviderAuthActionBusy] = createSignal(false);
 
   const canCreateTask = createMemo(
     () => !props.newTaskDisabled && taskDraft().trim().length > 0
@@ -287,6 +294,19 @@ export default function DashboardView(props: DashboardViewProps) {
     props.setPrompt(value);
     props.createSessionAndOpen();
     setTaskDraft("");
+  };
+
+  const handleProviderAuthSelect = async (providerId: string) => {
+    if (providerAuthActionBusy()) return;
+    setProviderAuthActionBusy(true);
+    try {
+      await props.startProviderAuth(providerId);
+      props.closeProviderAuthModal();
+    } catch {
+      // Errors are surfaced in the modal.
+    } finally {
+      setProviderAuthActionBusy(false);
+    }
   };
 
   createEffect(() => {
@@ -965,16 +985,29 @@ export default function DashboardView(props: DashboardViewProps) {
           </div>
         </Show>
 
+        <ProviderAuthModal
+          open={props.providerAuthModalOpen}
+          loading={props.providerAuthBusy}
+          submitting={providerAuthActionBusy()}
+          error={props.providerAuthError}
+          providers={props.providers}
+          connectedProviderIds={props.providerConnectedIds}
+          authMethods={props.providerAuthMethods}
+          onSelect={handleProviderAuthSelect}
+          onClose={props.closeProviderAuthModal}
+        />
+
         <div class="fixed bottom-0 left-0 right-0">
           <StatusBar
-            mode={props.mode}
-            busy={props.busy}
-            stopHost={props.stopHost}
             clientConnected={props.clientConnected}
             openworkServerStatus={props.openworkServerStatus}
             developerMode={props.developerMode}
             onOpenSettings={() => openSettings("general")}
             onOpenMessaging={() => openSettings("messaging")}
+            onOpenProviders={() => props.openProviderAuthModal()}
+            onOpenMcp={() => props.setTab("mcp")}
+            providerConnectedIds={props.providerConnectedIds}
+            mcpStatuses={props.mcpStatuses}
           />
           <nav class="md:hidden border-t border-gray-6 bg-gray-1/90 backdrop-blur-md">
             <div class="mx-auto max-w-5xl px-4 py-3 grid grid-cols-6 gap-2">
