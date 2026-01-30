@@ -2,11 +2,13 @@ import { Show } from "solid-js";
 import { AlertTriangle, RefreshCcw, X } from "lucide-solid";
 
 import Button from "./button";
+import type { ReloadTrigger } from "../types";
 
 export type ReloadWorkspaceToastProps = {
   open: boolean;
   title: string;
   description: string;
+  trigger?: ReloadTrigger | null;
   warning?: string;
   blockedReason?: string | null;
   error?: string | null;
@@ -20,6 +22,40 @@ export type ReloadWorkspaceToastProps = {
 };
 
 export default function ReloadWorkspaceToast(props: ReloadWorkspaceToastProps) {
+  const getDescription = () => {
+    if (!props.trigger) return props.description;
+    const { type, name, action } = props.trigger;
+    const trimmedName = name?.trim();
+    const verb =
+      action === "removed"
+        ? "was removed"
+        : action === "added"
+        ? "was added"
+        : action === "updated"
+        ? "was updated"
+        : "changed";
+
+    if (type === "skill") {
+      return trimmedName
+        ? `Skill '${trimmedName}' ${verb}. Reload to use it.`
+        : "Skills changed. Reload to apply.";
+    }
+
+    if (type === "plugin") {
+      return trimmedName
+        ? `Plugin '${trimmedName}' ${verb}. Reload to activate.`
+        : "Plugins changed. Reload to apply.";
+    }
+
+    if (type === "mcp") {
+      return trimmedName
+        ? `MCP '${trimmedName}' ${verb}. Reload to connect.`
+        : "MCP config changed. Reload to apply.";
+    }
+
+    return "Config changed. Reload to apply.";
+  };
+
   return (
     <Show when={props.open}>
       <div class="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-[min(480px,calc(100vw-2rem))]">
@@ -57,7 +93,7 @@ export default function ReloadWorkspaceToast(props: ReloadWorkspaceToastProps) {
                   ? <span class="text-amber-11 font-medium">Reloading will stop active tasks.</span>
                   : props.error 
                   ? <span class="text-red-9 font-medium">{props.error}</span>
-                  : props.description
+                  : getDescription()
                 }
               </div>
             </Show>

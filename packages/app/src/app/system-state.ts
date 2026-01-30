@@ -6,7 +6,15 @@ import type { ProviderListItem } from "./types";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
-import type { Client, Mode, PluginScope, ReloadReason, ResetOpenworkMode, UpdateHandle } from "./types";
+import type {
+  Client,
+  Mode,
+  PluginScope,
+  ReloadReason,
+  ReloadTrigger,
+  ResetOpenworkMode,
+  UpdateHandle,
+} from "./types";
 import { addOpencodeCacheHint, isTauriRuntime, safeStringify } from "./utils";
 import { mapConfigProvidersToList } from "./utils/providers";
 import { createUpdaterState } from "./context/updater";
@@ -41,6 +49,7 @@ export function createSystemState(options: {
   const [reloadReasons, setReloadReasons] = createSignal<ReloadReason[]>([]);
   const [reloadLastTriggeredAt, setReloadLastTriggeredAt] = createSignal<number | null>(null);
   const [reloadLastFinishedAt, setReloadLastFinishedAt] = createSignal<number | null>(null);
+  const [reloadTrigger, setReloadTrigger] = createSignal<ReloadTrigger | null>(null);
   const [reloadBusy, setReloadBusy] = createSignal(false);
   const [reloadError, setReloadError] = createSignal<string | null>(null);
 
@@ -132,16 +141,24 @@ export function createSystemState(options: {
     }
   }
 
-  function markReloadRequired(reason: ReloadReason) {
+  function markReloadRequired(reason: ReloadReason, trigger?: ReloadTrigger) {
     setReloadRequired(true);
     setReloadLastTriggeredAt(Date.now());
     setReloadReasons((current) => (current.includes(reason) ? current : [...current, reason]));
+    if (trigger) {
+      setReloadTrigger(trigger);
+    } else {
+      setReloadTrigger({
+        type: reason === "plugins" ? "plugin" : reason === "skills" ? "skill" : reason,
+      });
+    }
   }
 
   function clearReloadRequired() {
     setReloadRequired(false);
     setReloadReasons([]);
     setReloadError(null);
+    setReloadTrigger(null);
   }
 
   const reloadCopy = createMemo(() => {
@@ -466,6 +483,7 @@ export function createSystemState(options: {
     reloadLastTriggeredAt,
     reloadLastFinishedAt,
     setReloadLastFinishedAt,
+    reloadTrigger,
     reloadBusy,
     reloadError,
     reloadCopy,

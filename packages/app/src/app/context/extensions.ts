@@ -4,7 +4,7 @@ import { applyEdits, modify } from "jsonc-parser";
 import { join } from "@tauri-apps/api/path";
 import { currentLocale, t } from "../../i18n";
 
-import type { Client, Mode, PluginScope, ReloadReason, SkillCard } from "../types";
+import type { Client, Mode, PluginScope, ReloadReason, ReloadTrigger, SkillCard } from "../types";
 import { addOpencodeCacheHint, isTauriRuntime } from "../utils";
 import skillCreatorTemplate from "../data/skill-creator.md?raw";
 import {
@@ -45,7 +45,7 @@ export function createExtensionsStore(options: {
   setBusyLabel: (value: string | null) => void;
   setBusyStartedAt: (value: number | null) => void;
   setError: (value: string | null) => void;
-  markReloadRequired: (reason: ReloadReason) => void;
+  markReloadRequired: (reason: ReloadReason, trigger?: ReloadTrigger) => void;
   onNotionSkillInstalled?: () => void;
 }) {
   // Translation helper that uses current language from i18n
@@ -444,6 +444,7 @@ export function createExtensionsStore(options: {
   async function addPlugin(pluginNameOverride?: string) {
     const pluginName = (pluginNameOverride ?? pluginInput()).trim();
     const isManualInput = pluginNameOverride == null;
+    const triggerName = stripPluginVersion(pluginName);
 
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isHostMode = options.mode() === "host";
@@ -525,7 +526,7 @@ export function createExtensionsStore(options: {
           plugin: [pluginName],
         };
         await writeOpencodeConfig(scope, targetDir, `${JSON.stringify(payload, null, 2)}\n`);
-        options.markReloadRequired("plugins");
+        options.markReloadRequired("plugins", { type: "plugin", name: triggerName, action: "added" });
         if (isManualInput) {
           setPluginInput("");
         }
@@ -548,7 +549,7 @@ export function createExtensionsStore(options: {
       const updated = applyEdits(raw, edits);
 
       await writeOpencodeConfig(scope, targetDir, updated);
-      options.markReloadRequired("plugins");
+      options.markReloadRequired("plugins", { type: "plugin", name: triggerName, action: "added" });
       if (isManualInput) {
         setPluginInput("");
       }
@@ -582,12 +583,17 @@ export function createExtensionsStore(options: {
         return;
       }
 
+      const inferredName = sourceDir.split(/[\\/]/).filter(Boolean).pop();
       const result = await importSkill(targetDir, sourceDir, { overwrite: false });
       if (!result.ok) {
         setSkillsStatus(result.stderr || result.stdout || translate("skills.import_failed").replace("{status}", String(result.status)));
       } else {
         setSkillsStatus(result.stdout || translate("skills.imported"));
-        options.markReloadRequired("skills");
+        options.markReloadRequired("skills", {
+          type: "skill",
+          name: inferredName,
+          action: "added",
+        });
       }
 
       await refreshSkills({ force: true });
@@ -668,7 +674,7 @@ export function createExtensionsStore(options: {
         setSkillsStatus(result.stderr || result.stdout || translate("skills.install_failed"));
       } else {
         setSkillsStatus(result.stdout || translate("skills.skill_creator_installed"));
-        options.markReloadRequired("skills");
+        options.markReloadRequired("skills", { type: "skill", name: "skill-creator", action: "added" });
       }
 
       await refreshSkills({ force: true });
@@ -749,7 +755,7 @@ export function createExtensionsStore(options: {
         setSkillsStatus(result.stderr || result.stdout || translate("skills.uninstall_failed"));
       } else {
         setSkillsStatus(result.stdout || translate("skills.uninstalled"));
-        options.markReloadRequired("skills");
+        options.markReloadRequired("skills", { type: "skill", name: trimmed, action: "removed" });
       }
 
       await refreshSkills({ force: true });
