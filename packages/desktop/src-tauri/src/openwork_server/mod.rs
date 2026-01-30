@@ -45,6 +45,8 @@ pub fn start_openwork_server(
     manager: &OpenworkServerManager,
     workspace_path: &str,
     opencode_base_url: Option<&str>,
+    opencode_username: Option<&str>,
+    opencode_password: Option<&str>,
 ) -> Result<OpenworkServerInfo, String> {
     let mut state = manager.inner.lock().map_err(|_| "openwork server mutex poisoned".to_string())?;
     OpenworkServerManager::stop_locked(&mut state);
@@ -63,6 +65,8 @@ pub fn start_openwork_server(
         &host_token,
         opencode_base_url,
         Some(workspace_path),
+        opencode_username,
+        opencode_password,
     )?;
 
     state.child = Some(child);

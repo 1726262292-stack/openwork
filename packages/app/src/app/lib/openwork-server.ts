@@ -24,6 +24,8 @@ export type OpenworkWorkspaceInfo = {
   opencode?: {
     baseUrl?: string;
     directory?: string;
+    username?: string;
+    password?: string;
   };
 };
 

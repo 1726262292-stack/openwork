@@ -14,6 +14,8 @@ interface CliArgs {
   approvalTimeoutMs?: number;
   opencodeBaseUrl?: string;
   opencodeDirectory?: string;
+  opencodeUsername?: string;
+  opencodePassword?: string;
   workspaces: string[];
   corsOrigins?: string[];
   readOnly?: boolean;
@@ -30,6 +32,8 @@ interface FileConfig {
   corsOrigins?: string[];
   authorizedRoots?: string[];
   readOnly?: boolean;
+  opencodeUsername?: string;
+  opencodePassword?: string;
 }
 
 const DEFAULT_PORT = 8787;
@@ -93,6 +97,16 @@ export function parseCliArgs(argv: string[]): CliArgs {
       index += 1;
       continue;
     }
+    if (value === "--opencode-username") {
+      args.opencodeUsername = argv[index + 1];
+      index += 1;
+      continue;
+    }
+    if (value === "--opencode-password") {
+      args.opencodePassword = argv[index + 1];
+      index += 1;
+      continue;
+    }
     if (value === "--workspace") {
       const path = argv[index + 1];
       if (path) args.workspaces.push(path);
@@ -126,6 +140,8 @@ export function printHelp(): void {
     "  --approval-timeout <ms>  Approval timeout",
     "  --opencode-base-url <url> OpenCode base URL to share",
     "  --opencode-directory <path> OpenCode workspace directory to share",
+    "  --opencode-username <user> OpenCode server username",
+    "  --opencode-password <pass> OpenCode server password",
     "  --workspace <path>       Workspace root (repeatable)",
     "  --cors <origins>          Comma-separated origins or *",
     "  --read-only              Disable writes",
@@ -154,14 +170,20 @@ export async function resolveServerConfig(cli: CliArgs): Promise<ServerConfig> {
 
   const envOpencodeBaseUrl = process.env.OPENWORK_OPENCODE_BASE_URL;
   const envOpencodeDirectory = process.env.OPENWORK_OPENCODE_DIRECTORY;
+  const envOpencodeUsername = process.env.OPENWORK_OPENCODE_USERNAME;
+  const envOpencodePassword = process.env.OPENWORK_OPENCODE_PASSWORD;
   const opencodeBaseUrl = cli.opencodeBaseUrl ?? envOpencodeBaseUrl;
   const opencodeDirectory = cli.opencodeDirectory ?? envOpencodeDirectory;
+  const opencodeUsername = cli.opencodeUsername ?? envOpencodeUsername ?? fileConfig.opencodeUsername;
+  const opencodePassword = cli.opencodePassword ?? envOpencodePassword ?? fileConfig.opencodePassword;
 
-  if (workspaceConfigs.length > 0 && (opencodeBaseUrl || opencodeDirectory)) {
+  if (workspaceConfigs.length > 0 && (opencodeBaseUrl || opencodeDirectory || opencodeUsername || opencodePassword)) {
     workspaceConfigs[0] = {
       ...workspaceConfigs[0],
       baseUrl: opencodeBaseUrl ?? workspaceConfigs[0].baseUrl,
       directory: opencodeDirectory ?? workspaceConfigs[0].directory,
+      opencodeUsername: opencodeUsername ?? workspaceConfigs[0].opencodeUsername,
+      opencodePassword: opencodePassword ?? workspaceConfigs[0].opencodePassword,
     };
   }
 

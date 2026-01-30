@@ -41,7 +41,7 @@ import {
   type EngineInfo,
   type WorkspaceInfo,
 } from "../lib/tauri";
-import { waitForHealthy, createClient } from "../lib/opencode";
+import { waitForHealthy, createClient, type OpencodeAuth } from "../lib/opencode";
 import type { ProviderListItem } from "../types";
 import { t, currentLocale } from "../../i18n";
 import { mapConfigProvidersToList } from "../utils/providers";
@@ -94,6 +94,7 @@ export function createWorkspaceStore(options: {
 }) {
 
   const [engine, setEngine] = createSignal<EngineInfo | null>(null);
+  const [engineAuth, setEngineAuth] = createSignal<OpencodeAuth | null>(null);
   const [engineDoctorResult, setEngineDoctorResult] = createSignal<EngineDoctorResult | null>(null);
   const [engineDoctorCheckedAt, setEngineDoctorCheckedAt] = createSignal<number | null>(null);
   const [engineInstallLogs, setEngineInstallLogs] = createSignal<string | null>(null);
@@ -205,6 +206,11 @@ export function createWorkspaceStore(options: {
       throw new Error("OpenWork host did not provide an OpenCode URL.");
     }
 
+    const opencodeUsername = workspace.opencode?.username?.trim() ?? "";
+    const opencodePassword = workspace.opencode?.password?.trim() ?? "";
+    const opencodeAuth =
+      opencodeUsername && opencodePassword ? { username: opencodeUsername, password: opencodePassword } : undefined;
+
     try {
       const hostUrl = new URL(normalized);
       const opencodeUrl = new URL(opencodeBaseUrl);
@@ -223,6 +229,7 @@ export function createWorkspaceStore(options: {
       workspace,
       opencodeBaseUrl,
       directory: workspace.opencode?.directory?.trim() ?? workspace.directory?.trim() ?? "",
+      auth: opencodeAuth,
     };
   };
 
@@ -232,6 +239,10 @@ export function createWorkspaceStore(options: {
     try {
       const info = await engineInfo();
       setEngine(info);
+
+      const username = info.opencodeUsername?.trim() ?? "";
+      const password = info.opencodePassword?.trim() ?? "";
+      setEngineAuth(username && password ? { username, password } : null);
 
       if (info.projectDir) {
         setProjectDir(info.projectDir);
@@ -294,6 +305,7 @@ export function createWorkspaceStore(options: {
           let resolvedBaseUrl = baseUrl;
           let resolvedDirectory = next.directory?.trim() ?? "";
           let workspaceInfo: OpenworkWorkspaceInfo | null = null;
+          let resolvedAuth: OpencodeAuth | undefined = undefined;
 
           try {
             const resolved = await resolveOpenworkHost({
@@ -304,6 +316,7 @@ export function createWorkspaceStore(options: {
               resolvedBaseUrl = resolved.opencodeBaseUrl;
               resolvedDirectory = resolved.directory;
               workspaceInfo = resolved.workspace;
+              resolvedAuth = resolved.auth;
             } else {
               resolvedBaseUrl = baseUrl || hostUrl;
             }
@@ -318,11 +331,16 @@ export function createWorkspaceStore(options: {
             return false;
           }
 
-          const ok = await connectToServer(resolvedBaseUrl, resolvedDirectory || undefined, {
-            workspaceId: next.id,
-            workspaceType: next.workspaceType,
-            targetRoot: resolvedDirectory ?? "",
-          });
+          const ok = await connectToServer(
+            resolvedBaseUrl,
+            resolvedDirectory || undefined,
+            {
+              workspaceId: next.id,
+              workspaceType: next.workspaceType,
+              targetRoot: resolvedDirectory ?? "",
+            },
+            resolvedAuth,
+          );
 
           if (!ok) {
             return false;
@@ -472,9 +490,14 @@ export function createWorkspaceStore(options: {
         const newInfo = await engineStart(next.path, { preferSidecar: options.engineSource() === "sidecar" });
         setEngine(newInfo);
 
+        const username = newInfo.opencodeUsername?.trim() ?? "";
+        const password = newInfo.opencodePassword?.trim() ?? "";
+        const auth = username && password ? { username, password } : undefined;
+        setEngineAuth(auth ?? null);
+
         // Reconnect to server
         if (newInfo.baseUrl) {
-          const ok = await connectToServer(newInfo.baseUrl, newInfo.projectDir ?? undefined);
+          const ok = await connectToServer(newInfo.baseUrl, newInfo.projectDir ?? undefined, undefined, auth);
           if (!ok) {
             options.setError("Failed to reconnect after workspace switch");
           }
@@ -504,7 +527,8 @@ export function createWorkspaceStore(options: {
       workspaceId?: string;
       workspaceType?: WorkspaceInfo["workspaceType"];
       targetRoot?: string;
-    }
+    },
+    auth?: OpencodeAuth,
   ) {
     console.log("[workspace] connect", {
       baseUrl: nextBaseUrl,
@@ -519,7 +543,7 @@ export function createWorkspaceStore(options: {
 
     try {
       let resolvedDirectory = directory?.trim() ?? "";
-      let nextClient = createClient(nextBaseUrl, resolvedDirectory || undefined);
+      let nextClient = createClient(nextBaseUrl, resolvedDirectory || undefined, auth);
       const health = await waitForHealthy(nextClient, { timeoutMs: 12_000 });
 
       if (context?.workspaceType === "remote" && !resolvedDirectory) {
@@ -538,7 +562,7 @@ export function createWorkspaceStore(options: {
               syncActiveWorkspaceId(updated.activeId);
             }
             setProjectDir(resolvedDirectory);
-            nextClient = createClient(nextBaseUrl, resolvedDirectory);
+            nextClient = createClient(nextBaseUrl, resolvedDirectory, auth);
           }
         } catch (error) {
           console.log("[workspace] remote directory lookup failed", error);
@@ -692,6 +716,7 @@ export function createWorkspaceStore(options: {
     let resolvedBaseUrl = directBaseUrl;
     let resolvedDirectory = directory;
     let openworkWorkspace: OpenworkWorkspaceInfo | null = null;
+    let resolvedAuth: OpencodeAuth | undefined = undefined;
     let resolvedHostUrl = hostUrl;
 
     if (hostUrl) {
@@ -709,6 +734,7 @@ export function createWorkspaceStore(options: {
           resolvedDirectory = resolved.directory || directory;
           openworkWorkspace = resolved.workspace;
           resolvedHostUrl = resolved.hostUrl;
+          resolvedAuth = resolved.auth;
         } else if (!resolvedBaseUrl) {
           resolvedBaseUrl = hostUrl;
         }
@@ -724,10 +750,15 @@ export function createWorkspaceStore(options: {
       return false;
     }
 
-    const ok = await connectToServer(resolvedBaseUrl, resolvedDirectory || undefined, {
-      workspaceType: "remote",
-      targetRoot: resolvedDirectory ?? "",
-    });
+    const ok = await connectToServer(
+      resolvedBaseUrl,
+      resolvedDirectory || undefined,
+      {
+        workspaceType: "remote",
+        targetRoot: resolvedDirectory ?? "",
+      },
+      resolvedAuth,
+    );
 
     if (!ok) {
       return false;
@@ -1014,8 +1045,13 @@ export function createWorkspaceStore(options: {
       const info = await engineStart(dir, { preferSidecar: options.engineSource() === "sidecar" });
       setEngine(info);
 
+      const username = info.opencodeUsername?.trim() ?? "";
+      const password = info.opencodePassword?.trim() ?? "";
+      const auth = username && password ? { username, password } : undefined;
+      setEngineAuth(auth ?? null);
+
       if (info.baseUrl) {
-        const ok = await connectToServer(info.baseUrl, info.projectDir ?? undefined);
+        const ok = await connectToServer(info.baseUrl, info.projectDir ?? undefined, undefined, auth);
         if (!ok) return false;
       }
 
@@ -1043,6 +1079,8 @@ export function createWorkspaceStore(options: {
         const info = await engineStop();
         setEngine(info);
       }
+
+      setEngineAuth(null);
 
       options.setClient(null);
       options.setConnectedVersion(null);
@@ -1096,8 +1134,13 @@ export function createWorkspaceStore(options: {
       const nextInfo = await engineStart(root, { preferSidecar: options.engineSource() === "sidecar" });
       setEngine(nextInfo);
 
+      const username = nextInfo.opencodeUsername?.trim() ?? "";
+      const password = nextInfo.opencodePassword?.trim() ?? "";
+      const auth = username && password ? { username, password } : undefined;
+      setEngineAuth(auth ?? null);
+
       if (nextInfo.baseUrl) {
-        const ok = await connectToServer(nextInfo.baseUrl, nextInfo.projectDir ?? undefined);
+        const ok = await connectToServer(nextInfo.baseUrl, nextInfo.projectDir ?? undefined, undefined, auth);
         if (!ok) {
           options.setError("Failed to reconnect after reload");
           return false;
@@ -1346,7 +1389,7 @@ export function createWorkspaceStore(options: {
 
       if (info?.running && info.baseUrl) {
         options.setOnboardingStep("connecting");
-        const ok = await connectToServer(info.baseUrl, info.projectDir ?? undefined);
+        const ok = await connectToServer(info.baseUrl, info.projectDir ?? undefined, undefined, engineAuth() ?? undefined);
         if (!ok) {
           options.setMode(null);
           options.setOnboardingStep("mode");
@@ -1373,7 +1416,7 @@ export function createWorkspaceStore(options: {
 
       if (info?.running && info.baseUrl) {
         options.setOnboardingStep("connecting");
-        const ok = await connectToServer(info.baseUrl, info.projectDir ?? undefined);
+        const ok = await connectToServer(info.baseUrl, info.projectDir ?? undefined, undefined, engineAuth() ?? undefined);
         if (!ok) {
           options.setMode(null);
           options.setOnboardingStep("mode");
@@ -1443,7 +1486,12 @@ export function createWorkspaceStore(options: {
   async function onAttachHost() {
     options.setMode("host");
     options.setOnboardingStep("connecting");
-    const ok = await connectToServer(engine()?.baseUrl ?? "", engine()?.projectDir ?? undefined);
+    const ok = await connectToServer(
+      engine()?.baseUrl ?? "",
+      engine()?.projectDir ?? undefined,
+      undefined,
+      engineAuth() ?? undefined,
+    );
     if (!ok) {
       options.setMode(null);
       options.setOnboardingStep("mode");

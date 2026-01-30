@@ -20,6 +20,8 @@ export function buildWorkspaceInfos(
       workspaceType: workspace.workspaceType ?? "local",
       baseUrl: workspace.baseUrl,
       directory: workspace.directory,
+      opencodeUsername: workspace.opencodeUsername,
+      opencodePassword: workspace.opencodePassword,
     };
   });
 }

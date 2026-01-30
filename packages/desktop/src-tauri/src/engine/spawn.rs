@@ -34,6 +34,8 @@ pub fn spawn_engine(
     port: u16,
     project_dir: &str,
     use_sidecar: bool,
+    opencode_username: Option<&str>,
+    opencode_password: Option<&str>,
 ) -> Result<(Receiver<CommandEvent>, CommandChild), String> {
     let args = build_engine_args(hostname, port);
 
@@ -74,6 +76,18 @@ pub fn spawn_engine(
 
     command = command.env("OPENCODE_CLIENT", "openwork");
     command = command.env("OPENWORK", "1");
+
+    if let Some(username) = opencode_username {
+        if !username.trim().is_empty() {
+            command = command.env("OPENCODE_SERVER_USERNAME", username);
+        }
+    }
+
+    if let Some(password) = opencode_password {
+        if !password.trim().is_empty() {
+            command = command.env("OPENCODE_SERVER_PASSWORD", password);
+        }
+    }
 
     command
         .spawn()

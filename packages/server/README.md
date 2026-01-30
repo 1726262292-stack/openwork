@@ -22,7 +22,13 @@ Defaults to `~/.config/openwork/server.json` (override with `OPENWORK_SERVER_CON
   "port": 8787,
   "approval": { "mode": "manual", "timeoutMs": 30000 },
   "workspaces": [
-    { "path": "/Users/susan/Finance", "name": "Finance", "workspaceType": "local" }
+    {
+      "path": "/Users/susan/Finance",
+      "name": "Finance",
+      "workspaceType": "local",
+      "baseUrl": "http://127.0.0.1:4096",
+      "directory": "/Users/susan/Finance"
+    }
   ],
   "corsOrigins": ["http://localhost:5173"]
 }
@@ -38,6 +44,10 @@ Defaults to `~/.config/openwork/server.json` (override with `OPENWORK_SERVER_CON
 - `OPENWORK_APPROVAL_TIMEOUT_MS`
 - `OPENWORK_WORKSPACES` (JSON array or comma-separated list of paths)
 - `OPENWORK_CORS_ORIGINS` (comma-separated list or `*`)
+- `OPENWORK_OPENCODE_BASE_URL`
+- `OPENWORK_OPENCODE_DIRECTORY`
+- `OPENWORK_OPENCODE_USERNAME`
+- `OPENWORK_OPENCODE_PASSWORD`
 
 ## Endpoints (initial)
 

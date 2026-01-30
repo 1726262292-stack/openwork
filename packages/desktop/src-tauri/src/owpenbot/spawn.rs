@@ -26,6 +26,8 @@ pub fn spawn_owpenbot(
     app: &AppHandle,
     workspace_path: &str,
     opencode_url: Option<&str>,
+    opencode_username: Option<&str>,
+    opencode_password: Option<&str>,
 ) -> Result<(Receiver<CommandEvent>, CommandChild), String> {
     let command = match app.shell().sidecar("owpenbot") {
         Ok(command) => command,
@@ -34,9 +36,21 @@ pub fn spawn_owpenbot(
 
     let args = build_owpenbot_args(workspace_path, opencode_url);
     
+    let mut command = command.args(args).current_dir(Path::new(workspace_path));
+
+    if let Some(username) = opencode_username {
+        if !username.trim().is_empty() {
+            command = command.env("OPENCODE_SERVER_USERNAME", username);
+        }
+    }
+
+    if let Some(password) = opencode_password {
+        if !password.trim().is_empty() {
+            command = command.env("OPENCODE_SERVER_PASSWORD", password);
+        }
+    }
+
     command
-        .args(args)
-        .current_dir(Path::new(workspace_path))
         .spawn()
         .map_err(|e| format!("Failed to start owpenbot: {e}"))
 }

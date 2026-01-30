@@ -58,6 +58,8 @@ pub struct EngineInfo {
     pub project_dir: Option<String>,
     pub hostname: Option<String>,
     pub port: Option<u16>,
+    pub opencode_username: Option<String>,
+    pub opencode_password: Option<String>,
     pub pid: Option<u32>,
     pub last_stdout: Option<String>,
     pub last_stderr: Option<String>,

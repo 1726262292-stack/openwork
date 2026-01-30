@@ -70,6 +70,8 @@ pub fn spawn_openwork_server(
     host_token: &str,
     opencode_base_url: Option<&str>,
     opencode_directory: Option<&str>,
+    opencode_username: Option<&str>,
+    opencode_password: Option<&str>,
 ) -> Result<(Receiver<CommandEvent>, CommandChild), String> {
     let command = match app.shell().sidecar("openwork-server") {
         Ok(command) => command,
@@ -85,9 +87,21 @@ pub fn spawn_openwork_server(
         opencode_base_url,
         opencode_directory,
     );
+    let mut command = command.args(args).current_dir(Path::new(workspace_path));
+
+    if let Some(username) = opencode_username {
+        if !username.trim().is_empty() {
+            command = command.env("OPENWORK_OPENCODE_USERNAME", username);
+        }
+    }
+
+    if let Some(password) = opencode_password {
+        if !password.trim().is_empty() {
+            command = command.env("OPENWORK_OPENCODE_PASSWORD", password);
+        }
+    }
+
     command
-        .args(args)
-        .current_dir(Path::new(workspace_path))
         .spawn()
         .map_err(|e| format!("Failed to start OpenWork server: {e}"))
 }

@@ -64,6 +64,8 @@ pub fn owpenbot_start(
     manager: State<OwpenbotManager>,
     workspace_path: String,
     opencode_url: Option<String>,
+    opencode_username: Option<String>,
+    opencode_password: Option<String>,
 ) -> Result<OwpenbotInfo, String> {
     let mut state = manager
         .inner
@@ -71,7 +73,13 @@ pub fn owpenbot_start(
         .map_err(|_| "owpenbot mutex poisoned".to_string())?;
     OwpenbotManager::stop_locked(&mut state);
 
-    let (mut rx, child) = spawn_owpenbot(&app, &workspace_path, opencode_url.as_deref())?;
+    let (mut rx, child) = spawn_owpenbot(
+        &app,
+        &workspace_path,
+        opencode_url.as_deref(),
+        opencode_username.as_deref(),
+        opencode_password.as_deref(),
+    )?;
 
     state.child = Some(child);
     state.child_exited = false;

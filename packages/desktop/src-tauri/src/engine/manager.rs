@@ -17,6 +17,8 @@ pub struct EngineState {
     pub hostname: Option<String>,
     pub port: Option<u16>,
     pub base_url: Option<String>,
+    pub opencode_username: Option<String>,
+    pub opencode_password: Option<String>,
     pub last_stdout: Option<String>,
     pub last_stderr: Option<String>,
 }
@@ -38,6 +40,8 @@ impl EngineManager {
             project_dir: state.project_dir.clone(),
             hostname: state.hostname.clone(),
             port: state.port,
+            opencode_username: state.opencode_username.clone(),
+            opencode_password: state.opencode_password.clone(),
             pid,
             last_stdout: state.last_stdout.clone(),
             last_stderr: state.last_stderr.clone(),
@@ -53,6 +57,8 @@ impl EngineManager {
         state.project_dir = None;
         state.hostname = None;
         state.port = None;
+        state.opencode_username = None;
+        state.opencode_password = None;
         state.last_stdout = None;
         state.last_stderr = None;
     }
