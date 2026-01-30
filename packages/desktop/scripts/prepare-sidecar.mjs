@@ -336,6 +336,8 @@ const stamp = Date.now();
 const archivePath = join(tmpdir(), `opencode-${stamp}-${opencodeAsset}`);
 const extractDir = join(tmpdir(), `opencode-${stamp}`);
 
+mkdirSync(extractDir, { recursive: true });
+
 if (process.platform === "win32") {
   const psQuote = (value) => `'${value.replace(/'/g, "''")}'`;
   const psScript = [
