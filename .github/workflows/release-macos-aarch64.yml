@@ -374,7 +374,7 @@ jobs:
           tauriScript: pnpm exec tauri -vvv
           args: ${{ matrix.args }}
           retryAttempts: 3
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
           updaterJsonPreferNsis: true
           releaseAssetNamePattern: openwork-desktop-[platform]-[arch][ext]
 
@@ -403,7 +403,7 @@ jobs:
           tauriScript: pnpm exec tauri -vvv
           args: ${{ matrix.args }}
           retryAttempts: 3
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
           updaterJsonPreferNsis: true
           releaseAssetNamePattern: openwork-desktop-[platform]-[arch][ext]
 
