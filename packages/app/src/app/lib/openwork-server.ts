@@ -238,7 +238,8 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
   return {
     baseUrl,
     token,
-    health: () => requestJson<{ ok: boolean; version: string; uptimeMs: number }>(baseUrl, "/health"),
+    health: () =>
+      requestJson<{ ok: boolean; version: string; uptimeMs: number }>(baseUrl, "/health", { token, hostToken }),
     capabilities: () => requestJson<OpenworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken }),
     listWorkspaces: () => requestJson<{ items: OpenworkWorkspaceInfo[] }>(baseUrl, "/workspaces", { token, hostToken }),
     getConfig: (workspaceId: string) =>

@@ -294,7 +294,10 @@ export default function App() {
     const client = createOpenworkServerClient({ baseUrl: url, token });
     try {
       await client.health();
-    } catch {
+    } catch (error) {
+      if (error instanceof OpenworkServerError && (error.status === 401 || error.status === 403)) {
+        return { status: "limited" as OpenworkServerStatus, capabilities: null };
+      }
       return { status: "disconnected" as OpenworkServerStatus, capabilities: null };
     }
 

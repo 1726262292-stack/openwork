@@ -182,6 +182,8 @@ export function createWorkspaceStore(options: {
 
     const client = createOpenworkServerClient({ baseUrl: normalized, token: input.token ?? undefined });
 
+    const trimmedToken = input.token?.trim() ?? "";
+
     try {
       const health = await client.health();
       if (!health?.ok) {
@@ -189,12 +191,15 @@ export function createWorkspaceStore(options: {
       }
     } catch (error) {
       if (error instanceof OpenworkServerError && (error.status === 401 || error.status === 403)) {
-        throw error;
+        if (!trimmedToken) {
+          throw new Error("Access token required for OpenWork host.");
+        }
+        throw new Error("OpenWork host rejected the client token.");
       }
       return { kind: "fallback" as const };
     }
 
-    if (!input.token?.trim()) {
+    if (!trimmedToken) {
       throw new Error("Access token required for OpenWork host.");
     }
 
