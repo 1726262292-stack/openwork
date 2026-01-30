@@ -352,6 +352,7 @@ export type LocalSkillCard = {
   name: string;
   path: string;
   description?: string;
+  trigger?: string;
 };
 
 export async function listLocalSkills(projectDir: string): Promise<LocalSkillCard[]> {

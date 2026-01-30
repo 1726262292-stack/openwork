@@ -35,12 +35,14 @@ import WorkspaceChip from "../components/workspace-chip";
 import ProviderAuthModal from "../components/provider-auth-modal";
 import StatusBar from "../components/status-bar";
 import type { OpenworkServerStatus } from "../lib/openwork-server";
+import { join } from "@tauri-apps/api/path";
 
 import MessageList from "../components/session/message-list";
 import Composer from "../components/session/composer";
 import SessionSidebar, { type SidebarSectionState } from "../components/session/sidebar";
 import ContextPanel from "../components/session/context-panel";
 import FlyoutItem from "../components/flyout-item";
+import { isTauriRuntime } from "../utils";
 
 export type SessionViewProps = {
   selectedSessionId: string | null;
@@ -48,6 +50,7 @@ export type SessionViewProps = {
   setTab: (tab: DashboardTab) => void;
   setSettingsTab: (tab: SettingsTab) => void;
   activeWorkspaceDisplay: WorkspaceDisplay;
+  activeWorkspaceRoot: string;
   setWorkspaceSearch: (value: string) => void;
   setWorkspacePickerOpen: (open: boolean) => void;
   mode: "host" | "client" | null;
@@ -146,6 +149,38 @@ export default function SessionView(props: SessionViewProps) {
   const commandNeedsDetails = (command: { template: string }) => COMMAND_ARGS_RE.test(command.template);
 
   const agentLabel = createMemo(() => props.selectedSessionAgent ?? "Default agent");
+
+  const isAbsolutePath = (value: string) =>
+    /^(?:[a-zA-Z]:[\\/]|\\\\|\/|~\/)/.test(value.trim());
+
+  const handleWorkingFileClick = async (file: string) => {
+    const trimmed = file.trim();
+    if (!trimmed) return;
+
+    if (props.activeWorkspaceDisplay.workspaceType === "remote") {
+      setCommandToast("File open is unavailable for remote workspaces.");
+      return;
+    }
+
+    if (!isTauriRuntime()) {
+      setCommandToast("File open is available in the desktop app.");
+      return;
+    }
+
+    try {
+      const { openPath } = await import("@tauri-apps/plugin-opener");
+      const root = props.activeWorkspaceRoot.trim();
+      if (!isAbsolutePath(trimmed) && !root) {
+        setCommandToast("Pick a workspace to open files.");
+        return;
+      }
+      const target = !isAbsolutePath(trimmed) && root ? await join(root, trimmed) : trimmed;
+      await openPath(target);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to open file";
+      setCommandToast(message);
+    }
+  };
 
   const loadAgentOptions = async (force = false) => {
     if (agentPickerBusy()) return agentOptions();
@@ -1127,6 +1162,7 @@ export default function SessionView(props: SessionViewProps) {
               skillsStatus={props.skillsStatus}
               authorizedDirs={props.authorizedDirs}
               workingFiles={props.workingFiles}
+              workspaceRoot={props.activeWorkspaceRoot}
               expandedSections={props.expandedSidebarSections}
               onToggleSection={(section) =>
                 props.setExpandedSidebarSections((curr) => ({
@@ -1134,6 +1170,7 @@ export default function SessionView(props: SessionViewProps) {
                   [section]: !curr[section],
                 }))
               }
+              onFileClick={handleWorkingFileClick}
             />
           </aside>
         </div>

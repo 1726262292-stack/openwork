@@ -76,6 +76,7 @@ export interface SkillItem {
   path: string;
   description: string;
   scope: "project" | "global";
+  trigger?: string;
 }
 
 export interface CommandItem {

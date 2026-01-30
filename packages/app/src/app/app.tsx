@@ -1950,11 +1950,11 @@ export default function App() {
   const [expandedSidebarSections, setExpandedSidebarSections] = createSignal({
     progress: true,
     artifacts: true,
-    context: true,
-    plugins: true,
-    mcp: true,
+    context: false,
+    plugins: false,
+    mcp: false,
     skills: true,
-    authorizedFolders: true,
+    authorizedFolders: false,
   });
 
   const [appVersion, setAppVersion] = createSignal<string | null>(null);
@@ -3592,6 +3592,7 @@ export default function App() {
     setTab,
     setSettingsTab,
     activeWorkspaceDisplay: activeWorkspaceDisplay(),
+    activeWorkspaceRoot: workspaceStore.activeWorkspaceRoot().trim(),
     setWorkspaceSearch: workspaceStore.setWorkspaceSearch,
     setWorkspacePickerOpen: workspaceStore.setWorkspacePickerOpen,
     mode: mode(),

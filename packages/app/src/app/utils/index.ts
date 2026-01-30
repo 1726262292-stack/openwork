@@ -594,10 +594,11 @@ export function deriveWorkingFiles(items: ArtifactItem[]): string[] {
 
   for (const item of items) {
     const rawKey = item.path ?? item.name;
-    const normalized = rawKey.trim().replace(/[\\/]+/g, "/").toLowerCase();
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    results.push(item.name);
+    const normalizedPath = rawKey.trim().replace(/[\\/]+/g, "/");
+    const normalizedKey = normalizedPath.toLowerCase();
+    if (!normalizedPath || seen.has(normalizedKey)) continue;
+    seen.add(normalizedKey);
+    results.push(normalizedPath);
     if (results.length >= 5) break;
   }
 
