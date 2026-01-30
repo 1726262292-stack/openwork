@@ -152,15 +152,18 @@ function buildCapabilities(config: ServerConfig): Capabilities {
 }
 
 function serializeWorkspace(workspace: ServerConfig["workspaces"][number]) {
+  const { opencodeUsername, opencodePassword, ...rest } = workspace;
   const opencode =
-    workspace.baseUrl || workspace.directory
+    workspace.baseUrl || workspace.directory || opencodeUsername || opencodePassword
       ? {
           baseUrl: workspace.baseUrl,
           directory: workspace.directory,
+          username: opencodeUsername,
+          password: opencodePassword,
         }
       : undefined;
   return {
-    ...workspace,
+    ...rest,
     opencode,
   };
 }

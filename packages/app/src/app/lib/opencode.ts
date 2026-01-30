@@ -4,6 +4,11 @@ type FieldsResult<T> =
   | ({ data: T; error?: undefined } & { request: Request; response: Response })
   | ({ data?: undefined; error: unknown } & { request: Request; response: Response });
 
+export type OpencodeAuth = {
+  username?: string;
+  password?: string;
+};
+
 export function unwrap<T>(result: FieldsResult<T>): NonNullable<T> {
   if (result.data !== undefined) {
     return result.data as NonNullable<T>;
@@ -17,10 +22,23 @@ export function unwrap<T>(result: FieldsResult<T>): NonNullable<T> {
   throw new Error(message || "Unknown error");
 }
 
-export function createClient(baseUrl: string, directory?: string) {
+export function createClient(baseUrl: string, directory?: string, auth?: OpencodeAuth) {
+  const headers: Record<string, string> = {};
+  if (auth?.username && auth?.password) {
+    const token = `${auth.username}:${auth.password}`;
+    const encoded = (() => {
+      if (typeof btoa === "function") return btoa(token);
+      const buffer = (globalThis as { Buffer?: { from: (input: string, encoding: string) => { toString: (encoding: string) => string } } }).Buffer;
+      return buffer ? buffer.from(token, "utf8").toString("base64") : null;
+    })();
+    if (encoded) {
+      headers.Authorization = `Basic ${encoded}`;
+    }
+  }
   return createOpencodeClient({
     baseUrl,
     directory,
+    headers: Object.keys(headers).length ? headers : undefined,
   });
 }
 

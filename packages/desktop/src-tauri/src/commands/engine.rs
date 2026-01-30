@@ -13,6 +13,7 @@ use crate::types::{EngineDoctorResult, EngineInfo, ExecResult};
 use crate::utils::truncate_output;
 use serde_json::json;
 use tauri_plugin_shell::process::CommandEvent;
+use uuid::Uuid;
 
 #[derive(Default)]
 struct OutputState {
@@ -159,6 +160,8 @@ pub fn engine_start(
     let bind_host = "0.0.0.0".to_string();
     let client_host = "127.0.0.1".to_string();
     let port = find_free_port()?;
+    let opencode_username = Uuid::new_v4().to_string();
+    let opencode_password = Uuid::new_v4().to_string();
 
     let mut state = manager.inner.lock().expect("engine mutex poisoned");
     EngineManager::stop_locked(&mut state);
@@ -184,8 +187,16 @@ pub fn engine_start(
             .as_ref()
             .is_some_and(|candidate| candidate == &program);
 
-    let (mut rx, child) =
-        spawn_engine(&app, &program, &bind_host, port, &project_dir, use_sidecar)?;
+    let (mut rx, child) = spawn_engine(
+        &app,
+        &program,
+        &bind_host,
+        port,
+        &project_dir,
+        use_sidecar,
+        Some(&opencode_username),
+        Some(&opencode_password),
+    )?;
 
     state.last_stdout = None;
     state.last_stderr = None;
@@ -304,6 +315,8 @@ pub fn engine_start(
     state.hostname = Some(client_host.clone());
     state.port = Some(port);
     state.base_url = Some(format!("http://{client_host}:{port}"));
+    state.opencode_username = Some(opencode_username.clone());
+    state.opencode_password = Some(opencode_password.clone());
 
     let opencode_connect_url = resolve_connect_url(port).unwrap_or_else(|| format!("http://{client_host}:{port}"));
     if let Err(error) = start_openwork_server(
@@ -311,6 +324,8 @@ pub fn engine_start(
         &openwork_manager,
         &state.project_dir.clone().unwrap_or_default(),
         Some(&opencode_connect_url),
+        Some(&opencode_username),
+        Some(&opencode_password),
     ) {
         state.last_stderr = Some(truncate_output(&format!("OpenWork server: {error}"), 8000));
     }
@@ -320,6 +335,8 @@ pub fn engine_start(
         owpenbot_manager,
         project_dir.clone(),
         Some(opencode_connect_url),
+        Some(opencode_username),
+        Some(opencode_password),
     ) {
         state.last_stderr = Some(truncate_output(&format!("Owpenbot: {error}"), 8000));
     }

@@ -7,6 +7,8 @@ export type EngineInfo = {
   projectDir: string | null;
   hostname: string | null;
   port: number | null;
+  opencodeUsername: string | null;
+  opencodePassword: string | null;
   pid: number | null;
   lastStdout: string | null;
   lastStderr: string | null;

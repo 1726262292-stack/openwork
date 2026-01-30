@@ -8,6 +8,8 @@ export interface WorkspaceConfig {
   workspaceType?: WorkspaceType;
   baseUrl?: string;
   directory?: string;
+  opencodeUsername?: string;
+  opencodePassword?: string;
 }
 
 export interface WorkspaceInfo {
@@ -17,9 +19,13 @@ export interface WorkspaceInfo {
   workspaceType: WorkspaceType;
   baseUrl?: string;
   directory?: string;
+  opencodeUsername?: string;
+  opencodePassword?: string;
   opencode?: {
     baseUrl?: string;
     directory?: string;
+    username?: string;
+    password?: string;
   };
 }
 
