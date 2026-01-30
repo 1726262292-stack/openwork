@@ -39,6 +39,9 @@ import browserSetupCommandTemplate from "../data/commands/browser-setup.md?raw";
 import { opencodeCommandWrite } from "../lib/tauri";
 import { isTauriRuntime, parseTemplateFrontmatter } from "../utils";
 import { join } from "@tauri-apps/api/path";
+import browserSetupCommandTemplate from "../data/commands/browser-setup.md?raw";
+import { opencodeCommandWrite } from "../lib/tauri";
+import { isTauriRuntime, parseTemplateFrontmatter } from "../utils";
 
 import MessageList from "../components/session/message-list";
 import Composer from "../components/session/composer";
