@@ -1,4 +1,7 @@
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+
+import { isTauriRuntime } from "../utils";
 
 type FieldsResult<T> =
   | ({ data: T; error?: undefined } & { request: Request; response: Response })
@@ -7,6 +10,39 @@ type FieldsResult<T> =
 export type OpencodeAuth = {
   username?: string;
   password?: string;
+};
+
+const encodeBasicAuth = (auth?: OpencodeAuth) => {
+  if (!auth?.username || !auth?.password) return null;
+  const token = `${auth.username}:${auth.password}`;
+  if (typeof btoa === "function") return btoa(token);
+  const buffer = (globalThis as { Buffer?: { from: (input: string, encoding: string) => { toString: (encoding: string) => string } } })
+    .Buffer;
+  return buffer ? buffer.from(token, "utf8").toString("base64") : null;
+};
+
+const createTauriFetch = (auth?: OpencodeAuth) => {
+  const encoded = encodeBasicAuth(auth);
+  const addAuth = (headers: Headers) => {
+    if (!encoded || headers.has("Authorization")) return;
+    headers.set("Authorization", `Basic ${encoded}`);
+  };
+
+  return (input: RequestInfo | URL, init?: RequestInit) => {
+    if (input instanceof Request) {
+      const headers = new Headers(input.headers);
+      addAuth(headers);
+      const request = new Request(input, { headers });
+      return tauriFetch(request);
+    }
+
+    const headers = new Headers(init?.headers);
+    addAuth(headers);
+    return tauriFetch(input, {
+      ...init,
+      headers,
+    });
+  };
 };
 
 export function unwrap<T>(result: FieldsResult<T>): NonNullable<T> {
@@ -24,21 +60,19 @@ export function unwrap<T>(result: FieldsResult<T>): NonNullable<T> {
 
 export function createClient(baseUrl: string, directory?: string, auth?: OpencodeAuth) {
   const headers: Record<string, string> = {};
-  if (auth?.username && auth?.password) {
-    const token = `${auth.username}:${auth.password}`;
-    const encoded = (() => {
-      if (typeof btoa === "function") return btoa(token);
-      const buffer = (globalThis as { Buffer?: { from: (input: string, encoding: string) => { toString: (encoding: string) => string } } }).Buffer;
-      return buffer ? buffer.from(token, "utf8").toString("base64") : null;
-    })();
+  if (!isTauriRuntime()) {
+    const encoded = encodeBasicAuth(auth);
     if (encoded) {
       headers.Authorization = `Basic ${encoded}`;
     }
   }
+
+  const fetchImpl = isTauriRuntime() ? createTauriFetch(auth) : undefined;
   return createOpencodeClient({
     baseUrl,
     directory,
     headers: Object.keys(headers).length ? headers : undefined,
+    fetch: fetchImpl,
   });
 }
 

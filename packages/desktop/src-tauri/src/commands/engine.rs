@@ -157,11 +157,26 @@ pub fn engine_start(
         }
     }
 
-    let bind_host = "0.0.0.0".to_string();
+    let bind_host = std::env::var("OPENWORK_OPENCODE_BIND_HOST")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "0.0.0.0".to_string());
     let client_host = "127.0.0.1".to_string();
     let port = find_free_port()?;
-    let opencode_username = Uuid::new_v4().to_string();
-    let opencode_password = Uuid::new_v4().to_string();
+    let enable_auth = std::env::var("OPENWORK_OPENCODE_AUTH")
+        .ok()
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(true);
+    let opencode_username = if enable_auth {
+        Some("opencode".to_string())
+    } else {
+        None
+    };
+    let opencode_password = if enable_auth {
+        Some(Uuid::new_v4().to_string())
+    } else {
+        None
+    };
 
     let mut state = manager.inner.lock().expect("engine mutex poisoned");
     EngineManager::stop_locked(&mut state);
@@ -194,8 +209,8 @@ pub fn engine_start(
         port,
         &project_dir,
         use_sidecar,
-        Some(&opencode_username),
-        Some(&opencode_password),
+        opencode_username.as_deref(),
+        opencode_password.as_deref(),
     )?;
 
     state.last_stdout = None;
@@ -315,8 +330,8 @@ pub fn engine_start(
     state.hostname = Some(client_host.clone());
     state.port = Some(port);
     state.base_url = Some(format!("http://{client_host}:{port}"));
-    state.opencode_username = Some(opencode_username.clone());
-    state.opencode_password = Some(opencode_password.clone());
+    state.opencode_username = opencode_username.clone();
+    state.opencode_password = opencode_password.clone();
 
     let opencode_connect_url = resolve_connect_url(port).unwrap_or_else(|| format!("http://{client_host}:{port}"));
     if let Err(error) = start_openwork_server(
@@ -324,8 +339,8 @@ pub fn engine_start(
         &openwork_manager,
         &state.project_dir.clone().unwrap_or_default(),
         Some(&opencode_connect_url),
-        Some(&opencode_username),
-        Some(&opencode_password),
+        opencode_username.as_deref(),
+        opencode_password.as_deref(),
     ) {
         state.last_stderr = Some(truncate_output(&format!("OpenWork server: {error}"), 8000));
     }
@@ -335,8 +350,8 @@ pub fn engine_start(
         owpenbot_manager,
         project_dir.clone(),
         Some(opencode_connect_url),
-        Some(opencode_username),
-        Some(opencode_password),
+        opencode_username,
+        opencode_password,
     ) {
         state.last_stderr = Some(truncate_output(&format!("Owpenbot: {error}"), 8000));
     }

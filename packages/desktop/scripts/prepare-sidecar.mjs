@@ -1,15 +1,36 @@
 import { spawnSync } from "child_process";
-import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readSync, statSync, unlinkSync } from "fs";
+import {
+  chmodSync,
+  closeSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+} from "fs";
 import { dirname, join, resolve } from "path";
 import { tmpdir } from "os";
 import { fileURLToPath } from "url";
 
-const TARGET_TRIPLE = "x86_64-pc-windows-msvc";
-const DOWNLOAD_URL =
-  "https://github.com/anomalyco/opencode/releases/latest/download/opencode-windows-x64.zip";
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const sidecarDir = join(__dirname, "..", "src-tauri", "sidecars");
+const packageJsonPath = resolve(__dirname, "..", "package.json");
+const opencodeVersion = (() => {
+  if (process.env.OPENCODE_VERSION?.trim()) return process.env.OPENCODE_VERSION.trim();
+  try {
+    const raw = readFileSync(packageJsonPath, "utf8");
+    const pkg = JSON.parse(raw);
+    if (pkg.opencodeVersion) return String(pkg.opencodeVersion).trim();
+  } catch {
+    // ignore
+  }
+  return null;
+})();
+const opencodeAssetOverride = process.env.OPENCODE_ASSET?.trim() || null;
 
 // Target triple for native platform binaries
 const resolvedTargetTriple = (() => {
@@ -47,6 +68,13 @@ const bunTarget = (() => {
   }
 })();
 
+const opencodeBaseName = process.platform === "win32" ? "opencode.exe" : "opencode";
+const opencodePath = join(sidecarDir, opencodeBaseName);
+const opencodeTargetName = resolvedTargetTriple
+  ? `opencode-${resolvedTargetTriple}${process.platform === "win32" ? ".exe" : ""}`
+  : null;
+const opencodeTargetPath = opencodeTargetName ? join(sidecarDir, opencodeTargetName) : null;
+
 // openwork-server paths
 const openworkServerBaseName = "openwork-server";
 const openworkServerName = process.platform === "win32" ? `${openworkServerBaseName}.exe` : openworkServerBaseName;
@@ -78,9 +106,6 @@ const owpenbotTargetName = owpenbotTargetTriple
 const owpenbotTargetPath = owpenbotTargetName ? join(sidecarDir, owpenbotTargetName) : null;
 
 const owpenbotDir = resolve(__dirname, "..", "..", "owpenbot");
-const targetSidecarPath = join(sidecarDir, `opencode-${TARGET_TRIPLE}.exe`);
-const devSidecarPath = join(sidecarDir, "opencode.exe");
-
 const readHeader = (filePath, length = 256) => {
   const fd = openSync(filePath, "r");
   try {
@@ -104,6 +129,45 @@ const isStubBinary = (filePath) => {
     return true;
   }
   return false;
+};
+
+const readDirectory = (dir) => {
+  let entries = [];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  return entries.flatMap((entry) => {
+    const next = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      return readDirectory(next);
+    }
+    if (entry.isFile()) {
+      return [next];
+    }
+    return [];
+  });
+};
+
+const findOpencodeBinary = (dir) => {
+  const candidates = readDirectory(dir);
+  return (
+    candidates.find((file) => file.endsWith(`/${opencodeBaseName}`) || file.endsWith(`\\${opencodeBaseName}`)) ??
+    candidates.find((file) => file.endsWith("/opencode") || file.endsWith("\\opencode")) ??
+    null
+  );
+};
+
+const readBinaryVersion = (filePath) => {
+  try {
+    const result = spawnSync(filePath, ["--version"], { encoding: "utf8" });
+    if (result.status === 0 && result.stdout) return result.stdout.trim();
+  } catch {
+    // ignore
+  }
+  return null;
 };
 
 const shouldBuildOpenworkServer =
@@ -214,37 +278,128 @@ if (existsSync(owpenbotBuildPath)) {
   }
 }
 
-if (process.platform !== "win32") {
-  console.log("Skipping Windows sidecar download (non-Windows host).");
+const normalizedVersion = opencodeVersion?.startsWith("v")
+  ? opencodeVersion.slice(1)
+  : opencodeVersion;
+
+if (!normalizedVersion) {
+  console.error(
+    "OpenCode version is not configured. Set OPENCODE_VERSION or add opencodeVersion to packages/desktop/package.json."
+  );
+  process.exit(1);
+}
+
+const opencodeAssetByTarget = {
+  "aarch64-apple-darwin": "opencode-darwin-arm64.zip",
+  "x86_64-apple-darwin": "opencode-darwin-x64-baseline.zip",
+  "x86_64-unknown-linux-gnu": "opencode-linux-x64-baseline.tar.gz",
+  "aarch64-unknown-linux-gnu": "opencode-linux-arm64.tar.gz",
+  "x86_64-pc-windows-msvc": "opencode-windows-x64-baseline.zip",
+  "aarch64-pc-windows-msvc": "opencode-windows-arm64.zip",
+};
+
+const opencodeAsset =
+  opencodeAssetOverride ?? (resolvedTargetTriple ? opencodeAssetByTarget[resolvedTargetTriple] : null);
+
+const opencodeUrl = opencodeAsset
+  ? `https://github.com/anomalyco/opencode/releases/download/v${normalizedVersion}/${opencodeAsset}`
+  : null;
+
+const opencodeCandidatePath = opencodeTargetPath ?? opencodePath;
+const existingVersion =
+  opencodeCandidatePath && existsSync(opencodeCandidatePath)
+    ? readBinaryVersion(opencodeCandidatePath)
+    : null;
+
+const shouldDownloadOpencode =
+  !opencodeCandidatePath ||
+  !existsSync(opencodeCandidatePath) ||
+  isStubBinary(opencodeCandidatePath) ||
+  !existingVersion ||
+  existingVersion !== normalizedVersion;
+
+if (!shouldDownloadOpencode) {
+  console.log(`OpenCode sidecar already present (${existingVersion}).`);
   process.exit(0);
 }
 
-if (existsSync(targetSidecarPath)) {
-  console.log(`OpenCode sidecar already present: ${targetSidecarPath}`);
-  process.exit(0);
+if (!opencodeAsset || !opencodeUrl) {
+  console.error(
+    `No OpenCode asset configured for target ${resolvedTargetTriple ?? "unknown"}. Set OPENCODE_ASSET to override.`
+  );
+  process.exit(1);
 }
 
 mkdirSync(sidecarDir, { recursive: true });
 
 const stamp = Date.now();
-const zipPath = join(tmpdir(), `opencode-windows-x64-${stamp}.zip`);
-const extractDir = join(tmpdir(), `opencode-windows-x64-${stamp}`);
-const extractedExe = join(extractDir, "opencode.exe");
+const archivePath = join(tmpdir(), `opencode-${stamp}-${opencodeAsset}`);
+const extractDir = join(tmpdir(), `opencode-${stamp}`);
 
-const psQuote = (value) => `'${value.replace(/'/g, "''")}'`;
-const psScript = [
-  "$ErrorActionPreference = 'Stop'",
-  `Invoke-WebRequest -Uri ${psQuote(DOWNLOAD_URL)} -OutFile ${psQuote(zipPath)}`,
-  `Expand-Archive -Path ${psQuote(zipPath)} -DestinationPath ${psQuote(extractDir)} -Force`,
-  `if (!(Test-Path ${psQuote(extractedExe)})) { throw 'opencode.exe missing in archive' }`,
-  `Copy-Item -Path ${psQuote(extractedExe)} -Destination ${psQuote(targetSidecarPath)} -Force`,
-  `Copy-Item -Path ${psQuote(extractedExe)} -Destination ${psQuote(devSidecarPath)} -Force`,
-].join("; ");
+if (process.platform === "win32") {
+  const psQuote = (value) => `'${value.replace(/'/g, "''")}'`;
+  const psScript = [
+    "$ErrorActionPreference = 'Stop'",
+    `Invoke-WebRequest -Uri ${psQuote(opencodeUrl)} -OutFile ${psQuote(archivePath)}`,
+    `Expand-Archive -Path ${psQuote(archivePath)} -DestinationPath ${psQuote(extractDir)} -Force`,
+  ].join("; ");
 
-const result = spawnSync("powershell", ["-NoProfile", "-Command", psScript], {
-  stdio: "inherit",
-});
+  const result = spawnSync("powershell", ["-NoProfile", "-Command", psScript], {
+    stdio: "inherit",
+  });
 
-if (result.status !== 0) {
-  process.exit(result.status ?? 1);
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+} else {
+  const downloadResult = spawnSync("curl", ["-fsSL", "-o", archivePath, opencodeUrl], {
+    stdio: "inherit",
+  });
+  if (downloadResult.status !== 0) {
+    process.exit(downloadResult.status ?? 1);
+  }
+
+  if (opencodeAsset.endsWith(".zip")) {
+    const unzipResult = spawnSync("unzip", ["-q", archivePath, "-d", extractDir], {
+      stdio: "inherit",
+    });
+    if (unzipResult.status !== 0) {
+      process.exit(unzipResult.status ?? 1);
+    }
+  } else if (opencodeAsset.endsWith(".tar.gz")) {
+    const tarResult = spawnSync("tar", ["-xzf", archivePath, "-C", extractDir], {
+      stdio: "inherit",
+    });
+    if (tarResult.status !== 0) {
+      process.exit(tarResult.status ?? 1);
+    }
+  } else {
+    console.error(`Unknown OpenCode archive type: ${opencodeAsset}`);
+    process.exit(1);
+  }
 }
+
+const extractedBinary = findOpencodeBinary(extractDir);
+if (!extractedBinary) {
+  console.error("OpenCode binary not found after extraction.");
+  process.exit(1);
+}
+
+const opencodeTargets = [opencodeTargetPath, opencodePath].filter(Boolean);
+for (const target of opencodeTargets) {
+  try {
+    if (existsSync(target)) {
+      unlinkSync(target);
+    }
+  } catch {
+    // ignore
+  }
+  copyFileSync(extractedBinary, target);
+  try {
+    chmodSync(target, 0o755);
+  } catch {
+    // ignore
+  }
+}
+
+console.log(`OpenCode sidecar updated to ${normalizedVersion}.`);

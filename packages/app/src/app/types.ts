@@ -202,6 +202,15 @@ export type McpStatusMap = Record<string, McpStatus>;
 
 export type ReloadReason = "plugins" | "skills" | "mcp" | "config";
 
+export type OpencodeConnectStatus = {
+  at: number;
+  baseUrl: string;
+  directory?: string | null;
+  reason?: string | null;
+  status: "connecting" | "connected" | "error";
+  error?: string | null;
+};
+
 export type ReloadTrigger = {
   type: "skill" | "plugin" | "config" | "mcp";
   name?: string;

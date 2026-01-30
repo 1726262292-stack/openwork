@@ -78,6 +78,7 @@ import type {
   ProviderListItem,
   WorkspaceCommand,
   UpdateHandle,
+  OpencodeConnectStatus,
 } from "./types";
 import {
   clearModePreference,
@@ -425,6 +426,29 @@ export default function App() {
 
   createEffect(() => {
     if (!isTauriRuntime()) return;
+    if (!developerMode()) return;
+
+    let busy = false;
+
+    const run = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        await workspaceStore.refreshEngine();
+      } finally {
+        busy = false;
+      }
+    };
+
+    run();
+    const interval = window.setInterval(run, 10_000);
+    onCleanup(() => {
+      window.clearInterval(interval);
+    });
+  });
+
+  createEffect(() => {
+    if (!isTauriRuntime()) return;
     if (!developerMode()) {
       setOwpenbotInfoState(null);
       return;
@@ -459,6 +483,7 @@ export default function App() {
   const [busyLabel, setBusyLabel] = createSignal<string | null>(null);
   const [busyStartedAt, setBusyStartedAt] = createSignal<number | null>(null);
   const [error, setError] = createSignal<string | null>(null);
+  const [opencodeConnectStatus, setOpencodeConnectStatus] = createSignal<OpencodeConnectStatus | null>(null);
   const [booting, setBooting] = createSignal(true);
   const mountTime = Date.now();
   const [lastKnownConfigSnapshot, setLastKnownConfigSnapshot] = createSignal("");
@@ -1123,6 +1148,7 @@ export default function App() {
     setBusy,
     setBusyLabel,
     setBusyStartedAt,
+    setOpencodeConnectStatus,
     loadCommands: (options) => loadCommandsRef(options),
     loadSessions: loadSessionsWithReady,
     refreshPendingPermissions,
@@ -3483,6 +3509,7 @@ export default function App() {
     openworkAuditEntries: openworkAuditEntries(),
     openworkAuditStatus: openworkAuditStatus(),
     openworkAuditError: openworkAuditError(),
+    opencodeConnectStatus: opencodeConnectStatus(),
     engineInfo: workspaceStore.engine(),
     owpenbotInfo: owpenbotInfoState(),
     updateOpenworkServerSettings,

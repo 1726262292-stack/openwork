@@ -6,7 +6,7 @@ import Button from "../components/button";
 import TextInput from "../components/text-input";
 import SettingsKeybinds, { type KeybindSetting } from "../components/settings-keybinds";
 import { ChevronDown, HardDrive, MessageCircle, PlugZap, RefreshCcw, Shield, Smartphone, X } from "lucide-solid";
-import type { ProviderListItem, SettingsTab } from "../types";
+import type { OpencodeConnectStatus, ProviderListItem, SettingsTab } from "../types";
 import type { OpenworkAuditEntry, OpenworkServerCapabilities, OpenworkServerSettings, OpenworkServerStatus } from "../lib/openwork-server";
 import type {
   EngineInfo,
@@ -46,6 +46,7 @@ export type SettingsViewProps = {
   openworkAuditEntries: OpenworkAuditEntry[];
   openworkAuditStatus: "idle" | "loading" | "error";
   openworkAuditError: string | null;
+  opencodeConnectStatus: OpencodeConnectStatus | null;
   engineInfo: EngineInfo | null;
   owpenbotInfo: OwpenbotInfo | null;
   updateOpenworkServerSettings: (next: OpenworkServerSettings) => void;
@@ -560,6 +561,8 @@ export default function SettingsView(props: SettingsViewProps) {
   const [openworkTokenVisible, setOpenworkTokenVisible] = createSignal(false);
   const [clientTokenVisible, setClientTokenVisible] = createSignal(false);
   const [hostTokenVisible, setHostTokenVisible] = createSignal(false);
+  const [opencodeUserVisible, setOpencodeUserVisible] = createSignal(false);
+  const [opencodePasswordVisible, setOpencodePasswordVisible] = createSignal(false);
   const [copyingField, setCopyingField] = createSignal<string | null>(null);
   let copyTimeout: number | undefined;
 
@@ -600,6 +603,28 @@ export default function SettingsView(props: SettingsViewProps) {
     return props.engineInfo?.running
       ? "bg-green-7/10 text-green-11 border-green-7/20"
       : "bg-gray-4/60 text-gray-11 border-gray-7/50";
+  });
+
+  const opencodeConnectStatusLabel = createMemo(() => {
+    const status = props.opencodeConnectStatus?.status;
+    if (!status) return "Idle";
+    if (status === "connected") return "Connected";
+    if (status === "connecting") return "Connecting";
+    return "Failed";
+  });
+
+  const opencodeConnectStatusStyle = createMemo(() => {
+    const status = props.opencodeConnectStatus?.status;
+    if (!status) return "bg-gray-4/60 text-gray-11 border-gray-7/50";
+    if (status === "connected") return "bg-green-7/10 text-green-11 border-green-7/20";
+    if (status === "connecting") return "bg-amber-7/10 text-amber-11 border-amber-7/20";
+    return "bg-red-7/10 text-red-11 border-red-7/20";
+  });
+
+  const opencodeConnectTimestamp = createMemo(() => {
+    const at = props.opencodeConnectStatus?.at;
+    if (!at) return null;
+    return formatRelativeTime(at);
   });
 
   const owpenbotStatusLabel = createMemo(() => {
@@ -737,6 +762,8 @@ export default function SettingsView(props: SettingsViewProps) {
     return info?.connectUrl ?? info?.mdnsUrl ?? info?.lanUrl ?? info?.baseUrl ?? "";
   });
   const hostConnectUrlUsesMdns = createMemo(() => hostConnectUrl().includes(".local"));
+  const opencodeUsername = createMemo(() => props.engineInfo?.opencodeUsername?.trim() ?? "");
+  const opencodePassword = createMemo(() => props.engineInfo?.opencodePassword?.trim() ?? "");
 
   const handleCopy = async (value: string, field: string) => {
     if (!value) return;
@@ -1276,6 +1303,70 @@ export default function SettingsView(props: SettingsViewProps) {
                       </Button>
                     </div>
                   </div>
+
+                  <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                    <div class="min-w-0">
+                      <div class="text-xs font-medium text-gray-11">OpenCode username</div>
+                      <div class="text-xs text-gray-7 font-mono truncate">
+                        {opencodeUserVisible()
+                          ? opencodeUsername() || "—"
+                          : opencodeUsername()
+                            ? "••••••••"
+                            : "—"}
+                      </div>
+                      <div class="text-[11px] text-gray-8 mt-1">Use with the password when connecting directly.</div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        class="text-xs h-8 py-0 px-3"
+                        onClick={() => setOpencodeUserVisible((prev) => !prev)}
+                        disabled={!opencodeUsername()}
+                      >
+                        {opencodeUserVisible() ? "Hide" : "Show"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        class="text-xs h-8 py-0 px-3"
+                        onClick={() => handleCopy(opencodeUsername(), "opencode-user")}
+                        disabled={!opencodeUsername()}
+                      >
+                        {copyingField() === "opencode-user" ? "Copied" : "Copy"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                    <div class="min-w-0">
+                      <div class="text-xs font-medium text-gray-11">OpenCode password</div>
+                      <div class="text-xs text-gray-7 font-mono truncate">
+                        {opencodePasswordVisible()
+                          ? opencodePassword() || "—"
+                          : opencodePassword()
+                            ? "••••••••"
+                            : "—"}
+                      </div>
+                      <div class="text-[11px] text-gray-8 mt-1">Keep private. Required for direct OpenCode access.</div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        class="text-xs h-8 py-0 px-3"
+                        onClick={() => setOpencodePasswordVisible((prev) => !prev)}
+                        disabled={!opencodePassword()}
+                      >
+                        {opencodePasswordVisible() ? "Hide" : "Show"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        class="text-xs h-8 py-0 px-3"
+                        onClick={() => handleCopy(opencodePassword(), "opencode-pass")}
+                        disabled={!opencodePassword()}
+                      >
+                        {copyingField() === "opencode-pass" ? "Copied" : "Copy"}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </Show>
@@ -1456,6 +1547,40 @@ export default function SettingsView(props: SettingsViewProps) {
                           </pre>
                         </div>
                       </div>
+                    </div>
+
+                    <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
+                      <div class="flex items-center justify-between gap-3">
+                        <div>
+                          <div class="text-sm font-medium text-gray-12">OpenCode SDK</div>
+                          <div class="text-xs text-gray-10">UI connection diagnostics.</div>
+                        </div>
+                        <div class={`text-xs px-2 py-1 rounded-full border ${opencodeConnectStatusStyle()}`}>
+                          {opencodeConnectStatusLabel()}
+                        </div>
+                      </div>
+                      <div class="space-y-1">
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          {props.opencodeConnectStatus?.baseUrl ?? "Base URL unavailable"}
+                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          {props.opencodeConnectStatus?.directory ?? "No project directory"}
+                        </div>
+                        <div class="text-[11px] text-gray-7">
+                          Last attempt: {opencodeConnectTimestamp() ?? "—"}
+                        </div>
+                        <Show when={props.opencodeConnectStatus?.reason}>
+                          <div class="text-[11px] text-gray-7">Reason: {props.opencodeConnectStatus?.reason}</div>
+                        </Show>
+                      </div>
+                      <Show when={props.opencodeConnectStatus?.error}>
+                        <div>
+                          <div class="text-[11px] text-gray-9 mb-1">Last error</div>
+                          <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-24 overflow-auto bg-gray-2/50 border border-gray-6 rounded-lg p-2">
+                            {props.opencodeConnectStatus?.error}
+                          </pre>
+                        </div>
+                      </Show>
                     </div>
 
                     <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
