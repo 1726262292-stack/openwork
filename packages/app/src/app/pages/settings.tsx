@@ -5,8 +5,8 @@ import { formatBytes, formatRelativeTime, isTauriRuntime } from "../utils";
 import Button from "../components/button";
 import TextInput from "../components/text-input";
 import SettingsKeybinds, { type KeybindSetting } from "../components/settings-keybinds";
-import { ChevronDown, HardDrive, MessageCircle, RefreshCcw, Shield, Smartphone, X } from "lucide-solid";
-import type { SettingsTab } from "../types";
+import { ChevronDown, HardDrive, MessageCircle, PlugZap, RefreshCcw, Shield, Smartphone, X } from "lucide-solid";
+import type { ProviderListItem, SettingsTab } from "../types";
 import type { OpenworkAuditEntry, OpenworkServerCapabilities, OpenworkServerSettings, OpenworkServerStatus } from "../lib/openwork-server";
 import type {
   EngineInfo,
@@ -33,6 +33,10 @@ export type SettingsViewProps = {
   busy: boolean;
   settingsTab: SettingsTab;
   setSettingsTab: (tab: SettingsTab) => void;
+  providers: ProviderListItem[];
+  providerConnectedIds: string[];
+  providerAuthBusy: boolean;
+  openProviderAuthModal: () => Promise<void>;
   openworkServerStatus: OpenworkServerStatus;
   openworkServerUrl: string;
   openworkServerSettings: OpenworkServerSettings;
@@ -519,6 +523,38 @@ export default function SettingsView(props: SettingsViewProps) {
     return "bg-gray-4/60 text-gray-11 border-gray-7/50";
   };
 
+  const [providerConnectError, setProviderConnectError] = createSignal<string | null>(null);
+  const providerConnectedCount = createMemo(() => (props.providerConnectedIds ?? []).length);
+  const providerAvailableCount = createMemo(() => (props.providers ?? []).length);
+  const providerStatusLabel = createMemo(() => {
+    if (!providerAvailableCount()) return "Unavailable";
+    if (!providerConnectedCount()) return "Not connected";
+    return `${providerConnectedCount()} connected`;
+  });
+  const providerStatusStyle = createMemo(() => {
+    if (!providerAvailableCount()) return "bg-gray-4/60 text-gray-11 border-gray-7/50";
+    if (!providerConnectedCount()) return "bg-amber-7/10 text-amber-11 border-amber-7/20";
+    return "bg-green-7/10 text-green-11 border-green-7/20";
+  });
+  const providerSummary = createMemo(() => {
+    if (!providerAvailableCount()) return "Connect to OpenCode to load providers.";
+    const connected = providerConnectedCount();
+    const available = providerAvailableCount();
+    if (!connected) return `${available} available`;
+    return `${connected} connected · ${available} available`;
+  });
+
+  const handleOpenProviderAuth = async () => {
+    if (props.busy || props.providerAuthBusy) return;
+    setProviderConnectError(null);
+    try {
+      await props.openProviderAuthModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to open providers";
+      setProviderConnectError(message);
+    }
+  };
+
   const [openworkUrl, setOpenworkUrl] = createSignal("");
   const [openworkToken, setOpenworkToken] = createSignal("");
   const [openworkTokenVisible, setOpenworkTokenVisible] = createSignal(false);
@@ -748,6 +784,43 @@ export default function SettingsView(props: SettingsViewProps) {
       <Switch>
         <Match when={activeTab() === "general"}>
           <div class="space-y-6">
+            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <div class="flex items-center gap-2">
+                    <PlugZap size={16} class="text-gray-11" />
+                    <div class="text-sm font-medium text-gray-12">Providers</div>
+                  </div>
+                  <div class="text-xs text-gray-10 mt-1">Connect services for models and tools.</div>
+                </div>
+                <div class={`text-xs px-2 py-1 rounded-full border ${providerStatusStyle()}`}>
+                  {providerStatusLabel()}
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-3">
+                <Button
+                  variant="secondary"
+                  onClick={handleOpenProviderAuth}
+                  disabled={props.busy || props.providerAuthBusy}
+                >
+                  {props.providerAuthBusy ? "Loading providers..." : "Connect provider"}
+                </Button>
+                <div class="text-xs text-gray-9">{providerSummary()}</div>
+              </div>
+
+              <Show when={providerConnectError()}>
+                <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">
+                  {providerConnectError()}
+                </div>
+              </Show>
+
+              <div class="text-[11px] text-gray-8">
+                API keys live in <span class="font-mono">opencode.json</span>. Use <span class="font-mono">/models</span>
+                to pick a default.
+              </div>
+            </div>
+
             <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
               <div class="text-sm font-medium text-gray-12">Connection</div>
               <div class="text-xs text-gray-10">{props.headerStatus}</div>

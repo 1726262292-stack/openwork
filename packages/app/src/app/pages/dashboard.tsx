@@ -4,6 +4,7 @@ import type {
   McpServerEntry,
   McpStatusMap,
   PluginScope,
+  ProviderListItem,
   SettingsTab,
   SkillCard,
   WorkspaceCommand,
@@ -39,6 +40,10 @@ export type DashboardViewProps = {
   setTab: (tab: DashboardTab) => void;
   settingsTab: SettingsTab;
   setSettingsTab: (tab: SettingsTab) => void;
+  providers: ProviderListItem[];
+  providerConnectedIds: string[];
+  providerAuthBusy: boolean;
+  openProviderAuthModal: () => Promise<void>;
   view: View;
   setView: (view: View, sessionId?: string) => void;
   mode: "host" | "client" | null;
@@ -858,6 +863,10 @@ export default function DashboardView(props: DashboardViewProps) {
                   busy={props.busy}
                   settingsTab={props.settingsTab}
                   setSettingsTab={props.setSettingsTab}
+                  providers={props.providers}
+                  providerConnectedIds={props.providerConnectedIds}
+                  providerAuthBusy={props.providerAuthBusy}
+                  openProviderAuthModal={props.openProviderAuthModal}
                   openworkServerStatus={props.openworkServerStatus}
                   openworkServerUrl={props.openworkServerUrl}
                   openworkServerSettings={props.openworkServerSettings}
