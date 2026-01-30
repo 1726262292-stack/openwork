@@ -98,6 +98,8 @@ export function createWorkspaceStore(options: {
   const [engineDoctorResult, setEngineDoctorResult] = createSignal<EngineDoctorResult | null>(null);
   const [engineDoctorCheckedAt, setEngineDoctorCheckedAt] = createSignal<number | null>(null);
   const [engineInstallLogs, setEngineInstallLogs] = createSignal<string | null>(null);
+  let lastEngineReconnectAt = 0;
+  let reconnectingEngine = false;
 
   const [projectDir, setProjectDir] = createSignal("");
   const [workspaces, setWorkspaces] = createSignal<WorkspaceInfo[]>([]);
@@ -244,13 +246,34 @@ export function createWorkspaceStore(options: {
 
       const username = info.opencodeUsername?.trim() ?? "";
       const password = info.opencodePassword?.trim() ?? "";
-      setEngineAuth(username && password ? { username, password } : null);
+      const auth = username && password ? { username, password } : null;
+      setEngineAuth(auth);
 
       if (info.projectDir && syncLocalState) {
         setProjectDir(info.projectDir);
       }
       if (info.baseUrl && syncLocalState) {
         options.setBaseUrl(info.baseUrl);
+      }
+
+      if (
+        syncLocalState &&
+        options.mode() === "host" &&
+        info.running &&
+        info.baseUrl &&
+        !options.client() &&
+        !reconnectingEngine
+      ) {
+        const now = Date.now();
+        if (now - lastEngineReconnectAt > 10_000) {
+          lastEngineReconnectAt = now;
+          reconnectingEngine = true;
+          connectToServer(info.baseUrl, info.projectDir ?? undefined, undefined, auth ?? undefined)
+            .catch(() => undefined)
+            .finally(() => {
+              reconnectingEngine = false;
+            });
+        }
       }
     } catch {
       // ignore
