@@ -35,6 +35,9 @@ import WorkspaceChip from "../components/workspace-chip";
 import ProviderAuthModal from "../components/provider-auth-modal";
 import StatusBar from "../components/status-bar";
 import type { OpenworkServerStatus } from "../lib/openwork-server";
+import browserSetupCommandTemplate from "../data/commands/browser-setup.md?raw";
+import { opencodeCommandWrite } from "../lib/tauri";
+import { isTauriRuntime, parseTemplateFrontmatter } from "../utils";
 
 import MessageList from "../components/session/message-list";
 import Composer from "../components/session/composer";
@@ -146,6 +149,57 @@ export default function SessionView(props: SessionViewProps) {
   const commandNeedsDetails = (command: { template: string }) => COMMAND_ARGS_RE.test(command.template);
 
   const agentLabel = createMemo(() => props.selectedSessionAgent ?? "Default agent");
+
+  const buildBrowserSetupCommand = () => {
+    const parsed = parseTemplateFrontmatter(browserSetupCommandTemplate);
+    const name = parsed?.data.name?.trim() || "browser-setup";
+    const description =
+      parsed?.data.description?.trim() || "Guide user through Chrome browser automation setup";
+    const template = parsed?.body?.trim() || browserSetupCommandTemplate.trim();
+
+    return { name, description, template };
+  };
+
+  const ensureBrowserSetupCommand = async (): Promise<WorkspaceCommand | null> => {
+    const existing = props.commands.find((item) => item.name === "browser-setup");
+    if (existing) return existing;
+
+    if (props.activeWorkspaceDisplay.workspaceType === "remote") {
+      setCommandToast("Browser setup command is only available in local workspaces.");
+      return null;
+    }
+
+    if (!isTauriRuntime()) {
+      setCommandToast("Browser setup is available in the desktop app.");
+      return null;
+    }
+
+    const root = props.activeWorkspaceDisplay.path?.trim() ?? "";
+    if (!root) {
+      setCommandToast("Pick a workspace folder to install the command.");
+      return null;
+    }
+
+    try {
+      const draft = buildBrowserSetupCommand();
+      await opencodeCommandWrite({
+        scope: "workspace",
+        projectDir: root,
+        command: draft,
+      });
+
+      return {
+        name: draft.name,
+        description: draft.description,
+        template: draft.template,
+        scope: "workspace",
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to install browser setup command";
+      setCommandToast(message);
+      return null;
+    }
+  };
 
   const loadAgentOptions = async (force = false) => {
     if (agentPickerBusy()) return agentOptions();
@@ -1042,10 +1096,26 @@ export default function SessionView(props: SessionViewProps) {
                   <Zap class="text-gray-7" />
                 </div>
                 <div class="space-y-2">
-                  <h3 class="text-xl font-medium">Start a conversation</h3>
+                  <h3 class="text-xl font-medium">What do you want to do?</h3>
                   <p class="text-gray-10 text-sm max-w-sm mx-auto">
-                    Describe what you want to do, and OpenWork will take it from there.
+                    Pick a starting point or just type below.
                   </p>
+                </div>
+                <div class="flex justify-center">
+                  <button
+                    type="button"
+                    class="px-4 py-2.5 rounded-xl border border-gray-6 bg-gray-2 text-sm text-gray-12 hover:bg-gray-3 hover:border-gray-7 transition-all"
+                    onClick={() => {
+                      void (async () => {
+                        const command = await ensureBrowserSetupCommand();
+                        if (command) {
+                          runOpenCodeCommand(command);
+                        }
+                      })();
+                    }}
+                  >
+                    Automate your browser
+                  </button>
                 </div>
               </div>
             </Show>
