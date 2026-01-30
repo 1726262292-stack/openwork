@@ -1,21 +1,23 @@
-import { Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { Cpu, MessageCircle, Server, Settings } from "lucide-solid";
 
 import type { OpenworkServerStatus } from "../lib/openwork-server";
 import type { OwpenbotStatus } from "../lib/tauri";
+import type { McpStatusMap } from "../types";
 import { getOwpenbotStatus } from "../lib/tauri";
 
 import Button from "./button";
 
 type StatusBarProps = {
-  mode: "host" | "client" | null;
-  busy: boolean;
   clientConnected: boolean;
   openworkServerStatus: OpenworkServerStatus;
   developerMode: boolean;
-  stopHost: () => void;
   onOpenSettings: () => void;
   onOpenMessaging: () => void;
+  onOpenProviders: () => Promise<void> | void;
+  onOpenMcp: () => void;
+  providerConnectedIds: string[];
+  mcpStatuses: McpStatusMap;
 };
 
 export default function StatusBar(props: StatusBarProps) {
@@ -54,13 +56,105 @@ export default function StatusBar(props: StatusBarProps) {
     return { dot: "bg-gray-6", text: "text-gray-10", label: "Messaging bridge offline" };
   });
 
-  const messagingHint = createMemo(() => {
-    const status = owpenbotStatus();
-    if (!status) return "";
-    const hints: string[] = [];
-    if (!status.telegram.configured) hints.push("Connect Telegram");
-    if (!status.whatsapp.linked) hints.push("Connect WhatsApp (Alpha)");
-    return hints.join(" / ");
+  type ProTip = {
+    id: string;
+    label: string;
+    enabled: () => boolean;
+    action: () => void | Promise<void>;
+  };
+
+  const providerConnectedCount = createMemo(() => props.providerConnectedIds?.length ?? 0);
+  const notionStatus = createMemo(() => props.mcpStatuses?.notion?.status ?? "disconnected");
+
+  const runAction = (action?: () => void | Promise<void>) => {
+    if (!action) return;
+    const result = action();
+    if (result && typeof (result as Promise<void>).catch === "function") {
+      (result as Promise<void>).catch(() => undefined);
+    }
+  };
+
+  const proTips = createMemo<ProTip[]>(() => [
+    {
+      id: "telegram",
+      label: "Connect Telegram",
+      enabled: () => {
+        const status = owpenbotStatus();
+        return Boolean(status && !status.telegram.configured);
+      },
+      action: () => runAction(props.onOpenMessaging),
+    },
+    {
+      id: "whatsapp",
+      label: "Connect WhatsApp",
+      enabled: () => {
+        const status = owpenbotStatus();
+        return Boolean(status && !status.whatsapp.linked);
+      },
+      action: () => runAction(props.onOpenMessaging),
+    },
+    {
+      id: "notion",
+      label: "Connect Notion MCP",
+      enabled: () => notionStatus() !== "connected",
+      action: () => runAction(props.onOpenMcp),
+    },
+    {
+      id: "providers",
+      label: "Use your own models (OpenRouter, Anthropic, OpenAI)",
+      enabled: () => props.clientConnected && providerConnectedCount() === 0,
+      action: () => runAction(props.onOpenProviders),
+    },
+  ]);
+
+  const availableTips = createMemo<ProTip[]>(() => proTips().filter((tip: ProTip) => tip.enabled()));
+  const [activeTip, setActiveTip] = createSignal<ProTip | null>(null);
+  const [tipVisible, setTipVisible] = createSignal(false);
+  const [tipCursor, setTipCursor] = createSignal(0);
+  let tipTimer: number | undefined;
+  let tipHideTimer: number | undefined;
+
+  const pickNextTip = () => {
+    const tips = availableTips();
+    if (!tips.length) return null;
+    const index = tipCursor() % tips.length;
+    const next = tips[index];
+    setTipCursor(index + 1);
+    setActiveTip(next);
+    return next;
+  };
+
+  const scheduleTips = (delayMs: number) => {
+    if (tipTimer) window.clearTimeout(tipTimer);
+    tipTimer = window.setTimeout(() => {
+      if (!availableTips().length) {
+        setTipVisible(false);
+        scheduleTips(20_000);
+        return;
+      }
+      if (Math.random() < 0.55) {
+        pickNextTip();
+        setTipVisible(true);
+        if (tipHideTimer) window.clearTimeout(tipHideTimer);
+        tipHideTimer = window.setTimeout(() => setTipVisible(false), 9_000);
+      } else {
+        setTipVisible(false);
+      }
+      scheduleTips(18_000 + Math.round(Math.random() * 10_000));
+    }, delayMs);
+  };
+
+  createEffect(() => {
+    const tips = availableTips();
+    const current = activeTip();
+    if (current && tips.some((tip: ProTip) => tip.id === current.id)) return;
+    if (!tips.length) {
+      setActiveTip(null);
+      setTipVisible(false);
+      return;
+    }
+    setActiveTip(tips[0]);
+    setTipCursor(1);
   });
 
   const refreshOwpenbot = async () => {
@@ -71,7 +165,12 @@ export default function StatusBar(props: StatusBarProps) {
   onMount(() => {
     refreshOwpenbot();
     const interval = window.setInterval(refreshOwpenbot, 15_000);
-    onCleanup(() => window.clearInterval(interval));
+    scheduleTips(6_000);
+    onCleanup(() => {
+      window.clearInterval(interval);
+      if (tipTimer) window.clearTimeout(tipTimer);
+      if (tipHideTimer) window.clearTimeout(tipHideTimer);
+    });
   });
 
   return (
@@ -114,12 +213,19 @@ export default function StatusBar(props: StatusBarProps) {
             <Show when={props.developerMode}>
               <span class="text-gray-11 font-medium">Messaging</span>
             </Show>
-            <Show when={messagingHint()}>
-              <span class="hidden md:inline text-[10px] uppercase tracking-wide text-gray-9/70 animate-pulse">
-                {messagingHint()}
-              </span>
-            </Show>
           </Button>
+          <Show when={tipVisible() && activeTip()}>
+            <button
+              type="button"
+              class="flex h-7 items-center gap-2 rounded-full border border-gray-6/70 bg-gray-2/40 px-3 text-xs text-gray-10 transition-colors hover:bg-gray-2/60"
+              onClick={() => runAction(activeTip()?.action)}
+              title={activeTip()?.label}
+              aria-label={activeTip()?.label}
+            >
+              <span class="uppercase tracking-[0.2em] text-[10px] text-gray-8">Tip</span>
+              <span class="text-gray-11 font-medium">{activeTip()?.label}</span>
+            </button>
+          </Show>
           <Button
             variant="ghost"
             class="h-7 px-2.5 py-0 text-xs"
@@ -131,26 +237,6 @@ export default function StatusBar(props: StatusBarProps) {
               <span class="text-gray-11 font-medium">Settings</span>
             </Show>
           </Button>
-          <Show when={props.mode === "host"}>
-            <Button
-              variant="danger"
-              onClick={props.stopHost}
-              disabled={props.busy}
-              class="text-xs h-7 px-2.5 py-0"
-            >
-              Stop & Disconnect
-            </Button>
-          </Show>
-          <Show when={props.mode === "client"}>
-            <Button
-              variant="outline"
-              onClick={props.stopHost}
-              disabled={props.busy}
-              class="text-xs h-7 px-2.5 py-0"
-            >
-              Disconnect
-            </Button>
-          </Show>
         </div>
       </div>
     </div>

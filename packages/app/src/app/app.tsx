@@ -782,58 +782,86 @@ export default function App() {
     });
   }
 
-  async function startProviderAuth(providerId?: string) {
+  const buildProviderAuthMethods = (
+    methods: Record<string, ProviderAuthMethod[]>,
+    availableProviders: ProviderListItem[],
+  ) => {
+    const merged = { ...methods } as Record<string, ProviderAuthMethod[]>;
+    for (const provider of availableProviders ?? []) {
+      const id = provider.id?.trim();
+      if (!id || merged[id] || id === "opencode") continue;
+      if (!Array.isArray(provider.env) || provider.env.length === 0) continue;
+      merged[id] = [{ type: "api", label: "API key" }];
+    }
+    return merged;
+  };
+
+  const loadProviderAuthMethods = async () => {
     const c = client();
     if (!c) {
       throw new Error("Not connected to a server");
     }
+    const methods = unwrap(await c.provider.auth());
+    return buildProviderAuthMethods(methods as Record<string, ProviderAuthMethod[]>, providers());
+  };
 
-    const authMethods = unwrap(await c.provider.auth());
-    const providerIds = Object.keys(authMethods).sort();
-    if (!providerIds.length) {
-      throw new Error("No providers available");
+  async function startProviderAuth(providerId?: string) {
+    setProviderAuthError(null);
+    const c = client();
+    if (!c) {
+      throw new Error("Not connected to a server");
     }
+    try {
+      const cachedMethods = providerAuthMethods();
+      const authMethods = Object.keys(cachedMethods).length
+        ? cachedMethods
+        : await loadProviderAuthMethods();
+      const providerIds = Object.keys(authMethods).sort();
+      if (!providerIds.length) {
+        throw new Error("No providers available");
+      }
 
-    const resolved = providerId?.trim() ?? "";
-    if (!resolved) {
-      throw new Error("Provider ID is required");
-    }
-    if (!authMethods[resolved]) {
-      throw new Error(`Unknown provider: ${resolved}`);
-    }
+      const resolved = providerId?.trim() ?? "";
+      if (!resolved) {
+        throw new Error("Provider ID is required");
+      }
 
-    const methods = authMethods[resolved];
-    if (!methods || !methods.length) {
-      throw new Error(`No auth methods for ${resolved}`);
-    }
+      const methods = authMethods[resolved];
+      if (!methods || !methods.length) {
+        const provider = providers().find((item) => item.id === resolved);
+        if (provider?.env?.length) {
+          return `Configure ${resolved} API keys in opencode.json`;
+        }
+        throw new Error(`Unknown provider: ${resolved}`);
+      }
 
-    const oauthIndex = methods.findIndex((method) => method.type === "oauth");
-    if (oauthIndex === -1) {
-      return `Configure ${resolved} API keys in opencode.json`;
-    }
+      const oauthIndex = methods.findIndex((method) => method.type === "oauth");
+      if (oauthIndex === -1) {
+        return `Configure ${resolved} API keys in opencode.json`;
+      }
 
-    const auth = unwrap(await c.provider.oauth.authorize({ providerID: resolved, method: oauthIndex }));
-    if (isTauriRuntime()) {
-      const { openUrl } = await import("@tauri-apps/plugin-opener");
-      await openUrl(auth.url);
-    } else {
-      window.open(auth.url, "_blank", "noopener,noreferrer");
-    }
+      const auth = unwrap(await c.provider.oauth.authorize({ providerID: resolved, method: oauthIndex }));
+      if (isTauriRuntime()) {
+        const { openUrl } = await import("@tauri-apps/plugin-opener");
+        await openUrl(auth.url);
+      } else {
+        window.open(auth.url, "_blank", "noopener,noreferrer");
+      }
 
-    return auth.instructions || `Opened ${resolved} auth in browser`;
+      return auth.instructions || `Opened ${resolved} auth in browser`;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to connect provider";
+      setProviderAuthError(message);
+      throw error instanceof Error ? error : new Error(message);
+    }
   }
 
   async function openProviderAuthModal() {
-    const c = client();
-    if (!c) {
-      throw new Error("Not connected to a server");
-    }
-
     setProviderAuthBusy(true);
     setProviderAuthError(null);
     try {
-      const methods = unwrap(await c.provider.auth());
-      setProviderAuthMethods(methods as Record<string, ProviderAuthMethod[]>);
+      const methods = await loadProviderAuthMethods();
+      setProviderAuthMethods(methods);
       setProviderAuthModalOpen(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to load providers";
@@ -3488,7 +3516,12 @@ export default function App() {
     providers: providers(),
     providerConnectedIds: providerConnectedIds(),
     providerAuthBusy: providerAuthBusy(),
+    providerAuthModalOpen: providerAuthModalOpen(),
+    providerAuthError: providerAuthError(),
+    providerAuthMethods: providerAuthMethods(),
     openProviderAuthModal,
+    closeProviderAuthModal,
+    startProviderAuth,
     view: currentView(),
     setView,
     mode: mode(),

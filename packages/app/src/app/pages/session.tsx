@@ -1059,6 +1059,18 @@ export default function SessionView(props: SessionViewProps) {
     props.setView("dashboard");
   };
 
+  const openMcp = () => {
+    props.setTab("mcp");
+    props.setView("dashboard");
+  };
+
+  const openProviderAuth = () => {
+    void props.openProviderAuthModal().catch((error) => {
+      const message = error instanceof Error ? error.message : "Connect failed";
+      setCommandToast(message);
+    });
+  };
+
   return (
     <div class="h-screen flex flex-col bg-gray-1 text-gray-12 relative pb-16 md:pb-12">
         <header class="h-16 border-b border-gray-6 flex items-center justify-between px-6 bg-gray-1/80 backdrop-blur-md z-10 sticky top-0">
@@ -1282,14 +1294,15 @@ export default function SessionView(props: SessionViewProps) {
 
         <div class="fixed bottom-0 left-0 right-0">
           <StatusBar
-            mode={props.mode}
-            busy={props.busy}
-            stopHost={props.stopHost}
             clientConnected={props.clientConnected}
             openworkServerStatus={props.openworkServerStatus}
             developerMode={props.developerMode}
             onOpenSettings={() => openSettings("general")}
             onOpenMessaging={() => openSettings("messaging")}
+            onOpenProviders={openProviderAuth}
+            onOpenMcp={openMcp}
+            providerConnectedIds={props.providerConnectedIds}
+            mcpStatuses={props.mcpStatuses}
           />
         </div>
 
