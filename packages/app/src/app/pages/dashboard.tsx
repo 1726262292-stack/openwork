@@ -3,6 +3,7 @@ import type {
   DashboardTab,
   McpServerEntry,
   McpStatusMap,
+  OpencodeConnectStatus,
   PluginScope,
   ProviderListItem,
   SettingsTab,
@@ -64,6 +65,7 @@ export type DashboardViewProps = {
   openworkAuditEntries: OpenworkAuditEntry[];
   openworkAuditStatus: "idle" | "loading" | "error";
   openworkAuditError: string | null;
+  opencodeConnectStatus: OpencodeConnectStatus | null;
   engineInfo: EngineInfo | null;
   owpenbotInfo: OwpenbotInfo | null;
   updateOpenworkServerSettings: (next: OpenworkServerSettings) => void;
@@ -876,6 +878,7 @@ export default function DashboardView(props: DashboardViewProps) {
                   openworkAuditEntries={props.openworkAuditEntries}
                   openworkAuditStatus={props.openworkAuditStatus}
                   openworkAuditError={props.openworkAuditError}
+                  opencodeConnectStatus={props.opencodeConnectStatus}
                   engineInfo={props.engineInfo}
                   owpenbotInfo={props.owpenbotInfo}
                   updateOpenworkServerSettings={props.updateOpenworkServerSettings}

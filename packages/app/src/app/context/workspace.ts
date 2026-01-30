@@ -42,7 +42,7 @@ import {
   type WorkspaceInfo,
 } from "../lib/tauri";
 import { waitForHealthy, createClient, type OpencodeAuth } from "../lib/opencode";
-import type { ProviderListItem } from "../types";
+import type { OpencodeConnectStatus, ProviderListItem } from "../types";
 import { t, currentLocale } from "../../i18n";
 import { mapConfigProvidersToList } from "../utils/providers";
 
@@ -90,6 +90,7 @@ export function createWorkspaceStore(options: {
   isWindowsPlatform: () => boolean;
   openworkServerSettings: () => OpenworkServerSettings;
   updateOpenworkServerSettings: (next: OpenworkServerSettings) => void;
+  setOpencodeConnectStatus?: (status: OpencodeConnectStatus | null) => void;
   onEngineStable?: () => void;
 }) {
 
@@ -268,7 +269,13 @@ export function createWorkspaceStore(options: {
         if (now - lastEngineReconnectAt > 10_000) {
           lastEngineReconnectAt = now;
           reconnectingEngine = true;
-          connectToServer(info.baseUrl, info.projectDir ?? undefined, undefined, auth ?? undefined)
+          connectToServer(
+            info.baseUrl,
+            info.projectDir ?? undefined,
+            { reason: "engine-refresh" },
+            auth ?? undefined,
+            { quiet: true },
+          )
             .catch(() => undefined)
             .finally(() => {
               reconnectingEngine = false;
@@ -363,6 +370,7 @@ export function createWorkspaceStore(options: {
               workspaceId: next.id,
               workspaceType: next.workspaceType,
               targetRoot: resolvedDirectory ?? "",
+              reason: "workspace-switch-openwork",
             },
             resolvedAuth,
           );
@@ -415,6 +423,7 @@ export function createWorkspaceStore(options: {
           workspaceId: next.id,
           workspaceType: next.workspaceType,
           targetRoot: next.directory?.trim() ?? "",
+          reason: "workspace-switch-direct",
         });
 
         if (!ok) {
@@ -522,7 +531,12 @@ export function createWorkspaceStore(options: {
 
         // Reconnect to server
         if (newInfo.baseUrl) {
-          const ok = await connectToServer(newInfo.baseUrl, newInfo.projectDir ?? undefined, undefined, auth);
+          const ok = await connectToServer(
+            newInfo.baseUrl,
+            newInfo.projectDir ?? undefined,
+            { reason: "workspace-restart" },
+            auth,
+          );
           if (!ok) {
             options.setError("Failed to reconnect after workspace switch");
           }
@@ -552,19 +566,34 @@ export function createWorkspaceStore(options: {
       workspaceId?: string;
       workspaceType?: WorkspaceInfo["workspaceType"];
       targetRoot?: string;
+      reason?: string;
     },
     auth?: OpencodeAuth,
+    connectOptions?: { quiet?: boolean },
   ) {
     console.log("[workspace] connect", {
       baseUrl: nextBaseUrl,
       directory: directory ?? null,
       workspaceType: context?.workspaceType ?? null,
     });
+    const quiet = connectOptions?.quiet ?? false;
     options.setError(null);
-    options.setBusy(true);
-    options.setBusyLabel("status.connecting");
-    options.setBusyStartedAt(Date.now());
+    if (!quiet) {
+      options.setBusy(true);
+      options.setBusyLabel("status.connecting");
+      options.setBusyStartedAt(Date.now());
+    }
     options.setSseConnected(false);
+
+    const connectMeta: OpencodeConnectStatus = {
+      at: Date.now(),
+      baseUrl: nextBaseUrl,
+      directory: directory ?? null,
+      reason: context?.reason ?? null,
+      status: "connecting",
+      error: null,
+    };
+    options.setOpencodeConnectStatus?.(connectMeta);
 
     try {
       let resolvedDirectory = directory?.trim() ?? "";
@@ -645,17 +674,27 @@ export function createWorkspaceStore(options: {
       // don't force the onboarding flow on subsequent launches.
       markOnboardingComplete();
       options.onEngineStable?.();
+      options.setOpencodeConnectStatus?.({ ...connectMeta, status: "connected" });
       return true;
     } catch (e) {
       options.setClient(null);
       options.setConnectedVersion(null);
       const message = e instanceof Error ? e.message : safeStringify(e);
-      options.setError(addOpencodeCacheHint(message));
+      options.setOpencodeConnectStatus?.({
+        ...connectMeta,
+        status: "error",
+        error: addOpencodeCacheHint(message),
+      });
+      if (!quiet) {
+        options.setError(addOpencodeCacheHint(message));
+      }
       return false;
     } finally {
-      options.setBusy(false);
-      options.setBusyLabel(null);
-      options.setBusyStartedAt(null);
+      if (!quiet) {
+        options.setBusy(false);
+        options.setBusyLabel(null);
+        options.setBusyStartedAt(null);
+      }
     }
   }
 
@@ -781,6 +820,7 @@ export function createWorkspaceStore(options: {
       {
         workspaceType: "remote",
         targetRoot: resolvedDirectory ?? "",
+        reason: "workspace-create-remote",
       },
       resolvedAuth,
     );
@@ -1076,7 +1116,12 @@ export function createWorkspaceStore(options: {
       setEngineAuth(auth ?? null);
 
       if (info.baseUrl) {
-        const ok = await connectToServer(info.baseUrl, info.projectDir ?? undefined, undefined, auth);
+        const ok = await connectToServer(
+          info.baseUrl,
+          info.projectDir ?? undefined,
+          { reason: "host-start" },
+          auth,
+        );
         if (!ok) return false;
       }
 
@@ -1165,7 +1210,12 @@ export function createWorkspaceStore(options: {
       setEngineAuth(auth ?? null);
 
       if (nextInfo.baseUrl) {
-        const ok = await connectToServer(nextInfo.baseUrl, nextInfo.projectDir ?? undefined, undefined, auth);
+        const ok = await connectToServer(
+          nextInfo.baseUrl,
+          nextInfo.projectDir ?? undefined,
+          { reason: "engine-reload" },
+          auth,
+        );
         if (!ok) {
           options.setError("Failed to reconnect after reload");
           return false;
@@ -1414,7 +1464,12 @@ export function createWorkspaceStore(options: {
 
       if (info?.running && info.baseUrl) {
         options.setOnboardingStep("connecting");
-        const ok = await connectToServer(info.baseUrl, info.projectDir ?? undefined, undefined, engineAuth() ?? undefined);
+        const ok = await connectToServer(
+          info.baseUrl,
+          info.projectDir ?? undefined,
+          { reason: "bootstrap-host" },
+          engineAuth() ?? undefined,
+        );
         if (!ok) {
           options.setMode(null);
           options.setOnboardingStep("mode");
@@ -1441,7 +1496,12 @@ export function createWorkspaceStore(options: {
 
       if (info?.running && info.baseUrl) {
         options.setOnboardingStep("connecting");
-        const ok = await connectToServer(info.baseUrl, info.projectDir ?? undefined, undefined, engineAuth() ?? undefined);
+        const ok = await connectToServer(
+          info.baseUrl,
+          info.projectDir ?? undefined,
+          { reason: "bootstrap-host" },
+          engineAuth() ?? undefined,
+        );
         if (!ok) {
           options.setMode(null);
           options.setOnboardingStep("mode");
@@ -1476,6 +1536,7 @@ export function createWorkspaceStore(options: {
     const ok = await connectToServer(
       options.baseUrl().trim(),
       options.clientDirectory().trim() ? options.clientDirectory().trim() : undefined,
+      { reason: "client-connect" },
     );
 
     if (!ok) {
@@ -1514,7 +1575,7 @@ export function createWorkspaceStore(options: {
     const ok = await connectToServer(
       engine()?.baseUrl ?? "",
       engine()?.projectDir ?? undefined,
-      undefined,
+      { reason: "attach-host" },
       engineAuth() ?? undefined,
     );
     if (!ok) {
