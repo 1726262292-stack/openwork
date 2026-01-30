@@ -270,7 +270,7 @@ jobs:
           tauriScript: pnpm exec tauri -vvv
           args: ${{ matrix.args }}
           retryAttempts: 3
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
 
       - name: Build + upload
         if: matrix.os_type != 'macos' || env.MACOS_NOTARIZE != 'true'
@@ -297,4 +297,4 @@ jobs:
           tauriScript: pnpm exec tauri -vvv
           args: ${{ matrix.args }}
           retryAttempts: 3
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
