@@ -262,16 +262,25 @@ export function createSystemState(options: {
         if (nextStatus === "connecting") {
           nextStatus = "connected";
           options.notion.setStatus(nextStatus);
+          options.notion.setStatusDetail("Workspace connected");
         }
 
         if (nextStatus === "connected") {
-          options.notion.setStatusDetail(options.notion.statusDetail() ?? "Workspace connected");
+          const detail = options.notion.statusDetail();
+          if (!detail || detail.toLowerCase().includes("reload")) {
+            options.notion.setStatusDetail("Workspace connected");
+          }
         }
 
         try {
           window.localStorage.setItem("openwork.notionStatus", nextStatus);
-          if (nextStatus === "connected" && options.notion.statusDetail()) {
-            window.localStorage.setItem("openwork.notionStatusDetail", options.notion.statusDetail() || "");
+          if (nextStatus === "connected") {
+            const detail = options.notion.statusDetail();
+            if (detail) {
+              window.localStorage.setItem("openwork.notionStatusDetail", detail);
+            } else {
+              window.localStorage.removeItem("openwork.notionStatusDetail");
+            }
           }
         } catch {
           // ignore

@@ -1810,6 +1810,13 @@ export default function App() {
   const markReloadRequired = (reason: ReloadReason, options?: { force?: boolean }) => {
     if (booting() || reloadBusy()) return;
     if (!options?.force) {
+      const existingReasons = reloadReasons();
+      if (reloadRequired() && existingReasons.includes(reason)) return;
+      if (reloadRequired() && reason === "config" && existingReasons.includes("mcp")) {
+        return;
+      }
+    }
+    if (!options?.force) {
       const label = busyLabel();
       if (
         busy() &&

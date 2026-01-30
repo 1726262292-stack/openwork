@@ -136,7 +136,8 @@ export default function McpAuthModal(props: McpAuthModalProps) {
     setAuthInProgress(true);
 
     try {
-      if (props.reloadRequired) {
+      const statusEntry = await fetchMcpStatus(slug);
+      if (props.reloadRequired && !statusEntry) {
         setNeedsReload(true);
         setReloadNotice(
           props.reloadBlocked
@@ -146,7 +147,6 @@ export default function McpAuthModal(props: McpAuthModalProps) {
         return;
       }
 
-      const statusEntry = await fetchMcpStatus(slug);
       if (statusEntry?.status === "connected") {
         setAlreadyConnected(true);
         return;
