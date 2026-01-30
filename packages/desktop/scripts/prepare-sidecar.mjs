@@ -359,6 +359,8 @@ if (process.platform === "win32") {
     process.exit(downloadResult.status ?? 1);
   }
 
+  mkdirSync(extractDir, { recursive: true });
+
   if (opencodeAsset.endsWith(".zip")) {
     const unzipResult = spawnSync("unzip", ["-q", archivePath, "-d", extractDir], {
       stdio: "inherit",
