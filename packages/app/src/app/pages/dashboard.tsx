@@ -4,6 +4,7 @@ import type {
   McpServerEntry,
   McpStatusMap,
   PluginScope,
+  ScheduledJob,
   SkillCard,
   WorkspaceTemplate,
 } from "../types";
@@ -16,12 +17,14 @@ import OpenWorkLogo from "../components/openwork-logo";
 import WorkspaceChip from "../components/workspace-chip";
 import McpView from "./mcp";
 import PluginsView from "./plugins";
+import ScheduledTasksView from "./scheduled";
 import SettingsView from "./settings";
 import SkillsView from "./skills";
 import TemplatesView from "./templates";
 import {
   Command,
   Cpu,
+  Calendar,
   FileText,
   Package,
   Play,
@@ -69,6 +72,12 @@ export type DashboardViewProps = {
     directory?: string | null;
   }>;
   sessionStatusById: Record<string, string>;
+  scheduledJobs: ScheduledJob[];
+  scheduledJobsStatus: string | null;
+  scheduledJobsBusy: boolean;
+  scheduledJobsUpdatedAt: number | null;
+  refreshScheduledJobs: (options?: { force?: boolean }) => void;
+  deleteScheduledJob: (name: string) => Promise<void> | void;
   activeWorkspaceRoot: string;
   workspaceTemplates: WorkspaceTemplate[];
   globalTemplates: WorkspaceTemplate[];
@@ -191,6 +200,8 @@ export default function DashboardView(props: DashboardViewProps) {
     switch (props.tab) {
       case "sessions":
         return "Sessions";
+      case "scheduled":
+        return "Scheduled Tasks";
       case "templates":
         return "Templates";
       case "skills":
@@ -260,6 +271,9 @@ export default function DashboardView(props: DashboardViewProps) {
         if (currentTab === "mcp" && !cancelled) {
           await props.refreshMcpServers();
         }
+        if (currentTab === "scheduled" && !cancelled) {
+          await props.refreshScheduledJobs();
+        }
         if (currentTab === "sessions" && !cancelled) {
           // Stagger these calls to avoid request stacking
           await props.refreshSkills();
@@ -315,6 +329,7 @@ export default function DashboardView(props: DashboardViewProps) {
           <nav class="space-y-1">
             {navItem("home", "Dashboard", <Command size={18} />)}
             {navItem("sessions", "Sessions", <Play size={18} />)}
+            {navItem("scheduled", "Scheduled Tasks", <Calendar size={18} />)}
             {navItem("templates", "Templates", <FileText size={18} />)}
             {navItem("skills", "Skills", <Package size={18} />)}
             {navItem("plugins", "Plugins", <Cpu size={18} />)}
@@ -687,6 +702,18 @@ export default function DashboardView(props: DashboardViewProps) {
               </section>
             </Match>
 
+            <Match when={props.tab === "scheduled"}>
+              <ScheduledTasksView
+                jobs={props.scheduledJobs}
+                status={props.scheduledJobsStatus}
+                busy={props.scheduledJobsBusy}
+                lastUpdatedAt={props.scheduledJobsUpdatedAt}
+                refreshJobs={props.refreshScheduledJobs}
+                deleteJob={props.deleteScheduledJob}
+                isWindows={props.isWindows}
+              />
+            </Match>
+
             <Match when={props.tab === "templates"}>
               <TemplatesView
                 busy={props.busy}
@@ -845,7 +872,7 @@ export default function DashboardView(props: DashboardViewProps) {
         </Show>
 
         <nav class="md:hidden fixed bottom-0 left-0 right-0 border-t border-gray-6 bg-gray-1/90 backdrop-blur-md">
-          <div class="mx-auto max-w-5xl px-4 py-3 grid grid-cols-6 gap-2">
+          <div class="mx-auto max-w-5xl px-4 py-3 grid grid-cols-4 gap-3">
             <button
               class={`flex flex-col items-center gap-1 text-xs ${
                 props.tab === "home" ? "text-gray-12" : "text-gray-10"
@@ -863,6 +890,15 @@ export default function DashboardView(props: DashboardViewProps) {
             >
               <Play size={18} />
               Runs
+            </button>
+            <button
+              class={`flex flex-col items-center gap-1 text-xs ${
+                props.tab === "scheduled" ? "text-gray-12" : "text-gray-10"
+              }`}
+              onClick={() => props.setTab("scheduled")}
+            >
+              <Calendar size={18} />
+              Schedule
             </button>
             <button
               class={`flex flex-col items-center gap-1 text-xs ${

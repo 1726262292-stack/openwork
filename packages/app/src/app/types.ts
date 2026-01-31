@@ -1,6 +1,6 @@
 import type { Message, Part, PermissionRequest as ApiPermissionRequest, Provider, Session } from "@opencode-ai/sdk/v2/client";
 import type { createClient } from "./lib/opencode";
-import type { OpencodeConfigFile, WorkspaceInfo } from "./lib/tauri";
+import type { OpencodeConfigFile, ScheduledJob as TauriScheduledJob, WorkspaceInfo } from "./lib/tauri";
 
 export type Client = ReturnType<typeof createClient>;
 
@@ -64,7 +64,15 @@ export type Mode = "host" | "client";
 
 export type OnboardingStep = "mode" | "host" | "client" | "connecting";
 
-export type DashboardTab = "home" | "sessions" | "templates" | "skills" | "plugins" | "mcp" | "settings";
+export type DashboardTab =
+  | "home"
+  | "sessions"
+  | "scheduled"
+  | "templates"
+  | "skills"
+  | "plugins"
+  | "mcp"
+  | "settings";
 
 export type DemoSequence = "cold-open" | "scheduler" | "summaries" | "groceries";
 
@@ -186,6 +194,8 @@ export type WorkspaceState = {
   path: string;
   root: string;
 };
+
+export type ScheduledJob = TauriScheduledJob;
 
 export type PluginState = {
   scope: PluginScope;
