@@ -32,6 +32,11 @@ export type OpenworkWorkspaceInfo = {
   };
 };
 
+export type OpenworkWorkspaceList = {
+  items: OpenworkWorkspaceInfo[];
+  activeId?: string | null;
+};
+
 export type OpenworkPluginItem = {
   spec: string;
   source: "config" | "dir.project" | "dir.global";
@@ -248,7 +253,13 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
     health: () =>
       requestJson<{ ok: boolean; version: string; uptimeMs: number }>(baseUrl, "/health", { token, hostToken }),
     capabilities: () => requestJson<OpenworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken }),
-    listWorkspaces: () => requestJson<{ items: OpenworkWorkspaceInfo[] }>(baseUrl, "/workspaces", { token, hostToken }),
+    listWorkspaces: () => requestJson<OpenworkWorkspaceList>(baseUrl, "/workspaces", { token, hostToken }),
+    activateWorkspace: (workspaceId: string) =>
+      requestJson<{ activeId: string; workspace: OpenworkWorkspaceInfo }>(
+        baseUrl,
+        `/workspaces/${encodeURIComponent(workspaceId)}/activate`,
+        { token, hostToken, method: "POST" },
+      ),
     getConfig: (workspaceId: string) =>
       requestJson<{ opencode: Record<string, unknown>; openwork: Record<string, unknown>; updatedAt?: number | null }>(
         baseUrl,

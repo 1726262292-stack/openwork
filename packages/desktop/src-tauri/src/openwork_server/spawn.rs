@@ -20,7 +20,7 @@ pub fn resolve_openwork_port() -> Result<u16, String> {
 pub fn build_openwork_args(
     host: &str,
     port: u16,
-    workspace_path: &str,
+    workspace_paths: &[String],
     token: &str,
     host_token: &str,
     opencode_base_url: Option<&str>,
@@ -35,14 +35,19 @@ pub fn build_openwork_args(
         token.to_string(),
         "--host-token".to_string(),
         host_token.to_string(),
-        "--workspace".to_string(),
-        workspace_path.to_string(),
         // Always allow all origins since the OpenWork server is designed to accept
         // remote connections from client devices (phones, laptops) which may use
         // different origins (localhost dev servers, tauri apps, web browsers).
         "--cors".to_string(),
         "*".to_string(),
     ];
+
+    for workspace_path in workspace_paths {
+        if !workspace_path.trim().is_empty() {
+            args.push("--workspace".to_string());
+            args.push(workspace_path.to_string());
+        }
+    }
 
     if let Some(base_url) = opencode_base_url {
         if !base_url.trim().is_empty() {
@@ -65,7 +70,7 @@ pub fn spawn_openwork_server(
     app: &AppHandle,
     host: &str,
     port: u16,
-    workspace_path: &str,
+    workspace_paths: &[String],
     token: &str,
     host_token: &str,
     opencode_base_url: Option<&str>,
@@ -81,13 +86,17 @@ pub fn spawn_openwork_server(
     let args = build_openwork_args(
         host,
         port,
-        workspace_path,
+        workspace_paths,
         token,
         host_token,
         opencode_base_url,
         opencode_directory,
     );
-    let mut command = command.args(args).current_dir(Path::new(workspace_path));
+    let cwd = workspace_paths
+        .first()
+        .map(|path| Path::new(path))
+        .unwrap_or_else(|| Path::new("."));
+    let mut command = command.args(args).current_dir(cwd);
 
     if let Some(username) = opencode_username {
         if !username.trim().is_empty() {

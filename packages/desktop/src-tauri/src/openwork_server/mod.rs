@@ -43,7 +43,7 @@ pub fn resolve_connect_url(port: u16) -> Option<String> {
 pub fn start_openwork_server(
     app: &AppHandle,
     manager: &OpenworkServerManager,
-    workspace_path: &str,
+    workspace_paths: &[String],
     opencode_base_url: Option<&str>,
     opencode_username: Option<&str>,
     opencode_password: Option<&str>,
@@ -55,16 +55,24 @@ pub fn start_openwork_server(
     let port = resolve_openwork_port()?;
     let client_token = generate_token();
     let host_token = generate_token();
+    let active_workspace = workspace_paths
+        .first()
+        .map(|path| path.as_str())
+        .unwrap_or("");
 
     let (mut rx, child) = spawn_openwork_server(
         app,
         &host,
         port,
-        workspace_path,
+        workspace_paths,
         &client_token,
         &host_token,
         opencode_base_url,
-        Some(workspace_path),
+        if active_workspace.is_empty() {
+            None
+        } else {
+            Some(active_workspace)
+        },
         opencode_username,
         opencode_password,
     )?;

@@ -10,6 +10,7 @@ import type { OpencodeConnectStatus, ProviderListItem, SettingsTab } from "../ty
 import type { OpenworkAuditEntry, OpenworkServerCapabilities, OpenworkServerSettings, OpenworkServerStatus } from "../lib/openwork-server";
 import type {
   EngineInfo,
+  OpenwrkStatus,
   OpenworkServerInfo,
   OwpenbotInfo,
   OwpenbotStatus,
@@ -48,6 +49,7 @@ export type SettingsViewProps = {
   openworkAuditError: string | null;
   opencodeConnectStatus: OpencodeConnectStatus | null;
   engineInfo: EngineInfo | null;
+  openwrkStatus: OpenwrkStatus | null;
   owpenbotInfo: OwpenbotInfo | null;
   updateOpenworkServerSettings: (next: OpenworkServerSettings) => void;
   resetOpenworkServerSettings: () => void;
@@ -61,6 +63,8 @@ export type SettingsViewProps = {
   onResetAllKeybinds: () => void;
   engineSource: "path" | "sidecar";
   setEngineSource: (value: "path" | "sidecar") => void;
+  engineRuntime: "direct" | "openwrk";
+  setEngineRuntime: (value: "direct" | "openwrk") => void;
   isWindows: boolean;
   defaultModelLabel: string;
   defaultModelRef: string;
@@ -639,6 +643,18 @@ export default function SettingsView(props: SettingsViewProps) {
       : "bg-gray-4/60 text-gray-11 border-gray-7/50";
   });
 
+  const openwrkStatusLabel = createMemo(() => {
+    if (!props.openwrkStatus) return "Unavailable";
+    return props.openwrkStatus.running ? "Running" : "Offline";
+  });
+
+  const openwrkStatusStyle = createMemo(() => {
+    if (!props.openwrkStatus) return "bg-gray-4/60 text-gray-11 border-gray-7/50";
+    return props.openwrkStatus.running
+      ? "bg-green-7/10 text-green-11 border-green-7/20"
+      : "bg-gray-4/60 text-gray-11 border-gray-7/50";
+  });
+
   const openworkAuditStatusLabel = createMemo(() => {
     if (!props.openworkServerWorkspaceId) return "Unavailable";
     if (props.openworkAuditStatus === "loading") return "Loading";
@@ -1159,6 +1175,29 @@ export default function SettingsView(props: SettingsViewProps) {
                     Bundled engine is the most reliable option. Use System install only if you manage OpenCode yourself.
                   </div>
                 </div>
+
+                <div class="space-y-3">
+                  <div class="text-xs text-gray-10">Engine runtime</div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <Button
+                      variant={props.engineRuntime === "direct" ? "secondary" : "outline"}
+                      onClick={() => props.setEngineRuntime("direct")}
+                      disabled={props.busy}
+                    >
+                      Direct (OpenCode)
+                    </Button>
+                    <Button
+                      variant={props.engineRuntime === "openwrk" ? "secondary" : "outline"}
+                      onClick={() => props.setEngineRuntime("openwrk")}
+                      disabled={props.busy}
+                    >
+                      Openwrk orchestrator
+                    </Button>
+                  </div>
+                  <div class="text-[11px] text-gray-7">
+                    Applies the next time the engine starts or reloads.
+                  </div>
+                </div>
               </Show>
 
               <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
@@ -1561,6 +1600,40 @@ export default function SettingsView(props: SettingsViewProps) {
                           </pre>
                         </div>
                       </div>
+                    </div>
+
+                    <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
+                      <div class="flex items-center justify-between gap-3">
+                        <div>
+                          <div class="text-sm font-medium text-gray-12">Openwrk daemon</div>
+                          <div class="text-xs text-gray-10">Workspace orchestration layer.</div>
+                        </div>
+                        <div class={`text-xs px-2 py-1 rounded-full border ${openwrkStatusStyle()}`}>
+                          {openwrkStatusLabel()}
+                        </div>
+                      </div>
+                      <div class="space-y-1">
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          {props.openwrkStatus?.dataDir ?? "Data directory unavailable"}
+                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          Daemon: {props.openwrkStatus?.daemon?.baseUrl ?? "—"}
+                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          OpenCode: {props.openwrkStatus?.opencode?.baseUrl ?? "—"}
+                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          Active workspace: {props.openwrkStatus?.activeId ?? "—"}
+                        </div>
+                      </div>
+                      <Show when={props.openwrkStatus?.lastError}>
+                        <div>
+                          <div class="text-[11px] text-gray-9 mb-1">Last error</div>
+                          <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-24 overflow-auto bg-gray-2/50 border border-gray-6 rounded-lg p-2">
+                            {props.openwrkStatus?.lastError}
+                          </pre>
+                        </div>
+                      </Show>
                     </div>
 
                     <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">

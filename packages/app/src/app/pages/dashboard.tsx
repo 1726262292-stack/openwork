@@ -15,7 +15,7 @@ import type {
 import type { McpDirectoryInfo } from "../constants";
 import { formatRelativeTime, normalizeDirectoryPath } from "../utils";
 import type { OpenworkAuditEntry, OpenworkServerCapabilities, OpenworkServerSettings, OpenworkServerStatus } from "../lib/openwork-server";
-import type { EngineInfo, OpenworkServerInfo, OwpenbotInfo, WorkspaceInfo } from "../lib/tauri";
+import type { EngineInfo, OpenwrkStatus, OpenworkServerInfo, OwpenbotInfo, WorkspaceInfo } from "../lib/tauri";
 
 import Button from "../components/button";
 import OpenWorkLogo from "../components/openwork-logo";
@@ -77,6 +77,7 @@ export type DashboardViewProps = {
   openworkAuditError: string | null;
   opencodeConnectStatus: OpencodeConnectStatus | null;
   engineInfo: EngineInfo | null;
+  openwrkStatus: OpenwrkStatus | null;
   owpenbotInfo: OwpenbotInfo | null;
   updateOpenworkServerSettings: (next: OpenworkServerSettings) => void;
   resetOpenworkServerSettings: () => void;
@@ -218,6 +219,8 @@ export type DashboardViewProps = {
   anyActiveRuns: boolean;
   engineSource: "path" | "sidecar";
   setEngineSource: (value: "path" | "sidecar") => void;
+  engineRuntime: "direct" | "openwrk";
+  setEngineRuntime: (value: "direct" | "openwrk") => void;
   isWindows: boolean;
   toggleDeveloperMode: () => void;
   developerMode: boolean;
@@ -940,6 +943,7 @@ export default function DashboardView(props: DashboardViewProps) {
                   openworkAuditError={props.openworkAuditError}
                   opencodeConnectStatus={props.opencodeConnectStatus}
                   engineInfo={props.engineInfo}
+                  openwrkStatus={props.openwrkStatus}
                   owpenbotInfo={props.owpenbotInfo}
                   updateOpenworkServerSettings={props.updateOpenworkServerSettings}
                   resetOpenworkServerSettings={props.resetOpenworkServerSettings}
@@ -949,6 +953,8 @@ export default function DashboardView(props: DashboardViewProps) {
                   stopHost={props.stopHost}
                   engineSource={props.engineSource}
                   setEngineSource={props.setEngineSource}
+                  engineRuntime={props.engineRuntime}
+                  setEngineRuntime={props.setEngineRuntime}
                   isWindows={props.isWindows}
                   defaultModelLabel={props.defaultModelLabel}
                   defaultModelRef={props.defaultModelRef}

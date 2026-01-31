@@ -178,13 +178,18 @@ export async function resolveServerConfig(cli: CliArgs): Promise<ServerConfig> {
   const opencodePassword = cli.opencodePassword ?? envOpencodePassword ?? fileConfig.opencodePassword;
 
   if (workspaceConfigs.length > 0 && (opencodeBaseUrl || opencodeDirectory || opencodeUsername || opencodePassword)) {
-    workspaceConfigs[0] = {
-      ...workspaceConfigs[0],
-      baseUrl: opencodeBaseUrl ?? workspaceConfigs[0].baseUrl,
-      directory: opencodeDirectory ?? workspaceConfigs[0].directory,
-      opencodeUsername: opencodeUsername ?? workspaceConfigs[0].opencodeUsername,
-      opencodePassword: opencodePassword ?? workspaceConfigs[0].opencodePassword,
-    };
+    const allowDirectoryOverride = workspaceConfigs.length === 1 && opencodeDirectory;
+    workspaceConfigs = workspaceConfigs.map((workspace, index) => {
+      const nextDirectory =
+        workspace.directory ?? (allowDirectoryOverride && index === 0 ? opencodeDirectory : undefined);
+      return {
+        ...workspace,
+        baseUrl: workspace.baseUrl ?? opencodeBaseUrl,
+        directory: nextDirectory,
+        opencodeUsername: workspace.opencodeUsername ?? opencodeUsername,
+        opencodePassword: workspace.opencodePassword ?? opencodePassword,
+      };
+    });
   }
 
   const workspaces = buildWorkspaceInfos(workspaceConfigs, configDir);
