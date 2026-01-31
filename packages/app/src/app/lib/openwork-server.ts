@@ -1,5 +1,6 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isTauriRuntime } from "../utils";
+import type { ScheduledJob } from "./tauri";
 
 export type OpenworkServerCapabilities = {
   skills: { read: boolean; write: boolean; source: "openwork" | "opencode" };
@@ -357,6 +358,16 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         hostToken,
         method: "DELETE",
       }),
+    listScheduledJobs: (workspaceId: string) =>
+      requestJson<{ items: ScheduledJob[] }>(baseUrl, `/workspace/${workspaceId}/scheduler/jobs`, { token, hostToken }),
+    deleteScheduledJob: (workspaceId: string, name: string) =>
+      requestJson<{ job: ScheduledJob }>(baseUrl, `/workspace/${workspaceId}/scheduler/jobs/${encodeURIComponent(name)}`,
+        {
+          token,
+          hostToken,
+          method: "DELETE",
+        },
+      ),
   };
 }
 

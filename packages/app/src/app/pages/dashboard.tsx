@@ -114,6 +114,8 @@ export type DashboardViewProps = {
   }>;
   sessionStatusById: Record<string, string>;
   scheduledJobs: ScheduledJob[];
+  scheduledJobsSource: "local" | "remote";
+  scheduledJobsSourceReady: boolean;
   scheduledJobsStatus: string | null;
   scheduledJobsBusy: boolean;
   scheduledJobsUpdatedAt: number | null;
@@ -833,6 +835,8 @@ export default function DashboardView(props: DashboardViewProps) {
             <Match when={props.tab === "scheduled"}>
               <ScheduledTasksView
                 jobs={props.scheduledJobs}
+                source={props.scheduledJobsSource}
+                sourceReady={props.scheduledJobsSourceReady}
                 status={props.scheduledJobsStatus}
                 busy={props.scheduledJobsBusy}
                 lastUpdatedAt={props.scheduledJobsUpdatedAt}

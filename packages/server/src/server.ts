@@ -6,6 +6,7 @@ import { addPlugin, listPlugins, removePlugin } from "./plugins.js";
 import { addMcp, listMcp, removeMcp } from "./mcp.js";
 import { listSkills, upsertSkill } from "./skills.js";
 import { deleteCommand, listCommands, upsertCommand } from "./commands.js";
+import { deleteScheduledJob, listScheduledJobs, resolveScheduledJob } from "./scheduler.js";
 import { ApiError, formatError } from "./errors.js";
 import { readJsoncFile, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
 import { recordAudit, readAuditEntries, readLastAudit } from "./audit.js";
@@ -495,6 +496,36 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
       timestamp: Date.now(),
     });
     return jsonResponse({ ok: true });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/scheduler/jobs", "client", async (ctx) => {
+    await resolveWorkspace(config, ctx.params.id);
+    const items = await listScheduledJobs();
+    return jsonResponse({ items });
+  });
+
+  addRoute(routes, "DELETE", "/workspace/:id/scheduler/jobs/:name", "client", async (ctx) => {
+    ensureWritable(config);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const name = ctx.params.name ?? "";
+    const { job, jobFile, systemPaths } = await resolveScheduledJob(name);
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "scheduler.delete",
+      summary: `Delete scheduled job ${job.name}`,
+      paths: [jobFile, ...systemPaths],
+    });
+    await deleteScheduledJob(job);
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "scheduler.delete",
+      target: jobFile,
+      summary: `Deleted scheduled job ${job.name}`,
+      timestamp: Date.now(),
+    });
+    return jsonResponse({ job });
   });
 
   addRoute(routes, "GET", "/workspace/:id/export", "client", async (ctx) => {
