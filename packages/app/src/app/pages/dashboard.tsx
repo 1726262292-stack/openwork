@@ -7,6 +7,7 @@ import type {
   PluginScope,
   ProviderListItem,
   SettingsTab,
+  ScheduledJob,
   SkillCard,
   WorkspaceCommand,
   View,
@@ -21,6 +22,7 @@ import OpenWorkLogo from "../components/openwork-logo";
 import WorkspaceChip from "../components/workspace-chip";
 import McpView from "./mcp";
 import PluginsView from "./plugins";
+import ScheduledTasksView from "./scheduled";
 import SettingsView from "./settings";
 import type { KeybindSetting } from "../components/settings-keybinds";
 import SkillsView from "./skills";
@@ -30,6 +32,7 @@ import ProviderAuthModal from "../components/provider-auth-modal";
 import {
   Command,
   Cpu,
+  Calendar,
   Package,
   Play,
   Plus,
@@ -109,6 +112,12 @@ export type DashboardViewProps = {
     directory?: string | null;
   }>;
   sessionStatusById: Record<string, string>;
+  scheduledJobs: ScheduledJob[];
+  scheduledJobsStatus: string | null;
+  scheduledJobsBusy: boolean;
+  scheduledJobsUpdatedAt: number | null;
+  refreshScheduledJobs: (options?: { force?: boolean }) => void;
+  deleteScheduledJob: (name: string) => Promise<void> | void;
   activeWorkspaceRoot: string;
   workspaceCommands: WorkspaceCommand[];
   globalCommands: WorkspaceCommand[];
@@ -234,6 +243,8 @@ export default function DashboardView(props: DashboardViewProps) {
     switch (props.tab) {
       case "sessions":
         return "Sessions";
+      case "scheduled":
+        return "Scheduled Tasks";
       case "commands":
         return "Commands";
       case "skills":
@@ -349,6 +360,9 @@ export default function DashboardView(props: DashboardViewProps) {
         if (currentTab === "mcp" && !cancelled) {
           await props.refreshMcpServers();
         }
+        if (currentTab === "scheduled" && !cancelled) {
+          await props.refreshScheduledJobs();
+        }
         if (currentTab === "sessions" && !cancelled) {
           // Stagger these calls to avoid request stacking
           await props.refreshSkills();
@@ -409,6 +423,7 @@ export default function DashboardView(props: DashboardViewProps) {
           <nav class="space-y-1">
             {navItem("home", "Dashboard", <Command size={18} />)}
             {navItem("sessions", "Sessions", <Play size={18} />)}
+            {navItem("scheduled", "Scheduled Tasks", <Calendar size={18} />)}
             {navItem("commands", "Commands", <Terminal size={18} />)}
             {navItem("skills", "Skills", <Package size={18} />)}
             {navItem("plugins", "Plugins", <Cpu size={18} />)}
@@ -812,6 +827,17 @@ export default function DashboardView(props: DashboardViewProps) {
               </section>
             </Match>
 
+            <Match when={props.tab === "scheduled"}>
+              <ScheduledTasksView
+                jobs={props.scheduledJobs}
+                status={props.scheduledJobsStatus}
+                busy={props.scheduledJobsBusy}
+                lastUpdatedAt={props.scheduledJobsUpdatedAt}
+                refreshJobs={props.refreshScheduledJobs}
+                deleteJob={props.deleteScheduledJob}
+                isWindows={props.isWindows}
+              />
+            </Match>
             <Match when={props.tab === "commands"}>
               <CommandsView
                 busy={props.busy}
@@ -1025,7 +1051,7 @@ export default function DashboardView(props: DashboardViewProps) {
             mcpStatuses={props.mcpStatuses}
           />
           <nav class="md:hidden border-t border-gray-6 bg-gray-1/90 backdrop-blur-md">
-            <div class="mx-auto max-w-5xl px-4 py-3 grid grid-cols-6 gap-2">
+            <div class="mx-auto max-w-5xl px-4 py-3 grid grid-cols-7 gap-2">
               <button
                 class={`flex flex-col items-center gap-1 text-xs ${
                   props.tab === "home" ? "text-gray-12" : "text-gray-10"
@@ -1043,6 +1069,15 @@ export default function DashboardView(props: DashboardViewProps) {
               >
                 <Play size={18} />
                 Runs
+              </button>
+              <button
+                class={`flex flex-col items-center gap-1 text-xs ${
+                  props.tab === "scheduled" ? "text-gray-12" : "text-gray-10"
+                }`}
+                onClick={() => props.setTab("scheduled")}
+              >
+                <Calendar size={18} />
+                Schedule
               </button>
               <button
                 class={`flex flex-col items-center gap-1 text-xs ${

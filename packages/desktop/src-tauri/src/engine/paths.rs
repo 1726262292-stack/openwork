@@ -60,7 +60,7 @@ pub fn candidate_opencode_paths() -> Vec<PathBuf> {
     candidates
 }
 
-pub fn resolve_opencode_executable() -> (Option<PathBuf>, bool, Vec<String>) {
+pub(crate) fn resolve_opencode_env_override() -> (Option<PathBuf>, Vec<String>) {
     let mut notes = Vec::new();
 
     if let Ok(custom) = std::env::var("OPENCODE_BIN_PATH") {
@@ -69,7 +69,7 @@ pub fn resolve_opencode_executable() -> (Option<PathBuf>, bool, Vec<String>) {
             let candidate = PathBuf::from(custom);
             if candidate.is_file() {
                 notes.push(format!("Using OPENCODE_BIN_PATH: {}", candidate.display()));
-                return (Some(candidate), false, notes);
+                return (Some(candidate), notes);
             }
             notes.push(format!(
                 "OPENCODE_BIN_PATH set but missing: {}",
@@ -78,6 +78,10 @@ pub fn resolve_opencode_executable() -> (Option<PathBuf>, bool, Vec<String>) {
         }
     }
 
+    (None, notes)
+}
+
+fn resolve_opencode_executable_impl(mut notes: Vec<String>) -> (Option<PathBuf>, bool, Vec<String>) {
     if let Some(path) = resolve_in_path(OPENCODE_EXECUTABLE) {
         notes.push(format!("Found in PATH: {}", path.display()));
         return (Some(path), true, notes);
@@ -103,4 +107,17 @@ pub fn resolve_opencode_executable() -> (Option<PathBuf>, bool, Vec<String>) {
     }
 
     (None, false, notes)
+}
+
+pub fn resolve_opencode_executable() -> (Option<PathBuf>, bool, Vec<String>) {
+    let (override_path, notes) = resolve_opencode_env_override();
+    if let Some(path) = override_path {
+        return (Some(path), false, notes);
+    }
+
+    resolve_opencode_executable_impl(notes)
+}
+
+pub(crate) fn resolve_opencode_executable_without_override() -> (Option<PathBuf>, bool, Vec<String>) {
+    resolve_opencode_executable_impl(Vec::new())
 }

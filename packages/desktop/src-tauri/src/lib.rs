@@ -21,6 +21,7 @@ use commands::config::{read_opencode_config, write_opencode_config};
 use commands::engine::{engine_doctor, engine_info, engine_install, engine_start, engine_stop};
 use commands::misc::{opencode_mcp_auth, reset_opencode_cache, reset_openwork_state};
 use commands::openwork_server::openwork_server_info;
+use commands::scheduler::{scheduler_delete_job, scheduler_list_jobs};
 use commands::opkg::{import_skill, opkg_install};
 use commands::owpenbot::{
     owpenbot_config_set, owpenbot_info, owpenbot_pairing_approve, owpenbot_pairing_deny,
@@ -95,7 +96,9 @@ pub fn run() {
             updater_environment,
             reset_openwork_state,
             reset_opencode_cache,
-            opencode_mcp_auth
+            opencode_mcp_auth,
+            scheduler_list_jobs,
+            scheduler_delete_job
         ])
         .run(tauri::generate_context!())
         .expect("error while running OpenWork");

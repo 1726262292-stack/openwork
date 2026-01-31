@@ -316,6 +316,41 @@ export type ExecResult = {
   stderr: string;
 };
 
+export type ScheduledJobRun = {
+  prompt?: string;
+  command?: string;
+  arguments?: string;
+  files?: string[];
+  agent?: string;
+  model?: string;
+  variant?: string;
+  title?: string;
+  share?: boolean;
+  continue?: boolean;
+  session?: string;
+  runFormat?: string;
+  attachUrl?: string;
+  port?: number;
+};
+
+export type ScheduledJob = {
+  slug: string;
+  name: string;
+  schedule: string;
+  prompt?: string;
+  attachUrl?: string;
+  run?: ScheduledJobRun;
+  source?: string;
+  workdir?: string;
+  createdAt: string;
+  updatedAt?: string;
+  lastRunAt?: string;
+  lastRunExitCode?: number;
+  lastRunError?: string;
+  lastRunSource?: string;
+  lastRunStatus?: string;
+};
+
 export async function engineInstall(): Promise<ExecResult> {
   return invoke<ExecResult>("engine_install");
 }
@@ -409,6 +444,14 @@ export type CacheResetResult = {
 
 export async function resetOpencodeCache(): Promise<CacheResetResult> {
   return invoke<CacheResetResult>("reset_opencode_cache");
+}
+
+export async function schedulerListJobs(): Promise<ScheduledJob[]> {
+  return invoke<ScheduledJob[]>("scheduler_list_jobs");
+}
+
+export async function schedulerDeleteJob(name: string): Promise<ScheduledJob> {
+  return invoke<ScheduledJob>("scheduler_delete_job", { name });
 }
 
 // Owpenbot types

@@ -6,7 +6,7 @@ import type {
   Session,
 } from "@opencode-ai/sdk/v2/client";
 import type { createClient } from "./lib/opencode";
-import type { OpencodeConfigFile, WorkspaceInfo } from "./lib/tauri";
+import type { OpencodeConfigFile, ScheduledJob as TauriScheduledJob, WorkspaceInfo } from "./lib/tauri";
 
 export type Client = ReturnType<typeof createClient>;
 
@@ -95,7 +95,15 @@ export type Mode = "host" | "client";
 
 export type OnboardingStep = "mode" | "host" | "client" | "connecting";
 
-export type DashboardTab = "home" | "sessions" | "commands" | "skills" | "plugins" | "mcp" | "settings";
+export type DashboardTab =
+  | "home"
+  | "sessions"
+  | "scheduled"
+  | "commands"
+  | "skills"
+  | "plugins"
+  | "mcp"
+  | "settings";
 
 export type SettingsTab = "general" | "model" | "keybinds" | "advanced" | "remote" | "messaging" | "debug";
 
@@ -256,6 +264,8 @@ export type WorkspaceState = {
   path: string;
   root: string;
 };
+
+export type ScheduledJob = TauriScheduledJob;
 
 export type PluginState = {
   scope: PluginScope;

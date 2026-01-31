@@ -79,6 +79,7 @@ import type {
   WorkspaceCommand,
   UpdateHandle,
   OpencodeConnectStatus,
+  ScheduledJob,
 } from "./types";
 import {
   clearModePreference,
@@ -125,6 +126,8 @@ import {
   updaterEnvironment,
   readOpencodeConfig,
   writeOpencodeConfig,
+  schedulerDeleteJob,
+  schedulerListJobs,
   openworkServerInfo,
   owpenbotInfo,
   type OpenworkServerInfo,
@@ -975,6 +978,10 @@ export default function App() {
   const [mcpStatuses, setMcpStatuses] = createSignal<McpStatusMap>({});
   const [mcpConnectingName, setMcpConnectingName] = createSignal<string | null>(null);
   const [selectedMcp, setSelectedMcp] = createSignal<string | null>(null);
+  const [scheduledJobs, setScheduledJobs] = createSignal<ScheduledJob[]>([]);
+  const [scheduledJobsStatus, setScheduledJobsStatus] = createSignal<string | null>(null);
+  const [scheduledJobsBusy, setScheduledJobsBusy] = createSignal(false);
+  const [scheduledJobsUpdatedAt, setScheduledJobsUpdatedAt] = createSignal<number | null>(null);
 
   // MCP OAuth modal state
   const [mcpAuthModalOpen, setMcpAuthModalOpen] = createSignal(false);
@@ -1034,6 +1041,48 @@ export default function App() {
     abortRefreshes,
   } = extensionsStore;
 
+  const refreshScheduledJobs = async (options?: { force?: boolean }) => {
+    if (scheduledJobsBusy() && !options?.force) return;
+
+    if (!isTauriRuntime()) {
+      setScheduledJobs([]);
+      setScheduledJobsStatus(null);
+      return;
+    }
+
+    if (isWindowsPlatform()) {
+      setScheduledJobs([]);
+      setScheduledJobsStatus(null);
+      return;
+    }
+
+    setScheduledJobsBusy(true);
+    setScheduledJobsStatus(null);
+
+    try {
+      const jobs = await schedulerListJobs();
+      setScheduledJobs(jobs);
+      setScheduledJobsUpdatedAt(Date.now());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setScheduledJobs([]);
+      setScheduledJobsStatus(message || "Failed to load scheduled tasks.");
+    } finally {
+      setScheduledJobsBusy(false);
+    }
+  };
+
+  const deleteScheduledJob = async (name: string) => {
+    if (!isTauriRuntime()) {
+      throw new Error("Scheduled tasks require the desktop app.");
+    }
+    if (isWindowsPlatform()) {
+      throw new Error("Scheduler is not supported on Windows yet.");
+    }
+    const job = await schedulerDeleteJob(name);
+    setScheduledJobs((current) => current.filter((entry) => entry.slug !== job.slug));
+    return job;
+  };
   const globalSync = useGlobalSync();
   const providers = createMemo(() => globalSync.data.provider.all ?? []);
   const providerDefaults = createMemo(() => globalSync.data.provider.default ?? {});
@@ -3601,6 +3650,13 @@ export default function App() {
       directory: s.directory,
     })),
     sessionStatusById: activeSessionStatusById(),
+    scheduledJobs: scheduledJobs(),
+    scheduledJobsStatus: scheduledJobsStatus(),
+    scheduledJobsBusy: scheduledJobsBusy(),
+    scheduledJobsUpdatedAt: scheduledJobsUpdatedAt(),
+    refreshScheduledJobs: (options?: { force?: boolean }) =>
+      refreshScheduledJobs(options).catch(() => undefined),
+    deleteScheduledJob,
     activeWorkspaceRoot: workspaceStore.activeWorkspaceRoot().trim(),
     workspaceCommands: workspaceCommands(),
     globalCommands: globalCommands(),
@@ -3844,6 +3900,7 @@ export default function App() {
   const dashboardTabs = new Set<DashboardTab>([
     "home",
     "sessions",
+    "scheduled",
     "commands",
     "skills",
     "plugins",

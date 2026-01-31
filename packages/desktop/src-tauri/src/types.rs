@@ -136,6 +136,46 @@ pub struct UpdaterEnvironment {
     pub app_bundle_path: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduledJobRun {
+    pub prompt: Option<String>,
+    pub command: Option<String>,
+    pub arguments: Option<String>,
+    pub files: Option<Vec<String>>,
+    pub agent: Option<String>,
+    pub model: Option<String>,
+    pub variant: Option<String>,
+    pub title: Option<String>,
+    pub share: Option<bool>,
+    #[serde(rename = "continue")]
+    pub continue_flag: Option<bool>,
+    pub session: Option<String>,
+    pub run_format: Option<String>,
+    pub attach_url: Option<String>,
+    pub port: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduledJob {
+    pub slug: String,
+    pub name: String,
+    pub schedule: String,
+    pub prompt: Option<String>,
+    pub attach_url: Option<String>,
+    pub run: Option<ScheduledJobRun>,
+    pub source: Option<String>,
+    pub workdir: Option<String>,
+    pub created_at: String,
+    pub updated_at: Option<String>,
+    pub last_run_at: Option<String>,
+    pub last_run_exit_code: Option<i32>,
+    pub last_run_error: Option<String>,
+    pub last_run_source: Option<String>,
+    pub last_run_status: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum WorkspaceType {
