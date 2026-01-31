@@ -41,6 +41,14 @@ type VersionManifest = {
   entries: Record<string, VersionInfo>;
 };
 
+type BinarySource = "bundled" | "external";
+
+type ResolvedBinary = {
+  bin: string;
+  source: BinarySource;
+  expectedVersion?: string;
+};
+
 type RouterWorkspaceType = "local" | "remote";
 
 type RouterWorkspace = {
@@ -400,21 +408,117 @@ async function verifyBinary(path: string, expected?: VersionInfo): Promise<void>
   }
 }
 
-async function resolveBundledBinary(
-  manifest: VersionManifest | null,
-  name: string,
-  allowExternal: boolean,
-): Promise<string | null> {
+async function resolveBundledBinary(manifest: VersionManifest | null, name: string): Promise<string | null> {
   if (!manifest) return null;
   const bundled = join(manifest.dir, name);
-  if (!(await isExecutable(bundled))) {
-    if (allowExternal) return null;
-    throw new Error(`Bundled binary missing: ${name}`);
-  }
-  if (!allowExternal) {
-    await verifyBinary(bundled, manifest.entries[name]);
-  }
+  if (!(await isExecutable(bundled))) return null;
+  await verifyBinary(bundled, manifest.entries[name]);
   return bundled;
+}
+
+async function readPackageVersion(path: string): Promise<string | undefined> {
+  try {
+    const payload = await readFile(path, "utf8");
+    const parsed = JSON.parse(payload) as { version?: string };
+    if (typeof parsed.version === "string") return parsed.version;
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveExpectedVersion(
+  manifest: VersionManifest | null,
+  name: "openwork-server" | "owpenbot",
+): Promise<string | undefined> {
+  const manifestVersion = manifest?.entries[name]?.version;
+  if (manifestVersion) return manifestVersion;
+
+  try {
+    const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+    const localDir = name === "openwork-server" ? "server" : "owpenbot";
+    const localPath = join(root, "..", localDir, "package.json");
+    const localVersion = await readPackageVersion(localPath);
+    if (localVersion) return localVersion;
+  } catch {
+    // ignore
+  }
+
+  const require = createRequire(import.meta.url);
+  if (name === "openwork-server") {
+    try {
+      const pkgPath = require.resolve("openwork-server/package.json");
+      const version = await readPackageVersion(pkgPath);
+      if (version) return version;
+    } catch {
+      // ignore
+    }
+  } else {
+    try {
+      const pkgPath = require.resolve("owpenwork/package.json");
+      const version = await readPackageVersion(pkgPath);
+      if (version) return version;
+    } catch {
+      // ignore
+    }
+  }
+
+  return undefined;
+}
+
+function parseVersion(output: string): string | undefined {
+  const match = output.match(/\d+\.\d+\.\d+(?:-[\w.-]+)?/);
+  return match?.[0];
+}
+
+async function readCliVersion(bin: string, timeoutMs = 4000): Promise<string | undefined> {
+  const resolved = resolveBinCommand(bin);
+  const child = spawn(resolved.command, [...resolved.prefixArgs, "--version"], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout?.on("data", (chunk) => {
+    output += chunk.toString();
+  });
+  child.stderr?.on("data", (chunk) => {
+    output += chunk.toString();
+  });
+
+  const result = await Promise.race([
+    once(child, "exit").then(() => "exit"),
+    once(child, "error").then(() => "error"),
+    new Promise((resolve) => setTimeout(resolve, timeoutMs, "timeout")),
+  ]);
+
+  if (result === "timeout") {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // ignore
+    }
+    return undefined;
+  }
+
+  if (result === "error") {
+    return undefined;
+  }
+
+  return parseVersion(output.trim());
+}
+
+function assertVersionMatch(
+  name: string,
+  expected: string | undefined,
+  actual: string | undefined,
+  context: string,
+): void {
+  if (!expected) return;
+  if (!actual) {
+    throw new Error(`Unable to determine ${name} version from ${context}. Expected ${expected}.`);
+  }
+  if (expected !== actual) {
+    throw new Error(`${name} version mismatch: expected ${expected}, got ${actual}.`);
+  }
 }
 
 function resolveBinPath(bin: string): string {
@@ -428,12 +532,27 @@ async function resolveOpenworkServerBin(options: {
   explicit?: string;
   manifest: VersionManifest | null;
   allowExternal: boolean;
-}): Promise<string> {
-  const bundled = await resolveBundledBinary(options.manifest, "openwork-server", options.allowExternal);
-  if (bundled) return bundled;
+}): Promise<ResolvedBinary> {
+  if (options.explicit && !options.allowExternal) {
+    throw new Error("openwork-server-bin requires --allow-external");
+  }
+
+  const expectedVersion = await resolveExpectedVersion(options.manifest, "openwork-server");
+  const bundled = await resolveBundledBinary(options.manifest, "openwork-server");
+  if (bundled && !(options.allowExternal && options.explicit)) {
+    return { bin: bundled, source: "bundled", expectedVersion };
+  }
+
+  if (!options.allowExternal) {
+    throw new Error("Bundled openwork-server binary missing. Use --allow-external for dev or rebuild openwrk.");
+  }
 
   if (options.explicit) {
-    return resolveBinPath(options.explicit);
+    const resolved = resolveBinPath(options.explicit);
+    if ((resolved.includes("/") || resolved.startsWith(".")) && !(await fileExists(resolved))) {
+      throw new Error(`openwork-server-bin not found: ${resolved}`);
+    }
+    return { bin: resolved, source: "external", expectedVersion };
   }
 
   const require = createRequire(import.meta.url);
@@ -442,31 +561,47 @@ async function resolveOpenworkServerBin(options: {
     const pkgDir = dirname(pkgPath);
     const binaryPath = join(pkgDir, "dist", "bin", "openwork-server");
     if (await isExecutable(binaryPath)) {
-      return binaryPath;
+      return { bin: binaryPath, source: "external", expectedVersion };
     }
     const cliPath = join(pkgDir, "dist", "cli.js");
     if (await isExecutable(cliPath)) {
-      return cliPath;
+      return { bin: cliPath, source: "external", expectedVersion };
     }
   } catch {
     // ignore
   }
 
-  return "openwork-server";
+  return { bin: "openwork-server", source: "external", expectedVersion };
 }
 
 async function resolveOwpenbotBin(options: {
   explicit?: string;
   manifest: VersionManifest | null;
   allowExternal: boolean;
-}): Promise<string> {
-  const bundled = await resolveBundledBinary(options.manifest, "owpenbot", options.allowExternal);
-  if (bundled) return bundled;
+}): Promise<ResolvedBinary> {
+  if (options.explicit && !options.allowExternal) {
+    throw new Error("owpenbot-bin requires --allow-external");
+  }
+
+  const expectedVersion = await resolveExpectedVersion(options.manifest, "owpenbot");
+  const bundled = await resolveBundledBinary(options.manifest, "owpenbot");
+  if (bundled && !(options.allowExternal && options.explicit)) {
+    return { bin: bundled, source: "bundled", expectedVersion };
+  }
+
+  if (!options.allowExternal) {
+    throw new Error("Bundled owpenbot binary missing. Use --allow-external for dev or rebuild openwrk.");
+  }
 
   if (options.explicit) {
-    return resolveBinPath(options.explicit);
+    const resolved = resolveBinPath(options.explicit);
+    if ((resolved.includes("/") || resolved.startsWith(".")) && !(await fileExists(resolved))) {
+      throw new Error(`owpenbot-bin not found: ${resolved}`);
+    }
+    return { bin: resolved, source: "external", expectedVersion };
   }
-  return "owpenbot";
+
+  return { bin: "owpenbot", source: "external", expectedVersion };
 }
 
 function resolveRouterDataDir(flags: Map<string, string | boolean>): string {
@@ -627,10 +762,10 @@ function printHelp(): void {
     "  --read-only               Start OpenWork server in read-only mode",
     "  --cors <origins>          Comma-separated CORS origins or *",
     "  --connect-host <host>     Override LAN host used for pairing URLs",
-    "  --openwork-server-bin <p> Path to openwork-server binary",
-    "  --owpenbot-bin <path>     Path to owpenbot binary (default: owpenbot)",
+    "  --openwork-server-bin <p> Path to openwork-server binary (requires --allow-external)",
+    "  --owpenbot-bin <path>     Path to owpenbot binary (requires --allow-external)",
     "  --no-owpenbot             Disable owpenbot sidecar",
-    "  --allow-external          Allow external sidecar binaries (dev only)",
+    "  --allow-external          Allow external sidecar binaries (dev only, required for custom bins)",
     "  --check                   Run health checks then exit",
     "  --check-events            Verify SSE events during check",
     "  --json                    Output JSON when applicable",
@@ -753,6 +888,15 @@ async function startOpenworkServer(options: {
   const child = spawn(resolved.command, [...resolved.prefixArgs, ...args], {
     cwd: options.workspace,
     stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      OPENWORK_TOKEN: options.token,
+      OPENWORK_HOST_TOKEN: options.hostToken,
+      ...(options.opencodeBaseUrl ? { OPENWORK_OPENCODE_BASE_URL: options.opencodeBaseUrl } : {}),
+      ...(options.opencodeDirectory ? { OPENWORK_OPENCODE_DIRECTORY: options.opencodeDirectory } : {}),
+      ...(options.opencodeUsername ? { OPENWORK_OPENCODE_USERNAME: options.opencodeUsername } : {}),
+      ...(options.opencodePassword ? { OPENWORK_OPENCODE_PASSWORD: options.opencodePassword } : {}),
+    },
   });
 
   prefixStream(child.stdout, "openwork-server", "stdout");
@@ -788,6 +932,73 @@ async function startOwpenbot(options: {
   prefixStream(child.stderr, "owpenbot", "stderr");
 
   return child;
+}
+
+async function verifyOwpenbotVersion(binary: ResolvedBinary): Promise<string | undefined> {
+  const actual = await readCliVersion(binary.bin);
+  assertVersionMatch("owpenbot", binary.expectedVersion, actual, binary.bin);
+  return actual;
+}
+
+async function verifyOpenworkServer(input: {
+  baseUrl: string;
+  token: string;
+  hostToken: string;
+  expectedVersion?: string;
+  expectedWorkspace: string;
+  expectedOpencodeBaseUrl?: string;
+  expectedOpencodeDirectory?: string;
+  expectedOpencodeUsername?: string;
+  expectedOpencodePassword?: string;
+}) {
+  const health = await fetchJson(`${input.baseUrl}/health`);
+  const actualVersion = typeof health?.version === "string" ? health.version : undefined;
+  assertVersionMatch("openwork-server", input.expectedVersion, actualVersion, `${input.baseUrl}/health`);
+
+  const headers = { Authorization: `Bearer ${input.token}` };
+  const workspaces = await fetchJson(`${input.baseUrl}/workspaces`, { headers });
+  const items = Array.isArray(workspaces?.items) ? (workspaces.items as Array<Record<string, unknown>>) : [];
+  if (!items.length) {
+    throw new Error("OpenWork server returned no workspaces");
+  }
+
+  const expectedPath = normalizeWorkspacePath(input.expectedWorkspace);
+  const matched = items.find((item) => {
+    const candidate = item as { path?: string };
+    const path = typeof candidate.path === "string" ? candidate.path : "";
+    return path && normalizeWorkspacePath(path) === expectedPath;
+  }) as
+    | {
+        id?: string;
+        path?: string;
+        opencode?: { baseUrl?: string; directory?: string; username?: string; password?: string };
+      }
+    | undefined;
+
+  if (!matched) {
+    throw new Error(`OpenWork server workspace mismatch. Expected ${expectedPath}.`);
+  }
+
+  const opencode = matched.opencode;
+  if (input.expectedOpencodeBaseUrl && opencode?.baseUrl !== input.expectedOpencodeBaseUrl) {
+    throw new Error(
+      `OpenWork server OpenCode base URL mismatch: expected ${input.expectedOpencodeBaseUrl}, got ${opencode?.baseUrl ?? "<missing>"}.`,
+    );
+  }
+  if (input.expectedOpencodeDirectory && opencode?.directory !== input.expectedOpencodeDirectory) {
+    throw new Error(
+      `OpenWork server OpenCode directory mismatch: expected ${input.expectedOpencodeDirectory}, got ${opencode?.directory ?? "<missing>"}.`,
+    );
+  }
+  if (input.expectedOpencodeUsername && opencode?.username !== input.expectedOpencodeUsername) {
+    throw new Error("OpenWork server OpenCode username mismatch.");
+  }
+  if (input.expectedOpencodePassword && opencode?.password !== input.expectedOpencodePassword) {
+    throw new Error("OpenWork server OpenCode password mismatch.");
+  }
+
+  const hostHeaders = { "X-OpenWork-Host-Token": input.hostToken };
+  await fetchJson(`${input.baseUrl}/approvals`, { headers: hostHeaders });
 }
 
 async function runChecks(input: {
@@ -1568,17 +1779,21 @@ async function runStart(args: ParsedArgs) {
 
   const manifest = await readVersionManifest();
   const allowExternal = readBool(args.flags, "allow-external", false, "OPENWRK_ALLOW_EXTERNAL");
-  const openworkServerBin = await resolveOpenworkServerBin({
-    explicit: readFlag(args.flags, "openwork-server-bin") ?? process.env.OPENWORK_SERVER_BIN,
-    manifest,
-    allowExternal,
-  });
-  const owpenbotBin = await resolveOwpenbotBin({
-    explicit: readFlag(args.flags, "owpenbot-bin") ?? process.env.OWPENBOT_BIN,
-    manifest,
-    allowExternal,
-  });
+  const explicitOpenworkServerBin = readFlag(args.flags, "openwork-server-bin") ?? process.env.OPENWORK_SERVER_BIN;
+  const explicitOwpenbotBin = readFlag(args.flags, "owpenbot-bin") ?? process.env.OWPENBOT_BIN;
   const owpenbotEnabled = readBool(args.flags, "owpenbot", true);
+  const openworkServerBinary = await resolveOpenworkServerBin({
+    explicit: explicitOpenworkServerBin,
+    manifest,
+    allowExternal,
+  });
+  const owpenbotBinary = owpenbotEnabled
+    ? await resolveOwpenbotBin({
+        explicit: explicitOwpenbotBin,
+        manifest,
+        allowExternal,
+      })
+    : null;
 
   const opencodeBaseUrl = `http://127.0.0.1:${opencodePort}`;
   const opencodeConnect = resolveConnectUrl(opencodePort, connectHost);
@@ -1635,7 +1850,7 @@ async function runStart(args: ParsedArgs) {
   await waitForOpencodeHealthy(opencodeClient);
 
   const openworkChild = await startOpenworkServer({
-    bin: openworkServerBin,
+    bin: openworkServerBinary.bin,
     host: openworkHost,
     port: openworkPort,
     workspace: resolvedWorkspace,
@@ -1656,9 +1871,25 @@ async function runStart(args: ParsedArgs) {
 
   await waitForHealthy(openworkBaseUrl);
 
+  await verifyOpenworkServer({
+    baseUrl: openworkBaseUrl,
+    token: openworkToken,
+    hostToken: openworkHostToken,
+    expectedVersion: openworkServerBinary.expectedVersion,
+    expectedWorkspace: resolvedWorkspace,
+    expectedOpencodeBaseUrl: opencodeConnectUrl,
+    expectedOpencodeDirectory: resolvedWorkspace,
+    expectedOpencodeUsername: opencodeUsername,
+    expectedOpencodePassword: opencodePassword,
+  });
+
   if (owpenbotEnabled) {
+    if (!owpenbotBinary) {
+      throw new Error("Owpenbot binary missing.");
+    }
+    await verifyOwpenbotVersion(owpenbotBinary);
     const owpenbotChild = await startOwpenbot({
-      bin: owpenbotBin,
+      bin: owpenbotBinary.bin,
       workspace: resolvedWorkspace,
       opencodeUrl: opencodeConnectUrl,
       opencodeUsername,
