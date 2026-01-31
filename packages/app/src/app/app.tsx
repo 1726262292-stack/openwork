@@ -56,6 +56,7 @@ import type {
   DashboardTab,
   MessageWithParts,
   Mode,
+  EngineRuntime,
   ModelOption,
   ModelRef,
   OnboardingStep,
@@ -129,7 +130,9 @@ import {
   schedulerDeleteJob,
   schedulerListJobs,
   openworkServerInfo,
+  openwrkStatus,
   owpenbotInfo,
+  type OpenwrkStatus,
   type OpenworkServerInfo,
   type OwpenbotInfo,
 } from "./lib/tauri";
@@ -228,6 +231,8 @@ export default function App() {
     isTauriRuntime() ? "sidecar" : "path"
   );
 
+  const [engineRuntime, setEngineRuntime] = createSignal<EngineRuntime>("direct");
+
   const [baseUrl, setBaseUrl] = createSignal("http://127.0.0.1:4096");
   const [clientDirectory, setClientDirectory] = createSignal("");
 
@@ -239,6 +244,7 @@ export default function App() {
   const [openworkServerWorkspaceId, setOpenworkServerWorkspaceId] = createSignal<string | null>(null);
   const [openworkServerHostInfo, setOpenworkServerHostInfo] = createSignal<OpenworkServerInfo | null>(null);
   const [owpenbotInfoState, setOwpenbotInfoState] = createSignal<OwpenbotInfo | null>(null);
+  const [openwrkStatusState, setOpenwrkStatusState] = createSignal<OpenwrkStatus | null>(null);
   const [openworkAuditEntries, setOpenworkAuditEntries] = createSignal<OpenworkAuditEntry[]>([]);
   const [openworkAuditStatus, setOpenworkAuditStatus] = createSignal<"idle" | "loading" | "error">("idle");
   const [openworkAuditError, setOpenworkAuditError] = createSignal<string | null>(null);
@@ -468,6 +474,32 @@ export default function App() {
         if (active) setOwpenbotInfoState(info);
       } catch {
         if (active) setOwpenbotInfoState(null);
+      }
+    };
+
+    run();
+    const interval = window.setInterval(run, 10_000);
+    onCleanup(() => {
+      active = false;
+      window.clearInterval(interval);
+    });
+  });
+
+  createEffect(() => {
+    if (!isTauriRuntime()) return;
+    if (!developerMode()) {
+      setOpenwrkStatusState(null);
+      return;
+    }
+
+    let active = true;
+
+    const run = async () => {
+      try {
+        const status = await openwrkStatus();
+        if (active) setOpenwrkStatusState(status);
+      } catch {
+        if (active) setOpenwrkStatusState(null);
       }
     };
 
@@ -1275,7 +1307,9 @@ export default function App() {
     isWindowsPlatform,
     openworkServerSettings,
     updateOpenworkServerSettings,
+    openworkServerClient,
     onEngineStable: () => setReloadLastFinishedAtRef(Date.now()),
+    engineRuntime,
   });
 
   createEffect(() => {
@@ -1304,10 +1338,9 @@ export default function App() {
       try {
         const response = await client.listWorkspaces();
         if (cancelled) return;
-        const match = response.items.find(
-          (entry) => normalizeDirectoryPath(entry.path) === root,
-        );
-        setOpenworkServerWorkspaceId(match?.id ?? null);
+        const items = Array.isArray(response.items) ? response.items : [];
+        const match = items.find((entry) => normalizeDirectoryPath(entry.path) === root);
+        setOpenworkServerWorkspaceId(response.activeId ?? match?.id ?? null);
       } catch {
         if (!cancelled) setOpenworkServerWorkspaceId(null);
       }
@@ -1351,8 +1384,9 @@ export default function App() {
         const response = await client.listWorkspaces();
         if (!active) return;
         const items = Array.isArray(response.items) ? response.items : [];
-        const match = root ? items.find((item) => normalizeDirectoryPath(item.path) === root) : items[0];
-        setDevtoolsWorkspaceId(match?.id ?? null);
+        const activeMatch = response.activeId ? items.find((item) => item.id === response.activeId) : null;
+        const match = root ? items.find((item) => normalizeDirectoryPath(item.path) === root) : activeMatch ?? items[0];
+        setDevtoolsWorkspaceId(activeMatch?.id ?? match?.id ?? null);
       } catch {
         if (active) setDevtoolsWorkspaceId(null);
       }
@@ -2929,6 +2963,13 @@ export default function App() {
           setEngineSource(storedEngineSource);
         }
 
+        const storedEngineRuntime = window.localStorage.getItem(
+          "openwork.engineRuntime"
+        );
+        if (storedEngineRuntime === "direct" || storedEngineRuntime === "openwrk") {
+          setEngineRuntime(storedEngineRuntime);
+        }
+
         const storedDefaultModel = window.localStorage.getItem(MODEL_PREF_KEY);
         const parsedDefaultModel = parseModelRef(storedDefaultModel);
         if (parsedDefaultModel) {
@@ -3298,6 +3339,15 @@ export default function App() {
   createEffect(() => {
     if (typeof window === "undefined") return;
     try {
+      window.localStorage.setItem("openwork.engineRuntime", engineRuntime());
+    } catch {
+      // ignore
+    }
+  });
+
+  createEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
       window.localStorage.setItem(
         MODEL_PREF_KEY,
         formatModelRef(defaultModel())
@@ -3622,6 +3672,7 @@ export default function App() {
     openworkAuditError: openworkAuditError(),
     opencodeConnectStatus: opencodeConnectStatus(),
     engineInfo: workspaceStore.engine(),
+    openwrkStatus: openwrkStatusState(),
     owpenbotInfo: owpenbotInfoState(),
     updateOpenworkServerSettings,
     resetOpenworkServerSettings,
@@ -3728,6 +3779,8 @@ export default function App() {
     anyActiveRuns: anyActiveRuns(),
     engineSource: engineSource(),
     setEngineSource,
+    engineRuntime: engineRuntime(),
+    setEngineRuntime,
     isWindows: isWindowsPlatform(),
     toggleDeveloperMode: () => setDeveloperMode((v) => !v),
     developerMode: developerMode(),

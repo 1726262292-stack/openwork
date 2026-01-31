@@ -50,10 +50,24 @@ impl WorkspaceOpenworkConfig {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EngineRuntime {
+    Direct,
+    Openwrk,
+}
+
+impl Default for EngineRuntime {
+    fn default() -> Self {
+        EngineRuntime::Direct
+    }
+}
+
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineInfo {
     pub running: bool,
+    pub runtime: EngineRuntime,
     pub base_url: Option<String>,
     pub project_dir: Option<String>,
     pub hostname: Option<String>,
@@ -80,6 +94,50 @@ pub struct OpenworkServerInfo {
     pub pid: Option<u32>,
     pub last_stdout: Option<String>,
     pub last_stderr: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenwrkDaemonState {
+    pub pid: u32,
+    pub port: u16,
+    pub base_url: String,
+    pub started_at: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenwrkOpencodeState {
+    pub pid: u32,
+    pub port: u16,
+    pub base_url: String,
+    pub started_at: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenwrkWorkspace {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub workspace_type: String,
+    pub base_url: Option<String>,
+    pub directory: Option<String>,
+    pub created_at: Option<u64>,
+    pub last_used_at: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenwrkStatus {
+    pub running: bool,
+    pub data_dir: String,
+    pub daemon: Option<OpenwrkDaemonState>,
+    pub opencode: Option<OpenwrkOpencodeState>,
+    pub active_id: Option<String>,
+    pub workspace_count: usize,
+    pub workspaces: Vec<OpenwrkWorkspace>,
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]

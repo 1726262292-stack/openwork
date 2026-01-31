@@ -3,6 +3,7 @@ import { validateMcpServerName } from "../mcp";
 
 export type EngineInfo = {
   running: boolean;
+  runtime: "direct" | "openwrk";
   baseUrl: string | null;
   projectDir: string | null;
   hostname: string | null;
@@ -27,6 +28,42 @@ export type OpenworkServerInfo = {
   pid: number | null;
   lastStdout: string | null;
   lastStderr: string | null;
+};
+
+export type OpenwrkDaemonState = {
+  pid: number;
+  port: number;
+  baseUrl: string;
+  startedAt: number;
+};
+
+export type OpenwrkOpencodeState = {
+  pid: number;
+  port: number;
+  baseUrl: string;
+  startedAt: number;
+};
+
+export type OpenwrkWorkspace = {
+  id: string;
+  name: string;
+  path: string;
+  workspaceType: string;
+  baseUrl?: string | null;
+  directory?: string | null;
+  createdAt?: number | null;
+  lastUsedAt?: number | null;
+};
+
+export type OpenwrkStatus = {
+  running: boolean;
+  dataDir: string;
+  daemon: OpenwrkDaemonState | null;
+  opencode: OpenwrkOpencodeState | null;
+  activeId: string | null;
+  workspaceCount: number;
+  workspaces: OpenwrkWorkspace[];
+  lastError: string | null;
 };
 
 export type EngineDoctorResult = {
@@ -69,11 +106,13 @@ export type WorkspaceExportSummary = {
 
 export async function engineStart(
   projectDir: string,
-  options?: { preferSidecar?: boolean },
+  options?: { preferSidecar?: boolean; runtime?: "direct" | "openwrk"; workspacePaths?: string[] },
 ): Promise<EngineInfo> {
   return invoke<EngineInfo>("engine_start", {
     projectDir,
     preferSidecar: options?.preferSidecar ?? false,
+    runtime: options?.runtime ?? null,
+    workspacePaths: options?.workspacePaths ?? null,
   });
 }
 
@@ -248,6 +287,24 @@ export async function opencodeCommandDelete(input: {
 
 export async function engineStop(): Promise<EngineInfo> {
   return invoke<EngineInfo>("engine_stop");
+}
+
+export async function openwrkStatus(): Promise<OpenwrkStatus> {
+  return invoke<OpenwrkStatus>("openwrk_status");
+}
+
+export async function openwrkWorkspaceActivate(input: {
+  workspacePath: string;
+  name?: string | null;
+}): Promise<OpenwrkWorkspace> {
+  return invoke<OpenwrkWorkspace>("openwrk_workspace_activate", {
+    workspacePath: input.workspacePath,
+    name: input.name ?? null,
+  });
+}
+
+export async function openwrkInstanceDispose(workspacePath: string): Promise<boolean> {
+  return invoke<boolean>("openwrk_instance_dispose", { workspacePath });
 }
 
 export async function openworkServerInfo(): Promise<OpenworkServerInfo> {

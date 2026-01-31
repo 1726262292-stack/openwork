@@ -156,11 +156,12 @@ function buildCapabilities(config: ServerConfig): Capabilities {
 
 function serializeWorkspace(workspace: ServerConfig["workspaces"][number]) {
   const { opencodeUsername, opencodePassword, ...rest } = workspace;
+  const opencodeDirectory = resolveOpencodeDirectory(workspace);
   const opencode =
-    workspace.baseUrl || workspace.directory || opencodeUsername || opencodePassword
+    workspace.baseUrl || opencodeDirectory || opencodeUsername || opencodePassword
       ? {
           baseUrl: workspace.baseUrl,
-          directory: workspace.directory,
+          directory: opencodeDirectory ?? undefined,
           username: opencodeUsername,
           password: opencodePassword,
         }
@@ -185,7 +186,25 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
   addRoute(routes, "GET", "/workspaces", "client", async () => {
     const active = config.workspaces[0];
     const items = active ? [serializeWorkspace(active)] : [];
-    return jsonResponse({ items });
+    return jsonResponse({ items, activeId: active?.id ?? null });
+  });
+
+  addRoute(routes, "POST", "/workspaces/:id/activate", "host", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    config.workspaces = [
+      workspace,
+      ...config.workspaces.filter((entry) => entry.id !== workspace.id),
+    ];
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "host" },
+      action: "workspace.activate",
+      target: "workspace",
+      summary: "Switched active workspace",
+      timestamp: Date.now(),
+    });
+    return jsonResponse({ activeId: workspace.id, workspace: serializeWorkspace(workspace) });
   });
 
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
