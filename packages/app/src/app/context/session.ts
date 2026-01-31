@@ -522,6 +522,47 @@ export function createSessionStore(options: {
       }
     }
 
+    if (event.type === "session.error") {
+      if (event.properties && typeof event.properties === "object") {
+        const record = event.properties as Record<string, unknown>;
+        const errorObj = record.error as Record<string, unknown> | undefined;
+        if (errorObj) {
+          // Handle different error types from OpenCode
+          const errorName = typeof errorObj.name === "string" ? errorObj.name : "Unknown";
+          let message = "An error occurred";
+
+          if (errorName === "ProviderAuthError") {
+            // Provider auth error - likely 401/403 from the API
+            const providerID = typeof errorObj.providerID === "string" ? errorObj.providerID : "provider";
+            const errorMessage = typeof errorObj.message === "string" ? errorObj.message : "";
+            message = errorMessage || `Authentication failed for ${providerID}. Please reconnect or check your API key.`;
+          } else if (errorName === "APIError") {
+            // API error - includes status code
+            const statusCode = typeof errorObj.statusCode === "number" ? errorObj.statusCode : undefined;
+            const errorMessage = typeof errorObj.message === "string" ? errorObj.message : "";
+            if (statusCode === 401 || statusCode === 403) {
+              message = errorMessage || "Authentication failed. Please check your API key or reconnect the provider.";
+            } else if (statusCode === 429) {
+              message = errorMessage || "Rate limit exceeded. Please wait and try again.";
+            } else {
+              message = errorMessage || `API error${statusCode ? ` (${statusCode})` : ""}`;
+            }
+          } else if (errorName === "MessageAbortedError") {
+            const errorMessage = typeof errorObj.message === "string" ? errorObj.message : "";
+            message = errorMessage || "Request was cancelled";
+          } else if (errorName === "MessageOutputLengthError") {
+            message = "Output length limit exceeded";
+          } else {
+            // Unknown or other error
+            const errorMessage = typeof errorObj.message === "string" ? errorObj.message : "";
+            message = errorMessage || "An unexpected error occurred";
+          }
+
+          options.setError(addOpencodeCacheHint(message));
+        }
+      }
+    }
+
     if (event.type === "message.updated") {
       if (event.properties && typeof event.properties === "object") {
         const record = event.properties as Record<string, unknown>;
