@@ -1113,7 +1113,7 @@ export default function App() {
     }
     const job = await schedulerDeleteJob(name);
     setScheduledJobs((current) => current.filter((entry) => entry.slug !== job.slug));
-    return job;
+    return;
   };
   const globalSync = useGlobalSync();
   const providers = createMemo(() => globalSync.data.provider.all ?? []);
