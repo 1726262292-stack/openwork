@@ -107,6 +107,8 @@ export default function McpAuthModal(props: McpAuthModalProps) {
 
     if (!entry || !client) return;
 
+    const isRemoteWorkspace = !!props.isRemoteWorkspace;
+
     let slug = "";
     try {
       const safeName = validateMcpServerName(entry.name);
@@ -134,7 +136,8 @@ export default function McpAuthModal(props: McpAuthModalProps) {
     setAuthInProgress(true);
 
     try {
-      if (props.reloadRequired) {
+      const statusEntry = await fetchMcpStatus(slug);
+      if (props.reloadRequired && !statusEntry) {
         setNeedsReload(true);
         setReloadNotice(
           props.reloadBlocked
@@ -144,9 +147,33 @@ export default function McpAuthModal(props: McpAuthModalProps) {
         return;
       }
 
-      const statusEntry = await fetchMcpStatus(slug);
       if (statusEntry?.status === "connected") {
         setAlreadyConnected(true);
+        return;
+      }
+
+      if (!isRemoteWorkspace) {
+        const result = await client.mcp.auth.authenticate({
+          name: slug,
+          directory: props.projectDir,
+        });
+        const status = unwrap(result) as { status?: string; error?: string };
+
+        if (status.status === "connected") {
+          setAlreadyConnected(true);
+          await props.onComplete();
+          return;
+        }
+
+        if (status.status === "needs_client_registration") {
+          setError(status.error ?? translate("mcp.auth.client_registration_required"));
+        } else if (status.status === "disabled") {
+          setError(translate("mcp.auth.server_disabled"));
+        } else if (status.status === "failed") {
+          setError(status.error ?? translate("mcp.auth.oauth_failed"));
+        } else {
+          setError(translate("mcp.auth.authorization_still_required"));
+        }
         return;
       }
 

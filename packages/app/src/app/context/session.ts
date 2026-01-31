@@ -12,6 +12,7 @@ import type {
   PendingPermission,
   PlaceholderAssistantMessage,
   ReloadReason,
+  ReloadTrigger,
   TodoItem,
 } from "../types";
 import {
@@ -112,7 +113,7 @@ export function createSessionStore(options: {
   developerMode: () => boolean;
   setError: (message: string | null) => void;
   setSseConnected: (connected: boolean) => void;
-  markReloadRequired?: (reason: ReloadReason) => void;
+  markReloadRequired?: (reason: ReloadReason, trigger?: ReloadTrigger) => void;
 }) {
   const [store, setStore] = createStore<StoreState>({
     sessions: [],
@@ -127,8 +128,10 @@ export function createSessionStore(options: {
   const reloadDetectionSet = new Set<string>();
 
   const skillPathPattern = /[\\/]\.opencode[\\/](skill|skills)[\\/]/i;
-  const opencodeConfigPattern = /(?:^|[\\/])opencode\.json\b/i;
+  const skillNamePattern = /[\\/]\.opencode[\\/](?:skill|skills)[\\/]+([^\\/]+)/i;
+  const opencodeConfigPattern = /(?:^|[\\/])opencode\.jsonc?\b/i;
   const opencodePathPattern = /(?:^|[\\/])\.opencode[\\/]/i;
+  const mutatingTools = new Set(["write", "edit", "apply_patch"]);
 
   const extractSearchText = (value: unknown) => {
     if (!value) return "";
@@ -146,16 +149,83 @@ export function createSessionStore(options: {
     return null;
   };
 
-  const detectReloadFromPart = (part: Part): ReloadReason | null => {
+  const detectReloadTriggerFromText = (text: string): ReloadTrigger | null => {
+    if (skillPathPattern.test(text)) {
+      const match = text.match(skillNamePattern);
+      return {
+        type: "skill",
+        name: match?.[1],
+        action: "updated",
+        path: match?.[0],
+      };
+    }
+    if (opencodeConfigPattern.test(text) || opencodePathPattern.test(text)) {
+      return {
+        type: "config",
+        action: "updated",
+      };
+    }
+    return null;
+  };
+
+  const detectReloadReasonDeep = (value: unknown): ReloadReason | null => {
+    if (!value) return null;
+    if (typeof value === "string" || typeof value === "number") {
+      return detectReloadReason(value);
+    }
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        const reason = detectReloadReasonDeep(entry);
+        if (reason) return reason;
+      }
+      return null;
+    }
+    if (typeof value === "object") {
+      for (const entry of Object.values(value as Record<string, unknown>)) {
+        const reason = detectReloadReasonDeep(entry);
+        if (reason) return reason;
+      }
+    }
+    return null;
+  };
+
+  const detectReloadTriggerDeep = (value: unknown): ReloadTrigger | null => {
+    if (!value) return null;
+    if (typeof value === "string" || typeof value === "number") {
+      return detectReloadTriggerFromText(String(value));
+    }
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        const trigger = detectReloadTriggerDeep(entry);
+        if (trigger) return trigger;
+      }
+      return null;
+    }
+    if (typeof value === "object") {
+      for (const entry of Object.values(value as Record<string, unknown>)) {
+        const trigger = detectReloadTriggerDeep(entry);
+        if (trigger) return trigger;
+      }
+    }
+    return null;
+  };
+
+  const detectReloadFromPart = (part: Part): { reason: ReloadReason; trigger?: ReloadTrigger } | null => {
+    if (part.type !== "tool") return null;
     const record = part as Record<string, unknown>;
-    return (
-      detectReloadReason(record.text) ||
-      detectReloadReason(record.path) ||
-      detectReloadReason(record.title) ||
-      detectReloadReason((record.state as { title?: unknown })?.title) ||
-      detectReloadReason((record.state as { output?: unknown })?.output) ||
-      detectReloadReason((record.state as { input?: unknown })?.input)
-    );
+    const toolName = typeof record.tool === "string" ? record.tool : "";
+    if (!mutatingTools.has(toolName)) return null;
+    const state = (record.state ?? {}) as Record<string, unknown>;
+    const reason =
+      detectReloadReasonDeep(state.input) ||
+      detectReloadReasonDeep(state.patch) ||
+      detectReloadReasonDeep(state.diff);
+    if (!reason) return null;
+    const trigger =
+      detectReloadTriggerDeep(state.input) ||
+      detectReloadTriggerDeep(state.patch) ||
+      detectReloadTriggerDeep(state.diff);
+    return { reason, trigger: trigger ?? undefined };
   };
 
   const maybeMarkReloadRequired = (part: Part) => {
@@ -163,10 +233,10 @@ export function createSessionStore(options: {
     if (!part?.id || !part.messageID) return;
     const key = `${part.messageID}:${part.id}`;
     if (reloadDetectionSet.has(key)) return;
-    const reason = detectReloadFromPart(part);
-    if (!reason) return;
+    const detection = detectReloadFromPart(part);
+    if (!detection) return;
     reloadDetectionSet.add(key);
-    options.markReloadRequired(reason);
+    options.markReloadRequired(detection.reason, detection.trigger);
   };
 
   const addError = (error: unknown, fallback = "Unknown error") => {

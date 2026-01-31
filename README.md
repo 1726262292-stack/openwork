@@ -2,21 +2,24 @@
 
 # OpenWork
 
-OpenWork is an **extensible, open-source “Claude Work” style system for knowledge workers**.
+> **The easiest way to create safe agentic workflow and share them with your team**
 
-It’s built on top of opencode and lets you turn your opencode workflows into usable experiences for non-technical users.
+OpenWork is built on top of [opencode](https://opencode.ai) it lets you turn your opencode config into usable experiences for non-technical users.
+
+It's an **extensible, open-source alternative** to “Claude Work”.
+
 
 <img width="1292" height="932" alt="Screenshot 2026-01-13 at 7 19 02 PM" src="https://github.com/user-attachments/assets/7a1b8662-19a0-4327-87c9-c0295a0d54f1" />
 
 
-Openwork is desgined around the idea that you can easily ship your
+OpenWork is designed around the idea that you can easily ship your agentic workflows as a repeatable, productized process.
 
 It’s a native desktop app that runs **OpenCode** under the hood, but presents it as a clean, guided workflow:
 - pick a workspace
 - start a run
 - watch progress + plan updates
 - approve permissions when needed
-- reuse what works (templates + skills)
+- reuse what works (commands + skills)
 
 The goal: make “agentic work” feel like a product, not a terminal.
 
@@ -26,6 +29,8 @@ The goal: make “agentic work” feel like a product, not a terminal.
   - `curl -fsSL https://raw.githubusercontent.com/different-ai/openwork/dev/packages/owpenbot/install.sh | bash`
   - run `owpenbot setup`, then `owpenbot whatsapp login`, then `owpenbot start`
   - full setup: [packages/owpenbot/README.md](./packages/owpenbot/README.md)
+- **Openwrk (CLI host)**: run OpenCode + OpenWork server without the desktop UI. Install with `npm install -g openwrk`.
+  - docs: [packages/headless/README.md](./packages/headless/README.md)
 
 
 ## Quick start
@@ -104,12 +109,18 @@ yay -s opencode # Releases version
 - In **Host mode**, OpenWork spawns:
   - `opencode serve --hostname 127.0.0.1 --port <free-port>`
   - with your selected project folder as the process working directory.
+In Host mode, OpenWork starts an OpenCode server directly on your own computer in the background.
+When you select a project folder, OpenWork runs OpenCode locally using that folder and connects the desktop UI to it.
+This allows you to run agentic workflows, send prompts, and see progress entirely on your machine without relying on a remote server.
+
 - The UI uses `@opencode-ai/sdk/v2/client` to:
   - connect to the server
   - list/create sessions
   - send prompts
-  - subscribe to SSE events
+  - subscribe to SSE events(Server-Sent Events are used to stream real-time updates from the server to the UI.)
   - read todos and permission requests
+
+
 
 ## Folder Picker
 
@@ -174,10 +185,14 @@ WEBKIT_DISABLE_COMPOSITING_MODE=1 openwork
 
 ## Contributing
 
-- Review `AGENTS.md` and `MOTIVATIONS-PHILOSOPHY.md` to understand the product goals before making changes.
+- Review `AGENTS.md` plus `VISION.md`, `PRINCIPLES.md`, `PRODUCT.md`, and `ARCHITECTURE.md` to understand the product goals before making changes.
 - Ensure Node.js, `pnpm`, the Rust toolchain, and `opencode` are installed before working inside the repo.
 - Run `pnpm install` once per checkout, then verify your change with `pnpm typecheck` plus `pnpm test:e2e` (or the targeted subset of scripts) before opening a PR.
 - Add new PRDs to `packages/app/pr/<name>.md` following the `.opencode/skills/prd-conventions/SKILL.md` conventions described in `AGENTS.md`.
+
+## For Teams & Businesses
+
+Interested in using OpenWork in your organization? We'd love to hear from you — reach out at [benjamin.shafii@gmail.com](mailto:benjamin.shafii@gmail.com) to chat about your use case.
 
 ## License
 

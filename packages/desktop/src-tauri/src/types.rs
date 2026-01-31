@@ -58,6 +58,39 @@ pub struct EngineInfo {
     pub project_dir: Option<String>,
     pub hostname: Option<String>,
     pub port: Option<u16>,
+    pub opencode_username: Option<String>,
+    pub opencode_password: Option<String>,
+    pub pid: Option<u32>,
+    pub last_stdout: Option<String>,
+    pub last_stderr: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenworkServerInfo {
+    pub running: bool,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub base_url: Option<String>,
+    pub connect_url: Option<String>,
+    pub mdns_url: Option<String>,
+    pub lan_url: Option<String>,
+    pub client_token: Option<String>,
+    pub host_token: Option<String>,
+    pub pid: Option<u32>,
+    pub last_stdout: Option<String>,
+    pub last_stderr: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OwpenbotInfo {
+    pub running: bool,
+    pub workspace_path: Option<String>,
+    pub opencode_url: Option<String>,
+    pub qr_data: Option<String>,
+    pub whatsapp_linked: bool,
+    pub telegram_configured: bool,
     pub pid: Option<u32>,
     pub last_stdout: Option<String>,
     pub last_stderr: Option<String>,
@@ -156,6 +189,19 @@ impl Default for WorkspaceType {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RemoteType {
+    Opencode,
+    Openwork,
+}
+
+impl Default for RemoteType {
+    fn default() -> Self {
+        RemoteType::Opencode
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceInfo {
@@ -166,11 +212,19 @@ pub struct WorkspaceInfo {
     #[serde(default)]
     pub workspace_type: WorkspaceType,
     #[serde(default)]
+    pub remote_type: Option<RemoteType>,
+    #[serde(default)]
     pub base_url: Option<String>,
     #[serde(default)]
     pub directory: Option<String>,
     #[serde(default)]
     pub display_name: Option<String>,
+    #[serde(default)]
+    pub openwork_host_url: Option<String>,
+    #[serde(default)]
+    pub openwork_workspace_id: Option<String>,
+    #[serde(default)]
+    pub openwork_workspace_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -182,13 +236,17 @@ pub struct WorkspaceList {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct WorkspaceTemplate {
-    pub id: String,
-    pub title: String,
-    pub description: String,
-    pub prompt: String,
+pub struct OpencodeCommand {
+    pub name: String,
     #[serde(default)]
-    pub created_at: u64,
+    pub description: Option<String>,
+    pub template: String,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub subtask: Option<bool>,
 }
 
 fn default_workspace_state_version() -> u8 {
@@ -214,4 +272,4 @@ impl Default for WorkspaceState {
     }
 }
 
-pub const WORKSPACE_STATE_VERSION: u8 = 2;
+pub const WORKSPACE_STATE_VERSION: u8 = 3;

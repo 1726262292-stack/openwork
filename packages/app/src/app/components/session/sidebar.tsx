@@ -7,13 +7,17 @@ export type SidebarSectionState = {
   progress: boolean;
   artifacts: boolean;
   context: boolean;
+  plugins: boolean;
+  mcp: boolean;
+  skills: boolean;
+  authorizedFolders: boolean;
 };
 
 export type SidebarProps = {
   todos: TodoItem[];
   expandedSections: SidebarSectionState;
   onToggleSection: (section: keyof SidebarSectionState) => void;
-  sessions: Array<{ id: string; title: string; slug?: string | null }>;
+  sessions: Array<{ id: string; title: string; slug?: string | null; workspaceLabel?: string | null }>;
   selectedSessionId: string | null;
   onSelectSession: (id: string) => void;
   sessionStatusById: Record<string, string>;
@@ -59,11 +63,18 @@ export default function SessionSidebar(props: SidebarProps) {
                   }`}
                   onClick={() => props.onSelectSession(session.id)}
                 >
-                  <div class="flex items-center justify-between gap-2 w-full overflow-hidden">
-                    <span class="truncate">{session.title}</span>
-                    <Show
-                      when={
-                        props.sessionStatusById[session.id] &&
+                    <div class="flex items-center justify-between gap-2 w-full overflow-hidden">
+                      <div class="min-w-0 flex items-center gap-2">
+                        <div class="truncate">{session.title}</div>
+                        <Show when={session.workspaceLabel}>
+                          <div class="shrink-0 text-[9px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-gray-4 text-gray-10 border border-gray-6/50">
+                            {session.workspaceLabel}
+                          </div>
+                        </Show>
+                      </div>
+                      <Show
+                        when={
+                          props.sessionStatusById[session.id] &&
                         props.sessionStatusById[session.id] !== "idle"
                       }
                     >

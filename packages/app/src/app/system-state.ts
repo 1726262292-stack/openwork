@@ -1,12 +1,22 @@
 import { createEffect, createMemo, createSignal, type Accessor } from "solid-js";
 
-import type { Provider, Session } from "@opencode-ai/sdk/v2/client";
+import type { Session } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListItem } from "./types";
 
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
-import type { Client, Mode, PluginScope, ReloadReason, ResetOpenworkMode, UpdateHandle } from "./types";
+import type {
+  Client,
+  Mode,
+  PluginScope,
+  ReloadReason,
+  ReloadTrigger,
+  ResetOpenworkMode,
+  UpdateHandle,
+} from "./types";
 import { addOpencodeCacheHint, isTauriRuntime, safeStringify } from "./utils";
+import { mapConfigProvidersToList } from "./utils/providers";
 import { createUpdaterState } from "./context/updater";
 import { resetOpenworkState, resetOpencodeCache } from "./lib/tauri";
 import { unwrap, waitForHealthy } from "./lib/opencode";
@@ -29,7 +39,7 @@ export function createSystemState(options: {
   refreshSkills: (options?: { force?: boolean }) => Promise<void>;
   refreshMcpServers?: () => Promise<void>;
   reloadWorkspaceEngine?: () => Promise<boolean>;
-  setProviders: (value: Provider[]) => void;
+  setProviders: (value: ProviderListItem[]) => void;
   setProviderDefaults: (value: Record<string, string>) => void;
   setProviderConnectedIds: (value: string[]) => void;
   setError: (value: string | null) => void;
@@ -38,6 +48,8 @@ export function createSystemState(options: {
   const [reloadRequired, setReloadRequired] = createSignal(false);
   const [reloadReasons, setReloadReasons] = createSignal<ReloadReason[]>([]);
   const [reloadLastTriggeredAt, setReloadLastTriggeredAt] = createSignal<number | null>(null);
+  const [reloadLastFinishedAt, setReloadLastFinishedAt] = createSignal<number | null>(null);
+  const [reloadTrigger, setReloadTrigger] = createSignal<ReloadTrigger | null>(null);
   const [reloadBusy, setReloadBusy] = createSignal(false);
   const [reloadError, setReloadError] = createSignal<string | null>(null);
 
@@ -129,16 +141,24 @@ export function createSystemState(options: {
     }
   }
 
-  function markReloadRequired(reason: ReloadReason) {
+  function markReloadRequired(reason: ReloadReason, trigger?: ReloadTrigger) {
     setReloadRequired(true);
     setReloadLastTriggeredAt(Date.now());
     setReloadReasons((current) => (current.includes(reason) ? current : [...current, reason]));
+    if (trigger) {
+      setReloadTrigger(trigger);
+    } else {
+      setReloadTrigger({
+        type: reason === "plugins" ? "plugin" : reason === "skills" ? "skill" : reason,
+      });
+    }
   }
 
   function clearReloadRequired() {
     setReloadRequired(false);
     setReloadReasons([]);
     setReloadError(null);
+    setReloadTrigger(null);
   }
 
   const reloadCopy = createMemo(() => {
@@ -234,13 +254,13 @@ export function createSystemState(options: {
 
       try {
         const providerList = unwrap(await nextClient.provider.list());
-        options.setProviders(providerList.all as unknown as Provider[]);
+        options.setProviders(providerList.all);
         options.setProviderDefaults(providerList.default);
         options.setProviderConnectedIds(providerList.connected);
       } catch {
         try {
           const cfg = unwrap(await nextClient.config.providers());
-          options.setProviders(cfg.providers);
+          options.setProviders(mapConfigProvidersToList(cfg.providers));
           options.setProviderDefaults(cfg.default);
           options.setProviderConnectedIds([]);
         } catch {
@@ -259,16 +279,25 @@ export function createSystemState(options: {
         if (nextStatus === "connecting") {
           nextStatus = "connected";
           options.notion.setStatus(nextStatus);
+          options.notion.setStatusDetail("Workspace connected");
         }
 
         if (nextStatus === "connected") {
-          options.notion.setStatusDetail(options.notion.statusDetail() ?? "Workspace connected");
+          const detail = options.notion.statusDetail();
+          if (!detail || detail.toLowerCase().includes("reload")) {
+            options.notion.setStatusDetail("Workspace connected");
+          }
         }
 
         try {
           window.localStorage.setItem("openwork.notionStatus", nextStatus);
-          if (nextStatus === "connected" && options.notion.statusDetail()) {
-            window.localStorage.setItem("openwork.notionStatusDetail", options.notion.statusDetail() || "");
+          if (nextStatus === "connected") {
+            const detail = options.notion.statusDetail();
+            if (detail) {
+              window.localStorage.setItem("openwork.notionStatusDetail", detail);
+            } else {
+              window.localStorage.removeItem("openwork.notionStatusDetail");
+            }
           }
         } catch {
           // ignore
@@ -283,6 +312,7 @@ export function createSystemState(options: {
       setReloadError(e instanceof Error ? e.message : safeStringify(e));
     } finally {
       setReloadBusy(false);
+      setReloadLastFinishedAt(Date.now());
     }
   }
 
@@ -451,6 +481,9 @@ export function createSystemState(options: {
     reloadRequired,
     reloadReasons,
     reloadLastTriggeredAt,
+    reloadLastFinishedAt,
+    setReloadLastFinishedAt,
+    reloadTrigger,
     reloadBusy,
     reloadError,
     reloadCopy,

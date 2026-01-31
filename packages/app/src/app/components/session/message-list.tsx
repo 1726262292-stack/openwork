@@ -1,7 +1,7 @@
 import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
 import type { JSX } from "solid-js";
 import type { Part } from "@opencode-ai/sdk/v2/client";
-import { Check, ChevronDown, Circle, Copy, File } from "lucide-solid";
+import { Check, ChevronDown, Circle, Copy, File, Sparkles } from "lucide-solid";
 
 import type { MessageGroup, MessageWithParts } from "../../types";
 import { groupMessageParts, summarizeStep } from "../../utils";
@@ -39,6 +39,24 @@ type MessageBlockItem = MessageBlock | StepClusterBlock;
 export default function MessageList(props: MessageListProps) {
   const [copyingId, setCopyingId] = createSignal<string | null>(null);
   let copyTimeout: number | undefined;
+  const isAttachmentPart = (part: Part) => {
+    if (part.type !== "file") return false;
+    const url = (part as { url?: string }).url;
+    return typeof url === "string" && !url.startsWith("file://");
+  };
+  const attachmentsForMessage = (message: MessageWithParts) =>
+    message.parts
+      .filter(isAttachmentPart)
+      .map((part) => {
+        const record = part as { url?: string; filename?: string; mime?: string };
+        return {
+          url: record.url ?? "",
+          filename: record.filename ?? "attachment",
+          mime: record.mime ?? "application/octet-stream",
+        };
+      })
+      .filter((attachment) => !!attachment.url);
+  const isImageAttachment = (mime: string) => mime.startsWith("image/");
 
   onCleanup(() => {
     if (copyTimeout !== undefined) {
@@ -62,14 +80,34 @@ export default function MessageList(props: MessageListProps) {
     }
   };
 
+  const partToText = (part: Part) => {
+    if (part.type === "text") {
+      return String((part as { text?: string }).text ?? "");
+    }
+    if (part.type === "agent") {
+      const name = (part as { name?: string }).name ?? "";
+      return name ? `@${name}` : "@agent";
+    }
+    if (part.type === "file") {
+      const record = part as { label?: string; path?: string; filename?: string };
+      const label = record.label ?? record.path ?? record.filename ?? "";
+      return label ? `@${label}` : "@file";
+    }
+    return "";
+  };
+
+  // Note: expandedStepIds now tracks COLLAPSED steps (inverted logic for default-expanded behavior)
   const toggleSteps = (id: string, relatedIds: string[] = []) => {
     props.setExpandedStepIds((current) => {
       const next = new Set(current);
-      const expanded = next.has(id) || relatedIds.some((relatedId) => next.has(relatedId));
-      if (expanded) {
+      // Inverted: if in set = collapsed, so check if collapsed to expand (remove from set)
+      const isCollapsed = next.has(id) || relatedIds.some((relatedId) => next.has(relatedId));
+      if (isCollapsed) {
+        // Currently collapsed -> expand by removing from set
         next.delete(id);
         relatedIds.forEach((relatedId) => next.delete(relatedId));
       } else {
+        // Currently expanded -> collapse by adding to set
         next.add(id);
         relatedIds.forEach((relatedId) => next.delete(relatedId));
       }
@@ -77,9 +115,10 @@ export default function MessageList(props: MessageListProps) {
     });
   };
 
+  // Inverted: steps are expanded by default (when NOT in the set)
   const isStepsExpanded = (id: string, relatedIds: string[] = []) =>
-    props.expandedStepIds.has(id) ||
-    relatedIds.some((relatedId) => props.expandedStepIds.has(relatedId));
+    !props.expandedStepIds.has(id) &&
+    !relatedIds.some((relatedId) => props.expandedStepIds.has(relatedId));
 
   const renderablePartsForMessage = (message: MessageWithParts) =>
     message.parts.filter((part) => {
@@ -91,7 +130,7 @@ export default function MessageList(props: MessageListProps) {
         return props.developerMode;
       }
 
-      if (part.type === "text" || part.type === "tool") {
+      if (part.type === "text" || part.type === "tool" || part.type === "agent" || part.type === "file") {
         return true;
       }
 
@@ -151,11 +190,22 @@ export default function MessageList(props: MessageListProps) {
           const summary = summarizeStep(part);
           return (
             <div class="flex items-start gap-3 text-xs text-gray-11">
-              <div class="mt-0.5 h-5 w-5 rounded-full border border-gray-7 flex items-center justify-center text-gray-10">
-                {part.type === "tool" ? <File size={12} /> : <Circle size={8} />}
+              <div class={`mt-0.5 h-5 w-5 rounded-full border flex items-center justify-center ${
+                summary.isSkill 
+                  ? "border-purple-7 bg-purple-3 text-purple-10" 
+                  : "border-gray-7 text-gray-10"
+              }`}>
+                {summary.isSkill ? <Sparkles size={12} /> : part.type === "tool" ? <File size={12} /> : <Circle size={8} />}
               </div>
-              <div>
-                <div class="text-gray-12">{summary.title}</div>
+              <div class="flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-gray-12">{summary.title}</span>
+                  <Show when={summary.isSkill}>
+                    <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+                      skill
+                    </span>
+                  </Show>
+                </div>
                 <Show when={summary.detail}>
                   <div class="mt-1 text-gray-10">{summary.detail}</div>
                 </Show>
@@ -212,7 +262,7 @@ export default function MessageList(props: MessageListProps) {
                     </button>
                     <Show when={expanded()}>
                       <div
-                        class={`mt-3 rounded-xl border p-3 ${
+                        class={`mt-3 rounded-xl border p-3 max-h-96 overflow-auto ${
                           block.isUser
                             ? "border-gray-6 bg-gray-1/60"
                             : "border-gray-6/70 bg-gray-2/40"
@@ -253,6 +303,32 @@ export default function MessageList(props: MessageListProps) {
                     : "max-w-[68ch] text-[15px] leading-7 text-gray-12 group pl-2"
                 }`}
               >
+                <Show when={attachmentsForMessage(block.message).length > 0}>
+                  <div class={block.isUser ? "mb-3 flex flex-wrap gap-2" : "mb-4 flex flex-wrap gap-2"}>
+                    <For each={attachmentsForMessage(block.message)}>
+                      {(attachment) => (
+                        <div class="flex items-center gap-2 rounded-2xl border border-gray-6 bg-gray-1/70 px-3 py-2 text-xs text-gray-11">
+                          <Show
+                            when={isImageAttachment(attachment.mime)}
+                            fallback={<File size={14} class="text-gray-9" />}
+                          >
+                            <div class="h-12 w-12 rounded-xl bg-gray-2 overflow-hidden border border-gray-6">
+                              <img
+                                src={attachment.url}
+                                alt={attachment.filename}
+                                class="h-full w-full object-cover"
+                              />
+                            </div>
+                          </Show>
+                          <div class="max-w-[180px]">
+                            <div class="truncate text-gray-12">{attachment.filename}</div>
+                            <div class="text-[10px] text-gray-9">{attachment.mime}</div>
+                          </div>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
                 <For each={block.groups}>
                   {(group, idx) => (
                     <div class={idx() === block.groups.length - 1 ? "" : groupSpacing}>
@@ -287,7 +363,7 @@ export default function MessageList(props: MessageListProps) {
                               </button>
                               <Show when={expanded()}>
                                 <div
-                                  class={`mt-3 rounded-xl border p-3 ${
+                                  class={`mt-3 rounded-xl border p-3 max-h-96 overflow-auto ${
                                     block.isUser
                                       ? "border-gray-6 bg-gray-1/60"
                                       : "border-gray-6/70 bg-gray-2/40"
@@ -302,13 +378,13 @@ export default function MessageList(props: MessageListProps) {
                     </div>
                   )}
                 </For>
-                <div class="mt-2 flex justify-end opacity-0 group-hover:opacity-100 transition-opacity select-none">
+                <div class="absolute bottom-2 right-2 flex justify-end opacity-0 group-hover:opacity-100 transition-opacity select-none pointer-events-none group-hover:pointer-events-auto">
                   <button
                     class="text-gray-9 hover:text-gray-11 p-1 rounded hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
                     title="Copy message"
                     onClick={() => {
                       const text = block.renderableParts
-                        .map((part) => ("text" in part ? (part as any).text : ""))
+                        .map((part) => partToText(part))
                         .join("\n");
                       handleCopy(text, block.messageId);
                     }}

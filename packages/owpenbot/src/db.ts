@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import Database from "better-sqlite3";
+import { Database } from "bun:sqlite";
 
 import type { ChannelName } from "./config.js";
 
@@ -28,12 +28,12 @@ type PairingRow = {
 };
 
 export class BridgeStore {
-  private db: Database.Database;
+  private db: Database;
 
   constructor(private readonly dbPath: string) {
     this.ensureDir();
-    this.db = new Database(dbPath);
-    this.db.pragma("journal_mode = WAL");
+    this.db = new Database(dbPath, { create: true });
+    this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS sessions (
         channel TEXT NOT NULL,
@@ -73,7 +73,7 @@ export class BridgeStore {
     const stmt = this.db.prepare(
       "SELECT channel, peer_id, session_id, created_at, updated_at FROM sessions WHERE channel = ? AND peer_id = ?",
     );
-    const row = stmt.get(channel, peerId) as SessionRow | undefined;
+    const row = stmt.get(channel, peerId) as SessionRow | null;
     return row ?? null;
   }
 
@@ -111,25 +111,26 @@ export class BridgeStore {
        ON CONFLICT(channel, peer_id) DO NOTHING`,
     );
     const now = Date.now();
-    const transaction = this.db.transaction((items: Iterable<string>) => {
-      for (const peer of items) {
+    const transaction = this.db.transaction(() => {
+      for (const peer of peers) {
         insert.run(channel, peer, now);
       }
     });
-    transaction(peers);
+    transaction();
   }
 
   listPairingRequests(channel?: ChannelName): PairingRow[] {
     const now = Date.now();
-    const stmt = channel
-      ? this.db.prepare(
-          "SELECT channel, peer_id, code, created_at, expires_at FROM pairing_requests WHERE channel = ? AND expires_at > ? ORDER BY created_at ASC",
-        )
-      : this.db.prepare(
-          "SELECT channel, peer_id, code, created_at, expires_at FROM pairing_requests WHERE expires_at > ? ORDER BY created_at ASC",
-        );
-    const rows = (channel ? stmt.all(channel, now) : stmt.all(now)) as PairingRow[];
-    return rows;
+    if (channel) {
+      const stmt = this.db.prepare(
+        "SELECT channel, peer_id, code, created_at, expires_at FROM pairing_requests WHERE channel = ? AND expires_at > ? ORDER BY created_at ASC",
+      );
+      return stmt.all(channel, now) as PairingRow[];
+    }
+    const stmt = this.db.prepare(
+      "SELECT channel, peer_id, code, created_at, expires_at FROM pairing_requests WHERE expires_at > ? ORDER BY created_at ASC",
+    );
+    return stmt.all(now) as PairingRow[];
   }
 
   getPairingRequest(channel: ChannelName, peerId: string): PairingRow | null {
@@ -137,7 +138,7 @@ export class BridgeStore {
     const stmt = this.db.prepare(
       "SELECT channel, peer_id, code, created_at, expires_at FROM pairing_requests WHERE channel = ? AND peer_id = ? AND expires_at > ?",
     );
-    const row = stmt.get(channel, peerId, now) as PairingRow | undefined;
+    const row = stmt.get(channel, peerId, now) as PairingRow | null;
     return row ?? null;
   }
 
@@ -157,7 +158,7 @@ export class BridgeStore {
     const select = this.db.prepare(
       "SELECT channel, peer_id, code, created_at, expires_at FROM pairing_requests WHERE channel = ? AND code = ? AND expires_at > ?",
     );
-    const row = select.get(channel, code, now) as PairingRow | undefined;
+    const row = select.get(channel, code, now) as PairingRow | null;
     if (!row) return null;
     const del = this.db.prepare("DELETE FROM pairing_requests WHERE channel = ? AND peer_id = ?");
     del.run(channel, row.peer_id);
@@ -178,7 +179,7 @@ export class BridgeStore {
 
   getSetting(key: string): string | null {
     const stmt = this.db.prepare("SELECT value FROM settings WHERE key = ?");
-    const row = stmt.get(key) as { value?: string } | undefined;
+    const row = stmt.get(key) as { value?: string } | null;
     return row?.value ?? null;
   }
 

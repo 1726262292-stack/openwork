@@ -1,5 +1,14 @@
-import type { Part, Provider, Session } from "@opencode-ai/sdk/v2/client";
-import type { ArtifactItem, MessageGroup, MessageInfo, MessageWithParts, ModelRef, OpencodeEvent, PlaceholderAssistantMessage } from "../types";
+import type { Part, Session } from "@opencode-ai/sdk/v2/client";
+import type {
+  ArtifactItem,
+  MessageGroup,
+  MessageInfo,
+  MessageWithParts,
+  ModelRef,
+  OpencodeEvent,
+  PlaceholderAssistantMessage,
+  ProviderListItem,
+} from "../types";
 
 export function formatModelRef(model: ModelRef) {
   return `${model.providerID}/${model.modelID}`;
@@ -23,6 +32,7 @@ const FRIENDLY_PROVIDER_LABELS: Record<string, string> = {
   openai: "OpenAI",
   anthropic: "Anthropic",
   google: "Google",
+  openrouter: "OpenRouter",
 };
 
 const humanizeModelLabel = (value: string) => {
@@ -47,7 +57,7 @@ const humanizeModelLabel = (value: string) => {
     .join(" ");
 };
 
-export function formatModelLabel(model: ModelRef, providers: Provider[] = []) {
+export function formatModelLabel(model: ModelRef, providers: ProviderListItem[] = []) {
   const provider = providers.find((p) => p.id === model.providerID);
   const modelInfo = provider?.models?.[model.modelID];
 
@@ -227,11 +237,11 @@ export function formatRelativeTime(timestampMs: number) {
   return new Date(timestampMs).toLocaleDateString();
 }
 
-export function templatePathFromWorkspaceRoot(workspaceRoot: string, templateId: string) {
+export function commandPathFromWorkspaceRoot(workspaceRoot: string, commandName: string) {
   const root = workspaceRoot.trim().replace(/\/+$/, "");
-  const id = templateId.trim();
-  if (!root || !id) return null;
-  return `${root}/.openwork/templates/${id}/template.yml`;
+  const name = commandName.trim().replace(/^\/+/, "");
+  if (!root || !name) return null;
+  return `${root}/.opencode/commands/${name}.md`;
 }
 
 export function safeParseJson<T>(raw: string): T | null {
@@ -417,20 +427,43 @@ export function isStepPart(part: Part) {
 export function groupMessageParts(parts: Part[], messageId: string): MessageGroup[] {
   const groups: MessageGroup[] = [];
   const steps: Part[] = [];
+  let textBuffer = "";
+
+  const flushText = () => {
+    if (!textBuffer) return;
+    groups.push({ kind: "text", part: { type: "text", text: textBuffer } as Part });
+    textBuffer = "";
+  };
 
   parts.forEach((part) => {
     if (part.type === "text") {
-      groups.push({ kind: "text", part });
+      textBuffer += (part as { text?: string }).text ?? "";
       return;
     }
 
-    if (isStepPart(part)) {
-      steps.push(part);
+    if (part.type === "agent") {
+      const name = (part as { name?: string }).name ?? "";
+      textBuffer += name ? `@${name}` : "@agent";
       return;
     }
 
+    if (part.type === "file") {
+      const record = part as { label?: string; path?: string; filename?: string; url?: string };
+      const url = record.url;
+      if (typeof url === "string" && !url.startsWith("file://")) {
+        flushText();
+        return;
+      }
+      const label = record.label ?? record.path ?? record.filename ?? "";
+      textBuffer += label ? `@${label}` : "@file";
+      return;
+    }
+
+    flushText();
     steps.push(part);
   });
+
+  flushText();
 
   if (steps.length) {
     groups.push({ kind: "steps", id: `steps-${messageId}`, parts: steps });
@@ -439,13 +472,24 @@ export function groupMessageParts(parts: Part[], messageId: string): MessageGrou
   return groups;
 }
 
-export function summarizeStep(part: Part): { title: string; detail?: string } {
+export function summarizeStep(part: Part): { title: string; detail?: string; isSkill?: boolean; skillName?: string } {
   if (part.type === "tool") {
     const record = part as any;
     const toolName = record.tool ? String(record.tool) : "Tool";
     const state = record.state ?? {};
     const title = state.title ? String(state.title) : toolName;
     const output = typeof state.output === "string" && state.output.trim() ? state.output.trim() : null;
+    
+    // Detect skill trigger
+    if (toolName === "skill") {
+      const skillName = state.metadata?.name || title.replace(/^Loaded skill:\s*/i, "");
+      if (output) {
+        const short = output.length > 160 ? `${output.slice(0, 160)}…` : output;
+        return { title, isSkill: true, skillName, detail: short };
+      }
+      return { title, isSkill: true, skillName };
+    }
+    
     if (output) {
       const short = output.length > 160 ? `${output.slice(0, 160)}…` : output;
       return { title, detail: short };
@@ -551,10 +595,11 @@ export function deriveWorkingFiles(items: ArtifactItem[]): string[] {
 
   for (const item of items) {
     const rawKey = item.path ?? item.name;
-    const normalized = rawKey.trim().replace(/[\\/]+/g, "/").toLowerCase();
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    results.push(item.name);
+    const normalizedPath = rawKey.trim().replace(/[\\/]+/g, "/");
+    const normalizedKey = normalizedPath.toLowerCase();
+    if (!normalizedPath || seen.has(normalizedKey)) continue;
+    seen.add(normalizedKey);
+    results.push(normalizedPath);
     if (results.length >= 5) break;
   }
 

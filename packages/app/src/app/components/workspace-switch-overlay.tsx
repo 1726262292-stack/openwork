@@ -13,6 +13,17 @@ export default function WorkspaceSwitchOverlay(props: {
 
   const workspaceName = createMemo(() => {
     if (!props.workspace) return "";
+    if (props.workspace.workspaceType === "remote" && props.workspace.remoteType === "openwork") {
+      return (
+        props.workspace.openworkWorkspaceName?.trim() ||
+        props.workspace.displayName?.trim() ||
+        props.workspace.name?.trim() ||
+        props.workspace.openworkHostUrl?.trim() ||
+        props.workspace.baseUrl?.trim() ||
+        props.workspace.path?.trim() ||
+        ""
+      );
+    }
     return (
       props.workspace.displayName?.trim() ||
       props.workspace.name?.trim() ||
@@ -38,6 +49,9 @@ export default function WorkspaceSwitchOverlay(props: {
   const metaPrimary = createMemo(() => {
     if (!props.workspace) return "";
     if (props.workspace.workspaceType === "remote") {
+      if (props.workspace.remoteType === "openwork") {
+        return props.workspace.openworkHostUrl?.trim() ?? props.workspace.baseUrl?.trim() ?? "";
+      }
       return props.workspace.baseUrl?.trim() ?? "";
     }
     return props.workspace.path?.trim() ?? "";
@@ -45,7 +59,11 @@ export default function WorkspaceSwitchOverlay(props: {
 
   const metaSecondary = createMemo(() => {
     if (!props.workspace || props.workspace.workspaceType !== "remote") return "";
-    return props.workspace.directory?.trim() ?? "";
+    return (
+      props.workspace.directory?.trim() ||
+      props.workspace.openworkWorkspaceName?.trim() ||
+      ""
+    );
   });
 
   return (
@@ -66,26 +84,9 @@ export default function WorkspaceSwitchOverlay(props: {
 
         <div class="relative z-10 flex min-h-screen flex-col items-center justify-center px-6 py-10 text-center">
           <div class="flex flex-col items-center gap-8">
-            <div class="flex items-center gap-3 text-[10px] uppercase tracking-[0.35em] text-gray-8">
-              <span class="h-px w-10 bg-gray-6/60" />
-              <span>OpenWork</span>
-              <span class="h-px w-10 bg-gray-6/60" />
-            </div>
+                      <div class="relative">
 
-            <div class="relative">
-              <div
-                class="absolute inset-0 rounded-full bg-indigo-6/20 blur-2xl motion-safe:animate-pulse motion-reduce:opacity-50"
-                style={{ "animation-duration": "5s" }}
-              />
-              <div
-                class="absolute -inset-4 rounded-full border border-gray-6/40 motion-safe:animate-spin motion-reduce:opacity-60"
-                style={{ "animation-duration": "14s" }}
-              />
-              <div
-                class="absolute -inset-1 rounded-full border border-gray-6/30 motion-safe:animate-spin motion-reduce:opacity-60"
-                style={{ "animation-duration": "9s", "animation-direction": "reverse" }}
-              />
-              <div class="relative h-24 w-24 rounded-3xl bg-gray-1/90 border border-gray-5/60 shadow-2xl flex items-center justify-center">
+              <div class="relative h-24 w-24 flex items-center justify-center">
                 <OpenWorkLogo size={44} class="drop-shadow-sm" />
               </div>
             </div>
@@ -96,6 +97,11 @@ export default function WorkspaceSwitchOverlay(props: {
                 <Show when={props.workspace?.workspaceType === "remote"}>
                   <span class="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-gray-4 text-gray-11">
                     {translate("dashboard.remote")}
+                  </span>
+                  <span class="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-gray-3 text-gray-10">
+                    {props.workspace?.remoteType === "openwork"
+                      ? translate("dashboard.remote_connection_openwork")
+                      : translate("dashboard.remote_connection_direct")}
                   </span>
                 </Show>
               </div>
@@ -114,10 +120,7 @@ export default function WorkspaceSwitchOverlay(props: {
                 <span>{statusLine()}</span>
               </div>
               <div class="h-1 w-56 overflow-hidden rounded-full bg-gray-4/50">
-                <div
-                  class="h-full w-1/2 rounded-full bg-gradient-to-r from-transparent via-indigo-6/50 to-transparent motion-safe:animate-pulse motion-reduce:opacity-70"
-                  style={{ "animation-duration": "2.8s" }}
-                />
+                <div class="h-full w-1/2 rounded-full bg-gradient-to-r from-transparent via-indigo-6/50 to-transparent animate-progress-shimmer" />
               </div>
             </div>
 
