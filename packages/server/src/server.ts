@@ -13,6 +13,9 @@ import { parseFrontmatter } from "./frontmatter.js";
 import { opencodeConfigPath, openworkConfigPath, projectCommandsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId } from "./utils.js";
 import { sanitizeCommandName } from "./validators.js";
+import pkg from "../package.json" with { type: "json" };
+
+const SERVER_VERSION = pkg.version;
 
 type AuthMode = "none" | "client" | "host";
 
@@ -172,7 +175,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
   const routes: Route[] = [];
 
   addRoute(routes, "GET", "/health", "none", async () => {
-    return jsonResponse({ ok: true, version: "0.1.0", uptimeMs: Date.now() - config.startedAt });
+    return jsonResponse({ ok: true, version: SERVER_VERSION, uptimeMs: Date.now() - config.startedAt });
   });
 
   addRoute(routes, "GET", "/capabilities", "client", async () => {

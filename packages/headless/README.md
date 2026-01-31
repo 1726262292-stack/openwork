@@ -14,14 +14,14 @@ openwrk start --workspace /path/to/workspace --approval auto
 `openwrk` bundles and validates exact versions of `openwork-server` + `owpenbot` using a
 SHA-256 manifest. It will refuse to start if the bundled binaries are missing or tampered with.
 
-For development overrides only, set `OPENWRK_ALLOW_EXTERNAL=1` to use locally installed
-`openwork-server` or `owpenbot` binaries.
+For development overrides only, set `OPENWRK_ALLOW_EXTERNAL=1` or pass `--allow-external` to use
+locally installed `openwork-server` or `owpenbot` binaries.
 
 Or from source:
 
 ```bash
 pnpm --filter openwrk dev -- \
-  start --workspace /path/to/workspace --approval auto
+  start --workspace /path/to/workspace --approval auto --allow-external
 ```
 
 The command prints pairing details (OpenWork server URL + token, OpenCode URL + auth) so remote OpenWork clients can connect.
@@ -81,6 +81,7 @@ Point to source CLIs for fast iteration:
 ```bash
 openwrk start \
   --workspace /path/to/workspace \
+  --allow-external \
   --openwork-server-bin packages/server/src/cli.ts \
   --owpenbot-bin packages/owpenbot/src/cli.ts
 ```
