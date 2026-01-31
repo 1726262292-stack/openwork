@@ -1015,26 +1015,6 @@ export default function App() {
   const [scheduledJobsBusy, setScheduledJobsBusy] = createSignal(false);
   const [scheduledJobsUpdatedAt, setScheduledJobsUpdatedAt] = createSignal<number | null>(null);
 
-  const resolveOpenworkScheduler = () => {
-    const isRemoteWorkspace = workspaceStore.activeWorkspaceDisplay().workspaceType === "remote";
-    if (!isRemoteWorkspace) return null;
-    const client = openworkServerClient();
-    const workspaceId = openworkServerWorkspaceId();
-    if (openworkServerStatus() !== "connected" || !client || !workspaceId) return null;
-    return { client, workspaceId };
-  };
-
-  const scheduledJobsSource = createMemo<"local" | "remote">(() => {
-    return workspaceStore.activeWorkspaceDisplay().workspaceType === "remote" ? "remote" : "local";
-  });
-
-  const scheduledJobsSourceReady = createMemo(() => {
-    if (scheduledJobsSource() !== "remote") return true;
-    const client = openworkServerClient();
-    const workspaceId = openworkServerWorkspaceId();
-    return openworkServerStatus() === "connected" && Boolean(client && workspaceId);
-  });
-
   // MCP OAuth modal state
   const [mcpAuthModalOpen, setMcpAuthModalOpen] = createSignal(false);
   const [mcpAuthEntry, setMcpAuthEntry] = createSignal<(typeof MCP_QUICK_CONNECT)[number] | null>(null);
@@ -1093,90 +1073,6 @@ export default function App() {
     abortRefreshes,
   } = extensionsStore;
 
-  const refreshScheduledJobs = async (options?: { force?: boolean }) => {
-    if (scheduledJobsBusy() && !options?.force) return;
-
-    if (scheduledJobsSource() === "remote") {
-      const scheduler = resolveOpenworkScheduler();
-      if (!scheduler) {
-        setScheduledJobs([]);
-        const status =
-          openworkServerStatus() === "disconnected"
-            ? "OpenWork server unavailable. Connect to sync scheduled tasks."
-            : openworkServerStatus() === "limited"
-              ? "OpenWork server needs a token to load scheduled tasks."
-              : "OpenWork server not ready.";
-        setScheduledJobsStatus(status);
-        return;
-      }
-
-      setScheduledJobsBusy(true);
-      setScheduledJobsStatus(null);
-
-      try {
-        const response = await scheduler.client.listScheduledJobs(scheduler.workspaceId);
-        const jobs = Array.isArray(response.items) ? response.items : [];
-        setScheduledJobs(jobs);
-        setScheduledJobsUpdatedAt(Date.now());
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        setScheduledJobs([]);
-        setScheduledJobsStatus(message || "Failed to load scheduled tasks.");
-      } finally {
-        setScheduledJobsBusy(false);
-      }
-      return;
-    }
-
-    if (!isTauriRuntime()) {
-      setScheduledJobs([]);
-      setScheduledJobsStatus(null);
-      return;
-    }
-
-    if (isWindowsPlatform()) {
-      setScheduledJobs([]);
-      setScheduledJobsStatus(null);
-      return;
-    }
-
-    setScheduledJobsBusy(true);
-    setScheduledJobsStatus(null);
-
-    try {
-      const jobs = await schedulerListJobs();
-      setScheduledJobs(jobs);
-      setScheduledJobsUpdatedAt(Date.now());
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setScheduledJobs([]);
-      setScheduledJobsStatus(message || "Failed to load scheduled tasks.");
-    } finally {
-      setScheduledJobsBusy(false);
-    }
-  };
-
-  const deleteScheduledJob = async (name: string) => {
-    if (scheduledJobsSource() === "remote") {
-      const scheduler = resolveOpenworkScheduler();
-      if (!scheduler) {
-        throw new Error("OpenWork server unavailable. Connect to sync scheduled tasks.");
-      }
-      const response = await scheduler.client.deleteScheduledJob(scheduler.workspaceId, name);
-      setScheduledJobs((current) => current.filter((entry) => entry.slug !== response.job.slug));
-      return;
-    }
-
-    if (!isTauriRuntime()) {
-      throw new Error("Scheduled tasks require the desktop app.");
-    }
-    if (isWindowsPlatform()) {
-      throw new Error("Scheduler is not supported on Windows yet.");
-    }
-    const job = await schedulerDeleteJob(name);
-    setScheduledJobs((current) => current.filter((entry) => entry.slug !== job.slug));
-    return;
-  };
   const globalSync = useGlobalSync();
   const providers = createMemo(() => globalSync.data.provider.all ?? []);
   const providerDefaults = createMemo(() => globalSync.data.provider.default ?? {});
@@ -2220,6 +2116,112 @@ export default function App() {
     stopHost,
     setEngineInstallLogs,
   } = workspaceStore;
+
+  // Scheduler helpers - must be defined after workspaceStore
+  const resolveOpenworkScheduler = () => {
+    const isRemoteWorkspace = workspaceStore.activeWorkspaceDisplay().workspaceType === "remote";
+    if (!isRemoteWorkspace) return null;
+    const client = openworkServerClient();
+    const workspaceId = openworkServerWorkspaceId();
+    if (openworkServerStatus() !== "connected" || !client || !workspaceId) return null;
+    return { client, workspaceId };
+  };
+
+  const scheduledJobsSource = createMemo<"local" | "remote">(() => {
+    return workspaceStore.activeWorkspaceDisplay().workspaceType === "remote" ? "remote" : "local";
+  });
+
+  const scheduledJobsSourceReady = createMemo(() => {
+    if (scheduledJobsSource() !== "remote") return true;
+    const client = openworkServerClient();
+    const workspaceId = openworkServerWorkspaceId();
+    return openworkServerStatus() === "connected" && Boolean(client && workspaceId);
+  });
+
+  const refreshScheduledJobs = async (options?: { force?: boolean }) => {
+    if (scheduledJobsBusy() && !options?.force) return;
+
+    if (scheduledJobsSource() === "remote") {
+      const scheduler = resolveOpenworkScheduler();
+      if (!scheduler) {
+        setScheduledJobs([]);
+        const status =
+          openworkServerStatus() === "disconnected"
+            ? "OpenWork server unavailable. Connect to sync scheduled tasks."
+            : openworkServerStatus() === "limited"
+              ? "OpenWork server needs a token to load scheduled tasks."
+              : "OpenWork server not ready.";
+        setScheduledJobsStatus(status);
+        return;
+      }
+
+      setScheduledJobsBusy(true);
+      setScheduledJobsStatus(null);
+
+      try {
+        const response = await scheduler.client.listScheduledJobs(scheduler.workspaceId);
+        const jobs = Array.isArray(response.items) ? response.items : [];
+        setScheduledJobs(jobs);
+        setScheduledJobsUpdatedAt(Date.now());
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setScheduledJobs([]);
+        setScheduledJobsStatus(message || "Failed to load scheduled tasks.");
+      } finally {
+        setScheduledJobsBusy(false);
+      }
+      return;
+    }
+
+    if (!isTauriRuntime()) {
+      setScheduledJobs([]);
+      setScheduledJobsStatus(null);
+      return;
+    }
+
+    if (isWindowsPlatform()) {
+      setScheduledJobs([]);
+      setScheduledJobsStatus(null);
+      return;
+    }
+
+    setScheduledJobsBusy(true);
+    setScheduledJobsStatus(null);
+
+    try {
+      const jobs = await schedulerListJobs();
+      setScheduledJobs(jobs);
+      setScheduledJobsUpdatedAt(Date.now());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setScheduledJobs([]);
+      setScheduledJobsStatus(message || "Failed to load scheduled tasks.");
+    } finally {
+      setScheduledJobsBusy(false);
+    }
+  };
+
+  const deleteScheduledJob = async (name: string) => {
+    if (scheduledJobsSource() === "remote") {
+      const scheduler = resolveOpenworkScheduler();
+      if (!scheduler) {
+        throw new Error("OpenWork server unavailable. Connect to sync scheduled tasks.");
+      }
+      const response = await scheduler.client.deleteScheduledJob(scheduler.workspaceId, name);
+      setScheduledJobs((current) => current.filter((entry) => entry.slug !== response.job.slug));
+      return;
+    }
+
+    if (!isTauriRuntime()) {
+      throw new Error("Scheduled tasks require the desktop app.");
+    }
+    if (isWindowsPlatform()) {
+      throw new Error("Scheduler is not supported on Windows yet.");
+    }
+    const job = await schedulerDeleteJob(name);
+    setScheduledJobs((current) => current.filter((entry) => entry.slug !== job.slug));
+    return;
+  };
 
   createEffect(() => {
     if (!isTauriRuntime()) return;
