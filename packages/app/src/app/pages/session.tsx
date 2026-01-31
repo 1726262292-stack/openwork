@@ -129,6 +129,7 @@ export type SessionViewProps = {
   openCommandRunModal: (command: WorkspaceCommand) => void;
   commandRegistryItems: () => CommandRegistryItem[];
   registerCommand: (command: CommandRegistryItem) => () => void;
+  deleteSession: (sessionId: string) => Promise<void>;
 };
 
 export default function SessionView(props: SessionViewProps) {
@@ -141,6 +142,7 @@ export default function SessionView(props: SessionViewProps) {
   const [renameModalOpen, setRenameModalOpen] = createSignal(false);
   const [renameTitle, setRenameTitle] = createSignal("");
   const [renameBusy, setRenameBusy] = createSignal(false);
+  const [deleteBusy, setDeleteBusy] = createSignal(false);
   const [agentPickerOpen, setAgentPickerOpen] = createSignal(false);
   const [agentPickerBusy, setAgentPickerBusy] = createSignal(false);
   const [agentPickerReady, setAgentPickerReady] = createSignal(false);
@@ -612,6 +614,19 @@ export default function SessionView(props: SessionViewProps) {
     return props.sessions.find((session) => session.id === id)?.title ?? "";
   });
 
+  const workspaceLabel = createMemo(() => {
+    const name = props.activeWorkspaceDisplay.name.trim();
+    if (name) return name;
+    return "Workspace";
+  });
+
+  const pickFallbackSessionId = (targetId: string) => {
+    const list = props.sessions.map((session) => session.id);
+    if (list.length <= 1) return null;
+    const index = list.indexOf(targetId);
+    if (index === -1) return list[0] ?? null;
+    return list[index + 1] ?? list[index - 1] ?? null;
+  };
 
   const renameCanSave = createMemo(() => {
     if (renameBusy()) return false;
@@ -648,6 +663,38 @@ export default function SessionView(props: SessionViewProps) {
       setCommandToast(message);
     } finally {
       setRenameBusy(false);
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    if (deleteBusy()) return;
+    const targetId = sessionId?.trim();
+    if (!targetId) {
+      setCommandToast("No session selected");
+      return;
+    }
+    const targetTitle = props.sessions.find((session) => session.id === targetId)?.title ?? "this session";
+    const confirmed = window.confirm(`Delete session "${targetTitle}"?`);
+    if (!confirmed) return;
+    const fallbackId = pickFallbackSessionId(targetId);
+    setDeleteBusy(true);
+    try {
+      await props.deleteSession(targetId);
+      setCommandToast("Session deleted");
+      if (props.selectedSessionId !== targetId) return;
+      if (fallbackId) {
+        await Promise.resolve(props.selectSession(fallbackId));
+        props.setView("session", fallbackId);
+        props.setTab("sessions");
+        return;
+      }
+      props.setView("dashboard");
+      props.setTab("sessions");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : props.safeStringify(error);
+      setCommandToast(message);
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -1155,23 +1202,25 @@ export default function SessionView(props: SessionViewProps) {
 
         <div class="flex-1 flex overflow-hidden">
           <aside class="hidden lg:flex w-72 border-r border-gray-6 bg-gray-1 flex-col">
-             <SessionSidebar
-               todos={props.todos}
-               expandedSections={props.expandedSidebarSections}
-               onToggleSection={(section) => {
-                 props.setExpandedSidebarSections((curr) => ({...curr, [section]: !curr[section]}));
-               }}
-               sessions={props.sessions}
-               selectedSessionId={props.selectedSessionId}
-                onSelectSession={async (id) => {
-                  await props.selectSession(id);
-                  props.setView("session", id);
-                  props.setTab("sessions");
+              <SessionSidebar
+                todos={props.todos}
+                expandedSections={props.expandedSidebarSections}
+                onToggleSection={(section) => {
+                  props.setExpandedSidebarSections((curr) => ({...curr, [section]: !curr[section]}));
                 }}
-               sessionStatusById={props.sessionStatusById}
-               onCreateSession={props.createSessionAndOpen}
-               newTaskDisabled={props.newTaskDisabled}
-             />
+                workspaceName={workspaceLabel()}
+                sessions={props.sessions}
+                selectedSessionId={props.selectedSessionId}
+                 onSelectSession={async (id) => {
+                   await props.selectSession(id);
+                   props.setView("session", id);
+                   props.setTab("sessions");
+                 }}
+                sessionStatusById={props.sessionStatusById}
+                onCreateSession={props.createSessionAndOpen}
+                onDeleteSession={handleDeleteSession}
+                newTaskDisabled={props.newTaskDisabled}
+              />
           </aside>
 
           <div

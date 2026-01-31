@@ -778,6 +778,30 @@ export default function App() {
     await renameSession(sessionID, trimmed);
   }
 
+  async function deleteSessionById(sessionID: string) {
+    const trimmed = sessionID.trim();
+    if (!trimmed) return;
+    if (isDemoMode()) {
+      throw new Error("Demo sessions can't be deleted");
+    }
+
+    const c = client();
+    if (!c) {
+      throw new Error("Not connected to a server");
+    }
+
+    const root = workspaceStore.activeWorkspaceRoot().trim();
+    const params = root ? { sessionID: trimmed, directory: root } : { sessionID: trimmed };
+    unwrap(await c.session.delete(params));
+    await loadSessions(root || undefined).catch(() => undefined);
+
+    const nextStatus = { ...sessionStatusById() };
+    if (nextStatus[trimmed]) {
+      delete nextStatus[trimmed];
+      setSessionStatusById(nextStatus);
+    }
+  }
+
   async function openConnectFlow() {
     workspaceStore.setWorkspacePickerOpen(true);
   }
@@ -4001,6 +4025,8 @@ export default function App() {
     commandRegistryItems,
     registerCommand: commandRegistry.registerCommand,
     searchFiles: searchWorkspaceFiles,
+    deleteSession: deleteSessionById,
+    deleteSession: deleteSessionById,
     onTryNotionPrompt: () => {
       setPrompt("setup my crm");
       setTryNotionPromptVisible(false);

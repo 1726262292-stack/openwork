@@ -13,7 +13,7 @@ import type {
   View,
 } from "../types";
 import type { McpDirectoryInfo } from "../constants";
-import { formatRelativeTime, normalizeDirectoryPath } from "../utils";
+import { formatRelativeTime } from "../utils";
 import type { OpenworkAuditEntry, OpenworkServerCapabilities, OpenworkServerSettings, OpenworkServerStatus } from "../lib/openwork-server";
 import type { EngineInfo, OpenwrkStatus, OpenworkServerInfo, OwpenbotInfo, WorkspaceInfo } from "../lib/tauri";
 
@@ -267,24 +267,6 @@ export default function DashboardView(props: DashboardViewProps) {
 
   const quickCommands = createMemo(() => props.workspaceCommands.slice(0, 3));
   const canExportWorkspace = createMemo(() => props.activeWorkspaceDisplay.workspaceType !== "remote");
-  const workspaceDirectoryMap = createMemo(() =>
-    props.workspaces.map((workspace) => ({
-      id: workspace.id,
-      name: workspace.displayName ?? workspace.name,
-      path: normalizeDirectoryPath(
-        workspace.workspaceType === "remote"
-          ? workspace.directory ?? ""
-          : workspace.path
-      ),
-    }))
-  );
-
-  const workspaceLabelForSession = (directory?: string | null) => {
-    if (!directory) return null;
-    const normalized = normalizeDirectoryPath(directory);
-    if (!normalized) return null;
-    return workspaceDirectoryMap().find((workspace) => workspace.path === normalized)?.name ?? null;
-  };
 
   const openSessionFromList = (sessionId: string) => {
     // Defer view switch to avoid click-through on the same event frame.
@@ -740,13 +722,6 @@ export default function DashboardView(props: DashboardViewProps) {
                               <span class="flex items-center gap-1">
                                 {formatRelativeTime(s.time.updated)}
                               </span>
-                              <Show when={workspaceLabelForSession(s.directory)}>
-                                {(label) => (
-                                  <span class="text-[11px] px-2 py-0.5 rounded-full border border-gray-7/60 text-gray-10">
-                                    {label()}
-                                  </span>
-                                )}
-                              </Show>
                             </div>
                           </div>
                         </div>
@@ -803,13 +778,6 @@ export default function DashboardView(props: DashboardViewProps) {
                               <span class="flex items-center gap-1">
                                 {formatRelativeTime(s.time.updated)}
                               </span>
-                              <Show when={workspaceLabelForSession(s.directory)}>
-                                {(label) => (
-                                  <span class="text-[11px] px-2 py-0.5 rounded-full border border-gray-7/60 text-gray-10">
-                                    {label()}
-                                  </span>
-                                )}
-                              </Show>
                             </div>
                           </div>
                         </div>
