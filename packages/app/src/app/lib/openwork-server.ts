@@ -255,6 +255,12 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         method: "PATCH",
         body: payload,
       }),
+    reloadEngine: (workspaceId: string) =>
+      requestJson<{ ok: boolean; reloadedAt?: number }>(baseUrl, `/workspace/${workspaceId}/engine/reload`, {
+        token,
+        hostToken,
+        method: "POST",
+      }),
     listPlugins: (workspaceId: string, options?: { includeGlobal?: boolean }) => {
       const query = options?.includeGlobal ? "?includeGlobal=true" : "";
       return requestJson<{ items: OpenworkPluginItem[]; loadOrder: string[] }>(

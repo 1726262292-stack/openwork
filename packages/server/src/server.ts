@@ -240,6 +240,27 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
     return jsonResponse({ updatedAt: Date.now() });
   });
 
+  addRoute(routes, "POST", "/workspace/:id/engine/reload", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "engine.reload",
+      summary: "Reload OpenCode engine",
+      paths: [opencodeConfigPath(workspace.path)],
+    });
+    await reloadOpencodeEngine(workspace);
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "engine.reload",
+      target: "opencode.instance",
+      summary: "Reloaded OpenCode engine",
+      timestamp: Date.now(),
+    });
+    return jsonResponse({ ok: true, reloadedAt: Date.now() });
+  });
+
   addRoute(routes, "GET", "/workspace/:id/plugins", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
@@ -552,6 +573,65 @@ async function readOpenworkConfig(workspaceRoot: string): Promise<Record<string,
   } catch {
     throw new ApiError(422, "invalid_json", "Failed to parse openwork.json");
   }
+}
+
+function resolveOpencodeDirectory(workspace: WorkspaceInfo): string | null {
+  const explicit = workspace.directory?.trim() ?? "";
+  if (explicit) return explicit;
+  if (workspace.workspaceType === "local") return workspace.path;
+  return null;
+}
+
+function buildOpencodeReloadUrl(baseUrl: string, directory?: string | null): string {
+  try {
+    const url = new URL(baseUrl);
+    url.pathname = "/instance/dispose";
+    url.search = "";
+    if (directory) {
+      url.searchParams.set("directory", directory);
+    }
+    return url.toString();
+  } catch {
+    throw new ApiError(400, "opencode_url_invalid", "OpenCode base URL is invalid");
+  }
+}
+
+function buildOpencodeAuthHeader(workspace: WorkspaceInfo): string | null {
+  const username = workspace.opencodeUsername?.trim() ?? "";
+  const password = workspace.opencodePassword?.trim() ?? "";
+  if (!username || !password) return null;
+  return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
+}
+
+function parseOpencodeErrorBody(input: string): unknown {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return trimmed;
+  }
+}
+
+async function reloadOpencodeEngine(workspace: WorkspaceInfo): Promise<void> {
+  const baseUrl = workspace.baseUrl?.trim() ?? "";
+  if (!baseUrl) {
+    throw new ApiError(400, "opencode_unconfigured", "OpenCode base URL is missing for this workspace");
+  }
+
+  const directory = resolveOpencodeDirectory(workspace);
+  const targetUrl = buildOpencodeReloadUrl(baseUrl, directory);
+  const headers: Record<string, string> = {};
+  const auth = buildOpencodeAuthHeader(workspace);
+  if (auth) headers.Authorization = auth;
+
+  const response = await fetch(targetUrl, { method: "POST", headers });
+  if (response.ok) return;
+  const body = parseOpencodeErrorBody(await response.text());
+  throw new ApiError(502, "opencode_reload_failed", "OpenCode reload failed", {
+    status: response.status,
+    body,
+  });
 }
 
 async function writeOpenworkConfig(workspaceRoot: string, payload: Record<string, unknown>, merge: boolean): Promise<void> {

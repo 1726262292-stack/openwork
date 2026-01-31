@@ -177,6 +177,13 @@ OpenWork exposes two extension surfaces:
    - The format is the same as OpenCode CLI uses today.
    - OpenWork should show plugin status and instructions; a native plugin manager is planned.
 
+### Engine reload (config refresh)
+
+- OpenWork server exposes `POST /workspace/:id/engine/reload`.
+- It calls OpenCode `POST /instance/dispose` with the workspace directory to force a config re-read.
+- Use after skills/plugins/MCP/config edits; reloads can interrupt active sessions.
+- Reload requests follow OpenWork server approval rules.
+
 ### OpenPackage Registry (Current + Future)
 
 - Today, OpenWork only supports **curated lists + manual sources**.
