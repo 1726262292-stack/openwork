@@ -4026,7 +4026,6 @@ export default function App() {
     registerCommand: commandRegistry.registerCommand,
     searchFiles: searchWorkspaceFiles,
     deleteSession: deleteSessionById,
-    deleteSession: deleteSessionById,
     onTryNotionPrompt: () => {
       setPrompt("setup my crm");
       setTryNotionPromptVisible(false);
