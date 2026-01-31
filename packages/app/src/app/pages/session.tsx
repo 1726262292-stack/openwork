@@ -146,12 +146,23 @@ export default function SessionView(props: SessionViewProps) {
   const [agentPickerReady, setAgentPickerReady] = createSignal(false);
   const [agentPickerError, setAgentPickerError] = createSignal<string | null>(null);
   const [agentOptions, setAgentOptions] = createSignal<Agent[]>([]);
+  const [autoScrollEnabled, setAutoScrollEnabled] = createSignal(false);
+  const [scrollOnNextUpdate, setScrollOnNextUpdate] = createSignal(false);
 
   const COMMAND_ARGS_RE = /\$(ARGUMENTS|\d+)/i;
 
   const commandNeedsDetails = (command: { template: string }) => COMMAND_ARGS_RE.test(command.template);
 
   const agentLabel = createMemo(() => props.selectedSessionAgent ?? "Default agent");
+
+  const isNearBottom = (el: HTMLElement, threshold = 80) => {
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    return distance <= threshold;
+  };
+
+  const scrollToLatest = (behavior: ScrollBehavior = "auto") => {
+    messagesEndEl?.scrollIntoView({ behavior, block: "end" });
+  };
 
   const isAbsolutePath = (value: string) =>
     /^(?:[a-zA-Z]:[\\/]|\\\\|\/|~\/)/.test(value.trim());
@@ -468,6 +479,15 @@ export default function SessionView(props: SessionViewProps) {
     setTimeout(() => setIsInitialLoad(false), 2000);
   });
 
+  onMount(() => {
+    const container = chatContainerEl;
+    if (!container) return;
+    const update = () => setAutoScrollEnabled(isNearBottom(container));
+    update();
+    container.addEventListener("scroll", update, { passive: true });
+    onCleanup(() => container.removeEventListener("scroll", update));
+  });
+
   createEffect(() => {
     const status = props.sessionStatus;
     if (status === "running" || status === "retry") {
@@ -516,7 +536,13 @@ export default function SessionView(props: SessionViewProps) {
         const [mLen, tLen, pCount] = current;
         const [prevM, prevT, prevP] = previous;
         if (mLen > prevM || tLen > prevT || pCount > prevP) {
-          messagesEndEl?.scrollIntoView({ behavior: "smooth" });
+          const shouldScroll = scrollOnNextUpdate() || autoScrollEnabled();
+          if (shouldScroll) {
+            scrollToLatest(scrollOnNextUpdate() ? "smooth" : "auto");
+          }
+          if (scrollOnNextUpdate()) {
+            setScrollOnNextUpdate(false);
+          }
         }
       },
     ),
@@ -1060,7 +1086,8 @@ export default function SessionView(props: SessionViewProps) {
       }
       return;
     }
-
+    setScrollOnNextUpdate(true);
+    scrollToLatest("auto");
     startRun();
     props.sendPromptAsync(draft).catch(() => undefined);
   };

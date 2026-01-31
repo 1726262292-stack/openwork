@@ -219,7 +219,12 @@ export default function PartView(props: Props) {
   };
 
   const diffText = createMemo(() => (p().type === "tool" ? extractDiff() : null));
-  const diffLines = createMemo(() => (diffText() ? diffText()!.split("\n") : []));
+  const normalizeToolText = (value: unknown) => {
+    if (typeof value !== "string") return "";
+    return value.replace(/(?:\r?\n\s*)+$/, "");
+  };
+  const diffTextNormalized = createMemo(() => normalizeToolText(diffText()));
+  const diffLines = createMemo(() => (diffTextNormalized() ? diffTextNormalized().split("\n") : []));
   const diffLineClass = (line: string) => {
     if (line.startsWith("+")) return "text-green-11 bg-green-1/40";
     if (line.startsWith("-")) return "text-red-11 bg-red-1/40";
@@ -227,10 +232,7 @@ export default function PartView(props: Props) {
     return "text-gray-12";
   };
 
-  const toolOutput = () => {
-    const output = toolState()?.output;
-    return typeof output === "string" ? output : null;
-  };
+  const toolOutput = () => normalizeToolText(toolState()?.output);
 
   const toolError = () => {
     const error = toolState()?.error;
@@ -266,10 +268,7 @@ export default function PartView(props: Props) {
     return "diagnostic";
   };
 
-  const isLargeOutput = createMemo(() => {
-    const output = toolOutput();
-    return !!output && output.length > 800;
-  });
+  const isLargeOutput = createMemo(() => toolOutput().length > 800);
 
   const [expandedOutput, setExpandedOutput] = createSignal(false);
   const outputPreview = createMemo(() => {
@@ -398,11 +397,7 @@ export default function PartView(props: Props) {
         >
           <details class={`rounded-lg ${panelBgClass()} p-2`.trim()}>
             <summary class={`cursor-pointer text-xs ${subtleTextClass()}`.trim()}>Thinking</summary>
-            <pre
-              class={`mt-2 whitespace-pre-wrap break-words text-xs ${
-                tone() === "dark" ? "text-gray-1" : "text-gray-12"
-              }`.trim()}
-            >
+            <pre class={`mt-2 whitespace-pre-wrap break-words text-xs text-gray-12`.trim()}>
               {clampText(String((p() as { text: string }).text), 2000)}
             </pre>
           </details>
@@ -414,9 +409,7 @@ export default function PartView(props: Props) {
           <div class="grid gap-3">
             <div class="flex items-start justify-between gap-3">
               <div class="space-y-1">
-                <div
-                  class={`text-xs font-medium ${tone() === "dark" ? "text-gray-1" : "text-gray-12"}`.trim()}
-                >
+                <div class={`text-xs font-medium text-gray-12`.trim()}>
                   {toolTitle()}
                 </div>
                 <div class={`text-[11px] ${subtleTextClass()}`.trim()}>{toolName()}</div>
@@ -429,7 +422,7 @@ export default function PartView(props: Props) {
                       ? "bg-blue-3/15 text-blue-12"
                       : toolStatus() === "error"
                         ? "bg-red-3/15 text-red-12"
-                        : "bg-gray-2/10 text-gray-1"
+                        : "bg-gray-2/10 text-gray-12"
                 }`}
               >
                 {toolStatus()}
@@ -507,11 +500,9 @@ export default function PartView(props: Props) {
               </div>
             </Show>
 
-            <Show when={showToolOutput() && toolOutput() && toolOutput() !== diffText()}>
+            <Show when={showToolOutput() && toolOutput() && toolOutput() !== diffTextNormalized()}>
               <pre
-                class={`whitespace-pre-wrap break-words rounded-lg ${panelBgClass()} p-2 text-xs ${
-                  tone() === "dark" ? "text-gray-12" : "text-gray-1"
-                }`.trim()}
+                class={`whitespace-pre-wrap break-words rounded-lg ${panelBgClass()} p-2 text-xs text-gray-12`.trim()}
               >
                 {outputPreview()}
               </pre>
@@ -529,11 +520,7 @@ export default function PartView(props: Props) {
             <Show when={showToolOutput() && toolInput() != null}>
               <details class={`rounded-lg ${panelBgClass()} p-2`.trim()}>
                 <summary class={`cursor-pointer text-xs ${subtleTextClass()}`.trim()}>Input</summary>
-                <pre
-                  class={`mt-2 whitespace-pre-wrap break-words text-xs ${
-                    tone() === "dark" ? "text-gray-12" : "text-gray-1"
-                  }`.trim()}
-                >
+                <pre class={`mt-2 whitespace-pre-wrap break-words text-xs text-gray-12`.trim()}>
                   {safeStringify(toolInput())}
                 </pre>
               </details>
@@ -563,11 +550,7 @@ export default function PartView(props: Props) {
 
       <Match when={true}>
         <Show when={developerMode()}>
-          <pre
-            class={`whitespace-pre-wrap break-words text-xs ${
-              tone() === "dark" ? "text-gray-12" : "text-gray-1"
-            }`.trim()}
-          >
+          <pre class={`whitespace-pre-wrap break-words text-xs text-gray-12`.trim()}>
             {safeStringify(p())}
           </pre>
         </Show>
