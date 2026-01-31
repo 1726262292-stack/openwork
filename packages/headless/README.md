@@ -26,6 +26,21 @@ pnpm --filter openwrk dev -- \
 
 The command prints pairing details (OpenWork server URL + token, OpenCode URL + auth) so remote OpenWork clients can connect.
 
+## Router daemon (multi-workspace)
+
+The router keeps a single OpenCode process alive and switches workspaces JIT using the `directory` parameter.
+
+```bash
+openwrk daemon start
+openwrk workspace add /path/to/workspace-a
+openwrk workspace add /path/to/workspace-b
+openwrk workspace list --json
+openwrk workspace path <id>
+openwrk instance dispose <id>
+```
+
+Use `OPENWRK_DATA_DIR` or `--data-dir` to isolate router state in tests.
+
 ## Pairing notes
 
 - Use the **OpenWork connect URL** and **client token** to connect a remote OpenWork client.

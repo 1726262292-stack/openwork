@@ -3,8 +3,9 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { createServer } from "node:net";
-import { hostname, networkInterfaces } from "node:os";
+import { createServer as createNetServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
+import { homedir, hostname, networkInterfaces } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { access } from "node:fs/promises";
@@ -38,6 +39,41 @@ type VersionInfo = {
 type VersionManifest = {
   dir: string;
   entries: Record<string, VersionInfo>;
+};
+
+type RouterWorkspaceType = "local" | "remote";
+
+type RouterWorkspace = {
+  id: string;
+  name: string;
+  path: string;
+  workspaceType: RouterWorkspaceType;
+  baseUrl?: string;
+  directory?: string;
+  createdAt: number;
+  lastUsedAt?: number;
+};
+
+type RouterDaemonState = {
+  pid: number;
+  port: number;
+  baseUrl: string;
+  startedAt: number;
+};
+
+type RouterOpencodeState = {
+  pid: number;
+  port: number;
+  baseUrl: string;
+  startedAt: number;
+};
+
+type RouterState = {
+  version: number;
+  daemon?: RouterDaemonState;
+  opencode?: RouterOpencodeState;
+  activeId: string;
+  workspaces: RouterWorkspace[];
 };
 
 type FieldsResult<T> = {
@@ -196,7 +232,7 @@ async function ensureWorkspace(workspace: string): Promise<string> {
 
 async function canBind(host: string, port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const server = createServer();
+    const server = createNetServer();
     server.once("error", () => {
       server.close();
       resolve(false);
@@ -209,7 +245,7 @@ async function canBind(host: string, port: number): Promise<boolean> {
 
 async function findFreePort(host: string): Promise<number> {
   return new Promise((resolve, reject) => {
-    const server = createServer();
+    const server = createNetServer();
     server.unref();
     server.once("error", (err) => reject(err));
     server.listen(0, host, () => {
@@ -433,6 +469,88 @@ async function resolveOwpenbotBin(options: {
   return "owpenbot";
 }
 
+function resolveRouterDataDir(flags: Map<string, string | boolean>): string {
+  const override = readFlag(flags, "data-dir") ?? process.env.OPENWRK_DATA_DIR ?? process.env.OPENWORK_DATA_DIR;
+  if (override && override.trim()) {
+    return resolve(override.trim());
+  }
+  return join(homedir(), ".openwork", "openwrk");
+}
+
+function routerStatePath(dataDir: string): string {
+  return join(dataDir, "openwrk-state.json");
+}
+
+function nowMs(): number {
+  return Date.now();
+}
+
+async function loadRouterState(path: string): Promise<RouterState> {
+  try {
+    const raw = await readFile(path, "utf8");
+    const parsed = JSON.parse(raw) as RouterState;
+    if (!parsed.workspaces) parsed.workspaces = [];
+    if (!parsed.activeId) parsed.activeId = "";
+    if (!parsed.version) parsed.version = 1;
+    return parsed;
+  } catch {
+    return {
+      version: 1,
+      daemon: undefined,
+      opencode: undefined,
+      activeId: "",
+      workspaces: [],
+    };
+  }
+}
+
+async function saveRouterState(path: string, state: RouterState): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const payload = JSON.stringify(state, null, 2);
+  await writeFile(path, `${payload}\n`, "utf8");
+}
+
+function normalizeWorkspacePath(input: string): string {
+  return resolve(input).replace(/[\\/]+$/, "");
+}
+
+function workspaceIdForLocal(path: string): string {
+  return `ws-${createHash("sha1").update(path).digest("hex").slice(0, 12)}`;
+}
+
+function workspaceIdForRemote(baseUrl: string, directory?: string | null): string {
+  const key = directory ? `${baseUrl}::${directory}` : baseUrl;
+  return `ws-${createHash("sha1").update(key).digest("hex").slice(0, 12)}`;
+}
+
+function findWorkspace(state: RouterState, input: string): RouterWorkspace | undefined {
+  const trimmed = input.trim();
+  if (!trimmed) return undefined;
+  const direct = state.workspaces.find((entry) => entry.id === trimmed || entry.name === trimmed);
+  if (direct) return direct;
+  const normalized = normalizeWorkspacePath(trimmed);
+  return state.workspaces.find((entry) => entry.path && normalizeWorkspacePath(entry.path) === normalized);
+}
+
+function isProcessAlive(pid?: number): boolean {
+  if (!pid || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveSelfCommand(): { command: string; prefixArgs: string[] } {
+  const arg1 = process.argv[1];
+  if (!arg1) return { command: process.argv[0], prefixArgs: [] };
+  if (arg1.endsWith(".js") || arg1.endsWith(".ts")) {
+    return { command: process.argv[0], prefixArgs: [arg1] };
+  }
+  return { command: process.argv[0], prefixArgs: [] };
+}
+
 async function waitForHealthy(url: string, timeoutMs = 10_000, pollMs = 250): Promise<void> {
   const start = Date.now();
   let lastError: string | null = null;
@@ -471,21 +589,31 @@ function printHelp(): void {
     "",
     "Usage:",
     "  openwrk start [--workspace <path>] [options]",
+    "  openwrk daemon [run|start|stop|status] [options]",
+    "  openwrk workspace <action> [options]",
+    "  openwrk instance dispose <id> [options]",
     "  openwrk approvals list --openwork-url <url> --host-token <token>",
     "  openwrk approvals reply <id> --allow|--deny --openwork-url <url> --host-token <token>",
     "  openwrk status [--openwork-url <url>] [--opencode-url <url>]",
     "",
     "Commands:",
     "  start                   Start OpenCode + OpenWork server + Owpenbot",
+    "  daemon                  Run openwrk router daemon (multi-workspace)",
+    "  workspace               Manage workspaces (add/list/switch/path)",
+    "  instance                Manage workspace instances (dispose)",
     "  approvals list           List pending approval requests",
     "  approvals reply <id>     Approve or deny a request",
     "  status                  Check OpenCode/OpenWork health",
     "",
     "Options:",
     "  --workspace <path>        Workspace directory (default: cwd)",
+    "  --data-dir <path>         Data dir for openwrk router state",
+    "  --daemon-host <host>      Host for openwrk router daemon (default: 127.0.0.1)",
+    "  --daemon-port <port>      Port for openwrk router daemon (default: random)",
     "  --opencode-bin <path>     Path to opencode binary (default: opencode)",
     "  --opencode-host <host>    Bind host for opencode serve (default: 0.0.0.0)",
     "  --opencode-port <port>    Port for opencode serve (default: random)",
+    "  --opencode-workdir <p>    Workdir for router-managed opencode serve",
     "  --opencode-auth           Enable OpenCode basic auth (default: true)",
     "  --no-opencode-auth        Disable OpenCode basic auth",
     "  --opencode-username <u>   OpenCode basic auth username",
@@ -731,6 +859,559 @@ function normalizeEvent(raw: unknown): { type: string } | null {
   const payload = record.payload as Record<string, unknown> | undefined;
   if (payload && typeof payload.type === "string") return { type: payload.type };
   return null;
+}
+
+async function waitForRouterHealthy(baseUrl: string, timeoutMs = 10_000, pollMs = 250): Promise<void> {
+  const start = Date.now();
+  let lastError: string | null = null;
+  const url = baseUrl.replace(/\/$/, "");
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const response = await fetch(`${url}/health`);
+      if (response.ok) return;
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+  throw new Error(lastError ?? "Timed out waiting for daemon health");
+}
+
+function outputResult(payload: unknown, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+  if (typeof payload === "string") {
+    console.log(payload);
+    return;
+  }
+  console.log(JSON.stringify(payload, null, 2));
+}
+
+function outputError(error: unknown, json: boolean): void {
+  const message = error instanceof Error ? error.message : String(error);
+  if (json) {
+    console.log(JSON.stringify({ ok: false, error: message }, null, 2));
+    return;
+  }
+  console.error(message);
+}
+
+async function spawnRouterDaemon(args: ParsedArgs, dataDir: string, host: string, port: number) {
+  const self = resolveSelfCommand();
+  const commandArgs = [
+    ...self.prefixArgs,
+    "daemon",
+    "run",
+    "--data-dir",
+    dataDir,
+    "--daemon-host",
+    host,
+    "--daemon-port",
+    String(port),
+  ];
+
+  const opencodeBin = readFlag(args.flags, "opencode-bin") ?? process.env.OPENWRK_OPENCODE_BIN;
+  const opencodeHost = readFlag(args.flags, "opencode-host") ?? process.env.OPENWRK_OPENCODE_HOST;
+  const opencodePort = readFlag(args.flags, "opencode-port") ?? process.env.OPENWRK_OPENCODE_PORT;
+  const opencodeWorkdir = readFlag(args.flags, "opencode-workdir") ?? process.env.OPENWRK_OPENCODE_WORKDIR;
+  const opencodeUsername = readFlag(args.flags, "opencode-username") ?? process.env.OPENWORK_OPENCODE_USERNAME;
+  const opencodePassword = readFlag(args.flags, "opencode-password") ?? process.env.OPENWORK_OPENCODE_PASSWORD;
+  const corsValue = readFlag(args.flags, "cors") ?? process.env.OPENWRK_OPENCODE_CORS;
+
+  if (opencodeBin) commandArgs.push("--opencode-bin", opencodeBin);
+  if (opencodeHost) commandArgs.push("--opencode-host", opencodeHost);
+  if (opencodePort) commandArgs.push("--opencode-port", String(opencodePort));
+  if (opencodeWorkdir) commandArgs.push("--opencode-workdir", opencodeWorkdir);
+  if (opencodeUsername) commandArgs.push("--opencode-username", opencodeUsername);
+  if (opencodePassword) commandArgs.push("--opencode-password", opencodePassword);
+  if (corsValue) commandArgs.push("--cors", corsValue);
+
+  const child = spawn(self.command, commandArgs, {
+    detached: true,
+    stdio: "ignore",
+    env: {
+      ...process.env,
+    },
+  });
+  child.unref();
+}
+
+async function ensureRouterDaemon(args: ParsedArgs, autoStart = true): Promise<{ baseUrl: string; dataDir: string }> {
+  const dataDir = resolveRouterDataDir(args.flags);
+  const statePath = routerStatePath(dataDir);
+  const state = await loadRouterState(statePath);
+  const existing = state.daemon;
+  if (existing && existing.baseUrl && isProcessAlive(existing.pid)) {
+    try {
+      await waitForRouterHealthy(existing.baseUrl, 1500, 150);
+      return { baseUrl: existing.baseUrl, dataDir };
+    } catch {
+      // fallthrough
+    }
+  }
+
+  if (!autoStart) {
+    throw new Error("openwrk daemon is not running");
+  }
+
+  const host = readFlag(args.flags, "daemon-host") ?? "127.0.0.1";
+  const port = await resolvePort(
+    readNumber(args.flags, "daemon-port", undefined, "OPENWRK_DAEMON_PORT"),
+    "127.0.0.1",
+  );
+  const baseUrl = `http://${host}:${port}`;
+  await spawnRouterDaemon(args, dataDir, host, port);
+  await waitForRouterHealthy(baseUrl, 10_000, 250);
+  return { baseUrl, dataDir };
+}
+
+async function requestRouter(args: ParsedArgs, method: string, path: string, body?: unknown, autoStart = true) {
+  const { baseUrl } = await ensureRouterDaemon(args, autoStart);
+  const url = `${baseUrl.replace(/\/$/, "")}${path}`;
+  const headers: Record<string, string> = {};
+  let payload: string | undefined;
+  if (body !== undefined) {
+    payload = JSON.stringify(body);
+    headers["Content-Type"] = "application/json";
+  }
+  return fetchJson(url, {
+    method,
+    headers,
+    body: payload,
+  });
+}
+
+async function runDaemonCommand(args: ParsedArgs) {
+  const outputJson = readBool(args.flags, "json", false);
+  const subcommand = args.positionals[1] ?? "run";
+
+  try {
+    if (subcommand === "run" || subcommand === "foreground") {
+      await runRouterDaemon(args);
+      return;
+    }
+    if (subcommand === "start") {
+      const { baseUrl } = await ensureRouterDaemon(args, true);
+      const status = await fetchJson(`${baseUrl.replace(/\/$/, "")}/health`);
+      outputResult({ ok: true, baseUrl, ...status }, outputJson);
+      return;
+    }
+    if (subcommand === "status") {
+      const { baseUrl } = await ensureRouterDaemon(args, false);
+      const status = await fetchJson(`${baseUrl.replace(/\/$/, "")}/health`);
+      outputResult({ ok: true, baseUrl, ...status }, outputJson);
+      return;
+    }
+    if (subcommand === "stop") {
+      const { baseUrl } = await ensureRouterDaemon(args, false);
+      await fetchJson(`${baseUrl.replace(/\/$/, "")}/shutdown`, { method: "POST" });
+      outputResult({ ok: true }, outputJson);
+      return;
+    }
+    throw new Error("daemon requires start|stop|status|run");
+  } catch (error) {
+    outputError(error, outputJson);
+    process.exitCode = 1;
+  }
+}
+
+async function runWorkspaceCommand(args: ParsedArgs) {
+  const outputJson = readBool(args.flags, "json", false);
+  const subcommand = args.positionals[1];
+  const id = args.positionals[2];
+
+  try {
+    if (subcommand === "add") {
+      if (!id) throw new Error("workspace path is required");
+      const name = readFlag(args.flags, "name");
+      const result = await requestRouter(args, "POST", "/workspaces", {
+        path: id,
+        name: name ?? null,
+      });
+      outputResult({ ok: true, ...result }, outputJson);
+      return;
+    }
+    if (subcommand === "add-remote") {
+      if (!id) throw new Error("baseUrl is required");
+      const directory = readFlag(args.flags, "directory");
+      const name = readFlag(args.flags, "name");
+      const result = await requestRouter(args, "POST", "/workspaces/remote", {
+        baseUrl: id,
+        directory: directory ?? null,
+        name: name ?? null,
+      });
+      outputResult({ ok: true, ...result }, outputJson);
+      return;
+    }
+    if (subcommand === "list") {
+      const result = await requestRouter(args, "GET", "/workspaces");
+      outputResult({ ok: true, ...result }, outputJson);
+      return;
+    }
+    if (subcommand === "switch") {
+      if (!id) throw new Error("workspace id is required");
+      const result = await requestRouter(args, "POST", `/workspaces/${encodeURIComponent(id)}/activate`);
+      outputResult({ ok: true, ...result }, outputJson);
+      return;
+    }
+    if (subcommand === "info") {
+      if (!id) throw new Error("workspace id is required");
+      const result = await requestRouter(args, "GET", `/workspaces/${encodeURIComponent(id)}`);
+      outputResult({ ok: true, ...result }, outputJson);
+      return;
+    }
+    if (subcommand === "path") {
+      if (!id) throw new Error("workspace id is required");
+      const result = await requestRouter(args, "GET", `/workspaces/${encodeURIComponent(id)}/path`);
+      outputResult({ ok: true, ...result }, outputJson);
+      return;
+    }
+    throw new Error("workspace requires add|add-remote|list|switch|info|path");
+  } catch (error) {
+    outputError(error, outputJson);
+    process.exitCode = 1;
+  }
+}
+
+async function runInstanceCommand(args: ParsedArgs) {
+  const outputJson = readBool(args.flags, "json", false);
+  const subcommand = args.positionals[1];
+  const id = args.positionals[2];
+
+  try {
+    if (subcommand === "dispose") {
+      if (!id) throw new Error("workspace id is required");
+      const result = await requestRouter(args, "POST", `/instances/${encodeURIComponent(id)}/dispose`);
+      outputResult({ ok: true, ...result }, outputJson);
+      return;
+    }
+    throw new Error("instance requires dispose");
+  } catch (error) {
+    outputError(error, outputJson);
+    process.exitCode = 1;
+  }
+}
+
+async function runRouterDaemon(args: ParsedArgs) {
+  const outputJson = readBool(args.flags, "json", false);
+  const dataDir = resolveRouterDataDir(args.flags);
+  const statePath = routerStatePath(dataDir);
+  let state = await loadRouterState(statePath);
+
+  const host = readFlag(args.flags, "daemon-host") ?? "127.0.0.1";
+  const port = await resolvePort(
+    readNumber(args.flags, "daemon-port", undefined, "OPENWRK_DAEMON_PORT"),
+    "127.0.0.1",
+  );
+
+  const opencodeBin = readFlag(args.flags, "opencode-bin") ?? process.env.OPENWRK_OPENCODE_BIN ?? "opencode";
+  const opencodeHost = readFlag(args.flags, "opencode-host") ?? process.env.OPENWRK_OPENCODE_HOST ?? "127.0.0.1";
+  const opencodePassword =
+    readFlag(args.flags, "opencode-password") ??
+    process.env.OPENWORK_OPENCODE_PASSWORD ??
+    process.env.OPENCODE_SERVER_PASSWORD;
+  const opencodeUsername =
+    readFlag(args.flags, "opencode-username") ??
+    process.env.OPENWORK_OPENCODE_USERNAME ??
+    process.env.OPENCODE_SERVER_USERNAME ??
+    DEFAULT_OPENCODE_USERNAME;
+  const authHeaders = opencodePassword
+    ? { Authorization: `Basic ${encodeBasicAuth(opencodeUsername, opencodePassword)}` }
+    : undefined;
+  const opencodePort = await resolvePort(
+    readNumber(args.flags, "opencode-port", state.opencode?.port, "OPENWRK_OPENCODE_PORT"),
+    "127.0.0.1",
+    state.opencode?.port,
+  );
+  const corsValue = readFlag(args.flags, "cors") ?? process.env.OPENWRK_OPENCODE_CORS ?? "http://localhost:5173,tauri://localhost,http://tauri.localhost";
+  const corsOrigins = parseList(corsValue);
+  const opencodeWorkdirFlag = readFlag(args.flags, "opencode-workdir") ?? process.env.OPENWRK_OPENCODE_WORKDIR;
+  const activeWorkspace = state.workspaces.find((entry) => entry.id === state.activeId && entry.workspaceType === "local");
+  const opencodeWorkdir = opencodeWorkdirFlag ?? activeWorkspace?.path ?? process.cwd();
+  const resolvedWorkdir = await ensureWorkspace(opencodeWorkdir);
+
+  let opencodeChild: ReturnType<typeof spawn> | null = null;
+
+  const ensureOpencode = async () => {
+    const existing = state.opencode;
+    if (existing && isProcessAlive(existing.pid)) {
+      const client = createOpencodeClient({
+        baseUrl: existing.baseUrl,
+        directory: resolvedWorkdir,
+        headers: authHeaders,
+      });
+      try {
+        await waitForOpencodeHealthy(client, 2000, 200);
+        return { baseUrl: existing.baseUrl, client };
+      } catch {
+        // restart
+      }
+    }
+
+    if (opencodeChild) {
+      await stopChild(opencodeChild);
+    }
+
+    const child = await startOpencode({
+      bin: opencodeBin,
+      workspace: resolvedWorkdir,
+      bindHost: opencodeHost,
+      port: opencodePort,
+      username: opencodePassword ? opencodeUsername : undefined,
+      password: opencodePassword,
+      corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
+    });
+    opencodeChild = child;
+    const baseUrl = `http://${opencodeHost}:${opencodePort}`;
+    const client = createOpencodeClient({
+      baseUrl,
+      directory: resolvedWorkdir,
+      headers: authHeaders,
+    });
+    await waitForOpencodeHealthy(client);
+    state.opencode = {
+      pid: child.pid ?? 0,
+      port: opencodePort,
+      baseUrl,
+      startedAt: nowMs(),
+    };
+    await saveRouterState(statePath, state);
+    return { baseUrl, client };
+  };
+
+  await ensureOpencode();
+
+  const server = createHttpServer(async (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+    if (req.method === "OPTIONS") {
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
+
+    const url = new URL(req.url ?? "/", `http://${host}:${port}`);
+    const parts = url.pathname.split("/").filter(Boolean);
+
+    const send = (status: number, payload: unknown) => {
+      res.statusCode = status;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify(payload));
+    };
+
+    const readBody = async () => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      if (!chunks.length) return null;
+      const raw = Buffer.concat(chunks).toString("utf8");
+      if (!raw.trim()) return null;
+      return JSON.parse(raw);
+    };
+
+    try {
+      if (req.method === "GET" && url.pathname === "/health") {
+        send(200, {
+          ok: true,
+          daemon: state.daemon ?? null,
+          opencode: state.opencode ?? null,
+          activeId: state.activeId,
+          workspaceCount: state.workspaces.length,
+        });
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/workspaces") {
+        send(200, { activeId: state.activeId, workspaces: state.workspaces });
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/workspaces") {
+        const body = await readBody();
+        const pathInput = typeof body?.path === "string" ? body.path.trim() : "";
+        if (!pathInput) {
+          send(400, { error: "path is required" });
+          return;
+        }
+        const resolved = await ensureWorkspace(pathInput);
+        const id = workspaceIdForLocal(resolved);
+        const name = typeof body?.name === "string" && body.name.trim()
+          ? body.name.trim()
+          : resolved.split(/[\\/]/).filter(Boolean).pop() ?? "Workspace";
+        const existing = state.workspaces.find((entry) => entry.id === id);
+        const entry: RouterWorkspace = {
+          id,
+          name,
+          path: resolved,
+          workspaceType: "local",
+          createdAt: existing?.createdAt ?? nowMs(),
+          lastUsedAt: nowMs(),
+        };
+        state.workspaces = state.workspaces.filter((item) => item.id !== id);
+        state.workspaces.push(entry);
+        if (!state.activeId) state.activeId = id;
+        await saveRouterState(statePath, state);
+        send(200, { activeId: state.activeId, workspace: entry });
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/workspaces/remote") {
+        const body = await readBody();
+        const baseUrl = typeof body?.baseUrl === "string" ? body.baseUrl.trim() : "";
+        if (!baseUrl || (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://"))) {
+          send(400, { error: "baseUrl must start with http:// or https://" });
+          return;
+        }
+        const directory = typeof body?.directory === "string" ? body.directory.trim() : "";
+        const id = workspaceIdForRemote(baseUrl, directory || undefined);
+        const name = typeof body?.name === "string" && body.name.trim() ? body.name.trim() : baseUrl;
+        const existing = state.workspaces.find((entry) => entry.id === id);
+        const entry: RouterWorkspace = {
+          id,
+          name,
+          path: directory,
+          workspaceType: "remote",
+          baseUrl,
+          directory: directory || undefined,
+          createdAt: existing?.createdAt ?? nowMs(),
+          lastUsedAt: nowMs(),
+        };
+        state.workspaces = state.workspaces.filter((item) => item.id !== id);
+        state.workspaces.push(entry);
+        if (!state.activeId) state.activeId = id;
+        await saveRouterState(statePath, state);
+        send(200, { activeId: state.activeId, workspace: entry });
+        return;
+      }
+
+      if (parts[0] === "workspaces" && parts.length === 2 && req.method === "GET") {
+        const workspace = findWorkspace(state, decodeURIComponent(parts[1] ?? ""));
+        if (!workspace) {
+          send(404, { error: "workspace not found" });
+          return;
+        }
+        send(200, { workspace });
+        return;
+      }
+
+      if (parts[0] === "workspaces" && parts.length === 3 && parts[2] === "activate" && req.method === "POST") {
+        const workspace = findWorkspace(state, decodeURIComponent(parts[1] ?? ""));
+        if (!workspace) {
+          send(404, { error: "workspace not found" });
+          return;
+        }
+        state.activeId = workspace.id;
+        workspace.lastUsedAt = nowMs();
+        await saveRouterState(statePath, state);
+        send(200, { activeId: state.activeId, workspace });
+        return;
+      }
+
+      if (parts[0] === "workspaces" && parts.length === 3 && parts[2] === "path" && req.method === "GET") {
+        const workspace = findWorkspace(state, decodeURIComponent(parts[1] ?? ""));
+        if (!workspace) {
+          send(404, { error: "workspace not found" });
+          return;
+        }
+        const isRemote = workspace.workspaceType === "remote";
+        const baseUrl = isRemote ? workspace.baseUrl ?? "" : (await ensureOpencode()).baseUrl;
+        if (!baseUrl) {
+          send(400, { error: "workspace baseUrl missing" });
+          return;
+        }
+        const directory = isRemote ? workspace.directory ?? "" : workspace.path;
+        const client = createOpencodeClient({
+          baseUrl,
+          directory: directory ? directory : undefined,
+          headers: authHeaders,
+        });
+        const pathInfo = unwrap(await client.path.get());
+        workspace.lastUsedAt = nowMs();
+        await saveRouterState(statePath, state);
+        send(200, { workspace, path: pathInfo });
+        return;
+      }
+
+      if (parts[0] === "instances" && parts.length === 3 && parts[2] === "dispose" && req.method === "POST") {
+        const workspace = findWorkspace(state, decodeURIComponent(parts[1] ?? ""));
+        if (!workspace) {
+          send(404, { error: "workspace not found" });
+          return;
+        }
+        const isRemote = workspace.workspaceType === "remote";
+        const baseUrl = isRemote ? workspace.baseUrl ?? "" : (await ensureOpencode()).baseUrl;
+        if (!baseUrl) {
+          send(400, { error: "workspace baseUrl missing" });
+          return;
+        }
+        const directory = isRemote ? workspace.directory ?? "" : workspace.path;
+        const response = await fetch(
+          `${baseUrl.replace(/\/$/, "")}/instance/dispose?directory=${encodeURIComponent(directory)}`,
+          { method: "POST", headers: authHeaders },
+        );
+        const ok = response.ok ? await response.json() : false;
+        workspace.lastUsedAt = nowMs();
+        await saveRouterState(statePath, state);
+        send(200, { disposed: ok });
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/shutdown") {
+        send(200, { ok: true });
+        await shutdown();
+        return;
+      }
+
+      send(404, { error: "not found" });
+    } catch (error) {
+      send(500, { error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  const shutdown = async () => {
+    try {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    } catch {
+      // ignore
+    }
+
+    if (opencodeChild) {
+      await stopChild(opencodeChild);
+      opencodeChild = null;
+    }
+
+    state.daemon = undefined;
+    if (state.opencode && !isProcessAlive(state.opencode.pid)) {
+      state.opencode = undefined;
+    }
+    await saveRouterState(statePath, state);
+    process.exit(0);
+  };
+
+  server.listen(port, host, async () => {
+    state.daemon = {
+      pid: process.pid,
+      port,
+      baseUrl: `http://${host}:${port}`,
+      startedAt: nowMs(),
+    };
+    await saveRouterState(statePath, state);
+    if (outputJson) {
+      outputResult({ ok: true, daemon: state.daemon }, true);
+    } else {
+      console.log(`openwrk daemon running on ${host}:${port}`);
+    }
+  });
+
+  process.on("SIGINT", () => shutdown());
+  process.on("SIGTERM", () => shutdown());
+  await new Promise(() => undefined);
 }
 
 async function runApprovals(args: ParsedArgs) {
@@ -1071,6 +1752,18 @@ async function main() {
   const command = args.positionals[0] ?? "start";
   if (command === "start") {
     await runStart(args);
+    return;
+  }
+  if (command === "daemon") {
+    await runDaemonCommand(args);
+    return;
+  }
+  if (command === "workspace" || command === "workspaces") {
+    await runWorkspaceCommand(args);
+    return;
+  }
+  if (command === "instance") {
+    await runInstanceCommand(args);
     return;
   }
   if (command === "approvals") {
