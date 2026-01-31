@@ -628,8 +628,9 @@ export function createSessionStore(options: {
     const c = options.client();
     if (!c) return;
 
-    const controller = new AbortController();
     let cancelled = false;
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
     let queue: Array<OpencodeEvent | undefined> = [];
     const coalesced = new Map<string, number>();
@@ -681,10 +682,13 @@ export function createSessionStore(options: {
       timer = setTimeout(flush, Math.max(0, 16 - elapsed));
     };
 
-    (async () => {
+    const connectSse = async (controller: AbortController) => {
       try {
         const sub = await c.event.subscribe(undefined, { signal: controller.signal });
         let yielded = Date.now();
+
+        // Reset reconnect counter on successful connection
+        reconnectAttempt = 0;
 
         for await (const raw of sub.stream) {
           if (cancelled) break;
@@ -708,18 +712,46 @@ export function createSessionStore(options: {
           yielded = Date.now();
           await new Promise<void>((resolve) => setTimeout(resolve, 0));
         }
+
+        // Stream ended normally - attempt reconnect unless cancelled
+        if (!cancelled) {
+          options.setSseConnected(false);
+          scheduleReconnect(controller);
+        }
       } catch (e) {
         if (cancelled) return;
 
         const message = e instanceof Error ? e.message : String(e);
         if (message.toLowerCase().includes("abort")) return;
-        options.setError(message);
+
+        // Mark SSE as disconnected and schedule reconnect
+        options.setSseConnected(false);
+        scheduleReconnect(controller);
       }
-    })();
+    };
+
+    const scheduleReconnect = (oldController: AbortController) => {
+      if (cancelled) return;
+      oldController.abort();
+
+      // Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s
+      reconnectAttempt++;
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempt - 1), 30000);
+
+      reconnectTimer = setTimeout(() => {
+        if (cancelled) return;
+        const newController = new AbortController();
+        void connectSse(newController);
+      }, delay);
+    };
+
+    const controller = new AbortController();
+    void connectSse(controller);
 
     onCleanup(() => {
       cancelled = true;
       controller.abort();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       flush();
     });
   });

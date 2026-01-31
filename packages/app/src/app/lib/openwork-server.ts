@@ -1,3 +1,6 @@
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { isTauriRuntime } from "../utils";
+
 export type OpenworkServerCapabilities = {
   skills: { read: boolean; write: boolean; source: "openwork" | "opencode" };
   plugins: { read: boolean; write: boolean };
@@ -206,13 +209,17 @@ function buildHeaders(
   return headers;
 }
 
+// Use Tauri's fetch when running in the desktop app to avoid CORS issues
+const resolveFetch = () => (isTauriRuntime() ? tauriFetch : globalThis.fetch);
+
 async function requestJson<T>(
   baseUrl: string,
   path: string,
   options: { method?: string; token?: string; hostToken?: string; body?: unknown } = {},
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
-  const response = await fetch(url, {
+  const fetchImpl = resolveFetch();
+  const response = await fetchImpl(url, {
     method: options.method ?? "GET",
     headers: buildHeaders(options.token, options.hostToken),
     body: options.body ? JSON.stringify(options.body) : undefined,
