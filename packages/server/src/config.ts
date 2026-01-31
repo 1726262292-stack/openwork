@@ -161,7 +161,7 @@ export async function resolveServerConfig(cli: CliArgs): Promise<ServerConfig> {
   const configDir = dirname(configPath);
 
   const envWorkspaces = parseList(process.env.OPENWORK_WORKSPACES);
-  const workspaceConfigs: WorkspaceConfig[] =
+  let workspaceConfigs: WorkspaceConfig[] =
     cli.workspaces.length > 0
       ? cli.workspaces.map((path) => ({ path }))
       : envWorkspaces.length > 0
