@@ -1,6 +1,7 @@
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { marked } from "marked";
 import type { Part } from "@opencode-ai/sdk/v2/client";
+import { File } from "lucide-solid";
 import { safeStringify } from "../utils";
 
 type Props = {
@@ -121,6 +122,44 @@ export default function PartView(props: Props) {
   const tone = () => props.tone ?? "light";
   const showThinking = () => props.showThinking ?? true;
   const renderMarkdown = () => props.renderMarkdown ?? false;
+  const fileInfo = () => {
+    if (p().type !== "file") return null;
+    const part = p() as {
+      filename?: string;
+      url?: string;
+      mime?: string;
+      source?: {
+        type?: string;
+        path?: string;
+        name?: string;
+        clientName?: string;
+        uri?: string;
+      };
+    };
+    const source = part.source ?? {};
+    const sourceType = typeof source.type === "string" ? source.type : "";
+    const sourcePath = typeof source.path === "string" ? source.path : "";
+    const sourceName = typeof source.name === "string" ? source.name : "";
+    const sourceClient = typeof source.clientName === "string" ? source.clientName : "";
+    const sourceUri = typeof source.uri === "string" ? source.uri : "";
+    const filename = typeof part.filename === "string" ? part.filename : "";
+    const url = typeof part.url === "string" ? part.url : "";
+    const pathName = sourcePath ? sourcePath.split(/[\\/]/).pop() ?? sourcePath : "";
+    const title = filename || pathName || sourceName || url || "File";
+    const detail = (() => {
+      if (sourceType === "symbol") {
+        if (sourcePath) return `${sourceName || "symbol"} - ${sourcePath}`;
+        return sourceName || "";
+      }
+      if (sourceType === "resource") {
+        const details = [sourceClient, sourceUri].filter(Boolean).join(" - ");
+        return details || url;
+      }
+      return sourcePath || url;
+    })();
+    const mime = typeof part.mime === "string" ? part.mime : "";
+    return { title, detail, mime };
+  };
 
   const textClass = () => (tone() === "dark" ? "text-gray-12" : "text-gray-12");
   const subtleTextClass = () => (tone() === "dark" ? "text-gray-12/70" : "text-gray-11");
@@ -307,6 +346,43 @@ export default function PartView(props: Props) {
               innerHTML={renderedMarkdown()!}
             />
           </Show>
+        </Show>
+      </Match>
+
+      <Match when={p().type === "file"}>
+        <Show when={fileInfo()}>
+          {(info) => (
+            <div
+              class={`flex items-center gap-3 rounded-xl border px-3 py-2 ${
+                tone() === "dark" ? "border-gray-6 bg-gray-1/60" : "border-gray-6/70 bg-gray-2/40"
+              }`.trim()}
+            >
+              <div
+                class={`h-9 w-9 rounded-lg flex items-center justify-center ${
+                  tone() === "dark" ? "bg-gray-12/10 text-gray-12" : "bg-gray-2/70 text-gray-11"
+                }`.trim()}
+              >
+                <File size={16} />
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class={`text-sm font-medium truncate ${textClass()}`.trim()}>{info().title}</div>
+                <Show when={info().detail}>
+                  <div class={`text-[11px] truncate ${subtleTextClass()}`.trim()}>{info().detail}</div>
+                </Show>
+              </div>
+              <Show when={info().mime}>
+                <div
+                  class={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full max-w-[160px] truncate ${
+                    tone() === "dark"
+                      ? "bg-gray-12/10 text-gray-12/80"
+                      : "bg-gray-1/70 text-gray-9"
+                  }`.trim()}
+                >
+                  {info().mime}
+                </div>
+              </Show>
+            </div>
+          )}
         </Show>
       </Match>
 
