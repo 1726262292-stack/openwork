@@ -792,9 +792,11 @@ export default function App() {
     const merged = { ...methods } as Record<string, ProviderAuthMethod[]>;
     for (const provider of availableProviders ?? []) {
       const id = provider.id?.trim();
-      if (!id || merged[id] || id === "opencode") continue;
+      if (!id || id === "opencode") continue;
       if (!Array.isArray(provider.env) || provider.env.length === 0) continue;
-      merged[id] = [{ type: "api", label: "API key" }];
+      const existing = merged[id] ?? [];
+      if (existing.some((method) => method.type === "api")) continue;
+      merged[id] = [...existing, { type: "api", label: "API key" }];
     }
     return merged;
   };
@@ -831,16 +833,12 @@ export default function App() {
 
       const methods = authMethods[resolved];
       if (!methods || !methods.length) {
-        const provider = providers().find((item) => item.id === resolved);
-        if (provider?.env?.length) {
-          return `Configure ${resolved} API keys in opencode.json`;
-        }
         throw new Error(`Unknown provider: ${resolved}`);
       }
 
       const oauthIndex = methods.findIndex((method) => method.type === "oauth");
       if (oauthIndex === -1) {
-        return `Configure ${resolved} API keys in opencode.json`;
+        throw new Error(`No OAuth flow available for ${resolved}. Use an API key instead.`);
       }
 
       const auth = unwrap(await c.provider.oauth.authorize({ providerID: resolved, method: oauthIndex }));
@@ -854,6 +852,33 @@ export default function App() {
       return auth.instructions || `Opened ${resolved} auth in browser`;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to connect provider";
+      setProviderAuthError(message);
+      throw error instanceof Error ? error : new Error(message);
+    }
+  }
+
+  async function submitProviderApiKey(providerId: string, apiKey: string) {
+    setProviderAuthError(null);
+    const c = client();
+    if (!c) {
+      throw new Error("Not connected to a server");
+    }
+
+    const trimmed = apiKey.trim();
+    if (!trimmed) {
+      throw new Error("API key is required");
+    }
+
+    try {
+      await c.auth.set({
+        providerID: providerId,
+        auth: { type: "api", key: trimmed },
+      });
+      const updated = unwrap(await c.provider.list());
+      globalSync.set("provider", updated);
+      return `Connected ${providerId}`;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save API key";
       setProviderAuthError(message);
       throw error instanceof Error ? error : new Error(message);
     }
@@ -3525,6 +3550,7 @@ export default function App() {
     openProviderAuthModal,
     closeProviderAuthModal,
     startProviderAuth,
+    submitProviderApiKey,
     view: currentView(),
     setView,
     mode: mode(),
@@ -3780,6 +3806,7 @@ export default function App() {
     showTryNotionPrompt: tryNotionPromptVisible() && notionIsActive(),
     openConnect: openConnectFlow,
     startProviderAuth: startProviderAuth,
+    submitProviderApiKey: submitProviderApiKey,
     openProviderAuthModal: openProviderAuthModal,
     closeProviderAuthModal: closeProviderAuthModal,
     providerAuthModalOpen: providerAuthModalOpen(),

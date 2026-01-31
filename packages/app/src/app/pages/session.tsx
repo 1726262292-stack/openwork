@@ -109,6 +109,7 @@ export type SessionViewProps = {
   renameSession: (sessionId: string, title: string) => Promise<void>;
   openConnect: () => void;
   startProviderAuth: (providerId?: string) => Promise<string>;
+  submitProviderApiKey: (providerId: string, apiKey: string) => Promise<string | void>;
   openProviderAuthModal: () => Promise<void>;
   closeProviderAuthModal: () => void;
   providerAuthModalOpen: boolean;
@@ -729,6 +730,21 @@ export default function SessionView(props: SessionViewProps) {
     }
   };
 
+  const handleProviderAuthApiKey = async (providerId: string, apiKey: string) => {
+    if (providerAuthActionBusy()) return;
+    setProviderAuthActionBusy(true);
+    try {
+      const message = await props.submitProviderApiKey(providerId, apiKey);
+      setCommandToast(message || "API key saved");
+      props.closeProviderAuthModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save API key";
+      setCommandToast(message);
+    } finally {
+      setProviderAuthActionBusy(false);
+    }
+  };
+
   const runOpenCodeCommand = (command: WorkspaceCommand, context?: CommandTriggerContext) => {
     const details = context?.source === "slash" ? extractCommandArgs(props.prompt) : "";
     const shouldClear = context?.source === "slash";
@@ -1315,6 +1331,7 @@ export default function SessionView(props: SessionViewProps) {
           connectedProviderIds={props.providerConnectedIds}
           authMethods={props.providerAuthMethods}
           onSelect={handleProviderAuthSelect}
+          onSubmitApiKey={handleProviderAuthApiKey}
           onClose={props.closeProviderAuthModal}
         />
 

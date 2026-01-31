@@ -843,8 +843,7 @@ export default function SettingsView(props: SettingsViewProps) {
               </Show>
 
               <div class="text-[11px] text-gray-8">
-                API keys live in <span class="font-mono">opencode.json</span>. Use <span class="font-mono">/models</span>
-                to pick a default.
+                API keys are stored locally by OpenCode. Use <span class="font-mono">/models</span> to pick a default.
               </div>
             </div>
 
