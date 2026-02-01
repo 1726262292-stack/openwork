@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
-import { homedir, hostname, networkInterfaces } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { homedir, hostname, networkInterfaces, tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { access } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -38,12 +37,45 @@ type VersionInfo = {
 
 type SidecarName = "openwork-server" | "owpenbot" | "opencode";
 
+type SidecarTarget =
+  | "darwin-arm64"
+  | "darwin-x64"
+  | "linux-x64"
+  | "linux-arm64"
+  | "windows-x64"
+  | "windows-arm64";
+
 type VersionManifest = {
   dir: string;
   entries: Record<string, VersionInfo>;
 };
 
-type BinarySource = "bundled" | "external";
+type RemoteSidecarAsset = {
+  asset?: string;
+  url?: string;
+  sha256?: string;
+  size?: number;
+};
+
+type RemoteSidecarEntry = {
+  version: string;
+  targets: Record<string, RemoteSidecarAsset>;
+};
+
+type RemoteSidecarManifest = {
+  version: string;
+  generatedAt?: string;
+  entries: Record<string, RemoteSidecarEntry>;
+};
+
+type SidecarConfig = {
+  dir: string;
+  baseUrl: string;
+  manifestUrl: string;
+  target: SidecarTarget | null;
+};
+
+type BinarySource = "bundled" | "external" | "downloaded";
 
 type ResolvedBinary = {
   bin: string;
@@ -239,6 +271,28 @@ async function resolveCliVersion(): Promise<string> {
   return FALLBACK_VERSION;
 }
 
+async function readPackageField(field: string): Promise<string | undefined> {
+  const candidates = [
+    join(dirname(process.execPath), "..", "package.json"),
+    join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"),
+  ];
+
+  for (const candidate of candidates) {
+    if (await fileExists(candidate)) {
+      try {
+        const raw = await readFile(candidate, "utf8");
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const value = parsed[field];
+        if (typeof value === "string" && value.trim()) return value.trim();
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return undefined;
+}
+
 async function isExecutable(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -418,6 +472,256 @@ async function readVersionManifest(): Promise<VersionManifest | null> {
   return null;
 }
 
+const remoteManifestCache = new Map<string, Promise<RemoteSidecarManifest | null>>();
+
+function resolveSidecarTarget(): SidecarTarget | null {
+  if (process.platform === "darwin") {
+    if (process.arch === "arm64") return "darwin-arm64";
+    if (process.arch === "x64") return "darwin-x64";
+    return null;
+  }
+  if (process.platform === "linux") {
+    if (process.arch === "arm64") return "linux-arm64";
+    if (process.arch === "x64") return "linux-x64";
+    return null;
+  }
+  if (process.platform === "win32") {
+    if (process.arch === "arm64") return "windows-arm64";
+    if (process.arch === "x64") return "windows-x64";
+    return null;
+  }
+  return null;
+}
+
+function resolveSidecarDir(flags: Map<string, string | boolean>): string {
+  const override =
+    readFlag(flags, "sidecar-dir") ??
+    process.env.OPENWRK_SIDECAR_DIR ??
+    process.env.OPENWORK_SIDECAR_DIR;
+  if (override && override.trim()) return resolve(override.trim());
+  return join(resolveRouterDataDir(flags), "sidecars");
+}
+
+function resolveSidecarBaseUrl(flags: Map<string, string | boolean>, cliVersion: string): string {
+  const override = readFlag(flags, "sidecar-base-url") ?? process.env.OPENWRK_SIDECAR_BASE_URL;
+  if (override && override.trim()) return override.trim();
+  return `https://github.com/different-ai/openwork/releases/download/openwrk-v${cliVersion}`;
+}
+
+function resolveSidecarManifestUrl(flags: Map<string, string | boolean>, baseUrl: string): string {
+  const override = readFlag(flags, "sidecar-manifest") ?? process.env.OPENWRK_SIDECAR_MANIFEST_URL;
+  if (override && override.trim()) return override.trim();
+  return `${baseUrl.replace(/\/$/, "")}/openwrk-sidecars.json`;
+}
+
+function resolveSidecarConfig(flags: Map<string, string | boolean>, cliVersion: string): SidecarConfig {
+  const baseUrl = resolveSidecarBaseUrl(flags, cliVersion);
+  return {
+    dir: resolveSidecarDir(flags),
+    baseUrl,
+    manifestUrl: resolveSidecarManifestUrl(flags, baseUrl),
+    target: resolveSidecarTarget(),
+  };
+}
+
+async function fetchRemoteManifest(url: string): Promise<RemoteSidecarManifest | null> {
+  const cached = remoteManifestCache.get(url);
+  if (cached) return cached;
+  const task = (async () => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      return (await response.json()) as RemoteSidecarManifest;
+    } catch {
+      return null;
+    }
+  })();
+  remoteManifestCache.set(url, task);
+  return task;
+}
+
+function resolveAssetUrl(baseUrl: string, asset?: string, url?: string): string | null {
+  if (url && url.trim()) return url.trim();
+  if (asset && asset.trim()) return `${baseUrl.replace(/\/$/, "")}/${asset.trim()}`;
+  return null;
+}
+
+function resolveAssetName(asset?: string, url?: string): string | null {
+  if (asset && asset.trim()) return asset.trim();
+  if (url && url.trim()) {
+    try {
+      return basename(new URL(url).pathname);
+    } catch {
+      const parts = url.split("/").filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : null;
+    }
+  }
+  return null;
+}
+
+async function downloadToPath(url: string, dest: string): Promise<void> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to download ${url} (HTTP ${response.status})`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  await mkdir(dirname(dest), { recursive: true });
+  const tmpPath = `${dest}.tmp-${randomUUID()}`;
+  await writeFile(tmpPath, buffer);
+  await rename(tmpPath, dest);
+}
+
+async function ensureExecutable(path: string): Promise<void> {
+  if (process.platform === "win32") return;
+  try {
+    await chmod(path, 0o755);
+  } catch {
+    // ignore
+  }
+}
+
+async function downloadSidecarBinary(options: {
+  name: SidecarName;
+  sidecar: SidecarConfig;
+}): Promise<ResolvedBinary | null> {
+  if (!options.sidecar.target) return null;
+  const manifest = await fetchRemoteManifest(options.sidecar.manifestUrl);
+  if (!manifest) return null;
+  const entry = manifest.entries[options.name];
+  if (!entry) return null;
+  const targetInfo = entry.targets[options.sidecar.target];
+  if (!targetInfo) return null;
+
+  const assetName = resolveAssetName(targetInfo.asset, targetInfo.url);
+  const assetUrl = resolveAssetUrl(options.sidecar.baseUrl, targetInfo.asset, targetInfo.url);
+  if (!assetName || !assetUrl) return null;
+
+  const targetDir = join(options.sidecar.dir, entry.version, options.sidecar.target);
+  const targetPath = join(targetDir, assetName);
+  if (await fileExists(targetPath)) {
+    if (targetInfo.sha256) {
+      try {
+        await verifyBinary(targetPath, { version: entry.version, sha256: targetInfo.sha256 });
+        await ensureExecutable(targetPath);
+        return { bin: targetPath, source: "downloaded", expectedVersion: entry.version };
+      } catch {
+        await rm(targetPath, { force: true });
+      }
+    } else {
+      await ensureExecutable(targetPath);
+      return { bin: targetPath, source: "downloaded", expectedVersion: entry.version };
+    }
+  }
+
+  await downloadToPath(assetUrl, targetPath);
+  if (targetInfo.sha256) {
+    await verifyBinary(targetPath, { version: entry.version, sha256: targetInfo.sha256 });
+  }
+  await ensureExecutable(targetPath);
+  return { bin: targetPath, source: "downloaded", expectedVersion: entry.version };
+}
+
+function resolveOpencodeAsset(target: SidecarTarget): string | null {
+  const assets: Record<SidecarTarget, string> = {
+    "darwin-arm64": "opencode-darwin-arm64.zip",
+    "darwin-x64": "opencode-darwin-x64-baseline.zip",
+    "linux-x64": "opencode-linux-x64-baseline.tar.gz",
+    "linux-arm64": "opencode-linux-arm64.tar.gz",
+    "windows-x64": "opencode-windows-x64-baseline.zip",
+    "windows-arm64": "opencode-windows-arm64.zip",
+  };
+  return assets[target] ?? null;
+}
+
+async function runCommand(command: string, args: string[], cwd?: string): Promise<void> {
+  const child = spawn(command, args, { cwd, stdio: "inherit" });
+  const result = await Promise.race([
+    once(child, "exit").then(([code]) => ({ type: "exit", code })),
+    once(child, "error").then(([error]) => ({ type: "error", error })),
+  ]);
+  if (result.type === "error") {
+    throw new Error(`Command failed: ${command} ${args.join(" ")}: ${String(result.error)}`);
+  }
+  if (result.code !== 0) {
+    throw new Error(`Command failed: ${command} ${args.join(" ")}`);
+  }
+}
+
+async function resolveOpencodeDownload(sidecar: SidecarConfig, expectedVersion?: string): Promise<string | null> {
+  if (!expectedVersion) return null;
+  if (!sidecar.target) return null;
+
+  const assetOverride = process.env.OPENWRK_OPENCODE_ASSET ?? process.env.OPENCODE_ASSET;
+  const asset = assetOverride?.trim() || resolveOpencodeAsset(sidecar.target);
+  if (!asset) return null;
+
+  const version = expectedVersion.startsWith("v") ? expectedVersion.slice(1) : expectedVersion;
+  const url = `https://github.com/anomalyco/opencode/releases/download/v${version}/${asset}`;
+  const targetDir = join(sidecar.dir, "opencode", version, sidecar.target);
+  const targetPath = join(targetDir, process.platform === "win32" ? "opencode.exe" : "opencode");
+
+  if (await fileExists(targetPath)) {
+    const actual = await readCliVersion(targetPath);
+    if (actual === version) {
+      await ensureExecutable(targetPath);
+      return targetPath;
+    }
+  }
+
+  await mkdir(targetDir, { recursive: true });
+  const stamp = Date.now();
+  const archivePath = join(tmpdir(), `openwrk-opencode-${stamp}-${asset}`);
+  const extractDir = await mkdtemp(join(tmpdir(), "openwrk-opencode-"));
+
+  try {
+    await downloadToPath(url, archivePath);
+    if (process.platform === "win32") {
+      const psQuote = (value: string) => `'${value.replace(/'/g, "''")}'`;
+      const psScript = [
+        "$ErrorActionPreference = 'Stop'",
+        `Expand-Archive -Path ${psQuote(archivePath)} -DestinationPath ${psQuote(extractDir)} -Force`,
+      ].join("; ");
+      await runCommand("powershell", ["-NoProfile", "-Command", psScript]);
+    } else if (asset.endsWith(".zip")) {
+      await runCommand("unzip", ["-q", archivePath, "-d", extractDir]);
+    } else if (asset.endsWith(".tar.gz")) {
+      await runCommand("tar", ["-xzf", archivePath, "-C", extractDir]);
+    } else {
+      throw new Error(`Unsupported opencode asset type: ${asset}`);
+    }
+
+    const entries = await readdir(extractDir, { withFileTypes: true });
+    const queue = entries.map((entry) => join(extractDir, entry.name));
+    let candidate: string | null = null;
+    while (queue.length) {
+      const current = queue.shift();
+      if (!current) break;
+      const statInfo = await stat(current);
+      if (statInfo.isDirectory()) {
+        const nested = await readdir(current, { withFileTypes: true });
+        queue.push(...nested.map((entry) => join(current, entry.name)));
+        continue;
+      }
+      const base = basename(current);
+      if (base === "opencode" || base === "opencode.exe") {
+        candidate = current;
+        break;
+      }
+    }
+
+    if (!candidate) {
+      throw new Error("OpenCode binary not found after extraction.");
+    }
+
+    await copyFile(candidate, targetPath);
+    await ensureExecutable(targetPath);
+    return targetPath;
+  } finally {
+    await rm(extractDir, { recursive: true, force: true });
+    await rm(archivePath, { force: true });
+  }
+}
+
 async function sha256File(path: string): Promise<string> {
   const data = await readFile(path);
   return createHash("sha256").update(data).digest("hex");
@@ -493,6 +797,8 @@ async function resolveExpectedVersion(
     if (name === "opencode") {
       const envVersion = process.env.OPENCODE_VERSION?.trim();
       if (envVersion) return envVersion.startsWith("v") ? envVersion.slice(1) : envVersion;
+      const pkgVersion = await readPackageField("opencodeVersion");
+      if (pkgVersion) return pkgVersion.startsWith("v") ? pkgVersion.slice(1) : pkgVersion;
     }
   } catch {
     // ignore
@@ -587,6 +893,7 @@ async function resolveOpenworkServerBin(options: {
   explicit?: string;
   manifest: VersionManifest | null;
   allowExternal: boolean;
+  sidecar: SidecarConfig;
 }): Promise<ResolvedBinary> {
   if (options.explicit && !options.allowExternal) {
     throw new Error("openwork-server-bin requires --allow-external");
@@ -598,16 +905,21 @@ async function resolveOpenworkServerBin(options: {
     return { bin: bundled, source: "bundled", expectedVersion };
   }
 
-  if (!options.allowExternal) {
-    throw new Error("Bundled openwork-server binary missing. Use --allow-external for dev or rebuild openwrk.");
-  }
-
   if (options.explicit) {
     const resolved = resolveBinPath(options.explicit);
     if ((resolved.includes("/") || resolved.startsWith(".")) && !(await fileExists(resolved))) {
       throw new Error(`openwork-server-bin not found: ${resolved}`);
     }
     return { bin: resolved, source: "external", expectedVersion };
+  }
+
+  const downloaded = await downloadSidecarBinary({ name: "openwork-server", sidecar: options.sidecar });
+  if (downloaded) return downloaded;
+
+  if (!options.allowExternal) {
+    throw new Error(
+      "Bundled openwork-server binary missing and download failed. Use --allow-external or set OPENWRK_SIDECAR_MANIFEST_URL.",
+    );
   }
 
   const require = createRequire(import.meta.url);
@@ -633,6 +945,7 @@ async function resolveOpencodeBin(options: {
   explicit?: string;
   manifest: VersionManifest | null;
   allowExternal: boolean;
+  sidecar: SidecarConfig;
 }): Promise<ResolvedBinary> {
   if (options.explicit && !options.allowExternal) {
     throw new Error("opencode-bin requires --allow-external");
@@ -644,16 +957,26 @@ async function resolveOpencodeBin(options: {
     return { bin: bundled, source: "bundled", expectedVersion };
   }
 
-  if (!options.allowExternal) {
-    throw new Error("Bundled opencode binary missing. Use --allow-external for dev or rebuild openwrk.");
-  }
-
   if (options.explicit) {
     const resolved = resolveBinPath(options.explicit);
     if ((resolved.includes("/") || resolved.startsWith(".")) && !(await fileExists(resolved))) {
       throw new Error(`opencode-bin not found: ${resolved}`);
     }
     return { bin: resolved, source: "external", expectedVersion };
+  }
+
+  const downloaded = await downloadSidecarBinary({ name: "opencode", sidecar: options.sidecar });
+  if (downloaded) return downloaded;
+
+  const opencodeDownloaded = await resolveOpencodeDownload(options.sidecar, expectedVersion);
+  if (opencodeDownloaded) {
+    return { bin: opencodeDownloaded, source: "downloaded", expectedVersion };
+  }
+
+  if (!options.allowExternal) {
+    throw new Error(
+      "Bundled opencode binary missing and download failed. Use --allow-external or set OPENWRK_SIDECAR_MANIFEST_URL.",
+    );
   }
 
   return { bin: "opencode", source: "external", expectedVersion };
@@ -663,6 +986,7 @@ async function resolveOwpenbotBin(options: {
   explicit?: string;
   manifest: VersionManifest | null;
   allowExternal: boolean;
+  sidecar: SidecarConfig;
 }): Promise<ResolvedBinary> {
   if (options.explicit && !options.allowExternal) {
     throw new Error("owpenbot-bin requires --allow-external");
@@ -674,16 +998,21 @@ async function resolveOwpenbotBin(options: {
     return { bin: bundled, source: "bundled", expectedVersion };
   }
 
-  if (!options.allowExternal) {
-    throw new Error("Bundled owpenbot binary missing. Use --allow-external for dev or rebuild openwrk.");
-  }
-
   if (options.explicit) {
     const resolved = resolveBinPath(options.explicit);
     if ((resolved.includes("/") || resolved.startsWith(".")) && !(await fileExists(resolved))) {
       throw new Error(`owpenbot-bin not found: ${resolved}`);
     }
     return { bin: resolved, source: "external", expectedVersion };
+  }
+
+  const downloaded = await downloadSidecarBinary({ name: "owpenbot", sidecar: options.sidecar });
+  if (downloaded) return downloaded;
+
+  if (!options.allowExternal) {
+    throw new Error(
+      "Bundled owpenbot binary missing and download failed. Use --allow-external or set OPENWRK_SIDECAR_MANIFEST_URL.",
+    );
   }
 
   const repoDir = await resolveOwpenbotRepoDir();
@@ -864,6 +1193,9 @@ function printHelp(): void {
     "  --no-owpenbot             Disable owpenbot sidecar",
     "  --owpenbot-required       Exit if owpenbot stops",
     "  --allow-external          Allow external sidecar binaries (dev only, required for custom bins)",
+    "  --sidecar-dir <path>      Cache directory for downloaded sidecars",
+    "  --sidecar-base-url <url>  Base URL for sidecar downloads",
+    "  --sidecar-manifest <url>  Override sidecar manifest URL",
     "  --check                   Run health checks then exit",
     "  --check-events            Verify SSE events during check",
     "  --json                    Output JSON when applicable",
@@ -1487,12 +1819,15 @@ async function runRouterDaemon(args: ParsedArgs) {
   const opencodeWorkdir = opencodeWorkdirFlag ?? activeWorkspace?.path ?? process.cwd();
   const resolvedWorkdir = await ensureWorkspace(opencodeWorkdir);
 
+  const cliVersion = await resolveCliVersion();
+  const sidecar = resolveSidecarConfig(args.flags, cliVersion);
   const allowExternal = readBool(args.flags, "allow-external", false, "OPENWRK_ALLOW_EXTERNAL");
   const manifest = await readVersionManifest();
   const opencodeBinary = await resolveOpencodeBin({
     explicit: opencodeBin,
     manifest,
     allowExternal,
+    sidecar,
   });
 
   let opencodeChild: ReturnType<typeof spawn> | null = null;
@@ -1929,12 +2264,15 @@ async function runStart(args: ParsedArgs) {
   const corsOrigins = parseList(corsValue);
   const connectHost = readFlag(args.flags, "connect-host");
 
+  const cliVersion = await resolveCliVersion();
+  const sidecar = resolveSidecarConfig(args.flags, cliVersion);
   const manifest = await readVersionManifest();
   const allowExternal = readBool(args.flags, "allow-external", false, "OPENWRK_ALLOW_EXTERNAL");
   const opencodeBinary = await resolveOpencodeBin({
     explicit: explicitOpencodeBin,
     manifest,
     allowExternal,
+    sidecar,
   });
   const explicitOpenworkServerBin = readFlag(args.flags, "openwork-server-bin") ?? process.env.OPENWORK_SERVER_BIN;
   const explicitOwpenbotBin = readFlag(args.flags, "owpenbot-bin") ?? process.env.OWPENBOT_BIN;
@@ -1944,12 +2282,14 @@ async function runStart(args: ParsedArgs) {
     explicit: explicitOpenworkServerBin,
     manifest,
     allowExternal,
+    sidecar,
   });
   const owpenbotBinary = owpenbotEnabled
     ? await resolveOwpenbotBin({
         explicit: explicitOwpenbotBin,
         manifest,
         allowExternal,
+        sidecar,
       })
     : null;
 

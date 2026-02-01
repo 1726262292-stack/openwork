@@ -147,7 +147,10 @@ This is separate from app release tags. Use `.opencode/skills/openwrk-npm-publis
 1.  Ensure the default branch is up to date and clean.
 2.  Bump `packages/headless/package.json` (`version`).
 3.  Commit the bump.
-4.  Publish:
+4.  Build and upload sidecar assets for the same version tag:
+    * `pnpm --filter openwrk build:sidecars`
+    * `gh release create openwrk-vX.Y.Z packages/headless/dist/sidecars/* --repo different-ai/openwork`
+5.  Publish:
     * `pnpm --filter openwrk publish --access public`
-5.  Verify:
+6.  Verify:
     * `npm view openwrk version`

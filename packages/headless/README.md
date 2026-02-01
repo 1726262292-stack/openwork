@@ -11,9 +11,12 @@ openwrk start --workspace /path/to/workspace --approval auto
 
 `openwrk` ships as a compiled binary, so Bun is not required at runtime.
 
-`openwrk` bundles and validates exact versions of `openwork-server` + `owpenbot` from the
-monorepo using a SHA-256 manifest. It will refuse to start if the bundled binaries are missing
-or tampered with.
+`openwrk` downloads and caches the `openwork-server`, `owpenbot`, and `opencode` sidecars on
+first run using a SHA-256 manifest. Use `--sidecar-dir` or `OPENWRK_SIDECAR_DIR` to control the
+cache location, and `--sidecar-base-url` / `--sidecar-manifest` to point at a custom host.
+
+By default the manifest is fetched from
+`https://github.com/different-ai/openwork/releases/download/openwrk-v<openwrk-version>/openwrk-sidecars.json`.
 
 Owpenbot is optional. If it exits, `openwrk` continues running unless you pass
 `--owpenbot-required` or set `OPENWRK_OWPENBOT_REQUIRED=1`.
