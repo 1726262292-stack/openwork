@@ -2,8 +2,8 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import type { Logger } from "pino";
 
-import type { Config, ChannelName } from "./config.js";
-import { normalizeWhatsAppId } from "./config.js";
+import type { Config, ChannelName, OwpenbotConfigFile } from "./config.js";
+import { normalizeWhatsAppId, readConfigFile, writeConfigFile } from "./config.js";
 import { BridgeStore } from "./db.js";
 import { normalizeEvent } from "./events.js";
 import { startHealthServer, type HealthSnapshot } from "./health.js";
@@ -215,6 +215,51 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
         },
       }),
       logger,
+      {
+        setTelegramToken: async (token: string) => {
+          const trimmed = token.trim();
+          if (!trimmed) {
+            throw new Error("Telegram token is required");
+          }
+
+          const { config: current } = readConfigFile(config.configPath);
+          const next: OwpenbotConfigFile = {
+            ...current,
+            channels: {
+              ...current.channels,
+              telegram: {
+                ...current.channels?.telegram,
+                token: trimmed,
+                enabled: true,
+              },
+            },
+          };
+          next.version = next.version ?? 1;
+          writeConfigFile(config.configPath, next);
+          config.configFile = next;
+          config.telegramToken = trimmed;
+          config.telegramEnabled = true;
+
+          const existing = adapters.get("telegram");
+          if (existing) {
+            try {
+              await existing.stop();
+            } catch (error) {
+              logger.warn({ error }, "failed to stop existing telegram adapter");
+            }
+            adapters.delete("telegram");
+          }
+
+          const adapter = createTelegramAdapter(config, logger, handleInbound);
+          adapters.set("telegram", adapter);
+          await adapter.start();
+
+          return {
+            configured: true,
+            enabled: true,
+          };
+        },
+      },
     );
   }
 

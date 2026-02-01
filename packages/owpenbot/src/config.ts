@@ -184,7 +184,8 @@ export function loadConfig(
 ): Config {
   const requireOpencode = options.requireOpencode ?? false;
 
-  const dataDir = expandHome(env.OWPENBOT_DATA_DIR ?? "~/.owpenbot");
+  const defaultDataDir = path.join(os.homedir(), ".openwork", "owpenbot");
+  const dataDir = expandHome(env.OWPENBOT_DATA_DIR ?? defaultDataDir);
   const dbPath = expandHome(env.OWPENBOT_DB_PATH ?? path.join(dataDir, "owpenbot.db"));
   const logFile = expandHome(env.OWPENBOT_LOG_FILE ?? path.join(dataDir, "logs", "owpenbot.log"));
   const configPath = resolveConfigPath(dataDir, env);
@@ -217,6 +218,7 @@ export function loadConfig(
   const permissionMode = env.PERMISSION_MODE?.toLowerCase() === "deny" ? "deny" : "allow";
 
   const telegramToken = env.TELEGRAM_BOT_TOKEN?.trim() || configFile.channels?.telegram?.token || undefined;
+  const healthPort = parseInteger(env.OWPENBOT_HEALTH_PORT) ?? 3005;
 
   return {
     configPath,
@@ -244,7 +246,7 @@ export function loadConfig(
     groupsEnabled: parseBoolean(env.GROUPS_ENABLED, false),
     permissionMode,
     toolOutputLimit,
-    healthPort: parseInteger(env.OWPENBOT_HEALTH_PORT),
+    healthPort,
     logLevel: env.LOG_LEVEL?.trim() || "info",
   };
 }

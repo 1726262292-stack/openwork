@@ -241,6 +241,9 @@ pub async fn owpenbot_status(
         .and_then(|value| value.get("url"))
         .and_then(|value| value.as_str())
         .unwrap_or_default();
+    let health_port = status
+        .get("healthPort")
+        .and_then(|value| value.as_u64());
 
     let whatsapp_linked = whatsapp
         .get("linked")
@@ -268,6 +271,7 @@ pub async fn owpenbot_status(
     Ok(serde_json::json!({
         "running": running,
         "config": config_path,
+        "healthPort": health_port,
         "whatsapp": {
             "linked": whatsapp_linked,
             "dmPolicy": whatsapp_dm_policy,
