@@ -20,14 +20,7 @@ import type {
   WorkspaceDisplay,
 } from "../types";
 
-import {
-  AlertTriangle,
-  ArrowRight,
-  ChevronDown,
-  HardDrive,
-  Shield,
-  Zap,
-} from "lucide-solid";
+import { ArrowRight, ChevronDown, HardDrive, Shield, Zap } from "lucide-solid";
 
 import Button from "../components/button";
 import RenameSessionModal from "../components/rename-session-modal";
@@ -450,23 +443,6 @@ export default function SessionView(props: SessionViewProps) {
       default:
         return "";
     }
-  });
-
-  const runDetail = createMemo(() => {
-    if (props.error) return props.error;
-    const status = props.sessionStatus;
-    if (runPhase() === "responding") return "Streaming response";
-    if (status === "retry") return "Retrying the last step";
-    if (status === "running") return "Working on your request";
-    if (status === "idle" && runStartedAt()) return "Queued";
-    return "";
-  });
-
-  const runLine = createMemo(() => {
-    const label = runLabel();
-    const detail = runDetail();
-    if (!detail) return label;
-    return `${label} · ${detail}`;
   });
 
   const runElapsedMs = createMemo(() => {
@@ -1297,7 +1273,7 @@ export default function SessionView(props: SessionViewProps) {
                         </div>
                       </Show>
                       <div
-                        class={`w-full flex items-center justify-between gap-3 text-xs font-mono ${
+                        class={`w-full flex items-center justify-between gap-3 text-xs ${
                           runPhase() === "error" ? "text-red-11" : "text-gray-9"
                         }`}
                         role="status"
@@ -1305,14 +1281,40 @@ export default function SessionView(props: SessionViewProps) {
                       >
                         <div class="flex items-center gap-2 min-w-0">
                           <Show
-                            when={runPhase() !== "error"}
-                            fallback={<AlertTriangle size={12} class="shrink-0" />}
+                            when={runPhase() === "responding"}
+                            fallback={
+                              <span
+                                class={`h-1.5 w-1.5 rounded-full ${
+                                  runPhase() === "error" ? "bg-red-9/80" : "bg-gray-8/80"
+                                }`}
+                              />
+                            }
                           >
-                            <Zap size={12} class="shrink-0" />
+                            <span class="flex items-center gap-1">
+                              <span
+                                class={`h-1.5 w-1.5 rounded-full animate-pulse ${
+                                  runPhase() === "error" ? "bg-red-9/80" : "bg-gray-8/80"
+                                }`}
+                              />
+                              <span
+                                class={`h-1.5 w-1.5 rounded-full animate-pulse ${
+                                  runPhase() === "error" ? "bg-red-9/60" : "bg-gray-8/60"
+                                }`}
+                                style={{ "animation-delay": "120ms" }}
+                              />
+                              <span
+                                class={`h-1.5 w-1.5 rounded-full animate-pulse ${
+                                  runPhase() === "error" ? "bg-red-9/40" : "bg-gray-8/40"
+                                }`}
+                                style={{ "animation-delay": "240ms" }}
+                              />
+                            </span>
                           </Show>
-                          <span class="truncate">{runLine()}</span>
+                          <span class="truncate">{runLabel()}</span>
                         </div>
-                        <span class="shrink-0">{runElapsedLabel()}</span>
+                        <Show when={props.developerMode}>
+                          <span class="shrink-0 text-[10px] text-gray-8">{runElapsedLabel()}</span>
+                        </Show>
                       </div>
                     </div>
                   </div>
