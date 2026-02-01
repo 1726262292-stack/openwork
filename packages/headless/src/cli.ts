@@ -1982,157 +1982,163 @@ async function runStart(args: ParsedArgs) {
     void shutdown().then(() => process.exit(1));
   };
 
-  await verifyOpencodeVersion(opencodeBinary);
-  const opencodeChild = await startOpencode({
-    bin: opencodeBinary.bin,
-    workspace: resolvedWorkspace,
-    bindHost: opencodeBindHost,
-    port: opencodePort,
-    username: opencodeUsername,
-    password: opencodePassword,
-    corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
-  });
-  children.push({ name: "opencode", child: opencodeChild });
-  opencodeChild.on("exit", (code, signal) => handleExit("opencode", code, signal));
-  opencodeChild.on("error", (error) => handleSpawnError("opencode", error));
-
-  const authHeaders: Record<string, string> = {};
-  if (opencodeUsername && opencodePassword) {
-    authHeaders.Authorization = `Basic ${encodeBasicAuth(opencodeUsername, opencodePassword)}`;
-  }
-  const opencodeClient = createOpencodeClient({
-    baseUrl: opencodeBaseUrl,
-    directory: resolvedWorkspace,
-    headers: Object.keys(authHeaders).length ? authHeaders : undefined,
-  });
-
-  await waitForOpencodeHealthy(opencodeClient);
-
-  const openworkChild = await startOpenworkServer({
-    bin: openworkServerBinary.bin,
-    host: openworkHost,
-    port: openworkPort,
-    workspace: resolvedWorkspace,
-    token: openworkToken,
-    hostToken: openworkHostToken,
-    approvalMode: approvalMode === "auto" ? "auto" : "manual",
-    approvalTimeoutMs,
-    readOnly,
-    corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
-    opencodeBaseUrl: opencodeConnectUrl,
-    opencodeDirectory: resolvedWorkspace,
-    opencodeUsername,
-    opencodePassword,
-  });
-  children.push({ name: "openwork-server", child: openworkChild });
-  openworkChild.on("exit", (code, signal) => handleExit("openwork-server", code, signal));
-  openworkChild.on("error", (error) => handleSpawnError("openwork-server", error));
-
-  await waitForHealthy(openworkBaseUrl);
-
-  await verifyOpenworkServer({
-    baseUrl: openworkBaseUrl,
-    token: openworkToken,
-    hostToken: openworkHostToken,
-    expectedVersion: openworkServerBinary.expectedVersion,
-    expectedWorkspace: resolvedWorkspace,
-    expectedOpencodeBaseUrl: opencodeConnectUrl,
-    expectedOpencodeDirectory: resolvedWorkspace,
-    expectedOpencodeUsername: opencodeUsername,
-    expectedOpencodePassword: opencodePassword,
-  });
-
-  if (owpenbotEnabled) {
-    if (!owpenbotBinary) {
-      throw new Error("Owpenbot binary missing.");
-    }
-    await verifyOwpenbotVersion(owpenbotBinary);
-    const owpenbotChild = await startOwpenbot({
-      bin: owpenbotBinary.bin,
+  try {
+    await verifyOpencodeVersion(opencodeBinary);
+    const opencodeChild = await startOpencode({
+      bin: opencodeBinary.bin,
       workspace: resolvedWorkspace,
-      opencodeUrl: opencodeConnectUrl,
+      bindHost: opencodeBindHost,
+      port: opencodePort,
+      username: opencodeUsername,
+      password: opencodePassword,
+      corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
+    });
+    children.push({ name: "opencode", child: opencodeChild });
+    opencodeChild.on("exit", (code, signal) => handleExit("opencode", code, signal));
+    opencodeChild.on("error", (error) => handleSpawnError("opencode", error));
+
+    const authHeaders: Record<string, string> = {};
+    if (opencodeUsername && opencodePassword) {
+      authHeaders.Authorization = `Basic ${encodeBasicAuth(opencodeUsername, opencodePassword)}`;
+    }
+    const opencodeClient = createOpencodeClient({
+      baseUrl: opencodeBaseUrl,
+      directory: resolvedWorkspace,
+      headers: Object.keys(authHeaders).length ? authHeaders : undefined,
+    });
+
+    await waitForOpencodeHealthy(opencodeClient);
+
+    const openworkChild = await startOpenworkServer({
+      bin: openworkServerBinary.bin,
+      host: openworkHost,
+      port: openworkPort,
+      workspace: resolvedWorkspace,
+      token: openworkToken,
+      hostToken: openworkHostToken,
+      approvalMode: approvalMode === "auto" ? "auto" : "manual",
+      approvalTimeoutMs,
+      readOnly,
+      corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
+      opencodeBaseUrl: opencodeConnectUrl,
+      opencodeDirectory: resolvedWorkspace,
       opencodeUsername,
       opencodePassword,
     });
-    children.push({ name: "owpenbot", child: owpenbotChild });
-    owpenbotChild.on("exit", (code, signal) => {
-      if (owpenbotRequired) {
-        handleExit("owpenbot", code, signal);
-        return;
-      }
-      const reason = code !== null ? `code ${code}` : signal ? `signal ${signal}` : "unknown";
-      console.warn(`[owpenbot] exited (${reason}). Continuing without owpenbot.`);
-    });
-    owpenbotChild.on("error", (error) => handleSpawnError("owpenbot", error));
-  }
+    children.push({ name: "openwork-server", child: openworkChild });
+    openworkChild.on("exit", (code, signal) => handleExit("openwork-server", code, signal));
+    openworkChild.on("error", (error) => handleSpawnError("openwork-server", error));
 
-  const payload = {
-    workspace: resolvedWorkspace,
-    approval: {
-      mode: approvalMode,
-      timeoutMs: approvalTimeoutMs,
-      readOnly,
-    },
-    opencode: {
-      baseUrl: opencodeBaseUrl,
-      connectUrl: opencodeConnectUrl,
-      username: opencodeUsername,
-      password: opencodePassword,
-      bindHost: opencodeBindHost,
-      port: opencodePort,
-    },
-    openwork: {
+    await waitForHealthy(openworkBaseUrl);
+
+    await verifyOpenworkServer({
       baseUrl: openworkBaseUrl,
-      connectUrl: openworkConnectUrl,
-      host: openworkHost,
-      port: openworkPort,
       token: openworkToken,
       hostToken: openworkHostToken,
-    },
-    owpenbot: {
-      enabled: owpenbotEnabled,
-    },
-  };
+      expectedVersion: openworkServerBinary.expectedVersion,
+      expectedWorkspace: resolvedWorkspace,
+      expectedOpencodeBaseUrl: opencodeConnectUrl,
+      expectedOpencodeDirectory: resolvedWorkspace,
+      expectedOpencodeUsername: opencodeUsername,
+      expectedOpencodePassword: opencodePassword,
+    });
 
-  if (outputJson) {
-    console.log(JSON.stringify(payload, null, 2));
-  } else {
-    console.log("Openwrk running");
-    console.log(`Workspace: ${payload.workspace}`);
-    console.log(`OpenCode: ${payload.opencode.baseUrl}`);
-    console.log(`OpenCode connect URL: ${payload.opencode.connectUrl}`);
-    if (payload.opencode.username && payload.opencode.password) {
-      console.log(`OpenCode auth: ${payload.opencode.username} / ${payload.opencode.password}`);
-    }
-    console.log(`OpenWork server: ${payload.openwork.baseUrl}`);
-    console.log(`OpenWork connect URL: ${payload.openwork.connectUrl}`);
-    console.log(`Client token: ${payload.openwork.token}`);
-    console.log(`Host token: ${payload.openwork.hostToken}`);
-  }
-
-  if (checkOnly) {
-    try {
-      await runChecks({
-        opencodeClient,
-        openworkUrl: openworkBaseUrl,
-        openworkToken,
-        checkEvents,
-      });
-      if (!outputJson) {
-        console.log("Checks: ok");
+    if (owpenbotEnabled) {
+      if (!owpenbotBinary) {
+        throw new Error("Owpenbot binary missing.");
       }
-    } catch (error) {
-      console.error(`Checks failed: ${String(error)}`);
-      await shutdown();
-      process.exit(1);
+      await verifyOwpenbotVersion(owpenbotBinary);
+      const owpenbotChild = await startOwpenbot({
+        bin: owpenbotBinary.bin,
+        workspace: resolvedWorkspace,
+        opencodeUrl: opencodeConnectUrl,
+        opencodeUsername,
+        opencodePassword,
+      });
+      children.push({ name: "owpenbot", child: owpenbotChild });
+      owpenbotChild.on("exit", (code, signal) => {
+        if (owpenbotRequired) {
+          handleExit("owpenbot", code, signal);
+          return;
+        }
+        const reason = code !== null ? `code ${code}` : signal ? `signal ${signal}` : "unknown";
+        console.warn(`[owpenbot] exited (${reason}). Continuing without owpenbot.`);
+      });
+      owpenbotChild.on("error", (error) => handleSpawnError("owpenbot", error));
     }
-    await shutdown();
-    process.exit(0);
-  }
 
-  process.on("SIGINT", () => shutdown().then(() => process.exit(0)));
-  process.on("SIGTERM", () => shutdown().then(() => process.exit(0)));
-  await new Promise(() => undefined);
+    const payload = {
+      workspace: resolvedWorkspace,
+      approval: {
+        mode: approvalMode,
+        timeoutMs: approvalTimeoutMs,
+        readOnly,
+      },
+      opencode: {
+        baseUrl: opencodeBaseUrl,
+        connectUrl: opencodeConnectUrl,
+        username: opencodeUsername,
+        password: opencodePassword,
+        bindHost: opencodeBindHost,
+        port: opencodePort,
+      },
+      openwork: {
+        baseUrl: openworkBaseUrl,
+        connectUrl: openworkConnectUrl,
+        host: openworkHost,
+        port: openworkPort,
+        token: openworkToken,
+        hostToken: openworkHostToken,
+      },
+      owpenbot: {
+        enabled: owpenbotEnabled,
+      },
+    };
+
+    if (outputJson) {
+      console.log(JSON.stringify(payload, null, 2));
+    } else {
+      console.log("Openwrk running");
+      console.log(`Workspace: ${payload.workspace}`);
+      console.log(`OpenCode: ${payload.opencode.baseUrl}`);
+      console.log(`OpenCode connect URL: ${payload.opencode.connectUrl}`);
+      if (payload.opencode.username && payload.opencode.password) {
+        console.log(`OpenCode auth: ${payload.opencode.username} / ${payload.opencode.password}`);
+      }
+      console.log(`OpenWork server: ${payload.openwork.baseUrl}`);
+      console.log(`OpenWork connect URL: ${payload.openwork.connectUrl}`);
+      console.log(`Client token: ${payload.openwork.token}`);
+      console.log(`Host token: ${payload.openwork.hostToken}`);
+    }
+
+    if (checkOnly) {
+      try {
+        await runChecks({
+          opencodeClient,
+          openworkUrl: openworkBaseUrl,
+          openworkToken,
+          checkEvents,
+        });
+        if (!outputJson) {
+          console.log("Checks: ok");
+        }
+      } catch (error) {
+        console.error(`Checks failed: ${String(error)}`);
+        await shutdown();
+        process.exit(1);
+      }
+      await shutdown();
+      process.exit(0);
+    }
+
+    process.on("SIGINT", () => shutdown().then(() => process.exit(0)));
+    process.on("SIGTERM", () => shutdown().then(() => process.exit(0)));
+    await new Promise(() => undefined);
+  } catch (error) {
+    await shutdown();
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
 }
 
 async function main() {
