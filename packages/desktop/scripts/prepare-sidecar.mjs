@@ -109,12 +109,9 @@ const runCommand = (command, args, cwd) => {
 
 const resolveOwpenbotDir = () => {
   const envPath = process.env.OWPENBOT_REPO?.trim() || process.env.OWPENBOT_DIR?.trim();
-  const candidates = [
-    envPath,
-    resolve(repoRoot, "packages", "owpenbot"),
-    resolve(repoRoot, "..", "owpenbot"),
-    resolve(repoRoot, "vendor", "owpenbot"),
-  ].filter(Boolean);
+  const candidates = [envPath, resolve(repoRoot, "..", "owpenbot"), resolve(repoRoot, "vendor", "owpenbot")].filter(
+    Boolean,
+  );
 
   for (const candidate of candidates) {
     if (candidate && existsSync(join(candidate, "package.json"))) {
