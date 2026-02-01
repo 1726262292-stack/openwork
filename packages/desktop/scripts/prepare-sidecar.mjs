@@ -1,4 +1,5 @@
 import { spawnSync } from "child_process";
+import { createHash } from "crypto";
 import {
   chmodSync,
   closeSync,
@@ -189,6 +190,26 @@ const readBinaryVersion = (filePath) => {
     if (result.status === 0 && result.stdout) return result.stdout.trim();
   } catch {
     // ignore
+  }
+  return null;
+};
+
+const sha256File = (filePath) => {
+  const hash = createHash("sha256");
+  hash.update(readFileSync(filePath));
+  return hash.digest("hex");
+};
+
+const parseChecksum = (content, assetName) => {
+  const lines = content.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const [hash, name] = trimmed.split(/\s+/);
+    if (name === assetName) return hash.toLowerCase();
+    if (trimmed.endsWith(` ${assetName}`)) {
+      return trimmed.split(/\s+/)[0]?.toLowerCase() ?? null;
+    }
   }
   return null;
 };
@@ -440,23 +461,34 @@ if (shouldDownloadOwpenbot) {
   const stamp = Date.now();
   const archivePath = join(tmpdir(), `owpenbot-${stamp}-${owpenbotAsset}`);
   const extractDir = join(tmpdir(), `owpenbot-${stamp}`);
+  const checksumUrl = `https://github.com/different-ai/owpenbot/releases/download/v${normalizedOwpenbotVersion}/SHA256SUMS`;
+  const checksumPath = join(tmpdir(), `owpenbot-${stamp}-SHA256SUMS`);
 
   mkdirSync(extractDir, { recursive: true });
 
   if (process.platform === "win32") {
     const psQuote = (value) => `'${value.replace(/'/g, "''")}'`;
-    const psScript = [
+    const downloadScript = [
       "$ErrorActionPreference = 'Stop'",
       `Invoke-WebRequest -Uri ${psQuote(owpenbotUrl)} -OutFile ${psQuote(archivePath)}`,
-      `Expand-Archive -Path ${psQuote(archivePath)} -DestinationPath ${psQuote(extractDir)} -Force`,
+    ].join("; ");
+    const checksumScript = [
+      "$ErrorActionPreference = 'Stop'",
+      `Invoke-WebRequest -Uri ${psQuote(checksumUrl)} -OutFile ${psQuote(checksumPath)}`,
     ].join("; ");
 
-    const result = spawnSync("powershell", ["-NoProfile", "-Command", psScript], {
+    const downloadResult = spawnSync("powershell", ["-NoProfile", "-Command", downloadScript], {
       stdio: "inherit",
     });
+    if (downloadResult.status !== 0) {
+      process.exit(downloadResult.status ?? 1);
+    }
 
-    if (result.status !== 0) {
-      process.exit(result.status ?? 1);
+    const checksumResult = spawnSync("powershell", ["-NoProfile", "-Command", checksumScript], {
+      stdio: "inherit",
+    });
+    if (checksumResult.status !== 0) {
+      process.exit(checksumResult.status ?? 1);
     }
   } else {
     const downloadResult = spawnSync("curl", ["-fsSL", "-o", archivePath, owpenbotUrl], {
@@ -466,26 +498,55 @@ if (shouldDownloadOwpenbot) {
       process.exit(downloadResult.status ?? 1);
     }
 
-    mkdirSync(extractDir, { recursive: true });
-
-    if (owpenbotAsset.endsWith(".zip")) {
-      const unzipResult = spawnSync("unzip", ["-q", archivePath, "-d", extractDir], {
-        stdio: "inherit",
-      });
-      if (unzipResult.status !== 0) {
-        process.exit(unzipResult.status ?? 1);
-      }
-    } else if (owpenbotAsset.endsWith(".tar.gz")) {
-      const tarResult = spawnSync("tar", ["-xzf", archivePath, "-C", extractDir], {
-        stdio: "inherit",
-      });
-      if (tarResult.status !== 0) {
-        process.exit(tarResult.status ?? 1);
-      }
-    } else {
-      console.error(`Unknown owpenbot archive type: ${owpenbotAsset}`);
-      process.exit(1);
+    const checksumResult = spawnSync("curl", ["-fsSL", "-o", checksumPath, checksumUrl], {
+      stdio: "inherit",
+    });
+    if (checksumResult.status !== 0) {
+      process.exit(checksumResult.status ?? 1);
     }
+  }
+
+  const checksumContent = readFileSync(checksumPath, "utf8");
+  const expectedHash = parseChecksum(checksumContent, owpenbotAsset);
+  if (!expectedHash) {
+    console.error(`Owpenbot checksum missing for ${owpenbotAsset}.`);
+    process.exit(1);
+  }
+  const actualHash = sha256File(archivePath);
+  if (actualHash !== expectedHash) {
+    console.error(`Owpenbot checksum mismatch for ${owpenbotAsset}.`);
+    process.exit(1);
+  }
+
+  if (process.platform === "win32") {
+    const psQuote = (value) => `'${value.replace(/'/g, "''")}'`;
+    const extractScript = [
+      "$ErrorActionPreference = 'Stop'",
+      `Expand-Archive -Path ${psQuote(archivePath)} -DestinationPath ${psQuote(extractDir)} -Force`,
+    ].join("; ");
+    const extractResult = spawnSync("powershell", ["-NoProfile", "-Command", extractScript], {
+      stdio: "inherit",
+    });
+    if (extractResult.status !== 0) {
+      process.exit(extractResult.status ?? 1);
+    }
+  } else if (owpenbotAsset.endsWith(".zip")) {
+    const unzipResult = spawnSync("unzip", ["-q", archivePath, "-d", extractDir], {
+      stdio: "inherit",
+    });
+    if (unzipResult.status !== 0) {
+      process.exit(unzipResult.status ?? 1);
+    }
+  } else if (owpenbotAsset.endsWith(".tar.gz")) {
+    const tarResult = spawnSync("tar", ["-xzf", archivePath, "-C", extractDir], {
+      stdio: "inherit",
+    });
+    if (tarResult.status !== 0) {
+      process.exit(tarResult.status ?? 1);
+    }
+  } else {
+    console.error(`Unknown owpenbot archive type: ${owpenbotAsset}`);
+    process.exit(1);
   }
 
   const extractedBinary = findOwpenbotBinary(extractDir);
