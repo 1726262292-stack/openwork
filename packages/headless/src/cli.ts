@@ -427,6 +427,24 @@ async function readPackageVersion(path: string): Promise<string | undefined> {
   }
 }
 
+async function resolveOwpenbotRepoDir(): Promise<string | null> {
+  const envPath = process.env.OWPENBOT_REPO?.trim() || process.env.OWPENBOT_DIR?.trim();
+  const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+  const repoRoot = resolve(root, "..", "..");
+  const candidates = [
+    envPath,
+    resolve(repoRoot, "..", "owpenbot"),
+    resolve(repoRoot, "vendor", "owpenbot"),
+  ].filter(Boolean) as string[];
+
+  for (const candidate of candidates) {
+    const pkgPath = join(candidate, "package.json");
+    if (await fileExists(pkgPath)) return candidate;
+  }
+
+  return null;
+}
+
 async function resolveExpectedVersion(
   manifest: VersionManifest | null,
   name: "openwork-server" | "owpenbot",
@@ -436,10 +454,16 @@ async function resolveExpectedVersion(
 
   try {
     const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-    const localDir = name === "openwork-server" ? "server" : "owpenbot";
-    const localPath = join(root, "..", localDir, "package.json");
-    const localVersion = await readPackageVersion(localPath);
-    if (localVersion) return localVersion;
+    if (name === "openwork-server") {
+      const localPath = join(root, "..", "server", "package.json");
+      const localVersion = await readPackageVersion(localPath);
+      if (localVersion) return localVersion;
+    } else {
+      const repoDir = await resolveOwpenbotRepoDir();
+      const localPath = repoDir ? join(repoDir, "package.json") : join(root, "..", "owpenbot", "package.json");
+      const localVersion = await readPackageVersion(localPath);
+      if (localVersion) return localVersion;
+    }
   } catch {
     // ignore
   }
@@ -599,6 +623,18 @@ async function resolveOwpenbotBin(options: {
       throw new Error(`owpenbot-bin not found: ${resolved}`);
     }
     return { bin: resolved, source: "external", expectedVersion };
+  }
+
+  const repoDir = await resolveOwpenbotRepoDir();
+  if (repoDir) {
+    const binPath = join(repoDir, "dist", "bin", "owpenbot");
+    if (await isExecutable(binPath)) {
+      return { bin: binPath, source: "external", expectedVersion };
+    }
+    const cliPath = join(repoDir, "dist", "cli.js");
+    if (await fileExists(cliPath)) {
+      return { bin: cliPath, source: "external", expectedVersion };
+    }
   }
 
   return { bin: "owpenbot", source: "external", expectedVersion };

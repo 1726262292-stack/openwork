@@ -17,6 +17,7 @@ import { tmpdir } from "os";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, "..", "..", "..");
 const sidecarDir = join(__dirname, "..", "src-tauri", "sidecars");
 const packageJsonPath = resolve(__dirname, "..", "package.json");
 const opencodeVersion = (() => {
@@ -91,6 +92,40 @@ const openworkServerTargetPath = openworkServerTargetName ? join(sidecarDir, ope
 
 const openworkServerDir = resolve(__dirname, "..", "..", "server");
 
+const resolveOwpenbotDir = () => {
+  const envPath = process.env.OWPENBOT_REPO?.trim() || process.env.OWPENBOT_DIR?.trim();
+  const candidates = [envPath, resolve(repoRoot, "..", "owpenbot"), resolve(repoRoot, "vendor", "owpenbot")].filter(
+    Boolean,
+  );
+
+  for (const candidate of candidates) {
+    if (candidate && existsSync(join(candidate, "package.json"))) {
+      return candidate;
+    }
+  }
+
+  const cloneTarget = envPath ?? resolve(repoRoot, "..", "owpenbot");
+  const repoUrl = process.env.OWPENBOT_REPO_URL?.trim() || "https://github.com/different-ai/owpenbot.git";
+  const repoRef = process.env.OWPENBOT_REF?.trim() || "dev";
+
+  if (!cloneTarget) {
+    throw new Error("OWPENBOT_REPO not found and no clone target available.");
+  }
+
+  const result = spawnSync("git", ["clone", "--depth", "1", "--branch", repoRef, repoUrl, cloneTarget], {
+    stdio: "inherit",
+  });
+  if (result.status !== 0) {
+    throw new Error(`Failed to clone owpenbot from ${repoUrl}`);
+  }
+
+  if (!existsSync(join(cloneTarget, "package.json"))) {
+    throw new Error(`Owpenbot package.json not found in ${cloneTarget}`);
+  }
+
+  return cloneTarget;
+};
+
 // owpenbot paths
 const owpenbotBaseName = "owpenbot";
 const owpenbotName = process.platform === "win32" ? `${owpenbotBaseName}.exe` : owpenbotBaseName;
@@ -105,7 +140,7 @@ const owpenbotTargetName = owpenbotTargetTriple
   : null;
 const owpenbotTargetPath = owpenbotTargetName ? join(sidecarDir, owpenbotTargetName) : null;
 
-const owpenbotDir = resolve(__dirname, "..", "..", "owpenbot");
+const owpenbotDir = resolveOwpenbotDir();
 const readHeader = (filePath, length = 256) => {
   const fd = openSync(filePath, "r");
   try {

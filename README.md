@@ -26,9 +26,9 @@ The goal: make “agentic work” feel like a product, not a terminal.
 ## Alternate UIs
 
 - **Owpenbot (WhatsApp bot)**: a lightweight WhatsApp bridge for a running OpenCode server. Install with:
-  - `curl -fsSL https://raw.githubusercontent.com/different-ai/openwork/dev/packages/owpenbot/install.sh | bash`
+  - `curl -fsSL https://raw.githubusercontent.com/different-ai/owpenbot/dev/install.sh | bash`
   - run `owpenbot setup`, then `owpenbot whatsapp login`, then `owpenbot start`
-  - full setup: [packages/owpenbot/README.md](./packages/owpenbot/README.md)
+  - full setup: https://github.com/different-ai/owpenbot/blob/dev/README.md
 - **Openwrk (CLI host)**: run OpenCode + OpenWork server without the desktop UI. Install with `npm install -g openwrk`.
   - docs: [packages/headless/README.md](./packages/headless/README.md)
 

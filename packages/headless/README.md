@@ -83,5 +83,5 @@ openwrk start \
   --workspace /path/to/workspace \
   --allow-external \
   --openwork-server-bin packages/server/src/cli.ts \
-  --owpenbot-bin packages/owpenbot/src/cli.ts
+  --owpenbot-bin ../owpenbot/dist/cli.js
 ```
