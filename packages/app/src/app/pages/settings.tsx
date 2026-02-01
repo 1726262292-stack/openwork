@@ -7,6 +7,7 @@ import TextInput from "../components/text-input";
 import SettingsKeybinds, { type KeybindSetting } from "../components/settings-keybinds";
 import { ChevronDown, HardDrive, MessageCircle, PlugZap, RefreshCcw, Shield, Smartphone, X } from "lucide-solid";
 import type { OpencodeConnectStatus, ProviderListItem, SettingsTab } from "../types";
+import { createOpenworkServerClient } from "../lib/openwork-server";
 import type { OpenworkAuditEntry, OpenworkServerCapabilities, OpenworkServerSettings, OpenworkServerStatus } from "../lib/openwork-server";
 import type {
   EngineInfo,
@@ -111,7 +112,14 @@ export type SettingsViewProps = {
 };
 
 // Owpenbot Settings Component
-function OwpenbotSettings(props: { busy: boolean }) {
+function OwpenbotSettings(props: {
+  busy: boolean;
+  mode: "host" | "client" | null;
+  openworkServerStatus: OpenworkServerStatus;
+  openworkServerUrl: string;
+  openworkServerSettings: OpenworkServerSettings;
+  openworkServerWorkspaceId: string | null;
+}) {
   const [owpenbotStatus, setOwpenbotStatus] = createSignal<OwpenbotStatus | null>(null);
   const [qrCode, setQrCode] = createSignal<string | null>(null);
   const [qrLoading, setQrLoading] = createSignal(false);
@@ -127,6 +135,14 @@ function OwpenbotSettings(props: { busy: boolean }) {
   >("idle");
   const [telegramCheckMessage, setTelegramCheckMessage] = createSignal<string | null>(null);
   const [telegramCheckDetail, setTelegramCheckDetail] = createSignal<string | null>(null);
+  const openworkServerClient = createMemo(() => {
+    const useRemote = props.mode === "client" || !isTauriRuntime();
+    if (!useRemote) return null;
+    const baseUrl = props.openworkServerUrl.trim();
+    const token = props.openworkServerSettings.token?.trim() ?? "";
+    if (!baseUrl || !token || !props.openworkServerWorkspaceId) return null;
+    return createOpenworkServerClient({ baseUrl, token });
+  });
 
   // Load owpenbot status on mount
   onMount(async () => {
@@ -244,8 +260,34 @@ function OwpenbotSettings(props: { busy: boolean }) {
     if (!token || savingTelegram()) return;
 
     setSavingTelegram(true);
-    setTelegramFeedback("checking", "Saving token and verifying Telegram...");
     try {
+      const useRemote = props.mode === "client" || !isTauriRuntime();
+      if (useRemote) {
+        const client = openworkServerClient();
+        if (!client || !props.openworkServerWorkspaceId || props.openworkServerStatus === "disconnected") {
+          setTelegramFeedback(
+            "error",
+            "OpenWork server is not connected.",
+            "Add a server URL and token, then try again.",
+          );
+          return;
+        }
+
+        setTelegramFeedback("checking", "Saving token on the host...");
+        try {
+          await client.setOwpenbotTelegramToken(props.openworkServerWorkspaceId, token);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          setTelegramFeedback("error", "Failed to save token.", detail || null);
+          return;
+        }
+
+        setTelegramFeedback("success", "Telegram token saved.");
+        setTelegramToken("");
+        return;
+      }
+
+      setTelegramFeedback("checking", "Saving token and verifying Telegram...");
       const result = await setOwpenbotTelegramToken(token);
       if (!result.ok) {
         const detail = normalizeTelegramError(result.stderr || "");
@@ -1643,7 +1685,14 @@ export default function SettingsView(props: SettingsViewProps) {
 
         <Match when={activeTab() === "messaging"}>
           <div class="space-y-6">
-            <OwpenbotSettings busy={props.busy} />
+            <OwpenbotSettings
+              busy={props.busy}
+              mode={props.mode}
+              openworkServerStatus={props.openworkServerStatus}
+              openworkServerUrl={props.openworkServerUrl}
+              openworkServerSettings={props.openworkServerSettings}
+              openworkServerWorkspaceId={props.openworkServerWorkspaceId}
+            />
           </div>
         </Match>
 

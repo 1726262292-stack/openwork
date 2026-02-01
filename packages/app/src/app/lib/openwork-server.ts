@@ -70,6 +70,14 @@ export type OpenworkMcpItem = {
   disabledByTools?: boolean;
 };
 
+export type OpenworkOwpenbotTelegramResult = {
+  ok: boolean;
+  telegram?: {
+    configured: boolean;
+    enabled: boolean;
+  };
+};
+
 export type OpenworkActor = {
   type: "remote" | "host";
   clientId?: string;
@@ -282,6 +290,17 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         baseUrl,
         `/workspace/${workspaceId}/config`,
         { token, hostToken },
+      ),
+    setOwpenbotTelegramToken: (workspaceId: string, tokenValue: string) =>
+      requestJson<OpenworkOwpenbotTelegramResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/owpenbot/telegram-token`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: { token: tokenValue },
+        },
       ),
     patchConfig: (workspaceId: string, payload: { opencode?: Record<string, unknown>; openwork?: Record<string, unknown> }) =>
       requestJson<{ updatedAt?: number | null }>(baseUrl, `/workspace/${workspaceId}/config`, {

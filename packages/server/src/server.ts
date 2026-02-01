@@ -1,4 +1,5 @@
 import { readFile, writeFile, rm } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger } from "./types.js";
 import { ApprovalService } from "./approvals.js";
@@ -296,6 +297,38 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
     }
 
     return jsonResponse({ updatedAt: Date.now() });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/owpenbot/telegram-token", "client", async (ctx) => {
+    ensureWritable(config);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const token = typeof body.token === "string" ? body.token.trim() : "";
+
+    if (!token) {
+      throw new ApiError(400, "token_required", "Telegram token is required");
+    }
+
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "owpenbot.telegram.set-token",
+      summary: "Set Telegram bot token",
+      paths: [resolveOwpenbotConfigPath()],
+    });
+
+    const result = await updateOwpenbotTelegramToken(token);
+
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "owpenbot.telegram.set-token",
+      target: "owpenbot.telegram",
+      summary: "Updated Telegram bot token",
+      timestamp: Date.now(),
+    });
+
+    return jsonResponse(result);
   });
 
   addRoute(routes, "GET", "/workspace/:id/events", "client", async (ctx) => {
@@ -689,6 +722,75 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown>> 
   } catch {
     throw new ApiError(400, "invalid_json", "Invalid JSON body");
   }
+}
+
+function parseInteger(value: string | undefined): number | null {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function expandHome(value: string): string {
+  if (value.startsWith("~/")) {
+    return join(homedir(), value.slice(2));
+  }
+  return value;
+}
+
+function resolveOwpenbotConfigPath(): string {
+  const override = process.env.OWPENBOT_CONFIG_PATH?.trim();
+  if (override) return expandHome(override);
+  const dataDir = process.env.OWPENBOT_DATA_DIR?.trim() || join(homedir(), ".openwork", "owpenbot");
+  return join(expandHome(dataDir), "owpenbot.json");
+}
+
+function resolveOwpenbotHealthPort(): number {
+  return parseInteger(process.env.OWPENBOT_HEALTH_PORT) ?? 3005;
+}
+
+function parseJsonResponse(text: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return trimmed;
+  }
+}
+
+async function updateOwpenbotTelegramToken(token: string): Promise<Record<string, unknown>> {
+  const port = resolveOwpenbotHealthPort();
+  const url = `http://127.0.0.1:${port}/config/telegram-token`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+  } catch (error) {
+    throw new ApiError(502, "owpenbot_unreachable", "Owpenbot health server is unavailable", {
+      error: String(error),
+    });
+  }
+
+  const text = await response.text();
+  const parsed = parseJsonResponse(text);
+
+  if (!response.ok) {
+    const detail = typeof parsed === "object" && parsed && "error" in parsed
+      ? String((parsed as Record<string, unknown>).error)
+      : "Owpenbot request failed";
+    throw new ApiError(response.status, "owpenbot_request_failed", detail, {
+      status: response.status,
+      body: parsed,
+    });
+  }
+
+  if (parsed && typeof parsed === "object") {
+    return parsed as Record<string, unknown>;
+  }
+  return { ok: true };
 }
 
 async function readOpencodeConfig(workspaceRoot: string): Promise<Record<string, unknown>> {
