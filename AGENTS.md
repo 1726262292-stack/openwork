@@ -139,3 +139,15 @@ If the workflow needs to be re-run for an existing tag (e.g. notarization retry)
 * Release: `gh release view vX.Y.Z --repo different-ai/openwork`
 
 Confirm the DMG assets are attached and versioned correctly.
+
+## Skill: Publish openwrk (npm)
+
+This is separate from app release tags. Use `.opencode/skills/openwrk-npm-publish/SKILL.md`.
+
+1.  Ensure the default branch is up to date and clean.
+2.  Bump `packages/headless/package.json` (`version`).
+3.  Commit the bump.
+4.  Publish:
+    * `pnpm --filter openwrk publish --access public`
+5.  Verify:
+    * `npm view openwrk version`
