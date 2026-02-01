@@ -32,9 +32,27 @@ export function startHealthServer(
 ) {
   const server = http.createServer((req, res) => {
     void (async () => {
-      res.setHeader("Access-Control-Allow-Origin", "*");
+      const requestOrigin = req.headers.origin;
+      if (requestOrigin) {
+        res.setHeader("Access-Control-Allow-Origin", requestOrigin);
+        res.setHeader("Vary", "Origin");
+      } else {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+      }
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+      const requestHeaders = req.headers["access-control-request-headers"];
+      if (Array.isArray(requestHeaders)) {
+        res.setHeader("Access-Control-Allow-Headers", requestHeaders.join(", "));
+      } else if (typeof requestHeaders === "string" && requestHeaders.trim()) {
+        res.setHeader("Access-Control-Allow-Headers", requestHeaders);
+      } else {
+        res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+      }
+
+      if (req.headers["access-control-request-private-network"] === "true") {
+        res.setHeader("Access-Control-Allow-Private-Network", "true");
+      }
 
       if (req.method === "OPTIONS") {
         res.writeHead(204);
