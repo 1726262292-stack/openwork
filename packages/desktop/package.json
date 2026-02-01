@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.9.3",
   "opencodeVersion": "1.1.45",
+  "owpenbotVersion": "0.1.16",
   "type": "module",
   "scripts": {
     "dev": "tauri dev --config \"{\\\"build\\\":{\\\"devUrl\\\":\\\"http://localhost:${PORT:-5173}\\\"}}\"",

@@ -17,7 +17,6 @@ import { tmpdir } from "os";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(__dirname, "..", "..", "..");
 const sidecarDir = join(__dirname, "..", "src-tauri", "sidecars");
 const packageJsonPath = resolve(__dirname, "..", "package.json");
 const opencodeVersion = (() => {
@@ -32,6 +31,18 @@ const opencodeVersion = (() => {
   return null;
 })();
 const opencodeAssetOverride = process.env.OPENCODE_ASSET?.trim() || null;
+const owpenbotVersion = (() => {
+  if (process.env.OWPENBOT_VERSION?.trim()) return process.env.OWPENBOT_VERSION.trim();
+  try {
+    const raw = readFileSync(packageJsonPath, "utf8");
+    const pkg = JSON.parse(raw);
+    if (pkg.owpenbotVersion) return String(pkg.owpenbotVersion).trim();
+  } catch {
+    // ignore
+  }
+  return null;
+})();
+const owpenbotAssetOverride = process.env.OWPENBOT_ASSET?.trim() || null;
 
 // Target triple for native platform binaries
 const resolvedTargetTriple = (() => {
@@ -100,62 +111,15 @@ const resolveBuildScript = (dir) => {
   return scriptPath;
 };
 
-const runCommand = (command, args, cwd) => {
-  const result = spawnSync(command, args, { cwd, stdio: "inherit" });
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
-};
-
-const resolveOwpenbotDir = () => {
-  const envPath = process.env.OWPENBOT_REPO?.trim() || process.env.OWPENBOT_DIR?.trim();
-  const candidates = [envPath, resolve(repoRoot, "..", "owpenbot"), resolve(repoRoot, "vendor", "owpenbot")].filter(
-    Boolean,
-  );
-
-  for (const candidate of candidates) {
-    if (candidate && existsSync(join(candidate, "package.json"))) {
-      return candidate;
-    }
-  }
-
-  const cloneTarget = envPath ?? resolve(repoRoot, "..", "owpenbot");
-  const repoUrl = process.env.OWPENBOT_REPO_URL?.trim() || "https://github.com/different-ai/owpenbot.git";
-  const repoRef = process.env.OWPENBOT_REF?.trim() || "dev";
-
-  if (!cloneTarget) {
-    throw new Error("OWPENBOT_REPO not found and no clone target available.");
-  }
-
-  const result = spawnSync("git", ["clone", "--depth", "1", "--branch", repoRef, repoUrl, cloneTarget], {
-    stdio: "inherit",
-  });
-  if (result.status !== 0) {
-    throw new Error(`Failed to clone owpenbot from ${repoUrl}`);
-  }
-
-  if (!existsSync(join(cloneTarget, "package.json"))) {
-    throw new Error(`Owpenbot package.json not found in ${cloneTarget}`);
-  }
-
-  return cloneTarget;
-};
-
 // owpenbot paths
 const owpenbotBaseName = "owpenbot";
 const owpenbotName = process.platform === "win32" ? `${owpenbotBaseName}.exe` : owpenbotBaseName;
 const owpenbotPath = join(sidecarDir, owpenbotName);
-const owpenbotBuildName = bunTarget
-  ? `${owpenbotBaseName}-${bunTarget}${bunTarget.includes("windows") ? ".exe" : ""}`
-  : owpenbotName;
-const owpenbotBuildPath = join(sidecarDir, owpenbotBuildName);
 const owpenbotTargetTriple = resolvedTargetTriple;
 const owpenbotTargetName = owpenbotTargetTriple
   ? `${owpenbotBaseName}-${owpenbotTargetTriple}${owpenbotTargetTriple.includes("windows") ? ".exe" : ""}`
   : null;
 const owpenbotTargetPath = owpenbotTargetName ? join(sidecarDir, owpenbotTargetName) : null;
-
-const owpenbotDir = resolveOwpenbotDir();
 const readHeader = (filePath, length = 256) => {
   const fd = openSync(filePath, "r");
   try {
@@ -206,6 +170,15 @@ const findOpencodeBinary = (dir) => {
   return (
     candidates.find((file) => file.endsWith(`/${opencodeBaseName}`) || file.endsWith(`\\${opencodeBaseName}`)) ??
     candidates.find((file) => file.endsWith("/opencode") || file.endsWith("\\opencode")) ??
+    null
+  );
+};
+
+const findOwpenbotBinary = (dir) => {
+  const candidates = readDirectory(dir);
+  return (
+    candidates.find((file) => file.endsWith(`/${owpenbotName}`) || file.endsWith(`\\${owpenbotName}`)) ??
+    candidates.find((file) => file.endsWith("/owpenbot") || file.endsWith("\\owpenbot")) ??
     null
   );
 };
@@ -279,77 +252,11 @@ if (existsSync(openworkServerBuildPath)) {
   }
 }
 
-// Build owpenbot
-const shouldBuildOwpenbot = !existsSync(owpenbotBuildPath) || isStubBinary(owpenbotBuildPath);
-
-if (shouldBuildOwpenbot) {
-  mkdirSync(sidecarDir, { recursive: true });
-  if (existsSync(owpenbotBuildPath)) {
-    try {
-      unlinkSync(owpenbotBuildPath);
-    } catch {
-      // ignore
-    }
-  }
-  const owpenbotScript = resolveBuildScript(owpenbotDir);
-  const hasOwpenbotScript = existsSync(owpenbotScript);
-  if (hasOwpenbotScript) {
-    const owpenbotArgs = [owpenbotScript, "--outdir", sidecarDir, "--filename", "owpenbot"];
-    if (bunTarget) {
-      owpenbotArgs.push("--target", bunTarget);
-    }
-    runCommand("bun", owpenbotArgs, owpenbotDir);
-  }
-
-  if (!hasOwpenbotScript) {
-    runCommand("pnpm", ["install"], owpenbotDir);
-    runCommand("pnpm", ["build"], owpenbotDir);
-    const owpenbotEntry = resolve(owpenbotDir, "dist", "cli.js");
-    if (!existsSync(owpenbotEntry)) {
-      console.error(`Owpenbot build output not found at ${owpenbotEntry}`);
-      process.exit(1);
-    }
-    const owpenbotCompileArgs = ["build", "--compile", owpenbotEntry, "--outfile", owpenbotBuildPath];
-    if (bunTarget) {
-      owpenbotCompileArgs.push("--target", bunTarget);
-    }
-    runCommand("bun", owpenbotCompileArgs, owpenbotDir);
-  }
-}
-
-if (existsSync(owpenbotBuildPath)) {
-  const shouldCopyCanonical = !existsSync(owpenbotPath) || isStubBinary(owpenbotPath);
-  if (shouldCopyCanonical && owpenbotBuildPath !== owpenbotPath) {
-    try {
-      if (existsSync(owpenbotPath)) {
-        unlinkSync(owpenbotPath);
-      }
-    } catch {
-      // ignore
-    }
-    copyFileSync(owpenbotBuildPath, owpenbotPath);
-  }
-
-  if (owpenbotTargetPath) {
-    const shouldCopyOwpenbotTarget = !existsSync(owpenbotTargetPath) || isStubBinary(owpenbotTargetPath);
-    if (shouldCopyOwpenbotTarget && owpenbotBuildPath !== owpenbotTargetPath) {
-      try {
-        if (existsSync(owpenbotTargetPath)) {
-          unlinkSync(owpenbotTargetPath);
-        }
-      } catch {
-        // ignore
-      }
-      copyFileSync(owpenbotBuildPath, owpenbotTargetPath);
-    }
-  }
-}
-
-const normalizedVersion = opencodeVersion?.startsWith("v")
+const normalizedOpencodeVersion = opencodeVersion?.startsWith("v")
   ? opencodeVersion.slice(1)
   : opencodeVersion;
 
-if (!normalizedVersion) {
+if (!normalizedOpencodeVersion) {
   console.error(
     "OpenCode version is not configured. Set OPENCODE_VERSION or add opencodeVersion to packages/desktop/package.json."
   );
@@ -369,11 +276,11 @@ const opencodeAsset =
   opencodeAssetOverride ?? (resolvedTargetTriple ? opencodeAssetByTarget[resolvedTargetTriple] : null);
 
 const opencodeUrl = opencodeAsset
-  ? `https://github.com/anomalyco/opencode/releases/download/v${normalizedVersion}/${opencodeAsset}`
+  ? `https://github.com/anomalyco/opencode/releases/download/v${normalizedOpencodeVersion}/${opencodeAsset}`
   : null;
 
 const opencodeCandidatePath = opencodeTargetPath ?? opencodePath;
-const existingVersion =
+const existingOpencodeVersion =
   opencodeCandidatePath && existsSync(opencodeCandidatePath)
     ? readBinaryVersion(opencodeCandidatePath)
     : null;
@@ -382,95 +289,227 @@ const shouldDownloadOpencode =
   !opencodeCandidatePath ||
   !existsSync(opencodeCandidatePath) ||
   isStubBinary(opencodeCandidatePath) ||
-  !existingVersion ||
-  existingVersion !== normalizedVersion;
+  !existingOpencodeVersion ||
+  existingOpencodeVersion !== normalizedOpencodeVersion;
 
 if (!shouldDownloadOpencode) {
-  console.log(`OpenCode sidecar already present (${existingVersion}).`);
-  process.exit(0);
+  console.log(`OpenCode sidecar already present (${existingOpencodeVersion}).`);
 }
 
-if (!opencodeAsset || !opencodeUrl) {
+if (shouldDownloadOpencode) {
+  if (!opencodeAsset || !opencodeUrl) {
+    console.error(
+      `No OpenCode asset configured for target ${resolvedTargetTriple ?? "unknown"}. Set OPENCODE_ASSET to override.`
+    );
+    process.exit(1);
+  }
+
+  mkdirSync(sidecarDir, { recursive: true });
+
+  const stamp = Date.now();
+  const archivePath = join(tmpdir(), `opencode-${stamp}-${opencodeAsset}`);
+  const extractDir = join(tmpdir(), `opencode-${stamp}`);
+
+  mkdirSync(extractDir, { recursive: true });
+
+  if (process.platform === "win32") {
+    const psQuote = (value) => `'${value.replace(/'/g, "''")}'`;
+    const psScript = [
+      "$ErrorActionPreference = 'Stop'",
+      `Invoke-WebRequest -Uri ${psQuote(opencodeUrl)} -OutFile ${psQuote(archivePath)}`,
+      `Expand-Archive -Path ${psQuote(archivePath)} -DestinationPath ${psQuote(extractDir)} -Force`,
+    ].join("; ");
+
+    const result = spawnSync("powershell", ["-NoProfile", "-Command", psScript], {
+      stdio: "inherit",
+    });
+
+    if (result.status !== 0) {
+      process.exit(result.status ?? 1);
+    }
+  } else {
+    const downloadResult = spawnSync("curl", ["-fsSL", "-o", archivePath, opencodeUrl], {
+      stdio: "inherit",
+    });
+    if (downloadResult.status !== 0) {
+      process.exit(downloadResult.status ?? 1);
+    }
+
+    mkdirSync(extractDir, { recursive: true });
+
+    if (opencodeAsset.endsWith(".zip")) {
+      const unzipResult = spawnSync("unzip", ["-q", archivePath, "-d", extractDir], {
+        stdio: "inherit",
+      });
+      if (unzipResult.status !== 0) {
+        process.exit(unzipResult.status ?? 1);
+      }
+    } else if (opencodeAsset.endsWith(".tar.gz")) {
+      const tarResult = spawnSync("tar", ["-xzf", archivePath, "-C", extractDir], {
+        stdio: "inherit",
+      });
+      if (tarResult.status !== 0) {
+        process.exit(tarResult.status ?? 1);
+      }
+    } else {
+      console.error(`Unknown OpenCode archive type: ${opencodeAsset}`);
+      process.exit(1);
+    }
+  }
+
+  const extractedBinary = findOpencodeBinary(extractDir);
+  if (!extractedBinary) {
+    console.error("OpenCode binary not found after extraction.");
+    process.exit(1);
+  }
+
+  const opencodeTargets = [opencodeTargetPath, opencodePath].filter(Boolean);
+  for (const target of opencodeTargets) {
+    try {
+      if (existsSync(target)) {
+        unlinkSync(target);
+      }
+    } catch {
+      // ignore
+    }
+    copyFileSync(extractedBinary, target);
+    try {
+      chmodSync(target, 0o755);
+    } catch {
+      // ignore
+    }
+  }
+
+  console.log(`OpenCode sidecar updated to ${normalizedOpencodeVersion}.`);
+}
+
+const normalizedOwpenbotVersion = owpenbotVersion?.startsWith("v")
+  ? owpenbotVersion.slice(1)
+  : owpenbotVersion;
+
+if (!normalizedOwpenbotVersion) {
   console.error(
-    `No OpenCode asset configured for target ${resolvedTargetTriple ?? "unknown"}. Set OPENCODE_ASSET to override.`
+    "Owpenbot version is not configured. Set OWPENBOT_VERSION or add owpenbotVersion to packages/desktop/package.json."
   );
   process.exit(1);
 }
 
-mkdirSync(sidecarDir, { recursive: true });
+const owpenbotAssetByTarget = {
+  "aarch64-apple-darwin": "owpenbot-darwin-arm64.zip",
+  "x86_64-apple-darwin": "owpenbot-darwin-x64.zip",
+  "x86_64-unknown-linux-gnu": "owpenbot-linux-x64.tar.gz",
+  "aarch64-unknown-linux-gnu": "owpenbot-linux-arm64.tar.gz",
+  "x86_64-pc-windows-msvc": "owpenbot-windows-x64.zip",
+  "aarch64-pc-windows-msvc": "owpenbot-windows-arm64.zip",
+};
 
-const stamp = Date.now();
-const archivePath = join(tmpdir(), `opencode-${stamp}-${opencodeAsset}`);
-const extractDir = join(tmpdir(), `opencode-${stamp}`);
+const owpenbotAsset =
+  owpenbotAssetOverride ?? (resolvedTargetTriple ? owpenbotAssetByTarget[resolvedTargetTriple] : null);
 
-mkdirSync(extractDir, { recursive: true });
+const owpenbotUrl = owpenbotAsset
+  ? `https://github.com/different-ai/owpenbot/releases/download/v${normalizedOwpenbotVersion}/${owpenbotAsset}`
+  : null;
 
-if (process.platform === "win32") {
-  const psQuote = (value) => `'${value.replace(/'/g, "''")}'`;
-  const psScript = [
-    "$ErrorActionPreference = 'Stop'",
-    `Invoke-WebRequest -Uri ${psQuote(opencodeUrl)} -OutFile ${psQuote(archivePath)}`,
-    `Expand-Archive -Path ${psQuote(archivePath)} -DestinationPath ${psQuote(extractDir)} -Force`,
-  ].join("; ");
+const owpenbotCandidatePath = owpenbotTargetPath ?? owpenbotPath;
+const existingOwpenbotVersion =
+  owpenbotCandidatePath && existsSync(owpenbotCandidatePath)
+    ? readBinaryVersion(owpenbotCandidatePath)
+    : null;
 
-  const result = spawnSync("powershell", ["-NoProfile", "-Command", psScript], {
-    stdio: "inherit",
-  });
+const shouldDownloadOwpenbot =
+  !owpenbotCandidatePath ||
+  !existsSync(owpenbotCandidatePath) ||
+  isStubBinary(owpenbotCandidatePath) ||
+  !existingOwpenbotVersion ||
+  existingOwpenbotVersion !== normalizedOwpenbotVersion;
 
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+if (!shouldDownloadOwpenbot) {
+  console.log(`Owpenbot sidecar already present (${existingOwpenbotVersion}).`);
+}
+
+if (shouldDownloadOwpenbot) {
+  if (!owpenbotAsset || !owpenbotUrl) {
+    console.error(
+      `No owpenbot asset configured for target ${resolvedTargetTriple ?? "unknown"}. Set OWPENBOT_ASSET to override.`
+    );
+    process.exit(1);
   }
-} else {
-  const downloadResult = spawnSync("curl", ["-fsSL", "-o", archivePath, opencodeUrl], {
-    stdio: "inherit",
-  });
-  if (downloadResult.status !== 0) {
-    process.exit(downloadResult.status ?? 1);
-  }
+
+  mkdirSync(sidecarDir, { recursive: true });
+
+  const stamp = Date.now();
+  const archivePath = join(tmpdir(), `owpenbot-${stamp}-${owpenbotAsset}`);
+  const extractDir = join(tmpdir(), `owpenbot-${stamp}`);
 
   mkdirSync(extractDir, { recursive: true });
 
-  if (opencodeAsset.endsWith(".zip")) {
-    const unzipResult = spawnSync("unzip", ["-q", archivePath, "-d", extractDir], {
+  if (process.platform === "win32") {
+    const psQuote = (value) => `'${value.replace(/'/g, "''")}'`;
+    const psScript = [
+      "$ErrorActionPreference = 'Stop'",
+      `Invoke-WebRequest -Uri ${psQuote(owpenbotUrl)} -OutFile ${psQuote(archivePath)}`,
+      `Expand-Archive -Path ${psQuote(archivePath)} -DestinationPath ${psQuote(extractDir)} -Force`,
+    ].join("; ");
+
+    const result = spawnSync("powershell", ["-NoProfile", "-Command", psScript], {
       stdio: "inherit",
     });
-    if (unzipResult.status !== 0) {
-      process.exit(unzipResult.status ?? 1);
-    }
-  } else if (opencodeAsset.endsWith(".tar.gz")) {
-    const tarResult = spawnSync("tar", ["-xzf", archivePath, "-C", extractDir], {
-      stdio: "inherit",
-    });
-    if (tarResult.status !== 0) {
-      process.exit(tarResult.status ?? 1);
+
+    if (result.status !== 0) {
+      process.exit(result.status ?? 1);
     }
   } else {
-    console.error(`Unknown OpenCode archive type: ${opencodeAsset}`);
+    const downloadResult = spawnSync("curl", ["-fsSL", "-o", archivePath, owpenbotUrl], {
+      stdio: "inherit",
+    });
+    if (downloadResult.status !== 0) {
+      process.exit(downloadResult.status ?? 1);
+    }
+
+    mkdirSync(extractDir, { recursive: true });
+
+    if (owpenbotAsset.endsWith(".zip")) {
+      const unzipResult = spawnSync("unzip", ["-q", archivePath, "-d", extractDir], {
+        stdio: "inherit",
+      });
+      if (unzipResult.status !== 0) {
+        process.exit(unzipResult.status ?? 1);
+      }
+    } else if (owpenbotAsset.endsWith(".tar.gz")) {
+      const tarResult = spawnSync("tar", ["-xzf", archivePath, "-C", extractDir], {
+        stdio: "inherit",
+      });
+      if (tarResult.status !== 0) {
+        process.exit(tarResult.status ?? 1);
+      }
+    } else {
+      console.error(`Unknown owpenbot archive type: ${owpenbotAsset}`);
+      process.exit(1);
+    }
+  }
+
+  const extractedBinary = findOwpenbotBinary(extractDir);
+  if (!extractedBinary) {
+    console.error("Owpenbot binary not found after extraction.");
     process.exit(1);
   }
-}
 
-const extractedBinary = findOpencodeBinary(extractDir);
-if (!extractedBinary) {
-  console.error("OpenCode binary not found after extraction.");
-  process.exit(1);
-}
-
-const opencodeTargets = [opencodeTargetPath, opencodePath].filter(Boolean);
-for (const target of opencodeTargets) {
-  try {
-    if (existsSync(target)) {
-      unlinkSync(target);
+  const owpenbotTargets = [owpenbotTargetPath, owpenbotPath].filter(Boolean);
+  for (const target of owpenbotTargets) {
+    try {
+      if (existsSync(target)) {
+        unlinkSync(target);
+      }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
+    copyFileSync(extractedBinary, target);
+    try {
+      chmodSync(target, 0o755);
+    } catch {
+      // ignore
+    }
   }
-  copyFileSync(extractedBinary, target);
-  try {
-    chmodSync(target, 0o755);
-  } catch {
-    // ignore
-  }
-}
 
-console.log(`OpenCode sidecar updated to ${normalizedVersion}.`);
+  console.log(`Owpenbot sidecar updated to ${normalizedOwpenbotVersion}.`);
+}
