@@ -100,6 +100,13 @@ const resolveBuildScript = (dir) => {
   return scriptPath;
 };
 
+const runCommand = (command, args, cwd) => {
+  const result = spawnSync(command, args, { cwd, stdio: "inherit" });
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+};
+
 const resolveOwpenbotDir = () => {
   const envPath = process.env.OWPENBOT_REPO?.trim() || process.env.OWPENBOT_DIR?.trim();
   const candidates = [
@@ -288,21 +295,28 @@ if (shouldBuildOwpenbot) {
     }
   }
   const owpenbotScript = resolveBuildScript(owpenbotDir);
-  if (!existsSync(owpenbotScript)) {
-    console.error(`Owpenbot build script not found at ${owpenbotScript}`);
-    process.exit(1);
+  const hasOwpenbotScript = existsSync(owpenbotScript);
+  if (hasOwpenbotScript) {
+    const owpenbotArgs = [owpenbotScript, "--outdir", sidecarDir, "--filename", "owpenbot"];
+    if (bunTarget) {
+      owpenbotArgs.push("--target", bunTarget);
+    }
+    runCommand("bun", owpenbotArgs, owpenbotDir);
   }
-  const owpenbotArgs = [owpenbotScript, "--outdir", sidecarDir, "--filename", "owpenbot"];
-  if (bunTarget) {
-    owpenbotArgs.push("--target", bunTarget);
-  }
-  const owpenbotBuildResult = spawnSync("bun", owpenbotArgs, {
-    cwd: owpenbotDir,
-    stdio: "inherit",
-  });
 
-  if (owpenbotBuildResult.status !== 0) {
-    process.exit(owpenbotBuildResult.status ?? 1);
+  if (!hasOwpenbotScript) {
+    runCommand("pnpm", ["install"], owpenbotDir);
+    runCommand("pnpm", ["build"], owpenbotDir);
+    const owpenbotEntry = resolve(owpenbotDir, "dist", "cli.js");
+    if (!existsSync(owpenbotEntry)) {
+      console.error(`Owpenbot build output not found at ${owpenbotEntry}`);
+      process.exit(1);
+    }
+    const owpenbotCompileArgs = ["build", "--compile", owpenbotEntry, "--outfile", owpenbotBuildPath];
+    if (bunTarget) {
+      owpenbotCompileArgs.push("--target", bunTarget);
+    }
+    runCommand("bun", owpenbotCompileArgs, owpenbotDir);
   }
 }
 
