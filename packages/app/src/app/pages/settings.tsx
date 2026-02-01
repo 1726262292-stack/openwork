@@ -18,6 +18,7 @@ import type {
 } from "../lib/tauri";
 import {
   getOwpenbotStatus,
+  getOwpenbotStatusDetailed,
   getOwpenbotQr,
   setOwpenbotDmPolicy,
   setOwpenbotAllowlist,
@@ -121,6 +122,11 @@ function OwpenbotSettings(props: { busy: boolean }) {
   const [savingPolicy, setSavingPolicy] = createSignal(false);
   const [savingAllowlist, setSavingAllowlist] = createSignal(false);
   const [savingTelegram, setSavingTelegram] = createSignal(false);
+  const [telegramCheckState, setTelegramCheckState] = createSignal<
+    "idle" | "checking" | "success" | "warning" | "error"
+  >("idle");
+  const [telegramCheckMessage, setTelegramCheckMessage] = createSignal<string | null>(null);
+  const [telegramCheckDetail, setTelegramCheckDetail] = createSignal<string | null>(null);
 
   // Load owpenbot status on mount
   onMount(async () => {
@@ -136,6 +142,47 @@ function OwpenbotSettings(props: { busy: boolean }) {
   const refreshPairingRequests = async () => {
     const requests = await getOwpenbotPairingRequests();
     setPairingRequests(requests);
+  };
+
+  const setTelegramFeedback = (
+    state: "checking" | "success" | "warning" | "error",
+    message: string,
+    detail?: string | null,
+  ) => {
+    setTelegramCheckState(state);
+    setTelegramCheckMessage(message);
+    setTelegramCheckDetail(detail ?? null);
+  };
+
+  const resetTelegramFeedback = () => {
+    setTelegramCheckState("idle");
+    setTelegramCheckMessage(null);
+    setTelegramCheckDetail(null);
+  };
+
+  const normalizeTelegramError = (raw: string) =>
+    raw.replace(/^Error:\s*/i, "").replace(/^Failed to [^:]+:\s*/i, "").trim();
+
+  const formatTelegramError = (raw: string) => {
+    const cleaned = normalizeTelegramError(raw);
+    const lower = cleaned.toLowerCase();
+    if (lower.includes("401") || lower.includes("unauthorized") || lower.includes("token is wrong")) {
+      return {
+        summary: "Telegram rejected this token.",
+        detail: "Check the token in @BotFather and try again.",
+      };
+    }
+    if (lower.includes("409") || lower.includes("conflict") || lower.includes("getupdates")) {
+      return {
+        summary: "Another owpenbot instance is already running.",
+        detail: "Stop extra instances or revoke the token, then retry.",
+      };
+    }
+    const detail = cleaned.length > 180 ? `${cleaned.slice(0, 177)}...` : cleaned;
+    return {
+      summary: "Telegram check failed.",
+      detail: detail || null,
+    };
   };
 
   const showQrCode = async () => {
@@ -194,12 +241,51 @@ function OwpenbotSettings(props: { busy: boolean }) {
 
   const handleSaveTelegramToken = async () => {
     const token = telegramToken().trim();
-    if (!token) return;
-    
+    if (!token || savingTelegram()) return;
+
     setSavingTelegram(true);
+    setTelegramFeedback("checking", "Saving token and verifying Telegram...");
     try {
-      await setOwpenbotTelegramToken(token);
-      await refreshStatus();
+      const result = await setOwpenbotTelegramToken(token);
+      if (!result.ok) {
+        const detail = normalizeTelegramError(result.stderr || "");
+        setTelegramFeedback("error", "Failed to save token.", detail || null);
+        return;
+      }
+
+      const statusResult = await getOwpenbotStatusDetailed();
+      if (!statusResult.ok) {
+        const parsed = formatTelegramError(statusResult.error || "Failed to verify Telegram.");
+        setOwpenbotStatus(null);
+        setTelegramFeedback("error", parsed.summary, parsed.detail);
+        return;
+      }
+
+      const status = statusResult.status;
+      setOwpenbotStatus(status);
+
+      if (!status.telegram.configured) {
+        setTelegramFeedback("error", "Token saved, but Telegram is still unconfigured.", "Check the token and try again.");
+        return;
+      }
+      if (!status.running) {
+        setTelegramFeedback(
+          "warning",
+          "Token saved, but the messaging bridge is offline.",
+          "Start OpenWork to activate Telegram.",
+        );
+        return;
+      }
+      if (!status.telegram.enabled) {
+        setTelegramFeedback(
+          "warning",
+          "Token saved, but Telegram is disabled.",
+          "Enable the bot or review owpenbot settings.",
+        );
+        return;
+      }
+
+      setTelegramFeedback("success", "Telegram connected.");
       setTelegramToken("");
     } finally {
       setSavingTelegram(false);
@@ -235,6 +321,21 @@ function OwpenbotSettings(props: { busy: boolean }) {
       return "text-green-11";
     }
     return "text-gray-9";
+  });
+
+  const telegramCheckStyle = createMemo(() => {
+    switch (telegramCheckState()) {
+      case "success":
+        return "bg-green-7/10 text-green-11 border-green-7/20";
+      case "warning":
+        return "bg-amber-7/10 text-amber-11 border-amber-7/20";
+      case "error":
+        return "bg-red-7/10 text-red-11 border-red-7/20";
+      case "checking":
+        return "bg-gray-4/60 text-gray-11 border-gray-7/50";
+      default:
+        return "bg-gray-4/60 text-gray-11 border-gray-7/50";
+    }
   });
 
   const dmPolicyOptions: { value: OwpenbotStatus["whatsapp"]["dmPolicy"]; label: string; description: string }[] = [
@@ -280,7 +381,12 @@ function OwpenbotSettings(props: { busy: boolean }) {
               <input
                 type={telegramTokenVisible() ? "text" : "password"}
                 value={telegramToken()}
-                onInput={(e) => setTelegramToken(e.currentTarget.value)}
+                onInput={(e) => {
+                  setTelegramToken(e.currentTarget.value);
+                  if (telegramCheckState() !== "idle") {
+                    resetTelegramFeedback();
+                  }
+                }}
                 placeholder="Paste token from @BotFather"
                 class="flex-1 rounded-lg bg-gray-2/60 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-10 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] focus:outline-none focus:ring-2 focus:ring-gray-6/20"
                 disabled={props.busy || savingTelegram()}
@@ -299,9 +405,17 @@ function OwpenbotSettings(props: { busy: boolean }) {
               onClick={handleSaveTelegramToken}
               disabled={props.busy || savingTelegram() || !telegramToken().trim()}
             >
-              Save
+              {savingTelegram() ? "Saving..." : "Save"}
             </Button>
           </div>
+          <Show when={telegramCheckState() !== "idle"}>
+            <div class={`text-[11px] px-2 py-1 rounded-lg border ${telegramCheckStyle()}`}>
+              {telegramCheckMessage()}
+            </div>
+            <Show when={telegramCheckDetail()}>
+              <div class="text-[11px] text-gray-9">{telegramCheckDetail()}</div>
+            </Show>
+          </Show>
           <div class="text-[11px] text-gray-8">
             Create a bot with <span class="font-mono">@BotFather</span> on Telegram and paste the token here.
           </div>

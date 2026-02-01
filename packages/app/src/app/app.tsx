@@ -781,10 +781,6 @@ export default function App() {
   async function deleteSessionById(sessionID: string) {
     const trimmed = sessionID.trim();
     if (!trimmed) return;
-    if (isDemoMode()) {
-      throw new Error("Demo sessions can't be deleted");
-    }
-
     const c = client();
     if (!c) {
       throw new Error("Not connected to a server");

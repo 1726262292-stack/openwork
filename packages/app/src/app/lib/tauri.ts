@@ -535,6 +535,10 @@ export type OwpenbotStatus = {
   opencode: OwpenbotOpencodeStatus;
 };
 
+export type OwpenbotStatusResult =
+  | { ok: true; status: OwpenbotStatus }
+  | { ok: false; error: string };
+
 export type OwpenbotInfo = {
   running: boolean;
   workspacePath: string | null;
@@ -565,6 +569,15 @@ export async function getOwpenbotStatus(): Promise<OwpenbotStatus | null> {
     return await invoke<OwpenbotStatus>("owpenbot_status");
   } catch {
     return null;
+  }
+}
+
+export async function getOwpenbotStatusDetailed(): Promise<OwpenbotStatusResult> {
+  try {
+    const status = await invoke<OwpenbotStatus>("owpenbot_status");
+    return { ok: true, status };
+  } catch (error) {
+    return { ok: false, error: String(error) };
   }
 }
 
