@@ -92,6 +92,14 @@ const openworkServerTargetPath = openworkServerTargetName ? join(sidecarDir, ope
 
 const openworkServerDir = resolve(__dirname, "..", "..", "server");
 
+const resolveBuildScript = (dir) => {
+  const scriptPath = resolve(dir, "script", "build.ts");
+  if (existsSync(scriptPath)) return scriptPath;
+  const scriptsPath = resolve(dir, "scripts", "build.ts");
+  if (existsSync(scriptsPath)) return scriptsPath;
+  return scriptPath;
+};
+
 const resolveOwpenbotDir = () => {
   const envPath = process.env.OWPENBOT_REPO?.trim() || process.env.OWPENBOT_DIR?.trim();
   const candidates = [envPath, resolve(repoRoot, "..", "owpenbot"), resolve(repoRoot, "vendor", "owpenbot")].filter(
@@ -217,7 +225,12 @@ if (shouldBuildOpenworkServer) {
       // ignore
     }
   }
-  const openworkServerArgs = ["./script/build.ts", "--outdir", sidecarDir, "--filename", "openwork-server"];
+  const openworkServerScript = resolveBuildScript(openworkServerDir);
+  if (!existsSync(openworkServerScript)) {
+    console.error(`OpenWork server build script not found at ${openworkServerScript}`);
+    process.exit(1);
+  }
+  const openworkServerArgs = [openworkServerScript, "--outdir", sidecarDir, "--filename", "openwork-server"];
   if (bunTarget) {
     openworkServerArgs.push("--target", bunTarget);
   }
@@ -271,7 +284,12 @@ if (shouldBuildOwpenbot) {
       // ignore
     }
   }
-  const owpenbotArgs = ["./script/build.ts", "--outdir", sidecarDir, "--filename", "owpenbot"];
+  const owpenbotScript = resolveBuildScript(owpenbotDir);
+  if (!existsSync(owpenbotScript)) {
+    console.error(`Owpenbot build script not found at ${owpenbotScript}`);
+    process.exit(1);
+  }
+  const owpenbotArgs = [owpenbotScript, "--outdir", sidecarDir, "--filename", "owpenbot"];
   if (bunTarget) {
     owpenbotArgs.push("--target", bunTarget);
   }
