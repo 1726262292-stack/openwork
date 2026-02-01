@@ -294,6 +294,7 @@ program
     if (useJson) {
       outputJson({
         config: config.configPath,
+        healthPort: config.healthPort ?? null,
         whatsapp: {
           linked: whatsappLinked,
           dmPolicy: config.whatsappDmPolicy,
@@ -311,6 +312,7 @@ program
       });
     } else {
       console.log(`Config: ${config.configPath}`);
+      console.log(`Health port: ${config.healthPort ?? "(not set)"}`);
       console.log(`WhatsApp linked: ${whatsappLinked ? "yes" : "no"}`);
       console.log(`WhatsApp DM policy: ${config.whatsappDmPolicy}`);
       console.log(`Telegram configured: ${config.telegramToken ? "yes" : "no"}`);

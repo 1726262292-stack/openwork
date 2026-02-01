@@ -530,6 +530,7 @@ export type OwpenbotOpencodeStatus = {
 export type OwpenbotStatus = {
   running: boolean;
   config: string;
+  healthPort?: number | null;
   whatsapp: OwpenbotWhatsAppStatus;
   telegram: OwpenbotTelegramStatus;
   opencode: OwpenbotOpencodeStatus;
@@ -622,7 +623,17 @@ export async function setOwpenbotAllowlist(allowlist: string[]): Promise<ExecRes
 
 export async function setOwpenbotTelegramToken(token: string): Promise<ExecResult> {
   try {
-    await invoke("owpenbot_config_set", { key: "channels.telegram.token", value: token });
+    const status = await getOwpenbotStatus();
+    const healthPort = status?.healthPort ?? 3005;
+    const response = await fetch(`http://127.0.0.1:${healthPort}/config/telegram-token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    if (!response.ok) {
+      const message = await response.text();
+      return { ok: false, status: response.status, stdout: "", stderr: message };
+    }
     return { ok: true, status: 0, stdout: "", stderr: "" };
   } catch (e) {
     return { ok: false, status: 1, stdout: "", stderr: String(e) };

@@ -12,13 +12,23 @@ import {
   readdirSync,
   statSync,
   unlinkSync,
+  writeFileSync,
 } from "fs";
 import { dirname, join, resolve } from "path";
 import { tmpdir } from "os";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const sidecarDir = join(__dirname, "..", "src-tauri", "sidecars");
+const readArg = (name) => {
+  const raw = process.argv.slice(2);
+  const direct = raw.find((arg) => arg.startsWith(`${name}=`));
+  if (direct) return direct.split("=")[1];
+  const index = raw.indexOf(name);
+  if (index >= 0 && raw[index + 1]) return raw[index + 1];
+  return null;
+};
+const sidecarOverride = process.env.OPENWORK_SIDECAR_DIR?.trim() || readArg("--outdir");
+const sidecarDir = sidecarOverride ? resolve(sidecarOverride) : join(__dirname, "..", "src-tauri", "sidecars");
 const packageJsonPath = resolve(__dirname, "..", "package.json");
 const opencodeVersion = (() => {
   if (process.env.OPENCODE_VERSION?.trim()) return process.env.OPENCODE_VERSION.trim();
@@ -43,7 +53,6 @@ const owpenbotVersion = (() => {
   }
   return null;
 })();
-const owpenbotAssetOverride = process.env.OWPENBOT_ASSET?.trim() || null;
 
 // Target triple for native platform binaries
 const resolvedTargetTriple = (() => {
@@ -116,11 +125,16 @@ const resolveBuildScript = (dir) => {
 const owpenbotBaseName = "owpenbot";
 const owpenbotName = process.platform === "win32" ? `${owpenbotBaseName}.exe` : owpenbotBaseName;
 const owpenbotPath = join(sidecarDir, owpenbotName);
+const owpenbotBuildName = bunTarget
+  ? `${owpenbotBaseName}-${bunTarget}${bunTarget.includes("windows") ? ".exe" : ""}`
+  : owpenbotName;
+const owpenbotBuildPath = join(sidecarDir, owpenbotBuildName);
 const owpenbotTargetTriple = resolvedTargetTriple;
 const owpenbotTargetName = owpenbotTargetTriple
   ? `${owpenbotBaseName}-${owpenbotTargetTriple}${owpenbotTargetTriple.includes("windows") ? ".exe" : ""}`
   : null;
 const owpenbotTargetPath = owpenbotTargetName ? join(sidecarDir, owpenbotTargetName) : null;
+const owpenbotDir = resolve(__dirname, "..", "..", "owpenbot");
 const readHeader = (filePath, length = 256) => {
   const fd = openSync(filePath, "r");
   try {
@@ -404,173 +418,112 @@ if (shouldDownloadOpencode) {
   console.log(`OpenCode sidecar updated to ${normalizedOpencodeVersion}.`);
 }
 
+const owpenbotPkgRaw = readFileSync(resolve(owpenbotDir, "package.json"), "utf8");
+const owpenbotPkg = JSON.parse(owpenbotPkgRaw);
+const owpenbotPkgVersion = String(owpenbotPkg.version ?? "").trim();
 const normalizedOwpenbotVersion = owpenbotVersion?.startsWith("v")
   ? owpenbotVersion.slice(1)
   : owpenbotVersion;
+const expectedOwpenbotVersion = normalizedOwpenbotVersion || owpenbotPkgVersion;
 
-if (!normalizedOwpenbotVersion) {
-  console.error(
-    "Owpenbot version is not configured. Set OWPENBOT_VERSION or add owpenbotVersion to packages/desktop/package.json."
-  );
+if (!expectedOwpenbotVersion) {
+  console.error("Owpenbot version missing. Set owpenbotVersion or ensure package.json has version.");
   process.exit(1);
 }
 
-const owpenbotAssetByTarget = {
-  "aarch64-apple-darwin": "owpenbot-darwin-arm64.zip",
-  "x86_64-apple-darwin": "owpenbot-darwin-x64.zip",
-  "x86_64-unknown-linux-gnu": "owpenbot-linux-x64.tar.gz",
-  "aarch64-unknown-linux-gnu": "owpenbot-linux-arm64.tar.gz",
-  "x86_64-pc-windows-msvc": "owpenbot-windows-x64.zip",
-  "aarch64-pc-windows-msvc": "owpenbot-windows-x64.zip",
-};
-
-const owpenbotAsset =
-  owpenbotAssetOverride ?? (resolvedTargetTriple ? owpenbotAssetByTarget[resolvedTargetTriple] : null);
-
-const owpenbotUrl = owpenbotAsset
-  ? `https://github.com/different-ai/owpenbot/releases/download/v${normalizedOwpenbotVersion}/${owpenbotAsset}`
-  : null;
-
-const owpenbotCandidatePath = owpenbotTargetPath ?? owpenbotPath;
-const existingOwpenbotVersion =
-  owpenbotCandidatePath && existsSync(owpenbotCandidatePath)
-    ? readBinaryVersion(owpenbotCandidatePath)
-    : null;
-
-const shouldDownloadOwpenbot =
-  !owpenbotCandidatePath ||
-  !existsSync(owpenbotCandidatePath) ||
-  isStubBinary(owpenbotCandidatePath) ||
-  !existingOwpenbotVersion ||
-  existingOwpenbotVersion !== normalizedOwpenbotVersion;
-
-if (!shouldDownloadOwpenbot) {
-  console.log(`Owpenbot sidecar already present (${existingOwpenbotVersion}).`);
+if (normalizedOwpenbotVersion && owpenbotPkgVersion && normalizedOwpenbotVersion !== owpenbotPkgVersion) {
+  console.error(`Owpenbot version mismatch: desktop=${normalizedOwpenbotVersion}, package=${owpenbotPkgVersion}`);
+  process.exit(1);
 }
 
-if (shouldDownloadOwpenbot) {
-  if (!owpenbotAsset || !owpenbotUrl) {
-    console.error(
-      `No owpenbot asset configured for target ${resolvedTargetTriple ?? "unknown"}. Set OWPENBOT_ASSET to override.`
-    );
-    process.exit(1);
-  }
-
+const shouldBuildOwpenbot = !existsSync(owpenbotBuildPath) || isStubBinary(owpenbotBuildPath);
+if (shouldBuildOwpenbot) {
   mkdirSync(sidecarDir, { recursive: true });
-
-  const stamp = Date.now();
-  const archivePath = join(tmpdir(), `owpenbot-${stamp}-${owpenbotAsset}`);
-  const extractDir = join(tmpdir(), `owpenbot-${stamp}`);
-  const checksumUrl = `https://github.com/different-ai/owpenbot/releases/download/v${normalizedOwpenbotVersion}/SHA256SUMS`;
-  const checksumPath = join(tmpdir(), `owpenbot-${stamp}-SHA256SUMS`);
-
-  mkdirSync(extractDir, { recursive: true });
-
-  if (process.platform === "win32") {
-    const psQuote = (value) => `'${value.replace(/'/g, "''")}'`;
-    const downloadScript = [
-      "$ErrorActionPreference = 'Stop'",
-      `Invoke-WebRequest -Uri ${psQuote(owpenbotUrl)} -OutFile ${psQuote(archivePath)}`,
-    ].join("; ");
-    const checksumScript = [
-      "$ErrorActionPreference = 'Stop'",
-      `Invoke-WebRequest -Uri ${psQuote(checksumUrl)} -OutFile ${psQuote(checksumPath)}`,
-    ].join("; ");
-
-    const downloadResult = spawnSync("powershell", ["-NoProfile", "-Command", downloadScript], {
-      stdio: "inherit",
-    });
-    if (downloadResult.status !== 0) {
-      process.exit(downloadResult.status ?? 1);
-    }
-
-    const checksumResult = spawnSync("powershell", ["-NoProfile", "-Command", checksumScript], {
-      stdio: "inherit",
-    });
-    if (checksumResult.status !== 0) {
-      process.exit(checksumResult.status ?? 1);
-    }
-  } else {
-    const downloadResult = spawnSync("curl", ["-fsSL", "-o", archivePath, owpenbotUrl], {
-      stdio: "inherit",
-    });
-    if (downloadResult.status !== 0) {
-      process.exit(downloadResult.status ?? 1);
-    }
-
-    const checksumResult = spawnSync("curl", ["-fsSL", "-o", checksumPath, checksumUrl], {
-      stdio: "inherit",
-    });
-    if (checksumResult.status !== 0) {
-      process.exit(checksumResult.status ?? 1);
-    }
-  }
-
-  const checksumContent = readFileSync(checksumPath, "utf8");
-  const expectedHash = parseChecksum(checksumContent, owpenbotAsset);
-  if (!expectedHash) {
-    console.error(`Owpenbot checksum missing for ${owpenbotAsset}.`);
-    process.exit(1);
-  }
-  const actualHash = sha256File(archivePath);
-  if (actualHash !== expectedHash) {
-    console.error(`Owpenbot checksum mismatch for ${owpenbotAsset}.`);
-    process.exit(1);
-  }
-
-  if (process.platform === "win32") {
-    const psQuote = (value) => `'${value.replace(/'/g, "''")}'`;
-    const extractScript = [
-      "$ErrorActionPreference = 'Stop'",
-      `Expand-Archive -Path ${psQuote(archivePath)} -DestinationPath ${psQuote(extractDir)} -Force`,
-    ].join("; ");
-    const extractResult = spawnSync("powershell", ["-NoProfile", "-Command", extractScript], {
-      stdio: "inherit",
-    });
-    if (extractResult.status !== 0) {
-      process.exit(extractResult.status ?? 1);
-    }
-  } else if (owpenbotAsset.endsWith(".zip")) {
-    const unzipResult = spawnSync("unzip", ["-q", archivePath, "-d", extractDir], {
-      stdio: "inherit",
-    });
-    if (unzipResult.status !== 0) {
-      process.exit(unzipResult.status ?? 1);
-    }
-  } else if (owpenbotAsset.endsWith(".tar.gz")) {
-    const tarResult = spawnSync("tar", ["-xzf", archivePath, "-C", extractDir], {
-      stdio: "inherit",
-    });
-    if (tarResult.status !== 0) {
-      process.exit(tarResult.status ?? 1);
-    }
-  } else {
-    console.error(`Unknown owpenbot archive type: ${owpenbotAsset}`);
-    process.exit(1);
-  }
-
-  const extractedBinary = findOwpenbotBinary(extractDir);
-  if (!extractedBinary) {
-    console.error("Owpenbot binary not found after extraction.");
-    process.exit(1);
-  }
-
-  const owpenbotTargets = [owpenbotTargetPath, owpenbotPath].filter(Boolean);
-  for (const target of owpenbotTargets) {
+  if (existsSync(owpenbotBuildPath)) {
     try {
-      if (existsSync(target)) {
-        unlinkSync(target);
+      unlinkSync(owpenbotBuildPath);
+    } catch {
+      // ignore
+    }
+  }
+  const owpenbotScript = resolveBuildScript(owpenbotDir);
+  if (!existsSync(owpenbotScript)) {
+    console.error(`Owpenbot build script not found at ${owpenbotScript}`);
+    process.exit(1);
+  }
+  const owpenbotArgs = [owpenbotScript, "--outdir", sidecarDir, "--filename", "owpenbot"];
+  if (bunTarget) {
+    owpenbotArgs.push("--target", bunTarget);
+  }
+  const result = spawnSync("bun", owpenbotArgs, { cwd: owpenbotDir, stdio: "inherit" });
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
+if (existsSync(owpenbotBuildPath)) {
+  const shouldCopyCanonical = !existsSync(owpenbotPath) || isStubBinary(owpenbotPath);
+  if (shouldCopyCanonical && owpenbotBuildPath !== owpenbotPath) {
+    try {
+      if (existsSync(owpenbotPath)) unlinkSync(owpenbotPath);
+    } catch {
+      // ignore
+    }
+    copyFileSync(owpenbotBuildPath, owpenbotPath);
+  }
+
+  if (owpenbotTargetPath) {
+    const shouldCopyTarget = !existsSync(owpenbotTargetPath) || isStubBinary(owpenbotTargetPath);
+    if (shouldCopyTarget && owpenbotBuildPath !== owpenbotTargetPath) {
+      try {
+        if (existsSync(owpenbotTargetPath)) unlinkSync(owpenbotTargetPath);
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
-    }
-    copyFileSync(extractedBinary, target);
-    try {
-      chmodSync(target, 0o755);
-    } catch {
-      // ignore
+      copyFileSync(owpenbotBuildPath, owpenbotTargetPath);
     }
   }
+}
 
-  console.log(`Owpenbot sidecar updated to ${normalizedOwpenbotVersion}.`);
+const openworkServerVersion = (() => {
+  try {
+    const raw = readFileSync(resolve(openworkServerDir, "package.json"), "utf8");
+    return String(JSON.parse(raw).version ?? "").trim();
+  } catch {
+    return null;
+  }
+})();
+
+const versions = {
+  opencode: {
+    version: normalizedOpencodeVersion,
+    sha256: opencodeCandidatePath && existsSync(opencodeCandidatePath) ? sha256File(opencodeCandidatePath) : null,
+  },
+  "openwork-server": {
+    version: openworkServerVersion,
+    sha256: existsSync(openworkServerPath) ? sha256File(openworkServerPath) : null,
+  },
+  owpenbot: {
+    version: expectedOwpenbotVersion,
+    sha256: existsSync(owpenbotPath) ? sha256File(owpenbotPath) : null,
+  },
+};
+
+const missing = Object.entries(versions)
+  .filter(([, info]) => !info.version || !info.sha256)
+  .map(([name]) => name);
+
+if (missing.length) {
+  console.error(`Sidecar version metadata incomplete for: ${missing.join(", ")}`);
+  process.exit(1);
+}
+
+const versionsPath = join(sidecarDir, "versions.json");
+try {
+  mkdirSync(sidecarDir, { recursive: true });
+  const content = JSON.stringify(versions, null, 2) + "\n";
+  writeFileSync(versionsPath, content, "utf8");
+} catch (error) {
+  console.error(`Failed to write versions.json: ${error}`);
+  process.exit(1);
 }
