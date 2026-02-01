@@ -400,7 +400,7 @@ const owpenbotAssetByTarget = {
   "x86_64-unknown-linux-gnu": "owpenbot-linux-x64.tar.gz",
   "aarch64-unknown-linux-gnu": "owpenbot-linux-arm64.tar.gz",
   "x86_64-pc-windows-msvc": "owpenbot-windows-x64.zip",
-  "aarch64-pc-windows-msvc": "owpenbot-windows-arm64.zip",
+  "aarch64-pc-windows-msvc": "owpenbot-windows-x64.zip",
 };
 
 const owpenbotAsset =
