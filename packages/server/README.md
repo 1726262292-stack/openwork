@@ -65,6 +65,7 @@ Defaults to `~/.config/openwork/server.json` (override with `OPENWORK_SERVER_CON
 - `GET /workspaces`
 - `GET /workspace/:id/config`
 - `PATCH /workspace/:id/config`
+- `GET /workspace/:id/events`
 - `POST /workspace/:id/engine/reload`
 - `GET /workspace/:id/plugins`
 - `POST /workspace/:id/plugins`

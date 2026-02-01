@@ -57,6 +57,24 @@ export interface Capabilities {
   config: { read: boolean; write: boolean };
 }
 
+export type ReloadReason = "plugins" | "skills" | "mcp" | "config";
+
+export type ReloadTrigger = {
+  type: "skill" | "plugin" | "config" | "mcp";
+  name?: string;
+  action?: "added" | "removed" | "updated";
+  path?: string;
+};
+
+export interface ReloadEvent {
+  id: string;
+  seq: number;
+  workspaceId: string;
+  reason: ReloadReason;
+  trigger?: ReloadTrigger;
+  timestamp: number;
+}
+
 export interface ApiErrorBody {
   code: string;
   message: string;

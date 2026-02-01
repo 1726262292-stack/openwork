@@ -40,6 +40,10 @@ pub fn build_openwork_args(
         // different origins (localhost dev servers, tauri apps, web browsers).
         "--cors".to_string(),
         "*".to_string(),
+        // Auto-approve write operations when running from the desktop app.
+        // The user is already authenticated as host and in control of the UI.
+        "--approval".to_string(),
+        "auto".to_string(),
     ];
 
     for workspace_path in workspace_paths {

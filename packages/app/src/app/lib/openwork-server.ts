@@ -86,6 +86,22 @@ export type OpenworkAuditEntry = {
   timestamp: number;
 };
 
+export type OpenworkReloadTrigger = {
+  type: "skill" | "plugin" | "config" | "mcp";
+  name?: string;
+  action?: "added" | "removed" | "updated";
+  path?: string;
+};
+
+export type OpenworkReloadEvent = {
+  id: string;
+  seq: number;
+  workspaceId: string;
+  reason: "plugins" | "skills" | "mcp" | "config";
+  trigger?: OpenworkReloadTrigger;
+  timestamp: number;
+};
+
 export const DEFAULT_OPENWORK_SERVER_PORT = 8787;
 
 const STORAGE_URL_OVERRIDE = "openwork.server.urlOverride";
@@ -274,6 +290,14 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         method: "PATCH",
         body: payload,
       }),
+    listReloadEvents: (workspaceId: string, options?: { since?: number }) => {
+      const query = typeof options?.since === "number" ? `?since=${options.since}` : "";
+      return requestJson<{ items: OpenworkReloadEvent[]; cursor?: number }>(
+        baseUrl,
+        `/workspace/${workspaceId}/events${query}`,
+        { token, hostToken },
+      );
+    },
     reloadEngine: (workspaceId: string) =>
       requestJson<{ ok: boolean; reloadedAt?: number }>(baseUrl, `/workspace/${workspaceId}/engine/reload`, {
         token,

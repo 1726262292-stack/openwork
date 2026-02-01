@@ -1,8 +1,8 @@
 import { readFile, writeFile, rm } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
-import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor } from "./types.js";
+import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger } from "./types.js";
 import { ApprovalService } from "./approvals.js";
-import { addPlugin, listPlugins, removePlugin } from "./plugins.js";
+import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { addMcp, listMcp, removeMcp } from "./mcp.js";
 import { listSkills, upsertSkill } from "./skills.js";
 import { deleteCommand, listCommands, upsertCommand } from "./commands.js";
@@ -10,6 +10,7 @@ import { deleteScheduledJob, listScheduledJobs, resolveScheduledJob } from "./sc
 import { ApiError, formatError } from "./errors.js";
 import { readJsoncFile, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
 import { recordAudit, readAuditEntries, readLastAudit } from "./audit.js";
+import { ReloadEventStore } from "./events.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import { opencodeConfigPath, openworkConfigPath, projectCommandsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId } from "./utils.js";
@@ -34,16 +35,19 @@ interface RequestContext {
   params: Record<string, string>;
   config: ServerConfig;
   approvals: ApprovalService;
+  reloadEvents: ReloadEventStore;
   actor?: Actor;
 }
 
 export function startServer(config: ServerConfig) {
   const approvals = new ApprovalService(config.approval);
+  const reloadEvents = new ReloadEventStore();
   const routes = createRoutes(config, approvals);
 
   const server = Bun.serve({
     hostname: config.host,
     port: config.port,
+    idleTimeout: 120, // Allow long-running operations like engine reload
     fetch: async (request: Request) => {
       const url = new URL(request.url);
       if (request.method === "OPTIONS") {
@@ -57,7 +61,15 @@ export function startServer(config: ServerConfig) {
 
       try {
         const actor = route.auth === "host" ? requireHost(request, config) : route.auth === "client" ? requireClient(request, config) : undefined;
-        const response = await route.handler({ request, url, params: route.params, config, approvals, actor });
+        const response = await route.handler({
+          request,
+          url,
+          params: route.params,
+          config,
+          approvals,
+          reloadEvents,
+          actor,
+        });
         return withCors(response, request, config);
       } catch (error) {
         const apiError = error instanceof ApiError
@@ -152,6 +164,25 @@ function buildCapabilities(config: ServerConfig): Capabilities {
     mcp: { read: true, write: writeEnabled },
     commands: { read: true, write: writeEnabled },
     config: { read: true, write: writeEnabled },
+  };
+}
+
+function emitReloadEvent(
+  reloadEvents: ReloadEventStore,
+  workspace: WorkspaceInfo,
+  reason: ReloadReason,
+  trigger?: ReloadTrigger,
+) {
+  reloadEvents.record(workspace.id, reason, trigger);
+}
+
+function buildConfigTrigger(path: string): ReloadTrigger {
+  const name = path.split(/[\\/]/).filter(Boolean).pop();
+  return {
+    type: "config",
+    name: name || "opencode.json",
+    action: "updated",
+    path,
   };
 }
 
@@ -260,7 +291,20 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
       timestamp: Date.now(),
     });
 
+    if (opencode) {
+      emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(opencodeConfigPath(workspace.path)));
+    }
+
     return jsonResponse({ updatedAt: Date.now() });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/events", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const sinceParam = ctx.url.searchParams.get("since");
+    const parsedSince = sinceParam ? Number(sinceParam) : NaN;
+    const since = Number.isFinite(parsedSince) ? parsedSince : undefined;
+    const items = ctx.reloadEvents.list(workspace.id, since);
+    return jsonResponse({ items, cursor: ctx.reloadEvents.cursor() });
   });
 
   addRoute(routes, "POST", "/workspace/:id/engine/reload", "client", async (ctx) => {
@@ -296,13 +340,14 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const spec = String(body.spec ?? "");
+    const normalized = normalizePluginSpec(spec);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "plugins.add",
       summary: `Add plugin ${spec}`,
       paths: [opencodeConfigPath(workspace.path)],
     });
-    await addPlugin(workspace.path, spec);
+    const changed = await addPlugin(workspace.path, spec);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -312,6 +357,13 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
       summary: `Added ${spec}`,
       timestamp: Date.now(),
     });
+    if (changed) {
+      emitReloadEvent(ctx.reloadEvents, workspace, "plugins", {
+        type: "plugin",
+        name: normalized,
+        action: "added",
+      });
+    }
     const result = await listPlugins(workspace.path, false);
     return jsonResponse(result);
   });
@@ -320,13 +372,14 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
     ensureWritable(config);
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const name = ctx.params.name ?? "";
+    const normalized = normalizePluginSpec(name);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "plugins.remove",
       summary: `Remove plugin ${name}`,
       paths: [opencodeConfigPath(workspace.path)],
     });
-    await removePlugin(workspace.path, name);
+    const removed = await removePlugin(workspace.path, name);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -336,6 +389,13 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
       summary: `Removed ${name}`,
       timestamp: Date.now(),
     });
+    if (removed) {
+      emitReloadEvent(ctx.reloadEvents, workspace, "plugins", {
+        type: "plugin",
+        name: normalized,
+        action: "removed",
+      });
+    }
     const result = await listPlugins(workspace.path, false);
     return jsonResponse(result);
   });
@@ -360,17 +420,23 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
       summary: `Upsert skill ${name}`,
       paths: [join(workspace.path, ".opencode", "skills", name, "SKILL.md")],
     });
-    const path = await upsertSkill(workspace.path, { name, content, description });
+    const result = await upsertSkill(workspace.path, { name, content, description });
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
       actor: ctx.actor ?? { type: "remote" },
       action: "skills.upsert",
-      target: path,
+      target: result.path,
       summary: `Upserted skill ${name}`,
       timestamp: Date.now(),
     });
-    return jsonResponse({ name, path, description: description ?? "", scope: "project" });
+    emitReloadEvent(ctx.reloadEvents, workspace, "skills", {
+      type: "skill",
+      name,
+      action: result.action,
+      path: result.path,
+    });
+    return jsonResponse({ name, path: result.path, description: description ?? "", scope: "project" });
   });
 
   addRoute(routes, "GET", "/workspace/:id/mcp", "client", async (ctx) => {
@@ -394,7 +460,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
       summary: `Add MCP ${name}`,
       paths: [opencodeConfigPath(workspace.path)],
     });
-    await addMcp(workspace.path, name, configPayload);
+    const result = await addMcp(workspace.path, name, configPayload);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -403,6 +469,11 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
       target: "opencode.json",
       summary: `Added MCP ${name}`,
       timestamp: Date.now(),
+    });
+    emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
+      type: "mcp",
+      name,
+      action: result.action,
     });
     const items = await listMcp(workspace.path);
     return jsonResponse({ items });
@@ -418,7 +489,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
       summary: `Remove MCP ${name}`,
       paths: [opencodeConfigPath(workspace.path)],
     });
-    await removeMcp(workspace.path, name);
+    const removed = await removeMcp(workspace.path, name);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -428,6 +499,13 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
       summary: `Removed MCP ${name}`,
       timestamp: Date.now(),
     });
+    if (removed) {
+      emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
+        type: "mcp",
+        name,
+        action: "removed",
+      });
+    }
     const items = await listMcp(workspace.path);
     return jsonResponse({ items });
   });
@@ -554,6 +632,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
       summary: "Imported workspace config",
       timestamp: Date.now(),
     });
+    emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(opencodeConfigPath(workspace.path)));
     return jsonResponse({ ok: true });
   });
 

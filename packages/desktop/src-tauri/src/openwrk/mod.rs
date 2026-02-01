@@ -16,6 +16,7 @@ pub mod manager;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenwrkStateFile {
+    #[allow(dead_code)]
     pub version: Option<u32>,
     pub daemon: Option<OpenwrkDaemonState>,
     pub opencode: Option<OpenwrkOpencodeState>,
@@ -182,10 +183,7 @@ pub fn spawn_openwrk_daemon(
         .map_err(|e| format!("Failed to start openwrk: {e}"))
 }
 
-pub fn openwrk_status_from_state(
-    data_dir: &str,
-    last_error: Option<String>,
-) -> OpenwrkStatus {
+pub fn openwrk_status_from_state(data_dir: &str, last_error: Option<String>) -> OpenwrkStatus {
     let state = read_openwrk_state(data_dir);
     let workspaces = state
         .as_ref()
