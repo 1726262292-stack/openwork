@@ -144,6 +144,7 @@ import {
   clearOpenworkServerSettings,
   type OpenworkAuditEntry,
   type OpenworkServerCapabilities,
+  type OpenworkServerDiagnostics,
   type OpenworkServerStatus,
   type OpenworkServerSettings,
   OpenworkServerError,
@@ -243,6 +244,7 @@ export default function App() {
   const [openworkServerCheckedAt, setOpenworkServerCheckedAt] = createSignal<number | null>(null);
   const [openworkServerWorkspaceId, setOpenworkServerWorkspaceId] = createSignal<string | null>(null);
   const [openworkServerHostInfo, setOpenworkServerHostInfo] = createSignal<OpenworkServerInfo | null>(null);
+  const [openworkServerDiagnostics, setOpenworkServerDiagnostics] = createSignal<OpenworkServerDiagnostics | null>(null);
   const [owpenbotInfoState, setOwpenbotInfoState] = createSignal<OwpenbotInfo | null>(null);
   const [openwrkStatusState, setOpenwrkStatusState] = createSignal<OpenwrkStatus | null>(null);
   const [openworkAuditEntries, setOpenworkAuditEntries] = createSignal<OpenworkAuditEntry[]>([]);
@@ -425,6 +427,43 @@ export default function App() {
         if (active) setOpenworkServerHostInfo(info);
       } catch {
         if (active) setOpenworkServerHostInfo(null);
+      }
+    };
+
+    run();
+    const interval = window.setInterval(run, 10_000);
+    onCleanup(() => {
+      active = false;
+      window.clearInterval(interval);
+    });
+  });
+
+  createEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!developerMode()) {
+      setOpenworkServerDiagnostics(null);
+      return;
+    }
+
+    const client = openworkServerClient();
+    if (!client || openworkServerStatus() === "disconnected") {
+      setOpenworkServerDiagnostics(null);
+      return;
+    }
+
+    let active = true;
+    let busy = false;
+
+    const run = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const status = await client.status();
+        if (active) setOpenworkServerDiagnostics(status);
+      } catch {
+        if (active) setOpenworkServerDiagnostics(null);
+      } finally {
+        busy = false;
       }
     };
 
@@ -3901,6 +3940,7 @@ export default function App() {
     openworkServerSettings: openworkServerSettings(),
     openworkServerHostInfo: openworkServerHostInfo(),
     openworkServerCapabilities: devtoolsCapabilities(),
+    openworkServerDiagnostics: openworkServerDiagnostics(),
     openworkServerWorkspaceId: resolvedDevtoolsWorkspaceId(),
     openworkAuditEntries: openworkAuditEntries(),
     openworkAuditStatus: openworkAuditStatus(),

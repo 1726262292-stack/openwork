@@ -46,6 +46,27 @@ export type OpenwrkOpencodeState = {
   startedAt: number;
 };
 
+export type OpenwrkBinaryInfo = {
+  path: string;
+  source: string;
+  expectedVersion?: string | null;
+  actualVersion?: string | null;
+};
+
+export type OpenwrkBinaryState = {
+  opencode?: OpenwrkBinaryInfo | null;
+};
+
+export type OpenwrkSidecarInfo = {
+  dir?: string | null;
+  baseUrl?: string | null;
+  manifestUrl?: string | null;
+  target?: string | null;
+  source?: string | null;
+  opencodeSource?: string | null;
+  allowExternal?: boolean | null;
+};
+
 export type OpenwrkWorkspace = {
   id: string;
   name: string;
@@ -62,6 +83,9 @@ export type OpenwrkStatus = {
   dataDir: string;
   daemon: OpenwrkDaemonState | null;
   opencode: OpenwrkOpencodeState | null;
+  cliVersion?: string | null;
+  sidecar?: OpenwrkSidecarInfo | null;
+  binaries?: OpenwrkBinaryState | null;
   activeId: string | null;
   workspaceCount: number;
   workspaces: OpenwrkWorkspace[];
@@ -544,6 +568,7 @@ export type OwpenbotStatusResult =
 
 export type OwpenbotInfo = {
   running: boolean;
+  version: string | null;
   workspacePath: string | null;
   opencodeUrl: string | null;
   qrData: string | null;

@@ -45,10 +45,13 @@ export function startServer(config: ServerConfig) {
   const reloadEvents = new ReloadEventStore();
   const routes = createRoutes(config, approvals);
 
-  const server = Bun.serve({
+  const serverOptions: {
+    hostname: string;
+    port: number;
+    fetch: (request: Request) => Response | Promise<Response>;
+  } = {
     hostname: config.host,
     port: config.port,
-    idleTimeout: 120, // Allow long-running operations like engine reload
     fetch: async (request: Request) => {
       const url = new URL(request.url);
       if (request.method === "OPTIONS") {
@@ -79,7 +82,11 @@ export function startServer(config: ServerConfig) {
         return withCors(jsonResponse(formatError(apiError), apiError.status), request, config);
       }
     },
-  });
+  };
+
+  (serverOptions as { idleTimeout?: number }).idleTimeout = 120;
+
+  const server = Bun.serve(serverOptions);
 
   return server;
 }
@@ -220,6 +227,31 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
 
   addRoute(routes, "GET", "/health", "none", async () => {
     return jsonResponse({ ok: true, version: SERVER_VERSION, uptimeMs: Date.now() - config.startedAt });
+  });
+
+  addRoute(routes, "GET", "/status", "client", async () => {
+    const active = config.workspaces[0];
+    return jsonResponse({
+      ok: true,
+      version: SERVER_VERSION,
+      uptimeMs: Date.now() - config.startedAt,
+      readOnly: config.readOnly,
+      approval: config.approval,
+      corsOrigins: config.corsOrigins,
+      workspaceCount: config.workspaces.length,
+      activeWorkspaceId: active?.id ?? null,
+      workspace: active ? serializeWorkspace(active) : null,
+      authorizedRoots: config.authorizedRoots,
+      server: {
+        host: config.host,
+        port: config.port,
+        configPath: config.configPath ?? null,
+      },
+      tokenSource: {
+        client: config.tokenSource,
+        host: config.hostTokenSource,
+      },
+    });
   });
 
   addRoute(routes, "GET", "/capabilities", "client", async () => {

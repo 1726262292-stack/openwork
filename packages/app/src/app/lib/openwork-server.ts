@@ -12,6 +12,21 @@ export type OpenworkServerCapabilities = {
 
 export type OpenworkServerStatus = "connected" | "disconnected" | "limited";
 
+export type OpenworkServerDiagnostics = {
+  ok: boolean;
+  version: string;
+  uptimeMs: number;
+  readOnly: boolean;
+  approval: { mode: "manual" | "auto"; timeoutMs: number };
+  corsOrigins: string[];
+  workspaceCount: number;
+  activeWorkspaceId: string | null;
+  workspace: OpenworkWorkspaceInfo | null;
+  authorizedRoots: string[];
+  server: { host: string; port: number; configPath?: string | null };
+  tokenSource: { client: string; host: string };
+};
+
 export type OpenworkServerSettings = {
   urlOverride?: string;
   portOverride?: number;
@@ -277,6 +292,7 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
     token,
     health: () =>
       requestJson<{ ok: boolean; version: string; uptimeMs: number }>(baseUrl, "/health", { token, hostToken }),
+    status: () => requestJson<OpenworkServerDiagnostics>(baseUrl, "/status", { token, hostToken }),
     capabilities: () => requestJson<OpenworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken }),
     listWorkspaces: () => requestJson<OpenworkWorkspaceList>(baseUrl, "/workspaces", { token, hostToken }),
     activateWorkspace: (workspaceId: string) =>

@@ -39,6 +39,7 @@ export interface ServerConfig {
   port: number;
   token: string;
   hostToken: string;
+  configPath?: string;
   approval: ApprovalConfig;
   corsOrigins: string[];
   workspaces: WorkspaceInfo[];

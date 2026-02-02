@@ -14,6 +14,13 @@ if (!openwrkVersion) {
   throw new Error("openwrk version missing in packages/headless/package.json");
 }
 
+const sourceDateEpoch = process.env.SOURCE_DATE_EPOCH
+  ? Number(process.env.SOURCE_DATE_EPOCH)
+  : null;
+const generatedAt = Number.isFinite(sourceDateEpoch)
+  ? new Date(sourceDateEpoch * 1000).toISOString()
+  : new Date().toISOString();
+
 const serverPkg = JSON.parse(readFileSync(resolve(repoRoot, "packages", "server", "package.json"), "utf8"));
 const serverVersion = String(serverPkg.version ?? "").trim();
 if (!serverVersion) {
@@ -89,7 +96,7 @@ for (const target of targets) {
 
 const manifest = {
   version: openwrkVersion,
-  generatedAt: new Date().toISOString(),
+  generatedAt,
   entries,
 };
 

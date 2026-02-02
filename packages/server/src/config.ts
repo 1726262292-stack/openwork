@@ -19,6 +19,8 @@ interface CliArgs {
   workspaces: string[];
   corsOrigins?: string[];
   readOnly?: boolean;
+  verbose?: boolean;
+  version?: boolean;
   help?: boolean;
 }
 
@@ -47,6 +49,14 @@ export function parseCliArgs(argv: string[]): CliArgs {
     if (!value) continue;
     if (value === "--help" || value === "-h") {
       args.help = true;
+      continue;
+    }
+    if (value === "--version") {
+      args.version = true;
+      continue;
+    }
+    if (value === "--verbose") {
+      args.verbose = true;
       continue;
     }
     if (value === "--config") {
@@ -145,6 +155,8 @@ export function printHelp(): void {
     "  --workspace <path>       Workspace root (repeatable)",
     "  --cors <origins>          Comma-separated origins or *",
     "  --read-only              Disable writes",
+    "  --verbose                Print resolved config",
+    "  --version                Show version",
   ].join("\n");
   console.log(message);
 }
@@ -256,6 +268,7 @@ export async function resolveServerConfig(cli: CliArgs): Promise<ServerConfig> {
     port: Number.isNaN(port) ? DEFAULT_PORT : port,
     token,
     hostToken,
+    configPath,
     approval,
     corsOrigins,
     workspaces,

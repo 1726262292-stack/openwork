@@ -8,9 +8,16 @@ import SettingsKeybinds, { type KeybindSetting } from "../components/settings-ke
 import { ChevronDown, HardDrive, MessageCircle, PlugZap, RefreshCcw, Shield, Smartphone, X } from "lucide-solid";
 import type { OpencodeConnectStatus, ProviderListItem, SettingsTab } from "../types";
 import { createOpenworkServerClient } from "../lib/openwork-server";
-import type { OpenworkAuditEntry, OpenworkServerCapabilities, OpenworkServerSettings, OpenworkServerStatus } from "../lib/openwork-server";
+import type {
+  OpenworkAuditEntry,
+  OpenworkServerCapabilities,
+  OpenworkServerDiagnostics,
+  OpenworkServerSettings,
+  OpenworkServerStatus,
+} from "../lib/openwork-server";
 import type {
   EngineInfo,
+  OpenwrkBinaryInfo,
   OpenwrkStatus,
   OpenworkServerInfo,
   OwpenbotInfo,
@@ -45,6 +52,7 @@ export type SettingsViewProps = {
   openworkServerSettings: OpenworkServerSettings;
   openworkServerHostInfo: OpenworkServerInfo | null;
   openworkServerCapabilities: OpenworkServerCapabilities | null;
+  openworkServerDiagnostics: OpenworkServerDiagnostics | null;
   openworkServerWorkspaceId: string | null;
   openworkAuditEntries: OpenworkAuditEntry[];
   openworkAuditStatus: "idle" | "loading" | "error";
@@ -929,6 +937,36 @@ export default function SettingsView(props: SettingsViewProps) {
     return props.owpenbotInfo?.lastStderr?.trim() || "No stderr captured yet.";
   };
 
+  const formatOpenwrkBinary = (binary?: OpenwrkBinaryInfo | null) => {
+    if (!binary) return "Binary unavailable";
+    const version = binary.actualVersion || binary.expectedVersion || "unknown";
+    return `${binary.source} · ${version}`;
+  };
+
+  const formatOpenwrkBinaryVersion = (binary?: OpenwrkBinaryInfo | null) => {
+    if (!binary) return "—";
+    return binary.actualVersion || binary.expectedVersion || "—";
+  };
+
+  const openwrkBinaryPath = () => props.openwrkStatus?.binaries?.opencode?.path ?? "—";
+  const openwrkSidecarSummary = () => {
+    const info = props.openwrkStatus?.sidecar;
+    if (!info) return "Sidecar config unavailable";
+    const source = info.source ?? "auto";
+    const target = info.target ?? "unknown";
+    return `${source} · ${target}`;
+  };
+
+  const appVersionLabel = () => (props.appVersion ? `v${props.appVersion}` : "—");
+  const opencodeVersionLabel = () => formatOpenwrkBinaryVersion(props.openwrkStatus?.binaries?.opencode ?? null);
+  const openworkServerVersionLabel = () => props.openworkServerDiagnostics?.version ?? "—";
+  const owpenbotVersionLabel = () => props.owpenbotInfo?.version ?? "—";
+
+  const formatUptime = (uptimeMs?: number | null) => {
+    if (!uptimeMs) return "—";
+    return formatRelativeTime(Date.now() - uptimeMs);
+  };
+
   const buildOpenworkSettings = () => ({
     ...props.openworkServerSettings,
     urlOverride: openworkUrl().trim() || undefined,
@@ -1753,6 +1791,24 @@ export default function SettingsView(props: SettingsViewProps) {
 
                   <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
+                      <div>
+                        <div class="text-sm font-medium text-gray-12">Versions</div>
+                        <div class="text-xs text-gray-10">Sidecar + desktop build info.</div>
+                      </div>
+                      <div class="space-y-1">
+                        <div class="text-[11px] text-gray-7 font-mono truncate">Desktop app: {appVersionLabel()}</div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          Openwrk: {props.openwrkStatus?.cliVersion ?? "—"}
+                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">OpenCode: {opencodeVersionLabel()}</div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          OpenWork server: {openworkServerVersionLabel()}
+                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">Owpenbot: {owpenbotVersionLabel()}</div>
+                      </div>
+                    </div>
+
+                    <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
                       <div class="flex items-center justify-between gap-3">
                         <div>
                           <div class="text-sm font-medium text-gray-12">OpenCode engine</div>
@@ -1806,6 +1862,15 @@ export default function SettingsView(props: SettingsViewProps) {
                         </div>
                         <div class="text-[11px] text-gray-7 font-mono truncate">
                           OpenCode: {props.openwrkStatus?.opencode?.baseUrl ?? "—"}
+                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          Openwrk version: {props.openwrkStatus?.cliVersion ?? "—"}
+                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">
+                          Sidecar: {openwrkSidecarSummary()}
+                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate" title={openwrkBinaryPath()}>
+                          Opencode binary: {formatOpenwrkBinary(props.openwrkStatus?.binaries?.opencode ?? null)}
                         </div>
                         <div class="text-[11px] text-gray-7 font-mono truncate">
                           Active workspace: {props.openwrkStatus?.activeId ?? "—"}
@@ -1921,6 +1986,34 @@ export default function SettingsView(props: SettingsViewProps) {
                         </div>
                       </div>
                     </div>
+                  </div>
+
+                  <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="text-sm font-medium text-gray-12">OpenWork server diagnostics</div>
+                      <div class="text-[11px] text-gray-8 font-mono truncate">
+                        {props.openworkServerDiagnostics?.version ?? "—"}
+                      </div>
+                    </div>
+                    <Show
+                      when={props.openworkServerDiagnostics}
+                      fallback={<div class="text-xs text-gray-9">Diagnostics unavailable.</div>}
+                    >
+                      {(diag) => (
+                        <div class="grid md:grid-cols-2 gap-2 text-xs text-gray-11">
+                          <div>Started: {formatUptime(diag().uptimeMs)}</div>
+                          <div>Read-only: {diag().readOnly ? "true" : "false"}</div>
+                          <div>
+                            Approval: {diag().approval.mode} ({diag().approval.timeoutMs}ms)
+                          </div>
+                          <div>Workspaces: {diag().workspaceCount}</div>
+                          <div>Active workspace: {diag().activeWorkspaceId ?? "—"}</div>
+                          <div>Config path: {diag().server.configPath ?? "default"}</div>
+                          <div>Token source: {diag().tokenSource.client}</div>
+                          <div>Host token source: {diag().tokenSource.host}</div>
+                        </div>
+                      )}
+                    </Show>
                   </div>
 
                   <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">

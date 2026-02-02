@@ -116,6 +116,33 @@ pub struct OpenwrkOpencodeState {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct OpenwrkBinaryInfo {
+    pub path: String,
+    pub source: String,
+    pub expected_version: Option<String>,
+    pub actual_version: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenwrkBinaryState {
+    pub opencode: Option<OpenwrkBinaryInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenwrkSidecarInfo {
+    pub dir: Option<String>,
+    pub base_url: Option<String>,
+    pub manifest_url: Option<String>,
+    pub target: Option<String>,
+    pub source: Option<String>,
+    pub opencode_source: Option<String>,
+    pub allow_external: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct OpenwrkWorkspace {
     pub id: String,
     pub name: String,
@@ -134,6 +161,9 @@ pub struct OpenwrkStatus {
     pub data_dir: String,
     pub daemon: Option<OpenwrkDaemonState>,
     pub opencode: Option<OpenwrkOpencodeState>,
+    pub cli_version: Option<String>,
+    pub sidecar: Option<OpenwrkSidecarInfo>,
+    pub binaries: Option<OpenwrkBinaryState>,
     pub active_id: Option<String>,
     pub workspace_count: usize,
     pub workspaces: Vec<OpenwrkWorkspace>,
@@ -144,6 +174,7 @@ pub struct OpenwrkStatus {
 #[serde(rename_all = "camelCase")]
 pub struct OwpenbotInfo {
     pub running: bool,
+    pub version: Option<String>,
     pub workspace_path: Option<String>,
     pub opencode_url: Option<String>,
     pub qr_data: Option<String>,

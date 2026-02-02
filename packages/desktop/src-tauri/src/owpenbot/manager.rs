@@ -13,6 +13,7 @@ pub struct OwpenbotManager {
 pub struct OwpenbotState {
     pub child: Option<CommandChild>,
     pub child_exited: bool,
+    pub version: Option<String>,
     pub workspace_path: Option<String>,
     pub opencode_url: Option<String>,
     pub qr_data: Option<String>,
@@ -35,6 +36,7 @@ impl OwpenbotManager {
 
         OwpenbotInfo {
             running,
+            version: state.version.clone(),
             workspace_path: state.workspace_path.clone(),
             opencode_url: state.opencode_url.clone(),
             qr_data: state.qr_data.clone(),
@@ -51,6 +53,7 @@ impl OwpenbotManager {
             let _ = child.kill();
         }
         state.child_exited = true;
+        state.version = None;
         state.workspace_path = None;
         state.opencode_url = None;
         state.qr_data = None;

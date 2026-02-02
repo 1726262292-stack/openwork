@@ -19,6 +19,15 @@ pub async fn owpenbot_info(
         OwpenbotManager::snapshot_locked(&mut state)
     };
 
+    if info.version.is_none() {
+        if let Some(version) = owpenbot_version(&app).await {
+            info.version = Some(version.clone());
+            if let Ok(mut state) = manager.inner.lock() {
+                state.version = Some(version);
+            }
+        }
+    }
+
     // Only fetch from CLI status if manager doesn't have values (fallback for when sidecar isn't started)
     if info.opencode_url.is_none() || info.workspace_path.is_none() {
         if let Ok(status) = owpenbot_json(&app, &["status", "--json"], "get status").await {
@@ -344,6 +353,28 @@ async fn owpenbot_json(
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     serde_json::from_str(&stdout).map_err(|e| format!("Failed to parse {context}: {e}"))
+}
+
+async fn owpenbot_version(app: &AppHandle) -> Option<String> {
+    use tauri_plugin_shell::ShellExt;
+
+    let command = match app.shell().sidecar("owpenbot") {
+        Ok(command) => command,
+        Err(_) => app.shell().command("owpenbot"),
+    };
+
+    let output = command.args(["--version"]).output().await.ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    Some(trimmed.to_string())
 }
 
 #[tauri::command]

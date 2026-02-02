@@ -9,7 +9,14 @@ use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 use crate::paths::home_dir;
-use crate::types::{OpenwrkDaemonState, OpenwrkOpencodeState, OpenwrkStatus, OpenwrkWorkspace};
+use crate::types::{
+    OpenwrkBinaryState,
+    OpenwrkDaemonState,
+    OpenwrkOpencodeState,
+    OpenwrkSidecarInfo,
+    OpenwrkStatus,
+    OpenwrkWorkspace,
+};
 
 pub mod manager;
 
@@ -20,6 +27,9 @@ pub struct OpenwrkStateFile {
     pub version: Option<u32>,
     pub daemon: Option<OpenwrkDaemonState>,
     pub opencode: Option<OpenwrkOpencodeState>,
+    pub cli_version: Option<String>,
+    pub sidecar: Option<OpenwrkSidecarInfo>,
+    pub binaries: Option<OpenwrkBinaryState>,
     pub active_id: Option<String>,
     #[serde(default)]
     pub workspaces: Vec<OpenwrkWorkspace>,
@@ -31,6 +41,9 @@ pub struct OpenwrkHealth {
     pub ok: bool,
     pub daemon: Option<OpenwrkDaemonState>,
     pub opencode: Option<OpenwrkOpencodeState>,
+    pub cli_version: Option<String>,
+    pub sidecar: Option<OpenwrkSidecarInfo>,
+    pub binaries: Option<OpenwrkBinaryState>,
     pub active_id: Option<String>,
     pub workspace_count: Option<usize>,
 }
@@ -199,6 +212,9 @@ pub fn openwrk_status_from_state(data_dir: &str, last_error: Option<String>) -> 
         data_dir: data_dir.to_string(),
         daemon: state.as_ref().and_then(|state| state.daemon.clone()),
         opencode: state.as_ref().and_then(|state| state.opencode.clone()),
+        cli_version: state.as_ref().and_then(|state| state.cli_version.clone()),
+        sidecar: state.as_ref().and_then(|state| state.sidecar.clone()),
+        binaries: state.as_ref().and_then(|state| state.binaries.clone()),
         active_id,
         workspace_count,
         workspaces,
@@ -238,6 +254,9 @@ pub fn resolve_openwrk_status(data_dir: &str, last_error: Option<String>) -> Ope
                 data_dir: data_dir.to_string(),
                 daemon: health.daemon,
                 opencode: health.opencode,
+                cli_version: health.cli_version,
+                sidecar: health.sidecar,
+                binaries: health.binaries,
                 active_id,
                 workspace_count,
                 workspaces,
