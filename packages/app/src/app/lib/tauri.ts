@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { validateMcpServerName } from "../mcp";
 
 export type EngineInfo = {
@@ -625,7 +626,7 @@ export async function setOwpenbotTelegramToken(token: string): Promise<ExecResul
   try {
     const status = await getOwpenbotStatus();
     const healthPort = status?.healthPort ?? 3005;
-    const response = await fetch(`http://127.0.0.1:${healthPort}/config/telegram-token`, {
+    const response = await (isTauriRuntime() ? tauriFetch : fetch)(`http://127.0.0.1:${healthPort}/config/telegram-token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
