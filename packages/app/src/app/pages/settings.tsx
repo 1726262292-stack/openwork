@@ -119,6 +119,7 @@ function OwpenbotSettings(props: {
   openworkServerUrl: string;
   openworkServerSettings: OpenworkServerSettings;
   openworkServerWorkspaceId: string | null;
+  developerMode: boolean;
 }) {
   const [owpenbotStatus, setOwpenbotStatus] = createSignal<OwpenbotStatus | null>(null);
   const [qrCode, setQrCode] = createSignal<string | null>(null);
@@ -143,10 +144,8 @@ function OwpenbotSettings(props: {
     if (!baseUrl || !token || !props.openworkServerWorkspaceId) return null;
     return createOpenworkServerClient({ baseUrl, token });
   });
-  const owpenbotDebugEnabled = () =>
-    typeof window !== "undefined" && window.localStorage?.getItem("owpenbotDebug") === "true";
   const debugOwpenbot = (message: string, data?: Record<string, unknown>) => {
-    if (!owpenbotDebugEnabled()) return;
+    if (!props.developerMode) return;
     const payload = data ? ` ${JSON.stringify(data)}` : "";
     console.debug(`[owpenbot] ${message}${payload}`);
   };
@@ -1716,6 +1715,7 @@ export default function SettingsView(props: SettingsViewProps) {
               openworkServerUrl={props.openworkServerUrl}
               openworkServerSettings={props.openworkServerSettings}
               openworkServerWorkspaceId={props.openworkServerWorkspaceId}
+              developerMode={props.developerMode}
             />
           </div>
         </Match>
