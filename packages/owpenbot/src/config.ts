@@ -38,6 +38,11 @@ export type OwpenbotConfigFile = {
   };
 };
 
+export type ModelRef = {
+  providerID: string;
+  modelID: string;
+};
+
 export type Config = {
   configPath: string;
   configFile: OwpenbotConfigFile;
@@ -45,6 +50,7 @@ export type Config = {
   opencodeDirectory: string;
   opencodeUsername?: string;
   opencodePassword?: string;
+  model?: ModelRef;
   telegramToken?: string;
   telegramEnabled: boolean;
   whatsappAuthDir: string;
@@ -84,6 +90,16 @@ function parseList(value: string | undefined): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function parseModel(value: string | undefined): ModelRef | undefined {
+  if (!value?.trim()) return undefined;
+  const parts = value.trim().split("/");
+  if (parts.length < 2) return undefined;
+  const providerID = parts[0];
+  const modelID = parts.slice(1).join("/");
+  if (!providerID || !modelID) return undefined;
+  return { providerID, modelID };
 }
 
 function expandHome(value: string): string {
@@ -219,6 +235,7 @@ export function loadConfig(
 
   const telegramToken = env.TELEGRAM_BOT_TOKEN?.trim() || configFile.channels?.telegram?.token || undefined;
   const healthPort = parseInteger(env.OWPENBOT_HEALTH_PORT) ?? 3005;
+  const model = parseModel(env.OWPENBOT_MODEL);
 
   return {
     configPath,
@@ -227,6 +244,7 @@ export function loadConfig(
     opencodeDirectory: resolvedDirectory,
     opencodeUsername: env.OPENCODE_SERVER_USERNAME?.trim() || undefined,
     opencodePassword: env.OPENCODE_SERVER_PASSWORD?.trim() || undefined,
+    model,
     telegramToken,
     telegramEnabled: parseBoolean(
       env.TELEGRAM_ENABLED,

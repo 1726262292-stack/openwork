@@ -724,3 +724,34 @@ export async function opencodeMcpAuth(
     serverName: safeServerName,
   });
 }
+
+export async function owpenbotStop(): Promise<OwpenbotInfo> {
+  return invoke<OwpenbotInfo>("owpenbot_stop");
+}
+
+export async function owpenbotStart(options: {
+  workspacePath: string;
+  opencodeUrl?: string;
+  opencodeUsername?: string;
+  opencodePassword?: string;
+  healthPort?: number;
+}): Promise<OwpenbotInfo> {
+  return invoke<OwpenbotInfo>("owpenbot_start", {
+    workspacePath: options.workspacePath,
+    opencodeUrl: options.opencodeUrl ?? null,
+    opencodeUsername: options.opencodeUsername ?? null,
+    opencodePassword: options.opencodePassword ?? null,
+    healthPort: options.healthPort ?? null,
+  });
+}
+
+export async function owpenbotRestart(options: {
+  workspacePath: string;
+  opencodeUrl?: string;
+  opencodeUsername?: string;
+  opencodePassword?: string;
+  healthPort?: number;
+}): Promise<OwpenbotInfo> {
+  await owpenbotStop();
+  return owpenbotStart(options);
+}

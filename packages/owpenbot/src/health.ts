@@ -60,7 +60,9 @@ export function startHealthServer(
         return;
       }
 
-      if (!req.url || req.url === "/health") {
+      const pathname = req.url ? new URL(req.url, "http://localhost").pathname : "";
+
+      if (!pathname || pathname === "/" || pathname === "/health") {
         const snapshot = getStatus();
         res.writeHead(snapshot.ok ? 200 : 503, {
           "Content-Type": "application/json",
@@ -69,7 +71,7 @@ export function startHealthServer(
         return;
       }
 
-      if (req.url === "/config/telegram-token" && req.method === "POST") {
+      if (pathname === "/config/telegram-token" && req.method === "POST") {
         if (!handlers.setTelegramToken) {
           res.writeHead(404, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: false, error: "Not supported" }));

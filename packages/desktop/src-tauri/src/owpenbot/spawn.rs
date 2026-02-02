@@ -2,12 +2,12 @@ use std::path::Path;
 
 use std::net::TcpListener;
 
-use tauri::AppHandle;
 use tauri::async_runtime::Receiver;
+use tauri::AppHandle;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
-const DEFAULT_OWPENBOT_HEALTH_PORT: u16 = 3005;
+pub const DEFAULT_OWPENBOT_HEALTH_PORT: u16 = 3005;
 
 pub fn resolve_owpenbot_health_port() -> Result<u16, String> {
     if TcpListener::bind(("0.0.0.0", DEFAULT_OWPENBOT_HEALTH_PORT)).is_ok() {
@@ -18,10 +18,7 @@ pub fn resolve_owpenbot_health_port() -> Result<u16, String> {
     Ok(port)
 }
 
-pub fn build_owpenbot_args(
-    workspace_path: &str,
-    opencode_url: Option<&str>,
-) -> Vec<String> {
+pub fn build_owpenbot_args(workspace_path: &str, opencode_url: Option<&str>) -> Vec<String> {
     let mut args = vec!["start".to_string(), workspace_path.to_string()];
 
     if let Some(url) = opencode_url {
@@ -49,7 +46,7 @@ pub fn spawn_owpenbot(
     };
 
     let args = build_owpenbot_args(workspace_path, opencode_url);
-    
+
     let mut command = command
         .args(args)
         .current_dir(Path::new(workspace_path))

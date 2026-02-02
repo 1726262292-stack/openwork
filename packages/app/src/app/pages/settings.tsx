@@ -34,6 +34,8 @@ import {
   getOwpenbotPairingRequests,
   approveOwpenbotPairing,
   denyOwpenbotPairing,
+  owpenbotRestart,
+  owpenbotStop,
 } from "../lib/tauri";
 
 export type SettingsViewProps = {
@@ -845,6 +847,48 @@ export default function SettingsView(props: SettingsViewProps) {
       ? "bg-green-7/10 text-green-11 border-green-7/20"
       : "bg-gray-4/60 text-gray-11 border-gray-7/50";
   });
+
+  const [owpenbotRestarting, setOwpenbotRestarting] = createSignal(false);
+  const [owpenbotRestartError, setOwpenbotRestartError] = createSignal<string | null>(null);
+
+  const handleOwpenbotRestart = async () => {
+    if (owpenbotRestarting()) return;
+    const workspacePath = props.owpenbotInfo?.workspacePath?.trim() || props.engineInfo?.projectDir?.trim();
+    const opencodeUrl = props.owpenbotInfo?.opencodeUrl?.trim() || props.engineInfo?.baseUrl?.trim();
+    const opencodeUsername = props.engineInfo?.opencodeUsername?.trim() || undefined;
+    const opencodePassword = props.engineInfo?.opencodePassword?.trim() || undefined;
+    if (!workspacePath) {
+      setOwpenbotRestartError("No workspace path available");
+      return;
+    }
+    setOwpenbotRestarting(true);
+    setOwpenbotRestartError(null);
+    try {
+      await owpenbotRestart({
+        workspacePath,
+        opencodeUrl: opencodeUrl || undefined,
+        opencodeUsername,
+        opencodePassword,
+      });
+    } catch (e) {
+      setOwpenbotRestartError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setOwpenbotRestarting(false);
+    }
+  };
+
+  const handleOwpenbotStop = async () => {
+    if (owpenbotRestarting()) return;
+    setOwpenbotRestarting(true);
+    setOwpenbotRestartError(null);
+    try {
+      await owpenbotStop();
+    } catch (e) {
+      setOwpenbotRestartError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setOwpenbotRestarting(false);
+    }
+  };
 
   const openwrkStatusLabel = createMemo(() => {
     if (!props.openwrkStatus) return "Unavailable";
@@ -1990,6 +2034,32 @@ export default function SettingsView(props: SettingsViewProps) {
                         </div>
                         <div class="text-[11px] text-gray-7 font-mono truncate">PID: {props.owpenbotInfo?.pid ?? "—"}</div>
                       </div>
+                      <div class="flex items-center gap-2">
+                        <Button
+                          variant="secondary"
+                          onClick={handleOwpenbotRestart}
+                          disabled={owpenbotRestarting() || !isTauriRuntime()}
+                          class="text-xs px-3 py-1.5"
+                        >
+                          <RefreshCcw class={`w-3.5 h-3.5 mr-1.5 ${owpenbotRestarting() ? "animate-spin" : ""}`} />
+                          {owpenbotRestarting() ? "Restarting..." : "Restart"}
+                        </Button>
+                        <Show when={props.owpenbotInfo?.running}>
+                          <Button
+                            variant="ghost"
+                            onClick={handleOwpenbotStop}
+                            disabled={owpenbotRestarting()}
+                            class="text-xs px-3 py-1.5"
+                          >
+                            Stop
+                          </Button>
+                        </Show>
+                      </div>
+                      <Show when={owpenbotRestartError()}>
+                        <div class="text-xs text-red-11 bg-red-3/50 border border-red-6 rounded-lg p-2">
+                          {owpenbotRestartError()}
+                        </div>
+                      </Show>
                       <div class="grid gap-2">
                         <div>
                           <div class="text-[11px] text-gray-9 mb-1">Last stdout</div>
