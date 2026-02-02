@@ -667,6 +667,43 @@ export async function setOwpenbotTelegramToken(token: string): Promise<ExecResul
   }
 }
 
+export async function getOwpenbotGroupsEnabled(): Promise<boolean | null> {
+  try {
+    const status = await getOwpenbotStatus();
+    const healthPort = status?.healthPort ?? 3005;
+    const response = await (isTauriRuntime() ? tauriFetch : fetch)(`http://127.0.0.1:${healthPort}/config/groups`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const data = await response.json();
+    return data?.groupsEnabled ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setOwpenbotGroupsEnabled(enabled: boolean): Promise<ExecResult> {
+  try {
+    const status = await getOwpenbotStatus();
+    const healthPort = status?.healthPort ?? 3005;
+    const response = await (isTauriRuntime() ? tauriFetch : fetch)(`http://127.0.0.1:${healthPort}/config/groups`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!response.ok) {
+      const message = await response.text();
+      return { ok: false, status: response.status, stdout: "", stderr: message };
+    }
+    return { ok: true, status: 0, stdout: "", stderr: "" };
+  } catch (e) {
+    return { ok: false, status: 1, stdout: "", stderr: String(e) };
+  }
+}
+
 export async function getOwpenbotPairingRequests(): Promise<OwpenbotPairingRequest[]> {
   try {
     const result = await invoke<unknown>("owpenbot_pairing_list");

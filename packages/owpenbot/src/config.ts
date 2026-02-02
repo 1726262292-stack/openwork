@@ -18,6 +18,7 @@ export type OwpenbotConfigFile = {
   version: number;
   opencodeUrl?: string;
   opencodeDirectory?: string;
+  groupsEnabled?: boolean;
   channels?: {
     whatsapp?: {
       dmPolicy?: DmPolicy;
@@ -261,7 +262,7 @@ export function loadConfig(
     logFile,
     allowlist: envAllowlist,
     toolUpdatesEnabled: parseBoolean(env.TOOL_UPDATES_ENABLED, false),
-    groupsEnabled: parseBoolean(env.GROUPS_ENABLED, false),
+    groupsEnabled: parseBoolean(env.GROUPS_ENABLED, configFile.groupsEnabled ?? false),
     permissionMode,
     toolOutputLimit,
     healthPort,

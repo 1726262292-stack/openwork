@@ -36,6 +36,8 @@ import {
   denyOwpenbotPairing,
   owpenbotRestart,
   owpenbotStop,
+  getOwpenbotGroupsEnabled,
+  setOwpenbotGroupsEnabled,
 } from "../lib/tauri";
 
 export type SettingsViewProps = {
@@ -142,6 +144,8 @@ function OwpenbotSettings(props: {
   const [savingPolicy, setSavingPolicy] = createSignal(false);
   const [savingAllowlist, setSavingAllowlist] = createSignal(false);
   const [savingTelegram, setSavingTelegram] = createSignal(false);
+  const [groupsEnabled, setGroupsEnabled] = createSignal<boolean | null>(null);
+  const [savingGroups, setSavingGroups] = createSignal(false);
   const [telegramCheckState, setTelegramCheckState] = createSignal<
     "idle" | "checking" | "success" | "warning" | "error"
   >("idle");
@@ -166,7 +170,28 @@ function OwpenbotSettings(props: {
   onMount(async () => {
     await refreshStatus();
     await refreshPairingRequests();
+    await refreshGroupsEnabled();
   });
+
+  const refreshGroupsEnabled = async () => {
+    const enabled = await getOwpenbotGroupsEnabled();
+    setGroupsEnabled(enabled);
+  };
+
+  const handleGroupsToggle = async () => {
+    if (savingGroups()) return;
+    const current = groupsEnabled();
+    const newValue = current === null ? true : !current;
+    setSavingGroups(true);
+    try {
+      const result = await setOwpenbotGroupsEnabled(newValue);
+      if (result.ok) {
+        setGroupsEnabled(newValue);
+      }
+    } finally {
+      setSavingGroups(false);
+    }
+  };
 
   const refreshStatus = async () => {
     const status = await getOwpenbotStatus();
@@ -645,6 +670,24 @@ function OwpenbotSettings(props: {
             </Show>
           </div>
         </Show>
+      </div>
+
+      {/* Groups Settings */}
+      <div class="bg-gray-1 rounded-xl border border-gray-6 p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-sm font-medium text-gray-12">Group @Mentions</div>
+            <div class="text-xs text-gray-10">Respond when @mentioned in Telegram groups</div>
+          </div>
+          <Button
+            variant={groupsEnabled() ? "secondary" : "outline"}
+            class="text-xs h-8 py-0 px-3"
+            onClick={handleGroupsToggle}
+            disabled={props.busy || savingGroups() || groupsEnabled() === null}
+          >
+            {savingGroups() ? "Saving..." : groupsEnabled() ? "Enabled" : "Disabled"}
+          </Button>
+        </div>
       </div>
 
       {/* Pairing Requests */}

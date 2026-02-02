@@ -13,6 +13,9 @@ export type HealthSnapshot = {
     telegram: boolean;
     whatsapp: boolean;
   };
+  config: {
+    groupsEnabled: boolean;
+  };
 };
 
 export type TelegramTokenResult = {
@@ -20,8 +23,14 @@ export type TelegramTokenResult = {
   enabled: boolean;
 };
 
+export type GroupsConfigResult = {
+  groupsEnabled: boolean;
+};
+
 export type HealthHandlers = {
   setTelegramToken?: (token: string) => Promise<TelegramTokenResult>;
+  setGroupsEnabled?: (enabled: boolean) => Promise<GroupsConfigResult>;
+  getGroupsEnabled?: () => boolean;
 };
 
 export function startHealthServer(
@@ -100,6 +109,53 @@ export function startHealthServer(
           const result = await handlers.setTelegramToken(token);
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: true, telegram: result }));
+          return;
+        } catch (error) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: String(error) }));
+          return;
+        }
+      }
+
+      // GET /config/groups - get current groups setting
+      if (pathname === "/config/groups" && req.method === "GET") {
+        if (!handlers.getGroupsEnabled) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "Not supported" }));
+          return;
+        }
+
+        const groupsEnabled = handlers.getGroupsEnabled();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, groupsEnabled }));
+        return;
+      }
+
+      // POST /config/groups - set groups enabled
+      if (pathname === "/config/groups" && req.method === "POST") {
+        if (!handlers.setGroupsEnabled) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "Not supported" }));
+          return;
+        }
+
+        let raw = "";
+        for await (const chunk of req) {
+          raw += chunk.toString();
+          if (raw.length > 1024 * 1024) {
+            res.writeHead(413, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: "Payload too large" }));
+            return;
+          }
+        }
+
+        try {
+          const payload = JSON.parse(raw || "{}");
+          const enabled = payload.enabled === true || payload.enabled === "true";
+
+          const result = await handlers.setGroupsEnabled(enabled);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, ...result }));
           return;
         } catch (error) {
           res.writeHead(500, { "Content-Type": "application/json" });

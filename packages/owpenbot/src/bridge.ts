@@ -225,6 +225,9 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
   await refreshHealth();
   const healthTimer = setInterval(refreshHealth, 30_000);
 
+  // Mutable runtime state for groups (persisted to config file)
+  let groupsEnabled = config.groupsEnabled;
+
   let stopHealthServer: (() => void) | null = null;
   if (config.healthPort) {
     stopHealthServer = startHealthServer(
@@ -240,9 +243,31 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
           telegram: adapters.has("telegram"),
           whatsapp: adapters.has("whatsapp"),
         },
+        config: {
+          groupsEnabled,
+        },
       }),
       logger,
       {
+        getGroupsEnabled: () => groupsEnabled,
+        setGroupsEnabled: async (enabled: boolean) => {
+          groupsEnabled = enabled;
+          // Also update config so adapters see the change
+          (config as any).groupsEnabled = enabled;
+          
+          // Persist to config file
+          const { config: current } = readConfigFile(config.configPath);
+          const next: OwpenbotConfigFile = {
+            ...current,
+            groupsEnabled: enabled,
+          };
+          next.version = next.version ?? 1;
+          writeConfigFile(config.configPath, next);
+          config.configFile = next;
+          
+          logger.info({ groupsEnabled: enabled }, "groups config updated");
+          return { groupsEnabled: enabled };
+        },
         setTelegramToken: async (token: string) => {
           const trimmed = token.trim();
           if (!trimmed) {
