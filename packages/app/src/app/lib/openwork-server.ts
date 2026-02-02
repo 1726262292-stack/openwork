@@ -307,7 +307,11 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspace/${workspaceId}/config`,
         { token, hostToken },
       ),
-    setOwpenbotTelegramToken: (workspaceId: string, tokenValue: string) =>
+    setOwpenbotTelegramToken: (
+      workspaceId: string,
+      tokenValue: string,
+      healthPort?: number | null,
+    ) =>
       requestJson<OpenworkOwpenbotTelegramResult>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/owpenbot/telegram-token`,
@@ -315,7 +319,7 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
           token,
           hostToken,
           method: "POST",
-          body: { token: tokenValue },
+          body: { token: tokenValue, healthPort },
         },
       ),
     patchConfig: (workspaceId: string, payload: { opencode?: Record<string, unknown>; openwork?: Record<string, unknown> }) =>

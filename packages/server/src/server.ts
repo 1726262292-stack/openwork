@@ -346,10 +346,12 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const token = typeof body.token === "string" ? body.token.trim() : "";
+    const healthPort = normalizeHealthPort(body.healthPort);
     logOwpenbotDebug("telegram-token:request", {
       workspaceId: workspace.id,
       actor: ctx.actor?.type ?? "unknown",
       hasToken: Boolean(token),
+      healthPort: healthPort ?? null,
     });
     if (!token) {
       throw new ApiError(400, "token_required", "Telegram token is required");
@@ -362,7 +364,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
       paths: [resolveOwpenbotConfigPath()],
     });
 
-    const result = await updateOwpenbotTelegramToken(token);
+    const result = await updateOwpenbotTelegramToken(token, healthPort);
     logOwpenbotDebug("telegram-token:updated", { workspaceId: workspace.id });
 
     await recordAudit(workspace.path, {
@@ -805,8 +807,18 @@ function parseJsonResponse(text: string): unknown {
   }
 }
 
-async function updateOwpenbotTelegramToken(token: string): Promise<Record<string, unknown>> {
-  const port = resolveOwpenbotHealthPort();
+function normalizeHealthPort(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const port = Math.trunc(value);
+  if (port <= 0 || port > 65535) return null;
+  return port;
+}
+
+async function updateOwpenbotTelegramToken(
+  token: string,
+  healthPortOverride?: number | null,
+): Promise<Record<string, unknown>> {
+  const port = healthPortOverride ?? resolveOwpenbotHealthPort();
   const url = `http://127.0.0.1:${port}/config/telegram-token`;
   let response: Response;
   try {

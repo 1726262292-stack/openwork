@@ -310,7 +310,11 @@ function OwpenbotSettings(props: {
 
         setTelegramFeedback("checking", "Saving token on the host...");
         try {
-          await serverClient.setOwpenbotTelegramToken(props.openworkServerWorkspaceId, token);
+          await serverClient.setOwpenbotTelegramToken(
+            props.openworkServerWorkspaceId,
+            token,
+            owpenbotStatus()?.healthPort ?? null,
+          );
           debugOwpenbot("save-token:remote-success");
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
