@@ -20,7 +20,12 @@ import { truncateText } from "./text.js";
 import { loginWhatsApp, unpairWhatsApp } from "./whatsapp.js";
 import { hasWhatsAppCreds } from "./whatsapp-session.js";
 
+declare const __OWPENBOT_VERSION__: string | undefined;
+
 const VERSION = (() => {
+  if (typeof __OWPENBOT_VERSION__ === "string" && __OWPENBOT_VERSION__.trim()) {
+    return __OWPENBOT_VERSION__.trim();
+  }
   try {
     const pkgPath = new URL("../package.json", import.meta.url);
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as { version?: string };
