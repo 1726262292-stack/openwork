@@ -119,6 +119,16 @@ function jsonResponse(data: unknown, status = 200) {
   });
 }
 
+function owpenbotDebugEnabled(): boolean {
+  return ["1", "true", "yes"].includes((process.env.OPENWORK_DEBUG_OWPENBOT ?? "").toLowerCase());
+}
+
+function logOwpenbotDebug(message: string, details?: Record<string, unknown>) {
+  if (!owpenbotDebugEnabled()) return;
+  const payload = details ? ` ${JSON.stringify(details)}` : "";
+  console.log(`[owpenbot] ${message}${payload}`);
+}
+
 function withCors(response: Response, request: Request, config: ServerConfig) {
   const origin = request.headers.get("origin");
   const allowedOrigins = config.corsOrigins;
@@ -304,7 +314,11 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const token = typeof body.token === "string" ? body.token.trim() : "";
-
+    logOwpenbotDebug("telegram-token:request", {
+      workspaceId: workspace.id,
+      actor: ctx.actor?.type ?? "unknown",
+      hasToken: Boolean(token),
+    });
     if (!token) {
       throw new ApiError(400, "token_required", "Telegram token is required");
     }
@@ -317,6 +331,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
     });
 
     const result = await updateOwpenbotTelegramToken(token);
+    logOwpenbotDebug("telegram-token:updated", { workspaceId: workspace.id });
 
     await recordAudit(workspace.path, {
       id: shortId(),
