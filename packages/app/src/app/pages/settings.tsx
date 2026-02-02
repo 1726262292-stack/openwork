@@ -277,6 +277,10 @@ function OwpenbotSettings(props: {
 
     setSavingTelegram(true);
     try {
+      const latestStatus = await getOwpenbotStatus();
+      if (latestStatus) {
+        setOwpenbotStatus(latestStatus);
+      }
       const serverClient = openworkServerClient();
       const useRemote = Boolean(serverClient && props.openworkServerWorkspaceId);
       debugOwpenbot("save-token:start", {
@@ -286,6 +290,7 @@ function OwpenbotSettings(props: {
         openworkServerStatus: props.openworkServerStatus,
         openworkServerUrl: props.openworkServerUrl,
         openworkServerWorkspaceId: props.openworkServerWorkspaceId,
+        owpenbotHealthPort: latestStatus?.healthPort ?? owpenbotStatus()?.healthPort ?? null,
         hasToken: Boolean(
           (props.mode === "host"
             ? props.openworkServerHostInfo?.clientToken?.trim()
@@ -313,7 +318,7 @@ function OwpenbotSettings(props: {
           await serverClient.setOwpenbotTelegramToken(
             props.openworkServerWorkspaceId,
             token,
-            owpenbotStatus()?.healthPort ?? null,
+            latestStatus?.healthPort ?? owpenbotStatus()?.healthPort ?? null,
           );
           debugOwpenbot("save-token:remote-success");
         } catch (error) {
