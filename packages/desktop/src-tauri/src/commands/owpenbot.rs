@@ -2,7 +2,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_shell::process::CommandEvent;
 
 use crate::owpenbot::manager::OwpenbotManager;
-use crate::owpenbot::spawn::spawn_owpenbot;
+use crate::owpenbot::spawn::{resolve_owpenbot_health_port, spawn_owpenbot};
 use crate::types::OwpenbotInfo;
 use crate::utils::truncate_output;
 
@@ -75,6 +75,7 @@ pub fn owpenbot_start(
     opencode_url: Option<String>,
     opencode_username: Option<String>,
     opencode_password: Option<String>,
+    health_port: Option<u16>,
 ) -> Result<OwpenbotInfo, String> {
     let mut state = manager
         .inner
@@ -82,18 +83,21 @@ pub fn owpenbot_start(
         .map_err(|_| "owpenbot mutex poisoned".to_string())?;
     OwpenbotManager::stop_locked(&mut state);
 
+    let resolved_health_port = health_port.unwrap_or_else(|| resolve_owpenbot_health_port())?;
     let (mut rx, child) = spawn_owpenbot(
         &app,
         &workspace_path,
         opencode_url.as_deref(),
         opencode_username.as_deref(),
         opencode_password.as_deref(),
+        resolved_health_port,
     )?;
 
     state.child = Some(child);
     state.child_exited = false;
     state.workspace_path = Some(workspace_path);
     state.opencode_url = opencode_url;
+    state.health_port = Some(resolved_health_port);
     state.last_stdout = None;
     state.last_stderr = None;
 
@@ -253,6 +257,16 @@ pub async fn owpenbot_status(
     let health_port = status
         .get("healthPort")
         .and_then(|value| value.as_u64());
+    let manager_health_port = {
+        let mut state = manager
+            .inner
+            .lock()
+            .map_err(|_| "owpenbot mutex poisoned".to_string())?;
+        state.health_port
+    };
+    let health_port = manager_health_port
+        .map(|value| value as u64)
+        .or(health_port);
 
     let whatsapp_linked = whatsapp
         .get("linked")

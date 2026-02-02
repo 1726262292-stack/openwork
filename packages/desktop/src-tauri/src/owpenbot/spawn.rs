@@ -1,9 +1,22 @@
 use std::path::Path;
 
+use std::net::TcpListener;
+
 use tauri::AppHandle;
 use tauri::async_runtime::Receiver;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
+
+const DEFAULT_OWPENBOT_HEALTH_PORT: u16 = 3005;
+
+pub fn resolve_owpenbot_health_port() -> Result<u16, String> {
+    if TcpListener::bind(("0.0.0.0", DEFAULT_OWPENBOT_HEALTH_PORT)).is_ok() {
+        return Ok(DEFAULT_OWPENBOT_HEALTH_PORT);
+    }
+    let listener = TcpListener::bind(("0.0.0.0", 0)).map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    Ok(port)
+}
 
 pub fn build_owpenbot_args(
     workspace_path: &str,
@@ -28,6 +41,7 @@ pub fn spawn_owpenbot(
     opencode_url: Option<&str>,
     opencode_username: Option<&str>,
     opencode_password: Option<&str>,
+    health_port: u16,
 ) -> Result<(Receiver<CommandEvent>, CommandChild), String> {
     let command = match app.shell().sidecar("owpenbot") {
         Ok(command) => command,
@@ -36,7 +50,10 @@ pub fn spawn_owpenbot(
 
     let args = build_owpenbot_args(workspace_path, opencode_url);
     
-    let mut command = command.args(args).current_dir(Path::new(workspace_path));
+    let mut command = command
+        .args(args)
+        .current_dir(Path::new(workspace_path))
+        .env("OWPENBOT_HEALTH_PORT", health_port.to_string());
 
     if let Some(username) = opencode_username {
         if !username.trim().is_empty() {

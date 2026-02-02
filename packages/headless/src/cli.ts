@@ -17,6 +17,7 @@ type ApprovalMode = "manual" | "auto";
 
 const FALLBACK_VERSION = "0.1.0";
 const DEFAULT_OPENWORK_PORT = 8787;
+const DEFAULT_OWPENBOT_HEALTH_PORT = 3005;
 const DEFAULT_APPROVAL_TIMEOUT = 30000;
 const DEFAULT_OPENCODE_USERNAME = "opencode";
 
@@ -1357,6 +1358,7 @@ function printHelp(): void {
     "  --connect-host <host>     Override LAN host used for pairing URLs",
     "  --openwork-server-bin <p> Path to openwork-server binary (requires --allow-external)",
     "  --owpenbot-bin <path>     Path to owpenbot binary (requires --allow-external)",
+    "  --owpenbot-health-port <p> Health server port for owpenbot (default: 3005)",
     "  --no-owpenbot             Disable owpenbot sidecar",
     "  --owpenbot-required       Exit if owpenbot stops",
     "  --allow-external          Allow external sidecar binaries (dev only, required for custom bins)",
@@ -1445,6 +1447,7 @@ async function startOpenworkServer(options: {
   opencodeDirectory?: string;
   opencodeUsername?: string;
   opencodePassword?: string;
+  owpenbotHealthPort?: number;
 }) {
   const args = [
     "--host",
@@ -1492,6 +1495,7 @@ async function startOpenworkServer(options: {
       ...process.env,
       OPENWORK_TOKEN: options.token,
       OPENWORK_HOST_TOKEN: options.hostToken,
+      ...(options.owpenbotHealthPort ? { OWPENBOT_HEALTH_PORT: String(options.owpenbotHealthPort) } : {}),
       ...(options.opencodeBaseUrl ? { OPENWORK_OPENCODE_BASE_URL: options.opencodeBaseUrl } : {}),
       ...(options.opencodeDirectory ? { OPENWORK_OPENCODE_DIRECTORY: options.opencodeDirectory } : {}),
       ...(options.opencodeUsername ? { OPENWORK_OPENCODE_USERNAME: options.opencodeUsername } : {}),
@@ -1511,6 +1515,7 @@ async function startOwpenbot(options: {
   opencodeUrl?: string;
   opencodeUsername?: string;
   opencodePassword?: string;
+  owpenbotHealthPort?: number;
 }) {
   const args = ["start", options.workspace];
   if (options.opencodeUrl) {
@@ -1528,6 +1533,7 @@ async function startOwpenbot(options: {
       ...process.env,
       ...(options.opencodeUrl ? { OPENCODE_URL: options.opencodeUrl } : {}),
       OPENCODE_DIRECTORY: options.workspace,
+      ...(options.owpenbotHealthPort ? { OWPENBOT_HEALTH_PORT: String(options.owpenbotHealthPort) } : {}),
       ...(options.opencodeUsername ? { OPENCODE_SERVER_USERNAME: options.opencodeUsername } : {}),
       ...(options.opencodePassword ? { OPENCODE_SERVER_PASSWORD: options.opencodePassword } : {}),
     },
@@ -2482,6 +2488,11 @@ async function runStart(args: ParsedArgs) {
     "127.0.0.1",
     DEFAULT_OPENWORK_PORT,
   );
+  const owpenbotHealthPort = await resolvePort(
+    readNumber(args.flags, "owpenbot-health-port", undefined, "OWPENBOT_HEALTH_PORT"),
+    "127.0.0.1",
+    DEFAULT_OWPENBOT_HEALTH_PORT,
+  );
   const openworkToken = readFlag(args.flags, "openwork-token") ?? process.env.OPENWORK_TOKEN ?? randomUUID();
   const openworkHostToken = readFlag(args.flags, "openwork-host-token") ?? process.env.OPENWORK_HOST_TOKEN ?? randomUUID();
   const approvalMode =
@@ -2616,6 +2627,7 @@ async function runStart(args: ParsedArgs) {
       opencodeDirectory: resolvedWorkspace,
       opencodeUsername,
       opencodePassword,
+      owpenbotHealthPort,
     });
     children.push({ name: "openwork-server", child: openworkChild });
     openworkChild.on("exit", (code, signal) => handleExit("openwork-server", code, signal));
@@ -2648,6 +2660,7 @@ async function runStart(args: ParsedArgs) {
         opencodeUrl: opencodeConnectUrl,
         opencodeUsername,
         opencodePassword,
+        owpenbotHealthPort,
       });
       children.push({ name: "owpenbot", child: owpenbotChild });
       owpenbotChild.on("exit", (code, signal) => {
@@ -2689,6 +2702,7 @@ async function runStart(args: ParsedArgs) {
       owpenbot: {
         enabled: owpenbotEnabled,
         version: owpenbotEnabled ? owpenbotActualVersion : undefined,
+        healthPort: owpenbotHealthPort,
       },
       diagnostics: {
         cliVersion,

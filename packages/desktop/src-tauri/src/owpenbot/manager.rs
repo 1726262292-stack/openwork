@@ -16,6 +16,7 @@ pub struct OwpenbotState {
     pub version: Option<String>,
     pub workspace_path: Option<String>,
     pub opencode_url: Option<String>,
+    pub health_port: Option<u16>,
     pub qr_data: Option<String>,
     pub whatsapp_linked: bool,
     pub telegram_configured: bool,
@@ -59,6 +60,7 @@ impl OwpenbotManager {
         state.qr_data = None;
         state.whatsapp_linked = false;
         state.telegram_configured = false;
+        state.health_port = None;
         state.last_stdout = None;
         state.last_stderr = None;
     }

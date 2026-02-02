@@ -11,6 +11,7 @@ use crate::openwrk::{self, OpenwrkSpawnOptions};
 use crate::openwrk::manager::OpenwrkManager;
 use crate::openwork_server::{manager::OpenworkServerManager, resolve_connect_url, start_openwork_server};
 use crate::owpenbot::manager::OwpenbotManager;
+use crate::owpenbot::spawn::resolve_owpenbot_health_port;
 use crate::types::{EngineDoctorResult, EngineInfo, EngineRuntime, ExecResult};
 use crate::utils::truncate_output;
 use serde_json::json;
@@ -370,6 +371,16 @@ pub fn engine_start(
             state.last_stderr = None;
         }
 
+        let owpenbot_health_port = match resolve_owpenbot_health_port() {
+            Ok(port) => Some(port),
+            Err(error) => {
+                if let Ok(mut state) = manager.inner.lock() {
+                    state.last_stderr = Some(truncate_output(&format!("Owpenbot health port: {error}"), 8000));
+                }
+                None
+            }
+        };
+
         if let Err(error) = start_openwork_server(
             &app,
             &openwork_manager,
@@ -377,6 +388,7 @@ pub fn engine_start(
             Some(&opencode_connect_url),
             opencode_username.as_deref(),
             opencode_password.as_deref(),
+            owpenbot_health_port,
         ) {
             if let Ok(mut state) = manager.inner.lock() {
                 state.last_stderr = Some(truncate_output(&format!("OpenWork server: {error}"), 8000));
@@ -390,6 +402,7 @@ pub fn engine_start(
             Some(opencode_connect_url),
             opencode_username.clone(),
             opencode_password.clone(),
+            owpenbot_health_port,
         ) {
             if let Ok(mut state) = manager.inner.lock() {
                 state.last_stderr = Some(truncate_output(&format!("Owpenbot: {error}"), 8000));
@@ -543,6 +556,14 @@ pub fn engine_start(
     state.opencode_password = opencode_password.clone();
 
     let opencode_connect_url = resolve_connect_url(port).unwrap_or_else(|| format!("http://{client_host}:{port}"));
+    let owpenbot_health_port = match resolve_owpenbot_health_port() {
+        Ok(port) => Some(port),
+        Err(error) => {
+            state.last_stderr = Some(truncate_output(&format!("Owpenbot health port: {error}"), 8000));
+            None
+        }
+    };
+
     if let Err(error) = start_openwork_server(
         &app,
         &openwork_manager,
@@ -550,6 +571,7 @@ pub fn engine_start(
         Some(&opencode_connect_url),
         opencode_username.as_deref(),
         opencode_password.as_deref(),
+        owpenbot_health_port,
     ) {
         state.last_stderr = Some(truncate_output(&format!("OpenWork server: {error}"), 8000));
     }
@@ -561,6 +583,7 @@ pub fn engine_start(
         Some(opencode_connect_url),
         opencode_username,
         opencode_password,
+        owpenbot_health_port,
     ) {
         state.last_stderr = Some(truncate_output(&format!("Owpenbot: {error}"), 8000));
     }
