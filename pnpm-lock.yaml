@@ -89,8 +89,8 @@ importers:
         specifier: ^1.1.31
         version: 1.1.39
       openwork-server:
-        specifier: ^0.1.0
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
@@ -1498,8 +1498,8 @@ packages:
     resolution: {integrity: sha512-0eJJY6hXLGf1udHwfNftBqH+g73EU4B504nZeKpz1sYRKafAghwxEJunB2O7rDZkL4PGfsMVnTXZ2EjibbqcsA==}
     engines: {node: '>=14.0.0'}
 
-  openwork-server@0.1.1:
-    resolution: {integrity: sha512-osSK6lHsCX32KjGcmVsO6zWVjyMZHv7u6VUb6Wcpa/f1trr9ad0MeTTwaqgpRl3LQCB0CaeyT23/n02S5C4z6Q==}
+  openwork-server@0.1.2:
+    resolution: {integrity: sha512-xN3iWCzr2crkdwwjJxFDBaToBsFxMlIyB1VBBLOdjvA3y7jfXwVi8R/rGWZ19Sflgm7yS5uchBmqO4oMZ4IYfA==}
     hasBin: true
 
   p-queue@9.1.0:
@@ -2818,7 +2818,7 @@ snapshots:
 
   on-exit-leak-free@2.1.2: {}
 
-  openwork-server@0.1.1:
+  openwork-server@0.1.2:
     dependencies:
       jsonc-parser: 3.3.1
       minimatch: 10.1.1
