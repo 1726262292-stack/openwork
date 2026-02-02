@@ -91,6 +91,9 @@ importers:
       openwork-server:
         specifier: 0.1.2
         version: 0.1.2
+      owpenwork:
+        specifier: 0.1.17
+        version: 0.1.17(sharp@0.34.5)
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
@@ -1502,6 +1505,10 @@ packages:
     resolution: {integrity: sha512-xN3iWCzr2crkdwwjJxFDBaToBsFxMlIyB1VBBLOdjvA3y7jfXwVi8R/rGWZ19Sflgm7yS5uchBmqO4oMZ4IYfA==}
     hasBin: true
 
+  owpenwork@0.1.17:
+    resolution: {integrity: sha512-K7xvSVrFKUgEnMNhfefjVjjeIt05RtQXiSgUA0QoMgiB9VIwbfoSCNA5HSji+UvjNu3uvnl/c9N3w0JABgxZjA==}
+    hasBin: true
+
   p-queue@9.1.0:
     resolution: {integrity: sha512-O/ZPaXuQV29uSLbxWBGGZO1mCQXV2BLIwUr59JUU9SoH76mnYvtms7aafH/isNSNGwuEfP6W/4xD0/TJXxrizw==}
     engines: {node: '>=20'}
@@ -2823,6 +2830,25 @@ snapshots:
       jsonc-parser: 3.3.1
       minimatch: 10.1.1
       yaml: 2.8.2
+
+  owpenwork@0.1.17(sharp@0.34.5):
+    dependencies:
+      '@opencode-ai/sdk': 1.1.39
+      '@whiskeysockets/baileys': 7.0.0-rc.9(sharp@0.34.5)
+      commander: 12.1.0
+      dotenv: 16.6.1
+      grammy: 1.39.3
+      pino: 9.14.0
+      qrcode-terminal: 0.12.0
+    transitivePeerDependencies:
+      - audio-decode
+      - bufferutil
+      - encoding
+      - jimp
+      - link-preview-js
+      - sharp
+      - supports-color
+      - utf-8-validate
 
   p-queue@9.1.0:
     dependencies:

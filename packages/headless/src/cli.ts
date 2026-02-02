@@ -1151,7 +1151,25 @@ async function resolveOwpenbotBin(options: {
       }
     }
 
-    return { bin: "owpenbot", source: "external", expectedVersion };
+    const require = createRequire(import.meta.url);
+    try {
+      const pkgPath = require.resolve("owpenwork/package.json");
+      const pkgDir = dirname(pkgPath);
+      const binaryPath = join(pkgDir, "dist", "bin", "owpenbot");
+      if (await isExecutable(binaryPath)) {
+        return { bin: binaryPath, source: "external", expectedVersion };
+      }
+      const cliPath = join(pkgDir, "dist", "cli.js");
+      if (await isExecutable(cliPath)) {
+        return { bin: cliPath, source: "external", expectedVersion };
+      }
+    } catch {
+      // ignore
+    }
+
+    throw new Error(
+      "owpenbot binary not found. Install the owpenwork dependency or pass --owpenbot-bin with --allow-external.",
+    );
   };
 
   if (options.source === "bundled") {
