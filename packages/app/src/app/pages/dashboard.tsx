@@ -9,6 +9,7 @@ import type {
   SettingsTab,
   ScheduledJob,
   SkillCard,
+  StartupPreference,
   WorkspaceCommand,
   View,
 } from "../types";
@@ -63,7 +64,7 @@ export type DashboardViewProps = {
   submitProviderApiKey: (providerId: string, apiKey: string) => Promise<string | void>;
   view: View;
   setView: (view: View, sessionId?: string) => void;
-  mode: "host" | "client" | null;
+  startupPreference: StartupPreference | null;
   baseUrl: string;
   clientConnected: boolean;
   busy: boolean;
@@ -84,6 +85,7 @@ export type DashboardViewProps = {
   openworkAuditError: string | null;
   opencodeConnectStatus: OpencodeConnectStatus | null;
   engineInfo: EngineInfo | null;
+  engineDoctorVersion: string | null;
   openwrkStatus: OpenwrkStatus | null;
   owpenbotInfo: OwpenbotInfo | null;
   updateOpenworkServerSettings: (next: OpenworkServerSettings) => void;
@@ -436,7 +438,12 @@ export default function DashboardView(props: DashboardViewProps) {
 
         <div class="space-y-4">
 
-          <Show when={props.mode === "client" && props.openworkServerStatus === "disconnected"}>
+          <Show
+            when={
+              props.activeWorkspaceDisplay.workspaceType === "remote" &&
+              props.openworkServerStatus === "disconnected"
+            }
+          >
             <div class="text-[11px] text-gray-9 px-1">
               OpenWork server is offline — remote tasks still run.
             </div>
@@ -842,7 +849,6 @@ export default function DashboardView(props: DashboardViewProps) {
             <Match when={props.tab === "skills"}>
               <SkillsView
                 busy={props.busy}
-                mode={props.mode}
                 canInstallSkillCreator={props.canInstallSkillCreator}
                 canUseDesktopTools={props.canUseDesktopTools}
                 accessHint={props.skillsAccessHint}
@@ -881,7 +887,6 @@ export default function DashboardView(props: DashboardViewProps) {
 
             <Match when={props.tab === "mcp"}>
               <McpView
-                mode={props.mode}
                 busy={props.busy}
                 activeWorkspaceRoot={props.activeWorkspaceRoot}
                 mcpServers={props.mcpServers}
@@ -901,7 +906,7 @@ export default function DashboardView(props: DashboardViewProps) {
 
             <Match when={props.tab === "settings"}>
                 <SettingsView
-                  mode={props.mode}
+                  startupPreference={props.startupPreference}
                   baseUrl={props.baseUrl}
                   headerStatus={props.headerStatus}
                   busy={props.busy}
@@ -925,6 +930,7 @@ export default function DashboardView(props: DashboardViewProps) {
                   engineInfo={props.engineInfo}
                   openwrkStatus={props.openwrkStatus}
                   owpenbotInfo={props.owpenbotInfo}
+                  engineDoctorVersion={props.engineDoctorVersion}
                   updateOpenworkServerSettings={props.updateOpenworkServerSettings}
                   resetOpenworkServerSettings={props.resetOpenworkServerSettings}
                   testOpenworkServerConnection={props.testOpenworkServerConnection}

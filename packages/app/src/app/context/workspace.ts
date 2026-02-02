@@ -2,14 +2,22 @@ import { createMemo, createSignal } from "solid-js";
 
 import type {
   Client,
-  Mode,
+  StartupPreference,
   OnboardingStep,
   WorkspaceDisplay,
   WorkspaceOpenworkConfig,
   WorkspacePreset,
   EngineRuntime,
 } from "../types";
-import { addOpencodeCacheHint, isTauriRuntime, normalizeDirectoryPath, safeStringify, writeModePreference } from "../utils";
+import {
+  addOpencodeCacheHint,
+  clearStartupPreference,
+  isTauriRuntime,
+  normalizeDirectoryPath,
+  readStartupPreference,
+  safeStringify,
+  writeStartupPreference,
+} from "../utils";
 import { unwrap } from "../lib/opencode";
 import {
   createOpenworkServerClient,
@@ -53,11 +61,12 @@ import { mapConfigProvidersToList } from "../utils/providers";
 export type WorkspaceStore = ReturnType<typeof createWorkspaceStore>;
 
 export function createWorkspaceStore(options: {
-  mode: () => Mode | null;
-  setMode: (mode: Mode | null) => void;
+  startupPreference: () => StartupPreference | null;
+  setStartupPreference: (value: StartupPreference | null) => void;
   onboardingStep: () => OnboardingStep;
   setOnboardingStep: (step: OnboardingStep) => void;
-  rememberModeChoice: () => boolean;
+  rememberStartupChoice: () => boolean;
+  setRememberStartupChoice: (value: boolean) => void;
   baseUrl: () => string;
   setBaseUrl: (value: string) => void;
   clientDirectory: () => string;
@@ -198,32 +207,37 @@ export function createWorkspaceStore(options: {
     } catch (error) {
       if (error instanceof OpenworkServerError && (error.status === 401 || error.status === 403)) {
         if (!trimmedToken) {
-          throw new Error("Access token required for OpenWork host.");
+          throw new Error("Access token required for OpenWork server.");
         }
-        throw new Error("OpenWork host rejected the client token.");
+        throw new Error("OpenWork server rejected the access token.");
       }
       return { kind: "fallback" as const };
     }
 
     if (!trimmedToken) {
-      throw new Error("Access token required for OpenWork host.");
+      throw new Error("Access token required for OpenWork server.");
     }
 
     const response = await client.listWorkspaces();
     const items = Array.isArray(response.items) ? response.items : [];
     const workspace = items[0] as OpenworkWorkspaceInfo | undefined;
     if (!workspace) {
-      throw new Error("OpenWork host did not return a workspace.");
+      throw new Error("OpenWork server did not return a workspace.");
     }
     let opencodeBaseUrl = workspace.opencode?.baseUrl?.trim() ?? workspace.baseUrl?.trim() ?? "";
     if (!opencodeBaseUrl) {
-      throw new Error("OpenWork host did not provide an OpenCode URL.");
+      throw new Error("OpenWork server did not provide an OpenCode URL.");
     }
 
     const opencodeUsername = workspace.opencode?.username?.trim() ?? "";
     const opencodePassword = workspace.opencode?.password?.trim() ?? "";
-    const opencodeAuth =
+    let opencodeAuth: OpencodeAuth | undefined =
       opencodeUsername && opencodePassword ? { username: opencodeUsername, password: opencodePassword } : undefined;
+
+    if (!isTauriRuntime()) {
+      opencodeBaseUrl = `${normalized.replace(/\/+$/, "")}/opencode`;
+      opencodeAuth = trimmedToken ? { token: trimmedToken, mode: "openwork" } : undefined;
+    }
 
     try {
       const hostUrl = new URL(normalized);
@@ -288,7 +302,8 @@ export function createWorkspaceStore(options: {
       const info = await engineInfo();
       setEngine(info);
 
-      const syncLocalState = options.mode() !== "client";
+      const isRemoteWorkspace = activeWorkspaceInfo()?.workspaceType === "remote";
+      const syncLocalState = !isRemoteWorkspace;
 
       const username = info.opencodeUsername?.trim() ?? "";
       const password = info.opencodePassword?.trim() ?? "";
@@ -304,7 +319,6 @@ export function createWorkspaceStore(options: {
 
       if (
         syncLocalState &&
-        options.mode() === "host" &&
         info.running &&
         info.baseUrl &&
         !options.client() &&
@@ -362,12 +376,12 @@ export function createWorkspaceStore(options: {
 
     try {
       if (isRemote) {
-        options.setMode("client");
+        options.setStartupPreference("server");
 
         if (remoteType === "openwork") {
           const hostUrl = next.openworkHostUrl?.trim() ?? "";
           if (!hostUrl) {
-            options.setError("OpenWork host URL is required.");
+            options.setError("OpenWork server URL is required.");
             return false;
           }
 
@@ -492,7 +506,8 @@ export function createWorkspaceStore(options: {
         return true;
       }
 
-    const wasHostMode = options.mode() === "host" && options.client();
+    const wasLocalConnection = options.startupPreference() === "local" && options.client();
+    options.setStartupPreference("local");
     const nextRoot = isRemote ? next.directory?.trim() ?? "" : next.path;
     const oldWorkspacePath = projectDir();
     const workspaceChanged = oldWorkspacePath !== nextRoot;
@@ -544,7 +559,7 @@ export function createWorkspaceStore(options: {
       await options.loadCommands({ workspaceRoot: next.path }).catch(() => undefined);
     }
 
-    if (!isRemote && workspaceChanged && options.client() && !wasHostMode) {
+    if (!isRemote && workspaceChanged && options.client() && !wasLocalConnection) {
       options.setSelectedSessionId(null);
       options.setMessages([]);
       options.setTodos([]);
@@ -553,8 +568,8 @@ export function createWorkspaceStore(options: {
       await options.loadSessions(next.path).catch(() => undefined);
     }
 
-    // In Host mode, restart the engine when workspace changes
-    if (!isRemote && wasHostMode && workspaceChanged) {
+    // When running locally, restart the engine when workspace changes
+    if (!isRemote && wasLocalConnection && workspaceChanged) {
       options.setError(null);
       options.setBusy(true);
       options.setBusyLabel("status.restarting_engine");
@@ -829,62 +844,56 @@ export function createWorkspaceStore(options: {
   async function createRemoteWorkspaceFlow(input: {
     openworkHostUrl?: string | null;
     openworkToken?: string | null;
-    opencodeBaseUrl?: string | null;
     directory?: string | null;
     displayName?: string | null;
   }) {
     const hostUrl = normalizeOpenworkServerUrl(input.openworkHostUrl ?? "") ?? "";
     const token = input.openworkToken?.trim() ?? "";
-    const directBaseUrl = input.opencodeBaseUrl?.trim() ?? "";
     const directory = input.directory?.trim() ?? "";
     const displayName = input.displayName?.trim() || null;
 
-    if (!hostUrl && !directBaseUrl) {
-      options.setError("Add an OpenWork host URL or a direct OpenCode URL to continue.");
+    if (!hostUrl) {
+      options.setError(t("app.error.remote_base_url_required", currentLocale()));
       return false;
     }
 
     options.setError(null);
     console.log("[workspace] create remote", {
       hostUrl: hostUrl || null,
-      baseUrl: directBaseUrl || null,
       directory: directory || null,
       displayName,
     });
 
-    options.setMode("client");
+    options.setStartupPreference("server");
 
-    let remoteType: "openwork" | "opencode" = "opencode";
-    let resolvedBaseUrl = directBaseUrl;
+    let remoteType: "openwork" = "openwork";
+    let resolvedBaseUrl = "";
     let resolvedDirectory = directory;
     let openworkWorkspace: OpenworkWorkspaceInfo | null = null;
     let resolvedAuth: OpencodeAuth | undefined = undefined;
     let resolvedHostUrl = hostUrl;
 
-    if (hostUrl) {
-      options.updateOpenworkServerSettings({
-        ...options.openworkServerSettings(),
-        urlOverride: hostUrl,
-        token: token || undefined,
-      });
+    options.updateOpenworkServerSettings({
+      ...options.openworkServerSettings(),
+      urlOverride: hostUrl,
+      token: token || undefined,
+    });
 
-      try {
-        const resolved = await resolveOpenworkHost({ hostUrl, token });
-        if (resolved.kind === "openwork") {
-          remoteType = "openwork";
-          resolvedBaseUrl = resolved.opencodeBaseUrl;
-          resolvedDirectory = resolved.directory || directory;
-          openworkWorkspace = resolved.workspace;
-          resolvedHostUrl = resolved.hostUrl;
-          resolvedAuth = resolved.auth;
-        } else if (!resolvedBaseUrl) {
-          resolvedBaseUrl = hostUrl;
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : safeStringify(error);
-        options.setError(addOpencodeCacheHint(message));
+    try {
+      const resolved = await resolveOpenworkHost({ hostUrl, token });
+      if (resolved.kind !== "openwork") {
+        options.setError("OpenWork server unavailable. Check the URL and token.");
         return false;
       }
+      resolvedBaseUrl = resolved.opencodeBaseUrl;
+      resolvedDirectory = resolved.directory || directory;
+      openworkWorkspace = resolved.workspace;
+      resolvedHostUrl = resolved.hostUrl;
+      resolvedAuth = resolved.auth;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : safeStringify(error);
+      options.setError(addOpencodeCacheHint(message));
+      return false;
     }
 
     if (!resolvedBaseUrl) {
@@ -1243,8 +1252,8 @@ export function createWorkspaceStore(options: {
       options.setSessionStatusById({});
       options.setSseConnected(false);
 
-      options.setMode(null);
-      options.setOnboardingStep("mode");
+      options.setStartupPreference(null);
+      options.setOnboardingStep("welcome");
 
       options.setView("session");
     } catch (e) {
@@ -1263,8 +1272,8 @@ export function createWorkspaceStore(options: {
       return false;
     }
 
-    if (options.mode() !== "host") {
-      options.setError("Reload is only available in Host mode.");
+    if (activeWorkspaceDisplay().workspaceType !== "local") {
+      options.setError("Reload is only available for local workspaces.");
       return false;
     }
 
@@ -1501,13 +1510,7 @@ export function createWorkspaceStore(options: {
   }
 
   async function bootstrapOnboarding() {
-    const modePref = (() => {
-      try {
-        return window.localStorage.getItem("openwork.modePref") as Mode | null;
-      } catch {
-        return null;
-      }
-    })();
+    const startupPref = readStartupPreference();
     const onboardingComplete = (() => {
       try {
         return window.localStorage.getItem("openwork.onboardingComplete") === "1";
@@ -1568,29 +1571,38 @@ export function createWorkspaceStore(options: {
 
     const activeWorkspace = activeWorkspaceInfo();
     if (activeWorkspace?.workspaceType === "remote") {
-      options.setMode("client");
+      options.setStartupPreference("server");
       options.setOnboardingStep("connecting");
       const ok = await activateWorkspace(activeWorkspace.id);
       if (!ok) {
-        options.setOnboardingStep("client");
+        options.setOnboardingStep("server");
       }
       return;
     }
 
-    if (!modePref && activeWorkspacePath().trim()) {
-      options.setMode("host");
+    if (startupPref) {
+      options.setStartupPreference(startupPref);
+    }
+
+    if (startupPref === "server") {
+      options.setOnboardingStep("server");
+      return;
+    }
+
+    if (activeWorkspacePath().trim()) {
+      options.setStartupPreference("local");
 
       if (info?.running && info.baseUrl) {
         options.setOnboardingStep("connecting");
         const ok = await connectToServer(
           info.baseUrl,
           info.projectDir ?? undefined,
-          { reason: "bootstrap-host" },
+          { reason: "bootstrap-local" },
           engineAuth() ?? undefined,
         );
         if (!ok) {
-          options.setMode(null);
-          options.setOnboardingStep("mode");
+          options.setStartupPreference(null);
+          options.setOnboardingStep("welcome");
           return;
         }
         markOnboardingComplete();
@@ -1600,135 +1612,85 @@ export function createWorkspaceStore(options: {
       options.setOnboardingStep("connecting");
       const ok = await startHost({ workspacePath: activeWorkspacePath().trim() });
       if (!ok) {
-        options.setOnboardingStep("host");
+        options.setOnboardingStep("local");
         return;
       }
       markOnboardingComplete();
       return;
     }
 
-    if (!modePref) return;
-
-    if (modePref === "host") {
-      options.setMode("host");
-
-      if (info?.running && info.baseUrl) {
-        options.setOnboardingStep("connecting");
-        const ok = await connectToServer(
-          info.baseUrl,
-          info.projectDir ?? undefined,
-          { reason: "bootstrap-host" },
-          engineAuth() ?? undefined,
-        );
-        if (!ok) {
-          options.setMode(null);
-          options.setOnboardingStep("mode");
-        }
-        return;
-      }
-
-      if (isTauriRuntime() && activeWorkspacePath().trim()) {
-        if (!authorizedDirs().length && activeWorkspacePath().trim()) {
-          setAuthorizedDirs([activeWorkspacePath().trim()]);
-        }
-
-        options.setOnboardingStep("connecting");
-        const ok = await startHost({ workspacePath: activeWorkspacePath().trim() });
-        if (!ok) {
-          options.setOnboardingStep("host");
-        }
-        return;
-      }
-
-      options.setOnboardingStep("host");
+    if (startupPref === "local") {
+      options.setOnboardingStep("local");
       return;
     }
 
-    options.setMode("client");
-    if (!options.baseUrl().trim()) {
-      options.setOnboardingStep("client");
-      return;
-    }
-
-    options.setOnboardingStep("connecting");
-    const ok = await connectToServer(
-      options.baseUrl().trim(),
-      options.clientDirectory().trim() ? options.clientDirectory().trim() : undefined,
-      { reason: "client-connect" },
-    );
-
-    if (!ok) {
-      options.setOnboardingStep("client");
-    }
+    options.setOnboardingStep("welcome");
   }
 
-  function onModeSelect(nextMode: Mode) {
-    if (nextMode === "host" && options.rememberModeChoice()) {
-      writeModePreference("host");
+  function onSelectStartup(nextPref: StartupPreference) {
+    if (options.rememberStartupChoice()) {
+      writeStartupPreference(nextPref);
     }
-    if (nextMode === "client" && options.rememberModeChoice()) {
-      writeModePreference("client");
-    }
-    options.setMode(nextMode);
-    options.setOnboardingStep(nextMode === "host" ? "host" : "client");
+    options.setStartupPreference(nextPref);
+    options.setOnboardingStep(nextPref === "local" ? "local" : "server");
   }
 
-  function onBackToMode() {
-    options.setMode(null);
-    options.setOnboardingStep("mode");
+  function onBackToWelcome() {
+    options.setStartupPreference(null);
+    options.setOnboardingStep("welcome");
   }
 
   async function onStartHost() {
-    options.setMode("host");
+    options.setStartupPreference("local");
     options.setOnboardingStep("connecting");
     const ok = await startHost({ workspacePath: activeWorkspacePath().trim() });
     if (!ok) {
-      options.setOnboardingStep("host");
+      options.setOnboardingStep("local");
     }
   }
 
   async function onAttachHost() {
-    options.setMode("host");
+    options.setStartupPreference("local");
     options.setOnboardingStep("connecting");
     const ok = await connectToServer(
       engine()?.baseUrl ?? "",
       engine()?.projectDir ?? undefined,
-      { reason: "attach-host" },
+      { reason: "attach-local" },
       engineAuth() ?? undefined,
     );
     if (!ok) {
-      options.setMode(null);
-      options.setOnboardingStep("mode");
+      options.setStartupPreference(null);
+      options.setOnboardingStep("welcome");
     }
   }
 
   async function onConnectClient() {
-    options.setMode("client");
+    options.setStartupPreference("server");
     options.setOnboardingStep("connecting");
     const settings = options.openworkServerSettings();
     const ok = await createRemoteWorkspaceFlow({
       openworkHostUrl: settings.urlOverride ?? null,
       openworkToken: settings.token ?? null,
-      opencodeBaseUrl: options.baseUrl().trim(),
       directory: options.clientDirectory().trim() ? options.clientDirectory().trim() : null,
       displayName: null,
     });
     if (!ok) {
-      options.setOnboardingStep("client");
+      options.setOnboardingStep("server");
     }
   }
 
-  function onRememberModeToggle() {
+  function onRememberStartupToggle() {
     if (typeof window === "undefined") return;
-    const next = !options.rememberModeChoice();
+    const next = !options.rememberStartupChoice();
+    options.setRememberStartupChoice(next);
     try {
       if (next) {
-        const current = options.mode();
-        if (current === "host" || current === "client") {
-          writeModePreference(current);
+        const current = options.startupPreference();
+        if (current === "local" || current === "server") {
+          writeStartupPreference(current);
         }
       } else {
-        window.localStorage.removeItem("openwork.modePref");
+        clearStartupPreference();
       }
     } catch {
       // ignore
@@ -1783,12 +1745,12 @@ export function createWorkspaceStore(options: {
     stopHost,
     reloadWorkspaceEngine,
     bootstrapOnboarding,
-    onModeSelect,
-    onBackToMode,
+    onSelectStartup,
+    onBackToWelcome,
     onStartHost,
     onAttachHost,
     onConnectClient,
-    onRememberModeToggle,
+    onRememberStartupToggle,
     onInstallEngine,
     addAuthorizedDir,
     addAuthorizedDirFromPicker,

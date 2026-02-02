@@ -121,7 +121,7 @@ export function createCommandState(options: {
 
     if (isRemoteWorkspace) {
       if (draft.scope !== "workspace") {
-        options.setError("Global commands are only available in Host mode.");
+        options.setError("Global commands are only available for local workspaces.");
         return;
       }
       if (!openworkClient || !openworkWorkspaceId || !openworkCapabilities?.commands?.write) {
@@ -242,7 +242,7 @@ export function createCommandState(options: {
 
     if (isRemoteWorkspace) {
       if (command.scope !== "workspace") {
-        options.setError("Global commands are only available in Host mode.");
+        options.setError("Global commands are only available for local workspaces.");
         return;
       }
       if (!openworkClient || !openworkWorkspaceId || !openworkCapabilities?.commands?.write) {

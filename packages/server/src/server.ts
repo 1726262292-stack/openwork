@@ -58,6 +58,19 @@ export function startServer(config: ServerConfig) {
         return withCors(new Response(null, { status: 204 }), request, config);
       }
 
+      if (url.pathname === "/opencode" || url.pathname.startsWith("/opencode/")) {
+        try {
+          requireClient(request, config);
+          const response = await proxyOpencodeRequest({ request, url, config });
+          return withCors(response, request, config);
+        } catch (error) {
+          const apiError = error instanceof ApiError
+            ? error
+            : new ApiError(500, "internal_error", "Unexpected server error");
+          return withCors(jsonResponse(formatError(apiError), apiError.status), request, config);
+        }
+      }
+
       const route = matchRoute(routes, request.method, url.pathname);
       if (!route) {
         return withCors(jsonResponse({ code: "not_found", message: "Not found" }, 404), request, config);
@@ -119,6 +132,47 @@ function pathToRegex(path: string, keys: string[]): RegExp {
   return new RegExp(`^${pattern}$`);
 }
 
+function buildOpencodeProxyUrl(baseUrl: string, path: string, search: string) {
+  const target = new URL(baseUrl);
+  const trimmedPath = path.replace(/^\/opencode/, "");
+  target.pathname = trimmedPath.startsWith("/") ? trimmedPath : `/${trimmedPath}`;
+  target.search = search;
+  return target.toString();
+}
+
+async function proxyOpencodeRequest(input: {
+  request: Request;
+  url: URL;
+  config: ServerConfig;
+}) {
+  const workspace = input.config.workspaces[0];
+  const baseUrl = workspace?.baseUrl?.trim() ?? "";
+  if (!baseUrl) {
+    throw new ApiError(400, "opencode_unconfigured", "OpenCode base URL is missing for this workspace");
+  }
+
+  const targetUrl = buildOpencodeProxyUrl(baseUrl, input.url.pathname, input.url.search);
+  const headers = new Headers(input.request.headers);
+  headers.delete("authorization");
+  headers.delete("host");
+  headers.delete("origin");
+
+  const auth = workspace ? buildOpencodeAuthHeader(workspace) : null;
+  if (auth) {
+    headers.set("Authorization", auth);
+  }
+
+  const method = input.request.method.toUpperCase();
+  const body = method === "GET" || method === "HEAD" ? undefined : input.request.body;
+  const response = await fetch(targetUrl, {
+    method,
+    headers,
+    body,
+  });
+
+  return response;
+}
+
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -149,7 +203,10 @@ function withCors(response: Response, request: Request, config: ServerConfig) {
   if (!allowOrigin) return response;
   const headers = new Headers(response.headers);
   headers.set("Access-Control-Allow-Origin", allowOrigin);
-  headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-OpenWork-Host-Token, X-OpenWork-Client-Id");
+  headers.set(
+    "Access-Control-Allow-Headers",
+    "Authorization, Content-Type, X-OpenWork-Host-Token, X-OpenWork-Client-Id, X-OpenCode-Directory, X-Opencode-Directory",
+  );
   headers.set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   headers.set("Vary", "Origin");
   return new Response(response.body, { status: response.status, headers });

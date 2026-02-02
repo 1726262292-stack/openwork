@@ -75,22 +75,22 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
   });
   const sourceDescription = createMemo(() =>
     props.source === "remote"
-      ? "Automations that run on a schedule from the connected OpenWork host."
+      ? "Automations that run on a schedule from the connected OpenWork server."
       : "Automations that run on a schedule from this device."
   );
   const sourceLabel = createMemo(() =>
-    props.source === "remote" ? "From OpenWork host" : "From local scheduler"
+    props.source === "remote" ? "From OpenWork server" : "From local scheduler"
   );
-  const schedulerLabel = createMemo(() => (props.source === "remote" ? "OpenWork host" : "Local"));
+  const schedulerLabel = createMemo(() => (props.source === "remote" ? "OpenWork server" : "Local"));
   const schedulerHint = createMemo(() =>
     props.source === "remote" ? "Remote instance" : "Launchd or systemd"
   );
   const schedulerUnavailableHint = createMemo(() =>
-    props.source === "remote" ? "OpenWork host unavailable" : "Desktop-only"
+    props.source === "remote" ? "OpenWork server unavailable" : "Desktop-only"
   );
   const deleteDescription = createMemo(() =>
     props.source === "remote"
-      ? "This removes the schedule and deletes the job definition from the connected OpenWork host."
+      ? "This removes the schedule and deletes the job definition from the connected OpenWork server."
       : "This removes the schedule and deletes the job definition from your machine."
   );
 

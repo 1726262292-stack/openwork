@@ -34,6 +34,7 @@ Read INFRASTRUCTURE.md
 ## Repository Guidance
 
 * Write new PRDs under `packages/app/pr/<prd-name>.md` (see `.opencode/skills/prd-conventions/SKILL.md`).
+* If other workspace instructions mention a different PRD location, default to this repo's guidance for OpenWork work.
 * Use `VISION.md`, `PRINCIPLES.md`, `PRODUCT.md`, `ARCHITECTURE.md`, and `INFRASTRUCTURE.md` to understand the "why" and requirements so you can guide your decisions.
 
 ## Local Structure

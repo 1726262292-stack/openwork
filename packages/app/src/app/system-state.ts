@@ -8,7 +8,6 @@ import { relaunch } from "@tauri-apps/plugin-process";
 
 import type {
   Client,
-  Mode,
   PluginScope,
   ReloadReason,
   ReloadTrigger,
@@ -32,7 +31,6 @@ export type NotionState = {
 
 export function createSystemState(options: {
   client: Accessor<Client | null>;
-  mode: Accessor<Mode | null>;
   sessions: Accessor<Session[]>;
   sessionStatusById: Accessor<Record<string, string>>;
   refreshPlugins: (scopeOverride?: PluginScope) => Promise<void>;
@@ -210,9 +208,8 @@ export function createSystemState(options: {
     if (reloadBusy()) return false;
     const override = options.canReloadWorkspaceEngine?.();
     if (override === true) return true;
-    if (!options.client()) return false;
     if (override === false) return false;
-    if (options.mode() !== "host") return false;
+    if (!options.client()) return false;
     return true;
   });
 
@@ -228,10 +225,6 @@ export function createSystemState(options: {
     const override = options.canReloadWorkspaceEngine?.();
     if (override === false) {
       setReloadError("Reload is unavailable for this workspace.");
-      return;
-    }
-    if (override !== true && options.mode() !== "host") {
-      setReloadError("Reload is only available in Host mode.");
       return;
     }
 

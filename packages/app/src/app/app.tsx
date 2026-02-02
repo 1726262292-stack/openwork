@@ -55,7 +55,7 @@ import type {
   Client,
   DashboardTab,
   MessageWithParts,
-  Mode,
+  StartupPreference,
   EngineRuntime,
   ModelOption,
   ModelRef,
@@ -83,7 +83,7 @@ import type {
   ScheduledJob,
 } from "./types";
 import {
-  clearModePreference,
+  clearStartupPreference,
   deriveArtifacts,
   deriveWorkingFiles,
   formatBytes,
@@ -102,10 +102,9 @@ import {
   lastUserModelFromMessages,
   // normalizeDirectoryPath,
   parseModelRef,
-  readModePreference,
+  readStartupPreference,
   safeStringify,
   summarizeStep,
-  writeModePreference,
   addOpencodeCacheHint,
 } from "./utils";
 import {
@@ -222,10 +221,10 @@ export default function App() {
     navigate(`/session/${trimmed}`, options);
   };
 
-  const [mode, setMode] = createSignal<Mode | null>(null);
+  const [startupPreference, setStartupPreference] = createSignal<StartupPreference | null>(null);
   const [onboardingStep, setOnboardingStep] =
-    createSignal<OnboardingStep>("mode");
-  const [rememberModeChoice, setRememberModeChoice] = createSignal(false);
+    createSignal<OnboardingStep>("welcome");
+  const [rememberStartupChoice, setRememberStartupChoice] = createSignal(false);
   const [themeMode, setThemeMode] = createSignal<ThemeMode>(getInitialThemeMode());
 
   const [engineSource, setEngineSource] = createSignal<"path" | "sidecar">(
@@ -251,35 +250,44 @@ export default function App() {
   const [openworkAuditStatus, setOpenworkAuditStatus] = createSignal<"idle" | "loading" | "error">("idle");
   const [openworkAuditError, setOpenworkAuditError] = createSignal<string | null>(null);
   const [devtoolsWorkspaceId, setDevtoolsWorkspaceId] = createSignal<string | null>(null);
-  const [hostOpenworkCapabilities, setHostOpenworkCapabilities] = createSignal<OpenworkServerCapabilities | null>(null);
+
+  const openworkServerBaseUrl = createMemo(() => {
+    const pref = startupPreference();
+    const hostInfo = openworkServerHostInfo();
+    const settingsUrl = normalizeOpenworkServerUrl(openworkServerSettings().urlOverride ?? "") ?? "";
+
+    if (pref === "local") return hostInfo?.baseUrl ?? "";
+    if (pref === "server") return settingsUrl;
+    return hostInfo?.baseUrl ?? settingsUrl;
+  });
+
+  const openworkServerAuth = createMemo(() => {
+    const pref = startupPreference();
+    const hostInfo = openworkServerHostInfo();
+    const settingsToken = openworkServerSettings().token?.trim() ?? "";
+    const clientToken = hostInfo?.clientToken?.trim() ?? "";
+    const hostToken = hostInfo?.hostToken?.trim() ?? "";
+
+    if (pref === "local") {
+      return { token: clientToken || undefined, hostToken: hostToken || undefined };
+    }
+    if (pref === "server") {
+      return { token: settingsToken || undefined, hostToken: undefined };
+    }
+    if (hostInfo?.baseUrl) {
+      return { token: clientToken || undefined, hostToken: hostToken || undefined };
+    }
+    return { token: settingsToken || undefined, hostToken: undefined };
+  });
 
   const openworkServerClient = createMemo(() => {
-    const currentMode = mode();
-    if (currentMode === "client") {
-      const url = openworkServerUrl().trim();
-      if (!url) return null;
-      const token = openworkServerSettings().token;
-      return createOpenworkServerClient({ baseUrl: url, token });
-    }
-    if (currentMode === "host") {
-      const info = openworkServerHostInfo();
-      if (!info?.baseUrl) return null;
-      return createOpenworkServerClient({
-        baseUrl: info.baseUrl,
-        token: info.clientToken ?? undefined,
-        hostToken: info.hostToken ?? undefined,
-      });
-    }
-    return null;
+    const baseUrl = openworkServerBaseUrl().trim();
+    if (!baseUrl) return null;
+    const auth = openworkServerAuth();
+    return createOpenworkServerClient({ baseUrl, token: auth.token, hostToken: auth.hostToken });
   });
 
-  const devtoolsOpenworkClient = createMemo(() => {
-    if (mode() === "client") return openworkServerClient();
-    if (mode() !== "host") return null;
-    const info = openworkServerHostInfo();
-    if (!info?.baseUrl || !info?.clientToken) return null;
-    return createOpenworkServerClient({ baseUrl: info.baseUrl, token: info.clientToken });
-  });
+  const devtoolsOpenworkClient = createMemo(() => openworkServerClient());
 
   createEffect(() => {
     if (typeof window === "undefined") return;
@@ -287,22 +295,24 @@ export default function App() {
   });
 
   createEffect(() => {
-    if (mode() === "client") {
-      const override = normalizeOpenworkServerUrl(openworkServerSettings().urlOverride ?? "");
-      setOpenworkServerUrl(override ?? "");
+    const pref = startupPreference();
+    const info = openworkServerHostInfo();
+    const hostUrl = info?.connectUrl ?? info?.lanUrl ?? info?.mdnsUrl ?? info?.baseUrl ?? "";
+    const settingsUrl = normalizeOpenworkServerUrl(openworkServerSettings().urlOverride ?? "") ?? "";
+
+    if (pref === "local") {
+      setOpenworkServerUrl(hostUrl);
       return;
     }
-    if (mode() === "host") {
-      const info = openworkServerHostInfo();
-      const resolved = info?.connectUrl ?? info?.lanUrl ?? info?.mdnsUrl ?? info?.baseUrl ?? "";
-      setOpenworkServerUrl(resolved ?? "");
+    if (pref === "server") {
+      setOpenworkServerUrl(settingsUrl);
       return;
     }
-    setOpenworkServerUrl("");
+    setOpenworkServerUrl(hostUrl || settingsUrl);
   });
 
-  const checkOpenworkServer = async (url: string, token?: string) => {
-    const client = createOpenworkServerClient({ baseUrl: url, token });
+  const checkOpenworkServer = async (url: string, token?: string, hostToken?: string) => {
+    const client = createOpenworkServerClient({ baseUrl: url, token, hostToken });
     try {
       await client.health();
     } catch (error) {
@@ -329,9 +339,10 @@ export default function App() {
 
   createEffect(() => {
     if (typeof window === "undefined") return;
-    if (mode() !== "client") return;
-    const url = openworkServerUrl().trim();
-    const token = openworkServerSettings().token;
+    const url = openworkServerBaseUrl().trim();
+    const auth = openworkServerAuth();
+    const token = auth.token;
+    const hostToken = auth.hostToken;
 
     if (!url) {
       setOpenworkServerStatus("disconnected");
@@ -347,7 +358,7 @@ export default function App() {
       if (busy) return;
       busy = true;
       try {
-        const result = await checkOpenworkServer(url, token);
+        const result = await checkOpenworkServer(url, token, hostToken);
         if (!active) return;
         setOpenworkServerStatus(result.status);
         setOpenworkServerCapabilities(result.capabilities);
@@ -367,58 +378,7 @@ export default function App() {
   });
 
   createEffect(() => {
-    if (mode() !== "host") return;
-    const info = openworkServerHostInfo();
-    const running = info?.running ?? false;
-    setOpenworkServerStatus(running ? "connected" : "disconnected");
-    setOpenworkServerCapabilities(null);
-    setOpenworkServerCheckedAt(Date.now());
-  });
-
-  createEffect(() => {
-    if (typeof window === "undefined") return;
-    if (mode() !== "host") {
-      setHostOpenworkCapabilities(null);
-      return;
-    }
-
-    const client = openworkServerClient();
-    if (!client || openworkServerStatus() !== "connected") {
-      setHostOpenworkCapabilities(null);
-      return;
-    }
-
-    let active = true;
-    let busy = false;
-
-    const run = async () => {
-      if (busy) return;
-      busy = true;
-      try {
-        const caps = await client.capabilities();
-        if (active) setHostOpenworkCapabilities(caps);
-      } catch {
-        if (active) setHostOpenworkCapabilities(null);
-      } finally {
-        busy = false;
-      }
-    };
-
-    run();
-    const interval = window.setInterval(run, 10_000);
-    onCleanup(() => {
-      active = false;
-      window.clearInterval(interval);
-    });
-  });
-
-  createEffect(() => {
     if (!isTauriRuntime()) return;
-    if (mode() !== "host") {
-      setOpenworkServerHostInfo(null);
-      return;
-    }
-
     let active = true;
 
     const run = async () => {
@@ -1080,7 +1040,6 @@ export default function App() {
 
   const extensionsStore = createExtensionsStore({
     client,
-    mode,
     projectDir: () => workspaceProjectDir(),
     activeWorkspaceRoot: () => workspaceStore.activeWorkspaceRoot(),
     workspaceType: () => workspaceStore.activeWorkspaceDisplay().workspaceType,
@@ -1282,11 +1241,12 @@ export default function App() {
   let loadCommandsRef: (options?: { workspaceRoot?: string; quiet?: boolean }) => Promise<void> = async () => {};
 
   const workspaceStore = createWorkspaceStore({
-    mode,
-    setMode,
+    startupPreference,
+    setStartupPreference,
     onboardingStep,
     setOnboardingStep,
-    rememberModeChoice,
+    rememberStartupChoice,
+    setRememberStartupChoice,
     baseUrl,
     setBaseUrl,
     clientDirectory,
@@ -1330,8 +1290,14 @@ export default function App() {
   });
 
   createEffect(() => {
-    if (mode() !== "client") return;
     const active = workspaceStore.activeWorkspaceDisplay();
+    const client = openworkServerClient();
+
+    if (!client || openworkServerStatus() !== "connected") {
+      setOpenworkServerWorkspaceId(null);
+      return;
+    }
+
     if (active.workspaceType === "remote" && active.remoteType === "openwork") {
       const storedId = active.openworkWorkspaceId ?? null;
       if (storedId) {
@@ -1339,14 +1305,7 @@ export default function App() {
         return;
       }
 
-      const client = openworkServerClient();
-      if (!client || openworkServerStatus() !== "connected") {
-        setOpenworkServerWorkspaceId(null);
-        return;
-      }
-
       let cancelled = false;
-
       const resolveWorkspace = async () => {
         try {
           const response = await client.listWorkspaces();
@@ -1359,58 +1318,51 @@ export default function App() {
       };
 
       void resolveWorkspace();
-
       onCleanup(() => {
         cancelled = true;
       });
-
-      return;
-    }
-    setOpenworkServerWorkspaceId(null);
-  });
-
-  createEffect(() => {
-    if (mode() !== "host") return;
-    const root = normalizeDirectoryPath(workspaceStore.activeWorkspaceRoot().trim());
-    const client = openworkServerClient();
-
-    if (!root || !client || openworkServerStatus() !== "connected") {
-      setOpenworkServerWorkspaceId(null);
       return;
     }
 
-    let cancelled = false;
-
-    const resolveWorkspace = async () => {
-      try {
-        const response = await client.listWorkspaces();
-        if (cancelled) return;
-        const items = Array.isArray(response.items) ? response.items : [];
-        const match = items.find((entry) => normalizeDirectoryPath(entry.path) === root);
-        setOpenworkServerWorkspaceId(response.activeId ?? match?.id ?? null);
-      } catch {
-        if (!cancelled) setOpenworkServerWorkspaceId(null);
+    if (active.workspaceType === "local") {
+      const root = normalizeDirectoryPath(workspaceStore.activeWorkspaceRoot().trim());
+      if (!root) {
+        setOpenworkServerWorkspaceId(null);
+        return;
       }
-    };
 
-    void resolveWorkspace();
+      let cancelled = false;
+      const resolveWorkspace = async () => {
+        try {
+          const response = await client.listWorkspaces();
+          if (cancelled) return;
+          const items = Array.isArray(response.items) ? response.items : [];
+          const match = items.find((entry) => normalizeDirectoryPath(entry.path) === root);
+          setOpenworkServerWorkspaceId(response.activeId ?? match?.id ?? null);
+        } catch {
+          if (!cancelled) setOpenworkServerWorkspaceId(null);
+        }
+      };
 
-    onCleanup(() => {
-      cancelled = true;
-    });
+      void resolveWorkspace();
+      onCleanup(() => {
+        cancelled = true;
+      });
+      return;
+    }
+
+    setOpenworkServerWorkspaceId(null);
   });
 
   createEffect(() => {
     if (!developerMode()) {
       setDevtoolsWorkspaceId(null);
-      setHostOpenworkCapabilities(null);
       return;
     }
 
     const client = devtoolsOpenworkClient();
     if (!client) {
       setDevtoolsWorkspaceId(null);
-      setHostOpenworkCapabilities(null);
       return;
     }
 
@@ -1419,15 +1371,6 @@ export default function App() {
 
     const run = async () => {
       try {
-        if (mode() === "host") {
-          try {
-            const caps = await client.capabilities();
-            if (active) setHostOpenworkCapabilities(caps);
-          } catch {
-            if (active) setHostOpenworkCapabilities(null);
-          }
-        }
-
         const response = await client.listWorkspaces();
         if (!active) return;
         const items = Array.isArray(response.items) ? response.items : [];
@@ -1512,9 +1455,7 @@ export default function App() {
 
   const openworkServerReady = createMemo(() => openworkServerStatus() === "connected");
   const openworkServerWorkspaceReady = createMemo(() => Boolean(openworkServerWorkspaceId()));
-  const resolvedOpenworkCapabilities = createMemo(() =>
-    mode() === "host" ? hostOpenworkCapabilities() : openworkServerCapabilities(),
-  );
+  const resolvedOpenworkCapabilities = createMemo(() => openworkServerCapabilities());
   const openworkServerCanWriteSkills = createMemo(
     () =>
       openworkServerReady() &&
@@ -1527,9 +1468,7 @@ export default function App() {
       openworkServerWorkspaceReady() &&
       (resolvedOpenworkCapabilities()?.plugins?.write ?? false),
   );
-  const devtoolsCapabilities = createMemo(() =>
-    mode() === "host" ? hostOpenworkCapabilities() : openworkServerCapabilities(),
-  );
+  const devtoolsCapabilities = createMemo(() => openworkServerCapabilities());
   const resolvedDevtoolsWorkspaceId = createMemo(() => devtoolsWorkspaceId() ?? openworkServerWorkspaceId());
 
   function updateOpenworkServerSettings(next: OpenworkServerSettings) {
@@ -1550,11 +1489,24 @@ export default function App() {
       setOpenworkServerCheckedAt(Date.now());
       return false;
     }
-    const result = await checkOpenworkServer(derived, next.token);
+    const result = await checkOpenworkServer(derived, next.token, openworkServerAuth().hostToken);
     setOpenworkServerStatus(result.status);
     setOpenworkServerCapabilities(result.capabilities);
     setOpenworkServerCheckedAt(Date.now());
-    return result.status === "connected" || result.status === "limited";
+    const ok = result.status === "connected" || result.status === "limited";
+    if (ok && !isTauriRuntime()) {
+      const active = workspaceStore.activeWorkspaceDisplay();
+      const shouldAttach = !client() || active.workspaceType !== "remote" || active.remoteType !== "openwork";
+      if (shouldAttach) {
+        await workspaceStore
+          .createRemoteWorkspaceFlow({
+            openworkHostUrl: derived,
+            openworkToken: next.token ?? null,
+          })
+          .catch(() => undefined);
+      }
+    }
+    return ok;
   };
 
   const commandState = createCommandState({
@@ -1972,12 +1924,12 @@ export default function App() {
   };
 
   const canReloadViaOpenworkServer = createMemo(() => Boolean(resolveOpenworkReloadTarget()));
+  const canReloadLocalEngine = () =>
+    isTauriRuntime() && workspaceStore.activeWorkspaceDisplay().workspaceType === "local";
 
   const canReloadWorkspace = createMemo(() => {
     if (canReloadViaOpenworkServer()) return true;
-    if (mode() !== "host") return false;
-    if (!isTauriRuntime()) return false;
-    return true;
+    return canReloadLocalEngine();
   });
 
   const reloadWorkspaceEngineFromUi = async () => {
@@ -1997,7 +1949,7 @@ export default function App() {
               return true;
             }
           }
-          if (mode() === "host" && isTauriRuntime()) {
+          if (canReloadLocalEngine()) {
             return workspaceStore.reloadWorkspaceEngine();
           }
           throw new Error("OpenWork server reload endpoint not found. Update the host to enable reloads.");
@@ -2005,7 +1957,7 @@ export default function App() {
         throw error;
       }
     }
-    if (mode() !== "host" || !isTauriRuntime()) {
+    if (!canReloadLocalEngine()) {
       throw new Error("Reload is unavailable for this workspace.");
     }
     return workspaceStore.reloadWorkspaceEngine();
@@ -2013,7 +1965,6 @@ export default function App() {
 
   const systemState = createSystemState({
     client,
-    mode,
     sessions,
     sessionStatusById,
     refreshPlugins,
@@ -2663,27 +2614,9 @@ export default function App() {
   }
 
 
-  function clearOpenworkLocalStorage() {
-    if (typeof window === "undefined") return;
-
-    try {
-      const keys = Object.keys(window.localStorage);
-      for (const key of keys) {
-        if (key.startsWith("openwork.")) {
-          window.localStorage.removeItem(key);
-        }
-      }
-      // Legacy compatibility key
-      window.localStorage.removeItem("openwork_mode_pref");
-    } catch {
-      // ignore
-    }
-  }
-
-
   async function connectNotion() {
-    if (mode() !== "host") {
-      setNotionError("Notion connections are only available in Host mode.");
+    if (workspaceStore.activeWorkspaceDisplay().workspaceType !== "local") {
+      setNotionError("Notion connections are only available for local workspaces.");
       return;
     }
 
@@ -2770,7 +2703,7 @@ export default function App() {
   async function refreshMcpServers() {
     const projectDir = workspaceProjectDir().trim();
     const isRemoteWorkspace = workspaceStore.activeWorkspaceDisplay().workspaceType === "remote";
-    const isHostMode = mode() === "host";
+    const isLocalWorkspace = !isRemoteWorkspace;
     const openworkClient = openworkServerClient();
     const openworkWorkspaceId = openworkServerWorkspaceId();
     const openworkCapabilities = resolvedOpenworkCapabilities();
@@ -2821,7 +2754,7 @@ export default function App() {
       return;
     }
 
-    if (isHostMode && canUseOpenworkServer) {
+    if (isLocalWorkspace && canUseOpenworkServer) {
       try {
         setMcpStatus(null);
         const response = await openworkClient.listMcp(openworkWorkspaceId);
@@ -2856,7 +2789,7 @@ export default function App() {
     }
 
     if (!isTauriRuntime()) {
-      setMcpStatus("MCP configuration is only available in Host mode.");
+      setMcpStatus("MCP configuration is only available for local workspaces.");
       setMcpServers([]);
       setMcpStatuses({});
       return;
@@ -2906,19 +2839,9 @@ export default function App() {
   async function connectMcp(entry: (typeof MCP_QUICK_CONNECT)[number]) {
     console.log("[connectMcp] called with entry:", entry);
 
-    if (mode() !== "host") {
-      console.log("[connectMcp] ❌ mode is not host, mode=", mode());
-      setMcpStatus(t("mcp.host_mode_only", currentLocale()));
-      return;
-    }
-
+    const isRemoteWorkspace = workspaceStore.activeWorkspaceDisplay().workspaceType === "remote";
     const projectDir = workspaceProjectDir().trim();
     console.log("[connectMcp] projectDir:", projectDir);
-    if (!projectDir) {
-      console.log("[connectMcp] ❌ no projectDir");
-      setMcpStatus(t("mcp.pick_workspace_first", currentLocale()));
-      return;
-    }
 
     const openworkClient = openworkServerClient();
     const openworkWorkspaceId = openworkServerWorkspaceId();
@@ -2929,12 +2852,24 @@ export default function App() {
       openworkWorkspaceId &&
       openworkCapabilities?.mcp?.write;
 
+    if (isRemoteWorkspace && !canUseOpenworkServer) {
+      console.log("[connectMcp] ❌ openwork server unavailable");
+      setMcpStatus("OpenWork server unavailable. MCP config is read-only.");
+      return;
+    }
+
     if (!canUseOpenworkServer && !isTauriRuntime()) {
       console.log("[connectMcp] ❌ not Tauri runtime");
       setMcpStatus(t("mcp.desktop_required", currentLocale()));
       return;
     }
     console.log("[connectMcp] ✓ runtime ready");
+
+    if (!isRemoteWorkspace && !projectDir) {
+      console.log("[connectMcp] ❌ no projectDir");
+      setMcpStatus(t("mcp.pick_workspace_first", currentLocale()));
+      return;
+    }
 
     const activeClient = client();
     console.log("[connectMcp] activeClient:", activeClient ? "exists" : "null");
@@ -3196,9 +3131,10 @@ export default function App() {
 
 
   onMount(async () => {
-    const modePref = readModePreference();
-    if (modePref) {
-      setRememberModeChoice(true);
+    const startupPref = readStartupPreference();
+    if (startupPref) {
+      setRememberStartupChoice(true);
+      setStartupPreference(startupPref);
     }
 
     const unsubscribeTheme = subscribeToSystemTheme((isDark) => {
@@ -3566,7 +3502,7 @@ export default function App() {
 
   createEffect(() => {
     if (!isTauriRuntime()) return;
-    if (onboardingStep() !== "host") return;
+    if (onboardingStep() !== "local") return;
     void workspaceStore.refreshEngineDoctor();
   });
 
@@ -3797,11 +3733,10 @@ export default function App() {
   });
 
   const onboardingProps = () => ({
-    mode: mode(),
+    startupPreference: startupPreference(),
     onboardingStep: onboardingStep(),
-    rememberModeChoice: rememberModeChoice(),
+    rememberStartupChoice: rememberStartupChoice(),
     busy: busy(),
-    baseUrl: baseUrl(),
     clientDirectory: clientDirectory(),
     openworkHostUrl: openworkServerSettings().urlOverride ?? "",
     openworkToken: openworkServerSettings().token ?? "",
@@ -3824,7 +3759,6 @@ export default function App() {
     engineInstallLogs: engineInstallLogs(),
     error: error(),
     isWindows: isWindowsPlatform(),
-    onBaseUrlChange: setBaseUrl,
     onClientDirectoryChange: setClientDirectory,
     onOpenworkHostUrlChange: (value: string) =>
       updateOpenworkServerSettings({
@@ -3836,17 +3770,8 @@ export default function App() {
         ...openworkServerSettings(),
         token: value,
       }),
-    onModeSelect: (nextMode: Mode) => {
-      if (nextMode === "host" && rememberModeChoice()) {
-        writeModePreference("host");
-      }
-      if (nextMode === "client" && rememberModeChoice()) {
-        writeModePreference("client");
-      }
-      setMode(nextMode);
-      setOnboardingStep(nextMode === "host" ? "host" : "client");
-    },
-    onRememberModeToggle: () => setRememberModeChoice((v) => !v),
+    onSelectStartup: workspaceStore.onSelectStartup,
+    onRememberStartupToggle: workspaceStore.onRememberStartupToggle,
     onStartHost: workspaceStore.onStartHost,
     onCreateWorkspace: workspaceStore.createWorkspaceFlow,
     onPickWorkspaceFolder: workspaceStore.pickWorkspaceFolder,
@@ -3854,7 +3779,7 @@ export default function App() {
     importingWorkspaceConfig: workspaceStore.importingWorkspaceConfig(),
     onAttachHost: workspaceStore.onAttachHost,
     onConnectClient: workspaceStore.onConnectClient,
-    onBackToMode: workspaceStore.onBackToMode,
+    onBackToWelcome: workspaceStore.onBackToWelcome,
     onSetAuthorizedDir: workspaceStore.setNewAuthorizedDir,
     onAddAuthorizedDir: workspaceStore.addAuthorizedDir,
     onAddAuthorizedDirFromPicker: () =>
@@ -3926,7 +3851,7 @@ export default function App() {
     submitProviderApiKey,
     view: currentView(),
     setView,
-    mode: mode(),
+    startupPreference: startupPreference(),
     baseUrl: baseUrl(),
     clientConnected: Boolean(client()),
     busy: busy(),
@@ -4065,7 +3990,11 @@ export default function App() {
     stopHost,
     openResetModal,
     resetModalBusy: resetModalBusy(),
-    onResetStartupPreference: () => clearModePreference(),
+    onResetStartupPreference: () => {
+      clearStartupPreference();
+      setStartupPreference(null);
+      setRememberStartupChoice(false);
+    },
     themeMode: themeMode(),
     setThemeMode,
     pendingPermissions: pendingPermissions(),
@@ -4140,7 +4069,6 @@ export default function App() {
     activeWorkspaceRoot: workspaceStore.activeWorkspaceRoot().trim(),
     setWorkspaceSearch: workspaceStore.setWorkspaceSearch,
     setWorkspacePickerOpen: workspaceStore.setWorkspacePickerOpen,
-    mode: mode(),
     clientConnected: Boolean(client()),
     openworkServerStatus: openworkServerStatus(),
     stopHost,

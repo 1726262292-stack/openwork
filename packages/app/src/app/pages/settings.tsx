@@ -6,7 +6,7 @@ import Button from "../components/button";
 import TextInput from "../components/text-input";
 import SettingsKeybinds, { type KeybindSetting } from "../components/settings-keybinds";
 import { ChevronDown, HardDrive, MessageCircle, PlugZap, RefreshCcw, Shield, Smartphone, X } from "lucide-solid";
-import type { OpencodeConnectStatus, ProviderListItem, SettingsTab } from "../types";
+import type { OpencodeConnectStatus, ProviderListItem, SettingsTab, StartupPreference } from "../types";
 import { createOpenworkServerClient } from "../lib/openwork-server";
 import type {
   OpenworkAuditEntry,
@@ -41,7 +41,7 @@ import {
 } from "../lib/tauri";
 
 export type SettingsViewProps = {
-  mode: "host" | "client" | null;
+  startupPreference: StartupPreference | null;
   baseUrl: string;
   headerStatus: string;
   busy: boolean;
@@ -127,7 +127,6 @@ export type SettingsViewProps = {
 // Owpenbot Settings Component
 function OwpenbotSettings(props: {
   busy: boolean;
-  mode: "host" | "client" | null;
   openworkServerStatus: OpenworkServerStatus;
   openworkServerUrl: string;
   openworkServerSettings: OpenworkServerSettings;
@@ -157,7 +156,7 @@ function OwpenbotSettings(props: {
     const hostToken = props.openworkServerHostInfo?.hostToken?.trim() ?? "";
     const clientToken = props.openworkServerHostInfo?.clientToken?.trim() ?? "";
     const settingsToken = props.openworkServerSettings.token?.trim() ?? "";
-    const token = props.mode === "host" ? clientToken : settingsToken;
+    const token = clientToken || settingsToken;
     if (!baseUrl || !token || !props.openworkServerWorkspaceId) return null;
     return createOpenworkServerClient({ baseUrl, token, hostToken });
   });
@@ -310,9 +309,10 @@ function OwpenbotSettings(props: {
         setOwpenbotStatus(latestStatus);
       }
       const serverClient = openworkServerClient();
-      const useRemote = Boolean(serverClient && props.openworkServerWorkspaceId);
+      const workspaceId = props.openworkServerWorkspaceId;
+      const useRemote = Boolean(serverClient && workspaceId);
       debugOwpenbot("save-token:start", {
-        mode: props.mode ?? "unknown",
+        connection: props.openworkServerHostInfo ? "local" : "remote",
         tauri: isTauriRuntime(),
         useRemote,
         openworkServerStatus: props.openworkServerStatus,
@@ -320,13 +320,10 @@ function OwpenbotSettings(props: {
         openworkServerWorkspaceId: props.openworkServerWorkspaceId,
         owpenbotHealthPort: latestStatus?.healthPort ?? owpenbotStatus()?.healthPort ?? null,
         hasToken: Boolean(
-          (props.mode === "host"
-            ? props.openworkServerHostInfo?.clientToken?.trim()
-            : props.openworkServerSettings.token?.trim())
-          ?? false,
+          (props.openworkServerHostInfo?.clientToken?.trim() || props.openworkServerSettings.token?.trim()) ?? false,
         ),
       });
-      if (useRemote) {
+      if (useRemote && serverClient && workspaceId) {
         if (props.openworkServerStatus === "disconnected") {
           setTelegramFeedback(
             "error",
@@ -344,7 +341,7 @@ function OwpenbotSettings(props: {
         setTelegramFeedback("checking", "Saving token on the host...");
         try {
           await serverClient.setOwpenbotTelegramToken(
-            props.openworkServerWorkspaceId,
+            workspaceId,
             token,
             latestStatus?.healthPort ?? owpenbotStatus()?.healthPort ?? null,
           );
@@ -814,8 +811,6 @@ export default function SettingsView(props: SettingsViewProps) {
   const [openworkTokenVisible, setOpenworkTokenVisible] = createSignal(false);
   const [clientTokenVisible, setClientTokenVisible] = createSignal(false);
   const [hostTokenVisible, setHostTokenVisible] = createSignal(false);
-  const [opencodeUserVisible, setOpencodeUserVisible] = createSignal(false);
-  const [opencodePasswordVisible, setOpencodePasswordVisible] = createSignal(false);
   const [copyingField, setCopyingField] = createSignal<string | null>(null);
   let copyTimeout: number | undefined;
 
@@ -958,6 +953,14 @@ export default function SettingsView(props: SettingsViewProps) {
     if (props.openworkAuditStatus === "loading") return "bg-amber-7/10 text-amber-11 border-amber-7/20";
     if (props.openworkAuditStatus === "error") return "bg-red-7/10 text-red-11 border-red-7/20";
     return "bg-green-7/10 text-green-11 border-green-7/20";
+  });
+
+  const isLocalEngineRunning = createMemo(() => Boolean(props.engineInfo?.running));
+  const isLocalPreference = createMemo(() => props.startupPreference === "local");
+  const startupLabel = createMemo(() => {
+    if (props.startupPreference === "local") return "Start local server";
+    if (props.startupPreference === "server") return "Connect to server";
+    return "Not set";
   });
 
   const tabLabel = (tab: SettingsTab) => {
@@ -1104,8 +1107,6 @@ export default function SettingsView(props: SettingsViewProps) {
     return info?.connectUrl ?? info?.mdnsUrl ?? info?.lanUrl ?? info?.baseUrl ?? "";
   });
   const hostConnectUrlUsesMdns = createMemo(() => hostConnectUrl().includes(".local"));
-  const opencodeUsername = createMemo(() => props.engineInfo?.opencodeUsername?.trim() ?? "");
-  const opencodePassword = createMemo(() => props.engineInfo?.opencodePassword?.trim() ?? "");
 
   const handleCopy = async (value: string, field: string) => {
     if (!value) return;
@@ -1198,14 +1199,14 @@ export default function SettingsView(props: SettingsViewProps) {
                   <Shield size={16} />
                   {props.developerMode ? "Disable Developer Mode" : "Enable Developer Mode"}
                 </Button>
-                <Show when={props.mode === "host"}>
+                <Show when={isLocalEngineRunning()}>
                   <Button variant="danger" onClick={props.stopHost} disabled={props.busy}>
-                    Stop engine
+                    Stop local server
                   </Button>
                 </Show>
-                <Show when={props.mode === "client"}>
+                <Show when={!isLocalEngineRunning() && props.openworkServerStatus === "connected"}>
                   <Button variant="outline" onClick={props.stopHost} disabled={props.busy}>
-                    Disconnect
+                    Disconnect server
                   </Button>
                 </Show>
               </div>
@@ -1448,14 +1449,14 @@ export default function SettingsView(props: SettingsViewProps) {
                 <div class="flex items-center gap-3">
                   <div
                     class={`p-2 rounded-lg ${
-                      props.mode === "host" ? "bg-indigo-7/10 text-indigo-11" : "bg-green-7/10 text-green-11"
+                      isLocalPreference() ? "bg-indigo-7/10 text-indigo-11" : "bg-green-7/10 text-green-11"
                     }`}
                   >
-                    <Show when={props.mode === "host"} fallback={<Smartphone size={18} />}>
+                    <Show when={isLocalPreference()} fallback={<Smartphone size={18} />}>
                       <HardDrive size={18} />
                     </Show>
                   </div>
-                  <span class="capitalize text-sm font-medium text-gray-12">{props.mode} mode</span>
+                  <span class="text-sm font-medium text-gray-12">{startupLabel()}</span>
                 </div>
                 <Button variant="outline" class="text-xs h-8 py-0 px-3" onClick={props.stopHost} disabled={props.busy}>
                   Switch
@@ -1463,12 +1464,12 @@ export default function SettingsView(props: SettingsViewProps) {
               </div>
 
               <Button variant="secondary" class="w-full justify-between group" onClick={props.onResetStartupPreference}>
-                <span class="text-gray-11">Reset default startup mode</span>
+                <span class="text-gray-11">Reset startup preference</span>
                 <RefreshCcw size={14} class="text-gray-10 group-hover:rotate-180 transition-transform" />
               </Button>
 
               <p class="text-xs text-gray-7">
-                This clears your saved preference and shows mode selection on next launch.
+                This clears your saved preference and shows the connection choice on next launch.
               </p>
             </div>
 
@@ -1478,7 +1479,7 @@ export default function SettingsView(props: SettingsViewProps) {
                 <div class="text-xs text-gray-10">Power options for the engine and reset actions.</div>
               </div>
 
-              <Show when={isTauriRuntime() && props.mode === "host"}>
+              <Show when={isTauriRuntime() && isLocalPreference()}>
                 <div class="space-y-3">
                   <div class="text-xs text-gray-10">Engine source</div>
                   <div class="grid grid-cols-2 gap-2">
@@ -1567,14 +1568,14 @@ export default function SettingsView(props: SettingsViewProps) {
 
         <Match when={activeTab() === "remote"}>
           <div class="space-y-6">
-            <Show when={props.mode === "host"}>
+            <Show when={hostInfo()}>
               <div class="space-y-4">
                 <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
                   <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <div class="text-sm font-medium text-gray-12">OpenWork host pairing</div>
+                      <div class="text-sm font-medium text-gray-12">OpenWork server sharing</div>
                       <div class="text-xs text-gray-10">
-                        Share these details with a trusted device. Keep the host on the same network for the fastest setup.
+                        Share these details with a trusted device. Keep the server on the same network for the fastest setup.
                       </div>
                     </div>
                     <div class={`text-xs px-2 py-1 rounded-full border ${hostStatusStyle()}`}>
@@ -1609,7 +1610,7 @@ export default function SettingsView(props: SettingsViewProps) {
 
                     <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
                       <div class="min-w-0">
-                        <div class="text-xs font-medium text-gray-11">Client token</div>
+                        <div class="text-xs font-medium text-gray-11">Access token</div>
                         <div class="text-xs text-gray-7 font-mono truncate">
                           {clientTokenVisible()
                             ? hostInfo()?.clientToken || "—"
@@ -1617,7 +1618,7 @@ export default function SettingsView(props: SettingsViewProps) {
                               ? "••••••••••••"
                               : "—"}
                         </div>
-                        <div class="text-[11px] text-gray-8 mt-1">Use on phones or laptops connecting to this host.</div>
+                        <div class="text-[11px] text-gray-8 mt-1">Use on phones or laptops connecting to this server.</div>
                       </div>
                       <div class="flex items-center gap-2 shrink-0">
                         <Button
@@ -1641,7 +1642,7 @@ export default function SettingsView(props: SettingsViewProps) {
 
                     <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
                       <div class="min-w-0">
-                        <div class="text-xs font-medium text-gray-11">Host token</div>
+                        <div class="text-xs font-medium text-gray-11">Server token</div>
                         <div class="text-xs text-gray-7 font-mono truncate">
                           {hostTokenVisible()
                             ? hostInfo()?.hostToken || "—"
@@ -1649,7 +1650,7 @@ export default function SettingsView(props: SettingsViewProps) {
                               ? "••••••••••••"
                               : "—"}
                         </div>
-                        <div class="text-[11px] text-gray-8 mt-1">Keep private. Required for host approvals.</div>
+                        <div class="text-[11px] text-gray-8 mt-1">Keep private. Required for approval actions.</div>
                       </div>
                       <div class="flex items-center gap-2 shrink-0">
                         <Button
@@ -1673,183 +1674,96 @@ export default function SettingsView(props: SettingsViewProps) {
                   </div>
                 </div>
 
-                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
-                  <div>
-                    <div class="text-sm font-medium text-gray-12">OpenCode direct access</div>
-                    <div class="text-xs text-gray-10">
-                      Use these credentials when a client connects directly to OpenCode without an OpenWork host.
-                    </div>
-                  </div>
-
-                  <div class="grid gap-3">
-                    <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                      <div class="min-w-0">
-                        <div class="text-xs font-medium text-gray-11">OpenCode username</div>
-                        <div class="text-xs text-gray-7 font-mono truncate">
-                          {opencodeUserVisible()
-                            ? opencodeUsername() || "—"
-                            : opencodeUsername()
-                              ? "••••••••"
-                              : "—"}
-                        </div>
-                        <div class="text-[11px] text-gray-8 mt-1">Use with the password when connecting directly.</div>
-                      </div>
-                      <div class="flex items-center gap-2 shrink-0">
-                        <Button
-                          variant="outline"
-                          class="text-xs h-8 py-0 px-3"
-                          onClick={() => setOpencodeUserVisible((prev) => !prev)}
-                          disabled={!opencodeUsername()}
-                        >
-                          {opencodeUserVisible() ? "Hide" : "Show"}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          class="text-xs h-8 py-0 px-3"
-                          onClick={() => handleCopy(opencodeUsername(), "opencode-user")}
-                          disabled={!opencodeUsername()}
-                        >
-                          {copyingField() === "opencode-user" ? "Copied" : "Copy"}
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                      <div class="min-w-0">
-                        <div class="text-xs font-medium text-gray-11">OpenCode password</div>
-                        <div class="text-xs text-gray-7 font-mono truncate">
-                          {opencodePasswordVisible()
-                            ? opencodePassword() || "—"
-                            : opencodePassword()
-                              ? "••••••••"
-                              : "—"}
-                        </div>
-                        <div class="text-[11px] text-gray-8 mt-1">Keep private. Required for direct OpenCode access.</div>
-                      </div>
-                      <div class="flex items-center gap-2 shrink-0">
-                        <Button
-                          variant="outline"
-                          class="text-xs h-8 py-0 px-3"
-                          onClick={() => setOpencodePasswordVisible((prev) => !prev)}
-                          disabled={!opencodePassword()}
-                        >
-                          {opencodePasswordVisible() ? "Hide" : "Show"}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          class="text-xs h-8 py-0 px-3"
-                          onClick={() => handleCopy(opencodePassword(), "opencode-pass")}
-                          disabled={!opencodePassword()}
-                        >
-                          {copyingField() === "opencode-pass" ? "Copied" : "Copy"}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </div>
             </Show>
 
-            <Show when={props.mode === "client"}>
-              <div class="space-y-4">
-                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
-                  <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <div class="flex items-center gap-2">
-                        <div class="text-sm font-medium text-gray-12">OpenWork host</div>
-                        <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-7/10 text-amber-11 border border-amber-7/30">
-                          Alpha
-                        </span>
-                      </div>
-                      <div class="text-xs text-gray-10">
-                        Connect to a host running OpenWork on another device. Use the host URL and client token from pairing.
-                      </div>
-                    </div>
-                    <div class={`text-xs px-2 py-1 rounded-full border ${openworkStatusStyle()}`}>
-                      {openworkStatusLabel()}
-                    </div>
-                  </div>
-
-                  <div class="grid gap-3">
-                    <TextInput
-                      label="OpenWork host URL"
-                      value={openworkUrl()}
-                      onInput={(event) => setOpenworkUrl(event.currentTarget.value)}
-                      placeholder="http://127.0.0.1:8787"
-                      hint="Use the host URL shared during pairing."
-                      disabled={props.busy}
-                    />
-
-                    <label class="block">
-                      <div class="mb-1 text-xs font-medium text-gray-11">Client token</div>
-                      <div class="flex items-center gap-2">
-                        <input
-                          type={openworkTokenVisible() ? "text" : "password"}
-                          value={openworkToken()}
-                          onInput={(event) => setOpenworkToken(event.currentTarget.value)}
-                          placeholder="Paste your token"
-                          disabled={props.busy}
-                          class="w-full rounded-xl bg-gray-2/60 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-10 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] focus:outline-none focus:ring-2 focus:ring-gray-6/20"
-                        />
-                        <Button
-                          variant="outline"
-                          class="text-xs h-9 px-3 shrink-0"
-                          onClick={() => setOpenworkTokenVisible((prev) => !prev)}
-                          disabled={props.busy}
-                        >
-                          {openworkTokenVisible() ? "Hide" : "Show"}
-                        </Button>
-                      </div>
-                      <div class="mt-1 text-xs text-gray-10">Optional. Paste the client token from the host to pair.</div>
-                    </label>
-                  </div>
-
-                  <div class="text-[11px] text-gray-7 font-mono truncate">
-                    Resolved host: {props.openworkServerUrl || "Not set"}
-                  </div>
-
-                  <div class="flex flex-wrap gap-2">
-                    <Button
-                      variant="secondary"
-                      onClick={async () => {
-                        const next = buildOpenworkSettings();
-                        props.updateOpenworkServerSettings(next);
-                        await props.testOpenworkServerConnection(next);
-                      }}
-                      disabled={props.busy}
-                    >
-                      Test connection
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => props.updateOpenworkServerSettings(buildOpenworkSettings())}
-                      disabled={props.busy || !hasOpenworkChanges()}
-                    >
-                      Save
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      onClick={props.resetOpenworkServerSettings}
-                      disabled={props.busy}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                </div>
-
-                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
+            <div class="space-y-4">
+              <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+                <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <div class="text-sm font-medium text-gray-12">OpenCode direct</div>
+                    <div class="text-sm font-medium text-gray-12">OpenWork server</div>
                     <div class="text-xs text-gray-10">
-                      Use this only when no OpenWork host is available. Manage direct engine connections from the workspace picker.
+                      Connect to an OpenWork server. Use the URL and access token from your server admin.
                     </div>
                   </div>
-                  <div class="text-[11px] text-gray-7 font-mono truncate">
-                    Current engine: {props.baseUrl || "Not connected"}
+                  <div class={`text-xs px-2 py-1 rounded-full border ${openworkStatusStyle()}`}>
+                    {openworkStatusLabel()}
                   </div>
                 </div>
+
+                <div class="grid gap-3">
+                  <TextInput
+                    label="OpenWork server URL"
+                    value={openworkUrl()}
+                    onInput={(event) => setOpenworkUrl(event.currentTarget.value)}
+                    placeholder="http://127.0.0.1:8787"
+                    hint="Use the URL shared by your OpenWork server."
+                    disabled={props.busy}
+                  />
+
+                  <label class="block">
+                    <div class="mb-1 text-xs font-medium text-gray-11">Access token</div>
+                    <div class="flex items-center gap-2">
+                      <input
+                        type={openworkTokenVisible() ? "text" : "password"}
+                        value={openworkToken()}
+                        onInput={(event) => setOpenworkToken(event.currentTarget.value)}
+                        placeholder="Paste your token"
+                        disabled={props.busy}
+                        class="w-full rounded-xl bg-gray-2/60 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-10 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] focus:outline-none focus:ring-2 focus:ring-gray-6/20"
+                      />
+                      <Button
+                        variant="outline"
+                        class="text-xs h-9 px-3 shrink-0"
+                        onClick={() => setOpenworkTokenVisible((prev) => !prev)}
+                        disabled={props.busy}
+                      >
+                        {openworkTokenVisible() ? "Hide" : "Show"}
+                      </Button>
+                    </div>
+                    <div class="mt-1 text-xs text-gray-10">Optional. Paste the access token to authenticate.</div>
+                  </label>
+                </div>
+
+                <div class="text-[11px] text-gray-7 font-mono truncate">
+                  Resolved server: {openworkUrl().trim() || "Not set"}
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={async () => {
+                      const next = buildOpenworkSettings();
+                      props.updateOpenworkServerSettings(next);
+                      await props.testOpenworkServerConnection(next);
+                    }}
+                    disabled={props.busy}
+                  >
+                    Test connection
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => props.updateOpenworkServerSettings(buildOpenworkSettings())}
+                    disabled={props.busy || !hasOpenworkChanges()}
+                  >
+                    Save
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={props.resetOpenworkServerSettings}
+                    disabled={props.busy}
+                  >
+                    Reset
+                  </Button>
+                </div>
+
+                <Show when={openworkStatusLabel() !== "Connected"}>
+                  <div class="text-xs text-gray-9">
+                    OpenWork server connection needed to sync skills, plugins, and commands.
+                  </div>
+                </Show>
               </div>
-            </Show>
+            </div>
           </div>
         </Match>
 
@@ -1857,7 +1771,6 @@ export default function SettingsView(props: SettingsViewProps) {
           <div class="space-y-6">
             <OwpenbotSettings
               busy={props.busy}
-              mode={props.mode}
               openworkServerStatus={props.openworkServerStatus}
               openworkServerUrl={props.openworkServerUrl}
               openworkServerSettings={props.openworkServerSettings}

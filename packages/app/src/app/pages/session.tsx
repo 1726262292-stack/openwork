@@ -48,7 +48,6 @@ export type SessionViewProps = {
   activeWorkspaceRoot: string;
   setWorkspaceSearch: (value: string) => void;
   setWorkspacePickerOpen: (open: boolean) => void;
-  mode: "host" | "client" | null;
   clientConnected: boolean;
   openworkServerStatus: OpenworkServerStatus;
   stopHost: () => void;

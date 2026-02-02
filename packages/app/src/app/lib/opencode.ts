@@ -10,6 +10,8 @@ type FieldsResult<T> =
 export type OpencodeAuth = {
   username?: string;
   password?: string;
+  token?: string;
+  mode?: "basic" | "openwork";
 };
 
 const encodeBasicAuth = (auth?: OpencodeAuth) => {
@@ -21,11 +23,19 @@ const encodeBasicAuth = (auth?: OpencodeAuth) => {
   return buffer ? buffer.from(token, "utf8").toString("base64") : null;
 };
 
-const createTauriFetch = (auth?: OpencodeAuth) => {
+const resolveAuthHeader = (auth?: OpencodeAuth) => {
+  if (auth?.mode === "openwork" && auth.token) {
+    return `Bearer ${auth.token}`;
+  }
   const encoded = encodeBasicAuth(auth);
+  return encoded ? `Basic ${encoded}` : null;
+};
+
+const createTauriFetch = (auth?: OpencodeAuth) => {
+  const authHeader = resolveAuthHeader(auth);
   const addAuth = (headers: Headers) => {
-    if (!encoded || headers.has("Authorization")) return;
-    headers.set("Authorization", `Basic ${encoded}`);
+    if (!authHeader || headers.has("Authorization")) return;
+    headers.set("Authorization", authHeader);
   };
 
   return (input: RequestInfo | URL, init?: RequestInit) => {
@@ -61,9 +71,9 @@ export function unwrap<T>(result: FieldsResult<T>): NonNullable<T> {
 export function createClient(baseUrl: string, directory?: string, auth?: OpencodeAuth) {
   const headers: Record<string, string> = {};
   if (!isTauriRuntime()) {
-    const encoded = encodeBasicAuth(auth);
-    if (encoded) {
-      headers.Authorization = `Basic ${encoded}`;
+    const authHeader = resolveAuthHeader(auth);
+    if (authHeader) {
+      headers.Authorization = authHeader;
     }
   }
 

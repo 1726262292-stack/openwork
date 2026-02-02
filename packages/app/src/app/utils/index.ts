@@ -85,23 +85,22 @@ export function isWindowsPlatform() {
   return /windows/i.test(platform) || /windows/i.test(ua);
 }
 
-export function readModePreference(): "host" | "client" | null {
+const STARTUP_PREF_KEY = "openwork.startupPref";
+const LEGACY_PREF_KEY = "openwork.modePref";
+const LEGACY_PREF_KEY_ALT = "openwork_mode_pref";
+
+export function readStartupPreference(): "local" | "server" | null {
   if (typeof window === "undefined") return null;
 
   try {
     const pref =
-      window.localStorage.getItem("openwork.modePref") ??
-      window.localStorage.getItem("openwork_mode_pref");
+      window.localStorage.getItem(STARTUP_PREF_KEY) ??
+      window.localStorage.getItem(LEGACY_PREF_KEY) ??
+      window.localStorage.getItem(LEGACY_PREF_KEY_ALT);
 
-    if (pref === "host" || pref === "client") {
-      // Migrate legacy key if needed.
-      try {
-        window.localStorage.setItem("openwork.modePref", pref);
-      } catch {
-        // ignore
-      }
-      return pref;
-    }
+    if (pref === "local" || pref === "server") return pref;
+    if (pref === "host") return "local";
+    if (pref === "client") return "server";
   } catch {
     // ignore
   }
@@ -109,24 +108,25 @@ export function readModePreference(): "host" | "client" | null {
   return null;
 }
 
-export function writeModePreference(nextMode: "host" | "client") {
+export function writeStartupPreference(nextPref: "local" | "server") {
   if (typeof window === "undefined") return;
 
   try {
-    window.localStorage.setItem("openwork.modePref", nextMode);
-    // Keep legacy key for now.
-    window.localStorage.setItem("openwork_mode_pref", nextMode);
+    window.localStorage.setItem(STARTUP_PREF_KEY, nextPref);
+    window.localStorage.removeItem(LEGACY_PREF_KEY);
+    window.localStorage.removeItem(LEGACY_PREF_KEY_ALT);
   } catch {
     // ignore
   }
 }
 
-export function clearModePreference() {
+export function clearStartupPreference() {
   if (typeof window === "undefined") return;
 
   try {
-    window.localStorage.removeItem("openwork.modePref");
-    window.localStorage.removeItem("openwork_mode_pref");
+    window.localStorage.removeItem(STARTUP_PREF_KEY);
+    window.localStorage.removeItem(LEGACY_PREF_KEY);
+    window.localStorage.removeItem(LEGACY_PREF_KEY_ALT);
   } catch {
     // ignore
   }

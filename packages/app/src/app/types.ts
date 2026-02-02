@@ -91,11 +91,11 @@ export type OpencodeEvent = {
 
 export type View = "onboarding" | "dashboard" | "session" | "proto";
 
-export type Mode = "host" | "client";
+export type StartupPreference = "local" | "server";
 
 export type EngineRuntime = "direct" | "openwrk";
 
-export type OnboardingStep = "mode" | "host" | "client" | "connecting";
+export type OnboardingStep = "welcome" | "local" | "server" | "connecting";
 
 export type DashboardTab =
   | "home"

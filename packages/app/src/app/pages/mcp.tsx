@@ -24,7 +24,6 @@ import TextInput from "../components/text-input";
 import { currentLocale, t, type Language } from "../../i18n";
 
 export type McpViewProps = {
-  mode: "host" | "client" | null;
   busy: boolean;
   activeWorkspaceRoot: string;
   mcpServers: McpServerEntry[];
@@ -178,8 +177,7 @@ export default function McpView(props: McpViewProps) {
     return status?.status === "connected";
   };
 
-  const canConnect = (entry: McpDirectoryInfo) =>
-    props.mode === "host" && isTauriRuntime() && !props.busy && !!props.activeWorkspaceRoot.trim();
+  const canConnect = () => !props.busy;
 
   return (
     <section class="space-y-6">
@@ -263,7 +261,7 @@ export default function McpView(props: McpViewProps) {
                             <Button
                               variant="secondary"
                               onClick={() => props.connectMcp(entry)}
-                              disabled={!canConnect(entry) || props.mcpConnectingName === entry.name}
+                              disabled={!canConnect() || props.mcpConnectingName === entry.name}
                             >
                               {props.mcpConnectingName === entry.name ? (
                                 <>

@@ -84,6 +84,7 @@ setItems((current) => current.filter((x) => x.id !== id));
 - Could two async actions overlap and fight over one boolean?
 - Is any UI state duplicated (can be derived instead)?
 - Do event handlers read signals after an `await` where values might have changed?
+- If you refactor props/types, did you update all intermediate component signatures and call sites?
 
 ## References
 

@@ -8,7 +8,6 @@ import { currentLocale, t } from "../../i18n";
 
 export type SkillsViewProps = {
   busy: boolean;
-  mode: "host" | "client" | null;
   canInstallSkillCreator: boolean;
   canUseDesktopTools: boolean;
   accessHint?: string | null;
@@ -56,7 +55,6 @@ export default function SkillsView(props: SkillsViewProps) {
           <Show
             when={
               !props.accessHint &&
-              props.mode !== "host" &&
               !props.canInstallSkillCreator &&
               !props.canUseDesktopTools
             }
