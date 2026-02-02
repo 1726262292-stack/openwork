@@ -347,11 +347,13 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
     const body = await readJsonBody(ctx.request);
     const token = typeof body.token === "string" ? body.token.trim() : "";
     const healthPort = normalizeHealthPort(body.healthPort);
+    const requestHost = ctx.url.hostname;
     logOwpenbotDebug("telegram-token:request", {
       workspaceId: workspace.id,
       actor: ctx.actor?.type ?? "unknown",
       hasToken: Boolean(token),
       healthPort: healthPort ?? null,
+      requestHost,
     });
     if (!token) {
       throw new ApiError(400, "token_required", "Telegram token is required");
@@ -364,7 +366,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
       paths: [resolveOwpenbotConfigPath()],
     });
 
-    const result = await updateOwpenbotTelegramToken(token, healthPort);
+    const result = await updateOwpenbotTelegramToken(token, healthPort, requestHost);
     logOwpenbotDebug("telegram-token:updated", { workspaceId: workspace.id });
 
     await recordAudit(workspace.path, {
@@ -817,19 +819,34 @@ function normalizeHealthPort(value: unknown): number | null {
 async function updateOwpenbotTelegramToken(
   token: string,
   healthPortOverride?: number | null,
+  requestHost?: string | null,
 ): Promise<Record<string, unknown>> {
   const port = healthPortOverride ?? resolveOwpenbotHealthPort();
-  const url = `http://127.0.0.1:${port}/config/telegram-token`;
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    });
-  } catch (error) {
+  const candidates = ["127.0.0.1", requestHost].filter(
+    (host): host is string => Boolean(host && host.trim()),
+  );
+  let response: Response | null = null;
+  let lastError: unknown = null;
+
+  for (const host of candidates) {
+    const url = `http://${host}:${port}/config/telegram-token`;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!response) {
     throw new ApiError(502, "owpenbot_unreachable", "Owpenbot health server is unavailable", {
-      error: String(error),
+      error: lastError ? String(lastError) : "no response",
+      port,
+      hosts: candidates,
     });
   }
 
