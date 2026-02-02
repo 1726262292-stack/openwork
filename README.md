@@ -11,8 +11,6 @@ OpenWork is the simplest interface to opencode. Double-click, pick a folder, and
 3. Cloud-ready — every app doubles as a client; deploy to the cloud and access from anywhere
 > **The easiest way to create safe agentic workflow and share them with your team**
 
-OpenWork is built on top of [opencode](https://opencode.ai) it lets you turn your opencode config into usable experiences for non-technical users.
-
 It's an **extensible, open-source alternative** to “Claude Work”.
 
 
