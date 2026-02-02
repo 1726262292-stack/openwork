@@ -137,8 +137,6 @@ function OwpenbotSettings(props: {
   const [telegramCheckMessage, setTelegramCheckMessage] = createSignal<string | null>(null);
   const [telegramCheckDetail, setTelegramCheckDetail] = createSignal<string | null>(null);
   const openworkServerClient = createMemo(() => {
-    const useRemote = props.mode === "client" || !isTauriRuntime();
-    if (!useRemote) return null;
     const baseUrl = props.openworkServerUrl.trim();
     const token = props.openworkServerSettings.token?.trim() ?? "";
     if (!baseUrl || !token || !props.openworkServerWorkspaceId) return null;

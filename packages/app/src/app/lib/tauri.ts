@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { isTauriRuntime } from "../utils";
 import { validateMcpServerName } from "../mcp";
 
 export type EngineInfo = {
