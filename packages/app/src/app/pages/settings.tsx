@@ -127,6 +127,7 @@ function OwpenbotSettings(props: {
   openworkServerUrl: string;
   openworkServerSettings: OpenworkServerSettings;
   openworkServerWorkspaceId: string | null;
+  openworkServerHostInfo: OpenworkServerInfo | null;
   developerMode: boolean;
 }) {
   const [owpenbotStatus, setOwpenbotStatus] = createSignal<OwpenbotStatus | null>(null);
@@ -146,9 +147,12 @@ function OwpenbotSettings(props: {
   const [telegramCheckDetail, setTelegramCheckDetail] = createSignal<string | null>(null);
   const openworkServerClient = createMemo(() => {
     const baseUrl = props.openworkServerUrl.trim();
-    const token = props.openworkServerSettings.token?.trim() ?? "";
+    const hostToken = props.openworkServerHostInfo?.hostToken?.trim() ?? "";
+    const clientToken = props.openworkServerHostInfo?.clientToken?.trim() ?? "";
+    const settingsToken = props.openworkServerSettings.token?.trim() ?? "";
+    const token = props.mode === "host" ? clientToken : settingsToken;
     if (!baseUrl || !token || !props.openworkServerWorkspaceId) return null;
-    return createOpenworkServerClient({ baseUrl, token });
+    return createOpenworkServerClient({ baseUrl, token, hostToken });
   });
   const debugOwpenbot = (message: string, data?: Record<string, unknown>) => {
     if (!props.developerMode) return;
@@ -282,7 +286,12 @@ function OwpenbotSettings(props: {
         openworkServerStatus: props.openworkServerStatus,
         openworkServerUrl: props.openworkServerUrl,
         openworkServerWorkspaceId: props.openworkServerWorkspaceId,
-        hasToken: Boolean(props.openworkServerSettings.token?.trim()),
+        hasToken: Boolean(
+          (props.mode === "host"
+            ? props.openworkServerHostInfo?.clientToken?.trim()
+            : props.openworkServerSettings.token?.trim())
+          ?? false,
+        ),
       });
       if (useRemote) {
         if (props.openworkServerStatus === "disconnected") {
@@ -1751,6 +1760,7 @@ export default function SettingsView(props: SettingsViewProps) {
               openworkServerUrl={props.openworkServerUrl}
               openworkServerSettings={props.openworkServerSettings}
               openworkServerWorkspaceId={props.openworkServerWorkspaceId}
+              openworkServerHostInfo={props.openworkServerHostInfo}
               developerMode={props.developerMode}
             />
           </div>
