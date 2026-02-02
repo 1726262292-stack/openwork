@@ -92,8 +92,8 @@ importers:
         specifier: 0.1.2
         version: 0.1.2
       owpenwork:
-        specifier: 0.1.18
-        version: 0.1.18(sharp@0.34.5)
+        specifier: 0.1.19
+        version: 0.1.19(sharp@0.34.5)
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
@@ -1505,8 +1505,8 @@ packages:
     resolution: {integrity: sha512-xN3iWCzr2crkdwwjJxFDBaToBsFxMlIyB1VBBLOdjvA3y7jfXwVi8R/rGWZ19Sflgm7yS5uchBmqO4oMZ4IYfA==}
     hasBin: true
 
-  owpenwork@0.1.18:
-    resolution: {integrity: sha512-HVeDf7m6vh2MbrbPTUSBqCzmUpWkJAOtODwWOt4KMcZgSAKy0c/Wk15OGLKaiqieKomfx5EdHRg5vqAw6rQVjw==}
+  owpenwork@0.1.19:
+    resolution: {integrity: sha512-s/K0M82zq+nyhqyv0T8mYM8fMkFAN9H7yLDut9bwaXUtX2EzvSC0wqVjJaRLhXDq9CzSJ339LVy6kXPBdqfi0A==}
     hasBin: true
 
   p-queue@9.1.0:
@@ -2831,7 +2831,7 @@ snapshots:
       minimatch: 10.1.1
       yaml: 2.8.2
 
-  owpenwork@0.1.18(sharp@0.34.5):
+  owpenwork@0.1.19(sharp@0.34.5):
     dependencies:
       '@opencode-ai/sdk': 1.1.39
       '@whiskeysockets/baileys': 7.0.0-rc.9(sharp@0.34.5)
