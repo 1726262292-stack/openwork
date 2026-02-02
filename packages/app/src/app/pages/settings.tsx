@@ -121,6 +121,7 @@ export type SettingsViewProps = {
   notionError: string | null;
   notionBusy: boolean;
   connectNotion: () => void;
+  engineDoctorVersion: string | null;
 };
 
 // Owpenbot Settings Component
@@ -1063,9 +1064,14 @@ export default function SettingsView(props: SettingsViewProps) {
   };
 
   const appVersionLabel = () => (props.appVersion ? `v${props.appVersion}` : "—");
-  const opencodeVersionLabel = () => formatOpenwrkBinaryVersion(props.openwrkStatus?.binaries?.opencode ?? null);
+  const opencodeVersionLabel = () => {
+    const fromOpenwrk = formatOpenwrkBinaryVersion(props.openwrkStatus?.binaries?.opencode ?? null);
+    if (fromOpenwrk !== "—") return fromOpenwrk;
+    return props.engineDoctorVersion ?? "—";
+  };
   const openworkServerVersionLabel = () => props.openworkServerDiagnostics?.version ?? "—";
   const owpenbotVersionLabel = () => props.owpenbotInfo?.version ?? "—";
+  const openwrkVersionLabel = () => props.openwrkStatus?.cliVersion ?? "—";
 
   const formatUptime = (uptimeMs?: number | null) => {
     if (!uptimeMs) return "—";
@@ -1903,9 +1909,7 @@ export default function SettingsView(props: SettingsViewProps) {
                       </div>
                       <div class="space-y-1">
                         <div class="text-[11px] text-gray-7 font-mono truncate">Desktop app: {appVersionLabel()}</div>
-                        <div class="text-[11px] text-gray-7 font-mono truncate">
-                          Openwrk: {props.openwrkStatus?.cliVersion ?? "—"}
-                        </div>
+                        <div class="text-[11px] text-gray-7 font-mono truncate">Openwrk: {openwrkVersionLabel()}</div>
                         <div class="text-[11px] text-gray-7 font-mono truncate">OpenCode: {opencodeVersionLabel()}</div>
                         <div class="text-[11px] text-gray-7 font-mono truncate">
                           OpenWork server: {openworkServerVersionLabel()}
