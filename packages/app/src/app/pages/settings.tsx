@@ -143,6 +143,13 @@ function OwpenbotSettings(props: {
     if (!baseUrl || !token || !props.openworkServerWorkspaceId) return null;
     return createOpenworkServerClient({ baseUrl, token });
   });
+  const owpenbotDebugEnabled = () =>
+    typeof window !== "undefined" && window.localStorage?.getItem("owpenbotDebug") === "true";
+  const debugOwpenbot = (message: string, data?: Record<string, unknown>) => {
+    if (!owpenbotDebugEnabled()) return;
+    const payload = data ? ` ${JSON.stringify(data)}` : "";
+    console.debug(`[owpenbot] ${message}${payload}`);
+  };
 
   // Load owpenbot status on mount
   onMount(async () => {
@@ -262,6 +269,15 @@ function OwpenbotSettings(props: {
     setSavingTelegram(true);
     try {
       const useRemote = props.mode === "client" || !isTauriRuntime();
+      debugOwpenbot("save-token:start", {
+        mode: props.mode ?? "unknown",
+        tauri: isTauriRuntime(),
+        useRemote,
+        openworkServerStatus: props.openworkServerStatus,
+        openworkServerUrl: props.openworkServerUrl,
+        openworkServerWorkspaceId: props.openworkServerWorkspaceId,
+        hasToken: Boolean(props.openworkServerSettings.token?.trim()),
+      });
       if (useRemote) {
         const client = openworkServerClient();
         if (!client || !props.openworkServerWorkspaceId || props.openworkServerStatus === "disconnected") {
@@ -270,15 +286,22 @@ function OwpenbotSettings(props: {
             "OpenWork server is not connected.",
             "Add a server URL and token, then try again.",
           );
+          debugOwpenbot("save-token:remote-missing-client", {
+            openworkServerStatus: props.openworkServerStatus,
+            openworkServerUrl: props.openworkServerUrl,
+            openworkServerWorkspaceId: props.openworkServerWorkspaceId,
+          });
           return;
         }
 
         setTelegramFeedback("checking", "Saving token on the host...");
         try {
           await client.setOwpenbotTelegramToken(props.openworkServerWorkspaceId, token);
+          debugOwpenbot("save-token:remote-success");
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           setTelegramFeedback("error", "Failed to save token.", detail || null);
+          debugOwpenbot("save-token:remote-error", { detail });
           return;
         }
 
@@ -292,6 +315,7 @@ function OwpenbotSettings(props: {
       if (!result.ok) {
         const detail = normalizeTelegramError(result.stderr || "");
         setTelegramFeedback("error", "Failed to save token.", detail || null);
+        debugOwpenbot("save-token:local-error", { detail });
         return;
       }
 
