@@ -20,7 +20,18 @@ import { truncateText } from "./text.js";
 import { loginWhatsApp, unpairWhatsApp } from "./whatsapp.js";
 import { hasWhatsAppCreds } from "./whatsapp-session.js";
 
-const VERSION = "0.1.16";
+const VERSION = (() => {
+  try {
+    const pkgPath = new URL("../package.json", import.meta.url);
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as { version?: string };
+    if (typeof pkg.version === "string" && pkg.version.trim()) {
+      return pkg.version.trim();
+    }
+  } catch {
+    // ignore
+  }
+  return "0.0.0";
+})();
 
 // -----------------------------------------------------------------------------
 // JSON output helpers
