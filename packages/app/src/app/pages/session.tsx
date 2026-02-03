@@ -1350,6 +1350,18 @@ export default function SessionView(props: SessionViewProps) {
               }
             />
 
+            <Show when={!autoScrollEnabled() && props.messages.length > 0}>
+              <div class="sticky bottom-24 z-20 flex justify-center pointer-events-none px-4">
+                <button
+                  type="button"
+                  class="pointer-events-auto rounded-full border border-gray-6 bg-gray-1/90 px-4 py-2 text-xs text-gray-11 shadow-lg shadow-gray-12/5 backdrop-blur-md hover:bg-gray-2 transition-colors"
+                  onClick={() => scrollToLatest("smooth")}
+                >
+                  Jump to latest
+                </button>
+              </div>
+            </Show>
+
             <div ref={(el) => (messagesEndEl = el)} />
           </div>
 
