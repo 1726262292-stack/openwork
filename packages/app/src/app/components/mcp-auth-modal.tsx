@@ -8,7 +8,7 @@ import { unwrap } from "../lib/opencode";
 import { opencodeMcpAuth } from "../lib/tauri";
 import { validateMcpServerName } from "../mcp";
 import { t, type Language } from "../../i18n";
-import { isTauriRuntime } from "../utils";
+import { isTauriRuntime, normalizeDirectoryPath } from "../utils";
 
 export type McpAuthModalProps = {
   open: boolean;
@@ -47,8 +47,11 @@ export default function McpAuthModal(props: McpAuthModalProps) {
   const [manualAuthBusy, setManualAuthBusy] = createSignal(false);
   const [cliAuthBusy, setCliAuthBusy] = createSignal(false);
   const [cliAuthResult, setCliAuthResult] = createSignal<string | null>(null);
+  const [authUrlCopied, setAuthUrlCopied] = createSignal(false);
+  const [resolvedDir, setResolvedDir] = createSignal("");
 
   let statusPoll: number | null = null;
+  let authCopyTimeout: number | null = null;
 
   const stopStatusPolling = () => {
     if (statusPoll !== null) {
@@ -58,6 +61,19 @@ export default function McpAuthModal(props: McpAuthModalProps) {
   };
 
   onCleanup(() => stopStatusPolling());
+
+  createEffect(() => {
+    const normalized = normalizeDirectoryPath(props.projectDir ?? "");
+    const collapsed = normalized.replace(/^\/private\/tmp(?=\/|$)/, "/tmp");
+    setResolvedDir(collapsed);
+  });
+
+  onCleanup(() => {
+    if (authCopyTimeout !== null) {
+      window.clearTimeout(authCopyTimeout);
+      authCopyTimeout = null;
+    }
+  });
 
   const openAuthorizationUrl = async (url: string) => {
     if (isTauriRuntime()) {
@@ -71,17 +87,55 @@ export default function McpAuthModal(props: McpAuthModalProps) {
     }
   };
 
+  const handleCopyAuthorizationUrl = async () => {
+    const url = authorizationUrl();
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setAuthUrlCopied(true);
+      if (authCopyTimeout !== null) {
+        window.clearTimeout(authCopyTimeout);
+      }
+      authCopyTimeout = window.setTimeout(() => {
+        setAuthUrlCopied(false);
+        authCopyTimeout = null;
+      }, 2000);
+    } catch {
+      // ignore
+    }
+  };
+
   const fetchMcpStatus = async (slug: string) => {
     const entry = props.entry;
     const client = props.client;
     if (!entry || !client) return null;
 
     try {
-      const result = await client.mcp.status({ directory: props.projectDir });
+      const directory = resolvedDir().trim();
+      if (!directory) return null;
+      const result = await client.mcp.status({ directory });
       const status = result.data?.[slug] as { status?: string; error?: string } | undefined;
       return status ?? null;
     } catch {
       return null;
+    }
+  };
+
+  const resolveDirectory = async () => {
+    const current = resolvedDir().trim();
+    if (current) return current;
+    const client = props.client;
+    if (!client) return "";
+    try {
+      const info = unwrap(await client.path.get());
+      const next = normalizeDirectoryPath(info.directory ?? "");
+      const collapsed = next.replace(/^\/private\/tmp(?=\/|$)/, "/tmp");
+      if (collapsed) {
+        setResolvedDir(collapsed);
+      }
+      return collapsed;
+    } catch {
+      return "";
     }
   };
 
@@ -139,6 +193,12 @@ export default function McpAuthModal(props: McpAuthModalProps) {
     setAuthInProgress(true);
 
     try {
+      const directory = await resolveDirectory();
+      if (!directory) {
+        setError(translate("mcp.pick_workspace_first"));
+        return;
+      }
+
       const statusEntry = await fetchMcpStatus(slug);
       if (props.reloadRequired && !statusEntry) {
         setNeedsReload(true);
@@ -158,7 +218,7 @@ export default function McpAuthModal(props: McpAuthModalProps) {
       if (!isRemoteWorkspace) {
         const result = await client.mcp.auth.authenticate({
           name: slug,
-          directory: props.projectDir,
+          directory,
         });
         const status = unwrap(result) as { status?: string; error?: string };
 
@@ -182,7 +242,7 @@ export default function McpAuthModal(props: McpAuthModalProps) {
 
       const authResult = await client.mcp.auth.start({
         name: slug,
-        directory: props.projectDir,
+        directory,
       });
       const auth = unwrap(authResult) as { authorizationUrl?: string };
 
@@ -350,9 +410,15 @@ export default function McpAuthModal(props: McpAuthModalProps) {
     stopStatusPolling();
 
     try {
+      const directory = await resolveDirectory();
+      if (!directory) {
+        setError(translate("mcp.pick_workspace_first"));
+        return;
+      }
+
       const result = await client.mcp.auth.callback({
         name: slug,
-        directory: props.projectDir,
+        directory,
         code,
       });
       const status = unwrap(result) as { status?: string; error?: string };
@@ -572,6 +638,21 @@ export default function McpAuthModal(props: McpAuthModalProps) {
                 </div>
                 <div class="text-xs text-gray-10">
                   {translate("mcp.auth.manual_finish_hint")}
+                </div>
+                <div class="rounded-xl border border-gray-6/70 bg-gray-2/40 px-3 py-2 flex items-center gap-3">
+                  <div class="flex-1 min-w-0">
+                    <div class="text-[10px] uppercase tracking-wide text-gray-8">Authorization link</div>
+                    <div class="text-[11px] text-gray-11 font-mono truncate">
+                      {authorizationUrl()}
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    class="text-xs"
+                    onClick={handleCopyAuthorizationUrl}
+                  >
+                    {authUrlCopied() ? "Copied" : "Copy link"}
+                  </Button>
                 </div>
                 <TextInput
                   label={translate("mcp.auth.callback_label")}
