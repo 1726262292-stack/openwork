@@ -109,7 +109,7 @@ export default function MessageList(props: MessageListProps) {
       } else {
         // Currently expanded -> collapse by adding to set
         next.add(id);
-        relatedIds.forEach((relatedId) => next.delete(relatedId));
+        relatedIds.forEach((relatedId) => next.add(relatedId));
       }
       return next;
     });
