@@ -93,14 +93,22 @@ export default function ReloadWorkspaceToast(props: ReloadWorkspaceToastProps) {
               </Show>
             </div>
             
-            <Show when={props.description || props.error}>
-              <div class="text-xs text-gray-10 truncate leading-none mt-0.5">
-                {props.hasActiveRuns 
-                  ? <span class="text-amber-11 font-medium">Reloading will stop active tasks.</span>
-                  : props.error 
-                  ? <span class="text-red-9 font-medium">{props.error}</span>
-                  : getDescription()
-                }
+            <Show when={props.description || props.error || props.warning || props.blockedReason}>
+              <div class="text-xs text-gray-10 leading-snug mt-0.5 space-y-1">
+                <div>
+                  {props.hasActiveRuns 
+                    ? <span class="text-amber-11 font-medium">Reloading will stop active tasks.</span>
+                    : props.error 
+                    ? <span class="text-red-9 font-medium">{props.error}</span>
+                    : getDescription()
+                  }
+                </div>
+                <Show when={props.warning}>
+                  <div class="text-amber-11">{props.warning}</div>
+                </Show>
+                <Show when={props.blockedReason}>
+                  <div class="text-gray-9">Blocked: {props.blockedReason}</div>
+                </Show>
               </div>
             </Show>
           </div>
