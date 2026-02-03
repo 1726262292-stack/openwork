@@ -531,6 +531,27 @@ export default function App() {
   const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(
     null
   );
+  const SESSION_BY_WORKSPACE_KEY = "openwork.workspace-last-session.v1";
+  const readSessionByWorkspace = () => {
+    if (typeof window === "undefined") return {} as Record<string, string>;
+    try {
+      const raw = window.localStorage.getItem(SESSION_BY_WORKSPACE_KEY);
+      if (!raw) return {} as Record<string, string>;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return {} as Record<string, string>;
+      return parsed as Record<string, string>;
+    } catch {
+      return {} as Record<string, string>;
+    }
+  };
+  const writeSessionByWorkspace = (map: Record<string, string>) => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(SESSION_BY_WORKSPACE_KEY, JSON.stringify(map));
+    } catch {
+      // ignore
+    }
+  };
   const [sessionModelOverrideById, setSessionModelOverrideById] = createSignal<
     Record<string, ModelRef>
   >({});
@@ -615,23 +636,6 @@ export default function App() {
   const activeTodos = createMemo(() => todos());
   const activeArtifacts = createMemo(() => artifacts());
   const activeWorkingFiles = createMemo(() => workingFiles());
-
-  createEffect(() => {
-    if (!client()) return;
-    if (!sessionsLoaded()) return;
-    if (creatingSession()) return;
-    if (selectedSessionId()) return;
-
-    const list = sessions();
-    if (list.length) {
-      const next = list[0];
-      void selectSession(next.id);
-      setView("session", next.id);
-      return;
-    }
-
-    return;
-  });
 
   const [prompt, setPrompt] = createSignal("");
   const [lastPromptSent, setLastPromptSent] = createSignal("");
@@ -1287,6 +1291,35 @@ export default function App() {
     openworkServerClient,
     onEngineStable: () => setReloadLastFinishedAtRef(Date.now()),
     engineRuntime,
+  });
+
+  createEffect(() => {
+    if (typeof window === "undefined") return;
+    const workspaceId = workspaceStore.activeWorkspaceId();
+    const sessionId = selectedSessionId();
+    if (!workspaceId || !sessionId) return;
+    const map = readSessionByWorkspace();
+    if (map[workspaceId] === sessionId) return;
+    map[workspaceId] = sessionId;
+    writeSessionByWorkspace(map);
+  });
+
+  createEffect(() => {
+    if (!client()) return;
+    if (!sessionsLoaded()) return;
+    if (creatingSession()) return;
+    if (selectedSessionId()) return;
+
+    const list = sessions();
+    if (!list.length) return;
+
+    const workspaceId = workspaceStore.activeWorkspaceId();
+    const map = workspaceId ? readSessionByWorkspace() : null;
+    const saved = workspaceId ? map?.[workspaceId] : null;
+    const match = saved ? list.find((session) => session.id === saved) : null;
+    const next = match ?? list[0];
+    void selectSession(next.id);
+    setView("session", next.id);
   });
 
   createEffect(() => {
@@ -4114,6 +4147,10 @@ export default function App() {
     setSettingsTab,
     activeWorkspaceDisplay: activeWorkspaceDisplay(),
     activeWorkspaceRoot: workspaceStore.activeWorkspaceRoot().trim(),
+    workspaces: workspaceStore.workspaces(),
+    activeWorkspaceId: workspaceStore.activeWorkspaceId(),
+    connectingWorkspaceId: workspaceStore.connectingWorkspaceId(),
+    activateWorkspace: workspaceStore.activateWorkspace,
     setWorkspaceSearch: workspaceStore.setWorkspaceSearch,
     setWorkspacePickerOpen: workspaceStore.setWorkspacePickerOpen,
     clientConnected: Boolean(client()),

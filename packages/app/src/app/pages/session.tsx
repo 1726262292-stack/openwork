@@ -20,6 +20,8 @@ import type {
   WorkspaceDisplay,
 } from "../types";
 
+import type { WorkspaceInfo } from "../lib/tauri";
+
 import { ArrowRight, ChevronDown, HardDrive, Shield, Zap } from "lucide-solid";
 
 import Button from "../components/button";
@@ -46,6 +48,10 @@ export type SessionViewProps = {
   setSettingsTab: (tab: SettingsTab) => void;
   activeWorkspaceDisplay: WorkspaceDisplay;
   activeWorkspaceRoot: string;
+  workspaces: WorkspaceInfo[];
+  activeWorkspaceId: string;
+  connectingWorkspaceId: string | null;
+  activateWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   setWorkspaceSearch: (value: string) => void;
   setWorkspacePickerOpen: (open: boolean) => void;
   clientConnected: boolean;
@@ -124,6 +130,35 @@ export type SessionViewProps = {
   deleteSession: (sessionId: string) => Promise<void>;
 };
 
+type SessionSummary = { id: string; title: string; slug?: string | null };
+
+const WORKSPACE_ORDER_KEY = "openwork.workspace-order.v1";
+
+const readWorkspaceOrder = (): string[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_ORDER_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is string => typeof entry === "string");
+  } catch {
+    return [];
+  }
+};
+
+const writeWorkspaceOrder = (order: string[]) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(WORKSPACE_ORDER_KEY, JSON.stringify(order));
+  } catch {
+    // ignore
+  }
+};
+
+const arraysEqual = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((value, index) => value === b[index]);
+
 export default function SessionView(props: SessionViewProps) {
   let messagesEndEl: HTMLDivElement | undefined;
   let chatContainerEl: HTMLDivElement | undefined;
@@ -139,6 +174,8 @@ export default function SessionView(props: SessionViewProps) {
   const [agentPickerBusy, setAgentPickerBusy] = createSignal(false);
   const [agentPickerReady, setAgentPickerReady] = createSignal(false);
   const [agentPickerError, setAgentPickerError] = createSignal<string | null>(null);
+  const [workspaceOrder, setWorkspaceOrder] = createSignal<string[]>(readWorkspaceOrder());
+  const [sessionsByWorkspaceId, setSessionsByWorkspaceId] = createSignal<Record<string, SessionSummary[]>>({});
   const [agentOptions, setAgentOptions] = createSignal<Agent[]>([]);
   const [autoScrollEnabled, setAutoScrollEnabled] = createSignal(false);
   const [scrollOnNextUpdate, setScrollOnNextUpdate] = createSignal(false);
@@ -612,10 +649,47 @@ export default function SessionView(props: SessionViewProps) {
     return props.sessions.find((session) => session.id === id)?.title ?? "";
   });
 
-  const workspaceLabel = createMemo(() => {
-    const name = props.activeWorkspaceDisplay.name.trim();
-    if (name) return name;
-    return "Workspace";
+  createEffect(() => {
+    const ids = props.workspaces.map((workspace) => workspace.id);
+    const base = workspaceOrder().length ? workspaceOrder() : readWorkspaceOrder();
+    const filtered = base.filter((id) => ids.includes(id));
+    const missing = ids.filter((id) => !filtered.includes(id));
+    const next = [...filtered, ...missing];
+    if (!arraysEqual(base, next)) {
+      writeWorkspaceOrder(next);
+    }
+    if (!arraysEqual(workspaceOrder(), next)) {
+      setWorkspaceOrder(next);
+    }
+  });
+
+  const orderedWorkspaces = createMemo(() => {
+    const byId = new Map(props.workspaces.map((workspace) => [workspace.id, workspace]));
+    const order = workspaceOrder();
+    const list = order.map((id) => byId.get(id)).filter((workspace): workspace is WorkspaceInfo => Boolean(workspace));
+    return list.length ? list : props.workspaces;
+  });
+
+  createEffect(() => {
+    const workspaceId = props.activeWorkspaceId;
+    if (!workspaceId) return;
+    const list = props.sessions.map((session) => ({
+      id: session.id,
+      title: session.title,
+      slug: session.slug,
+    }));
+    setSessionsByWorkspaceId((prev) => ({
+      ...prev,
+      [workspaceId]: list,
+    }));
+  });
+
+  const sessionWorkspaceGroups = createMemo(() => {
+    const byWorkspace = sessionsByWorkspaceId();
+    return orderedWorkspaces().map((workspace) => ({
+      workspace,
+      sessions: byWorkspace[workspace.id] ?? [],
+    }));
   });
 
   const pickFallbackSessionId = (targetId: string) => {
@@ -1152,6 +1226,42 @@ export default function SessionView(props: SessionViewProps) {
     props.setView("dashboard");
   };
 
+  const openWorkspacePicker = () => {
+    props.setWorkspaceSearch("");
+    props.setWorkspacePickerOpen(true);
+  };
+
+  const handleSelectSession = async (workspaceId: string, sessionId: string) => {
+    const targetWorkspaceId = workspaceId?.trim();
+    if (!targetWorkspaceId || !sessionId) return;
+    if (props.connectingWorkspaceId && props.connectingWorkspaceId !== targetWorkspaceId) return;
+    if (targetWorkspaceId !== props.activeWorkspaceId) {
+      const result = await props.activateWorkspace(targetWorkspaceId);
+      if (result === false) return;
+    }
+    await props.selectSession(sessionId);
+    props.setView("session", sessionId);
+    props.setTab("sessions");
+  };
+
+  const handleReorderWorkspace = (fromId: string, toId: string | null) => {
+    setWorkspaceOrder((current) => {
+      const base = current.length ? current : props.workspaces.map((workspace) => workspace.id);
+      if (!base.includes(fromId)) return current;
+      const next = base.filter((id) => id !== fromId);
+      if (toId) {
+        const index = next.indexOf(toId);
+        if (index === -1) return current;
+        next.splice(index, 0, fromId);
+      } else {
+        next.push(fromId);
+      }
+      if (arraysEqual(base, next)) return current;
+      writeWorkspaceOrder(next);
+      return next;
+    });
+  };
+
   const openProviderAuth = () => {
     void props.openProviderAuthModal().catch((error) => {
       const message = error instanceof Error ? error.message : "Connect failed";
@@ -1181,13 +1291,11 @@ export default function SessionView(props: SessionViewProps) {
               <ArrowRight class="rotate-180 w-5 h-5" />
               <span class="hidden md:inline text-xs">Back</span>
             </Button>
-             <WorkspaceChip
-               workspace={props.activeWorkspaceDisplay}
-               onClick={() => {
-                 props.setWorkspaceSearch("");
-                 props.setWorkspacePickerOpen(true);
-               }}
-             />
+              <WorkspaceChip
+                workspace={props.activeWorkspaceDisplay}
+                connecting={props.connectingWorkspaceId === props.activeWorkspaceDisplay.id}
+                onClick={openWorkspacePicker}
+              />
              <Show when={props.developerMode}>
                <span class="text-xs text-gray-7">{props.headerStatus}</span>
              </Show>
@@ -1214,14 +1322,14 @@ export default function SessionView(props: SessionViewProps) {
                 onToggleSection={(section) => {
                   props.setExpandedSidebarSections((curr) => ({...curr, [section]: !curr[section]}));
                 }}
-                workspaceName={workspaceLabel()}
-                sessions={props.sessions}
+                workspaceGroups={sessionWorkspaceGroups()}
+                activeWorkspaceId={props.activeWorkspaceId}
+                connectingWorkspaceId={props.connectingWorkspaceId}
+                onSelectWorkspace={props.activateWorkspace}
+                onAddWorkspace={openWorkspacePicker}
+                onReorderWorkspace={handleReorderWorkspace}
+                onSelectSession={handleSelectSession}
                 selectedSessionId={props.selectedSessionId}
-                 onSelectSession={async (id) => {
-                   await props.selectSession(id);
-                   props.setView("session", id);
-                   props.setTab("sessions");
-                 }}
                 sessionStatusById={props.sessionStatusById}
                 onCreateSession={props.createSessionAndOpen}
                 onDeleteSession={handleDeleteSession}
