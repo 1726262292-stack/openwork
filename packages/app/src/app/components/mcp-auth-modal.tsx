@@ -47,8 +47,10 @@ export default function McpAuthModal(props: McpAuthModalProps) {
   const [manualAuthBusy, setManualAuthBusy] = createSignal(false);
   const [cliAuthBusy, setCliAuthBusy] = createSignal(false);
   const [cliAuthResult, setCliAuthResult] = createSignal<string | null>(null);
+  const [authUrlCopied, setAuthUrlCopied] = createSignal(false);
 
   let statusPoll: number | null = null;
+  let authCopyTimeout: number | null = null;
 
   const stopStatusPolling = () => {
     if (statusPoll !== null) {
@@ -59,6 +61,13 @@ export default function McpAuthModal(props: McpAuthModalProps) {
 
   onCleanup(() => stopStatusPolling());
 
+  onCleanup(() => {
+    if (authCopyTimeout !== null) {
+      window.clearTimeout(authCopyTimeout);
+      authCopyTimeout = null;
+    }
+  });
+
   const openAuthorizationUrl = async (url: string) => {
     if (isTauriRuntime()) {
       const { openUrl } = await import("@tauri-apps/plugin-opener");
@@ -68,6 +77,24 @@ export default function McpAuthModal(props: McpAuthModalProps) {
 
     if (typeof window !== "undefined") {
       window.open(url, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const handleCopyAuthorizationUrl = async () => {
+    const url = authorizationUrl();
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setAuthUrlCopied(true);
+      if (authCopyTimeout !== null) {
+        window.clearTimeout(authCopyTimeout);
+      }
+      authCopyTimeout = window.setTimeout(() => {
+        setAuthUrlCopied(false);
+        authCopyTimeout = null;
+      }, 2000);
+    } catch {
+      // ignore
     }
   };
 
@@ -572,6 +599,21 @@ export default function McpAuthModal(props: McpAuthModalProps) {
                 </div>
                 <div class="text-xs text-gray-10">
                   {translate("mcp.auth.manual_finish_hint")}
+                </div>
+                <div class="rounded-xl border border-gray-6/70 bg-gray-2/40 px-3 py-2 flex items-center gap-3">
+                  <div class="flex-1 min-w-0">
+                    <div class="text-[10px] uppercase tracking-wide text-gray-8">Authorization link</div>
+                    <div class="text-[11px] text-gray-11 font-mono truncate">
+                      {authorizationUrl()}
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    class="text-xs"
+                    onClick={handleCopyAuthorizationUrl}
+                  >
+                    {authUrlCopied() ? "Copied" : "Copy link"}
+                  </Button>
                 </div>
                 <TextInput
                   label={translate("mcp.auth.callback_label")}
