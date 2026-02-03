@@ -260,6 +260,7 @@ export default function Composer(props: ComposerProps) {
   let editorRef: HTMLDivElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
   let variantPickerRef: HTMLDivElement | undefined;
+  let mentionSearchRun = 0;
   let suppressPromptSync = false;
   const [commandIndex, setCommandIndex] = createSignal(0);
   const [mentionIndex, setMentionIndex] = createSignal(0);
@@ -736,21 +737,40 @@ export default function Composer(props: ComposerProps) {
   });
 
   createEffect(() => {
-    if (!mentionOpen()) return;
+    if (!mentionOpen()) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
     const query = mentionQuery().trim();
     if (!query) {
       setSearchResults([]);
       return;
     }
+    const runId = (mentionSearchRun += 1);
     setSearchLoading(true);
     const timeout = window.setTimeout(() => {
       props
         .searchFiles(query)
-        .then((results) => setSearchResults(results))
-        .catch(() => setSearchResults([]))
-        .finally(() => setSearchLoading(false));
+        .then((results) => {
+          if (runId !== mentionSearchRun) return;
+          setSearchResults(results);
+        })
+        .catch(() => {
+          if (runId !== mentionSearchRun) return;
+          setSearchResults([]);
+        })
+        .finally(() => {
+          if (runId !== mentionSearchRun) return;
+          setSearchLoading(false);
+        });
     }, 150);
-    onCleanup(() => window.clearTimeout(timeout));
+    onCleanup(() => {
+      window.clearTimeout(timeout);
+      if (runId === mentionSearchRun) {
+        setSearchLoading(false);
+      }
+    });
   });
 
   createEffect(() => {
