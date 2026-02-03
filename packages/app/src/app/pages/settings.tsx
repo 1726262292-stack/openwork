@@ -58,6 +58,8 @@ export type SettingsViewProps = {
   openworkServerCapabilities: OpenworkServerCapabilities | null;
   openworkServerDiagnostics: OpenworkServerDiagnostics | null;
   openworkServerWorkspaceId: string | null;
+  clientConnected: boolean;
+  canReloadWorkspace: boolean;
   openworkAuditEntries: OpenworkAuditEntry[];
   openworkAuditStatus: "idle" | "loading" | "error";
   openworkAuditError: string | null;
@@ -65,6 +67,9 @@ export type SettingsViewProps = {
   engineInfo: EngineInfo | null;
   openwrkStatus: OpenwrkStatus | null;
   owpenbotInfo: OwpenbotInfo | null;
+  reloadWorkspaceEngine: () => Promise<void>;
+  reloadBusy: boolean;
+  reloadError: string | null;
   updateOpenworkServerSettings: (next: OpenworkServerSettings) => void;
   resetOpenworkServerSettings: () => void;
   testOpenworkServerConnection: (next: OpenworkServerSettings) => Promise<boolean>;
@@ -940,6 +945,18 @@ export default function SettingsView(props: SettingsViewProps) {
         return "bg-gray-4/60 text-gray-11 border-gray-7/50";
     }
   });
+
+  const reloadAvailabilityReason = createMemo(() => {
+    if (!props.clientConnected) return "Connect to this workspace to reload.";
+    if (!props.canReloadWorkspace) {
+      return "Reloading is only available for local workspaces or connected OpenWork servers.";
+    }
+    return null;
+  });
+
+  const reloadButtonLabel = createMemo(() => (props.reloadBusy ? "Reloading..." : "Reload engine"));
+  const reloadButtonTone = createMemo(() => (props.anyActiveRuns ? "danger" : "secondary"));
+  const reloadButtonDisabled = createMemo(() => props.reloadBusy || Boolean(reloadAvailabilityReason()));
 
   const engineStatusLabel = createMemo(() => {
     if (!isTauriRuntime()) return "Unavailable";
@@ -1926,6 +1943,38 @@ export default function SettingsView(props: SettingsViewProps) {
                     OpenWork server connection needed to sync skills, plugins, and commands.
                   </div>
                 </Show>
+              </div>
+
+              <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+                <div>
+                  <div class="text-sm font-medium text-gray-12">Engine reload</div>
+                  <div class="text-xs text-gray-10">Restart the OpenCode server for this workspace.</div>
+                </div>
+
+                <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                  <div class="min-w-0 space-y-1">
+                    <div class="text-sm text-gray-12">Reload now</div>
+                    <div class="text-xs text-gray-7">Applies config updates and reconnects your session.</div>
+                    <Show when={props.anyActiveRuns}>
+                      <div class="text-[11px] text-amber-11">Reloading will stop active tasks.</div>
+                    </Show>
+                    <Show when={props.reloadError}>
+                      <div class="text-[11px] text-red-11">{props.reloadError}</div>
+                    </Show>
+                    <Show when={reloadAvailabilityReason()}>
+                      <div class="text-[11px] text-gray-9">{reloadAvailabilityReason()}</div>
+                    </Show>
+                  </div>
+                  <Button
+                    variant={reloadButtonTone()}
+                    class="text-xs h-8 py-0 px-3 shrink-0"
+                    onClick={props.reloadWorkspaceEngine}
+                    disabled={reloadButtonDisabled()}
+                  >
+                    <RefreshCcw size={14} class={props.reloadBusy ? "animate-spin" : ""} />
+                    {reloadButtonLabel()}
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
