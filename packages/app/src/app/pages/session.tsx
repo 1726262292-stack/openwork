@@ -186,6 +186,17 @@ export default function SessionView(props: SessionViewProps) {
   const commandNeedsDetails = (command: { template: string }) => COMMAND_ARGS_RE.test(command.template);
 
   const agentLabel = createMemo(() => props.selectedSessionAgent ?? "Default agent");
+  const attachmentsEnabled = createMemo(() => {
+    if (props.activeWorkspaceDisplay.workspaceType !== "remote") return true;
+    return props.openworkServerStatus === "connected";
+  });
+  const attachmentsDisabledReason = createMemo(() => {
+    if (attachmentsEnabled()) return null;
+    if (props.openworkServerStatus === "limited") {
+      return "Add a server token to attach files.";
+    }
+    return "Connect to OpenWork server to attach files.";
+  });
 
   const isNearBottom = (el: HTMLElement, threshold = 80) => {
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -1534,6 +1545,8 @@ export default function SessionView(props: SessionViewProps) {
           recentFiles={props.workingFiles}
           searchFiles={props.searchFiles}
           isRemoteWorkspace={props.activeWorkspaceDisplay.workspaceType === "remote"}
+          attachmentsEnabled={attachmentsEnabled()}
+          attachmentsDisabledReason={attachmentsDisabledReason()}
         />
 
         <Show when={unreadCount() > 0}>

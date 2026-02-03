@@ -53,6 +53,8 @@ type ComposerProps = {
   recentFiles: string[];
   searchFiles: (query: string) => Promise<string[]>;
   isRemoteWorkspace: boolean;
+  attachmentsEnabled: boolean;
+  attachmentsDisabledReason: string | null;
 };
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
@@ -274,7 +276,7 @@ export default function Composer(props: ComposerProps) {
   const [history, setHistory] = createSignal({ prompt: [] as ComposerDraft[], shell: [] as ComposerDraft[] });
   const [variantMenuOpen, setVariantMenuOpen] = createSignal(false);
   const activeVariant = createMemo(() => props.modelVariant ?? "none");
-  const attachmentsDisabled = createMemo(() => props.isRemoteWorkspace);
+  const attachmentsDisabled = createMemo(() => !props.attachmentsEnabled);
 
   onMount(() => {
     queueMicrotask(() => focusEditorEnd());
@@ -550,8 +552,8 @@ export default function Composer(props: ComposerProps) {
   };
 
   const addAttachments = async (files: File[]) => {
-    if (props.isRemoteWorkspace) {
-      props.onToast("Attachments are unavailable in remote workspaces.");
+    if (attachmentsDisabled()) {
+      props.onToast(props.attachmentsDisabledReason ?? "Attachments are unavailable.");
       return;
     }
     const next: ComposerAttachment[] = [];
@@ -813,7 +815,8 @@ export default function Composer(props: ComposerProps) {
           }`}
           onDrop={handleDrop}
           onDragOver={(event: DragEvent) => {
-            if (!props.isRemoteWorkspace) event.preventDefault();
+            if (attachmentsDisabled()) return;
+            event.preventDefault();
           }}
         >
           <Show when={commandMenuOpen()}>
@@ -1169,7 +1172,7 @@ export default function Composer(props: ComposerProps) {
                         disabled={attachmentsDisabled()}
                         title={
                           attachmentsDisabled()
-                            ? "Attachments are unavailable in remote workspaces."
+                            ? props.attachmentsDisabledReason ?? "Attachments are unavailable."
                             : "Attach files"
                         }
                       >
