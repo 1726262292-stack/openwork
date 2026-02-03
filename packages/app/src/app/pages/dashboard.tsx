@@ -93,6 +93,10 @@ export type DashboardViewProps = {
   updateOpenworkServerSettings: (next: OpenworkServerSettings) => void;
   resetOpenworkServerSettings: () => void;
   testOpenworkServerConnection: (next: OpenworkServerSettings) => Promise<boolean>;
+  canReloadWorkspace: boolean;
+  reloadWorkspaceEngine: () => Promise<void>;
+  reloadBusy: boolean;
+  reloadError: string | null;
   keybindItems: KeybindSetting[];
   onOverrideKeybind: (id: string, keybind: string | null) => void;
   onResetKeybind: (id: string) => void;
@@ -975,6 +979,11 @@ export default function DashboardView(props: DashboardViewProps) {
                   openworkServerCapabilities={props.openworkServerCapabilities}
                   openworkServerDiagnostics={props.openworkServerDiagnostics}
                   openworkServerWorkspaceId={props.openworkServerWorkspaceId}
+                  clientConnected={props.clientConnected}
+                  canReloadWorkspace={props.canReloadWorkspace}
+                  reloadWorkspaceEngine={props.reloadWorkspaceEngine}
+                  reloadBusy={props.reloadBusy}
+                  reloadError={props.reloadError}
                   openworkAuditEntries={props.openworkAuditEntries}
                   openworkAuditStatus={props.openworkAuditStatus}
                   openworkAuditError={props.openworkAuditError}
