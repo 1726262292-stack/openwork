@@ -5,11 +5,12 @@
 
 We give AI agents the tools your team already uses and let them learn from your behavior. The more you use OpenWork, the more connected your tools become, the more knowledge accumulates, and the bigger the chunks of work you can automate.
 
-OpenWork is the simplest interface to opencode. Double-click, pick a folder, and you get three things instantly:
+OpenWork is the simplest interface to OpenCode: a desktop app for running agentic workflows across your tools without living in the terminal.
+Double-click, pick a folder, and you get three things instantly:
 1. Zero-friction setup — your existing opencode configuration just works, no migration needed
 2. Chat access — WhatsApp and Telegram ready to go (one token, done)
 3. Cloud-ready — every app doubles as a client; deploy to the cloud and access from anywhere
-> **The easiest way to create safe agentic workflow and share them with your team**
+> **The easiest way to create safe agentic workflows and share them with your team**
 
 It's an **extensible, open-source alternative** to “Claude Work”.
 
