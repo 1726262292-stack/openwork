@@ -2839,13 +2839,27 @@ export default function App() {
   async function connectMcp(entry: (typeof MCP_QUICK_CONNECT)[number]) {
     console.log("[connectMcp] called with entry:", entry);
 
-    const isRemoteWorkspace = workspaceStore.activeWorkspaceDisplay().workspaceType === "remote";
+    const isRemoteWorkspace =
+      workspaceStore.activeWorkspaceDisplay().workspaceType === "remote" ||
+      (!isTauriRuntime() && openworkServerStatus() === "connected");
     const projectDir = workspaceProjectDir().trim();
     console.log("[connectMcp] projectDir:", projectDir);
 
     const openworkClient = openworkServerClient();
-    const openworkWorkspaceId = openworkServerWorkspaceId();
+    let openworkWorkspaceId = openworkServerWorkspaceId();
     const openworkCapabilities = resolvedOpenworkCapabilities();
+    if (!openworkWorkspaceId && openworkClient && openworkServerStatus() === "connected") {
+      try {
+        const response = await openworkClient.listWorkspaces();
+        const match = response.items?.[0];
+        if (match?.id) {
+          openworkWorkspaceId = match.id;
+          setOpenworkServerWorkspaceId(match.id);
+        }
+      } catch {
+        // ignore
+      }
+    }
     const canUseOpenworkServer =
       openworkServerStatus() === "connected" &&
       openworkClient &&
@@ -2871,11 +2885,40 @@ export default function App() {
       return;
     }
 
-    const activeClient = client();
+    let activeClient = client();
     console.log("[connectMcp] activeClient:", activeClient ? "exists" : "null");
+    if (!activeClient) {
+      const openworkBaseUrl = openworkServerBaseUrl().trim();
+      const auth = openworkServerAuth();
+      if (openworkBaseUrl && auth.token) {
+        const opencodeUrl = `${openworkBaseUrl.replace(/\/+$/, "")}/opencode`;
+        activeClient = createClient(opencodeUrl, undefined, { token: auth.token, mode: "openwork" });
+        setClient(activeClient);
+      }
+    }
     if (!activeClient) {
       console.log("[connectMcp] ❌ no activeClient");
       setMcpStatus(t("mcp.connect_server_first", currentLocale()));
+      return;
+    }
+
+    let resolvedProjectDir = projectDir;
+    if (!resolvedProjectDir) {
+      try {
+        const pathInfo = unwrap(await activeClient.path.get());
+        const discoveredRaw = normalizeDirectoryPath(pathInfo.directory ?? "");
+        const discovered = discoveredRaw.replace(/^\/private\/tmp(?=\/|$)/, "/tmp");
+        if (discovered) {
+          resolvedProjectDir = discovered;
+          workspaceStore.setProjectDir(discovered);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (!resolvedProjectDir) {
+      console.log("[connectMcp] ❌ no projectDir after lookup");
+      setMcpStatus(t("mcp.pick_workspace_first", currentLocale()));
       return;
     }
 
@@ -2916,7 +2959,7 @@ export default function App() {
       } else {
         // Step 1: Read existing opencode.json config
         console.log("[connectMcp] reading opencode config for projectDir:", projectDir);
-        const configFile = await readOpencodeConfig("project", projectDir);
+        const configFile = await readOpencodeConfig("project", resolvedProjectDir);
         console.log("[connectMcp] config file result:", configFile);
 
         // Step 2: Parse and merge the MCP entry into the config
@@ -2947,7 +2990,7 @@ export default function App() {
         // Step 3: Write the updated config back
         const writeResult = await writeOpencodeConfig(
           "project",
-          projectDir,
+          resolvedProjectDir,
           `${JSON.stringify(existingConfig, null, 2)}\n`
         );
         console.log("[connectMcp] writeOpencodeConfig result:", writeResult);
@@ -2972,7 +3015,7 @@ export default function App() {
             };
 
       const mcpAddPayload = {
-        directory: projectDir,
+        directory: resolvedProjectDir,
         name: slug,
         config: mcpAddConfig,
       };

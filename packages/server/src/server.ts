@@ -157,6 +157,11 @@ async function proxyOpencodeRequest(input: {
   headers.delete("host");
   headers.delete("origin");
 
+  const directory = workspace ? resolveOpencodeDirectory(workspace) : null;
+  if (directory && !headers.has("x-opencode-directory")) {
+    headers.set("x-opencode-directory", directory);
+  }
+
   const auth = workspace ? buildOpencodeAuthHeader(workspace) : null;
   if (auth) {
     headers.set("Authorization", auth);
