@@ -900,6 +900,8 @@ export default function SettingsView(props: SettingsViewProps) {
   const [openworkUrl, setOpenworkUrl] = createSignal("");
   const [openworkToken, setOpenworkToken] = createSignal("");
   const [openworkTokenVisible, setOpenworkTokenVisible] = createSignal(false);
+  const [openworkTestState, setOpenworkTestState] = createSignal<"idle" | "testing" | "success" | "error">("idle");
+  const [openworkTestMessage, setOpenworkTestMessage] = createSignal<string | null>(null);
   const [clientTokenVisible, setClientTokenVisible] = createSignal(false);
   const [hostTokenVisible, setHostTokenVisible] = createSignal(false);
   const [copyingField, setCopyingField] = createSignal<string | null>(null);
@@ -908,6 +910,13 @@ export default function SettingsView(props: SettingsViewProps) {
   createEffect(() => {
     setOpenworkUrl(props.openworkServerSettings.urlOverride ?? "");
     setOpenworkToken(props.openworkServerSettings.token ?? "");
+  });
+
+  createEffect(() => {
+    openworkUrl();
+    openworkToken();
+    setOpenworkTestState("idle");
+    setOpenworkTestMessage(null);
   });
 
   const openworkStatusLabel = createMemo(() => {
@@ -1855,13 +1864,28 @@ export default function SettingsView(props: SettingsViewProps) {
                   <Button
                     variant="secondary"
                     onClick={async () => {
+                      if (openworkTestState() === "testing") return;
                       const next = buildOpenworkSettings();
                       props.updateOpenworkServerSettings(next);
-                      await props.testOpenworkServerConnection(next);
+                      setOpenworkTestState("testing");
+                      setOpenworkTestMessage(null);
+                      try {
+                        const ok = await props.testOpenworkServerConnection(next);
+                        setOpenworkTestState(ok ? "success" : "error");
+                        setOpenworkTestMessage(
+                          ok
+                            ? "Connection successful."
+                            : "Connection failed. Check the host URL and token."
+                        );
+                      } catch (error) {
+                        const message = error instanceof Error ? error.message : "Connection failed.";
+                        setOpenworkTestState("error");
+                        setOpenworkTestMessage(message);
+                      }
                     }}
-                    disabled={props.busy}
+                    disabled={props.busy || openworkTestState() === "testing"}
                   >
-                    Test connection
+                    {openworkTestState() === "testing" ? "Testing..." : "Test connection"}
                   </Button>
                   <Button
                     variant="outline"
@@ -1878,6 +1902,24 @@ export default function SettingsView(props: SettingsViewProps) {
                     Reset
                   </Button>
                 </div>
+
+                <Show when={openworkTestState() !== "idle"}>
+                  <div
+                    class={`text-xs ${
+                      openworkTestState() === "success"
+                        ? "text-green-11"
+                        : openworkTestState() === "error"
+                          ? "text-red-11"
+                          : "text-gray-9"
+                    }`}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {openworkTestState() === "testing"
+                      ? "Testing connection..."
+                      : openworkTestMessage() ?? "Connection status updated."}
+                  </div>
+                </Show>
 
                 <Show when={openworkStatusLabel() !== "Connected"}>
                   <div class="text-xs text-gray-9">
