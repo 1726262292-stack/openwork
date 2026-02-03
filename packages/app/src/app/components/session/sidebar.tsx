@@ -44,6 +44,7 @@ export type SidebarProps = {
 };
 
 export default function SessionSidebar(props: SidebarProps) {
+  const MAX_SESSIONS_PREVIEW = 8;
   const realTodos = createMemo(() => props.todos.filter((todo) => todo.content.trim()));
   const WORKSPACE_COLLAPSE_KEY = "openwork.workspace-collapse.v1";
   const readWorkspaceCollapse = () => {
@@ -69,6 +70,9 @@ export default function SessionSidebar(props: SidebarProps) {
   const [collapsedById, setCollapsedById] = createSignal<Record<string, boolean>>(readWorkspaceCollapse());
   const [draggingWorkspaceId, setDraggingWorkspaceId] = createSignal<string | null>(null);
   const [dragOverWorkspaceId, setDragOverWorkspaceId] = createSignal<string | null>(null);
+  const [showAllSessionsByWorkspaceId, setShowAllSessionsByWorkspaceId] = createSignal<
+    Record<string, boolean>
+  >({});
 
   const workspaceLabel = (workspace: WorkspaceInfo) =>
     workspace.displayName?.trim() ||
@@ -106,6 +110,14 @@ export default function SessionSidebar(props: SidebarProps) {
   };
 
   const isWorkspaceCollapsed = (workspaceId: string) => Boolean(collapsedById()[workspaceId]);
+  const isShowingAllSessions = (workspaceId: string) =>
+    Boolean(showAllSessionsByWorkspaceId()[workspaceId]);
+  const toggleShowAllSessions = (workspaceId: string) => {
+    setShowAllSessionsByWorkspaceId((prev) => ({
+      ...prev,
+      [workspaceId]: !prev[workspaceId],
+    }));
+  };
 
   const handleDragStart = (event: DragEvent, workspaceId: string) => {
     event.dataTransfer?.setData("text/plain", workspaceId);
@@ -162,6 +174,8 @@ export default function SessionSidebar(props: SidebarProps) {
     x: number;
     y: number;
   }>(null);
+  let contextMenuRef: HTMLDivElement | undefined;
+  const [contextMenuSize, setContextMenuSize] = createSignal({ width: 188, height: 96 });
 
   const closeContextMenu = () => setContextMenu(null);
 
@@ -174,8 +188,9 @@ export default function SessionSidebar(props: SidebarProps) {
   const contextMenuStyle = createMemo(() => {
     const menu = contextMenu();
     if (!menu) return undefined;
-    const width = 188;
-    const height = 96;
+    const size = contextMenuSize();
+    const width = size.width;
+    const height = size.height;
     if (typeof window === "undefined") {
       return { left: `${menu.x}px`, top: `${menu.y}px` };
     }
@@ -213,6 +228,28 @@ export default function SessionSidebar(props: SidebarProps) {
       if (!changed) return prev;
       writeWorkspaceCollapse(next);
       return next;
+    });
+    setShowAllSessionsByWorkspaceId((prev) => {
+      const next: Record<string, boolean> = {};
+      let changed = false;
+      for (const [id, value] of Object.entries(prev)) {
+        if (ids.has(id)) {
+          next[id] = value;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  });
+
+  createEffect(() => {
+    if (!contextMenu()) return;
+    queueMicrotask(() => {
+      if (!contextMenuRef || typeof window === "undefined") return;
+      const rect = contextMenuRef.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      setContextMenuSize({ width: rect.width, height: rect.height });
     });
   });
 
@@ -253,6 +290,10 @@ export default function SessionSidebar(props: SidebarProps) {
                   const allowActions = () => !props.connectingWorkspaceId || isConnecting();
                   const collapsed = () => isWorkspaceCollapsed(group.workspace.id);
                   const dragOver = () => dragOverWorkspaceId() === group.workspace.id;
+                  const showingAll = () => isShowingAllSessions(group.workspace.id);
+                  const visibleSessions = () =>
+                    showingAll() ? sessions() : sessions().slice(0, MAX_SESSIONS_PREVIEW);
+                  const hasMoreSessions = () => sessions().length > MAX_SESSIONS_PREVIEW;
 
                   return (
                     <div
@@ -345,7 +386,7 @@ export default function SessionSidebar(props: SidebarProps) {
                               </div>
                             }
                           >
-                            <For each={sessions().slice(0, 8)}>
+                            <For each={visibleSessions()}>
                               {(session) => (
                                 <button
                                   class={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
@@ -391,6 +432,17 @@ export default function SessionSidebar(props: SidebarProps) {
                                 </button>
                               )}
                             </For>
+                            <Show when={hasMoreSessions()}>
+                              <button
+                                type="button"
+                                class="w-full px-3 py-2 rounded-lg text-xs text-gray-9 hover:text-gray-12 hover:bg-gray-2 transition-colors"
+                                onClick={() => toggleShowAllSessions(group.workspace.id)}
+                              >
+                                {showingAll()
+                                  ? "Show fewer"
+                                  : `Show ${sessions().length - MAX_SESSIONS_PREVIEW} more`}
+                              </button>
+                            </Show>
                           </Show>
                         </div>
                       </Show>
@@ -469,6 +521,7 @@ export default function SessionSidebar(props: SidebarProps) {
               style={contextMenuStyle()}
               role="menu"
               onClick={(event) => event.stopPropagation()}
+              ref={(el) => (contextMenuRef = el)}
             >
               <button
                 class="w-full text-left px-3 py-2 text-sm rounded-lg text-gray-12 hover:bg-gray-2 transition-colors"
