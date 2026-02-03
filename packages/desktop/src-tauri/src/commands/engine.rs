@@ -277,7 +277,7 @@ pub fn engine_start(
             opencode_bin,
             opencode_host: bind_host.clone(),
             opencode_workdir: project_dir.clone(),
-            opencode_port: None,
+            opencode_port: Some(port),
             opencode_username: opencode_username.clone(),
             opencode_password: opencode_password.clone(),
             cors: Some("*".to_string()),
