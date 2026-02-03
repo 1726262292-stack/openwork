@@ -22,6 +22,7 @@ type StatusBarProps = {
 
 export default function StatusBar(props: StatusBarProps) {
   const [owpenbotStatus, setOwpenbotStatus] = createSignal<OwpenbotStatus | null>(null);
+  const [documentVisible, setDocumentVisible] = createSignal(true);
 
   const opencodeStatusMeta = createMemo(() => ({
     dot: props.clientConnected ? "bg-green-9" : "bg-gray-6",
@@ -162,12 +163,24 @@ export default function StatusBar(props: StatusBarProps) {
     setOwpenbotStatus(next);
   };
 
-  onMount(() => {
+  createEffect(() => {
+    if (typeof document === "undefined") return;
+    const update = () => setDocumentVisible(document.visibilityState !== "hidden");
+    update();
+    document.addEventListener("visibilitychange", update);
+    onCleanup(() => document.removeEventListener("visibilitychange", update));
+  });
+
+  createEffect(() => {
+    if (!documentVisible()) return;
     refreshOwpenbot();
     const interval = window.setInterval(refreshOwpenbot, 15_000);
+    onCleanup(() => window.clearInterval(interval));
+  });
+
+  onMount(() => {
     scheduleTips(6_000);
     onCleanup(() => {
-      window.clearInterval(interval);
       if (tipTimer) window.clearTimeout(tipTimer);
       if (tipHideTimer) window.clearTimeout(tipHideTimer);
     });

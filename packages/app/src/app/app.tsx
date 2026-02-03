@@ -295,6 +295,14 @@ export default function App() {
   });
 
   createEffect(() => {
+    if (typeof document === "undefined") return;
+    const update = () => setDocumentVisible(document.visibilityState !== "hidden");
+    update();
+    document.addEventListener("visibilitychange", update);
+    onCleanup(() => document.removeEventListener("visibilitychange", update));
+  });
+
+  createEffect(() => {
     const pref = startupPreference();
     const info = openworkServerHostInfo();
     const hostUrl = info?.connectUrl ?? info?.lanUrl ?? info?.mdnsUrl ?? info?.baseUrl ?? "";
@@ -339,6 +347,7 @@ export default function App() {
 
   createEffect(() => {
     if (typeof window === "undefined") return;
+    if (!documentVisible()) return;
     const url = openworkServerBaseUrl().trim();
     const auth = openworkServerAuth();
     const token = auth.token;
@@ -353,6 +362,13 @@ export default function App() {
 
     let active = true;
     let busy = false;
+    let timeoutId: number | undefined;
+    let delayMs = 10_000;
+
+    const scheduleNext = () => {
+      if (!active) return;
+      timeoutId = window.setTimeout(run, delayMs);
+    };
 
     const run = async () => {
       if (busy) return;
@@ -362,23 +378,30 @@ export default function App() {
         if (!active) return;
         setOpenworkServerStatus(result.status);
         setOpenworkServerCapabilities(result.capabilities);
+        delayMs =
+          result.status === "connected" || result.status === "limited"
+            ? 10_000
+            : Math.min(delayMs * 2, 60_000);
+      } catch {
+        delayMs = Math.min(delayMs * 2, 60_000);
       } finally {
         if (!active) return;
         setOpenworkServerCheckedAt(Date.now());
         busy = false;
+        scheduleNext();
       }
     };
 
     run();
-    const interval = window.setInterval(run, 10_000);
     onCleanup(() => {
       active = false;
-      window.clearInterval(interval);
+      if (timeoutId) window.clearTimeout(timeoutId);
     });
   });
 
   createEffect(() => {
     if (!isTauriRuntime()) return;
+    if (!documentVisible()) return;
     let active = true;
 
     const run = async () => {
@@ -400,6 +423,7 @@ export default function App() {
 
   createEffect(() => {
     if (typeof window === "undefined") return;
+    if (!documentVisible()) return;
     if (!developerMode()) {
       setOpenworkServerDiagnostics(null);
       return;
@@ -438,6 +462,7 @@ export default function App() {
   createEffect(() => {
     if (!isTauriRuntime()) return;
     if (!developerMode()) return;
+    if (!documentVisible()) return;
 
     let busy = false;
 
@@ -464,6 +489,7 @@ export default function App() {
       setOwpenbotInfoState(null);
       return;
     }
+    if (!documentVisible()) return;
 
     let active = true;
 
@@ -490,6 +516,7 @@ export default function App() {
       setOpenwrkStatusState(null);
       return;
     }
+    if (!documentVisible()) return;
 
     let active = true;
 
@@ -525,6 +552,7 @@ export default function App() {
   const mountTime = Date.now();
   const [lastKnownConfigSnapshot, setLastKnownConfigSnapshot] = createSignal("");
   const [developerMode, setDeveloperMode] = createSignal(false);
+  const [documentVisible, setDocumentVisible] = createSignal(true);
   let markReloadRequiredRef: (reason: ReloadReason, trigger?: ReloadTrigger) => void = () => {};
   let setReloadLastFinishedAtRef: (value: number) => void = () => {};
 
@@ -1392,6 +1420,7 @@ export default function App() {
       setDevtoolsWorkspaceId(null);
       return;
     }
+    if (!documentVisible()) return;
 
     const client = devtoolsOpenworkClient();
     if (!client) {
@@ -1430,6 +1459,7 @@ export default function App() {
       setOpenworkAuditError(null);
       return;
     }
+    if (!documentVisible()) return;
 
     const client = devtoolsOpenworkClient();
     const workspaceId = devtoolsWorkspaceId();
@@ -2100,6 +2130,7 @@ export default function App() {
 
   createEffect(() => {
     if (typeof window === "undefined") return;
+    if (!documentVisible()) return;
     if (openworkReloadUnsupported()) return;
     const client = openworkServerClient();
     const workspaceId = openworkServerWorkspaceId();
