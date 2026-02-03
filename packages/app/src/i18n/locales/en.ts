@@ -16,6 +16,7 @@ export default {
   "dashboard.runs": "Runs",
   "dashboard.find_workspace": "Find workspace...",
   "dashboard.workspaces": "Workspaces",
+  "dashboard.no_workspaces": "No matching workspaces.",
   "dashboard.new_workspace": "New Workspace...",
   "dashboard.new_remote_workspace": "Add Remote Workspace...",
   "dashboard.forget_workspace": "Forget workspace",

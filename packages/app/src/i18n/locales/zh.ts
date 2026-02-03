@@ -16,6 +16,7 @@ export default {
   "dashboard.runs": "运行",
   "dashboard.find_workspace": "查找工作区...",
   "dashboard.workspaces": "工作区",
+  "dashboard.no_workspaces": "没有匹配的工作区。",
   "dashboard.new_workspace": "新建工作区...",
   "dashboard.new_remote_workspace": "添加远程工作区...",
   "dashboard.forget_workspace": "忘记工作区",
