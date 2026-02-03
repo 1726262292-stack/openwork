@@ -5,7 +5,7 @@ import { formatBytes, formatRelativeTime, isTauriRuntime } from "../utils";
 import Button from "../components/button";
 import TextInput from "../components/text-input";
 import SettingsKeybinds, { type KeybindSetting } from "../components/settings-keybinds";
-import { ChevronDown, HardDrive, MessageCircle, PlugZap, RefreshCcw, Shield, Smartphone, X } from "lucide-solid";
+import { HardDrive, MessageCircle, PlugZap, RefreshCcw, Shield, Smartphone, X } from "lucide-solid";
 import type { OpencodeConnectStatus, ProviderListItem, SettingsTab, StartupPreference } from "../types";
 import { createOpenworkServerClient } from "../lib/openwork-server";
 import type {
@@ -748,6 +748,97 @@ export default function SettingsView(props: SettingsViewProps) {
   const updateTotalBytes = () => props.updateStatus?.totalBytes ?? null;
   const updateErrorMessage = () => props.updateStatus?.message ?? null;
 
+  const isMacToolbar = createMemo(() => {
+    if (props.isWindows) return false;
+    if (typeof navigator === "undefined") return false;
+    const platform =
+      typeof (navigator as any).userAgentData?.platform === "string"
+        ? (navigator as any).userAgentData.platform
+        : typeof navigator.platform === "string"
+          ? navigator.platform
+          : "";
+    const ua = typeof navigator.userAgent === "string" ? navigator.userAgent : "";
+    return /mac/i.test(platform) || /mac/i.test(ua);
+  });
+
+  const showUpdateToolbar = createMemo(() => {
+    if (!isTauriRuntime()) return false;
+    if (props.updateEnv && props.updateEnv.supported === false) return false;
+    return isMacToolbar();
+  });
+
+  const updateToolbarTone = createMemo(() => {
+    switch (updateState()) {
+      case "available":
+        return "bg-amber-7/10 text-amber-11 border-amber-7/20";
+      case "ready":
+        return "bg-green-7/10 text-green-11 border-green-7/20";
+      case "error":
+        return "bg-red-7/10 text-red-11 border-red-7/20";
+      case "checking":
+      case "downloading":
+        return "bg-gray-4/60 text-gray-11 border-gray-7/50";
+      default:
+        return "bg-gray-4/60 text-gray-11 border-gray-7/50";
+    }
+  });
+
+  const updateToolbarSpinning = createMemo(() => updateState() === "checking" || updateState() === "downloading");
+
+  const updateToolbarLabel = createMemo(() => {
+    const state = updateState();
+    const version = updateVersion();
+    if (state === "available") {
+      return `Update available${version ? ` · v${version}` : ""}`;
+    }
+    if (state === "ready") {
+      return `Ready to install${version ? ` · v${version}` : ""}`;
+    }
+    if (state === "downloading") {
+      const downloaded = updateDownloadedBytes() ?? 0;
+      const total = updateTotalBytes();
+      const progress = total != null ? `${formatBytes(downloaded)} / ${formatBytes(total)}` : formatBytes(downloaded);
+      return `Downloading ${progress}`;
+    }
+    if (state === "checking") {
+      return "Checking for updates";
+    }
+    if (state === "error") {
+      return "Update check failed";
+    }
+    return "Up to date";
+  });
+
+  const updateToolbarActionLabel = createMemo(() => {
+    const state = updateState();
+    if (state === "available") return "Download";
+    if (state === "ready") return "Install";
+    if (state === "error") return "Retry";
+    if (state === "idle") return "Check";
+    return null;
+  });
+
+  const updateToolbarDisabled = createMemo(() => {
+    const state = updateState();
+    if (state === "checking" || state === "downloading") return true;
+    if (state === "ready" && props.anyActiveRuns) return true;
+    return props.busy;
+  });
+
+  const handleUpdateToolbarAction = () => {
+    if (updateToolbarDisabled()) return;
+    const state = updateState();
+    if (state === "available") {
+      props.downloadUpdate();
+      return;
+    }
+    if (state === "ready") {
+      props.installUpdateAndRestart();
+      return;
+    }
+    props.checkForUpdates();
+  };
+
   const notionStatusLabel = () => {
     switch (props.notionStatus) {
       case "connected":
@@ -983,7 +1074,7 @@ export default function SettingsView(props: SettingsViewProps) {
   };
 
   const availableTabs = createMemo<SettingsTab[]>(() => {
-    const tabs: SettingsTab[] = ["general", "model", "keybinds", "advanced", "remote", "messaging"];
+    const tabs: SettingsTab[] = ["general", "model", "keybinds", "messaging", "remote", "advanced"];
     if (props.developerMode) tabs.push("debug");
     return tabs;
   });
@@ -1134,26 +1225,74 @@ export default function SettingsView(props: SettingsViewProps) {
 
   return (
     <section class="space-y-6">
-      <div class="flex flex-wrap gap-2">
-        <For each={availableTabs()}>
-          {(tab) => (
-            <button
-              class={`px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
-                activeTab() === tab
-                  ? "bg-gray-12/10 text-gray-12 border-gray-6/30"
-                  : "text-gray-10 border-gray-6/50 hover:text-gray-12 hover:bg-gray-2/40"
-              }`}
-              onClick={() => props.setSettingsTab(tab)}
+      <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-2xl border border-gray-6/40 bg-gray-1/40 px-3 py-2">
+        <div class="flex flex-wrap gap-2">
+          <For each={availableTabs()}>
+            {(tab) => (
+              <button
+                class={`px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
+                  activeTab() === tab
+                    ? "bg-gray-12/10 text-gray-12 border-gray-6/30"
+                    : "text-gray-10 border-gray-6/50 hover:text-gray-12 hover:bg-gray-2/40"
+                }`}
+                onClick={() => props.setSettingsTab(tab)}
+              >
+                {tabLabel(tab)}
+              </button>
+            )}
+          </For>
+        </div>
+        <Show when={showUpdateToolbar()}>
+          <div class="flex flex-wrap items-center gap-2">
+            <div
+              class={`text-xs px-2 py-1 rounded-full border flex items-center gap-2 ${updateToolbarTone()}`}
+              title={updateToolbarLabel()}
             >
-              {tabLabel(tab)}
-            </button>
-          )}
-        </For>
+              <Show when={updateToolbarSpinning()}>
+                <RefreshCcw size={12} class="animate-spin" />
+              </Show>
+              <span>{updateToolbarLabel()}</span>
+            </div>
+            <Show when={updateToolbarActionLabel()}>
+              <Button
+                variant="outline"
+                class="text-xs h-8 py-0 px-3"
+                onClick={handleUpdateToolbarAction}
+                disabled={updateToolbarDisabled()}
+                title={updateState() === "ready" && props.anyActiveRuns ? "Stop active runs to update" : ""}
+              >
+                {updateToolbarActionLabel()}
+              </Button>
+            </Show>
+          </div>
+        </Show>
       </div>
 
       <Switch>
         <Match when={activeTab() === "general"}>
           <div class="space-y-6">
+            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
+              <div class="text-sm font-medium text-gray-12">Connection</div>
+              <div class="text-xs text-gray-10">{props.headerStatus}</div>
+              <div class="text-xs text-gray-7 font-mono">{props.baseUrl}</div>
+              <div class="pt-2 flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={props.toggleDeveloperMode}>
+                  <Shield size={16} />
+                  {props.developerMode ? "Disable Developer Mode" : "Enable Developer Mode"}
+                </Button>
+                <Show when={isLocalEngineRunning()}>
+                  <Button variant="danger" onClick={props.stopHost} disabled={props.busy}>
+                    Stop local server
+                  </Button>
+                </Show>
+                <Show when={!isLocalEngineRunning() && props.openworkServerStatus === "connected"}>
+                  <Button variant="outline" onClick={props.stopHost} disabled={props.busy}>
+                    Disconnect server
+                  </Button>
+                </Show>
+              </div>
+            </div>
+
             <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
               <div class="flex items-start justify-between gap-4">
                 <div>
@@ -1187,28 +1326,6 @@ export default function SettingsView(props: SettingsViewProps) {
 
               <div class="text-[11px] text-gray-8">
                 API keys are stored locally by OpenCode. Use <span class="font-mono">/models</span> to pick a default.
-              </div>
-            </div>
-
-            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
-              <div class="text-sm font-medium text-gray-12">Connection</div>
-              <div class="text-xs text-gray-10">{props.headerStatus}</div>
-              <div class="text-xs text-gray-7 font-mono">{props.baseUrl}</div>
-              <div class="pt-2 flex flex-wrap gap-2">
-                <Button variant="secondary" onClick={props.toggleDeveloperMode}>
-                  <Shield size={16} />
-                  {props.developerMode ? "Disable Developer Mode" : "Enable Developer Mode"}
-                </Button>
-                <Show when={isLocalEngineRunning()}>
-                  <Button variant="danger" onClick={props.stopHost} disabled={props.busy}>
-                    Stop local server
-                  </Button>
-                </Show>
-                <Show when={!isLocalEngineRunning() && props.openworkServerStatus === "connected"}>
-                  <Button variant="outline" onClick={props.stopHost} disabled={props.busy}>
-                    Disconnect server
-                  </Button>
-                </Show>
               </div>
             </div>
 
@@ -1473,13 +1590,13 @@ export default function SettingsView(props: SettingsViewProps) {
               </p>
             </div>
 
-            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
-              <div>
-                <div class="text-sm font-medium text-gray-12">Advanced</div>
-                <div class="text-xs text-gray-10">Power options for the engine and reset actions.</div>
-              </div>
+            <Show when={isTauriRuntime() && isLocalPreference()}>
+              <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+                <div>
+                  <div class="text-sm font-medium text-gray-12">Engine</div>
+                  <div class="text-xs text-gray-10">Choose how OpenCode runs locally.</div>
+                </div>
 
-              <Show when={isTauriRuntime() && isLocalPreference()}>
                 <div class="space-y-3">
                   <div class="text-xs text-gray-10">Engine source</div>
                   <div class="grid grid-cols-2 gap-2">
@@ -1521,11 +1638,16 @@ export default function SettingsView(props: SettingsViewProps) {
                       Openwrk orchestrator
                     </Button>
                   </div>
-                  <div class="text-[11px] text-gray-7">
-                    Applies the next time the engine starts or reloads.
-                  </div>
+                  <div class="text-[11px] text-gray-7">Applies the next time the engine starts or reloads.</div>
                 </div>
-              </Show>
+              </div>
+            </Show>
+
+            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+              <div>
+                <div class="text-sm font-medium text-gray-12">Reset & Recovery</div>
+                <div class="text-xs text-gray-10">Clear data or restart the setup flow.</div>
+              </div>
 
               <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
                 <div class="min-w-0">
