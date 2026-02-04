@@ -29,7 +29,6 @@ import ResetModal from "./components/reset-modal";
 import CommandModal from "./components/command-modal";
 import CommandRunModal from "./components/command-run-modal";
 import CommandPaletteModal, { type PaletteGroup } from "./components/command-palette-modal";
-import WorkspacePicker from "./components/workspace-picker";
 import WorkspaceSwitchOverlay from "./components/workspace-switch-overlay";
 import CreateRemoteWorkspaceModal from "./components/create-remote-workspace-modal";
 import CreateWorkspaceModal from "./components/create-workspace-modal";
@@ -138,6 +137,7 @@ import {
 } from "./lib/tauri";
 import {
   createOpenworkServerClient,
+  hydrateOpenworkServerSettingsFromEnv,
   normalizeOpenworkServerUrl,
   readOpenworkServerSettings,
   writeOpenworkServerSettings,
@@ -295,6 +295,7 @@ export default function App() {
 
   createEffect(() => {
     if (typeof window === "undefined") return;
+    hydrateOpenworkServerSettingsFromEnv();
     setOpenworkServerSettings(readOpenworkServerSettings());
   });
 
@@ -838,9 +839,6 @@ export default function App() {
     }
   }
 
-  async function openConnectFlow() {
-    workspaceStore.setWorkspacePickerOpen(true);
-  }
 
   async function listAgents(): Promise<Agent[]> {
     const c = client();
@@ -1579,6 +1577,22 @@ export default function App() {
       }
     }
     return ok;
+  };
+
+  const openWorkspaceConnectionSettings = (workspaceId: string) => {
+    const workspace = workspaceStore.workspaces().find((item) => item.id === workspaceId) ?? null;
+    if (workspace?.workspaceType === "remote" && workspace.remoteType === "openwork") {
+      const hostUrl = normalizeOpenworkServerUrl(workspace.openworkHostUrl ?? "") ?? "";
+      if (hostUrl) {
+        updateOpenworkServerSettings({
+          ...openworkServerSettings(),
+          urlOverride: hostUrl,
+        });
+      }
+    }
+    setSettingsTab("remote");
+    setTab("settings");
+    setView("dashboard");
   };
 
   const commandState = createCommandState({
@@ -2480,6 +2494,7 @@ export default function App() {
     skills: true,
     authorizedFolders: false,
   });
+  const [autoConnectAttempted, setAutoConnectAttempted] = createSignal(false);
 
   const [appVersion, setAppVersion] = createSignal<string | null>(null);
 
@@ -2510,6 +2525,19 @@ export default function App() {
     }
 
     return busy();
+  });
+
+  createEffect(() => {
+    if (isTauriRuntime()) return;
+    if (autoConnectAttempted()) return;
+    if (client()) return;
+    if (openworkServerStatus() !== "connected") return;
+
+    const settings = openworkServerSettings();
+    if (!settings.urlOverride || !settings.token) return;
+
+    setAutoConnectAttempted(true);
+    void workspaceStore.onConnectClient();
   });
 
   createEffect(() => {
@@ -3999,13 +4027,8 @@ export default function App() {
       reloadBusy: reloadBusy(),
       reloadError: reloadError(),
       activeWorkspaceDisplay: activeWorkspaceDisplay(),
-      workspaceSearch: workspaceStore.workspaceSearch(),
-      setWorkspaceSearch: workspaceStore.setWorkspaceSearch,
-      workspacePickerOpen: workspaceStore.workspacePickerOpen(),
-      setWorkspacePickerOpen: workspaceStore.setWorkspacePickerOpen,
       connectingWorkspaceId: workspaceStore.connectingWorkspaceId(),
       workspaces: workspaceStore.workspaces(),
-      filteredWorkspaces: workspaceStore.filteredWorkspaces(),
       activeWorkspaceId: workspaceStore.activeWorkspaceId(),
       activateWorkspace: workspaceStore.activateWorkspace,
       exportWorkspaceConfig: workspaceStore.exportWorkspaceConfig,
@@ -4190,9 +4213,15 @@ export default function App() {
     workspaces: workspaceStore.workspaces(),
     activeWorkspaceId: workspaceStore.activeWorkspaceId(),
     connectingWorkspaceId: workspaceStore.connectingWorkspaceId(),
+    workspaceConnectionStateById: workspaceStore.workspaceConnectionStateById(),
     activateWorkspace: workspaceStore.activateWorkspace,
-    setWorkspaceSearch: workspaceStore.setWorkspaceSearch,
-    setWorkspacePickerOpen: workspaceStore.setWorkspacePickerOpen,
+    testWorkspaceConnection: workspaceStore.testWorkspaceConnection,
+    editWorkspaceConnection: openWorkspaceConnectionSettings,
+    forgetWorkspace: workspaceStore.forgetWorkspace,
+    openCreateWorkspace: () => workspaceStore.setCreateWorkspaceOpen(true),
+    openCreateRemoteWorkspace: () => workspaceStore.setCreateRemoteWorkspaceOpen(true),
+    importWorkspaceConfig: workspaceStore.importWorkspaceConfig,
+    importingWorkspaceConfig: workspaceStore.importingWorkspaceConfig(),
     clientConnected: Boolean(client()),
     openworkServerStatus: openworkServerStatus(),
     stopHost,
@@ -4246,7 +4275,6 @@ export default function App() {
     respondQuestion: respondQuestion,
     safeStringify: safeStringify,
     showTryNotionPrompt: tryNotionPromptVisible() && notionIsActive(),
-    openConnect: openConnectFlow,
     startProviderAuth: startProviderAuth,
     submitProviderApiKey: submitProviderApiKey,
     openProviderAuthModal: openProviderAuthModal,
@@ -4510,22 +4538,6 @@ export default function App() {
         hasActiveRuns={anyActiveRuns()}
         onReload={() => reloadWorkspaceEngine()}
         onDismiss={() => setReloadToastDismissedAt(Date.now())}
-      />
-
-      <WorkspacePicker
-        open={workspaceStore.workspacePickerOpen()}
-        workspaces={workspaceStore.workspaces()}
-        activeWorkspaceId={workspaceStore.activeWorkspaceId()}
-        search={workspaceStore.workspaceSearch()}
-        onSearch={workspaceStore.setWorkspaceSearch}
-        onClose={() => workspaceStore.setWorkspacePickerOpen(false)}
-        onSelect={workspaceStore.activateWorkspace}
-        onCreateLocal={() => workspaceStore.setCreateWorkspaceOpen(true)}
-        onCreateRemote={() => workspaceStore.setCreateRemoteWorkspaceOpen(true)}
-        onImport={workspaceStore.importWorkspaceConfig}
-        importing={workspaceStore.importingWorkspaceConfig()}
-        onForget={workspaceStore.forgetWorkspace}
-        connectingWorkspaceId={workspaceStore.connectingWorkspaceId()}
       />
 
       <CreateWorkspaceModal

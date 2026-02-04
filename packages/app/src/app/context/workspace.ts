@@ -1,4 +1,4 @@
-import { createMemo, createSignal } from "solid-js";
+import { createEffect, createMemo, createSignal } from "solid-js";
 
 import type {
   Client,
@@ -7,6 +7,7 @@ import type {
   WorkspaceDisplay,
   WorkspaceOpenworkConfig,
   WorkspacePreset,
+  WorkspaceConnectionState,
   EngineRuntime,
 } from "../types";
 import {
@@ -130,11 +131,12 @@ export function createWorkspaceStore(options: {
 
   const [workspaceConfig, setWorkspaceConfig] = createSignal<WorkspaceOpenworkConfig | null>(null);
   const [workspaceConfigLoaded, setWorkspaceConfigLoaded] = createSignal(false);
-  const [workspaceSearch, setWorkspaceSearch] = createSignal("");
-  const [workspacePickerOpen, setWorkspacePickerOpen] = createSignal(false);
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = createSignal(false);
   const [createRemoteWorkspaceOpen, setCreateRemoteWorkspaceOpen] = createSignal(false);
   const [connectingWorkspaceId, setConnectingWorkspaceId] = createSignal<string | null>(null);
+  const [workspaceConnectionStateById, setWorkspaceConnectionStateById] = createSignal<
+    Record<string, WorkspaceConnectionState>
+  >({});
   const [exportingWorkspaceConfig, setExportingWorkspaceConfig] = createSignal(false);
   const [importingWorkspaceConfig, setImportingWorkspaceConfig] = createSignal(false);
 
@@ -178,14 +180,50 @@ export function createWorkspaceStore(options: {
     return ws.path ?? "";
   });
   const activeWorkspaceRoot = createMemo(() => activeWorkspacePath().trim());
-  const filteredWorkspaces = createMemo(() => {
-    const query = workspaceSearch().trim().toLowerCase();
-    if (!query) return workspaces();
-    return workspaces().filter((ws) => {
-      const haystack = `${ws.name ?? ""} ${ws.path ?? ""} ${ws.baseUrl ?? ""} ${
-        ws.displayName ?? ""
-      } ${ws.directory ?? ""} ${ws.openworkHostUrl ?? ""} ${ws.openworkWorkspaceName ?? ""}`.toLowerCase();
-      return haystack.includes(query);
+
+  const updateWorkspaceConnectionState = (
+    workspaceId: string,
+    next: Partial<WorkspaceConnectionState>,
+  ) => {
+    const id = workspaceId.trim();
+    if (!id) return;
+    setWorkspaceConnectionStateById((prev) => {
+      const current = prev[id] ?? { status: "idle", message: null, checkedAt: null };
+      return {
+        ...prev,
+        [id]: {
+          ...current,
+          ...next,
+          checkedAt: Date.now(),
+        },
+      };
+    });
+  };
+
+  const clearWorkspaceConnectionState = (workspaceId: string) => {
+    const id = workspaceId.trim();
+    if (!id) return;
+    setWorkspaceConnectionStateById((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+
+  createEffect(() => {
+    const ids = new Set(workspaces().map((workspace) => workspace.id));
+    setWorkspaceConnectionStateById((prev) => {
+      let changed = false;
+      const next: Record<string, WorkspaceConnectionState> = {};
+      for (const [id, state] of Object.entries(prev)) {
+        if (!ids.has(id)) {
+          changed = true;
+          continue;
+        }
+        next[id] = state;
+      }
+      return changed ? next : prev;
     });
   });
 
@@ -295,6 +333,72 @@ export function createWorkspaceStore(options: {
     }
   };
 
+  async function testWorkspaceConnection(workspaceId: string) {
+    const id = workspaceId.trim();
+    if (!id) return false;
+    const workspace = workspaces().find((item) => item.id === id) ?? null;
+    if (!workspace) return false;
+
+    updateWorkspaceConnectionState(id, { status: "connecting", message: null });
+
+    if (workspace.workspaceType !== "remote") {
+      updateWorkspaceConnectionState(id, { status: "connected", message: null });
+      return true;
+    }
+
+    const remoteType = normalizeRemoteType(workspace.remoteType);
+
+    if (remoteType === "openwork") {
+      const hostUrl =
+        workspace.openworkHostUrl?.trim() || workspace.baseUrl?.trim() || workspace.path?.trim() || "";
+      if (!hostUrl) {
+        updateWorkspaceConnectionState(id, {
+          status: "error",
+          message: "OpenWork server URL is required.",
+        });
+        return false;
+      }
+
+      const token = options.openworkServerSettings().token ?? undefined;
+      try {
+        const resolved = await resolveOpenworkHost({ hostUrl, token });
+        if (resolved.kind !== "openwork") {
+          updateWorkspaceConnectionState(id, {
+            status: "error",
+            message: "OpenWork server unavailable. Check the URL and token.",
+          });
+          return false;
+        }
+        updateWorkspaceConnectionState(id, { status: "connected", message: null });
+        return true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : safeStringify(error);
+        updateWorkspaceConnectionState(id, { status: "error", message });
+        return false;
+      }
+    }
+
+    const baseUrl = workspace.baseUrl?.trim() || "";
+    if (!baseUrl) {
+      updateWorkspaceConnectionState(id, {
+        status: "error",
+        message: "Remote base URL is required.",
+      });
+      return false;
+    }
+
+    try {
+      const client = createClient(baseUrl, workspace.directory?.trim() || undefined);
+      await waitForHealthy(client, { timeoutMs: 8_000 });
+      updateWorkspaceConnectionState(id, { status: "connected", message: null });
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : safeStringify(error);
+      updateWorkspaceConnectionState(id, { status: "error", message });
+      return false;
+    }
+  }
+
   async function refreshEngine() {
     if (!isTauriRuntime()) return;
 
@@ -373,6 +477,7 @@ export function createWorkspaceStore(options: {
     const baseUrl = isRemote ? next.baseUrl?.trim() ?? "" : "";
 
     setConnectingWorkspaceId(id);
+    updateWorkspaceConnectionState(id, { status: "connecting", message: null });
 
     try {
       if (isRemote) {
@@ -382,6 +487,10 @@ export function createWorkspaceStore(options: {
           const hostUrl = next.openworkHostUrl?.trim() ?? "";
           if (!hostUrl) {
             options.setError("OpenWork server URL is required.");
+            updateWorkspaceConnectionState(id, {
+              status: "error",
+              message: "OpenWork server URL is required.",
+            });
             return false;
           }
 
@@ -414,11 +523,16 @@ export function createWorkspaceStore(options: {
           } catch (error) {
             const message = error instanceof Error ? error.message : safeStringify(error);
             options.setError(addOpencodeCacheHint(message));
+            updateWorkspaceConnectionState(id, { status: "error", message });
             return false;
           }
 
           if (!resolvedBaseUrl) {
             options.setError(t("app.error.remote_base_url_required", currentLocale()));
+            updateWorkspaceConnectionState(id, {
+              status: "error",
+              message: "Remote base URL is required.",
+            });
             return false;
           }
 
@@ -435,6 +549,10 @@ export function createWorkspaceStore(options: {
           );
 
           if (!ok) {
+            updateWorkspaceConnectionState(id, {
+              status: "error",
+              message: "Failed to connect to workspace.",
+            });
             return false;
           }
 
@@ -470,11 +588,16 @@ export function createWorkspaceStore(options: {
             }
           }
 
+          updateWorkspaceConnectionState(id, { status: "connected", message: null });
           return true;
         }
 
         if (!baseUrl) {
           options.setError(t("app.error.remote_base_url_required", currentLocale()));
+          updateWorkspaceConnectionState(id, {
+            status: "error",
+            message: "Remote base URL is required.",
+          });
           return false;
         }
 
@@ -486,6 +609,10 @@ export function createWorkspaceStore(options: {
         });
 
         if (!ok) {
+          updateWorkspaceConnectionState(id, {
+            status: "error",
+            message: "Failed to connect to workspace.",
+          });
           return false;
         }
 
@@ -503,6 +630,7 @@ export function createWorkspaceStore(options: {
           }
         }
 
+        updateWorkspaceConnectionState(id, { status: "connected", message: null });
         return true;
       }
 
@@ -646,6 +774,7 @@ export function createWorkspaceStore(options: {
 
       options.refreshSkills({ force: true }).catch(() => undefined);
       options.refreshPlugins().catch(() => undefined);
+      updateWorkspaceConnectionState(id, { status: "connected", message: null });
       return true;
     } finally {
       setConnectingWorkspaceId(null);
@@ -818,6 +947,9 @@ export function createWorkspaceStore(options: {
       const ws = await workspaceCreate({ folderPath: resolvedFolder, name, preset });
       setWorkspaces(ws.workspaces);
       syncActiveWorkspaceId(ws.activeId);
+      if (ws.activeId) {
+        updateWorkspaceConnectionState(ws.activeId, { status: "connected", message: null });
+      }
 
       const active = ws.workspaces.find((w) => w.id === ws.activeId) ?? null;
         if (active) {
@@ -826,7 +958,6 @@ export function createWorkspaceStore(options: {
           await options.loadCommands({ workspaceRoot: active.path, quiet: true }).catch(() => undefined);
         }
 
-      setWorkspacePickerOpen(false);
       setCreateWorkspaceOpen(false);
       options.setTab("home");
       options.setView("dashboard");
@@ -964,8 +1095,11 @@ export function createWorkspaceStore(options: {
       setWorkspaceConfigLoaded(true);
       setAuthorizedDirs([]);
 
-      setWorkspacePickerOpen(false);
       setCreateRemoteWorkspaceOpen(false);
+      const activeId = activeWorkspaceId();
+      if (activeId) {
+        updateWorkspaceConnectionState(activeId, { status: "connected", message: null });
+      }
       return true;
     } catch (e) {
       const message = e instanceof Error ? e.message : safeStringify(e);
@@ -993,6 +1127,7 @@ export function createWorkspaceStore(options: {
       const previousActive = activeWorkspaceId();
       const ws = await workspaceForget(id);
       setWorkspaces(ws.workspaces);
+      clearWorkspaceConnectionState(id);
       syncActiveWorkspaceId(ws.activeId);
 
       const active = ws.workspaces.find((w) => w.id === ws.activeId) ?? null;
@@ -1120,7 +1255,6 @@ export function createWorkspaceStore(options: {
 
       setWorkspaces(ws.workspaces);
       syncActiveWorkspaceId(ws.activeId);
-      setWorkspacePickerOpen(false);
       setCreateWorkspaceOpen(false);
       setCreateRemoteWorkspaceOpen(false);
       options.setTab("home");
@@ -1709,19 +1843,15 @@ export function createWorkspaceStore(options: {
     newAuthorizedDir,
     workspaceConfig,
     workspaceConfigLoaded,
-    workspaceSearch,
-    workspacePickerOpen,
     createWorkspaceOpen,
     createRemoteWorkspaceOpen,
     connectingWorkspaceId,
+    workspaceConnectionStateById,
     exportingWorkspaceConfig,
     importingWorkspaceConfig,
     activeWorkspaceDisplay,
     activeWorkspacePath,
     activeWorkspaceRoot,
-    filteredWorkspaces,
-    setWorkspaceSearch,
-    setWorkspacePickerOpen,
     setCreateWorkspaceOpen,
     setCreateRemoteWorkspaceOpen,
     setProjectDir,
@@ -1734,6 +1864,7 @@ export function createWorkspaceStore(options: {
     refreshEngine,
     refreshEngineDoctor,
     activateWorkspace,
+    testWorkspaceConnection,
     connectToServer,
     createWorkspaceFlow,
     createRemoteWorkspaceFlow,

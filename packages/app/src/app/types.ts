@@ -112,6 +112,14 @@ export type SettingsTab = "general" | "model" | "keybinds" | "advanced" | "remot
 
 export type WorkspacePreset = "starter" | "automation" | "minimal";
 
+export type WorkspaceConnectionStatus = "idle" | "connecting" | "connected" | "error";
+
+export type WorkspaceConnectionState = {
+  status: WorkspaceConnectionStatus;
+  message?: string | null;
+  checkedAt?: number | null;
+};
+
 export type ResetOpenworkMode = "onboarding" | "all";
 
 export type CommandScope = "workspace" | "global" | "unknown";

@@ -26,7 +26,6 @@ import type { EngineInfo, OpenwrkStatus, OpenworkServerInfo, OwpenbotInfo, Works
 
 import Button from "../components/button";
 import OpenWorkLogo from "../components/openwork-logo";
-import WorkspaceChip from "../components/workspace-chip";
 import McpView from "./mcp";
 import PluginsView from "./plugins";
 import ScheduledTasksView from "./scheduled";
@@ -36,18 +35,7 @@ import SkillsView from "./skills";
 import CommandsView from "./commands";
 import StatusBar from "../components/status-bar";
 import ProviderAuthModal from "../components/provider-auth-modal";
-import {
-  Command,
-  Copy,
-  Check,
-  Cpu,
-  Calendar,
-  Package,
-  Play,
-  Plus,
-  Server,
-  Terminal,
-} from "lucide-solid";
+import { Command, Cpu, Calendar, Package, Play, Plus, Server, Terminal } from "lucide-solid";
 
 export type DashboardViewProps = {
   tab: DashboardTab;
@@ -102,24 +90,8 @@ export type DashboardViewProps = {
   onResetKeybind: (id: string) => void;
   onResetAllKeybinds: () => void;
   activeWorkspaceDisplay: WorkspaceInfo;
-  workspaceSearch: string;
-  setWorkspaceSearch: (value: string) => void;
-  workspacePickerOpen: boolean;
-  setWorkspacePickerOpen: (open: boolean) => void;
-  connectingWorkspaceId: string | null;
-  workspaces: WorkspaceInfo[];
-  filteredWorkspaces: WorkspaceInfo[];
-  activeWorkspaceId: string;
-  activateWorkspace: (id: string) => Promise<boolean> | boolean;
   exportWorkspaceConfig: () => void;
   exportWorkspaceBusy: boolean;
-  createWorkspaceOpen: boolean;
-  setCreateWorkspaceOpen: (open: boolean) => void;
-  createWorkspaceFlow: (
-    preset: "starter" | "automation" | "minimal",
-    folder: string | null
-  ) => void;
-  pickWorkspaceFolder: () => Promise<string | null>;
   sessions: Array<{
     id: string;
     slug?: string | null;
@@ -297,8 +269,6 @@ export default function DashboardView(props: DashboardViewProps) {
   const [refreshInProgress, setRefreshInProgress] = createSignal(false);
   const [taskDraft, setTaskDraft] = createSignal("");
   const [providerAuthActionBusy, setProviderAuthActionBusy] = createSignal(false);
-  const [copiedWorkspaceId, setCopiedWorkspaceId] = createSignal<string | null>(null);
-  let copyTimeout: number | undefined;
 
   const canCreateTask = createMemo(
     () => !props.newTaskDisabled && taskDraft().trim().length > 0
@@ -339,33 +309,8 @@ export default function DashboardView(props: DashboardViewProps) {
   };
 
   onCleanup(() => {
-    if (copyTimeout !== undefined) {
-      window.clearTimeout(copyTimeout);
-    }
+    // no-op
   });
-
-  const workspacePathLabel = (workspace: WorkspaceInfo) =>
-    workspace.workspaceType === "remote"
-      ? workspace.baseUrl ?? workspace.path
-      : workspace.path;
-
-  const handleCopyWorkspace = async (workspace: WorkspaceInfo) => {
-    const value = workspacePathLabel(workspace)?.trim();
-    if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopiedWorkspaceId(workspace.id);
-      if (copyTimeout !== undefined) {
-        window.clearTimeout(copyTimeout);
-      }
-      copyTimeout = window.setTimeout(() => {
-        setCopiedWorkspaceId(null);
-        copyTimeout = undefined;
-      }, 2000);
-    } catch {
-      // ignore
-    }
-  };
 
   createEffect(() => {
     const currentTab = props.tab;
@@ -487,14 +432,9 @@ export default function DashboardView(props: DashboardViewProps) {
           </Show>
 
           <Show when={!props.clientConnected}>
-            <Button
-              variant="secondary"
-              onClick={() => props.setWorkspacePickerOpen(true)}
-              disabled={props.busy}
-              class="w-full"
-            >
-              Connect folder
-            </Button>
+            <div class="text-[11px] text-gray-9 px-1">
+              Add a workspace from the Sessions sidebar to get started.
+            </div>
           </Show>
         </div>
       </aside>
@@ -502,14 +442,9 @@ export default function DashboardView(props: DashboardViewProps) {
       <main class="flex-1 overflow-y-auto relative pb-24 md:pb-12">
         <header class="h-16 flex items-center justify-between px-6 md:px-10 border-b border-gray-6 sticky top-0 bg-gray-1/80 backdrop-blur-md z-10">
           <div class="flex items-center gap-3">
-            <WorkspaceChip
-              workspace={props.activeWorkspaceDisplay}
-              connecting={props.connectingWorkspaceId === props.activeWorkspaceDisplay.id}
-              onClick={() => {
-                props.setWorkspaceSearch("");
-                props.setWorkspacePickerOpen(true);
-              }}
-            />
+            <div class="px-3 py-1.5 rounded-xl bg-gray-2 text-xs text-gray-11 font-medium">
+              {props.activeWorkspaceDisplay.name}
+            </div>
             <h1 class="text-lg font-medium">{title()}</h1>
             <Show when={props.developerMode}>
               <span class="text-xs text-gray-7">{props.headerStatus}</span>
@@ -664,91 +599,6 @@ export default function DashboardView(props: DashboardViewProps) {
                     </For>
                   </div>
                 </Show>
-              </section>
-
-              <section>
-                <div class="flex items-center justify-between mb-4">
-                  <h3 class="text-sm font-medium text-gray-11 uppercase tracking-wider">
-                    Workspaces
-                  </h3>
-                  <div class="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      class="text-xs h-8 px-3"
-                      onClick={props.exportWorkspaceConfig}
-                      disabled={!canExportWorkspace() || props.exportWorkspaceBusy}
-                      title={
-                        !canExportWorkspace()
-                          ? "Export is only available for local workspaces"
-                          : "Export workspace config"
-                      }
-                    >
-                      Share config
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      class="text-xs h-8 px-3"
-                      onClick={() => props.setWorkspacePickerOpen(true)}
-                    >
-                      <Plus size={14} />
-                      Add workspace
-                    </Button>
-                  </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <For each={props.workspaces}>
-                    {(workspace) => (
-                      <div class="rounded-2xl border border-gray-6/60 bg-gray-1/40 p-4 space-y-3">
-                        <div class="flex items-start justify-between">
-                          <div class="space-y-1 min-w-0">
-                            <div class="text-sm font-semibold text-gray-12 truncate">
-                              {workspace.displayName ?? workspace.name}
-                            </div>
-                            <div class="flex items-center gap-2 text-xs text-gray-10 font-mono">
-                              <span class="truncate min-w-0">
-                                {workspacePathLabel(workspace)}
-                              </span>
-                              <button
-                                type="button"
-                                class="shrink-0 rounded-md p-1 text-gray-9 hover:text-gray-12 hover:bg-gray-3 transition-colors"
-                                onClick={() => handleCopyWorkspace(workspace)}
-                                title={copiedWorkspaceId() === workspace.id ? "Copied" : "Copy path"}
-                                aria-label="Copy workspace path"
-                              >
-                                <Show when={copiedWorkspaceId() === workspace.id} fallback={<Copy size={12} />}>
-                                  <Check size={12} class="text-green-11" />
-                                </Show>
-                              </button>
-                            </div>
-                          </div>
-                          <span class="text-[11px] text-gray-9">
-                            {workspace.workspaceType === "remote" ? "Remote" : "Local"}
-                          </span>
-                        </div>
-                        <div class="flex items-center justify-end text-xs text-gray-9 h-8">
-                          <Show when={workspace.id === props.activeWorkspaceId}>
-                            <span class="text-green-11 font-medium flex items-center gap-1.5 !px-2">
-                              Active
-                            </span>
-                          </Show>
-                          <Show when={workspace.id !== props.activeWorkspaceId}>
-                            <Button
-                              variant="ghost"
-                              class="text-xs !px-2 py-1"
-                              onClick={() => props.activateWorkspace(workspace.id)}
-                              disabled={props.connectingWorkspaceId === workspace.id}
-                            >
-                              {props.connectingWorkspaceId === workspace.id
-                                ? "Switching..."
-                                : "Switch"}
-                            </Button>
-                          </Show>
-                        </div>
-                      </div>
-                    )}
-                  </For>
-                </div>
               </section>
 
               <section>

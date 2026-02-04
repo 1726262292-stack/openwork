@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
-import { Check, ChevronDown, GripVertical, Loader2, Plus } from "lucide-solid";
+import { Check, ChevronDown, GripVertical, Loader2, Plus, RefreshCcw, Settings, Trash2 } from "lucide-solid";
 
-import type { TodoItem } from "../../types";
+import type { TodoItem, WorkspaceConnectionState } from "../../types";
 import type { WorkspaceInfo } from "../../lib/tauri";
 
 type SessionSummary = {
@@ -32,8 +32,15 @@ export type SidebarProps = {
   workspaceGroups: WorkspaceSessionGroup[];
   activeWorkspaceId: string;
   connectingWorkspaceId?: string | null;
+  workspaceConnectionStateById: Record<string, WorkspaceConnectionState>;
   onSelectWorkspace: (workspaceId: string) => void;
-  onAddWorkspace: () => void;
+  onCreateWorkspace: () => void;
+  onCreateRemoteWorkspace: () => void;
+  onImportWorkspace: () => void;
+  importingWorkspaceConfig?: boolean;
+  onEditWorkspace: (workspaceId: string) => void;
+  onTestWorkspaceConnection: (workspaceId: string) => void;
+  onForgetWorkspace: (workspaceId: string) => void;
   onReorderWorkspace: (fromId: string, toId: string | null) => void;
   onSelectSession: (workspaceId: string, sessionId: string) => void;
   selectedSessionId: string | null;
@@ -73,6 +80,8 @@ export default function SessionSidebar(props: SidebarProps) {
   const [showAllSessionsByWorkspaceId, setShowAllSessionsByWorkspaceId] = createSignal<
     Record<string, boolean>
   >({});
+  const [addWorkspaceMenuOpen, setAddWorkspaceMenuOpen] = createSignal(false);
+  let addWorkspaceMenuRef: HTMLDivElement | undefined;
 
   const workspaceLabel = (workspace: WorkspaceInfo) =>
     workspace.displayName?.trim() ||
@@ -253,6 +262,17 @@ export default function SessionSidebar(props: SidebarProps) {
     });
   });
 
+  createEffect(() => {
+    if (!addWorkspaceMenuOpen()) return;
+    const closeMenu = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (addWorkspaceMenuRef && target && addWorkspaceMenuRef.contains(target)) return;
+      setAddWorkspaceMenuOpen(false);
+    };
+    window.addEventListener("click", closeMenu);
+    onCleanup(() => window.removeEventListener("click", closeMenu));
+  });
+
   return (
     <div class="flex flex-col h-full overflow-hidden">
       <div class="px-4 pt-4 shrink-0">
@@ -288,6 +308,15 @@ export default function SessionSidebar(props: SidebarProps) {
                   const detailLabel = () => workspaceDetailLabel(group.workspace);
                   const sessions = () => group.sessions;
                   const allowActions = () => !props.connectingWorkspaceId || isConnecting();
+                  const connectionState = () => props.workspaceConnectionStateById[group.workspace.id];
+                  const connectionStatus = () => connectionState()?.status ?? "idle";
+                  const connectionMessage = () => connectionState()?.message?.trim() ?? "";
+                  const connectionDotClass = () => {
+                    if (connectionStatus() === "connected") return "bg-green-9";
+                    if (connectionStatus() === "connecting") return "bg-amber-9 animate-pulse";
+                    if (connectionStatus() === "error") return "bg-red-9";
+                    return "bg-gray-7";
+                  };
                   const collapsed = () => isWorkspaceCollapsed(group.workspace.id);
                   const dragOver = () => dragOverWorkspaceId() === group.workspace.id;
                   const showingAll = () => isShowingAllSessions(group.workspace.id);
@@ -324,6 +353,7 @@ export default function SessionSidebar(props: SidebarProps) {
                           <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0 space-y-0.5">
                               <div class="flex items-center gap-2">
+                                <span class={`h-2 w-2 rounded-full ${connectionDotClass()}`} />
                                 <span class="text-xs font-semibold truncate">
                                   {workspaceLabel(group.workspace)}
                                 </span>
@@ -341,12 +371,17 @@ export default function SessionSidebar(props: SidebarProps) {
                               </Show>
                             </div>
                             <div class="flex items-center gap-2 text-[10px] shrink-0">
-                              <Show when={isConnecting()}>
+                              <Show when={isConnecting() || connectionStatus() === "connecting"}>
                                 <Loader2 size={12} class="text-gray-10 animate-spin" />
                               </Show>
-                              <Show when={!isConnecting()}>
-                                <Show when={isActive()} fallback={<span class="text-gray-9">Switch</span>}>
-                                  <span class="text-green-11 font-medium">Active</span>
+                              <Show when={!isConnecting() && connectionStatus() !== "connecting"}>
+                                <Show when={connectionStatus() === "error"}>
+                                  <span class="text-red-11 font-medium">Needs attention</span>
+                                </Show>
+                                <Show when={connectionStatus() !== "error"}>
+                                  <Show when={isActive()} fallback={<span class="text-gray-9">Switch</span>}>
+                                    <span class="text-green-11 font-medium">Active</span>
+                                  </Show>
                                 </Show>
                               </Show>
                             </div>
@@ -378,6 +413,42 @@ export default function SessionSidebar(props: SidebarProps) {
                       </div>
                       <Show when={!collapsed()}>
                         <div class="space-y-1 pl-2 pb-2">
+                          <Show when={connectionStatus() === "error" && connectionMessage()}>
+                            <div class="mx-3 rounded-lg border border-red-7/30 bg-red-1/40 px-3 py-2 text-[11px] text-red-11">
+                              {connectionMessage()}
+                            </div>
+                          </Show>
+                          <div class="flex flex-wrap gap-2 px-3 pb-1">
+                            <Show when={group.workspace.workspaceType === "remote"}>
+                              <button
+                                type="button"
+                                class="inline-flex items-center gap-1.5 rounded-md border border-gray-6 px-2 py-1 text-[10px] text-gray-10 hover:text-gray-12 hover:border-gray-7 hover:bg-gray-2 transition-colors"
+                                onClick={() => props.onEditWorkspace(group.workspace.id)}
+                                disabled={!allowActions()}
+                              >
+                                <Settings size={12} />
+                                Edit connection
+                              </button>
+                              <button
+                                type="button"
+                                class="inline-flex items-center gap-1.5 rounded-md border border-gray-6 px-2 py-1 text-[10px] text-gray-10 hover:text-gray-12 hover:border-gray-7 hover:bg-gray-2 transition-colors"
+                                onClick={() => props.onTestWorkspaceConnection(group.workspace.id)}
+                                disabled={!allowActions()}
+                              >
+                                <RefreshCcw size={12} class={connectionStatus() === "connecting" ? "animate-spin" : ""} />
+                                Test connection
+                              </button>
+                            </Show>
+                            <button
+                              type="button"
+                              class="inline-flex items-center gap-1.5 rounded-md border border-gray-6 px-2 py-1 text-[10px] text-gray-10 hover:text-gray-12 hover:border-gray-7 hover:bg-gray-2 transition-colors"
+                              onClick={() => props.onForgetWorkspace(group.workspace.id)}
+                              disabled={!allowActions()}
+                            >
+                              <Trash2 size={12} />
+                              Remove
+                            </button>
+                          </div>
                           <Show
                             when={sessions().length > 0}
                             fallback={
@@ -451,17 +522,57 @@ export default function SessionSidebar(props: SidebarProps) {
                 }}
               </For>
             </Show>
-            <button
-              type="button"
-              class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-gray-11 border border-dashed border-gray-6 hover:border-gray-7 hover:text-gray-12 hover:bg-gray-2 transition-colors"
-              onClick={props.onAddWorkspace}
-              onDragOver={(event) => handleDragOver(event, null)}
-              onDragLeave={() => handleDragLeave(null)}
-              onDrop={(event) => handleDrop(event, null)}
-            >
-              <Plus size={14} />
-              Add new workspace
-            </button>
+            <div class="relative" ref={(el) => (addWorkspaceMenuRef = el)}>
+              <button
+                type="button"
+                class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-gray-11 border border-dashed border-gray-6 hover:border-gray-7 hover:text-gray-12 hover:bg-gray-2 transition-colors"
+                onClick={() => setAddWorkspaceMenuOpen((prev) => !prev)}
+                onDragOver={(event) => handleDragOver(event, null)}
+                onDragLeave={() => handleDragLeave(null)}
+                onDrop={(event) => handleDrop(event, null)}
+              >
+                <Plus size={14} />
+                Add new workspace
+              </button>
+              <Show when={addWorkspaceMenuOpen()}>
+                <div class="mt-2 rounded-lg border border-gray-6 bg-gray-1 shadow-lg overflow-hidden">
+                  <button
+                    type="button"
+                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-11 hover:bg-gray-2 transition-colors"
+                    onClick={() => {
+                      props.onCreateWorkspace();
+                      setAddWorkspaceMenuOpen(false);
+                    }}
+                  >
+                    <Plus size={12} />
+                    New workspace
+                  </button>
+                  <button
+                    type="button"
+                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-11 hover:bg-gray-2 transition-colors"
+                    onClick={() => {
+                      props.onCreateRemoteWorkspace();
+                      setAddWorkspaceMenuOpen(false);
+                    }}
+                  >
+                    <Plus size={12} />
+                    Connect remote
+                  </button>
+                  <button
+                    type="button"
+                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-11 hover:bg-gray-2 transition-colors disabled:opacity-60"
+                    disabled={props.importingWorkspaceConfig}
+                    onClick={() => {
+                      props.onImportWorkspace();
+                      setAddWorkspaceMenuOpen(false);
+                    }}
+                  >
+                    <Plus size={12} />
+                    Import config
+                  </button>
+                </div>
+              </Show>
+            </div>
           </div>
         </div>
 

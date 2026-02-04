@@ -188,6 +188,52 @@ export function writeOpenworkServerSettings(next: OpenworkServerSettings): Openw
   }
 }
 
+export function hydrateOpenworkServerSettingsFromEnv() {
+  if (typeof window === "undefined") return;
+
+  const envUrl = typeof import.meta.env?.VITE_OPENWORK_URL === "string"
+    ? import.meta.env.VITE_OPENWORK_URL.trim()
+    : "";
+  const envPort = typeof import.meta.env?.VITE_OPENWORK_PORT === "string"
+    ? import.meta.env.VITE_OPENWORK_PORT.trim()
+    : "";
+  const envToken = typeof import.meta.env?.VITE_OPENWORK_TOKEN === "string"
+    ? import.meta.env.VITE_OPENWORK_TOKEN.trim()
+    : "";
+
+  if (!envUrl && !envPort && !envToken) return;
+
+  try {
+    const current = readOpenworkServerSettings();
+    const next: OpenworkServerSettings = { ...current };
+    let changed = false;
+
+    if (!current.urlOverride && envUrl) {
+      next.urlOverride = normalizeOpenworkServerUrl(envUrl) ?? undefined;
+      changed = true;
+    }
+
+    if (!current.portOverride && envPort) {
+      const parsed = Number(envPort);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        next.portOverride = parsed;
+        changed = true;
+      }
+    }
+
+    if (!current.token && envToken) {
+      next.token = envToken;
+      changed = true;
+    }
+
+    if (changed) {
+      writeOpenworkServerSettings(next);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export function clearOpenworkServerSettings() {
   if (typeof window === "undefined") return;
   try {

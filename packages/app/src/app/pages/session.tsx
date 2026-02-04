@@ -18,6 +18,7 @@ import type {
   TodoItem,
   View,
   WorkspaceCommand,
+  WorkspaceConnectionState,
   WorkspaceDisplay,
 } from "../types";
 
@@ -27,7 +28,6 @@ import { ArrowRight, ChevronDown, HardDrive, Shield, Zap } from "lucide-solid";
 
 import Button from "../components/button";
 import RenameSessionModal from "../components/rename-session-modal";
-import WorkspaceChip from "../components/workspace-chip";
 import ProviderAuthModal from "../components/provider-auth-modal";
 import StatusBar from "../components/status-bar";
 import type { OpenworkServerStatus } from "../lib/openwork-server";
@@ -53,9 +53,15 @@ export type SessionViewProps = {
   workspaces: WorkspaceInfo[];
   activeWorkspaceId: string;
   connectingWorkspaceId: string | null;
+  workspaceConnectionStateById: Record<string, WorkspaceConnectionState>;
   activateWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
-  setWorkspaceSearch: (value: string) => void;
-  setWorkspacePickerOpen: (open: boolean) => void;
+  testWorkspaceConnection: (workspaceId: string) => Promise<boolean> | boolean;
+  editWorkspaceConnection: (workspaceId: string) => void;
+  forgetWorkspace: (workspaceId: string) => void;
+  openCreateWorkspace: () => void;
+  openCreateRemoteWorkspace: () => void;
+  importWorkspaceConfig: () => void;
+  importingWorkspaceConfig: boolean;
   clientConnected: boolean;
   openworkServerStatus: OpenworkServerStatus;
   stopHost: () => void;
@@ -110,7 +116,6 @@ export type SessionViewProps = {
   error: string | null;
   sessionStatus: string;
   renameSession: (sessionId: string, title: string) => Promise<void>;
-  openConnect: () => void;
   startProviderAuth: (providerId?: string) => Promise<string>;
   submitProviderApiKey: (providerId: string, apiKey: string) => Promise<string | void>;
   openProviderAuthModal: () => Promise<void>;
@@ -1242,11 +1247,6 @@ export default function SessionView(props: SessionViewProps) {
     props.setView("dashboard");
   };
 
-  const openWorkspacePicker = () => {
-    props.setWorkspaceSearch("");
-    props.setWorkspacePickerOpen(true);
-  };
-
   const handleSelectSession = async (workspaceId: string, sessionId: string) => {
     const targetWorkspaceId = workspaceId?.trim();
     if (!targetWorkspaceId || !sessionId) return;
@@ -1307,11 +1307,9 @@ export default function SessionView(props: SessionViewProps) {
             <ArrowRight class="rotate-180 w-5 h-5" />
             <span class="hidden md:inline text-xs">Back</span>
           </Button>
-          <WorkspaceChip
-            workspace={props.activeWorkspaceDisplay}
-            connecting={props.connectingWorkspaceId === props.activeWorkspaceDisplay.id}
-            onClick={openWorkspacePicker}
-          />
+          <div class="px-3 py-1.5 rounded-xl bg-gray-2 text-xs text-gray-11 font-medium">
+            {props.activeWorkspaceDisplay.name}
+          </div>
           <Show when={props.developerMode}>
             <span class="text-xs text-gray-7">{props.headerStatus}</span>
           </Show>
@@ -1341,8 +1339,15 @@ export default function SessionView(props: SessionViewProps) {
             workspaceGroups={sessionWorkspaceGroups()}
             activeWorkspaceId={props.activeWorkspaceId}
             connectingWorkspaceId={props.connectingWorkspaceId}
+            workspaceConnectionStateById={props.workspaceConnectionStateById}
             onSelectWorkspace={props.activateWorkspace}
-            onAddWorkspace={openWorkspacePicker}
+            onCreateWorkspace={props.openCreateWorkspace}
+            onCreateRemoteWorkspace={props.openCreateRemoteWorkspace}
+            onImportWorkspace={props.importWorkspaceConfig}
+            importingWorkspaceConfig={props.importingWorkspaceConfig}
+            onEditWorkspace={props.editWorkspaceConnection}
+            onTestWorkspaceConnection={props.testWorkspaceConnection}
+            onForgetWorkspace={props.forgetWorkspace}
             onReorderWorkspace={handleReorderWorkspace}
             onSelectSession={handleSelectSession}
             selectedSessionId={props.selectedSessionId}

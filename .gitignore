@@ -4,6 +4,7 @@ packages/*/node_modules/
 out/
 dist/
 packages/*/dist/
+tmp/
 
 # Tauri/Rust
 packages/desktop/src-tauri/target/
