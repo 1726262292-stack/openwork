@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import { once } from "node:events";
 
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { startOpenwrkTui, type TuiHandle } from "./tui/app.js";
 
 type ApprovalMode = "manual" | "auto";
 
@@ -31,12 +32,21 @@ type LoggerChild = {
 
 type Logger = {
   format: LogFormat;
+  output: "stdout" | "silent";
   log: (level: LogLevel, message: string, attributes?: LogAttributes, component?: string) => void;
   debug: (message: string, attributes?: LogAttributes, component?: string) => void;
   info: (message: string, attributes?: LogAttributes, component?: string) => void;
   warn: (message: string, attributes?: LogAttributes, component?: string) => void;
   error: (message: string, attributes?: LogAttributes, component?: string) => void;
   child: (component: string, attributes?: LogAttributes) => LoggerChild;
+};
+
+type LogEvent = {
+  time: number;
+  level: LogLevel;
+  message: string;
+  component?: string;
+  attributes?: LogAttributes;
 };
 
 const FALLBACK_VERSION = "0.1.0";
@@ -516,7 +526,7 @@ function prefixStream(
     buffer = lines.pop() ?? "";
     for (const line of lines) {
       if (!line.trim()) continue;
-      if (logger.format === "json" && looksLikeOtelLogLine(line)) {
+      if (logger.output === "stdout" && logger.format === "json" && looksLikeOtelLogLine(line)) {
         process.stdout.write(`${line}\n`);
         continue;
       }
@@ -526,7 +536,7 @@ function prefixStream(
   });
   stream.on("end", () => {
     if (!buffer.trim()) return;
-    if (logger.format === "json" && looksLikeOtelLogLine(buffer)) {
+    if (logger.output === "stdout" && logger.format === "json" && looksLikeOtelLogLine(buffer)) {
       process.stdout.write(`${buffer}\n`);
       return;
     }
@@ -1376,6 +1386,7 @@ function printHelp(): void {
     "",
     "Usage:",
     "  openwrk start [--workspace <path>] [options]",
+    "  openwrk serve [--workspace <path>] [options]",
     "  openwrk daemon [run|start|stop|status] [options]",
     "  openwrk workspace <action> [options]",
     "  openwrk instance dispose <id> [options]",
@@ -1385,6 +1396,7 @@ function printHelp(): void {
     "",
     "Commands:",
     "  start                   Start OpenCode + OpenWork server + Owpenbot",
+    "  serve                   Start services and stream logs (no TUI)",
     "  daemon                  Run openwrk router daemon (multi-workspace)",
     "  workspace               Manage workspaces (add/list/switch/path)",
     "  instance                Manage workspace instances (dispose)",
@@ -1427,9 +1439,14 @@ function printHelp(): void {
     "  --opencode-source <mode>  auto | bundled | downloaded | external",
     "  --check                   Run health checks then exit",
     "  --check-events            Verify SSE events during check",
+    "  --tui                     Force interactive dashboard (TTY only)",
+    "  --no-tui                  Disable interactive dashboard",
+    "  --detach                  Detach after start and keep services running",
     "  --json                    Output JSON when applicable",
     "  --verbose                 Print additional diagnostics",
     "  --log-format <format>     Log output format: pretty | json",
+    "  --color                   Force ANSI color output",
+    "  --no-color                Disable ANSI color output",
     "  --run-id <id>             Correlation id for logs (default: random UUID)",
     "  --help                    Show help",
     "  --version                 Show version",
@@ -1881,6 +1898,21 @@ const LOG_LEVEL_NUMBERS: Record<LogLevel, number> = {
   error: 17,
 };
 
+const ANSI = {
+  reset: "\x1b[0m",
+  gray: "\x1b[90m",
+  red: "\x1b[31m",
+  yellow: "\x1b[33m",
+  green: "\x1b[32m",
+  cyan: "\x1b[36m",
+  magenta: "\x1b[35m",
+};
+
+function colorize(input: string, color: string, enabled: boolean): string {
+  if (!enabled) return input;
+  return `${color}${input}${ANSI.reset}`;
+}
+
 function toUnixNano(): string {
   return (BigInt(Date.now()) * 1_000_000n).toString();
 }
@@ -1911,6 +1943,9 @@ function createLogger(options: {
   runId: string;
   serviceName: string;
   serviceVersion?: string;
+  output?: "stdout" | "silent";
+  color?: boolean;
+  onLog?: (event: LogEvent) => void;
 }): Logger {
   const host = hostname().trim();
   const resource: Record<string, string> = {
@@ -1927,6 +1962,21 @@ function createLogger(options: {
     "run.id": options.runId,
     "process.pid": process.pid,
   };
+  const output = options.output ?? "stdout";
+  const colorEnabled = options.color ?? false;
+  const componentColors: Record<string, string> = {
+    openwrk: ANSI.gray,
+    opencode: ANSI.cyan,
+    "openwork-server": ANSI.green,
+    owpenbot: ANSI.magenta,
+    "openwrk-router": ANSI.cyan,
+  };
+  const levelColors: Record<LogLevel, string> = {
+    debug: ANSI.gray,
+    info: ANSI.gray,
+    warn: ANSI.yellow,
+    error: ANSI.red,
+  };
 
   const emit = (level: LogLevel, message: string, attributes?: LogAttributes, component?: string) => {
     const mergedAttributes: LogAttributes = {
@@ -1934,6 +1984,14 @@ function createLogger(options: {
       ...(component ? { "service.component": component } : {}),
       ...(attributes ?? {}),
     };
+    options.onLog?.({
+      time: Date.now(),
+      level,
+      message,
+      component,
+      attributes: mergedAttributes,
+    });
+    if (output === "silent") return;
     if (options.format === "json") {
       const record = {
         timeUnixNano: toUnixNano(),
@@ -1947,8 +2005,15 @@ function createLogger(options: {
       return;
     }
     const label = component ?? options.serviceName;
-    const levelTag = level === "info" ? "" : ` ${level.toUpperCase()}`;
-    const tag = label ? `${`[${label}]`}${levelTag}` : levelTag.trim();
+    const tagLabel = label ? `[${label}]` : "";
+    const levelTag = level === "info" ? "" : level.toUpperCase();
+    const coloredLabel = tagLabel
+      ? colorize(tagLabel, componentColors[label] ?? ANSI.gray, colorEnabled)
+      : "";
+    const coloredLevel = levelTag
+      ? colorize(levelTag, levelColors[level] ?? ANSI.gray, colorEnabled)
+      : "";
+    const tag = [coloredLabel, coloredLevel].filter(Boolean).join(" ");
     const line = tag ? `${tag} ${message}` : message;
     process.stdout.write(`${line}\n`);
   };
@@ -1963,6 +2028,7 @@ function createLogger(options: {
 
   return {
     format: options.format,
+    output,
     log: emit,
     debug: (message, attrs, component) => emit("debug", message, attrs, component),
     info: (message, attrs, component) => emit("info", message, attrs, component),
@@ -1982,6 +2048,56 @@ function looksLikeOtelLogLine(line: string): boolean {
   } catch {
     return false;
   }
+}
+
+function buildAttachCommand(input: {
+  url: string;
+  workspace: string;
+  username?: string;
+  password?: string;
+}): string {
+  const parts: string[] = [];
+  if (input.username && input.password && input.username !== DEFAULT_OPENCODE_USERNAME) {
+    parts.push(`OPENCODE_SERVER_USERNAME=${input.username}`);
+  }
+  if (input.password) {
+    parts.push(`OPENCODE_SERVER_PASSWORD=${input.password}`);
+  }
+  parts.push("opencode", "attach", input.url, "--dir", input.workspace);
+  return parts.join(" ");
+}
+
+async function runClipboardCommand(command: string, args: string[], text: string): Promise<boolean> {
+  return await new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ["pipe", "ignore", "ignore"] });
+    child.on("error", () => resolve(false));
+    child.stdin?.write(text);
+    child.stdin?.end();
+    child.on("exit", (code) => resolve(code === 0));
+  });
+}
+
+async function copyToClipboard(text: string): Promise<{ copied: boolean; error?: string }> {
+  const platform = process.platform;
+  const commands: Array<{ command: string; args: string[] }> = [];
+  if (platform === "darwin") {
+    commands.push({ command: "pbcopy", args: [] });
+  } else if (platform === "win32") {
+    commands.push({ command: "clip", args: [] });
+  } else {
+    commands.push({ command: "wl-copy", args: [] });
+    commands.push({ command: "xclip", args: ["-selection", "clipboard"] });
+    commands.push({ command: "xsel", args: ["--clipboard", "--input"] });
+  }
+  for (const entry of commands) {
+    try {
+      const ok = await runClipboardCommand(entry.command, entry.args, text);
+      if (ok) return { copied: true };
+    } catch {
+      // ignore
+    }
+  }
+  return { copied: false, error: "Clipboard unavailable" };
 }
 
 async function spawnRouterDaemon(args: ParsedArgs, dataDir: string, host: string, port: number) {
@@ -2196,6 +2312,8 @@ async function runRouterDaemon(args: ParsedArgs) {
   const outputJson = readBool(args.flags, "json", false);
   const verbose = readBool(args.flags, "verbose", false, "OPENWRK_VERBOSE");
   const logFormat = readLogFormat(args.flags, "log-format", "pretty", "OPENWRK_LOG_FORMAT");
+  const colorEnabled =
+    readBool(args.flags, "color", process.stdout.isTTY, "OPENWRK_COLOR") && !process.env.NO_COLOR;
   const runId = readFlag(args.flags, "run-id") ?? process.env.OPENWRK_RUN_ID ?? randomUUID();
   const cliVersion = await resolveCliVersion();
   const logger = createLogger({
@@ -2203,6 +2321,8 @@ async function runRouterDaemon(args: ParsedArgs) {
     runId,
     serviceName: "openwrk",
     serviceVersion: cliVersion,
+    output: "stdout",
+    color: colorEnabled,
   });
   const logVerbose = createVerboseLogger(verbose && !outputJson, logger, "openwrk");
   const sidecarSource = readBinarySource(args.flags, "sidecar-source", "auto", "OPENWRK_SIDECAR_SOURCE");
@@ -2718,13 +2838,32 @@ async function runStart(args: ParsedArgs) {
   const checkEvents = readBool(args.flags, "check-events", false);
   const verbose = readBool(args.flags, "verbose", false, "OPENWRK_VERBOSE");
   const logFormat = readLogFormat(args.flags, "log-format", "pretty", "OPENWRK_LOG_FORMAT");
+  const detachRequested = readBool(args.flags, "detach", false, "OPENWRK_DETACH");
+  const defaultTui = process.stdout.isTTY && !outputJson && !checkOnly && !checkEvents;
+  const tuiRequested = readBool(args.flags, "tui", defaultTui);
+  const useTui = tuiRequested && !detachRequested && !outputJson && !checkOnly && !checkEvents && logFormat === "pretty";
+  const colorEnabled =
+    !useTui && readBool(args.flags, "color", process.stdout.isTTY, "OPENWRK_COLOR") && !process.env.NO_COLOR;
   const runId = readFlag(args.flags, "run-id") ?? process.env.OPENWRK_RUN_ID ?? randomUUID();
   const cliVersion = await resolveCliVersion();
+  let tui: TuiHandle | undefined;
   const logger = createLogger({
     format: logFormat,
     runId,
     serviceName: "openwrk",
     serviceVersion: cliVersion,
+    output: useTui ? "silent" : "stdout",
+    color: colorEnabled,
+    onLog: (event) => {
+      if (!tui) return;
+      const component = event.component ?? "openwrk";
+      tui.pushLog({
+        time: event.time,
+        level: event.level,
+        component,
+        message: event.message,
+      });
+    },
   });
   const logVerbose = createVerboseLogger(verbose && !outputJson, logger, "openwrk");
   const sidecarSource = readBinarySource(args.flags, "sidecar-source", "auto", "OPENWRK_SIDECAR_SOURCE");
@@ -2829,8 +2968,17 @@ async function runStart(args: ParsedArgs) {
   const openworkConnect = resolveConnectUrl(openworkPort, connectHost);
   const openworkConnectUrl = openworkConnect.connectUrl ?? openworkBaseUrl;
 
+  const attachCommand = buildAttachCommand({
+    url: opencodeConnectUrl,
+    workspace: resolvedWorkspace,
+    username: opencodeUsername,
+    password: opencodePassword,
+  });
+
   const children: ChildHandle[] = [];
   let shuttingDown = false;
+  let detached = false;
+  const startedAt = Date.now();
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
@@ -2838,15 +2986,88 @@ async function runStart(args: ParsedArgs) {
     await Promise.all(children.map((handle) => stopChild(handle.child)));
   };
 
+  const detachChildren = () => {
+    detached = true;
+    for (const handle of children) {
+      try {
+        handle.child.unref();
+      } catch {
+        // ignore
+      }
+      handle.child.stdout?.removeAllListeners();
+      handle.child.stderr?.removeAllListeners();
+      handle.child.stdout?.destroy();
+      handle.child.stderr?.destroy();
+    }
+  };
+
+  const handleQuit = async () => {
+    tui?.stop();
+    await shutdown();
+    process.exit(0);
+  };
+
+  const handleDetach = async () => {
+    if (detached) return;
+    tui?.stop();
+    detachChildren();
+    const summary = [
+      "Detached. Services still running:",
+      ...children.map((handle) => `- ${handle.name} (pid ${handle.child.pid ?? "unknown"})`),
+      `OpenWork URL: ${openworkConnectUrl}`,
+      `OpenWork Token: ${openworkToken}`,
+      `OpenCode URL: ${opencodeConnectUrl}`,
+      `Attach: ${attachCommand}`,
+    ].join("\n");
+    process.stdout.write(`${summary}\n`);
+    process.exit(0);
+  };
+
+  if (useTui) {
+    tui = startOpenwrkTui({
+      version: cliVersion,
+      connect: {
+        runId,
+        workspace: resolvedWorkspace,
+        openworkUrl: openworkConnectUrl,
+        openworkToken,
+        hostToken: openworkHostToken,
+        opencodeUrl: opencodeConnectUrl,
+        opencodePassword: opencodePassword ?? undefined,
+        opencodeUsername: opencodeUsername ?? undefined,
+        attachCommand,
+      },
+      services: [
+        { name: "opencode", label: "opencode", status: "starting", port: opencodePort },
+        { name: "openwork-server", label: "openwork-server", status: "starting", port: openworkPort },
+        {
+          name: "owpenbot",
+          label: "owpenbot",
+          status: owpenbotEnabled ? "starting" : "disabled",
+          port: owpenbotHealthPort,
+        },
+      ],
+      onQuit: handleQuit,
+      onDetach: handleDetach,
+      onCopyAttach: async () => {
+        const result = await copyToClipboard(attachCommand);
+        return { command: attachCommand, ...result };
+      },
+    });
+    tui.setUptimeStart(startedAt);
+  }
+
   const handleExit = (name: string, code: number | null, signal: NodeJS.Signals | null) => {
-    if (shuttingDown) return;
+    if (shuttingDown || detached) return;
     const reason = code !== null ? `code ${code}` : signal ? `signal ${signal}` : "unknown";
+    tui?.updateService(name, { status: "stopped", message: reason });
     logger.error("Process exited", { reason, code, signal }, name);
     void shutdown().then(() => process.exit(code ?? 1));
   };
 
   const handleSpawnError = (name: string, error: unknown) => {
-    if (shuttingDown) return;
+    if (shuttingDown || detached) return;
+    tui?.updateService(name, { status: "error", message: String(error) });
     logger.error("Process failed to start", { error: String(error) }, name);
     void shutdown().then(() => process.exit(1));
   };
@@ -2866,6 +3087,11 @@ async function runStart(args: ParsedArgs) {
       logFormat,
     });
     children.push({ name: "opencode", child: opencodeChild });
+    tui?.updateService("opencode", {
+      status: "running",
+      pid: opencodeChild.pid ?? undefined,
+      port: opencodePort,
+    });
     logger.info("Process spawned", { pid: opencodeChild.pid ?? 0 }, "opencode");
     opencodeChild.on("exit", (code, signal) => handleExit("opencode", code, signal));
     opencodeChild.on("error", (error) => handleSpawnError("opencode", error));
@@ -2883,6 +3109,7 @@ async function runStart(args: ParsedArgs) {
     logger.info("Waiting for health", { url: opencodeBaseUrl }, "opencode");
     await waitForOpencodeHealthy(opencodeClient);
     logger.info("Healthy", { url: opencodeBaseUrl }, "opencode");
+    tui?.updateService("opencode", { status: "healthy" });
 
     const openworkChild = await startOpenworkServer({
       bin: openworkServerBinary.bin,
@@ -2905,6 +3132,11 @@ async function runStart(args: ParsedArgs) {
       logFormat,
     });
     children.push({ name: "openwork-server", child: openworkChild });
+    tui?.updateService("openwork-server", {
+      status: "running",
+      pid: openworkChild.pid ?? undefined,
+      port: openworkPort,
+    });
     logger.info("Process spawned", { pid: openworkChild.pid ?? 0 }, "openwork-server");
     openworkChild.on("exit", (code, signal) => handleExit("openwork-server", code, signal));
     openworkChild.on("error", (error) => handleSpawnError("openwork-server", error));
@@ -2912,6 +3144,7 @@ async function runStart(args: ParsedArgs) {
     logger.info("Waiting for health", { url: openworkBaseUrl }, "openwork-server");
     await waitForHealthy(openworkBaseUrl);
     logger.info("Healthy", { url: openworkBaseUrl }, "openwork-server");
+    tui?.updateService("openwork-server", { status: "healthy" });
 
     const openworkActualVersion = await verifyOpenworkServer({
       baseUrl: openworkBaseUrl,
@@ -2944,6 +3177,11 @@ async function runStart(args: ParsedArgs) {
         logFormat,
       });
       children.push({ name: "owpenbot", child: owpenbotChild });
+      tui?.updateService("owpenbot", {
+        status: "running",
+        pid: owpenbotChild.pid ?? undefined,
+        port: owpenbotHealthPort,
+      });
       logger.info("Process spawned", { pid: owpenbotChild.pid ?? 0 }, "owpenbot");
       owpenbotChild.on("exit", (code, signal) => {
         if (owpenbotRequired) {
@@ -2951,6 +3189,7 @@ async function runStart(args: ParsedArgs) {
           return;
         }
         const reason = code !== null ? `code ${code}` : signal ? `signal ${signal}` : "unknown";
+        tui?.updateService("owpenbot", { status: "stopped", message: reason });
         logger.warn("Process exited, continuing without owpenbot", { reason, code, signal }, "owpenbot");
       });
       owpenbotChild.on("error", (error) => handleSpawnError("owpenbot", error));
@@ -3025,6 +3264,17 @@ async function runStart(args: ParsedArgs) {
 
     if (outputJson) {
       console.log(JSON.stringify(payload, null, 2));
+    } else if (useTui) {
+      logger.info(
+        "Ready",
+        {
+          workspace: payload.workspace,
+          opencode: payload.opencode,
+          openwork: payload.openwork,
+          owpenbot: payload.owpenbot,
+        },
+        "openwrk",
+      );
     } else if (logFormat === "json") {
       logger.info(
         "Ready",
@@ -3051,6 +3301,10 @@ async function runStart(args: ParsedArgs) {
       console.log(`Host token: ${payload.openwork.hostToken}`);
     }
 
+    if (detachRequested) {
+      await handleDetach();
+    }
+
     if (checkOnly) {
       try {
         await runChecks({
@@ -3066,9 +3320,11 @@ async function runStart(args: ParsedArgs) {
       } catch (error) {
         logger.error("Checks failed", { error: String(error) }, "openwrk");
         await shutdown();
+        tui?.stop();
         process.exit(1);
       }
       await shutdown();
+      tui?.stop();
       process.exit(0);
     }
 
@@ -3077,6 +3333,7 @@ async function runStart(args: ParsedArgs) {
     await new Promise(() => undefined);
   } catch (error) {
     await shutdown();
+    tui?.stop();
     logger.error("Run failed", { error: error instanceof Error ? error.message : String(error) }, "openwrk");
     process.exit(1);
   }
@@ -3095,6 +3352,11 @@ async function main() {
 
   const command = args.positionals[0] ?? "start";
   if (command === "start") {
+    await runStart(args);
+    return;
+  }
+  if (command === "serve") {
+    args.flags.set("tui", false);
     await runStart(args);
     return;
   }
