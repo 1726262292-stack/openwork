@@ -35,6 +35,10 @@ Read INFRASTRUCTURE.md
 
 * Use `VISION.md`, `PRINCIPLES.md`, `PRODUCT.md`, `ARCHITECTURE.md`, and `INFRASTRUCTURE.md` to understand the "why" and requirements so you can guide your decisions.
 
+## Dev Debugging
+
+* If you change `packages/server/src`, rebuild the OpenWork server binary (`pnpm --filter openwork-server build:bin`) because `openwrk` runs the compiled server, not the TS sources.
+
 ## Local Structure
 
 ```
