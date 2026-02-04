@@ -40,6 +40,20 @@ pnpm --filter openwrk dev -- \
 
 The command prints pairing details (OpenWork server URL + token, OpenCode URL + auth) so remote OpenWork clients can connect.
 
+## Logging
+
+`openwrk` emits a unified log stream from OpenCode, OpenWork server, and Owpenbot. Use JSON format for
+structured, OpenTelemetry-friendly logs and a stable run id for correlation.
+
+```bash
+OPENWRK_LOG_FORMAT=json openwrk start --workspace /path/to/workspace
+```
+
+Use `--run-id` or `OPENWRK_RUN_ID` to supply your own correlation id.
+
+OpenWork server logs every request with method, path, status, and duration. Disable this when running
+`openwork-server` directly by setting `OPENWORK_LOG_REQUESTS=0` or passing `--no-log-requests`.
+
 ## Router daemon (multi-workspace)
 
 The router keeps a single OpenCode process alive and switches workspaces JIT using the `directory` parameter.

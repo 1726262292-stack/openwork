@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { parseCliArgs, printHelp, resolveServerConfig } from "./config.js";
-import { startServer } from "./server.js";
+import { createServerLogger, startServer } from "./server.js";
 import pkg from "../package.json" with { type: "json" };
 
 const args = parseCliArgs(process.argv.slice(2));
@@ -17,31 +17,32 @@ if (args.version) {
 }
 
 const config = await resolveServerConfig(args);
+const logger = createServerLogger(config);
 const server = startServer(config);
 
 const url = `http://${config.host}:${server.port}`;
-console.log(`OpenWork server listening on ${url}`);
+logger.log("info", `OpenWork server listening on ${url}`);
 
 if (config.tokenSource === "generated") {
-  console.log(`Client token: ${config.token}`);
+  logger.log("info", `Client token: ${config.token}`);
 }
 
 if (config.hostTokenSource === "generated") {
-  console.log(`Host token: ${config.hostToken}`);
+  logger.log("info", `Host token: ${config.hostToken}`);
 }
 
 if (config.workspaces.length === 0) {
-  console.log("No workspaces configured. Add --workspace or update server.json.");
+  logger.log("info", "No workspaces configured. Add --workspace or update server.json.");
 } else {
-  console.log(`Workspaces: ${config.workspaces.length}`);
+  logger.log("info", `Workspaces: ${config.workspaces.length}`);
 }
 
 if (args.verbose) {
-  console.log(`Config path: ${config.configPath ?? "unknown"}`);
-  console.log(`Read-only: ${config.readOnly ? "true" : "false"}`);
-  console.log(`Approval: ${config.approval.mode} (${config.approval.timeoutMs}ms)`);
-  console.log(`CORS origins: ${config.corsOrigins.join(", ")}`);
-  console.log(`Authorized roots: ${config.authorizedRoots.join(", ")}`);
-  console.log(`Token source: ${config.tokenSource}`);
-  console.log(`Host token source: ${config.hostTokenSource}`);
+  logger.log("info", `Config path: ${config.configPath ?? "unknown"}`);
+  logger.log("info", `Read-only: ${config.readOnly ? "true" : "false"}`);
+  logger.log("info", `Approval: ${config.approval.mode} (${config.approval.timeoutMs}ms)`);
+  logger.log("info", `CORS origins: ${config.corsOrigins.join(", ")}`);
+  logger.log("info", `Authorized roots: ${config.authorizedRoots.join(", ")}`);
+  logger.log("info", `Token source: ${config.tokenSource}`);
+  logger.log("info", `Host token source: ${config.hostTokenSource}`);
 }

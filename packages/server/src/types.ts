@@ -2,6 +2,8 @@ export type WorkspaceType = "local" | "remote";
 
 export type ApprovalMode = "manual" | "auto";
 
+export type LogFormat = "pretty" | "json";
+
 export interface WorkspaceConfig {
   path: string;
   name?: string;
@@ -48,6 +50,8 @@ export interface ServerConfig {
   startedAt: number;
   tokenSource: "cli" | "env" | "file" | "generated";
   hostTokenSource: "cli" | "env" | "file" | "generated";
+  logFormat: LogFormat;
+  logRequests: boolean;
 }
 
 export interface Capabilities {
