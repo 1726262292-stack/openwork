@@ -15,6 +15,30 @@ import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 
 type ApprovalMode = "manual" | "auto";
 
+type LogFormat = "pretty" | "json";
+
+type LogLevel = "debug" | "info" | "warn" | "error";
+
+type LogAttributes = Record<string, unknown>;
+
+type LoggerChild = {
+  log: (level: LogLevel, message: string, attributes?: LogAttributes) => void;
+  debug: (message: string, attributes?: LogAttributes) => void;
+  info: (message: string, attributes?: LogAttributes) => void;
+  warn: (message: string, attributes?: LogAttributes) => void;
+  error: (message: string, attributes?: LogAttributes) => void;
+};
+
+type Logger = {
+  format: LogFormat;
+  log: (level: LogLevel, message: string, attributes?: LogAttributes, component?: string) => void;
+  debug: (message: string, attributes?: LogAttributes, component?: string) => void;
+  info: (message: string, attributes?: LogAttributes, component?: string) => void;
+  warn: (message: string, attributes?: LogAttributes, component?: string) => void;
+  error: (message: string, attributes?: LogAttributes, component?: string) => void;
+  child: (component: string, attributes?: LogAttributes) => LoggerChild;
+};
+
 const FALLBACK_VERSION = "0.1.0";
 const DEFAULT_OPENWORK_PORT = 8787;
 const DEFAULT_OWPENBOT_HEALTH_PORT = 3005;
@@ -300,6 +324,20 @@ function readBinarySource(
   throw new Error(`Invalid ${key} value: ${raw}. Use auto|bundled|downloaded|external.`);
 }
 
+function readLogFormat(
+  flags: Map<string, string | boolean>,
+  key: string,
+  fallback: LogFormat,
+  envKey?: string,
+): LogFormat {
+  const raw = readFlag(flags, key) ?? (envKey ? process.env[envKey] : undefined);
+  if (!raw) return fallback;
+  const normalized = String(raw).trim().toLowerCase();
+  if (normalized === "json") return "json";
+  if (normalized === "pretty" || normalized === "text" || normalized === "human") return "pretty";
+  throw new Error(`Invalid ${key} value: ${raw}. Use pretty|json.`);
+}
+
 async function fileExists(path: string): Promise<boolean> {
   try {
     await stat(path);
@@ -466,6 +504,8 @@ function prefixStream(
   stream: NodeJS.ReadableStream | null,
   label: string,
   level: "stdout" | "stderr",
+  logger: Logger,
+  pid?: number,
 ): void {
   if (!stream) return;
   stream.setEncoding("utf8");
@@ -476,22 +516,22 @@ function prefixStream(
     buffer = lines.pop() ?? "";
     for (const line of lines) {
       if (!line.trim()) continue;
-      const message = `[${label}] ${line}`;
-      if (level === "stderr") {
-        console.error(message);
-      } else {
-        console.log(message);
+      if (logger.format === "json" && looksLikeOtelLogLine(line)) {
+        process.stdout.write(`${line}\n`);
+        continue;
       }
+      const severity: LogLevel = level === "stderr" ? "error" : "info";
+      logger.log(severity, line, { stream: level, pid }, label);
     }
   });
   stream.on("end", () => {
     if (!buffer.trim()) return;
-    const message = `[${label}] ${buffer}`;
-    if (level === "stderr") {
-      console.error(message);
-    } else {
-      console.log(message);
+    if (logger.format === "json" && looksLikeOtelLogLine(buffer)) {
+      process.stdout.write(`${buffer}\n`);
+      return;
     }
+    const severity: LogLevel = level === "stderr" ? "error" : "info";
+    logger.log(severity, buffer, { stream: level, pid }, label);
   });
 }
 
@@ -1389,6 +1429,8 @@ function printHelp(): void {
     "  --check-events            Verify SSE events during check",
     "  --json                    Output JSON when applicable",
     "  --verbose                 Print additional diagnostics",
+    "  --log-format <format>     Log output format: pretty | json",
+    "  --run-id <id>             Correlation id for logs (default: random UUID)",
     "  --help                    Show help",
     "  --version                 Show version",
   ].join("\n");
@@ -1426,6 +1468,9 @@ async function startOpencode(options: {
   username?: string;
   password?: string;
   corsOrigins: string[];
+  logger: Logger;
+  runId: string;
+  logFormat: LogFormat;
 }) {
   const args = ["serve", "--hostname", options.bindHost, "--port", String(options.port)];
   for (const origin of options.corsOrigins) {
@@ -1439,13 +1484,22 @@ async function startOpencode(options: {
       ...process.env,
       OPENCODE_CLIENT: "openwrk",
       OPENWORK: "1",
+      OPENWRK_RUN_ID: options.runId,
+      OPENWRK_LOG_FORMAT: options.logFormat,
+      OTEL_RESOURCE_ATTRIBUTES: mergeResourceAttributes(
+        {
+          "service.name": "opencode",
+          "service.instance.id": options.runId,
+        },
+        process.env.OTEL_RESOURCE_ATTRIBUTES,
+      ),
       ...(options.username ? { OPENCODE_SERVER_USERNAME: options.username } : {}),
       ...(options.password ? { OPENCODE_SERVER_PASSWORD: options.password } : {}),
     },
   });
 
-  prefixStream(child.stdout, "opencode", "stdout");
-  prefixStream(child.stderr, "opencode", "stderr");
+  prefixStream(child.stdout, "opencode", "stdout", options.logger, child.pid ?? undefined);
+  prefixStream(child.stderr, "opencode", "stderr", options.logger, child.pid ?? undefined);
 
   return child;
 }
@@ -1466,6 +1520,9 @@ async function startOpenworkServer(options: {
   opencodeUsername?: string;
   opencodePassword?: string;
   owpenbotHealthPort?: number;
+  logger: Logger;
+  runId: string;
+  logFormat: LogFormat;
 }) {
   const args = [
     "--host",
@@ -1504,6 +1561,9 @@ async function startOpenworkServer(options: {
   if (options.opencodePassword) {
     args.push("--opencode-password", options.opencodePassword);
   }
+  if (options.logFormat) {
+    args.push("--log-format", options.logFormat);
+  }
 
   const resolved = resolveBinCommand(options.bin);
   const child = spawn(resolved.command, [...resolved.prefixArgs, ...args], {
@@ -1513,6 +1573,16 @@ async function startOpenworkServer(options: {
       ...process.env,
       OPENWORK_TOKEN: options.token,
       OPENWORK_HOST_TOKEN: options.hostToken,
+      OPENWRK_RUN_ID: options.runId,
+      OPENWORK_RUN_ID: options.runId,
+      OPENWORK_LOG_FORMAT: options.logFormat,
+      OTEL_RESOURCE_ATTRIBUTES: mergeResourceAttributes(
+        {
+          "service.name": "openwork-server",
+          "service.instance.id": options.runId,
+        },
+        process.env.OTEL_RESOURCE_ATTRIBUTES,
+      ),
       ...(options.owpenbotHealthPort ? { OWPENBOT_HEALTH_PORT: String(options.owpenbotHealthPort) } : {}),
       ...(options.opencodeBaseUrl ? { OPENWORK_OPENCODE_BASE_URL: options.opencodeBaseUrl } : {}),
       ...(options.opencodeDirectory ? { OPENWORK_OPENCODE_DIRECTORY: options.opencodeDirectory } : {}),
@@ -1521,8 +1591,8 @@ async function startOpenworkServer(options: {
     },
   });
 
-  prefixStream(child.stdout, "openwork-server", "stdout");
-  prefixStream(child.stderr, "openwork-server", "stderr");
+  prefixStream(child.stdout, "openwork-server", "stdout", options.logger, child.pid ?? undefined);
+  prefixStream(child.stderr, "openwork-server", "stderr", options.logger, child.pid ?? undefined);
 
   return child;
 }
@@ -1534,6 +1604,9 @@ async function startOwpenbot(options: {
   opencodeUsername?: string;
   opencodePassword?: string;
   owpenbotHealthPort?: number;
+  logger: Logger;
+  runId: string;
+  logFormat: LogFormat;
 }) {
   const args = ["start", options.workspace];
   if (options.opencodeUrl) {
@@ -1549,6 +1622,15 @@ async function startOwpenbot(options: {
     stdio: ["ignore", "pipe", "pipe"],
     env: {
       ...process.env,
+      OPENWRK_RUN_ID: options.runId,
+      OPENWRK_LOG_FORMAT: options.logFormat,
+      OTEL_RESOURCE_ATTRIBUTES: mergeResourceAttributes(
+        {
+          "service.name": "owpenbot",
+          "service.instance.id": options.runId,
+        },
+        process.env.OTEL_RESOURCE_ATTRIBUTES,
+      ),
       ...(options.opencodeUrl ? { OPENCODE_URL: options.opencodeUrl } : {}),
       OPENCODE_DIRECTORY: options.workspace,
       ...(options.owpenbotHealthPort ? { OWPENBOT_HEALTH_PORT: String(options.owpenbotHealthPort) } : {}),
@@ -1557,8 +1639,8 @@ async function startOwpenbot(options: {
     },
   });
 
-  prefixStream(child.stdout, "owpenbot", "stdout");
-  prefixStream(child.stderr, "owpenbot", "stderr");
+  prefixStream(child.stdout, "owpenbot", "stdout", options.logger, child.pid ?? undefined);
+  prefixStream(child.stderr, "owpenbot", "stderr", options.logger, child.pid ?? undefined);
 
   return child;
 }
@@ -1781,11 +1863,125 @@ function outputError(error: unknown, json: boolean): void {
   console.error(message);
 }
 
-function createVerboseLogger(enabled: boolean) {
+function createVerboseLogger(enabled: boolean, logger?: Logger, component = "openwrk") {
   return (message: string) => {
     if (!enabled) return;
-    console.log(`[openwrk] ${message}`);
+    if (logger) {
+      logger.debug(message, undefined, component);
+      return;
+    }
+    console.log(`[${component}] ${message}`);
   };
+}
+
+const LOG_LEVEL_NUMBERS: Record<LogLevel, number> = {
+  debug: 5,
+  info: 9,
+  warn: 13,
+  error: 17,
+};
+
+function toUnixNano(): string {
+  return (BigInt(Date.now()) * 1_000_000n).toString();
+}
+
+function mergeResourceAttributes(additional: Record<string, string>, existing?: string): string {
+  const entries = new Map<string, string>();
+  if (existing) {
+    for (const part of existing.split(",")) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      const [key, ...rest] = trimmed.split("=");
+      if (!key || rest.length === 0) continue;
+      entries.set(key, rest.join("=").replace(/,/g, ";"));
+    }
+  }
+  for (const [key, value] of Object.entries(additional)) {
+    if (!key) continue;
+    if (value === undefined || value === null) continue;
+    entries.set(key, String(value).replace(/,/g, ";"));
+  }
+  return Array.from(entries.entries())
+    .map(([key, value]) => `${key}=${value}`)
+    .join(",");
+}
+
+function createLogger(options: {
+  format: LogFormat;
+  runId: string;
+  serviceName: string;
+  serviceVersion?: string;
+}): Logger {
+  const host = hostname().trim();
+  const resource: Record<string, string> = {
+    "service.name": options.serviceName,
+    "service.instance.id": options.runId,
+  };
+  if (options.serviceVersion) {
+    resource["service.version"] = options.serviceVersion;
+  }
+  if (host) {
+    resource["host.name"] = host;
+  }
+  const baseAttributes: LogAttributes = {
+    "run.id": options.runId,
+    "process.pid": process.pid,
+  };
+
+  const emit = (level: LogLevel, message: string, attributes?: LogAttributes, component?: string) => {
+    const mergedAttributes: LogAttributes = {
+      ...baseAttributes,
+      ...(component ? { "service.component": component } : {}),
+      ...(attributes ?? {}),
+    };
+    if (options.format === "json") {
+      const record = {
+        timeUnixNano: toUnixNano(),
+        severityText: level.toUpperCase(),
+        severityNumber: LOG_LEVEL_NUMBERS[level],
+        body: message,
+        attributes: mergedAttributes,
+        resource,
+      };
+      process.stdout.write(`${JSON.stringify(record)}\n`);
+      return;
+    }
+    const label = component ?? options.serviceName;
+    const levelTag = level === "info" ? "" : ` ${level.toUpperCase()}`;
+    const tag = label ? `${`[${label}]`}${levelTag}` : levelTag.trim();
+    const line = tag ? `${tag} ${message}` : message;
+    process.stdout.write(`${line}\n`);
+  };
+
+  const child = (component: string, attributes?: LogAttributes): LoggerChild => ({
+    log: (level, message, attrs) => emit(level, message, { ...(attributes ?? {}), ...(attrs ?? {}) }, component),
+    debug: (message, attrs) => emit("debug", message, { ...(attributes ?? {}), ...(attrs ?? {}) }, component),
+    info: (message, attrs) => emit("info", message, { ...(attributes ?? {}), ...(attrs ?? {}) }, component),
+    warn: (message, attrs) => emit("warn", message, { ...(attributes ?? {}), ...(attrs ?? {}) }, component),
+    error: (message, attrs) => emit("error", message, { ...(attributes ?? {}), ...(attrs ?? {}) }, component),
+  });
+
+  return {
+    format: options.format,
+    log: emit,
+    debug: (message, attrs, component) => emit("debug", message, attrs, component),
+    info: (message, attrs, component) => emit("info", message, attrs, component),
+    warn: (message, attrs, component) => emit("warn", message, attrs, component),
+    error: (message, attrs, component) => emit("error", message, attrs, component),
+    child,
+  };
+}
+
+function looksLikeOtelLogLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return false;
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") return false;
+    return typeof parsed.timeUnixNano === "string" && typeof parsed.severityText === "string";
+  } catch {
+    return false;
+  }
 }
 
 async function spawnRouterDaemon(args: ParsedArgs, dataDir: string, host: string, port: number) {
@@ -1813,6 +2009,8 @@ async function spawnRouterDaemon(args: ParsedArgs, dataDir: string, host: string
   const sidecarSource = readFlag(args.flags, "sidecar-source") ?? process.env.OPENWRK_SIDECAR_SOURCE;
   const opencodeSource = readFlag(args.flags, "opencode-source") ?? process.env.OPENWRK_OPENCODE_SOURCE;
   const verbose = readBool(args.flags, "verbose", false, "OPENWRK_VERBOSE");
+  const logFormat = readFlag(args.flags, "log-format") ?? process.env.OPENWRK_LOG_FORMAT;
+  const runId = readFlag(args.flags, "run-id") ?? process.env.OPENWRK_RUN_ID;
 
   if (opencodeBin) commandArgs.push("--opencode-bin", opencodeBin);
   if (opencodeHost) commandArgs.push("--opencode-host", opencodeHost);
@@ -1825,6 +2023,8 @@ async function spawnRouterDaemon(args: ParsedArgs, dataDir: string, host: string
   if (sidecarSource) commandArgs.push("--sidecar-source", sidecarSource);
   if (opencodeSource) commandArgs.push("--opencode-source", opencodeSource);
   if (verbose) commandArgs.push("--verbose");
+  if (logFormat) commandArgs.push("--log-format", String(logFormat));
+  if (runId) commandArgs.push("--run-id", String(runId));
 
   const child = spawn(self.command, commandArgs, {
     detached: true,
@@ -1995,7 +2195,16 @@ async function runInstanceCommand(args: ParsedArgs) {
 async function runRouterDaemon(args: ParsedArgs) {
   const outputJson = readBool(args.flags, "json", false);
   const verbose = readBool(args.flags, "verbose", false, "OPENWRK_VERBOSE");
-  const logVerbose = createVerboseLogger(verbose && !outputJson);
+  const logFormat = readLogFormat(args.flags, "log-format", "pretty", "OPENWRK_LOG_FORMAT");
+  const runId = readFlag(args.flags, "run-id") ?? process.env.OPENWRK_RUN_ID ?? randomUUID();
+  const cliVersion = await resolveCliVersion();
+  const logger = createLogger({
+    format: logFormat,
+    runId,
+    serviceName: "openwrk",
+    serviceVersion: cliVersion,
+  });
+  const logVerbose = createVerboseLogger(verbose && !outputJson, logger, "openwrk");
   const sidecarSource = readBinarySource(args.flags, "sidecar-source", "auto", "OPENWRK_SIDECAR_SOURCE");
   const opencodeSource = readBinarySource(args.flags, "opencode-source", "auto", "OPENWRK_OPENCODE_SOURCE");
   const dataDir = resolveRouterDataDir(args.flags);
@@ -2033,8 +2242,12 @@ async function runRouterDaemon(args: ParsedArgs) {
   const activeWorkspace = state.workspaces.find((entry) => entry.id === state.activeId && entry.workspaceType === "local");
   const opencodeWorkdir = opencodeWorkdirFlag ?? activeWorkspace?.path ?? process.cwd();
   const resolvedWorkdir = await ensureWorkspace(opencodeWorkdir);
+  logger.info(
+    "Daemon starting",
+    { runId, logFormat, workdir: resolvedWorkdir, host, port },
+    "openwrk",
+  );
 
-  const cliVersion = await resolveCliVersion();
   const sidecar = resolveSidecarConfig(args.flags, cliVersion);
   const allowExternal = readBool(args.flags, "allow-external", false, "OPENWRK_ALLOW_EXTERNAL");
   const manifest = await readVersionManifest();
@@ -2112,15 +2325,21 @@ async function runRouterDaemon(args: ParsedArgs) {
       username: opencodePassword ? opencodeUsername : undefined,
       password: opencodePassword,
       corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
+      logger,
+      runId,
+      logFormat,
     });
     opencodeChild = child;
+    logger.info("Process spawned", { pid: child.pid ?? 0 }, "opencode");
     const baseUrl = `http://${opencodeHost}:${opencodePort}`;
     const client = createOpencodeClient({
       baseUrl,
       directory: resolvedWorkdir,
       headers: authHeaders,
     });
+    logger.info("Waiting for health", { url: baseUrl }, "opencode");
     await waitForOpencodeHealthy(client);
+    logger.info("Healthy", { url: baseUrl }, "opencode");
     state.opencode = {
       pid: child.pid ?? 0,
       port: opencodePort,
@@ -2135,6 +2354,22 @@ async function runRouterDaemon(args: ParsedArgs) {
   await ensureOpencode();
 
   const server = createHttpServer(async (req, res) => {
+    const startedAt = Date.now();
+    const method = req.method ?? "GET";
+    const url = new URL(req.url ?? "/", `http://${host}:${port}`);
+    res.on("finish", () => {
+      logger.info(
+        "Router request",
+        {
+          method,
+          path: url.pathname,
+          status: res.statusCode,
+          durationMs: Date.now() - startedAt,
+          activeId: state.activeId,
+        },
+        "openwrk-router",
+      );
+    });
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -2144,8 +2379,6 @@ async function runRouterDaemon(args: ParsedArgs) {
       res.end();
       return;
     }
-
-    const url = new URL(req.url ?? "/", `http://${host}:${port}`);
     const parts = url.pathname.split("/").filter(Boolean);
 
     const send = (status: number, payload: unknown) => {
@@ -2328,6 +2561,7 @@ async function runRouterDaemon(args: ParsedArgs) {
   });
 
   const shutdown = async () => {
+    logger.info("Daemon shutting down", { host, port }, "openwrk-router");
     try {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     } catch {
@@ -2358,7 +2592,11 @@ async function runRouterDaemon(args: ParsedArgs) {
     if (outputJson) {
       outputResult({ ok: true, daemon: state.daemon }, true);
     } else {
-      console.log(`openwrk daemon running on ${host}:${port}`);
+      if (logFormat === "json") {
+        logger.info("Daemon running", { host, port }, "openwrk-router");
+      } else {
+        console.log(`openwrk daemon running on ${host}:${port}`);
+      }
     }
   });
 
@@ -2479,12 +2717,22 @@ async function runStart(args: ParsedArgs) {
   const checkOnly = readBool(args.flags, "check", false);
   const checkEvents = readBool(args.flags, "check-events", false);
   const verbose = readBool(args.flags, "verbose", false, "OPENWRK_VERBOSE");
-  const logVerbose = createVerboseLogger(verbose && !outputJson);
+  const logFormat = readLogFormat(args.flags, "log-format", "pretty", "OPENWRK_LOG_FORMAT");
+  const runId = readFlag(args.flags, "run-id") ?? process.env.OPENWRK_RUN_ID ?? randomUUID();
+  const cliVersion = await resolveCliVersion();
+  const logger = createLogger({
+    format: logFormat,
+    runId,
+    serviceName: "openwrk",
+    serviceVersion: cliVersion,
+  });
+  const logVerbose = createVerboseLogger(verbose && !outputJson, logger, "openwrk");
   const sidecarSource = readBinarySource(args.flags, "sidecar-source", "auto", "OPENWRK_SIDECAR_SOURCE");
   const opencodeSource = readBinarySource(args.flags, "opencode-source", "auto", "OPENWRK_OPENCODE_SOURCE");
 
   const workspace = readFlag(args.flags, "workspace") ?? process.env.OPENWORK_WORKSPACE ?? process.cwd();
   const resolvedWorkspace = await ensureWorkspace(workspace);
+  logger.info("Run starting", { workspace: resolvedWorkspace, logFormat, runId }, "openwrk");
 
   const explicitOpencodeBin = readFlag(args.flags, "opencode-bin") ?? process.env.OPENWORK_OPENCODE_BIN;
   const opencodeBindHost = readFlag(args.flags, "opencode-host") ?? process.env.OPENWORK_OPENCODE_BIND_HOST ?? "0.0.0.0";
@@ -2528,7 +2776,6 @@ async function runStart(args: ParsedArgs) {
   const corsOrigins = parseList(corsValue);
   const connectHost = readFlag(args.flags, "connect-host");
 
-  const cliVersion = await resolveCliVersion();
   const sidecar = resolveSidecarConfig(args.flags, cliVersion);
   const manifest = await readVersionManifest();
   const allowExternal = readBool(args.flags, "allow-external", false, "OPENWRK_ALLOW_EXTERNAL");
@@ -2587,19 +2834,20 @@ async function runStart(args: ParsedArgs) {
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    logger.info("Shutting down", { children: children.map((handle) => handle.name) }, "openwrk");
     await Promise.all(children.map((handle) => stopChild(handle.child)));
   };
 
   const handleExit = (name: string, code: number | null, signal: NodeJS.Signals | null) => {
     if (shuttingDown) return;
     const reason = code !== null ? `code ${code}` : signal ? `signal ${signal}` : "unknown";
-    console.error(`[${name}] exited (${reason})`);
+    logger.error("Process exited", { reason, code, signal }, name);
     void shutdown().then(() => process.exit(code ?? 1));
   };
 
   const handleSpawnError = (name: string, error: unknown) => {
     if (shuttingDown) return;
-    console.error(`[${name}] failed to start: ${String(error)}`);
+    logger.error("Process failed to start", { error: String(error) }, name);
     void shutdown().then(() => process.exit(1));
   };
 
@@ -2613,8 +2861,12 @@ async function runStart(args: ParsedArgs) {
       username: opencodeUsername,
       password: opencodePassword,
       corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
+      logger,
+      runId,
+      logFormat,
     });
     children.push({ name: "opencode", child: opencodeChild });
+    logger.info("Process spawned", { pid: opencodeChild.pid ?? 0 }, "opencode");
     opencodeChild.on("exit", (code, signal) => handleExit("opencode", code, signal));
     opencodeChild.on("error", (error) => handleSpawnError("opencode", error));
 
@@ -2628,7 +2880,9 @@ async function runStart(args: ParsedArgs) {
       headers: Object.keys(authHeaders).length ? authHeaders : undefined,
     });
 
+    logger.info("Waiting for health", { url: opencodeBaseUrl }, "opencode");
     await waitForOpencodeHealthy(opencodeClient);
+    logger.info("Healthy", { url: opencodeBaseUrl }, "opencode");
 
     const openworkChild = await startOpenworkServer({
       bin: openworkServerBinary.bin,
@@ -2646,12 +2900,18 @@ async function runStart(args: ParsedArgs) {
       opencodeUsername,
       opencodePassword,
       owpenbotHealthPort,
+      logger,
+      runId,
+      logFormat,
     });
     children.push({ name: "openwork-server", child: openworkChild });
+    logger.info("Process spawned", { pid: openworkChild.pid ?? 0 }, "openwork-server");
     openworkChild.on("exit", (code, signal) => handleExit("openwork-server", code, signal));
     openworkChild.on("error", (error) => handleSpawnError("openwork-server", error));
 
+    logger.info("Waiting for health", { url: openworkBaseUrl }, "openwork-server");
     await waitForHealthy(openworkBaseUrl);
+    logger.info("Healthy", { url: openworkBaseUrl }, "openwork-server");
 
     const openworkActualVersion = await verifyOpenworkServer({
       baseUrl: openworkBaseUrl,
@@ -2679,20 +2939,25 @@ async function runStart(args: ParsedArgs) {
         opencodeUsername,
         opencodePassword,
         owpenbotHealthPort,
+        logger,
+        runId,
+        logFormat,
       });
       children.push({ name: "owpenbot", child: owpenbotChild });
+      logger.info("Process spawned", { pid: owpenbotChild.pid ?? 0 }, "owpenbot");
       owpenbotChild.on("exit", (code, signal) => {
         if (owpenbotRequired) {
           handleExit("owpenbot", code, signal);
           return;
         }
         const reason = code !== null ? `code ${code}` : signal ? `signal ${signal}` : "unknown";
-        console.warn(`[owpenbot] exited (${reason}). Continuing without owpenbot.`);
+        logger.warn("Process exited, continuing without owpenbot", { reason, code, signal }, "owpenbot");
       });
       owpenbotChild.on("error", (error) => handleSpawnError("owpenbot", error));
     }
 
     const payload = {
+      runId,
       workspace: resolvedWorkspace,
       approval: {
         mode: approvalMode,
@@ -2760,8 +3025,20 @@ async function runStart(args: ParsedArgs) {
 
     if (outputJson) {
       console.log(JSON.stringify(payload, null, 2));
+    } else if (logFormat === "json") {
+      logger.info(
+        "Ready",
+        {
+          workspace: payload.workspace,
+          opencode: payload.opencode,
+          openwork: payload.openwork,
+          owpenbot: payload.owpenbot,
+        },
+        "openwrk",
+      );
     } else {
       console.log("Openwrk running");
+      console.log(`Run ID: ${runId}`);
       console.log(`Workspace: ${payload.workspace}`);
       console.log(`OpenCode: ${payload.opencode.baseUrl}`);
       console.log(`OpenCode connect URL: ${payload.opencode.connectUrl}`);
@@ -2782,11 +3059,12 @@ async function runStart(args: ParsedArgs) {
           openworkToken,
           checkEvents,
         });
-        if (!outputJson) {
+        logger.info("Checks ok", { checkEvents }, "openwrk");
+        if (!outputJson && logFormat === "pretty") {
           console.log("Checks: ok");
         }
       } catch (error) {
-        console.error(`Checks failed: ${String(error)}`);
+        logger.error("Checks failed", { error: String(error) }, "openwrk");
         await shutdown();
         process.exit(1);
       }
@@ -2799,7 +3077,7 @@ async function runStart(args: ParsedArgs) {
     await new Promise(() => undefined);
   } catch (error) {
     await shutdown();
-    console.error(error instanceof Error ? error.message : String(error));
+    logger.error("Run failed", { error: error instanceof Error ? error.message : String(error) }, "openwrk");
     process.exit(1);
   }
 }

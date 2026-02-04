@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
-import type { ApprovalMode, ApprovalConfig, ServerConfig, WorkspaceConfig } from "./types.js";
+import type { ApprovalMode, ApprovalConfig, ServerConfig, WorkspaceConfig, LogFormat } from "./types.js";
 import { buildWorkspaceInfos } from "./workspaces.js";
 import { parseList, readJsonFile, shortId } from "./utils.js";
 
@@ -20,6 +20,8 @@ interface CliArgs {
   corsOrigins?: string[];
   readOnly?: boolean;
   verbose?: boolean;
+  logFormat?: LogFormat;
+  logRequests?: boolean;
   version?: boolean;
   help?: boolean;
 }
@@ -36,11 +38,31 @@ interface FileConfig {
   readOnly?: boolean;
   opencodeUsername?: string;
   opencodePassword?: string;
+  logFormat?: LogFormat;
+  logRequests?: boolean;
 }
 
 const DEFAULT_PORT = 8787;
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_TIMEOUT_MS = 30000;
+const DEFAULT_LOG_FORMAT: LogFormat = "pretty";
+const DEFAULT_LOG_REQUESTS = true;
+
+function normalizeLogFormat(value: string | undefined): LogFormat | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "json") return "json";
+  if (normalized === "pretty" || normalized === "text" || normalized === "human") return "pretty";
+  return undefined;
+}
+
+function parseBoolean(value: string | undefined): boolean | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
 
 export function parseCliArgs(argv: string[]): CliArgs {
   const args: CliArgs = { workspaces: [] };
@@ -57,6 +79,19 @@ export function parseCliArgs(argv: string[]): CliArgs {
     }
     if (value === "--verbose") {
       args.verbose = true;
+      continue;
+    }
+    if (value === "--log-format") {
+      args.logFormat = argv[index + 1] as LogFormat | undefined;
+      index += 1;
+      continue;
+    }
+    if (value === "--log-requests") {
+      args.logRequests = true;
+      continue;
+    }
+    if (value === "--no-log-requests") {
+      args.logRequests = false;
       continue;
     }
     if (value === "--config") {
@@ -155,6 +190,9 @@ export function printHelp(): void {
     "  --workspace <path>       Workspace root (repeatable)",
     "  --cors <origins>          Comma-separated origins or *",
     "  --read-only              Disable writes",
+    "  --log-format <format>     Log output format: pretty | json",
+    "  --log-requests           Log incoming requests (default: true)",
+    "  --no-log-requests        Disable request logging",
     "  --verbose                Print resolved config",
     "  --version                Show version",
   ].join("\n");
@@ -255,6 +293,16 @@ export async function resolveServerConfig(cli: CliArgs): Promise<ServerConfig> {
     : undefined;
   const readOnly = cli.readOnly ?? parsedReadOnly ?? fileConfig.readOnly ?? false;
 
+  const envLogFormat = process.env.OPENWORK_LOG_FORMAT;
+  const logFormat =
+    cli.logFormat ??
+    normalizeLogFormat(envLogFormat) ??
+    normalizeLogFormat(fileConfig.logFormat) ??
+    DEFAULT_LOG_FORMAT;
+
+  const envLogRequests = parseBoolean(process.env.OPENWORK_LOG_REQUESTS);
+  const logRequests = cli.logRequests ?? envLogRequests ?? fileConfig.logRequests ?? DEFAULT_LOG_REQUESTS;
+
   const authorizedRoots =
     fileConfig.authorizedRoots?.length
       ? fileConfig.authorizedRoots.map((root) => resolve(configDir, root))
@@ -277,5 +325,7 @@ export async function resolveServerConfig(cli: CliArgs): Promise<ServerConfig> {
     startedAt: Date.now(),
     tokenSource,
     hostTokenSource,
+    logFormat,
+    logRequests,
   };
 }
