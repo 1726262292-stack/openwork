@@ -15,6 +15,12 @@ export default function CreateRemoteWorkspaceModal(props: {
     directory?: string | null;
     displayName?: string | null;
   }) => void;
+  initialValues?: {
+    openworkHostUrl?: string | null;
+    openworkToken?: string | null;
+    directory?: string | null;
+    displayName?: string | null;
+  };
   submitting?: boolean;
   inline?: boolean;
   showClose?: boolean;
@@ -51,11 +57,12 @@ export default function CreateRemoteWorkspaceModal(props: {
 
   createEffect(() => {
     if (!props.open) return;
-    setOpenworkHostUrl("");
-    setOpenworkToken("");
+    const defaults = props.initialValues ?? {};
+    setOpenworkHostUrl(defaults.openworkHostUrl?.trim() ?? "");
+    setOpenworkToken(defaults.openworkToken?.trim() ?? "");
     setOpenworkTokenVisible(false);
-    setDirectory("");
-    setDisplayName("");
+    setDirectory(defaults.directory?.trim() ?? "");
+    setDisplayName(defaults.displayName?.trim() ?? "");
   });
 
   const content = (

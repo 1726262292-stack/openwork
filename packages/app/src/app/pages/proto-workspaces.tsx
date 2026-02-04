@@ -8,7 +8,6 @@ import {
   Plus,
   Server,
   Settings,
-  Terminal,
 } from "lucide-solid";
 
 import type { WorkspaceInfo } from "../lib/tauri";
@@ -98,7 +97,6 @@ const navItems: Array<{
 }> = [
   { id: "home", label: "Dashboard", icon: Command },
   { id: "sessions", label: "Sessions", icon: Play },
-  { id: "commands", label: "Commands", icon: Terminal },
   { id: "skills", label: "Skills", icon: Folder },
   { id: "settings", label: "Settings", icon: Settings },
   { id: "mcp", label: "MCPs", icon: Server },

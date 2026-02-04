@@ -26,9 +26,6 @@ import { parse } from "jsonc-parser";
 
 import ModelPickerModal from "./components/model-picker-modal";
 import ResetModal from "./components/reset-modal";
-import CommandModal from "./components/command-modal";
-import CommandRunModal from "./components/command-run-modal";
-import CommandPaletteModal, { type PaletteGroup } from "./components/command-palette-modal";
 import WorkspaceSwitchOverlay from "./components/workspace-switch-overlay";
 import CreateRemoteWorkspaceModal from "./components/create-remote-workspace-modal";
 import CreateWorkspaceModal from "./components/create-workspace-modal";
@@ -42,7 +39,6 @@ import ProtoV1UxView from "./pages/proto-v1-ux";
 import { createClient, unwrap, waitForHealthy } from "./lib/opencode";
 import {
   DEFAULT_MODEL,
-  KEYBIND_PREF_KEY,
   MCP_QUICK_CONNECT,
   MODEL_PREF_KEY,
   SESSION_MODEL_PREF_KEY,
@@ -68,8 +64,6 @@ import type {
   SkillCard,
   TodoItem,
   View,
-  CommandRegistryItem,
-  CommandTriggerContext,
   WorkspaceDisplay,
   McpServerEntry,
   McpStatusMap,
@@ -77,7 +71,6 @@ import type {
   ComposerDraft,
   ComposerPart,
   ProviderListItem,
-  WorkspaceCommand,
   UpdateHandle,
   OpencodeConnectStatus,
   ScheduledJob,
@@ -95,7 +88,6 @@ import {
   modelEquals,
   normalizeDirectoryPath,
 } from "./utils";
-import { isEditableTarget, matchKeybind, normalizeKeybind } from "./utils/keybinds";
 import { currentLocale, setLocale, t, type Language } from "../i18n";
 import {
   isWindowsPlatform,
@@ -114,8 +106,6 @@ import {
   subscribeToSystemTheme,
   type ThemeMode,
 } from "./theme";
-import { createCommandState } from "./command-state";
-import { createCommandRegistry } from "./command-registry";
 import { createSystemState } from "./system-state";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { createSessionStore } from "./context/session";
@@ -677,14 +667,6 @@ export default function App() {
 
   const [prompt, setPrompt] = createSignal("");
   const [lastPromptSent, setLastPromptSent] = createSignal("");
-  const [commandPaletteOpen, setCommandPaletteOpen] = createSignal(false);
-  const [commandPaletteMode, setCommandPaletteMode] = createSignal<"command" | "file">("command");
-  const [commandPaletteQuery, setCommandPaletteQuery] = createSignal("");
-  const [keybindOverrides, setKeybindOverrides] = createSignal<Record<string, string>>({});
-  const [recentCommandIds, setRecentCommandIds] = createSignal<string[]>([]);
-  const [paletteAgents, setPaletteAgents] = createSignal<Agent[]>([]);
-  const [paletteAgentsReady, setPaletteAgentsReady] = createSignal(false);
-  const [paletteAgentsBusy, setPaletteAgentsBusy] = createSignal(false);
 
   type PartInput = TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput;
 
@@ -846,24 +828,6 @@ export default function App() {
     const list = unwrap(await c.app.agents());
     return list.filter((agent) => !agent.hidden && agent.mode !== "subagent");
   }
-
-  const loadPaletteAgents = async (force = false) => {
-    if (paletteAgentsBusy()) return paletteAgents();
-    if (paletteAgentsReady() && !force) return paletteAgents();
-    setPaletteAgentsBusy(true);
-    try {
-      const agents = await listAgents();
-      const sorted = agents.slice().sort((a, b) => a.name.localeCompare(b.name));
-      setPaletteAgents(sorted);
-      setPaletteAgentsReady(true);
-      return sorted;
-    } catch {
-      setPaletteAgents([]);
-      return [];
-    } finally {
-      setPaletteAgentsBusy(false);
-    }
-  };
 
   function setSessionAgent(sessionID: string, agent: string | null) {
     const trimmed = agent?.trim() ?? "";
@@ -1277,8 +1241,6 @@ export default function App() {
     setModelVariant(normalized);
   };
 
-  let loadCommandsRef: (options?: { workspaceRoot?: string; quiet?: boolean }) => Promise<void> = async () => { };
-
   const workspaceStore = createWorkspaceStore({
     startupPreference,
     setStartupPreference,
@@ -1302,7 +1264,6 @@ export default function App() {
     setBusyLabel,
     setBusyStartedAt,
     setOpencodeConnectStatus,
-    loadCommands: (options) => loadCommandsRef(options),
     loadSessions: loadSessionsWithReady,
     refreshPendingPermissions,
     selectedSessionId,
@@ -1551,6 +1512,22 @@ export default function App() {
     setOpenworkServerSettings({});
   };
 
+  const [editRemoteWorkspaceOpen, setEditRemoteWorkspaceOpen] = createSignal(false);
+  const [editRemoteWorkspaceId, setEditRemoteWorkspaceId] = createSignal<string | null>(null);
+
+  const editRemoteWorkspaceDefaults = createMemo(() => {
+    const workspaceId = editRemoteWorkspaceId();
+    if (!workspaceId) return null;
+    const workspace = workspaceStore.workspaces().find((item) => item.id === workspaceId) ?? null;
+    if (!workspace || workspace.workspaceType !== "remote") return null;
+    return {
+      openworkHostUrl: workspace.openworkHostUrl ?? workspace.baseUrl ?? "",
+      openworkToken: openworkServerSettings().token ?? "",
+      directory: workspace.directory ?? "",
+      displayName: workspace.displayName ?? "",
+    };
+  });
+
   const testOpenworkServerConnection = async (next: OpenworkServerSettings) => {
     const derived = normalizeOpenworkServerUrl(next.urlOverride ?? "");
     if (!derived) {
@@ -1582,420 +1559,19 @@ export default function App() {
   const openWorkspaceConnectionSettings = (workspaceId: string) => {
     const workspace = workspaceStore.workspaces().find((item) => item.id === workspaceId) ?? null;
     if (workspace?.workspaceType === "remote" && workspace.remoteType === "openwork") {
-      const hostUrl = normalizeOpenworkServerUrl(workspace.openworkHostUrl ?? "") ?? "";
-      if (hostUrl) {
-        updateOpenworkServerSettings({
-          ...openworkServerSettings(),
-          urlOverride: hostUrl,
-        });
-      }
+      setEditRemoteWorkspaceId(workspace.id);
+      setEditRemoteWorkspaceOpen(true);
+      return;
+    }
+    if (workspace?.workspaceType === "remote") {
+      setEditRemoteWorkspaceId(workspace.id);
+      setEditRemoteWorkspaceOpen(true);
+      return;
     }
     setSettingsTab("remote");
     setTab("settings");
     setView("dashboard");
   };
-
-  const commandState = createCommandState({
-    client,
-    selectedSession,
-    prompt,
-    lastPromptSent,
-    loadSessions: loadSessionsWithReady,
-    selectSession,
-    setSessionModelById,
-    setSessionAgent,
-    defaultModel,
-    modelVariant,
-    setView,
-    activeWorkspaceRoot: () => workspaceStore.activeWorkspaceRoot(),
-    workspaceType: () => workspaceStore.activeWorkspaceDisplay().workspaceType,
-    openworkServerClient,
-    openworkServerCapabilities,
-    openworkServerWorkspaceId,
-    setBusy,
-    setBusyLabel,
-    setBusyStartedAt,
-    setError,
-  });
-
-  const {
-    commands,
-    setCommands,
-    commandsLoaded,
-    setCommandsLoaded,
-    commandModalOpen,
-    setCommandModalOpen,
-    commandDraftName,
-    setCommandDraftName,
-    commandDraftDescription,
-    setCommandDraftDescription,
-    commandDraftTemplate,
-    setCommandDraftTemplate,
-    commandDraftScope,
-    setCommandDraftScope,
-    runModalOpen,
-    runModalCommand,
-    runModalDetails,
-    setRunModalDetails,
-    workspaceCommands,
-    globalCommands,
-    otherCommands,
-    openCommandModal,
-    closeCommandModal,
-    saveCommand,
-    deleteCommand,
-    runCommand,
-    loadCommands,
-    openRunModal,
-    confirmRunModal,
-    closeRunModal,
-    showOverrideConfirmation,
-    cancelOverride,
-    justSavedCommand,
-    clearJustSavedCommand,
-  } = commandState;
-
-  const commandRegistry = createCommandRegistry();
-  const commandRegistryItems = createMemo(() => commandRegistry.items());
-
-  const resolveKeybind = (command: CommandRegistryItem) =>
-    keybindOverrides()[command.id] ?? command.keybind ?? null;
-
-  const commandById = createMemo(() => {
-    const map = new Map<string, CommandRegistryItem>();
-    for (const item of commandRegistryItems()) {
-      map.set(item.id, item);
-    }
-    return map;
-  });
-
-  const registerRecentCommand = (commandId: string) => {
-    setRecentCommandIds((current) => {
-      const next = [commandId, ...current.filter((id) => id !== commandId)];
-      return next.slice(0, 6);
-    });
-  };
-
-  const runRegistryCommand = (command: CommandRegistryItem, source: CommandTriggerContext["source"]) => {
-    command.onSelect({ source });
-    registerRecentCommand(command.id);
-  };
-
-  const openCommandPalette = (mode: "command" | "file") => {
-    setCommandPaletteMode(mode);
-    setCommandPaletteQuery("");
-    setCommandPaletteOpen(true);
-  };
-  const closeCommandPalette = () => setCommandPaletteOpen(false);
-
-  const isCommandAvailable = (command: CommandRegistryItem) => {
-    const scope = command.scope ?? "global";
-    if (scope === "session" && currentView() !== "session") return false;
-    return true;
-  };
-
-  const insertFileIntoPrompt = (file: string) => {
-    const current = prompt();
-    const separator = current.trim() && !current.endsWith(" ") ? " " : "";
-    setPrompt(`${current}${separator}${file}`);
-    window.dispatchEvent(new Event("openwork:focusPrompt"));
-    const sessionId = activeSessionId();
-    if (currentView() !== "session" && sessionId) {
-      setView("session", sessionId);
-    }
-  };
-
-  const recentCommands = createMemo(() =>
-    recentCommandIds()
-      .map((id) => commandById().get(id))
-      .filter((command): command is CommandRegistryItem => Boolean(command)),
-  );
-
-  const paletteCommandItems = createMemo(() =>
-    commandRegistryItems()
-      .filter((command) => command.showInPalette !== false && isCommandAvailable(command))
-      .map((command) => ({
-        id: `command:${command.id}`,
-        title: command.title,
-        description: command.description,
-        category: command.category,
-        keybind: resolveKeybind(command) ?? undefined,
-        onSelect: () => runRegistryCommand(command, "palette"),
-        onHighlight: () => command.onHighlight?.({ source: "palette" }),
-      })),
-  );
-
-  const paletteRecentItems = createMemo(() =>
-    recentCommands()
-      .filter((command) => command.showInPalette !== false && isCommandAvailable(command))
-      .map((command) => ({
-        id: `recent:${command.id}`,
-        title: command.title,
-        description: command.description,
-        category: command.category,
-        keybind: resolveKeybind(command) ?? undefined,
-        onSelect: () => runRegistryCommand(command, "palette"),
-        onHighlight: () => command.onHighlight?.({ source: "palette" }),
-      })),
-  );
-
-  const paletteFileItems = createMemo(() =>
-    activeWorkingFiles().map((file) => ({
-      id: `file:${file}`,
-      title: file,
-      description: "Working file",
-      onSelect: () => insertFileIntoPrompt(file),
-    })),
-  );
-
-  createEffect(() => {
-    if (!commandPaletteOpen() || commandPaletteMode() !== "command") return;
-    void loadPaletteAgents();
-  });
-
-  const paletteSessionItems = createMemo(() =>
-    activeSessions().map((session) => ({
-      id: `session:${session.id}`,
-      title: session.title || session.slug || "Untitled session",
-      description: session.id === activeSessionId() ? "Active" : session.slug ?? session.id,
-      onSelect: () => {
-        selectSession(session.id);
-        setView("session", session.id);
-      },
-    })),
-  );
-
-  const paletteAgentItems = createMemo(() => {
-    const sessionId = activeSessionId();
-    if (!sessionId) return [];
-    const selectedAgent = selectedSessionAgent();
-    const items = [
-      {
-        id: "agent:default",
-        title: "Default agent",
-        description: selectedAgent ? undefined : "Active",
-        onSelect: () => setSessionAgent(sessionId, null),
-      },
-    ];
-    for (const agent of paletteAgents()) {
-      items.push({
-        id: `agent:${agent.name}`,
-        title: agent.name,
-        description: agent.name === selectedAgent ? "Active" : undefined,
-        onSelect: () => setSessionAgent(sessionId, agent.name),
-      });
-    }
-    return items;
-  });
-
-  const paletteVariantItems = createMemo(() => {
-    const currentVariant = normalizeModelVariant(modelVariant()) ?? "none";
-    return MODEL_VARIANT_OPTIONS.map((option) => ({
-      id: `variant:${option.value}`,
-      title: option.label,
-      description: option.value === currentVariant ? "Active" : undefined,
-      onSelect: () => setModelVariant(option.value),
-    }));
-  });
-
-  const commandPaletteGroups = createMemo<PaletteGroup[]>(() => {
-    const groups: PaletteGroup[] = [];
-    if (commandPaletteMode() === "command") {
-      if (paletteRecentItems().length) {
-        groups.push({ id: "recent", title: "Recent", items: paletteRecentItems() });
-      }
-      if (paletteCommandItems().length) {
-        groups.push({ id: "commands", title: "Commands", items: paletteCommandItems() });
-      }
-      if (paletteSessionItems().length) {
-        groups.push({ id: "sessions", title: "Sessions", items: paletteSessionItems() });
-      }
-      if (paletteAgentItems().length) {
-        groups.push({ id: "agents", title: "Agents", items: paletteAgentItems() });
-      }
-      if (paletteVariantItems().length) {
-        groups.push({ id: "variants", title: "Variants", items: paletteVariantItems() });
-      }
-      if (paletteFileItems().length) {
-        groups.push({ id: "files", title: "Files", items: paletteFileItems() });
-      }
-      return groups;
-    }
-    if (paletteFileItems().length) {
-      groups.push({ id: "files", title: "Files", items: paletteFileItems() });
-    }
-    return groups;
-  });
-
-  const keybindConflicts = createMemo(() => {
-    const byKeybind = new Map<string, CommandRegistryItem[]>();
-    for (const command of commandRegistryItems()) {
-      const rawKeybind = resolveKeybind(command);
-      const keybind = rawKeybind ? normalizeKeybind(rawKeybind) ?? rawKeybind : null;
-      if (!keybind) continue;
-      const list = byKeybind.get(keybind) ?? [];
-      list.push(command);
-      byKeybind.set(keybind, list);
-    }
-
-    const conflicts = new Map<string, string[]>();
-    for (const list of byKeybind.values()) {
-      if (list.length < 2) continue;
-      for (const command of list) {
-        const others = list.filter((entry) => entry.id !== command.id).map((entry) => entry.title);
-        conflicts.set(command.id, others);
-      }
-    }
-    return conflicts;
-  });
-
-  const keybindSettings = createMemo(() =>
-    commandRegistryItems().map((command) => ({
-      id: command.id,
-      title: command.title,
-      category: command.category,
-      description: command.description,
-      defaultKeybind: command.keybind ?? null,
-      overrideKeybind: keybindOverrides()[command.id] ?? null,
-      conflicts: keybindConflicts().get(command.id) ?? [],
-    })),
-  );
-
-  const updateKeybindOverride = (id: string, keybind: string | null) => {
-    setKeybindOverrides((current) => {
-      const next = { ...current };
-      if (!keybind) {
-        delete next[id];
-      } else {
-        const normalized = normalizeKeybind(keybind);
-        if (normalized) {
-          next[id] = normalized;
-        }
-      }
-      return next;
-    });
-  };
-
-  const resetKeybindOverride = (id: string) => updateKeybindOverride(id, null);
-  const resetAllKeybinds = () => setKeybindOverrides({});
-
-  createEffect(() => {
-    const modifier = isWindowsPlatform() ? "ctrl" : "cmd";
-    const cleanup = commandRegistry.registerCommands([
-      {
-        id: "palette.open",
-        title: "Open command palette",
-        category: "Navigation",
-        description: "Search commands and files",
-        keybind: `${modifier}+k`,
-        showInPalette: false,
-        scope: "global",
-        onSelect: () => openCommandPalette("command"),
-      },
-      {
-        id: "palette.files",
-        title: "Open file palette",
-        category: "Navigation",
-        description: "Search working files",
-        keybind: `${modifier}+p`,
-        showInPalette: false,
-        scope: "global",
-        onSelect: () => openCommandPalette("file"),
-      },
-      {
-        id: "nav.dashboard",
-        title: "Open dashboard",
-        category: "Navigation",
-        description: "Return to the dashboard",
-        scope: "global",
-        onSelect: () => {
-          setTab("home");
-          setView("dashboard");
-        },
-      },
-      {
-        id: "nav.sessions",
-        title: "Open sessions",
-        category: "Navigation",
-        description: "View all sessions",
-        scope: "global",
-        onSelect: () => {
-          setTab("sessions");
-          setView("dashboard");
-        },
-      },
-      {
-        id: "nav.commands",
-        title: "Open commands",
-        category: "Navigation",
-        description: "Manage saved commands",
-        scope: "global",
-        onSelect: () => {
-          setTab("commands");
-          setView("dashboard");
-        },
-      },
-      {
-        id: "nav.skills",
-        title: "Open skills",
-        category: "Navigation",
-        description: "Manage skills",
-        scope: "global",
-        onSelect: () => {
-          setTab("skills");
-          setView("dashboard");
-        },
-      },
-      {
-        id: "nav.plugins",
-        title: "Open plugins",
-        category: "Navigation",
-        description: "Manage plugins",
-        scope: "global",
-        onSelect: () => {
-          setTab("plugins");
-          setView("dashboard");
-        },
-      },
-      {
-        id: "nav.mcp",
-        title: "Open MCP",
-        category: "Navigation",
-        description: "Manage MCP servers",
-        scope: "global",
-        onSelect: () => {
-          setTab("mcp");
-          setView("dashboard");
-        },
-      },
-      {
-        id: "nav.settings",
-        title: "Open settings",
-        category: "Navigation",
-        description: "Adjust preferences",
-        scope: "global",
-        onSelect: () => {
-          setTab("settings");
-          setView("dashboard");
-        },
-      },
-      {
-        id: "session.new-task",
-        title: "Start new task",
-        category: "Sessions",
-        description: "Start a new session",
-        scope: "global",
-        onSelect: () => {
-          createSessionAndOpen();
-          setView("session");
-        },
-      },
-    ]);
-
-    onCleanup(() => cleanup());
-  });
-
-  loadCommandsRef = loadCommands;
 
   const [openworkReloadCursor, setOpenworkReloadCursor] = createSignal<number | null>(null);
   const [openworkReloadUnsupported, setOpenworkReloadUnsupported] = createSignal(false);
@@ -3362,35 +2938,6 @@ export default function App() {
           }
         }
 
-        const storedKeybinds = window.localStorage.getItem(KEYBIND_PREF_KEY);
-        if (storedKeybinds) {
-          try {
-            const parsed = JSON.parse(storedKeybinds) as Record<string, unknown>;
-            const next: Record<string, string> = {};
-            for (const [id, value] of Object.entries(parsed ?? {})) {
-              if (typeof value !== "string") continue;
-              const normalized = normalizeKeybind(value);
-              if (normalized) next[id] = normalized;
-            }
-            setKeybindOverrides(next);
-          } catch {
-            // ignore
-          }
-        }
-
-        const storedRecentCommands = window.localStorage.getItem("openwork.commandRecent");
-        if (storedRecentCommands) {
-          try {
-            const parsed = JSON.parse(storedRecentCommands);
-            if (Array.isArray(parsed)) {
-              const next = parsed.filter((value) => typeof value === "string").slice(0, 6);
-              setRecentCommandIds(next);
-            }
-          } catch {
-            // ignore
-          }
-        }
-
         const storedUpdateAutoCheck = window.localStorage.getItem(
           "openwork.updateAutoCheck"
         );
@@ -3752,57 +3299,6 @@ export default function App() {
   });
 
   createEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const overrides = keybindOverrides();
-      if (Object.keys(overrides).length) {
-        window.localStorage.setItem(KEYBIND_PREF_KEY, JSON.stringify(overrides));
-      } else {
-        window.localStorage.removeItem(KEYBIND_PREF_KEY);
-      }
-    } catch {
-      // ignore
-    }
-  });
-
-  createEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const recent = recentCommandIds();
-      if (recent.length) {
-        window.localStorage.setItem("openwork.commandRecent", JSON.stringify(recent));
-      } else {
-        window.localStorage.removeItem("openwork.commandRecent");
-      }
-    } catch {
-      // ignore
-    }
-  });
-
-  createEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      if (commandPaletteOpen()) return;
-      const hasModifier = event.metaKey || event.ctrlKey || event.altKey;
-      if (isEditableTarget(event.target) && !hasModifier) return;
-
-      const match = commandRegistryItems().find((command) => {
-        if (!isCommandAvailable(command)) return false;
-        const keybind = resolveKeybind(command);
-        if (!keybind) return false;
-        return matchKeybind(event, keybind);
-      });
-      if (!match) return;
-      event.preventDefault();
-      event.stopPropagation();
-      runRegistryCommand(match, "keybind");
-    };
-
-    window.addEventListener("keydown", onKeyDown, true);
-    onCleanup(() => window.removeEventListener("keydown", onKeyDown, true));
-  });
-
-  createEffect(() => {
     const state = updateStatus();
     if (typeof window === "undefined") return;
     if (state.state === "idle" && state.lastCheckedAt) {
@@ -4055,24 +3551,6 @@ export default function App() {
         refreshScheduledJobs(options).catch(() => undefined),
       deleteScheduledJob,
       activeWorkspaceRoot: workspaceStore.activeWorkspaceRoot().trim(),
-      workspaceCommands: workspaceCommands(),
-      globalCommands: globalCommands(),
-      otherCommands: otherCommands(),
-      setCommandDraftName,
-      setCommandDraftDescription,
-      setCommandDraftTemplate,
-      setCommandDraftScope,
-      resetCommandDraft: (scope: "workspace" | "global" = "workspace") => {
-        setCommandDraftName("");
-        setCommandDraftDescription("");
-        setCommandDraftTemplate("");
-        setCommandDraftScope(scope);
-      },
-      openCommandModal,
-      runCommand: openRunModal,
-      deleteCommand,
-      justSavedCommand: justSavedCommand(),
-      clearJustSavedCommand,
       refreshSkills: (options?: { force?: boolean }) => refreshSkills(options).catch(() => undefined),
       refreshPlugins: (scopeOverride?: PluginScope) =>
         refreshPlugins(scopeOverride).catch(() => undefined),
@@ -4109,10 +3587,6 @@ export default function App() {
       showThinking: showThinking(),
       toggleShowThinking: () => setShowThinking((v) => !v),
       modelVariantLabel: formatModelVariantLabel(modelVariant()),
-      keybindItems: keybindSettings(),
-      onOverrideKeybind: updateKeybindOverride,
-      onResetKeybind: resetKeybindOverride,
-      onResetAllKeybinds: resetAllKeybinds,
       editModelVariant: handleEditModelVariant,
       updateAutoCheck: updateAutoCheck(),
       toggleUpdateAutoCheck: () => setUpdateAutoCheck((v) => !v),
@@ -4290,11 +3764,6 @@ export default function App() {
     setSessionAgent: setSessionAgent,
     saveSession: saveSessionExport,
     sessionStatusById: activeSessionStatusById(),
-    commands: commands(),
-    runCommand: runCommand,
-    openCommandRunModal: openRunModal,
-    commandRegistryItems,
-    registerCommand: commandRegistry.registerCommand,
     searchFiles: searchWorkspaceFiles,
     deleteSession: deleteSessionById,
     onTryNotionPrompt: () => {
@@ -4316,7 +3785,6 @@ export default function App() {
     "home",
     "sessions",
     "scheduled",
-    "commands",
     "skills",
     "plugins",
     "mcp",
@@ -4489,40 +3957,6 @@ export default function App() {
         onReloadEngine={() => reloadWorkspaceEngine()}
       />
 
-      <CommandModal
-        open={commandModalOpen()}
-        name={commandDraftName()}
-        description={commandDraftDescription()}
-        template={commandDraftTemplate()}
-        scope={commandDraftScope()}
-        showOverrideConfirmation={showOverrideConfirmation()}
-        onClose={closeCommandModal}
-        onSave={saveCommand}
-        onCancelOverride={cancelOverride}
-        onNameChange={setCommandDraftName}
-        onDescriptionChange={setCommandDraftDescription}
-        onTemplateChange={setCommandDraftTemplate}
-        onScopeChange={setCommandDraftScope}
-      />
-
-      <CommandRunModal
-        open={runModalOpen()}
-        command={runModalCommand()}
-        details={runModalDetails()}
-        onDetailsChange={setRunModalDetails}
-        onClose={closeRunModal}
-        onRun={confirmRunModal}
-      />
-
-      <CommandPaletteModal
-        open={commandPaletteOpen()}
-        mode={commandPaletteMode()}
-        query={commandPaletteQuery()}
-        setQuery={setCommandPaletteQuery}
-        groups={commandPaletteGroups()}
-        onClose={closeCommandPalette}
-      />
-
       <ReloadWorkspaceToast
         open={reloadToastVisible()}
         title={t("reload.toast_title", currentLocale())}
@@ -4558,6 +3992,30 @@ export default function App() {
           busy() &&
           (busyLabel() === "status.creating_workspace" || busyLabel() === "status.connecting")
         }
+      />
+
+      <CreateRemoteWorkspaceModal
+        open={editRemoteWorkspaceOpen()}
+        onClose={() => {
+          setEditRemoteWorkspaceOpen(false);
+          setEditRemoteWorkspaceId(null);
+        }}
+        onConfirm={(input) => {
+          const workspaceId = editRemoteWorkspaceId();
+          if (!workspaceId) return;
+          void (async () => {
+            const ok = await workspaceStore.updateRemoteWorkspaceFlow(workspaceId, input);
+            if (ok) {
+              setEditRemoteWorkspaceOpen(false);
+              setEditRemoteWorkspaceId(null);
+            }
+          })();
+        }}
+        initialValues={editRemoteWorkspaceDefaults() ?? undefined}
+        submitting={busy() && busyLabel() === "status.connecting"}
+        title={t("dashboard.edit_remote_workspace_title", currentLocale())}
+        subtitle={t("dashboard.edit_remote_workspace_subtitle", currentLocale())}
+        confirmLabel={t("dashboard.edit_remote_workspace_confirm", currentLocale())}
       />
     </>
   );

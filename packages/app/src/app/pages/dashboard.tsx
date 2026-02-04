@@ -10,7 +10,6 @@ import type {
   ScheduledJob,
   SkillCard,
   StartupPreference,
-  WorkspaceCommand,
   View,
 } from "../types";
 import type { McpDirectoryInfo } from "../constants";
@@ -30,12 +29,10 @@ import McpView from "./mcp";
 import PluginsView from "./plugins";
 import ScheduledTasksView from "./scheduled";
 import SettingsView from "./settings";
-import type { KeybindSetting } from "../components/settings-keybinds";
 import SkillsView from "./skills";
-import CommandsView from "./commands";
 import StatusBar from "../components/status-bar";
 import ProviderAuthModal from "../components/provider-auth-modal";
-import { Command, Cpu, Calendar, Package, Play, Plus, Server, Terminal } from "lucide-solid";
+import { Command, Cpu, Calendar, Package, Play, Server } from "lucide-solid";
 
 export type DashboardViewProps = {
   tab: DashboardTab;
@@ -85,10 +82,6 @@ export type DashboardViewProps = {
   reloadWorkspaceEngine: () => Promise<void>;
   reloadBusy: boolean;
   reloadError: string | null;
-  keybindItems: KeybindSetting[];
-  onOverrideKeybind: (id: string, keybind: string | null) => void;
-  onResetKeybind: (id: string) => void;
-  onResetAllKeybinds: () => void;
   activeWorkspaceDisplay: WorkspaceInfo;
   exportWorkspaceConfig: () => void;
   exportWorkspaceBusy: boolean;
@@ -109,19 +102,6 @@ export type DashboardViewProps = {
   refreshScheduledJobs: (options?: { force?: boolean }) => void;
   deleteScheduledJob: (name: string) => Promise<void> | void;
   activeWorkspaceRoot: string;
-  workspaceCommands: WorkspaceCommand[];
-  globalCommands: WorkspaceCommand[];
-  otherCommands: WorkspaceCommand[];
-  setCommandDraftName: (value: string) => void;
-  setCommandDraftDescription: (value: string) => void;
-  setCommandDraftTemplate: (value: string) => void;
-  setCommandDraftScope: (value: "workspace" | "global") => void;
-  openCommandModal: () => void;
-  resetCommandDraft?: (scope?: "workspace" | "global") => void;
-  runCommand: (command: WorkspaceCommand) => void;
-  deleteCommand: (command: WorkspaceCommand) => void;
-  justSavedCommand?: { name: string; scope: string } | null;
-  clearJustSavedCommand?: () => void;
   refreshSkills: (options?: { force?: boolean }) => void;
   refreshPlugins: (scopeOverride?: PluginScope) => void;
   refreshMcpServers: () => void;
@@ -237,8 +217,6 @@ export default function DashboardView(props: DashboardViewProps) {
         return "Sessions";
       case "scheduled":
         return "Scheduled Tasks";
-      case "commands":
-        return "Commands";
       case "skills":
         return "Skills";
       case "plugins":
@@ -252,7 +230,6 @@ export default function DashboardView(props: DashboardViewProps) {
     }
   });
 
-  const quickCommands = createMemo(() => props.workspaceCommands.slice(0, 3));
   const canExportWorkspace = createMemo(() => props.activeWorkspaceDisplay.workspaceType !== "remote");
 
   const openSessionFromList = (sessionId: string) => {
@@ -402,7 +379,6 @@ export default function DashboardView(props: DashboardViewProps) {
             {navItem("home", "Dashboard", <Command size={18} />)}
             {navItem("sessions", "Sessions", <Play size={18} />)}
             {navItem("scheduled", "Scheduled Tasks", <Calendar size={18} />)}
-            {navItem("commands", "Commands", <Terminal size={18} />)}
             {navItem("skills", "Skills", <Package size={18} />)}
             {navItem("plugins", "Plugins", <Cpu size={18} />)}
             {navItem(
@@ -484,27 +460,6 @@ export default function DashboardView(props: DashboardViewProps) {
               </Button>
             </Show>
 
-            <Show when={props.tab === "commands"}>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  const reset = props.resetCommandDraft;
-                  if (reset) {
-                    reset("workspace");
-                  } else {
-                    props.setCommandDraftName("");
-                    props.setCommandDraftDescription("");
-                    props.setCommandDraftTemplate("");
-                    props.setCommandDraftScope("workspace");
-                  }
-                  props.openCommandModal();
-                }}
-                disabled={props.busy}
-              >
-                <Plus size={16} />
-                New
-              </Button>
-            </Show>
           </div>
         </header>
 
@@ -557,48 +512,6 @@ export default function DashboardView(props: DashboardViewProps) {
                     </div>
                   </div>
                 </div>
-              </section>
-
-              <section>
-                <div class="flex items-center justify-between mb-4">
-                  <h3 class="text-sm font-medium text-gray-11 uppercase tracking-wider">
-                    Quick Start Commands
-                  </h3>
-                  <button
-                    class="text-sm text-gray-10 hover:text-gray-12"
-                    onClick={() => props.setTab("commands")}
-                  >
-                    View all
-                  </button>
-                </div>
-
-                <Show
-                  when={quickCommands().length}
-                  fallback={
-                    <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-6 text-sm text-gray-10">
-                      No commands yet. Starter commands will appear here.
-                    </div>
-                  }
-                >
-                  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <For each={quickCommands()}>
-                      {(command) => (
-                        <button
-                          onClick={() => props.runCommand(command)}
-                          class="group p-5 rounded-2xl bg-gray-2/30 border border-gray-6/50 hover:bg-gray-2 hover:border-gray-7 transition-all text-left"
-                        >
-                          <div class="w-10 h-10 rounded-full bg-gray-4 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                            <Terminal size={20} class="text-indigo-11" />
-                          </div>
-                          <h4 class="font-medium text-gray-12 mb-1">/{command.name}</h4>
-                          <p class="text-sm text-gray-10">
-                            {command.description || "Run a saved command"}
-                          </p>
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </Show>
               </section>
 
               <section>
@@ -733,25 +646,6 @@ export default function DashboardView(props: DashboardViewProps) {
                 isWindows={props.isWindows}
               />
             </Match>
-            <Match when={props.tab === "commands"}>
-              <CommandsView
-                busy={props.busy}
-                workspaceCommands={props.workspaceCommands}
-                globalCommands={props.globalCommands}
-                otherCommands={props.otherCommands}
-                setCommandDraftName={props.setCommandDraftName}
-                setCommandDraftDescription={props.setCommandDraftDescription}
-                setCommandDraftTemplate={props.setCommandDraftTemplate}
-                setCommandDraftScope={props.setCommandDraftScope}
-                openCommandModal={props.openCommandModal}
-                resetCommandDraft={props.resetCommandDraft}
-                runCommand={props.runCommand}
-                deleteCommand={props.deleteCommand}
-                justSavedCommand={props.justSavedCommand}
-                clearJustSavedCommand={props.clearJustSavedCommand}
-              />
-            </Match>
-
             <Match when={props.tab === "skills"}>
               <SkillsView
                 busy={props.busy}
@@ -860,10 +754,6 @@ export default function DashboardView(props: DashboardViewProps) {
                   toggleShowThinking={props.toggleShowThinking}
                   modelVariantLabel={props.modelVariantLabel}
                   editModelVariant={props.editModelVariant}
-                  keybindItems={props.keybindItems}
-                  onOverrideKeybind={props.onOverrideKeybind}
-                  onResetKeybind={props.onResetKeybind}
-                  onResetAllKeybinds={props.onResetAllKeybinds}
                   updateAutoCheck={props.updateAutoCheck}
                   toggleUpdateAutoCheck={props.toggleUpdateAutoCheck}
                   themeMode={props.themeMode}
@@ -981,15 +871,6 @@ export default function DashboardView(props: DashboardViewProps) {
               >
                 <Calendar size={18} />
                 Schedule
-              </button>
-              <button
-                class={`flex flex-col items-center gap-1 text-xs ${
-                  props.tab === "commands" ? "text-gray-12" : "text-gray-10"
-                }`}
-                onClick={() => props.setTab("commands")}
-              >
-                <Terminal size={18} />
-                Commands
               </button>
               <button
                 class={`flex flex-col items-center gap-1 text-xs ${

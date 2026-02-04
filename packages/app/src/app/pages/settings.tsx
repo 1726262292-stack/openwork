@@ -4,7 +4,6 @@ import { formatBytes, formatRelativeTime, isTauriRuntime } from "../utils";
 
 import Button from "../components/button";
 import TextInput from "../components/text-input";
-import SettingsKeybinds, { type KeybindSetting } from "../components/settings-keybinds";
 import { HardDrive, MessageCircle, PlugZap, RefreshCcw, Shield, Smartphone, X } from "lucide-solid";
 import type { OpencodeConnectStatus, ProviderListItem, SettingsTab, StartupPreference } from "../types";
 import { createOpenworkServerClient } from "../lib/openwork-server";
@@ -76,10 +75,6 @@ export type SettingsViewProps = {
   developerMode: boolean;
   toggleDeveloperMode: () => void;
   stopHost: () => void;
-  keybindItems: KeybindSetting[];
-  onOverrideKeybind: (id: string, keybind: string | null) => void;
-  onResetKeybind: (id: string) => void;
-  onResetAllKeybinds: () => void;
   engineSource: "path" | "sidecar";
   setEngineSource: (value: "path" | "sidecar") => void;
   engineRuntime: "direct" | "openwrk";
@@ -1087,8 +1082,6 @@ export default function SettingsView(props: SettingsViewProps) {
     switch (tab) {
       case "model":
         return "Model";
-      case "keybinds":
-        return "Keybinds";
       case "advanced":
         return "Advanced";
       case "remote":
@@ -1103,7 +1096,7 @@ export default function SettingsView(props: SettingsViewProps) {
   };
 
   const availableTabs = createMemo<SettingsTab[]>(() => {
-    const tabs: SettingsTab[] = ["general", "model", "keybinds", "messaging", "remote", "advanced"];
+    const tabs: SettingsTab[] = ["general", "model", "messaging", "remote", "advanced"];
     if (props.developerMode) tabs.push("debug");
     return tabs;
   });
@@ -1451,17 +1444,6 @@ export default function SettingsView(props: SettingsViewProps) {
                 </Button>
               </div>
             </div>
-          </div>
-        </Match>
-
-        <Match when={activeTab() === "keybinds"}>
-          <div class="space-y-6">
-            <SettingsKeybinds
-              items={props.keybindItems}
-              onOverride={props.onOverrideKeybind}
-              onReset={props.onResetKeybind}
-              onResetAll={props.onResetAllKeybinds}
-            />
           </div>
         </Match>
 
@@ -2297,7 +2279,6 @@ export default function SettingsView(props: SettingsViewProps) {
                           <div>Skills: {formatCapability(caps().skills)}</div>
                           <div>Plugins: {formatCapability(caps().plugins)}</div>
                           <div>MCP: {formatCapability(caps().mcp)}</div>
-                          <div>Commands: {formatCapability(caps().commands)}</div>
                           <div>Config: {formatCapability(caps().config)}</div>
                         </div>
                       )}

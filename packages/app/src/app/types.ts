@@ -102,13 +102,12 @@ export type DashboardTab =
   | "home"
   | "sessions"
   | "scheduled"
-  | "commands"
   | "skills"
   | "plugins"
   | "mcp"
   | "settings";
 
-export type SettingsTab = "general" | "model" | "keybinds" | "advanced" | "remote" | "messaging" | "debug";
+export type SettingsTab = "general" | "model" | "advanced" | "remote" | "messaging" | "debug";
 
 export type WorkspacePreset = "starter" | "automation" | "minimal";
 
@@ -121,40 +120,6 @@ export type WorkspaceConnectionState = {
 };
 
 export type ResetOpenworkMode = "onboarding" | "all";
-
-export type CommandScope = "workspace" | "global" | "unknown";
-
-export type CommandRegistryScope = "global" | "session";
-
-export type CommandTriggerContext = {
-  source?: "palette" | "slash" | "keybind";
-};
-
-export type CommandRegistryItem = {
-  id: string;
-  title: string;
-  category?: string;
-  description?: string;
-  keybind?: string;
-  slash?: string;
-  scope?: CommandRegistryScope;
-  showInPalette?: boolean;
-  onSelect: (context?: CommandTriggerContext) => void;
-  onHighlight?: (context?: CommandTriggerContext) => void;
-};
-
-export type CommandDefinition = {
-  name: string;
-  description?: string;
-  template: string;
-  agent?: string;
-  model?: string;
-  subtask?: boolean;
-};
-
-export type WorkspaceCommand = CommandDefinition & {
-  scope: CommandScope;
-};
 
 export type WorkspaceOpenworkConfig = {
   version: number;
@@ -286,11 +251,6 @@ export type PluginState = {
   scope: PluginScope;
   config: OpencodeConfigFile | null;
   list: string[];
-};
-
-export type CommandState = {
-  items: WorkspaceCommand[];
-  loaded: boolean;
 };
 
 export type WorkspaceDisplay = WorkspaceInfo & {

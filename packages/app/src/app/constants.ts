@@ -5,7 +5,6 @@ export const SESSION_MODEL_PREF_KEY = "openwork.sessionModels";
 export const THINKING_PREF_KEY = "openwork.showThinking";
 export const VARIANT_PREF_KEY = "openwork.modelVariant";
 export const LANGUAGE_PREF_KEY = "openwork.language";
-export const KEYBIND_PREF_KEY = "openwork.keybinds";
 
 export const DEFAULT_MODEL: ModelRef = {
   providerID: "opencode",

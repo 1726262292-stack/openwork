@@ -424,7 +424,7 @@ export default function SessionSidebar(props: SidebarProps) {
                                 type="button"
                                 class="inline-flex items-center gap-1.5 rounded-md border border-gray-6 px-2 py-1 text-[10px] text-gray-10 hover:text-gray-12 hover:border-gray-7 hover:bg-gray-2 transition-colors"
                                 onClick={() => props.onEditWorkspace(group.workspace.id)}
-                                disabled={!allowActions()}
+                                disabled={isConnecting()}
                               >
                                 <Settings size={12} />
                                 Edit connection
@@ -433,7 +433,7 @@ export default function SessionSidebar(props: SidebarProps) {
                                 type="button"
                                 class="inline-flex items-center gap-1.5 rounded-md border border-gray-6 px-2 py-1 text-[10px] text-gray-10 hover:text-gray-12 hover:border-gray-7 hover:bg-gray-2 transition-colors"
                                 onClick={() => props.onTestWorkspaceConnection(group.workspace.id)}
-                                disabled={!allowActions()}
+                                disabled={isConnecting()}
                               >
                                 <RefreshCcw size={12} class={connectionStatus() === "connecting" ? "animate-spin" : ""} />
                                 Test connection
@@ -443,7 +443,7 @@ export default function SessionSidebar(props: SidebarProps) {
                               type="button"
                               class="inline-flex items-center gap-1.5 rounded-md border border-gray-6 px-2 py-1 text-[10px] text-gray-10 hover:text-gray-12 hover:border-gray-7 hover:bg-gray-2 transition-colors"
                               onClick={() => props.onForgetWorkspace(group.workspace.id)}
-                              disabled={!allowActions()}
+                              disabled={isConnecting()}
                             >
                               <Trash2 size={12} />
                               Remove

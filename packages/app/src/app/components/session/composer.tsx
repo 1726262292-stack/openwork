@@ -4,12 +4,6 @@ import { ArrowRight, AtSign, ChevronDown, File, Paperclip, X, Zap } from "lucide
 
 import type { ComposerAttachment, ComposerDraft, ComposerPart, PromptMode } from "../../types";
 
-export type CommandItem = {
-  id: string;
-  description: string;
-  needsArgs?: boolean;
-};
-
 type MentionOption = {
   id: string;
   kind: "agent" | "file";
@@ -28,9 +22,6 @@ type ComposerProps = {
   busy: boolean;
   onSend: (draft: ComposerDraft) => void;
   onDraftChange: (draft: ComposerDraft) => void;
-  commandMatches: CommandItem[];
-  onRunCommand: (commandId: string) => void;
-  onInsertCommand: (commandId: string) => void;
   selectedModelLabel: string;
   onModelClick: () => void;
   modelVariantLabel: string;
@@ -262,7 +253,6 @@ export default function Composer(props: ComposerProps) {
   let variantPickerRef: HTMLDivElement | undefined;
   let mentionSearchRun = 0;
   let suppressPromptSync = false;
-  const [commandIndex, setCommandIndex] = createSignal(0);
   const [mentionIndex, setMentionIndex] = createSignal(0);
   const [mentionQuery, setMentionQuery] = createSignal("");
   const [mentionOpen, setMentionOpen] = createSignal(false);
@@ -281,19 +271,6 @@ export default function Composer(props: ComposerProps) {
 
   onMount(() => {
     queueMicrotask(() => focusEditorEnd());
-  });
-
-  const commandMenuOpen = createMemo(() => {
-    const prompt = props.prompt.trim();
-    // Close menu if user has typed a space (likely typing args)
-    if (prompt.includes(" ")) return false;
-    return prompt.startsWith("/") && !props.busy && mode() === "prompt" && !mentionOpen();
-  });
-
-  createEffect(() => {
-    if (commandMenuOpen()) {
-      props.prompt; setCommandIndex(0);
-    }
   });
 
   createEffect(() => {
@@ -654,47 +631,6 @@ export default function Composer(props: ComposerProps) {
       }
     }
 
-    if (commandMenuOpen()) {
-      const matches = props.commandMatches;
-      if (event.key === "Enter") {
-        event.preventDefault();
-        const active = matches[commandIndex()] ?? matches[0];
-        if (active) {
-          const hasArgs = /\s+/.test(props.prompt.trim());
-          if (active.needsArgs && !hasArgs) {
-            props.onInsertCommand(active.id);
-          } else {
-            props.onRunCommand(active.id);
-          }
-        }
-        return;
-      }
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setCommandIndex((i: number) => Math.min(i + 1, matches.length - 1));
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setCommandIndex((i: number) => Math.max(i - 1, 0));
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setEditorText("");
-        emitDraftChange();
-        return;
-      }
-      if (event.key === "Tab") {
-        event.preventDefault();
-        const active = matches[commandIndex()] ?? matches[0];
-        if (active) {
-          props.onInsertCommand(active.id);
-        }
-        return;
-      }
-    }
-
     if (event.key === "!" && mode() === "prompt") {
       const offsets = editorRef ? getSelectionOffsets(editorRef) : null;
       if (offsets && offsets.start === 0 && offsets.end === 0) {
@@ -829,7 +765,7 @@ export default function Composer(props: ComposerProps) {
       <div class="max-w-2xl mx-auto">
         <div
           class={`bg-gray-2 border border-gray-6 rounded-3xl overflow-visible transition-all shadow-2xl relative group/input ${
-            commandMenuOpen() || mentionOpen()
+            mentionOpen()
               ? "rounded-t-none border-t-transparent"
               : "focus-within:ring-1 focus-within:ring-gray-7"
           }`}
@@ -839,47 +775,6 @@ export default function Composer(props: ComposerProps) {
             event.preventDefault();
           }}
         >
-          <Show when={commandMenuOpen()}>
-            <div class="absolute bottom-full left-[-1px] right-[-1px] z-30">
-              <div class="rounded-t-3xl border border-gray-6 border-b-0 bg-gray-2 shadow-2xl overflow-hidden">
-                <div class="px-4 pt-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-8 border-b border-gray-6/30 bg-gray-2">
-                  Commands
-                </div>
-                <div class="space-y-1 p-2 bg-gray-2">
-                  <Show
-                    when={props.commandMatches.length}
-                    fallback={<div class="px-3 py-2 text-xs text-gray-9">No commands found.</div>}
-                  >
-                    <For each={props.commandMatches}>
-                      {(command: CommandItem, idx: () => number) => (
-                        <button
-                          type="button"
-                          class={`w-full flex items-start gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
-                            idx() === commandIndex()
-                              ? "bg-gray-12/10 text-gray-12"
-                              : "text-gray-11 hover:bg-gray-12/5"
-                          }`}
-                          onMouseDown={(e: MouseEvent) => {
-                            e.preventDefault();
-                            if (command.needsArgs) {
-                              props.onInsertCommand(command.id);
-                            } else {
-                              props.onRunCommand(command.id);
-                            }
-                          }}
-                          onMouseEnter={() => setCommandIndex(idx())}
-                        >
-                          <div class="text-xs font-semibold text-gray-12">/{command.id}</div>
-                          <div class="text-[11px] text-gray-9">{command.description}</div>
-                        </button>
-                      )}
-                    </For>
-                  </Show>
-                </div>
-              </div>
-            </div>
-          </Show>
-
           <Show when={mentionOpen()}>
             <div class="absolute bottom-full left-[-1px] right-[-1px] z-30">
               <div class="rounded-t-3xl border border-gray-6 border-b-0 bg-gray-2 shadow-2xl overflow-hidden">

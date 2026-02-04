@@ -2,7 +2,6 @@ import { createContext, createEffect, useContext, type ParentProps } from "solid
 import { createStore, type SetStoreFunction, type Store } from "solid-js/store";
 
 import type {
-  Command,
   Config,
   ConfigProvidersResponse,
   Event,
@@ -46,7 +45,6 @@ type GlobalState = {
   config: Config;
   provider: ProviderListResponse;
   providerAuth: ProviderAuthResponse;
-  command: Record<string, Command[]>;
   mcp: Record<string, McpStatusMap>;
   lsp: Record<string, LspStatus[]>;
   project: Project[];
@@ -83,7 +81,6 @@ export function GlobalSyncProvider(props: ParentProps) {
     config: {},
     provider: defaultProvider,
     providerAuth: {},
-    command: {},
     mcp: {},
     lsp: {},
     project: [],
@@ -140,11 +137,6 @@ export function GlobalSyncProvider(props: ParentProps) {
     }
   };
 
-  const refreshCommands = async (directory?: string) => {
-    const result = unwrap(await globalSDK.client().command.list({ directory })) as Command[];
-    setGlobalStore("command", keyFor(directory ?? ""), result);
-  };
-
   const refreshMcp = async (directory?: string) => {
     const result = unwrap(await globalSDK.client().mcp.status({ directory })) as McpStatusMap;
     setGlobalStore("mcp", keyFor(directory ?? ""), result as McpStatusMap);
@@ -179,7 +171,6 @@ export function GlobalSyncProvider(props: ParentProps) {
   const refreshDirectory = async (directory: string) => {
     if (!directory) return;
     await Promise.allSettled([
-      refreshCommands(directory),
       refreshMcp(directory),
       refreshLsp(directory),
       refreshVcs(directory),
@@ -198,7 +189,6 @@ export function GlobalSyncProvider(props: ParentProps) {
       }
 
       if (globalStore.serverVersion && health.version !== globalStore.serverVersion) {
-        setGlobalStore("command", {});
         setGlobalStore("mcp", {});
         setGlobalStore("lsp", {});
         setGlobalStore("project", []);
@@ -215,7 +205,6 @@ export function GlobalSyncProvider(props: ParentProps) {
       refreshConfig(),
       refreshProviders(),
       refreshProviderAuth(),
-      refreshCommands(),
       refreshMcp(),
       refreshLsp(),
       refreshProjects(),
