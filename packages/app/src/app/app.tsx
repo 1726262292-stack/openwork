@@ -39,6 +39,7 @@ import OnboardingView from "./pages/onboarding";
 import DashboardView from "./pages/dashboard";
 import SessionView from "./pages/session";
 import ProtoWorkspacesView from "./pages/proto-workspaces";
+import ProtoV1UxView from "./pages/proto-v1-ux";
 import { createClient, unwrap, waitForHealthy } from "./lib/opencode";
 import {
   DEFAULT_MODEL,
@@ -164,6 +165,9 @@ export default function App() {
     if (path.startsWith("/proto")) return "proto";
     return "dashboard";
   });
+  const isProtoV1Ux = createMemo(() =>
+    location.pathname.toLowerCase().startsWith("/proto-v1-ux")
+  );
 
   const [tab, setTabState] = createSignal<DashboardTab>("home");
   const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("general");
@@ -4344,6 +4348,13 @@ export default function App() {
       return;
     }
 
+    if (path.startsWith("/proto-v1-ux")) {
+      if (isTauriRuntime()) {
+        navigate("/dashboard/home", { replace: true });
+      }
+      return;
+    }
+
     if (path.startsWith("/proto")) {
       if (isTauriRuntime()) {
         navigate("/dashboard/home", { replace: true });
@@ -4374,7 +4385,14 @@ export default function App() {
     <>
       <Switch>
         <Match when={currentView() === "proto"}>
-          <ProtoWorkspacesView />
+          <Switch>
+            <Match when={isProtoV1Ux()}>
+              <ProtoV1UxView />
+            </Match>
+            <Match when={true}>
+              <ProtoWorkspacesView />
+            </Match>
+          </Switch>
         </Match>
         <Match when={currentView() === "onboarding"}>
           <OnboardingView {...onboardingProps()} />
