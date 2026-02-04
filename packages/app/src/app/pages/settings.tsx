@@ -158,12 +158,15 @@ function OwpenbotSettings(props: {
   const [telegramCheckDetail, setTelegramCheckDetail] = createSignal<string | null>(null);
   const openworkServerClient = createMemo(() => {
     const baseUrl = props.openworkServerUrl.trim();
+    const localBaseUrl = props.openworkServerHostInfo?.baseUrl?.trim() ?? "";
     const hostToken = props.openworkServerHostInfo?.hostToken?.trim() ?? "";
     const clientToken = props.openworkServerHostInfo?.clientToken?.trim() ?? "";
     const settingsToken = props.openworkServerSettings.token?.trim() ?? "";
-    const token = clientToken || settingsToken;
+    // Use clientToken only when connecting to the local server; use settingsToken for remote
+    const isLocalServer = localBaseUrl && baseUrl === localBaseUrl;
+    const token = isLocalServer ? (clientToken || settingsToken) : (settingsToken || clientToken);
     if (!baseUrl || !token || !props.openworkServerWorkspaceId) return null;
-    return createOpenworkServerClient({ baseUrl, token, hostToken });
+    return createOpenworkServerClient({ baseUrl, token, hostToken: isLocalServer ? hostToken : undefined });
   });
   const debugOwpenbot = (message: string, data?: Record<string, unknown>) => {
     if (!props.developerMode) return;

@@ -297,7 +297,7 @@ export default function SessionSidebar(props: SidebarProps) {
 
                   return (
                     <div
-                      class={`space-y-2 rounded-lg border transition-colors ${
+                      class={`space-y-2 rounded-lg border transition-colors overflow-hidden ${
                         isActive()
                           ? "border-indigo-7/40 bg-indigo-2/20"
                           : "border-gray-6/40 bg-transparent"
