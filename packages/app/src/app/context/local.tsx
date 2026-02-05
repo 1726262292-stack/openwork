@@ -30,7 +30,7 @@ export function LocalProvider(props: ParentProps) {
     Persist.global("local.ui", ["openwork.ui"]),
     createStore<LocalUIState>({
       view: "onboarding",
-      tab: "home",
+      tab: "scheduled",
     }),
   );
 

@@ -188,7 +188,7 @@ export default function StatusBar(props: StatusBarProps) {
 
   return (
     <div class="border-t border-gray-6 bg-gray-1/90 backdrop-blur-md">
-      <div class="mx-auto max-w-5xl px-4 py-2 flex flex-wrap items-center gap-3 text-xs">
+      <div class="px-4 py-2 flex flex-wrap items-center gap-3 text-xs">
         <div
           class="flex items-center gap-2"
           title={`OpenCode Engine: ${opencodeStatusMeta().label}`}
@@ -213,20 +213,6 @@ export default function StatusBar(props: StatusBarProps) {
           </Show>
         </div>
         <div class="ml-auto flex items-center gap-2">
-          <Button
-            variant="ghost"
-            class="h-7 px-2.5 py-0 text-xs"
-            onClick={props.onOpenMessaging}
-            title={messagingMeta().label}
-          >
-            <span class="relative">
-              <MessageCircle class={`w-4 h-4 ${messagingMeta().text}`} />
-              <span class={`absolute -right-1 -bottom-1 w-2 h-2 rounded-full ${messagingMeta().dot}`} />
-            </span>
-            <Show when={props.developerMode}>
-              <span class="text-gray-11 font-medium">Messaging</span>
-            </Show>
-          </Button>
           <Show when={tipVisible() && activeTip()}>
             <button
               type="button"

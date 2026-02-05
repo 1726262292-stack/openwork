@@ -876,7 +876,7 @@ export function createWorkspaceStore(options: {
       options.refreshSkills({ force: true }).catch(() => undefined);
       options.refreshPlugins().catch(() => undefined);
       if (!options.selectedSessionId()) {
-        options.setTab("home");
+        options.setTab("scheduled");
         options.setView("session");
       }
 
@@ -946,7 +946,7 @@ export function createWorkspaceStore(options: {
         }
 
       setCreateWorkspaceOpen(false);
-      options.setTab("home");
+      options.setTab("scheduled");
       options.setView("dashboard");
       markOnboardingComplete();
     } catch (e) {
@@ -1386,7 +1386,7 @@ export function createWorkspaceStore(options: {
       syncActiveWorkspaceId(ws.activeId);
       setCreateWorkspaceOpen(false);
       setCreateRemoteWorkspaceOpen(false);
-      options.setTab("home");
+      options.setTab("scheduled");
       options.setView("dashboard");
       markOnboardingComplete();
 

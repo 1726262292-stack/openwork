@@ -24,7 +24,6 @@ import type {
 import type { EngineInfo, OpenwrkStatus, OpenworkServerInfo, OwpenbotInfo, WorkspaceInfo } from "../lib/tauri";
 
 import Button from "../components/button";
-import OpenWorkLogo from "../components/openwork-logo";
 import McpView from "./mcp";
 import PluginsView from "./plugins";
 import ScheduledTasksView from "./scheduled";
@@ -32,7 +31,18 @@ import SettingsView from "./settings";
 import SkillsView from "./skills";
 import StatusBar from "../components/status-bar";
 import ProviderAuthModal from "../components/provider-auth-modal";
-import { Command, Cpu, Calendar, Package, Play, Server } from "lucide-solid";
+import {
+  Box,
+  ChevronRight,
+  Edit2,
+  History,
+  Layout,
+  Loader2,
+  MoreHorizontal,
+  Plus,
+  Settings,
+  Zap,
+} from "lucide-solid";
 
 export type DashboardViewProps = {
   tab: DashboardTab;
@@ -83,6 +93,11 @@ export type DashboardViewProps = {
   reloadBusy: boolean;
   reloadError: string | null;
   activeWorkspaceDisplay: WorkspaceInfo;
+  workspaces: WorkspaceInfo[];
+  activeWorkspaceId: string;
+  connectingWorkspaceId: string | null;
+  activateWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
+  openCreateWorkspace: () => void;
   exportWorkspaceConfig: () => void;
   exportWorkspaceBusy: boolean;
   sessions: Array<{
@@ -213,30 +228,45 @@ export type DashboardViewProps = {
 export default function DashboardView(props: DashboardViewProps) {
   const title = createMemo(() => {
     switch (props.tab) {
-      case "sessions":
-        return "Sessions";
       case "scheduled":
-        return "Scheduled Tasks";
+        return "Automations";
       case "skills":
         return "Skills";
       case "plugins":
         return "Plugins";
       case "mcp":
-        return "MCPs";
+        return "Apps";
       case "settings":
         return "Settings";
       default:
-        return "Dashboard";
+        return "Automations";
     }
   });
 
-  const canExportWorkspace = createMemo(() => props.activeWorkspaceDisplay.workspaceType !== "remote");
+  const workspaceStatus = createMemo(() => {
+    switch (props.openworkServerStatus) {
+      case "connected":
+        return { label: "Live", className: "bg-emerald-3 text-emerald-11" };
+      case "limited":
+        return { label: "Limited", className: "bg-amber-3 text-amber-11" };
+      case "disconnected":
+      default:
+        return { label: "Offline", className: "bg-red-3 text-red-11" };
+    }
+  });
+  const workspaceLabel = (workspace: WorkspaceInfo) =>
+    workspace.displayName?.trim() ||
+    workspace.openworkWorkspaceName?.trim() ||
+    workspace.name?.trim() ||
+    workspace.path?.trim() ||
+    "Workspace";
+  const workspaceKindLabel = (workspace: WorkspaceInfo) =>
+    workspace.workspaceType === "remote" ? "Remote" : "Local";
 
   const openSessionFromList = (sessionId: string) => {
     // Defer view switch to avoid click-through on the same event frame.
     window.setTimeout(() => {
       void props.selectSession(sessionId);
-      props.setTab("sessions");
       props.setView("session", sessionId);
     }, 0);
   };
@@ -244,20 +274,12 @@ export default function DashboardView(props: DashboardViewProps) {
   // Track last refreshed tab to avoid duplicate calls
   const [lastRefreshedTab, setLastRefreshedTab] = createSignal<string | null>(null);
   const [refreshInProgress, setRefreshInProgress] = createSignal(false);
-  const [taskDraft, setTaskDraft] = createSignal("");
   const [providerAuthActionBusy, setProviderAuthActionBusy] = createSignal(false);
-
-  const canCreateTask = createMemo(
-    () => !props.newTaskDisabled && taskDraft().trim().length > 0
+  const [sessionsExpanded, setSessionsExpanded] = createSignal(true);
+  const [showAllSessions, setShowAllSessions] = createSignal(false);
+  const visibleSessions = createMemo(() =>
+    showAllSessions() ? props.sessions : props.sessions.slice(0, 5)
   );
-
-  const startTask = () => {
-    const value = taskDraft().trim();
-    if (!value || props.newTaskDisabled) return;
-    props.setPrompt(value);
-    props.createSessionAndOpen();
-    setTaskDraft("");
-  };
 
   const handleProviderAuthSelect = async (providerId: string) => {
     if (providerAuthActionBusy()) return;
@@ -318,13 +340,6 @@ export default function DashboardView(props: DashboardViewProps) {
         if (currentTab === "scheduled" && !cancelled) {
           await props.refreshScheduledJobs();
         }
-        if (currentTab === "sessions" && !cancelled) {
-          // Stagger these calls to avoid request stacking
-          await props.refreshSkills();
-          if (!cancelled) {
-            await props.refreshPlugins("project");
-          }
-        }
       } catch {
         // Ignore errors during navigation
       } finally {
@@ -346,10 +361,10 @@ export default function DashboardView(props: DashboardViewProps) {
     const active = () => props.tab === t;
     return (
       <button
-        class={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+        class={`w-full h-10 flex items-center gap-3 px-3 rounded-lg text-sm font-medium transition-colors ${
           active()
-            ? "bg-gray-2 text-gray-12"
-            : "text-gray-10 hover:text-gray-12 hover:bg-gray-2/50"
+            ? "bg-dls-active text-dls-text"
+            : "text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
         }`}
         onClick={() => props.setTab(t)}
       >
@@ -365,274 +380,215 @@ export default function DashboardView(props: DashboardViewProps) {
   };
 
   return (
-    <div class="flex h-screen bg-gray-1 text-gray-12 overflow-hidden">
-      <aside class="w-64 border-r border-gray-6 p-6 hidden md:flex flex-col justify-between bg-gray-1">
-        <div>
-            <div class="flex items-center gap-3 mb-10 px-2">
-            <div class="">
-              <OpenWorkLogo size={32} />
-            </div>
-            <span class="font-bold text-lg tracking-tight">OpenWork</span>
-          </div>
-
-          <nav class="space-y-1">
-            {navItem("home", "Dashboard", <Command size={18} />)}
-            {navItem("sessions", "Sessions", <Play size={18} />)}
-            {navItem("scheduled", "Scheduled Tasks", <Calendar size={18} />)}
-            {navItem("skills", "Skills", <Package size={18} />)}
-            {navItem("plugins", "Plugins", <Cpu size={18} />)}
-            {navItem(
-              "mcp",
-              <span class="inline-flex items-center gap-2">
-                MCPs
-                <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-7/20 text-amber-12">
-                  Alpha
-                </span>
-              </span>,
-              <Server size={18} />,
-            )}
-          </nav>
+    <div class="flex h-screen w-full bg-dls-surface text-dls-text font-sans overflow-hidden">
+      <aside class="w-64 hidden md:flex flex-col bg-dls-sidebar border-r border-dls-border p-4">
+        <div class="space-y-0.5 mb-6 pt-2">
+          {navItem("scheduled", "Automations", <History size={18} />)}
+          {navItem("skills", "Skills", <Zap size={18} />)}
+          {navItem("mcp", "Apps", <Box size={18} />)}
         </div>
 
-        <div class="space-y-4">
-
-          <Show
-            when={
-              props.activeWorkspaceDisplay.workspaceType === "remote" &&
-              props.openworkServerStatus === "disconnected"
-            }
+        <div class="space-y-2 mb-6">
+          <div class="flex items-center justify-between text-[11px] font-bold text-dls-secondary uppercase px-3 tracking-tight">
+            <span>Workspaces</span>
+            <button
+              type="button"
+              aria-label="Workspace settings"
+              onClick={() => openSettings("general")}
+              class="text-dls-secondary hover:text-dls-text"
+            >
+              <Settings size={14} />
+            </button>
+          </div>
+          <div class="space-y-1">
+            <For each={props.workspaces}>
+              {(workspace) => {
+                const isActive = () => props.activeWorkspaceId === workspace.id;
+                const isConnecting = () => props.connectingWorkspaceId === workspace.id;
+                return (
+                  <button
+                    type="button"
+                    class={`w-full flex items-center justify-between h-10 px-3 rounded-lg text-left transition-colors ${
+                      isActive()
+                        ? "bg-dls-active text-dls-text"
+                        : "text-dls-text hover:bg-dls-hover"
+                    }`}
+                    onClick={() => props.activateWorkspace(workspace.id)}
+                  >
+                    <div class="min-w-0">
+                      <div class="text-sm font-medium truncate">{workspaceLabel(workspace)}</div>
+                      <div class="text-[11px] text-dls-secondary">
+                        {workspaceKindLabel(workspace)}
+                        {isActive() ? ` · ${workspaceStatus().label}` : ""}
+                      </div>
+                    </div>
+                    <Show when={isConnecting()}>
+                      <Loader2 size={14} class="animate-spin text-dls-secondary" />
+                    </Show>
+                  </button>
+                );
+              }}
+            </For>
+          </div>
+          <button
+            type="button"
+            onClick={props.openCreateWorkspace}
+            class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
           >
-            <div class="text-[11px] text-gray-9 px-1">
-              OpenWork server is offline — remote tasks still run.
-            </div>
-          </Show>
+            <Plus size={14} />
+            Add a workspace
+          </button>
+        </div>
 
-          <Show when={!props.clientConnected}>
-            <div class="text-[11px] text-gray-9 px-1">
-              Add a workspace from the Sessions sidebar to get started.
+        <div class="flex-1 overflow-y-auto">
+          <div class="flex items-center justify-between text-[11px] font-bold text-dls-secondary uppercase px-3 mb-3 tracking-tight">
+            <span>Sessions</span>
+            <div class="flex gap-2 text-dls-secondary">
+              <button type="button" class="hover:text-dls-text" aria-label="Session layout">
+                <Layout size={14} />
+              </button>
+              <button
+                type="button"
+                class="hover:text-dls-text"
+                aria-label="New session"
+                onClick={props.createSessionAndOpen}
+                disabled={props.newTaskDisabled}
+              >
+                <Plus size={14} />
+              </button>
             </div>
+          </div>
+
+          <div class="mb-2">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setSessionsExpanded((current) => !current)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                setSessionsExpanded((current) => !current);
+              }}
+              class="group flex items-center justify-between h-8 px-3 rounded-lg cursor-pointer text-dls-text transition-colors hover:bg-dls-hover"
+            >
+              <div class="flex items-center gap-2">
+                <ChevronRight
+                  size={14}
+                  class={`text-dls-secondary transition-transform ${
+                    sessionsExpanded() ? "rotate-90" : ""
+                  }`}
+                />
+                <span class="text-sm font-medium">{props.activeWorkspaceDisplay.name}</span>
+              </div>
+              <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  type="button"
+                  class="p-1 hover:bg-dls-active rounded-md text-dls-secondary transition-colors"
+                  onClick={(event) => event.stopPropagation()}
+                  aria-label="Workspace options"
+                >
+                  <MoreHorizontal size={14} />
+                </button>
+              </div>
+            </div>
+
+            <Show when={sessionsExpanded()}>
+              <div class="mt-0.5 space-y-0.5 border-l border-dls-border ml-4">
+                <Show
+                  when={props.sessions.length > 0}
+                  fallback={
+                    <div class="px-3 py-2 text-xs text-dls-secondary">
+                      No sessions yet.
+                    </div>
+                  }
+                >
+                  <For each={visibleSessions()}>
+                    {(session) => (
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        class="group flex items-center justify-between h-8 px-3 hover:bg-dls-hover rounded-lg cursor-pointer relative overflow-hidden ml-5 w-[calc(100%-1.25rem)]"
+                        onClick={() => openSessionFromList(session.id)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault();
+                          openSessionFromList(session.id);
+                        }}
+                      >
+                        <span class="text-sm text-dls-text truncate mr-2 font-medium group-hover:pr-14 transition-all">
+                          {session.title}
+                        </span>
+                        <span class="text-xs text-dls-secondary whitespace-nowrap group-hover:opacity-0 transition-opacity">
+                          {formatRelativeTime(session.time.updated)}
+                        </span>
+                        <div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            type="button"
+                            class="p-1 hover:bg-dls-active rounded-md text-dls-text transition-colors"
+                            onClick={(event) => event.stopPropagation()}
+                            aria-label="Session options"
+                          >
+                            <MoreHorizontal size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            class="p-1 hover:bg-dls-active rounded-md text-dls-text transition-colors"
+                            onClick={(event) => event.stopPropagation()}
+                            aria-label="Rename session"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </div>
+            </Show>
+          </div>
+
+          <Show when={props.sessions.length > 5}>
+            <button
+              type="button"
+              onClick={() => setShowAllSessions((current) => !current)}
+              class="px-3 py-1.5 text-xs text-dls-secondary hover:text-dls-text font-medium"
+            >
+              {showAllSessions() ? "Show less" : "Show more"}
+            </button>
           </Show>
+        </div>
+
+        <div class="pt-4 border-t border-dls-border">
+          <button
+            type="button"
+            onClick={() => openSettings("general")}
+            class="flex items-center gap-3 px-3 py-2 rounded-lg text-dls-secondary hover:bg-dls-hover transition-colors"
+          >
+            <Settings size={18} />
+            <span class="text-sm font-medium">Settings</span>
+          </button>
         </div>
       </aside>
 
-      <main class="flex-1 overflow-y-auto relative pb-24 md:pb-12">
-        <header class="h-16 flex items-center justify-between px-6 md:px-10 border-b border-gray-6 sticky top-0 bg-gray-1/80 backdrop-blur-md z-10">
+      <main class="flex-1 overflow-y-auto relative pb-24 md:pb-12 bg-dls-surface">
+        <header class="h-14 flex items-center justify-between px-6 md:px-10 border-b border-dls-border sticky top-0 bg-dls-surface z-10">
           <div class="flex items-center gap-3">
-            <div class="px-3 py-1.5 rounded-xl bg-gray-2 text-xs text-gray-11 font-medium">
+            <div class="px-3 py-1.5 rounded-xl bg-dls-hover text-xs text-dls-secondary font-medium">
               {props.activeWorkspaceDisplay.name}
             </div>
             <h1 class="text-lg font-medium">{title()}</h1>
             <Show when={props.developerMode}>
-              <span class="text-xs text-gray-7">{props.headerStatus}</span>
+              <span class="text-xs text-dls-secondary">{props.headerStatus}</span>
             </Show>
             <Show when={props.busyHint}>
-              <span class="text-xs text-gray-10">{props.busyHint}</span>
+              <span class="text-xs text-dls-secondary">{props.busyHint}</span>
             </Show>
           </div>
-          <div class="flex items-center gap-2">
-            <Show when={props.tab === "home" || props.tab === "sessions"}>
-              <Button
-                variant="outline"
-                class="text-xs h-9"
-                onClick={props.exportWorkspaceConfig}
-                disabled={!canExportWorkspace() || props.exportWorkspaceBusy}
-                title={
-                  !canExportWorkspace()
-                    ? "Export is only available for local workspaces"
-                    : "Export workspace config"
-                }
-              >
-                Share config
-              </Button>
-              <Button
-                onPointerDown={(e) => {
-                  e.currentTarget.setPointerCapture?.(e.pointerId);
-                }}
-                onPointerUp={() => {
-                  console.log("[DEBUG] new task button pointerup");
-                  props.createSessionAndOpen();
-                }}
-                disabled={props.newTaskDisabled}
-                title={props.newTaskDisabled ? props.busyHint ?? "Busy" : ""}
-              >
-                <Play size={16} />
-                New Task
-              </Button>
-            </Show>
-
-          </div>
+          <div class="flex items-center gap-2" />
         </header>
 
         <div class="p-6 md:p-10 max-w-5xl mx-auto space-y-10">
           <Switch>
-            <Match when={props.tab === "home"}>
-              <section>
-                <div class="bg-gradient-to-r from-gray-2 to-gray-4 rounded-3xl p-1 ">
-                  <div class="bg-gray-1 rounded-[22px] p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6">
-                    <div class="space-y-2 text-center md:text-left">
-                      <h2 class="text-2xl font-semibold text-gray-12">
-                        What should we do today?
-                      </h2>
-                      <p class="text-gray-11">
-                        Describe an outcome. OpenWork will run it and keep an
-                        audit trail.
-                      </p>
-                    </div>
-                    <div class="w-full md:w-[360px]">
-                      <div class="flex items-center gap-2 rounded-2xl border border-gray-6/60 bg-gray-2/50 px-4 py-3 shadow-lg shadow-gray-12/5 focus-within:border-gray-7 focus-within:bg-gray-2 transition-all">
-                        <input
-                          value={taskDraft()}
-                          onInput={(event) => setTaskDraft(event.currentTarget.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" && !event.shiftKey) {
-                              event.preventDefault();
-                              startTask();
-                            }
-                          }}
-                          placeholder="Draft a task to run..."
-                          class="flex-1 bg-transparent border-none p-0 text-sm text-gray-12 placeholder-gray-7 focus:ring-0"
-                          aria-label="Describe a task"
-                          disabled={props.newTaskDisabled}
-                        />
-                        <button
-                          type="button"
-                          onClick={startTask}
-                          disabled={!canCreateTask()}
-                          class="rounded-xl bg-gray-12 px-3 py-1.5 text-xs font-semibold text-gray-1 shadow-md transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-40 disabled:hover:scale-100"
-                          title={
-                            props.newTaskDisabled ? props.busyHint ?? "Busy" : ""
-                          }
-                        >
-                          Run
-                        </button>
-                      </div>
-                      <div class="mt-2 text-[11px] text-gray-9 text-center md:text-left">
-                        Press Enter to start a new session.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section>
-                <h3 class="text-sm font-medium text-gray-11 uppercase tracking-wider mb-4">
-                  Recent Sessions
-                </h3>
-
-                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl overflow-hidden">
-                  <For each={props.sessions.slice(0, 3)}>
-                    {(s, idx) => (
-                      <button
-                        class={`w-full p-4 flex items-center justify-between hover:bg-gray-4/50 transition-colors text-left ${
-                          idx() !== Math.min(props.sessions.length, 3) - 1
-                            ? "border-b border-gray-6/50"
-                            : ""
-                        }`}
-                        onPointerDown={(e) => {
-                          e.currentTarget.setPointerCapture?.(e.pointerId);
-                        }}
-                        onPointerUp={() => {
-                          openSessionFromList(s.id);
-                        }}
-                      >
-                        <div class="flex items-center gap-4">
-                          <div class="w-8 h-8 rounded-full bg-gray-4 flex items-center justify-center text-xs text-gray-10 font-mono">
-                            #{s.slug?.slice(0, 2) ?? ".."}
-                          </div>
-                          <div>
-                            <div class="font-medium text-sm text-gray-12">
-                              {s.title}
-                            </div>
-                            <div class="text-xs text-gray-10 flex items-center gap-2">
-                              <span class="flex items-center gap-1">
-                                {formatRelativeTime(s.time.updated)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <div class="flex items-center gap-4">
-                          <span class="text-xs px-2 py-0.5 rounded-full border border-gray-7/60 text-gray-11 flex items-center gap-1.5">
-                            <span class="w-1.5 h-1.5 rounded-full bg-current" />
-                            {props.sessionStatusById[s.id] ?? "idle"}
-                          </span>
-                        </div>
-                      </button>
-                    )}
-                  </For>
-
-                  <Show when={!props.sessions.length}>
-                    <div class="p-6 text-sm text-gray-10 space-y-3">
-                      <div>No sessions yet.</div>
-                      <Button
-                        variant="secondary"
-                        class="text-xs h-8"
-                        onClick={props.createSessionAndOpen}
-                        disabled={props.newTaskDisabled}
-                      >
-                        Start a task
-                      </Button>
-                    </div>
-                  </Show>
-                </div>
-              </section>
-            </Match>
-
-            <Match when={props.tab === "sessions"}>
-              <section>
-                <h3 class="text-sm font-medium text-gray-11 uppercase tracking-wider mb-4">
-                  Sessions
-                </h3>
-
-                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl overflow-hidden">
-                  <For each={props.sessions}>
-                    {(s, idx) => (
-                      <button
-                        class={`w-full p-4 flex items-center justify-between hover:bg-gray-4/50 transition-colors text-left ${
-                          idx() !== props.sessions.length - 1
-                            ? "border-b border-gray-6/50"
-                            : ""
-                        }`}
-                        onPointerDown={(e) => {
-                          e.currentTarget.setPointerCapture?.(e.pointerId);
-                        }}
-                        onPointerUp={() => {
-                          openSessionFromList(s.id);
-                        }}
-                      >
-                        <div class="flex items-center gap-4">
-                          <div class="w-8 h-8 rounded-full bg-gray-4 flex items-center justify-center text-xs text-gray-10 font-mono">
-                            #{s.slug?.slice(0, 2) ?? ".."}
-                          </div>
-                          <div>
-                            <div class="font-medium text-sm text-gray-12">
-                              {s.title}
-                            </div>
-                            <div class="text-xs text-gray-10 flex items-center gap-2">
-                              <span class="flex items-center gap-1">
-                                {formatRelativeTime(s.time.updated)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <div class="flex items-center gap-4">
-                          <span class="text-xs px-2 py-0.5 rounded-full border border-gray-7/60 text-gray-11 flex items-center gap-1.5">
-                            <span class="w-1.5 h-1.5 rounded-full bg-current" />
-                            {props.sessionStatusById[s.id] ?? "idle"}
-                          </span>
-                        </div>
-                      </button>
-                    )}
-                  </For>
-
-                  <Show when={!props.sessions.length}>
-                    <div class="p-6 text-sm text-gray-10">
-                      No sessions yet.
-                    </div>
-                  </Show>
-                </div>
-              </section>
-            </Match>
-
             <Match when={props.tab === "scheduled"}>
               <ScheduledTasksView
                 jobs={props.scheduledJobs}
@@ -843,34 +799,16 @@ export default function DashboardView(props: DashboardViewProps) {
             providerConnectedIds={props.providerConnectedIds}
             mcpStatuses={props.mcpStatuses}
           />
-          <nav class="md:hidden border-t border-gray-6 bg-gray-1/90 backdrop-blur-md">
-            <div class="mx-auto max-w-5xl px-4 py-3 grid grid-cols-7 gap-2">
-              <button
-                class={`flex flex-col items-center gap-1 text-xs ${
-                  props.tab === "home" ? "text-gray-12" : "text-gray-10"
-                }`}
-                onClick={() => props.setTab("home")}
-              >
-                <Command size={18} />
-                Home
-              </button>
-              <button
-                class={`flex flex-col items-center gap-1 text-xs ${
-                  props.tab === "sessions" ? "text-gray-12" : "text-gray-10"
-                }`}
-                onClick={() => props.setTab("sessions")}
-              >
-                <Play size={18} />
-                Runs
-              </button>
+          <nav class="md:hidden border-t border-dls-border bg-dls-surface">
+            <div class="mx-auto max-w-5xl px-4 py-3 grid grid-cols-3 gap-2">
               <button
                 class={`flex flex-col items-center gap-1 text-xs ${
                   props.tab === "scheduled" ? "text-gray-12" : "text-gray-10"
                 }`}
                 onClick={() => props.setTab("scheduled")}
               >
-                <Calendar size={18} />
-                Schedule
+                <History size={18} />
+                Automations
               </button>
               <button
                 class={`flex flex-col items-center gap-1 text-xs ${
@@ -878,17 +816,8 @@ export default function DashboardView(props: DashboardViewProps) {
                 }`}
                 onClick={() => props.setTab("skills")}
               >
-                <Package size={18} />
+                <Zap size={18} />
                 Skills
-              </button>
-              <button
-                class={`flex flex-col items-center gap-1 text-xs ${
-                  props.tab === "plugins" ? "text-gray-12" : "text-gray-10"
-                }`}
-                onClick={() => props.setTab("plugins")}
-              >
-                <Cpu size={18} />
-                Plugins
               </button>
               <button
                 class={`flex flex-col items-center gap-1 text-xs ${
@@ -896,8 +825,8 @@ export default function DashboardView(props: DashboardViewProps) {
                 }`}
                 onClick={() => props.setTab("mcp")}
               >
-                <Server size={18} />
-                MCPs
+                <Box size={18} />
+                Apps
               </button>
             </div>
           </nav>

@@ -59,13 +59,13 @@ export default function OnboardingWorkspaceSelector(props: {
           <div class="ml-9">
             <div
               class={`w-full border border-dashed border-gray-6 bg-gray-1/40 rounded-xl p-4 text-left transition ${
-                pickingFolder() ? "opacity-70" : "hover:border-zinc-500"
+                pickingFolder() ? "opacity-70" : "hover:border-dls-active"
               }`.trim()}
             >
-              <div class="flex items-center gap-3 text-gray-10">
-                <FolderPlus size={20} class="text-gray-6" />
+              <div class="flex items-center gap-3 text-dls-text">
+                <FolderPlus size={20} class="text-dls-secondary" />
                 <input
-                  class="flex-1 min-w-0 bg-transparent text-sm font-medium text-gray-10 placeholder-gray-600 focus:outline-none"
+                  class="flex-1 min-w-0 bg-transparent text-sm font-medium text-dls-text placeholder:text-dls-secondary focus:outline-none"
                   value={selectedFolder()}
                   onInput={(e) => setSelectedFolder(e.currentTarget.value)}
                   placeholder={props.defaultPath}
@@ -74,7 +74,7 @@ export default function OnboardingWorkspaceSelector(props: {
                   type="button"
                   onClick={handlePickFolder}
                   disabled={pickingFolder()}
-                  class="text-xs text-gray-6 hover:text-gray-10 transition-colors"
+                  class="text-xs text-dls-secondary hover:text-dls-text transition-colors"
                 >
                   <Show
                     when={pickingFolder()}

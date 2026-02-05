@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
-import { ArrowRight, AtSign, ChevronDown, File, Paperclip, X, Zap } from "lucide-solid";
+import { ArrowUp, AtSign, ChevronDown, File, History, Mic, Paperclip, X, Zap } from "lucide-solid";
 
 import type { ComposerAttachment, ComposerDraft, ComposerPart, PromptMode } from "../../types";
 
@@ -95,7 +95,7 @@ const createMentionSpan = (part: Extract<ComposerPart, { type: "agent" | "file" 
   span.dataset.mentionValue = part.type === "agent" ? part.name : part.path;
   span.dataset.mentionLabel = label;
   span.className =
-    "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-gray-12/10 text-gray-12 border border-gray-6/70";
+    "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-dls-active text-dls-text border border-dls-border";
   return span;
 };
 
@@ -761,13 +761,11 @@ export default function Composer(props: ComposerProps) {
   });
 
   return (
-    <div class="p-4 border-t border-gray-6 bg-gray-1 sticky bottom-0 z-20">
-      <div class="max-w-2xl mx-auto">
+    <div class="px-4 pb-4 pt-0 bg-dls-surface sticky bottom-0 z-20">
+      <div class="max-w-3xl mx-auto">
         <div
-          class={`bg-gray-2 border border-gray-6 rounded-3xl overflow-visible transition-all shadow-2xl relative group/input ${
-            mentionOpen()
-              ? "rounded-t-none border-t-transparent"
-              : "focus-within:ring-1 focus-within:ring-gray-7"
+          class={`bg-dls-surface border border-dls-border rounded-2xl shadow-xl overflow-visible transition-all relative group/input ${
+            mentionOpen() ? "rounded-t-none border-t-transparent" : ""
           }`}
           onDrop={handleDrop}
           onDragOver={(event: DragEvent) => {
@@ -777,16 +775,16 @@ export default function Composer(props: ComposerProps) {
         >
           <Show when={mentionOpen()}>
             <div class="absolute bottom-full left-[-1px] right-[-1px] z-30">
-              <div class="rounded-t-3xl border border-gray-6 border-b-0 bg-gray-2 shadow-2xl overflow-hidden">
-                <div class="px-4 pt-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-8 border-b border-gray-6/30 bg-gray-2 flex items-center gap-2">
+              <div class="rounded-t-3xl border border-dls-border border-b-0 bg-dls-surface shadow-2xl overflow-hidden">
+                <div class="px-4 pt-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-dls-secondary border-b border-dls-border bg-dls-surface flex items-center gap-2">
                   <AtSign size={12} />
                   Mentions
                 </div>
-                <div class="space-y-3 p-3 bg-gray-2 max-h-64 overflow-y-auto">
+                <div class="space-y-3 p-3 bg-dls-surface max-h-64 overflow-y-auto">
                   <Show
                     when={mentionOptions().length}
                     fallback={
-                      <div class="px-3 py-2 text-xs text-gray-9">
+                      <div class="px-3 py-2 text-xs text-dls-secondary">
                         {searchLoading() ? "Searching files..." : "No matches found."}
                       </div>
                     }
@@ -794,7 +792,7 @@ export default function Composer(props: ComposerProps) {
                     <For each={mentionSections()}>
                       {(section: MentionSection) => (
                         <div>
-                          <div class="px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-gray-8">
+                          <div class="px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-dls-secondary">
                             {section.title}
                           </div>
                           <div class="space-y-1">
@@ -806,8 +804,8 @@ export default function Composer(props: ComposerProps) {
                                     type="button"
                                     class={`w-full flex items-start gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
                                       optionIndex() === mentionIndex()
-                                        ? "bg-gray-12/10 text-gray-12"
-                                        : "text-gray-11 hover:bg-gray-12/5"
+                                        ? "bg-dls-active text-dls-text"
+                                        : "text-dls-text hover:bg-dls-hover"
                                     }`}
                                     onMouseDown={(e: MouseEvent) => {
                                       e.preventDefault();
@@ -815,11 +813,11 @@ export default function Composer(props: ComposerProps) {
                                     }}
                                     onMouseEnter={() => setMentionIndex(optionIndex())}
                                   >
-                                    <div class="text-xs font-semibold text-gray-12">
+                                    <div class="text-xs font-semibold text-dls-text">
                                       {option.kind === "agent" ? `@${option.label}` : option.label}
                                     </div>
                                     <Show when={option.detail}>
-                                      <div class="text-[11px] text-gray-9">{option.detail}</div>
+                                      <div class="text-[11px] text-dls-secondary">{option.detail}</div>
                                     </Show>
                                   </button>
                                 );
@@ -835,62 +833,9 @@ export default function Composer(props: ComposerProps) {
             </div>
           </Show>
 
-          <div class="absolute top-3 left-4 flex items-center gap-3 text-[10px] font-bold text-gray-7 uppercase tracking-widest z-10">
-            <button
-              type="button"
-              class="flex items-center gap-1.5 text-gray-7 hover:text-gray-11 transition-colors"
-              onClick={props.onModelClick}
-              disabled={props.busy}
-            >
-              <Zap size={10} class="text-gray-7 group-hover:text-amber-11 transition-colors" />
-              <span>{props.selectedModelLabel}</span>
-            </button>
-            <div class="relative z-40" ref={(el) => (variantPickerRef = el)}>
-              <button
-                type="button"
-                class="flex items-center gap-2 rounded-full border border-gray-6/80 bg-gray-1/60 px-2 py-0.5 text-[9px] text-gray-9 hover:text-gray-11 hover:border-gray-7 transition-colors"
-                onClick={() => setVariantMenuOpen((open) => !open)}
-                disabled={props.busy}
-                aria-expanded={variantMenuOpen()}
-              >
-                <span class="text-gray-8">Variant</span>
-                <span class="font-mono text-gray-11">{props.modelVariantLabel}</span>
-                <ChevronDown size={12} class="text-gray-8" />
-              </button>
-              <Show when={variantMenuOpen()}>
-                <div class="absolute left-0 bottom-full mb-2 w-40 rounded-2xl border border-gray-6 bg-gray-1/95 shadow-2xl backdrop-blur-md overflow-hidden z-40">
-                  <div class="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-8 border-b border-gray-6/30">
-                    Thinking effort
-                  </div>
-                  <div class="p-2 space-y-1">
-                    <For each={MODEL_VARIANT_OPTIONS}>
-                      {(option) => (
-                        <button
-                          type="button"
-                          class={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs transition-colors ${
-                            activeVariant() === option.value
-                              ? "bg-gray-12/10 text-gray-12"
-                              : "text-gray-11 hover:bg-gray-12/5"
-                          }`}
-                          onClick={() => {
-                            props.onModelVariantChange(option.value);
-                            setVariantMenuOpen(false);
-                          }}
-                        >
-                          <span>{option.label}</span>
-                          <Show when={activeVariant() === option.value}>
-                            <span class="text-[10px] uppercase tracking-wider text-gray-9">Active</span>
-                          </Show>
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </div>
-              </Show>
-            </div>
-          </div>
 
-          <div class="p-3 pt-8 pb-3 px-4">
+
+          <div class="p-3 px-4">
             <Show when={props.showNotionBanner}>
               <button
                 type="button"
@@ -906,24 +851,24 @@ export default function Composer(props: ComposerProps) {
               <div class="mb-3 flex flex-wrap gap-2">
                 <For each={attachments()}>
                   {(attachment: ComposerAttachment) => (
-                    <div class="flex items-center gap-2 rounded-2xl border border-gray-6 bg-gray-1/70 px-3 py-2 text-xs text-gray-11">
+                    <div class="flex items-center gap-2 rounded-2xl border border-dls-border bg-dls-hover px-3 py-2 text-xs text-dls-secondary">
                       <Show
                         when={attachment.kind === "image"}
-                        fallback={<File size={14} class="text-gray-9" />}
+                        fallback={<File size={14} class="text-dls-secondary" />}
                       >
-                        <div class="h-10 w-10 rounded-xl bg-gray-2 overflow-hidden border border-gray-6">
+                        <div class="h-10 w-10 rounded-xl bg-dls-surface overflow-hidden border border-dls-border">
                           <img src={attachment.dataUrl} alt={attachment.name} class="h-full w-full object-cover" />
                         </div>
                       </Show>
                       <div class="max-w-[160px]">
-                        <div class="truncate text-gray-12">{attachment.name}</div>
-                        <div class="text-[10px] text-gray-9">
+                        <div class="truncate text-dls-text">{attachment.name}</div>
+                        <div class="text-[10px] text-dls-secondary">
                           {attachment.kind === "image" ? "Image" : attachment.mimeType || "File"}
                         </div>
                       </div>
                       <button
                         type="button"
-                        class="ml-1 rounded-full p-1 text-gray-9 hover:text-gray-12 hover:bg-gray-12/10"
+                        class="ml-1 rounded-full p-1 text-dls-secondary hover:text-dls-text hover:bg-dls-active"
                         onClick={() => {
                           setAttachments((current: ComposerAttachment[]) =>
                             current.filter((item) => item.id !== attachment.id)
@@ -941,7 +886,7 @@ export default function Composer(props: ComposerProps) {
 
                    <div class="relative min-h-[120px]">
               <Show when={props.toast}>
-                <div class="absolute bottom-full right-0 mb-2 z-30 rounded-xl border border-gray-6 bg-gray-1/90 px-3 py-2 text-xs text-gray-11 shadow-lg backdrop-blur-md">
+                <div class="absolute bottom-full right-0 mb-2 z-30 rounded-xl border border-dls-border bg-dls-surface px-3 py-2 text-xs text-dls-secondary shadow-lg backdrop-blur-md">
                   {props.toast}
                 </div>
               </Show>
@@ -949,12 +894,12 @@ export default function Composer(props: ComposerProps) {
               <div class="flex flex-col gap-2">
                 <div class="flex-1 min-w-0">
                   <Show when={props.isRemoteWorkspace}>
-                    <div class="mb-2 text-[10px] uppercase tracking-wider text-gray-8">Remote workspace</div>
+                    <div class="mb-2 text-[10px] uppercase tracking-wider text-dls-secondary">Remote workspace</div>
                   </Show>
 
                   <div class="relative">
                     <Show when={!props.prompt.trim() && !attachments().length}>
-                      <div class="absolute left-0 top-0 text-gray-6 text-[15px] leading-relaxed pointer-events-none">
+                      <div class="absolute left-0 top-0 text-dls-secondary text-sm leading-relaxed pointer-events-none">
                         Ask OpenWork...
                       </div>
                     </Show>
@@ -971,141 +916,117 @@ export default function Composer(props: ComposerProps) {
                       onKeyUp={updateMentionQuery}
                       onClick={updateMentionQuery}
                       onPaste={handlePaste}
-                      class="bg-transparent border-none p-0 pb-12 pr-20 text-gray-12 focus:ring-0 text-[15px] leading-relaxed resize-none min-h-[24px] outline-none relative z-10"
+                      class="bg-transparent border-none p-0 pb-8 pr-4 text-dls-text focus:ring-0 text-sm leading-relaxed resize-none min-h-[24px] outline-none relative z-10"
                     />
 
-                    <div class="mt-3" ref={props.setAgentPickerRef}>
-                      <button
-                        type="button"
-                        class="flex items-center gap-2 pl-3 pr-2 py-1.5 bg-gray-1/70 border border-gray-6 rounded-lg hover:border-gray-7 hover:bg-gray-3 transition-all group"
-                        onClick={props.onToggleAgentPicker}
-                        aria-expanded={props.agentPickerOpen}
-                      >
-                        <div class="p-1 rounded bg-gray-4 text-gray-10">
-                          <AtSign size={14} />
-                        </div>
-                        <div class="flex flex-col items-start mr-2 min-w-0">
-                          <span class="text-xs font-medium text-gray-12 leading-none truncate max-w-[10rem]">
-                            {props.agentLabel}
-                          </span>
-                          <span class="text-[10px] text-gray-10 font-mono leading-none">
-                            {props.selectedAgent ? "Agent" : "Default"}
-                          </span>
-                        </div>
-                        <ChevronDown size={14} class="text-gray-10 group-hover:text-gray-11" />
-                      </button>
-
-                      <Show when={props.agentPickerOpen}>
-                        <div class="absolute left-0 bottom-full mb-2 w-72 rounded-2xl border border-gray-6 bg-gray-1/95 shadow-2xl backdrop-blur-md overflow-hidden">
-                          <div class="px-4 pt-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-8 border-b border-gray-6/30">
-                            Session agent
-                          </div>
-                          <div class="max-h-64 overflow-auto p-2 space-y-1">
-                            <button
-                              type="button"
-                              class={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs transition-colors ${
-                                props.selectedAgent ? "text-gray-11 hover:bg-gray-12/5" : "bg-gray-12/10 text-gray-12"
-                              }`}
-                              onClick={() => props.onSelectAgent(null)}
-                            >
-                              <span>Default agent</span>
-                              <Show when={!props.selectedAgent}>
-                                <span class="text-[10px] uppercase tracking-wider text-gray-9">Active</span>
-                              </Show>
-                            </button>
-                            <Show
-                              when={!props.agentPickerBusy}
-                              fallback={<div class="px-3 py-2 text-xs text-gray-9">Loading agents...</div>}
-                            >
-                              <Show
-                                when={props.agentOptions.length}
-                                fallback={<div class="px-3 py-2 text-xs text-gray-9">No agents available.</div>}
-                              >
-                                <For each={props.agentOptions}>
-                                  {(agent: Agent) => (
+                    <div class="mt-3 flex items-center justify-between px-2 pb-2">
+                      <div class="flex items-center gap-2">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          multiple
+                          accept={ACCEPTED_FILE_TYPES.join(",")}
+                          class="hidden"
+                          disabled={attachmentsDisabled()}
+                          onChange={(event: Event) => {
+                            const target = event.currentTarget as HTMLInputElement;
+                            const files = Array.from(target.files ?? []);
+                            if (files.length) void addAttachments(files);
+                            target.value = "";
+                          }}
+                        />
+                        <button
+                          type="button"
+                          class={`p-1.5 hover:bg-dls-hover rounded-md text-dls-secondary transition-colors ${
+                            attachmentsDisabled() ? "cursor-not-allowed" : ""
+                          }`}
+                          onClick={() => {
+                            if (attachmentsDisabled()) return;
+                            fileInputRef?.click();
+                          }}
+                          disabled={attachmentsDisabled()}
+                          title={
+                            attachmentsDisabled()
+                              ? props.attachmentsDisabledReason ?? "Attachments are unavailable."
+                              : "Attach files"
+                          }
+                        >
+                          <Paperclip size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          class="flex items-center gap-1.5 px-2 py-1 hover:bg-dls-hover rounded-md text-xs font-medium text-dls-secondary hover:text-dls-text"
+                          onClick={props.onModelClick}
+                          disabled={props.busy}
+                        >
+                          {props.selectedModelLabel}
+                          <ChevronDown size={14} />
+                        </button>
+                        <div class="relative" ref={(el) => (variantPickerRef = el)}>
+                          <button
+                            type="button"
+                            class="flex items-center gap-1.5 px-2 py-1 hover:bg-dls-hover rounded-md text-xs font-medium text-dls-secondary hover:text-dls-text"
+                            onClick={() => setVariantMenuOpen((open) => !open)}
+                            disabled={props.busy}
+                            aria-expanded={variantMenuOpen()}
+                          >
+                            <span>Thinking</span>
+                            <span class="font-mono text-dls-text">{props.modelVariantLabel}</span>
+                            <ChevronDown size={14} />
+                          </button>
+                          <Show when={variantMenuOpen()}>
+                            <div class="absolute left-0 bottom-full mb-2 w-48 rounded-xl border border-dls-border bg-dls-surface shadow-xl backdrop-blur-md overflow-hidden z-40">
+                              <div class="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-dls-secondary border-b border-dls-border">
+                                Thinking effort
+                              </div>
+                              <div class="p-2 space-y-1">
+                                <For each={MODEL_VARIANT_OPTIONS}>
+                                  {(option) => (
                                     <button
                                       type="button"
-                                      class={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs transition-colors ${
-                                        props.selectedAgent === agent.name
-                                          ? "bg-gray-12/10 text-gray-12"
-                                          : "text-gray-11 hover:bg-gray-12/5"
+                                      class={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors ${
+                                        activeVariant() === option.value
+                                          ? "bg-dls-active text-dls-text"
+                                          : "text-dls-secondary hover:bg-dls-hover"
                                       }`}
-                                      onClick={() => props.onSelectAgent(agent.name)}
+                                      onClick={() => {
+                                        props.onModelVariantChange(option.value);
+                                        setVariantMenuOpen(false);
+                                      }}
                                     >
-                                      <span>{agent.name}</span>
-                                      <Show when={props.selectedAgent === agent.name}>
-                                        <span class="text-[10px] uppercase tracking-wider text-gray-9">Active</span>
+                                      <span>{option.label}</span>
+                                      <Show when={activeVariant() === option.value}>
+                                        <span class="text-[10px] uppercase tracking-wider text-dls-secondary">Active</span>
                                       </Show>
                                     </button>
                                   )}
                                 </For>
-                              </Show>
-                            </Show>
-                            <Show when={props.agentPickerError}>
-                              <div class="px-3 py-2 text-xs text-red-11">{props.agentPickerError}</div>
-                            </Show>
-                          </div>
-                          <div class="border-t border-gray-6/40 px-4 py-2 text-[10px] text-gray-9">
-                            Tip: use /agent-next or /agent-prev to cycle.
-                          </div>
+                              </div>
+                            </div>
+                          </Show>
                         </div>
-                      </Show>
-                    </div>
-
-                    <Show when={!props.prompt.trim() && !attachments().length}>
-                      <div class="mt-2 text-[10px] text-gray-8">
-                        Enter to send · Shift+Enter for newline
                       </div>
-                    </Show>
-
-                    <div class="absolute bottom-0 right-0 z-20 flex items-center gap-2">
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        multiple
-                        accept={ACCEPTED_FILE_TYPES.join(",")}
-                        class="hidden"
-                        disabled={attachmentsDisabled()}
-                        onChange={(event: Event) => {
-                          const target = event.currentTarget as HTMLInputElement;
-                          const files = Array.from(target.files ?? []);
-                          if (files.length) void addAttachments(files);
-                          target.value = "";
-                        }}
-                      />
-                      <button
-                        type="button"
-                        class={`p-2 rounded-xl border transition-colors ${
-                          attachmentsDisabled()
-                            ? "border-gray-6 text-gray-7 cursor-not-allowed"
-                            : "border-gray-6 text-gray-10 hover:text-gray-12 hover:border-gray-7"
-                        }`}
-                        onClick={() => {
-                          if (attachmentsDisabled()) return;
-                          fileInputRef?.click();
-                        }}
-                        disabled={attachmentsDisabled()}
-                        title={
-                          attachmentsDisabled()
-                            ? props.attachmentsDisabledReason ?? "Attachments are unavailable."
-                            : "Attach files"
-                        }
-                      >
-                        <Paperclip size={16} />
-                      </button>
-
-                      <button
-                        disabled={!props.prompt.trim() && !attachments().length}
-                        onClick={sendDraft}
-                        class={`p-2 rounded-xl transition-all shadow-lg shrink-0 flex items-center justify-center ${
-                          !props.prompt.trim() && !attachments().length
-                            ? "bg-gray-4 text-gray-8 cursor-not-allowed"
-                            : "bg-gray-12 text-gray-1 hover:scale-105 active:scale-95"
-                        }`}
-                        title="Run"
-                      >
-                        <ArrowRight size={18} />
-                      </button>
+                      <div class="flex items-center gap-3 text-dls-secondary">
+                        <button type="button" class="cursor-pointer hover:text-dls-text">
+                          <History size={18} />
+                        </button>
+                        <button type="button" class="cursor-pointer hover:text-dls-text">
+                          <Mic size={18} />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!props.prompt.trim() && !attachments().length}
+                          onClick={sendDraft}
+                          class={`p-1.5 rounded-full ${
+                            !props.prompt.trim() && !attachments().length
+                              ? "bg-dls-active text-dls-secondary"
+                              : "bg-dls-accent text-white"
+                          }`}
+                          title="Send"
+                        >
+                          <ArrowUp size={18} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

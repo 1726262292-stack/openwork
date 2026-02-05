@@ -11,16 +11,16 @@ export default function TextInput(props: TextInputProps) {
   return (
     <label class="block">
       {local.label ? (
-        <div class="mb-1 text-xs font-medium text-gray-11">{local.label}</div>
+        <div class="mb-1 text-xs font-medium text-dls-secondary">{local.label}</div>
       ) : null}
       <input
         {...rest}
         ref={local.ref}
-        class={`w-full rounded-xl bg-gray-2/60 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-10 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] focus:outline-none focus:ring-2 focus:ring-gray-6/20 ${
+        class={`w-full rounded-lg bg-dls-surface px-3 py-2 text-sm text-dls-text placeholder:text-dls-secondary border border-dls-border shadow-sm focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)] ${
           local.class ?? ""
         }`.trim()}
       />
-      {local.hint ? <div class="mt-1 text-xs text-gray-10">{local.hint}</div> : null}
+      {local.hint ? <div class="mt-1 text-xs text-dls-secondary">{local.hint}</div> : null}
     </label>
   );
 }

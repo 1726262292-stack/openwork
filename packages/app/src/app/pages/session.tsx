@@ -21,7 +21,21 @@ import type {
 
 import type { WorkspaceInfo } from "../lib/tauri";
 
-import { ArrowRight, ChevronDown, HardDrive, Shield, Zap } from "lucide-solid";
+import {
+  Box,
+  ChevronDown,
+  ChevronRight,
+  Edit2,
+  HardDrive,
+  History,
+  Layout,
+  Loader2,
+  MoreHorizontal,
+  Plus,
+  Settings,
+  Shield,
+  Zap,
+} from "lucide-solid";
 
 import Button from "../components/button";
 import RenameSessionModal from "../components/rename-session-modal";
@@ -29,12 +43,11 @@ import ProviderAuthModal from "../components/provider-auth-modal";
 import StatusBar from "../components/status-bar";
 import type { OpenworkServerStatus } from "../lib/openwork-server";
 import { join } from "@tauri-apps/api/path";
-import { isTauriRuntime } from "../utils";
+import { formatRelativeTime, isTauriRuntime } from "../utils";
 
 import MessageList from "../components/session/message-list";
 import Composer from "../components/session/composer";
-import SessionSidebar, { type SidebarSectionState } from "../components/session/sidebar";
-import ContextPanel from "../components/session/context-panel";
+import type { SidebarSectionState } from "../components/session/sidebar";
 import FlyoutItem from "../components/flyout-item";
 import QuestionModal from "../components/question-modal";
 
@@ -65,7 +78,13 @@ export type SessionViewProps = {
   createSessionAndOpen: () => void;
   sendPromptAsync: (draft: ComposerDraft) => Promise<void>;
   newTaskDisabled: boolean;
-  sessions: Array<{ id: string; title: string; slug?: string | null; workspaceLabel?: string | null }>;
+  sessions: Array<{
+    id: string;
+    title: string;
+    slug?: string | null;
+    workspaceLabel?: string | null;
+    time?: { updated: number };
+  }>;
   selectSession: (sessionId: string) => Promise<void> | void;
   messages: MessageWithParts[];
   todos: TodoItem[];
@@ -130,35 +149,6 @@ export type SessionViewProps = {
   deleteSession: (sessionId: string) => Promise<void>;
 };
 
-type SessionSummary = { id: string; title: string; slug?: string | null };
-
-const WORKSPACE_ORDER_KEY = "openwork.workspace-order.v1";
-
-const readWorkspaceOrder = (): string[] => {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(WORKSPACE_ORDER_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((entry): entry is string => typeof entry === "string");
-  } catch {
-    return [];
-  }
-};
-
-const writeWorkspaceOrder = (order: string[]) => {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(WORKSPACE_ORDER_KEY, JSON.stringify(order));
-  } catch {
-    // ignore
-  }
-};
-
-const arraysEqual = (a: string[], b: string[]) =>
-  a.length === b.length && a.every((value, index) => value === b[index]);
-
 export default function SessionView(props: SessionViewProps) {
   let messagesEndEl: HTMLDivElement | undefined;
   let chatContainerEl: HTMLDivElement | undefined;
@@ -169,19 +159,40 @@ export default function SessionView(props: SessionViewProps) {
   const [renameModalOpen, setRenameModalOpen] = createSignal(false);
   const [renameTitle, setRenameTitle] = createSignal("");
   const [renameBusy, setRenameBusy] = createSignal(false);
-  const [deleteBusy, setDeleteBusy] = createSignal(false);
   const [agentPickerOpen, setAgentPickerOpen] = createSignal(false);
   const [agentPickerBusy, setAgentPickerBusy] = createSignal(false);
   const [agentPickerReady, setAgentPickerReady] = createSignal(false);
   const [agentPickerError, setAgentPickerError] = createSignal<string | null>(null);
-  const [workspaceOrder, setWorkspaceOrder] = createSignal<string[]>(readWorkspaceOrder());
-  const [sessionsByWorkspaceId, setSessionsByWorkspaceId] = createSignal<Record<string, SessionSummary[]>>({});
   const [agentOptions, setAgentOptions] = createSignal<Agent[]>([]);
   const [autoScrollEnabled, setAutoScrollEnabled] = createSignal(false);
   const [scrollOnNextUpdate, setScrollOnNextUpdate] = createSignal(false);
   const [unreadCount, setUnreadCount] = createSignal(0);
 
   const agentLabel = createMemo(() => props.selectedSessionAgent ?? "Default agent");
+  const workspaceStatus = createMemo(() => {
+    switch (props.openworkServerStatus) {
+      case "connected":
+        return { label: "Live", className: "bg-emerald-3 text-emerald-11" };
+      case "limited":
+        return { label: "Limited", className: "bg-amber-3 text-amber-11" };
+      case "disconnected":
+      default:
+        return { label: "Offline", className: "bg-red-3 text-red-11" };
+    }
+  });
+  const workspaceLabel = (workspace: WorkspaceInfo) =>
+    workspace.displayName?.trim() ||
+    workspace.openworkWorkspaceName?.trim() ||
+    workspace.name?.trim() ||
+    workspace.path?.trim() ||
+    "Workspace";
+  const workspaceKindLabel = (workspace: WorkspaceInfo) =>
+    workspace.workspaceType === "remote" ? "Remote" : "Local";
+  const [sessionsExpanded, setSessionsExpanded] = createSignal(true);
+  const [showAllSessions, setShowAllSessions] = createSignal(false);
+  const visibleSessions = createMemo(() =>
+    showAllSessions() ? props.sessions : props.sessions.slice(0, 5)
+  );
   const attachmentsEnabled = createMemo(() => {
     if (props.activeWorkspaceDisplay.workspaceType !== "remote") return true;
     return props.openworkServerStatus === "connected";
@@ -606,57 +617,6 @@ export default function SessionView(props: SessionViewProps) {
     return props.sessions.find((session) => session.id === id)?.title ?? "";
   });
 
-  createEffect(() => {
-    const ids = props.workspaces.map((workspace) => workspace.id);
-    const base = workspaceOrder().length ? workspaceOrder() : readWorkspaceOrder();
-    const filtered = base.filter((id) => ids.includes(id));
-    const missing = ids.filter((id) => !filtered.includes(id));
-    const next = [...filtered, ...missing];
-    if (!arraysEqual(base, next)) {
-      writeWorkspaceOrder(next);
-    }
-    if (!arraysEqual(workspaceOrder(), next)) {
-      setWorkspaceOrder(next);
-    }
-  });
-
-  const orderedWorkspaces = createMemo(() => {
-    const byId = new Map(props.workspaces.map((workspace) => [workspace.id, workspace]));
-    const order = workspaceOrder();
-    const list = order.map((id) => byId.get(id)).filter((workspace): workspace is WorkspaceInfo => Boolean(workspace));
-    return list.length ? list : props.workspaces;
-  });
-
-  createEffect(() => {
-    const workspaceId = props.activeWorkspaceId;
-    if (!workspaceId) return;
-    const list = props.sessions.map((session) => ({
-      id: session.id,
-      title: session.title,
-      slug: session.slug,
-    }));
-    setSessionsByWorkspaceId((prev) => ({
-      ...prev,
-      [workspaceId]: list,
-    }));
-  });
-
-  const sessionWorkspaceGroups = createMemo(() => {
-    const byWorkspace = sessionsByWorkspaceId();
-    return orderedWorkspaces().map((workspace) => ({
-      workspace,
-      sessions: byWorkspace[workspace.id] ?? [],
-    }));
-  });
-
-  const pickFallbackSessionId = (targetId: string) => {
-    const list = props.sessions.map((session) => session.id);
-    if (list.length <= 1) return null;
-    const index = list.indexOf(targetId);
-    if (index === -1) return list[0] ?? null;
-    return list[index + 1] ?? list[index - 1] ?? null;
-  };
-
   const renameCanSave = createMemo(() => {
     if (renameBusy()) return false;
     const next = renameTitle().trim();
@@ -692,38 +652,6 @@ export default function SessionView(props: SessionViewProps) {
       setToastMessage(message);
     } finally {
       setRenameBusy(false);
-    }
-  };
-
-  const handleDeleteSession = async (sessionId: string) => {
-    if (deleteBusy()) return;
-    const targetId = sessionId?.trim();
-    if (!targetId) {
-      setToastMessage("No session selected");
-      return;
-    }
-    const targetTitle = props.sessions.find((session) => session.id === targetId)?.title ?? "this session";
-    const confirmed = window.confirm(`Delete session "${targetTitle}"?`);
-    if (!confirmed) return;
-    const fallbackId = pickFallbackSessionId(targetId);
-    setDeleteBusy(true);
-    try {
-      await props.deleteSession(targetId);
-      setToastMessage("Session deleted");
-      if (props.selectedSessionId !== targetId) return;
-      if (fallbackId) {
-        await Promise.resolve(props.selectSession(fallbackId));
-        props.setView("session", fallbackId);
-        props.setTab("sessions");
-        return;
-      }
-      props.setView("dashboard");
-      props.setTab("sessions");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : props.safeStringify(error);
-      setToastMessage(message);
-    } finally {
-      setDeleteBusy(false);
     }
   };
 
@@ -801,6 +729,12 @@ export default function SessionView(props: SessionViewProps) {
     props.setPrompt(draft.text);
   };
 
+  const openSessionFromList = (sessionId: string) => {
+    if (!sessionId) return;
+    void props.selectSession(sessionId);
+    props.setView("session", sessionId);
+  };
+
   const openSettings = (tab: SettingsTab = "general") => {
     props.setSettingsTab(tab);
     props.setTab("settings");
@@ -810,37 +744,6 @@ export default function SessionView(props: SessionViewProps) {
   const openMcp = () => {
     props.setTab("mcp");
     props.setView("dashboard");
-  };
-
-  const handleSelectSession = async (workspaceId: string, sessionId: string) => {
-    const targetWorkspaceId = workspaceId?.trim();
-    if (!targetWorkspaceId || !sessionId) return;
-    if (props.connectingWorkspaceId && props.connectingWorkspaceId !== targetWorkspaceId) return;
-    if (targetWorkspaceId !== props.activeWorkspaceId) {
-      const result = await props.activateWorkspace(targetWorkspaceId);
-      if (result === false) return;
-    }
-    await props.selectSession(sessionId);
-    props.setView("session", sessionId);
-    props.setTab("sessions");
-  };
-
-  const handleReorderWorkspace = (fromId: string, toId: string | null) => {
-    setWorkspaceOrder((current) => {
-      const base = current.length ? current : props.workspaces.map((workspace) => workspace.id);
-      if (!base.includes(fromId)) return current;
-      const next = base.filter((id) => id !== fromId);
-      if (toId) {
-        const index = next.indexOf(toId);
-        if (index === -1) return current;
-        next.splice(index, 0, fromId);
-      } else {
-        next.push(fromId);
-      }
-      if (arraysEqual(base, next)) return current;
-      writeWorkspaceOrder(next);
-      return next;
-    });
   };
 
   const openProviderAuth = () => {
@@ -857,33 +760,254 @@ export default function SessionView(props: SessionViewProps) {
   };
 
   return (
-    <div class="h-screen flex flex-col bg-gray-1 text-gray-12 relative pb-16 md:pb-12">
-      <header class="h-16 border-b border-gray-6 flex items-center justify-between px-6 bg-gray-1/80 backdrop-blur-md z-10 sticky top-0">
-        <div class="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            class="!p-2 rounded-full md:!px-3 md:!py-2 md:rounded-xl"
+    <div class="flex h-screen w-full bg-dls-surface text-dls-text font-sans overflow-hidden">
+      <aside class="w-64 hidden md:flex flex-col bg-dls-sidebar border-r border-dls-border p-4">
+        <div class="space-y-0.5 mb-6 pt-2">
+          <button
+            type="button"
+            class={`w-full h-10 flex items-center gap-3 px-3 rounded-lg text-sm font-medium transition-colors ${
+              props.tab === "scheduled"
+                ? "bg-dls-active text-dls-text"
+                : "text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
+            }`}
             onClick={() => {
-              props.setTab("sessions");
+              props.setTab("scheduled");
               props.setView("dashboard");
             }}
-            title="Back to dashboard"
           >
-            <ArrowRight class="rotate-180 w-5 h-5" />
-            <span class="hidden md:inline text-xs">Back</span>
-          </Button>
-          <div class="px-3 py-1.5 rounded-xl bg-gray-2 text-xs text-gray-11 font-medium">
-            {props.activeWorkspaceDisplay.name}
-          </div>
-          <Show when={props.developerMode}>
-            <span class="text-xs text-gray-7">{props.headerStatus}</span>
-          </Show>
-          <Show when={props.busyHint}>
-            <span class="text-xs text-gray-10">· {props.busyHint}</span>
-          </Show>
-
+            <History size={18} />
+            Automations
+          </button>
+          <button
+            type="button"
+            class={`w-full h-10 flex items-center gap-3 px-3 rounded-lg text-sm font-medium transition-colors ${
+              props.tab === "skills"
+                ? "bg-dls-active text-dls-text"
+                : "text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
+            }`}
+            onClick={() => {
+              props.setTab("skills");
+              props.setView("dashboard");
+            }}
+          >
+            <Zap size={18} />
+            Skills
+          </button>
+          <button
+            type="button"
+            class={`w-full h-10 flex items-center gap-3 px-3 rounded-lg text-sm font-medium transition-colors ${
+              props.tab === "mcp"
+                ? "bg-dls-active text-dls-text"
+                : "text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
+            }`}
+            onClick={() => {
+              props.setTab("mcp");
+              props.setView("dashboard");
+            }}
+          >
+            <Box size={18} />
+            Apps
+          </button>
         </div>
-      </header>
+
+        <div class="space-y-2 mb-6">
+          <div class="flex items-center justify-between text-[11px] font-bold text-dls-secondary uppercase px-3 tracking-tight">
+            <span>Workspaces</span>
+            <button
+              type="button"
+              aria-label="Workspace settings"
+              onClick={() => openSettings("general")}
+              class="text-dls-secondary hover:text-dls-text"
+            >
+              <Settings size={14} />
+            </button>
+          </div>
+          <div class="space-y-1">
+            <For each={props.workspaces}>
+              {(workspace) => {
+                const isActive = () => props.activeWorkspaceId === workspace.id;
+                const isConnecting = () => props.connectingWorkspaceId === workspace.id;
+                return (
+                  <button
+                    type="button"
+                    class={`w-full flex items-center justify-between h-10 px-3 rounded-lg text-left transition-colors ${
+                      isActive()
+                        ? "bg-dls-active text-dls-text"
+                        : "text-dls-text hover:bg-dls-hover"
+                    }`}
+                    onClick={() => props.activateWorkspace(workspace.id)}
+                  >
+                    <div class="min-w-0">
+                      <div class="text-sm font-medium truncate">{workspaceLabel(workspace)}</div>
+                      <div class="text-[11px] text-dls-secondary">
+                        {workspaceKindLabel(workspace)}
+                        {isActive() ? ` · ${workspaceStatus().label}` : ""}
+                      </div>
+                    </div>
+                    <Show when={isConnecting()}>
+                      <Loader2 size={14} class="animate-spin text-dls-secondary" />
+                    </Show>
+                  </button>
+                );
+              }}
+            </For>
+          </div>
+          <button
+            type="button"
+            onClick={props.openCreateWorkspace}
+            class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
+          >
+            <Plus size={14} />
+            Add a workspace
+          </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto">
+          <div class="flex items-center justify-between text-[11px] font-bold text-dls-secondary uppercase px-3 mb-3 tracking-tight">
+            <span>Sessions</span>
+            <div class="flex gap-2 text-dls-secondary">
+              <button type="button" class="hover:text-dls-text" aria-label="Session layout">
+                <Layout size={14} />
+              </button>
+              <button
+                type="button"
+                class="hover:text-dls-text"
+                aria-label="New session"
+                onClick={props.createSessionAndOpen}
+                disabled={props.newTaskDisabled}
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setSessionsExpanded((current) => !current)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                setSessionsExpanded((current) => !current);
+              }}
+              class="group flex items-center justify-between h-8 px-3 rounded-lg cursor-pointer text-dls-text transition-colors hover:bg-dls-hover"
+            >
+              <div class="flex items-center gap-2">
+                <ChevronRight
+                  size={14}
+                  class={`text-dls-secondary transition-transform ${
+                    sessionsExpanded() ? "rotate-90" : ""
+                  }`}
+                />
+                <span class="text-sm font-medium">{props.activeWorkspaceDisplay.name}</span>
+              </div>
+              <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  type="button"
+                  class="p-1 hover:bg-dls-active rounded-md text-dls-secondary transition-colors"
+                  onClick={(event) => event.stopPropagation()}
+                  aria-label="Workspace options"
+                >
+                  <MoreHorizontal size={14} />
+                </button>
+              </div>
+            </div>
+
+            <Show when={sessionsExpanded()}>
+              <div class="mt-0.5 space-y-0.5 border-l border-dls-border ml-4">
+                <Show
+                  when={props.sessions.length > 0}
+                  fallback={
+                    <div class="px-3 py-2 text-xs text-dls-secondary">
+                      No sessions yet.
+                    </div>
+                  }
+                >
+                  <For each={visibleSessions()}>
+                    {(session) => (
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        class="group flex items-center justify-between h-8 px-3 hover:bg-dls-hover rounded-lg cursor-pointer relative overflow-hidden ml-5 w-[calc(100%-1.25rem)]"
+                        onClick={() => openSessionFromList(session.id)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault();
+                          openSessionFromList(session.id);
+                        }}
+                      >
+                        <span class="text-sm text-dls-text truncate mr-2 font-medium group-hover:pr-14 transition-all">
+                          {session.title}
+                        </span>
+                        <Show when={session.time?.updated}>
+                          <span class="text-xs text-dls-secondary whitespace-nowrap group-hover:opacity-0 transition-opacity">
+                            {formatRelativeTime(session.time?.updated ?? Date.now())}
+                          </span>
+                        </Show>
+                        <div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            type="button"
+                            class="p-1 hover:bg-dls-active rounded-md text-dls-text transition-colors"
+                            onClick={(event) => event.stopPropagation()}
+                            aria-label="Session options"
+                          >
+                            <MoreHorizontal size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            class="p-1 hover:bg-dls-active rounded-md text-dls-text transition-colors"
+                            onClick={(event) => event.stopPropagation()}
+                            aria-label="Rename session"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </div>
+            </Show>
+          </div>
+
+          <Show when={props.sessions.length > 5}>
+            <button
+              type="button"
+              onClick={() => setShowAllSessions((current) => !current)}
+              class="px-3 py-1.5 text-xs text-dls-secondary hover:text-dls-text font-medium"
+            >
+              {showAllSessions() ? "Show less" : "Show more"}
+            </button>
+          </Show>
+        </div>
+
+        <div class="pt-4 border-t border-dls-border">
+          <button
+            type="button"
+            onClick={() => openSettings("general")}
+            class="flex items-center gap-3 px-3 py-2 rounded-lg text-dls-secondary hover:bg-dls-hover transition-colors"
+          >
+            <Settings size={18} />
+            <span class="text-sm font-medium">Settings</span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="flex-1 flex flex-col relative pb-16 md:pb-12 bg-dls-surface">
+        <header class="h-14 border-b border-dls-border flex items-center justify-between px-6 bg-dls-surface z-10 sticky top-0">
+          <div class="flex items-center gap-3">
+            <h1 class="text-sm font-semibold text-dls-text">
+              {selectedSessionTitle() || "New thread"}
+            </h1>
+            <Show when={props.developerMode}>
+              <span class="text-xs text-dls-secondary">{props.headerStatus}</span>
+            </Show>
+            <Show when={props.busyHint}>
+              <span class="text-xs text-dls-secondary">· {props.busyHint}</span>
+            </Show>
+          </div>
+        </header>
 
       <Show when={props.error}>
         <div class="mx-auto max-w-5xl w-full px-6 md:px-10 pt-4">
@@ -894,47 +1018,19 @@ export default function SessionView(props: SessionViewProps) {
       </Show>
 
       <div class="flex-1 flex overflow-hidden">
-        <aside class="hidden lg:flex w-72 border-r border-gray-6 bg-gray-1 flex-col">
-          <SessionSidebar
-            todos={props.todos}
-            expandedSections={props.expandedSidebarSections}
-            onToggleSection={(section) => {
-              props.setExpandedSidebarSections((curr) => ({ ...curr, [section]: !curr[section] }));
-            }}
-            workspaceGroups={sessionWorkspaceGroups()}
-            activeWorkspaceId={props.activeWorkspaceId}
-            connectingWorkspaceId={props.connectingWorkspaceId}
-            workspaceConnectionStateById={props.workspaceConnectionStateById}
-            onSelectWorkspace={props.activateWorkspace}
-            onCreateWorkspace={props.openCreateWorkspace}
-            onCreateRemoteWorkspace={props.openCreateRemoteWorkspace}
-            onImportWorkspace={props.importWorkspaceConfig}
-            importingWorkspaceConfig={props.importingWorkspaceConfig}
-            onEditWorkspace={props.editWorkspaceConnection}
-            onTestWorkspaceConnection={props.testWorkspaceConnection}
-            onForgetWorkspace={props.forgetWorkspace}
-            onReorderWorkspace={handleReorderWorkspace}
-            onSelectSession={handleSelectSession}
-            selectedSessionId={props.selectedSessionId}
-            sessionStatusById={props.sessionStatusById}
-            onCreateSession={props.createSessionAndOpen}
-            onDeleteSession={handleDeleteSession}
-            newTaskDisabled={props.newTaskDisabled}
-          />
-        </aside>
-
         <div
-          class="flex-1 overflow-y-auto pt-6 md:pt-10 scroll-smooth relative"
+          class="flex-1 overflow-y-auto px-12 py-10 scroll-smooth relative bg-dls-surface"
           ref={(el) => (chatContainerEl = el)}
         >
+          <div class="max-w-5xl mx-auto w-full">
           <Show when={props.messages.length === 0}>
             <div class="text-center py-16 px-6 space-y-6">
-              <div class="w-16 h-16 bg-gray-2 rounded-3xl mx-auto flex items-center justify-center border border-gray-6">
-                <Zap class="text-gray-7" />
+              <div class="w-16 h-16 bg-dls-hover rounded-3xl mx-auto flex items-center justify-center border border-dls-border">
+                <Zap class="text-dls-secondary" />
               </div>
               <div class="space-y-2">
                 <h3 class="text-xl font-medium">What do you want to do?</h3>
-                <p class="text-gray-10 text-sm max-w-sm mx-auto">
+                <p class="text-dls-secondary text-sm max-w-sm mx-auto">
                   Pick a starting point or just type below.
                 </p>
               </div>
@@ -1054,30 +1150,9 @@ export default function SessionView(props: SessionViewProps) {
           </Show>
 
           <div ref={(el) => (messagesEndEl = el)} />
+          </div>
         </div>
 
-        <aside class="hidden lg:flex w-72 border-l border-gray-6 bg-gray-1 flex-col">
-          <ContextPanel
-            activePlugins={props.activePlugins}
-            activePluginStatus={props.activePluginStatus}
-            mcpServers={props.mcpServers}
-            mcpStatuses={props.mcpStatuses}
-            mcpStatus={props.mcpStatus}
-            skills={props.skills}
-            skillsStatus={props.skillsStatus}
-            authorizedDirs={props.authorizedDirs}
-            workingFiles={props.workingFiles}
-            workspaceRoot={props.activeWorkspaceRoot}
-            expandedSections={props.expandedSidebarSections}
-            onToggleSection={(section) =>
-              props.setExpandedSidebarSections((curr) => ({
-                ...curr,
-                [section]: !curr[section],
-              }))
-            }
-            onFileClick={handleWorkingFileClick}
-          />
-        </aside>
       </div>
 
       <Composer
@@ -1132,6 +1207,8 @@ export default function SessionView(props: SessionViewProps) {
           </button>
         </div>
       </Show>
+
+      </main>
 
       <div class="fixed bottom-0 left-0 right-0">
         <StatusBar

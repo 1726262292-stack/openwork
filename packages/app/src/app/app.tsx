@@ -159,7 +159,7 @@ export default function App() {
     location.pathname.toLowerCase().startsWith("/proto-v1-ux")
   );
 
-  const [tab, setTabState] = createSignal<DashboardTab>("home");
+  const [tab, setTabState] = createSignal<DashboardTab>("scheduled");
   const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("general");
 
   const goToDashboard = (nextTab: DashboardTab, options?: { replace?: boolean }) => {
@@ -3523,10 +3523,11 @@ export default function App() {
       reloadBusy: reloadBusy(),
       reloadError: reloadError(),
       activeWorkspaceDisplay: activeWorkspaceDisplay(),
-      connectingWorkspaceId: workspaceStore.connectingWorkspaceId(),
       workspaces: workspaceStore.workspaces(),
       activeWorkspaceId: workspaceStore.activeWorkspaceId(),
+      connectingWorkspaceId: workspaceStore.connectingWorkspaceId(),
       activateWorkspace: workspaceStore.activateWorkspace,
+      openCreateWorkspace: () => workspaceStore.setCreateWorkspaceOpen(true),
       exportWorkspaceConfig: workspaceStore.exportWorkspaceConfig,
       exportWorkspaceBusy: workspaceStore.exportingWorkspaceConfig(),
       createWorkspaceOpen: workspaceStore.createWorkspaceOpen(),
@@ -3720,6 +3721,7 @@ export default function App() {
       id: session.id,
       title: session.title,
       slug: session.slug,
+      time: { updated: session.time.updated },
       workspaceLabel: workspaceLabelForDirectory(session.directory),
     })),
     selectSession: selectSession,
@@ -3782,8 +3784,6 @@ export default function App() {
   });
 
   const dashboardTabs = new Set<DashboardTab>([
-    "home",
-    "sessions",
     "scheduled",
     "skills",
     "plugins",
@@ -3796,7 +3796,7 @@ export default function App() {
     if (dashboardTabs.has(normalized as DashboardTab)) {
       return normalized as DashboardTab;
     }
-    return "home";
+    return "scheduled";
   };
 
   const initialRoute = () => {
@@ -3846,14 +3846,14 @@ export default function App() {
 
     if (path.startsWith("/proto-v1-ux")) {
       if (isTauriRuntime()) {
-        navigate("/dashboard/home", { replace: true });
+        navigate("/dashboard/scheduled", { replace: true });
       }
       return;
     }
 
     if (path.startsWith("/proto")) {
       if (isTauriRuntime()) {
-        navigate("/dashboard/home", { replace: true });
+        navigate("/dashboard/scheduled", { replace: true });
         return;
       }
 
