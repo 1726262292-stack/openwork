@@ -151,8 +151,8 @@ export default async function Home() {
         </div>
       </nav>
 
-      <main className="px-6 pb-24 pt-20">
-        <div className="content-max-width">
+      <main className="pb-24 pt-20">
+        <div className="content-max-width px-6">
           <div className="animate-fade-up">
             <h1 className="mb-2 text-4xl font-bold tracking-tight">
               Not just suggestions. Automate your work.
