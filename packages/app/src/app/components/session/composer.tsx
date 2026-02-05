@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
+import fuzzysort from "fuzzysort";
 import { ArrowUp, AtSign, ChevronDown, File, Paperclip, X, Zap } from "lucide-solid";
 
 import type { ComposerAttachment, ComposerDraft, ComposerPart, PromptMode } from "../../types";
@@ -9,12 +10,13 @@ type MentionOption = {
   kind: "agent" | "file";
   label: string;
   value: string;
-  detail?: string;
+  display: string;
+  recent?: boolean;
 };
 
-type MentionSection = {
-  title: string;
-  options: MentionOption[];
+type MentionGroup = {
+  category: "agent" | "recent" | "file";
+  items: MentionOption[];
 };
 
 type ComposerProps = {
@@ -82,13 +84,13 @@ const partsToText = (parts: ComposerPart[]) =>
     .map((part) => {
       if (part.type === "text") return part.text;
       if (part.type === "agent") return `@${part.name}`;
-      return `@${part.label ?? part.path}`;
+      return `@${part.path}`;
     })
     .join("");
 
 const createMentionSpan = (part: Extract<ComposerPart, { type: "agent" | "file" }>) => {
   const span = document.createElement("span");
-  const label = part.type === "agent" ? part.name : part.label ?? part.path;
+  const label = part.type === "agent" ? part.name : part.path;
   span.textContent = `@${label}`;
   span.contentEditable = "false";
   span.dataset.mentionKind = part.type;
@@ -259,7 +261,6 @@ export default function Composer(props: ComposerProps) {
   const [agentOptions, setAgentOptions] = createSignal<Agent[]>([]);
   const [agentLoaded, setAgentLoaded] = createSignal(false);
   const [searchResults, setSearchResults] = createSignal<string[]>([]);
-  const [searchLoading, setSearchLoading] = createSignal(false);
   const [attachments, setAttachments] = createSignal<ComposerAttachment[]>([]);
   const [mode, setMode] = createSignal<PromptMode>("prompt");
   const [historySnapshot, setHistorySnapshot] = createSignal<ComposerDraft | null>(null);
@@ -273,74 +274,73 @@ export default function Composer(props: ComposerProps) {
     queueMicrotask(() => focusEditorEnd());
   });
 
-  createEffect(() => {
-    if (mentionOpen()) {
-      mentionQuery(); setMentionIndex(0);
-    }
-  });
-
-  const mentionSections = createMemo<MentionSection[]>(() => {
+  const mentionGroups = createMemo<MentionGroup[]>(() => {
     if (!mentionOpen()) return [];
     const query = mentionQuery().trim().toLowerCase();
-    const agents = agentOptions()
-      .filter((agent: Agent) => {
-        if (!query) return true;
-        return agent.name.toLowerCase().includes(query);
-      })
-      .map((agent: Agent) => ({
-        id: `agent:${agent.name}`,
-        kind: "agent" as const,
-        label: agent.name,
-        value: agent.name,
-      }));
-
+    const agents = agentOptions().map((agent: Agent) => ({
+      id: `agent:${agent.name}`,
+      kind: "agent" as const,
+      label: agent.name,
+      value: agent.name,
+      display: agent.name,
+    }));
+    const seen = new Set<string>();
     const recentFiles = props.recentFiles
       .filter((file: string) => {
-        if (!query) return true;
-        return file.toLowerCase().includes(query);
+        if (!file) return false;
+        if (seen.has(file)) return false;
+        seen.add(file);
+        return true;
       })
       .map((file: string) => ({
         id: `file:${file}`,
         kind: "file" as const,
-        label: file.split(/[/\\]/).pop() ?? file,
+        label: file,
         value: file,
-        detail: file,
+        display: file,
+        recent: true,
       }));
-
     const searchFiles = searchResults()
-      .filter((file: string) => file && !recentFiles.find((recent) => recent.value === file))
+      .filter((file: string) => file && !seen.has(file))
       .map((file: string) => ({
-        id: `search:${file}`,
+        id: `file:${file}`,
         kind: "file" as const,
-        label: file.split(/[/\\]/).pop() ?? file,
+        label: file,
         value: file,
-        detail: file,
+        display: file,
       }));
-
-    const sections: MentionSection[] = [];
-    if (agents.length) sections.push({ title: "Agents", options: agents });
-    if (recentFiles.length) sections.push({ title: "Recent files", options: recentFiles });
-    if (searchFiles.length) sections.push({ title: "Search results", options: searchFiles });
-    if (!searchFiles.length && query) {
-      sections.push({
-        title: "Use path",
-        options: [
-          {
-            id: `manual:${query}`,
-            kind: "file",
-            label: query.split(/[/\\]/).pop() ?? query,
-            value: query,
-            detail: query,
-          },
-        ],
-      });
+    const all = [...agents, ...recentFiles, ...searchFiles];
+    const list = query
+      ? fuzzysort.go(query, all, { keys: ["display"] }).map((entry) => entry.obj)
+      : all;
+    const groups: MentionGroup[] = [];
+    const bucket = new Map<MentionGroup["category"], MentionOption[]>();
+    for (const item of list) {
+      const category = item.kind === "agent" ? "agent" : item.recent ? "recent" : "file";
+      const current = bucket.get(category);
+      if (current) {
+        current.push(item);
+        continue;
+      }
+      bucket.set(category, [item]);
     }
-    return sections;
+    const order: MentionGroup["category"][] = ["agent", "recent", "file"];
+    for (const category of order) {
+      const items = bucket.get(category);
+      if (!items?.length) continue;
+      groups.push({ category, items });
+    }
+    return groups;
   });
 
-  const mentionOptions = createMemo(() =>
-    mentionSections().flatMap((section: MentionSection) => section.options)
-  );
+  const mentionOptions = createMemo(() => mentionGroups().flatMap((group: MentionGroup) => group.items));
+  const mentionVisible = createMemo(() => mentionOptions().slice(0, 10));
+
+  createEffect(() => {
+    if (!mentionOpen()) return;
+    mentionOptions();
+    setMentionIndex(0);
+  });
 
   const syncHeight = () => {
     if (!editorRef) return;
@@ -407,27 +407,26 @@ export default function Composer(props: ComposerProps) {
 
   const updateMentionQuery = () => {
     if (!editorRef) return;
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) {
+    if (mode() === "shell") {
       setMentionOpen(false);
+      setMentionQuery("");
       return;
     }
-    const range = selection.getRangeAt(0);
-    const beforeRange = range.cloneRange();
-    beforeRange.selectNodeContents(editorRef);
-    beforeRange.setEnd(range.endContainer, range.endOffset);
-    const beforeText = normalizeText(beforeRange.toString());
-    const atIndex = beforeText.lastIndexOf("@");
-    if (atIndex === -1) {
+    const offsets = getSelectionOffsets(editorRef);
+    if (!offsets || offsets.start !== offsets.end) {
       setMentionOpen(false);
+      setMentionQuery("");
       return;
     }
-    const query = beforeText.slice(atIndex + 1);
-    if (/\s/.test(query)) {
+    const text = normalizeText(partsToText(buildPartsFromEditor(editorRef)));
+    const before = text.slice(0, offsets.start);
+    const match = before.match(/@(\S*)$/);
+    if (!match) {
       setMentionOpen(false);
+      setMentionQuery("");
       return;
     }
-    setMentionQuery(query);
+    setMentionQuery(match[1] ?? "");
     setMentionOpen(true);
   };
 
@@ -440,9 +439,9 @@ export default function Composer(props: ComposerProps) {
     beforeRange.selectNodeContents(editorRef);
     beforeRange.setEnd(range.endContainer, range.endOffset);
     const beforeText = normalizeText(beforeRange.toString());
-    const atIndex = beforeText.lastIndexOf("@");
-    if (atIndex === -1) return;
-    const start = atIndex;
+    const match = beforeText.match(/@(\S*)$/);
+    if (!match) return;
+    const start = match.index ?? beforeText.length - match[0].length;
     const end = beforeText.length;
     const deleteRange = buildRangeFromOffsets(editorRef, start, end);
     deleteRange.deleteContents();
@@ -597,24 +596,27 @@ export default function Composer(props: ComposerProps) {
       emitDraftChange();
       return;
     }
-    if (event.isComposing && event.key !== "Enter") return;
+    if (event.key === "Enter" && event.isComposing) return;
 
     if (mentionOpen()) {
       const options = mentionOptions();
-      if (event.key === "Enter") {
+      const ctrl = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+      if (event.key === "Enter" && !event.isComposing) {
         event.preventDefault();
         const active = options[mentionIndex()] ?? options[0];
         if (active) insertMention(active);
         return;
       }
-      if (event.key === "ArrowDown") {
+      if (event.key === "ArrowDown" || (ctrl && event.key === "n")) {
         event.preventDefault();
-        setMentionIndex((i: number) => clamp(i + 1, 0, options.length - 1));
+        if (!options.length) return;
+        setMentionIndex((i: number) => (i + 1) % options.length);
         return;
       }
-      if (event.key === "ArrowUp") {
+      if (event.key === "ArrowUp" || (ctrl && event.key === "p")) {
         event.preventDefault();
-        setMentionIndex((i: number) => clamp(i - 1, 0, options.length - 1));
+        if (!options.length) return;
+        setMentionIndex((i: number) => (i - 1 + options.length) % options.length);
         return;
       }
       if (event.key === "Escape") {
@@ -675,7 +677,6 @@ export default function Composer(props: ComposerProps) {
   createEffect(() => {
     if (!mentionOpen()) {
       setSearchResults([]);
-      setSearchLoading(false);
       return;
     }
     const query = mentionQuery().trim();
@@ -684,7 +685,6 @@ export default function Composer(props: ComposerProps) {
       return;
     }
     const runId = (mentionSearchRun += 1);
-    setSearchLoading(true);
     const timeout = window.setTimeout(() => {
       props
         .searchFiles(query)
@@ -695,18 +695,17 @@ export default function Composer(props: ComposerProps) {
         .catch(() => {
           if (runId !== mentionSearchRun) return;
           setSearchResults([]);
-        })
-        .finally(() => {
-          if (runId !== mentionSearchRun) return;
-          setSearchLoading(false);
         });
     }, 150);
     onCleanup(() => {
       window.clearTimeout(timeout);
-      if (runId === mentionSearchRun) {
-        setSearchLoading(false);
-      }
     });
+  });
+
+  createEffect(() => {
+    if (mode() !== "shell") return;
+    setMentionOpen(false);
+    setMentionQuery("");
   });
 
   createEffect(() => {
@@ -776,56 +775,57 @@ export default function Composer(props: ComposerProps) {
           <Show when={mentionOpen()}>
             <div class="absolute bottom-full left-[-1px] right-[-1px] z-30">
               <div class="rounded-t-3xl border border-dls-border border-b-0 bg-dls-surface shadow-2xl overflow-hidden">
-                <div class="px-4 pt-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-dls-secondary border-b border-dls-border bg-dls-surface flex items-center gap-2">
-                  <AtSign size={12} />
-                  Mentions
-                </div>
-                <div class="space-y-3 p-3 bg-dls-surface max-h-64 overflow-y-auto">
+                <div class="p-2 bg-dls-surface max-h-64 overflow-y-auto" onMouseDown={(event: MouseEvent) => event.preventDefault()}>
                   <Show
-                    when={mentionOptions().length}
-                    fallback={
-                      <div class="px-3 py-2 text-xs text-dls-secondary">
-                        {searchLoading() ? "Searching files..." : "No matches found."}
-                      </div>
-                    }
+                    when={mentionVisible().length}
+                    fallback={<div class="px-3 py-2 text-xs text-dls-secondary">No matches found.</div>}
                   >
-                    <For each={mentionSections()}>
-                      {(section: MentionSection) => (
-                        <div>
-                          <div class="px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-dls-secondary">
-                            {section.title}
-                          </div>
-                          <div class="space-y-1">
-                            <For each={section.options}>
-                              {(option: MentionOption) => {
-                                const optionIndex = createMemo(() => mentionOptions().findIndex((item) => item.id === option.id));
-                                return (
-                                  <button
-                                    type="button"
-                                    class={`w-full flex items-start gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
-                                      optionIndex() === mentionIndex()
-                                        ? "bg-dls-active text-dls-text"
-                                        : "text-dls-text hover:bg-dls-hover"
-                                    }`}
-                                    onMouseDown={(e: MouseEvent) => {
-                                      e.preventDefault();
-                                      insertMention(option);
-                                    }}
-                                    onMouseEnter={() => setMentionIndex(optionIndex())}
-                                  >
-                                    <div class="text-xs font-semibold text-dls-text">
-                                      {option.kind === "agent" ? `@${option.label}` : option.label}
-                                    </div>
-                                    <Show when={option.detail}>
-                                      <div class="text-[11px] text-dls-secondary">{option.detail}</div>
-                                    </Show>
-                                  </button>
-                                );
-                              }}
-                            </For>
-                          </div>
-                        </div>
-                      )}
+                    <For each={mentionVisible()}>
+                      {(option: MentionOption) => {
+                        const optionIndex = createMemo(() => mentionOptions().findIndex((item) => item.id === option.id));
+                        const active = createMemo(() => mentionOptions()[mentionIndex()]?.id === option.id);
+                        return (
+                          <button
+                            type="button"
+                            class={`w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors ${
+                              active() ? "bg-dls-active text-dls-text" : "text-dls-text hover:bg-dls-hover"
+                            }`}
+                            onMouseDown={(event: MouseEvent) => {
+                              event.preventDefault();
+                              insertMention(option);
+                            }}
+                            onMouseEnter={() => setMentionIndex(optionIndex())}
+                          >
+                            <Show
+                              when={option.kind === "agent"}
+                              fallback={
+                                <>
+                                  <File size={14} class="text-dls-secondary" />
+                                  <div class="flex items-center min-w-0 text-xs">
+                                    {(() => {
+                                      const value = option.value;
+                                      const slash = Math.max(value.lastIndexOf("/"), value.lastIndexOf("\\"));
+                                      const dir = slash === -1 ? "" : value.slice(0, slash + 1);
+                                      const name = slash === -1 ? value : value.slice(slash + 1);
+                                      return (
+                                        <>
+                                          <span class="text-dls-secondary truncate">{dir}</span>
+                                          <Show when={name}>
+                                            <span class="text-dls-text font-semibold">{name}</span>
+                                          </Show>
+                                        </>
+                                      );
+                                    })()}
+                                  </div>
+                                </>
+                              }
+                            >
+                              <AtSign size={14} class="text-dls-secondary" />
+                              <span class="text-xs font-semibold text-dls-text">@{option.label}</span>
+                            </Show>
+                          </button>
+                        );
+                      }}
                     </For>
                   </Show>
                 </div>
@@ -913,8 +913,6 @@ export default function Composer(props: ComposerProps) {
                         emitDraftChange();
                       }}
                       onKeyDown={handleKeyDown}
-                      onKeyUp={updateMentionQuery}
-                      onClick={updateMentionQuery}
                       onPaste={handlePaste}
                       class="bg-transparent border-none p-0 pb-8 pr-4 text-dls-text focus:ring-0 text-sm leading-relaxed resize-none min-h-[24px] outline-none relative z-10"
                     />
