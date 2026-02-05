@@ -144,6 +144,12 @@ mod tests {
             std::env::set_var(key, value);
             Self { key, original }
         }
+
+        fn clear(key: &'static str) -> Self {
+            let original = std::env::var(key).ok();
+            std::env::remove_var(key);
+            Self { key, original }
+        }
     }
 
     impl Drop for EnvVarGuard {
@@ -172,6 +178,9 @@ mod tests {
     #[test]
     #[cfg(not(windows))]
     fn resolves_sidecar_from_current_binary_dir() {
+        let _lock = ENV_LOCK.lock().expect("lock env");
+        let _guard = EnvVarGuard::clear("OPENCODE_BIN_PATH");
+
         let dir = unique_temp_dir("sidecar-test");
         std::fs::create_dir_all(&dir).expect("create temp dir");
 
@@ -194,6 +203,9 @@ mod tests {
     #[test]
     #[cfg(not(windows))]
     fn resolve_engine_path_prefers_sidecar() {
+        let _lock = ENV_LOCK.lock().expect("lock env");
+        let _guard = EnvVarGuard::clear("OPENCODE_BIN_PATH");
+
         let dir = unique_temp_dir("engine-path-test");
         std::fs::create_dir_all(&dir).expect("create temp dir");
 
