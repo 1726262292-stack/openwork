@@ -105,6 +105,7 @@ This captures OpenWork’s preferred reactivity + UI state patterns (avoid globa
 ## Skill: Trigger a Release
 
 OpenWork releases are built by GitHub Actions (`Release App`). A release is triggered by pushing a `v*` tag (e.g. `v0.1.6`).
+`Release App` can also publish openwrk sidecars and npm packages when enabled via workflow inputs or repo vars (`RELEASE_PUBLISH_SIDECARS`, `RELEASE_PUBLISH_NPM`).
 
 ### Standard release (recommended)
 
@@ -145,7 +146,7 @@ Confirm the DMG assets are attached and versioned correctly.
 
 ## Skill: Publish openwrk (npm)
 
-This is separate from app release tags. Use `.opencode/skills/openwrk-npm-publish/SKILL.md`.
+This is usually covered by `Release App` when `publish_sidecars` + `publish_npm` are enabled. Use `.opencode/skills/openwrk-npm-publish/SKILL.md` for manual recovery or one-off publishing.
 
 1.  Ensure the default branch is up to date and clean.
 2.  Bump `packages/headless/package.json` (`version`).
