@@ -114,6 +114,7 @@ OpenWork releases are built by GitHub Actions (`Release App`). A release is trig
 
 * `packages/app/package.json` (`version`)
 * `packages/desktop/package.json` (`version`)
+* `packages/headless/package.json` (`version`, publishes as `openwrk`)
 * `packages/desktop/src-tauri/tauri.conf.json` (`version`)
 * `packages/desktop/src-tauri/Cargo.toml` (`version`)
 

@@ -11,7 +11,7 @@ OpenWork releases should be deterministic, easy to reproduce, and fully verifiab
 ## App release (desktop)
 
 1. Bump versions (app + desktop + Tauri + Cargo):
-   - `pnpm bump:patch` or `pnpm bump:minor` or `pnpm bump:major`
+    - `pnpm bump:patch` or `pnpm bump:minor` or `pnpm bump:major`
 2. Re-run `pnpm release:review`.
 3. Build sidecars for the desktop bundle:
    - `pnpm --filter @different-ai/openwork prepare:sidecar`
@@ -22,7 +22,8 @@ OpenWork releases should be deterministic, easy to reproduce, and fully verifiab
 
 ## openwrk (npm + sidecars)
 
-1. Bump `packages/headless/package.json`.
+1. Bump versions (includes `packages/headless/package.json`):
+   - `pnpm bump:patch` or `pnpm bump:minor` or `pnpm bump:major`
 2. Build sidecar assets and manifest:
    - `pnpm --filter openwrk build:sidecars`
 3. Create the GitHub release for sidecars:

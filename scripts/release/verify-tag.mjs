@@ -26,6 +26,7 @@ const readCargoVersion = (path) => {
 
 const appVersion = readJson(resolve(root, "packages", "app", "package.json")).version ?? null;
 const desktopVersion = readJson(resolve(root, "packages", "desktop", "package.json")).version ?? null;
+const headlessVersion = readJson(resolve(root, "packages", "headless", "package.json")).version ?? null;
 const tauriVersion = readJson(resolve(root, "packages", "desktop", "src-tauri", "tauri.conf.json")).version ?? null;
 const cargoVersion = readCargoVersion(resolve(root, "packages", "desktop", "src-tauri", "Cargo.toml"));
 
@@ -42,6 +43,7 @@ const check = (label, actual) => {
 
 check("app", appVersion);
 check("desktop", desktopVersion);
+check("openwrk", headlessVersion);
 check("tauri", tauriVersion);
 check("cargo", cargoVersion);
 
@@ -53,4 +55,4 @@ if (mismatches.length) {
   process.exit(1);
 }
 
-console.log(`Release tag ${tag} matches app/desktop versions.`);
+console.log(`Release tag ${tag} matches app/desktop/openwrk versions.`);

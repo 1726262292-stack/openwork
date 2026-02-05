@@ -12,9 +12,19 @@ description: |
 ## Quick usage (already configured)
 
 1. Ensure you are on the default branch and the tree is clean.
-2. Bump the version in `packages/headless/package.json`.
+2. Bump versions via the shared release bump (this keeps `openwrk` aligned with the app/desktop release).
+
+```bash
+pnpm bump:patch
+# or: pnpm bump:minor
+# or: pnpm bump:major
+# or: pnpm bump:set -- X.Y.Z
+```
+
 3. Commit the bump.
-4. Build sidecar artifacts and publish them to a release tag.
+4. Preferred: publish via the "Release App" GitHub Actions workflow by tagging `vX.Y.Z`.
+
+Manual recovery path (sidecars + npm) below.
 
 ```bash
 pnpm --filter openwrk build:sidecars
@@ -61,5 +71,5 @@ Alternatively, export an npm token in your environment (see `.env.example`).
 ## Notes
 
 - `pnpm publish` requires a clean git tree.
-- This publish flow is separate from app release tags.
+- `openwrk` is versioned in lockstep with OpenWork app/desktop releases.
 - openwrk downloads sidecars from `openwrk-vX.Y.Z` release assets by default.

@@ -57,6 +57,11 @@ addCheck(
   `${versions.app ?? "?"} vs ${versions.desktop ?? "?"}`,
 );
 addCheck(
+  "App/openwrk versions match",
+  versions.app && versions.headless && versions.app === versions.headless,
+  `${versions.app ?? "?"} vs ${versions.headless ?? "?"}`,
+);
+addCheck(
   "Desktop/Tauri versions match",
   versions.desktop && versions.tauri && versions.desktop === versions.tauri,
   `${versions.desktop ?? "?"} vs ${versions.tauri ?? "?"}`,
