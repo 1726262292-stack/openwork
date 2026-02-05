@@ -235,7 +235,7 @@ jobs:
 
       - name: Install OpenTUI x64 core (macOS x86_64)
         if: matrix.os_type == 'macos' && matrix.target == 'x86_64-apple-darwin'
-        run: pnpm add -w --ignore-workspace-root-check --no-save @opentui/core-darwin-x64@0.1.77
+        run: pnpm add -w --ignore-workspace-root-check @opentui/core-darwin-x64@0.1.77
 
       - name: Install Linux build dependencies
         if: matrix.os_type == 'linux'

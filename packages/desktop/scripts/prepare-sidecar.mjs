@@ -522,7 +522,15 @@ if (shouldBuildOpenwrk) {
   if (bunTarget) {
     openwrkArgs.push("--target", bunTarget);
   }
-  const result = spawnSync("bun", openwrkArgs, { cwd: openwrkDir, stdio: "inherit" });
+  const result = spawnSync("bun", openwrkArgs, {
+    cwd: openwrkDir,
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      BUN_ENV: "production",
+    },
+  });
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
