@@ -31,6 +31,7 @@ use commands::owpenbot::{
 };
 use commands::skills::{install_skill_template, list_local_skills, uninstall_skill};
 use commands::updater::updater_environment;
+use commands::window::set_window_decorations;
 use commands::workspace::{
     workspace_add_authorized_root, workspace_bootstrap, workspace_create, workspace_create_remote,
     workspace_export_config, workspace_forget, workspace_import_config, workspace_openwork_read,
@@ -106,7 +107,8 @@ pub fn run() {
             reset_opencode_cache,
             opencode_mcp_auth,
             scheduler_list_jobs,
-            scheduler_delete_job
+            scheduler_delete_job,
+            set_window_decorations
         ])
         .run(tauri::generate_context!())
         .expect("error while running OpenWork");
