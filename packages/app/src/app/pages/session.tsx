@@ -24,6 +24,7 @@ import type { WorkspaceInfo } from "../lib/tauri";
 
 import {
   Box,
+  Check,
   ChevronDown,
   Edit2,
   HardDrive,
@@ -171,6 +172,16 @@ export default function SessionView(props: SessionViewProps) {
     "Workspace";
   const workspaceKindLabel = (workspace: WorkspaceInfo) =>
     workspace.workspaceType === "remote" ? "Remote" : "Local";
+  const todoList = createMemo(() => props.todos.filter((todo) => todo.content.trim()));
+  const todoCount = createMemo(() => todoList().length);
+  const todoCompletedCount = createMemo(() =>
+    todoList().filter((todo) => todo.status === "completed").length
+  );
+  const todoLabel = createMemo(() => {
+    const total = todoCount();
+    if (!total) return "";
+    return `${todoCompletedCount()} out of ${total} tasks completed`;
+  });
   const MAX_SESSIONS_PREVIEW = 3;
   const [previewCountByWorkspaceId, setPreviewCountByWorkspaceId] = createSignal<
     Record<string, number>
@@ -596,8 +607,7 @@ export default function SessionView(props: SessionViewProps) {
   };
 
   createEffect(() => {
-    const todos = props.todos.filter((t) => t.content.trim());
-    const count = todos.length;
+    const count = todoCount();
     const prev = prevTodoCount();
     if (count > prev && prev > 0) {
       const lastMsg = chatContainerEl?.querySelector('[data-message-role="assistant"]:last-child');
@@ -1090,6 +1100,60 @@ export default function SessionView(props: SessionViewProps) {
                 >
                   Automate your browser
                 </button>
+              </div>
+            </div>
+          </Show>
+
+          <Show when={todoCount() > 0}>
+            <div class="mb-8">
+              <div class="rounded-2xl border border-gray-6/70 bg-gray-1/70 px-5 py-4 shadow-sm shadow-gray-12/5">
+                <div class="flex items-center justify-between text-xs text-gray-9">
+                  <span class="font-semibold text-gray-11">{todoLabel()}</span>
+                  <span class="text-[10px] uppercase tracking-wide text-gray-8">Task list</span>
+                </div>
+                <div class="mt-3 space-y-3 max-h-80 overflow-auto pr-1">
+                  <For each={todoList()}>
+                    {(todo, index) => {
+                      const done = () => todo.status === "completed";
+                      const cancelled = () => todo.status === "cancelled";
+                      const active = () => todo.status === "in_progress";
+                      return (
+                        <div class="flex items-start gap-3">
+                          <div class="flex items-center gap-2 pt-0.5">
+                            <span class="text-xs text-gray-9 font-semibold w-5 text-right">
+                              {index() + 1}.
+                            </span>
+                            <div
+                              class={`h-5 w-5 rounded-full border flex items-center justify-center ${
+                                done()
+                                  ? "border-green-6 bg-green-2 text-green-11"
+                                  : active()
+                                    ? "border-amber-6 bg-amber-2 text-amber-11"
+                                    : cancelled()
+                                      ? "border-gray-6 bg-gray-2 text-gray-8"
+                                      : "border-gray-6 bg-gray-1 text-gray-8"
+                              }`}
+                            >
+                              <Show when={done()}>
+                                <Check size={12} />
+                              </Show>
+                              <Show when={!done() && active()}>
+                                <span class="h-1.5 w-1.5 rounded-full bg-amber-9" />
+                              </Show>
+                            </div>
+                          </div>
+                          <div
+                            class={`flex-1 text-sm leading-relaxed ${
+                              cancelled() ? "text-gray-9 line-through" : "text-gray-12"
+                            }`}
+                          >
+                            {todo.content}
+                          </div>
+                        </div>
+                      );
+                    }}
+                  </For>
+                </div>
               </div>
             </div>
           </Show>
