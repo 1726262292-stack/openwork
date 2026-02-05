@@ -619,6 +619,10 @@ export default function DashboardView(props: DashboardViewProps) {
                 refreshJobs={props.refreshScheduledJobs}
                 deleteJob={props.deleteScheduledJob}
                 isWindows={props.isWindows}
+                activeWorkspaceRoot={props.activeWorkspaceRoot}
+                createSessionAndOpen={props.createSessionAndOpen}
+                setPrompt={props.setPrompt}
+                newTaskDisabled={props.newTaskDisabled}
               />
             </Match>
             <Match when={props.tab === "skills"}>
