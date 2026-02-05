@@ -89,6 +89,12 @@ export default {
   "dashboard.empty_workspace": "空白工作区",
   "dashboard.empty_workspace_desc": "从空白文件夹开始，添加您需要的内容。",
 
+  // ==================== Workspace ====================
+  "workspace.rename_title": "编辑工作区名称",
+  "workspace.rename_description": "更新侧边栏中显示的名称。",
+  "workspace.rename_label": "工作区名称",
+  "workspace.rename_placeholder": "设计团队工作区",
+
   // ==================== Session ====================
   "session.no_selected": "未选择会话",
   "session.back_to_dashboard": "返回仪表盘",

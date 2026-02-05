@@ -22,6 +22,7 @@ export default function CreateRemoteWorkspaceModal(props: {
     displayName?: string | null;
   };
   submitting?: boolean;
+  error?: string | null;
   inline?: boolean;
   showClose?: boolean;
   title?: string;
@@ -146,26 +147,33 @@ export default function CreateRemoteWorkspaceModal(props: {
         </div>
       </div>
 
-      <div class="p-6 border-t border-gray-6 bg-gray-1 flex justify-end gap-3">
-        <Show when={showClose()}>
-          <Button variant="ghost" onClick={props.onClose} disabled={submitting()}>
-            {translate("common.cancel")}
-          </Button>
+      <div class="p-6 border-t border-gray-6 bg-gray-1 space-y-3">
+        <Show when={props.error}>
+          <div class="p-3 rounded-lg bg-red-3/50 border border-red-6 text-sm text-red-11">
+            {props.error}
+          </div>
         </Show>
-        <Button
-          onClick={() =>
-            props.onConfirm({
-              openworkHostUrl: openworkHostUrl().trim(),
-              openworkToken: openworkToken().trim(),
-              directory: directory().trim() ? directory().trim() : null,
-              displayName: displayName().trim() ? displayName().trim() : null,
-            })
-          }
-          disabled={!canSubmit()}
-          title={!openworkHostUrl().trim() ? translate("dashboard.remote_base_url_required") : undefined}
-        >
-          {confirmLabel()}
-        </Button>
+        <div class="flex justify-end gap-3">
+          <Show when={showClose()}>
+            <Button variant="ghost" onClick={props.onClose} disabled={submitting()}>
+              {translate("common.cancel")}
+            </Button>
+          </Show>
+          <Button
+            onClick={() =>
+              props.onConfirm({
+                openworkHostUrl: openworkHostUrl().trim(),
+                openworkToken: openworkToken().trim(),
+                directory: directory().trim() ? directory().trim() : null,
+                displayName: displayName().trim() ? displayName().trim() : null,
+              })
+            }
+            disabled={!canSubmit()}
+            title={!openworkHostUrl().trim() ? translate("dashboard.remote_base_url_required") : undefined}
+          >
+            {confirmLabel()}
+          </Button>
+        </div>
       </div>
     </div>
   );

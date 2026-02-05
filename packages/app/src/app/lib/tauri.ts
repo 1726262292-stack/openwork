@@ -204,6 +204,16 @@ export async function workspaceUpdateRemote(input: {
   });
 }
 
+export async function workspaceUpdateDisplayName(input: {
+  workspaceId: string;
+  displayName?: string | null;
+}): Promise<WorkspaceList> {
+  return invoke<WorkspaceList>("workspace_update_display_name", {
+    workspaceId: input.workspaceId,
+    displayName: input.displayName ?? null,
+  });
+}
+
 export async function workspaceForget(workspaceId: string): Promise<WorkspaceList> {
   return invoke<WorkspaceList>("workspace_forget", { workspaceId });
 }

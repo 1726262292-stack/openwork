@@ -49,6 +49,7 @@ import {
   workspaceOpenworkRead,
   workspaceOpenworkWrite,
   workspaceSetActive,
+  workspaceUpdateDisplayName,
   workspaceUpdateRemote,
   type EngineDoctorResult,
   type EngineInfo,
@@ -1492,6 +1493,44 @@ export function createWorkspaceStore(options: {
     }
   }
 
+  async function updateWorkspaceDisplayName(workspaceId: string, displayName: string | null) {
+    const id = workspaceId.trim();
+    if (!id) return false;
+    const workspace = workspaces().find((item) => item.id === id) ?? null;
+    if (!workspace) return false;
+
+    const nextDisplayName = displayName?.trim() || null;
+    options.setError(null);
+
+    if (isTauriRuntime()) {
+      try {
+        const ws = await workspaceUpdateDisplayName({ workspaceId: id, displayName: nextDisplayName });
+        setWorkspaces(ws.workspaces);
+        if (ws.activeId) {
+          updateWorkspaceConnectionState(ws.activeId, { status: "connected", message: null });
+        }
+        return true;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : safeStringify(e);
+        options.setError(addOpencodeCacheHint(message));
+        return false;
+      }
+    }
+
+    setWorkspaces((prev) =>
+      prev.map((entry) =>
+        entry.id === id
+          ? {
+              ...entry,
+              displayName: nextDisplayName,
+              name: nextDisplayName ?? entry.name,
+            }
+          : entry
+      )
+    );
+    return true;
+  }
+
   async function stopHost() {
     options.setError(null);
     options.setBusy(true);
@@ -1995,6 +2034,7 @@ export function createWorkspaceStore(options: {
     createWorkspaceFlow,
     createRemoteWorkspaceFlow,
     updateRemoteWorkspaceFlow,
+    updateWorkspaceDisplayName,
     forgetWorkspace,
     pickWorkspaceFolder,
     exportWorkspaceConfig,

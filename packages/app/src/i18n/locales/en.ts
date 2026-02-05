@@ -89,6 +89,12 @@ export default {
   "dashboard.empty_workspace": "Empty workspace",
   "dashboard.empty_workspace_desc": "Start with a blank folder and add what you need.",
 
+  // ==================== Workspace ====================
+  "workspace.rename_title": "Edit workspace name",
+  "workspace.rename_description": "Update the name shown in the sidebar.",
+  "workspace.rename_label": "Workspace name",
+  "workspace.rename_placeholder": "Design team workspace",
+
   // ==================== Session ====================
   "session.no_selected": "No session selected",
   "session.back_to_dashboard": "Back to dashboard",

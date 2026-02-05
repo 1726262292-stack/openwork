@@ -14,6 +14,7 @@ import { useLocation, useNavigate } from "@solidjs/router";
 import type {
   Agent,
   Part,
+  Session,
   TextPartInput,
   FilePartInput,
   AgentPartInput,
@@ -29,6 +30,7 @@ import ResetModal from "./components/reset-modal";
 import WorkspaceSwitchOverlay from "./components/workspace-switch-overlay";
 import CreateRemoteWorkspaceModal from "./components/create-remote-workspace-modal";
 import CreateWorkspaceModal from "./components/create-workspace-modal";
+import RenameWorkspaceModal from "./components/rename-workspace-modal";
 import McpAuthModal from "./components/mcp-auth-modal";
 import ReloadWorkspaceToast from "./components/reload-workspace-toast";
 import OnboardingView from "./pages/onboarding";
@@ -64,6 +66,7 @@ import type {
   SkillCard,
   TodoItem,
   View,
+  WorkspaceSessionGroup,
   WorkspaceDisplay,
   McpServerEntry,
   McpStatusMap,
@@ -643,18 +646,6 @@ export default function App() {
     setPendingPermissions,
   } = sessionStore;
 
-  const [sessionsLoaded, setSessionsLoaded] = createSignal(false);
-  const loadSessionsWithReady = async (scopeRoot?: string) => {
-    await loadSessions(scopeRoot);
-    setSessionsLoaded(true);
-  };
-
-  createEffect(() => {
-    if (!client()) {
-      setSessionsLoaded(false);
-    }
-  });
-
   const artifacts = createMemo(() => deriveArtifacts(messages()));
   const workingFiles = createMemo(() => deriveWorkingFiles(artifacts()));
   const activeSessionId = createMemo(() => selectedSessionId());
@@ -664,6 +655,49 @@ export default function App() {
   const activeTodos = createMemo(() => todos());
   const activeArtifacts = createMemo(() => artifacts());
   const activeWorkingFiles = createMemo(() => workingFiles());
+
+  const sessionActivity = (session: Session) =>
+    session.time?.updated ?? session.time?.created ?? 0;
+  const sortSessionsByActivity = (list: Session[]) =>
+    list
+      .slice()
+      .sort((a, b) => {
+        const delta = sessionActivity(b) - sessionActivity(a);
+        if (delta !== 0) return delta;
+        return a.id.localeCompare(b.id);
+      });
+
+  const [sidebarSessions, setSidebarSessions] = createSignal<Session[]>([]);
+  const refreshSidebarSessions = async () => {
+    const c = client();
+    if (!c) {
+      setSidebarSessions([]);
+      return;
+    }
+    const list = unwrap(await c.session.list());
+    setSidebarSessions(sortSessionsByActivity(list));
+  };
+
+  createEffect(() => {
+    if (!client()) {
+      setSidebarSessions([]);
+      return;
+    }
+    refreshSidebarSessions().catch(() => undefined);
+  });
+
+  const [sessionsLoaded, setSessionsLoaded] = createSignal(false);
+  const loadSessionsWithReady = async (scopeRoot?: string) => {
+    await loadSessions(scopeRoot);
+    setSessionsLoaded(true);
+    await refreshSidebarSessions().catch(() => undefined);
+  };
+
+  createEffect(() => {
+    if (!client()) {
+      setSessionsLoaded(false);
+    }
+  });
 
   const [prompt, setPrompt] = createSignal("");
   const [lastPromptSent, setLastPromptSent] = createSignal("");
@@ -799,6 +833,7 @@ export default function App() {
     }
 
     await renameSession(sessionID, trimmed);
+    await refreshSidebarSessions().catch(() => undefined);
   }
 
   async function deleteSessionById(sessionID: string) {
@@ -813,6 +848,7 @@ export default function App() {
     const params = root ? { sessionID: trimmed, directory: root } : { sessionID: trimmed };
     unwrap(await c.session.delete(params));
     await loadSessions(root || undefined).catch(() => undefined);
+    await refreshSidebarSessions().catch(() => undefined);
 
     const nextStatus = { ...sessionStatusById() };
     if (nextStatus[trimmed]) {
@@ -1289,6 +1325,46 @@ export default function App() {
     engineRuntime,
   });
 
+  const sidebarWorkspaceGroups = createMemo<WorkspaceSessionGroup[]>(() => {
+    const workspaces = workspaceStore.workspaces();
+    const sessionList = sidebarSessions();
+    const workspaceByRoot = new Map<string, string>();
+    const sessionsByWorkspaceId = new Map<string, Session[]>();
+
+    for (const workspace of workspaces) {
+      const root = normalizeDirectoryPath(
+        workspace.workspaceType === "remote" ? workspace.directory ?? "" : workspace.path
+      );
+      if (root) {
+        workspaceByRoot.set(root, workspace.id);
+      }
+      sessionsByWorkspaceId.set(workspace.id, []);
+    }
+
+    for (const session of sessionList) {
+      const root = normalizeDirectoryPath(session.directory ?? "");
+      if (!root) continue;
+      const workspaceId = workspaceByRoot.get(root);
+      if (!workspaceId) continue;
+      const bucket = sessionsByWorkspaceId.get(workspaceId);
+      if (bucket) bucket.push(session);
+    }
+
+    return workspaces.map((workspace) => {
+      const groupSessions = sortSessionsByActivity(sessionsByWorkspaceId.get(workspace.id) ?? []);
+      return {
+        workspace,
+        sessions: groupSessions.map((session) => ({
+          id: session.id,
+          title: session.title,
+          slug: session.slug,
+          time: session.time,
+          directory: session.directory,
+        })),
+      };
+    });
+  });
+
   createEffect(() => {
     if (typeof window === "undefined") return;
     const workspaceId = workspaceStore.activeWorkspaceId();
@@ -1514,6 +1590,11 @@ export default function App() {
 
   const [editRemoteWorkspaceOpen, setEditRemoteWorkspaceOpen] = createSignal(false);
   const [editRemoteWorkspaceId, setEditRemoteWorkspaceId] = createSignal<string | null>(null);
+  const [editRemoteWorkspaceError, setEditRemoteWorkspaceError] = createSignal<string | null>(null);
+  const [renameWorkspaceOpen, setRenameWorkspaceOpen] = createSignal(false);
+  const [renameWorkspaceId, setRenameWorkspaceId] = createSignal<string | null>(null);
+  const [renameWorkspaceName, setRenameWorkspaceName] = createSignal("");
+  const [renameWorkspaceBusy, setRenameWorkspaceBusy] = createSignal(false);
 
   const editRemoteWorkspaceDefaults = createMemo(() => {
     const workspaceId = editRemoteWorkspaceId();
@@ -1527,6 +1608,49 @@ export default function App() {
       displayName: workspace.displayName ?? "",
     };
   });
+
+  const openRenameWorkspace = (workspaceId: string) => {
+    const workspace = workspaceStore.workspaces().find((item) => item.id === workspaceId) ?? null;
+    if (!workspace) return;
+    setRenameWorkspaceId(workspaceId);
+    setRenameWorkspaceName(
+      workspace.displayName?.trim() ||
+        workspace.openworkWorkspaceName?.trim() ||
+        workspace.name?.trim() ||
+        ""
+    );
+    setRenameWorkspaceOpen(true);
+  };
+
+  const closeRenameWorkspace = () => {
+    if (renameWorkspaceBusy()) return;
+    setRenameWorkspaceOpen(false);
+    setRenameWorkspaceId(null);
+    setRenameWorkspaceName("");
+  };
+
+  const saveRenameWorkspace = async () => {
+    const workspaceId = renameWorkspaceId();
+    if (!workspaceId) return;
+    const nextName = renameWorkspaceName().trim();
+    if (!nextName) return;
+    if (renameWorkspaceBusy()) return;
+
+    setRenameWorkspaceBusy(true);
+    setError(null);
+    try {
+      const ok = await workspaceStore.updateWorkspaceDisplayName(workspaceId, nextName);
+      if (!ok) return;
+      setRenameWorkspaceOpen(false);
+      setRenameWorkspaceId(null);
+      setRenameWorkspaceName("");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : safeStringify(e);
+      setError(addOpencodeCacheHint(message));
+    } finally {
+      setRenameWorkspaceBusy(false);
+    }
+  };
 
   const testOpenworkServerConnection = async (next: OpenworkServerSettings) => {
     const derived = normalizeOpenworkServerUrl(next.urlOverride ?? "");
@@ -1560,11 +1684,13 @@ export default function App() {
     const workspace = workspaceStore.workspaces().find((item) => item.id === workspaceId) ?? null;
     if (workspace?.workspaceType === "remote" && workspace.remoteType === "openwork") {
       setEditRemoteWorkspaceId(workspace.id);
+      setEditRemoteWorkspaceError(null);
       setEditRemoteWorkspaceOpen(true);
       return;
     }
     if (workspace?.workspaceType === "remote") {
       setEditRemoteWorkspaceId(workspace.id);
+      setEditRemoteWorkspaceError(null);
       setEditRemoteWorkspaceOpen(true);
       return;
     }
@@ -3534,14 +3660,11 @@ export default function App() {
       setCreateWorkspaceOpen: workspaceStore.setCreateWorkspaceOpen,
       createWorkspaceFlow: workspaceStore.createWorkspaceFlow,
       pickWorkspaceFolder: workspaceStore.pickWorkspaceFolder,
-      sessions: activeSessions().map((s) => ({
-        id: s.id,
-        slug: s.slug,
-        title: s.title,
-        time: s.time,
-        directory: s.directory,
-      })),
-      sessionStatusById: activeSessionStatusById(),
+      workspaceSessionGroups: sidebarWorkspaceGroups(),
+      selectedSessionId: activeSessionId(),
+      openRenameWorkspace,
+      editWorkspaceConnection: openWorkspaceConnectionSettings,
+      forgetWorkspace: workspaceStore.forgetWorkspace,
       scheduledJobs: scheduledJobs(),
       scheduledJobsSource: scheduledJobsSource(),
       scheduledJobsSourceReady: scheduledJobsSourceReady(),
@@ -3665,19 +3788,6 @@ export default function App() {
     }
   };
 
-  const workspaceLabelForDirectory = (directory?: string | null) => {
-    const normalized = normalizeDirectoryPath(directory);
-    if (!normalized) return null;
-    const match = workspaceStore.workspaces().find((workspace) => {
-      const workspacePath = normalizeDirectoryPath(
-        workspace.workspaceType === "remote" ? workspace.directory ?? "" : workspace.path
-      );
-      return workspacePath === normalized;
-    });
-    return match?.displayName ?? match?.name ?? null;
-  };
-
-
   const sessionProps = () => ({
     selectedSessionId: activeSessionId(),
     setView,
@@ -3717,13 +3827,8 @@ export default function App() {
     createSessionAndOpen: createSessionAndOpen,
     sendPromptAsync: sendPrompt,
     newTaskDisabled: newTaskDisabled(),
-    sessions: activeSessions().map((session) => ({
-      id: session.id,
-      title: session.title,
-      slug: session.slug,
-      time: { updated: session.time.updated },
-      workspaceLabel: workspaceLabelForDirectory(session.directory),
-    })),
+    workspaceSessionGroups: sidebarWorkspaceGroups(),
+    openRenameWorkspace,
     selectSession: selectSession,
     messages: activeMessages(),
     todos: activeTodos(),
@@ -3994,25 +4099,48 @@ export default function App() {
         }
       />
 
+      <RenameWorkspaceModal
+        open={renameWorkspaceOpen()}
+        title={renameWorkspaceName()}
+        busy={renameWorkspaceBusy()}
+        canSave={renameWorkspaceName().trim().length > 0 && !renameWorkspaceBusy()}
+        onClose={closeRenameWorkspace}
+        onSave={saveRenameWorkspace}
+        onTitleChange={setRenameWorkspaceName}
+      />
+
       <CreateRemoteWorkspaceModal
         open={editRemoteWorkspaceOpen()}
         onClose={() => {
           setEditRemoteWorkspaceOpen(false);
           setEditRemoteWorkspaceId(null);
+          setEditRemoteWorkspaceError(null);
         }}
         onConfirm={(input) => {
           const workspaceId = editRemoteWorkspaceId();
           if (!workspaceId) return;
+          setEditRemoteWorkspaceError(null);
           void (async () => {
-            const ok = await workspaceStore.updateRemoteWorkspaceFlow(workspaceId, input);
-            if (ok) {
-              setEditRemoteWorkspaceOpen(false);
-              setEditRemoteWorkspaceId(null);
+            try {
+              const ok = await workspaceStore.updateRemoteWorkspaceFlow(workspaceId, input);
+              if (ok) {
+                setEditRemoteWorkspaceOpen(false);
+                setEditRemoteWorkspaceId(null);
+                setEditRemoteWorkspaceError(null);
+              } else {
+                setEditRemoteWorkspaceError(error() || "Connection failed. Check the URL and token.");
+                setError(null);
+              }
+            } catch (e) {
+              const message = e instanceof Error ? e.message : "Connection failed";
+              setEditRemoteWorkspaceError(message);
+              setError(null);
             }
           })();
         }}
         initialValues={editRemoteWorkspaceDefaults() ?? undefined}
         submitting={busy() && busyLabel() === "status.connecting"}
+        error={editRemoteWorkspaceError()}
         title={t("dashboard.edit_remote_workspace_title", currentLocale())}
         subtitle={t("dashboard.edit_remote_workspace_subtitle", currentLocale())}
         confirmLabel={t("dashboard.edit_remote_workspace_confirm", currentLocale())}

@@ -128,6 +128,41 @@ pub fn workspace_set_active(
 }
 
 #[tauri::command]
+pub fn workspace_update_display_name(
+    app: tauri::AppHandle,
+    workspace_id: String,
+    display_name: Option<String>,
+) -> Result<WorkspaceList, String> {
+    println!("[workspace] update display name request: {workspace_id}");
+    let mut state = load_workspace_state(&app)?;
+    let id = workspace_id.trim();
+
+    if id.is_empty() {
+        return Err("workspaceId is required".to_string());
+    }
+
+    let next_name = display_name
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let workspace = state.workspaces.iter_mut().find(|w| w.id == id);
+    match workspace {
+        Some(entry) => {
+            entry.display_name = next_name;
+        }
+        None => return Err("Unknown workspaceId".to_string()),
+    }
+
+    save_workspace_state(&app, &state)?;
+    println!("[workspace] update display name complete: {id}");
+
+    Ok(WorkspaceList {
+        active_id: state.active_id,
+        workspaces: state.workspaces,
+    })
+}
+
+#[tauri::command]
 pub fn workspace_create(
     app: tauri::AppHandle,
     folder_path: String,
@@ -246,7 +281,9 @@ pub fn workspace_create_remote(
         .or_else(|| display_name.clone())
         .unwrap_or_else(|| {
             if remote_type == RemoteType::Openwork {
-                openwork_host_url.clone().unwrap_or_else(|| base_url.clone())
+                openwork_host_url
+                    .clone()
+                    .unwrap_or_else(|| base_url.clone())
             } else {
                 base_url.clone()
             }
@@ -515,10 +552,7 @@ fn is_secret_name(name: &str) -> bool {
     if lower == ".env" || lower.starts_with(".env.") {
         return true;
     }
-    if lower == "credentials.json"
-        || lower == "credentials.yml"
-        || lower == "credentials.yaml"
-    {
+    if lower == "credentials.json" || lower == "credentials.yml" || lower == "credentials.yaml" {
         return true;
     }
     if lower.ends_with(".key")
@@ -607,7 +641,10 @@ pub fn workspace_export_config(
 
     let workspace_root = PathBuf::from(&workspace.path);
     if !workspace_root.exists() {
-        return Err(format!("Workspace path not found: {}", workspace_root.display()));
+        return Err(format!(
+            "Workspace path not found: {}",
+            workspace_root.display()
+        ));
     }
 
     let output_path = PathBuf::from(&output_path);
@@ -628,8 +665,8 @@ pub fn workspace_export_config(
     let mut included_paths: Vec<String> = Vec::new();
 
     for (src, rel) in entries {
-        let mut input = fs::File::open(&src)
-            .map_err(|e| format!("Failed to read {}: {e}", src.display()))?;
+        let mut input =
+            fs::File::open(&src).map_err(|e| format!("Failed to read {}: {e}", src.display()))?;
         zip.start_file(rel.clone(), options)
             .map_err(|e| format!("Failed to add {}: {e}", rel))?;
         let mut buffer = Vec::new();
@@ -701,8 +738,7 @@ pub fn workspace_import_config(
 
     let file = fs::File::open(&archive_path)
         .map_err(|e| format!("Failed to open {}: {e}", archive_path))?;
-    let mut archive = ZipArchive::new(file)
-        .map_err(|e| format!("Failed to read archive: {e}"))?;
+    let mut archive = ZipArchive::new(file).map_err(|e| format!("Failed to read archive: {e}"))?;
 
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
@@ -738,7 +774,8 @@ pub fn workspace_import_config(
             continue;
         }
         let mut buffer = Vec::new();
-        entry.read_to_end(&mut buffer)
+        entry
+            .read_to_end(&mut buffer)
             .map_err(|e| format!("Failed to read archive entry: {e}"))?;
         fs::write(&out_path, buffer)
             .map_err(|e| format!("Failed to write {}: {e}", out_path.display()))?;
@@ -760,7 +797,10 @@ pub fn workspace_import_config(
             config.authorized_roots = vec![target_dir.clone()];
             if let Some(workspace) = &config.workspace {
                 if workspace_name.is_none() {
-                    workspace_name = workspace.name.clone().filter(|value| !value.trim().is_empty());
+                    workspace_name = workspace
+                        .name
+                        .clone()
+                        .filter(|value| !value.trim().is_empty());
                 }
                 if let Some(next_preset) = &workspace.preset {
                     if !next_preset.trim().is_empty() {

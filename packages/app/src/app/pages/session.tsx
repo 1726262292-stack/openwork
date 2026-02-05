@@ -17,6 +17,7 @@ import type {
   View,
   WorkspaceConnectionState,
   WorkspaceDisplay,
+  WorkspaceSessionGroup,
 } from "../types";
 
 import type { WorkspaceInfo } from "../lib/tauri";
@@ -24,11 +25,9 @@ import type { WorkspaceInfo } from "../lib/tauri";
 import {
   Box,
   ChevronDown,
-  ChevronRight,
   Edit2,
   HardDrive,
   History,
-  Layout,
   Loader2,
   MoreHorizontal,
   Plus,
@@ -78,13 +77,8 @@ export type SessionViewProps = {
   createSessionAndOpen: () => void;
   sendPromptAsync: (draft: ComposerDraft) => Promise<void>;
   newTaskDisabled: boolean;
-  sessions: Array<{
-    id: string;
-    title: string;
-    slug?: string | null;
-    workspaceLabel?: string | null;
-    time?: { updated: number };
-  }>;
+  workspaceSessionGroups: WorkspaceSessionGroup[];
+  openRenameWorkspace: (workspaceId: string) => void;
   selectSession: (sessionId: string) => Promise<void> | void;
   messages: MessageWithParts[];
   todos: TodoItem[];
@@ -169,17 +163,6 @@ export default function SessionView(props: SessionViewProps) {
   const [unreadCount, setUnreadCount] = createSignal(0);
 
   const agentLabel = createMemo(() => props.selectedSessionAgent ?? "Default agent");
-  const workspaceStatus = createMemo(() => {
-    switch (props.openworkServerStatus) {
-      case "connected":
-        return { label: "Live", className: "bg-emerald-3 text-emerald-11" };
-      case "limited":
-        return { label: "Limited", className: "bg-amber-3 text-amber-11" };
-      case "disconnected":
-      default:
-        return { label: "Offline", className: "bg-red-3 text-red-11" };
-    }
-  });
   const workspaceLabel = (workspace: WorkspaceInfo) =>
     workspace.displayName?.trim() ||
     workspace.openworkWorkspaceName?.trim() ||
@@ -188,11 +171,40 @@ export default function SessionView(props: SessionViewProps) {
     "Workspace";
   const workspaceKindLabel = (workspace: WorkspaceInfo) =>
     workspace.workspaceType === "remote" ? "Remote" : "Local";
-  const [sessionsExpanded, setSessionsExpanded] = createSignal(true);
-  const [showAllSessions, setShowAllSessions] = createSignal(false);
-  const visibleSessions = createMemo(() =>
-    showAllSessions() ? props.sessions : props.sessions.slice(0, 5)
-  );
+  const MAX_SESSIONS_PREVIEW = 3;
+  const [previewCountByWorkspaceId, setPreviewCountByWorkspaceId] = createSignal<
+    Record<string, number>
+  >({});
+  const previewCount = (workspaceId: string) =>
+    previewCountByWorkspaceId()[workspaceId] ?? MAX_SESSIONS_PREVIEW;
+  const previewSessions = (workspaceId: string, sessions: WorkspaceSessionGroup["sessions"]) =>
+    sessions.slice(0, previewCount(workspaceId));
+  const showMoreSessions = (workspaceId: string, total: number) => {
+    setPreviewCountByWorkspaceId((current) => {
+      const next = { ...current };
+      const existing = next[workspaceId] ?? MAX_SESSIONS_PREVIEW;
+      next[workspaceId] = Math.min(existing + MAX_SESSIONS_PREVIEW, total);
+      return next;
+    });
+  };
+  const showMoreLabel = (workspaceId: string, total: number) => {
+    const remaining = Math.max(0, total - previewCount(workspaceId));
+    const nextCount = Math.min(MAX_SESSIONS_PREVIEW, remaining);
+    return nextCount > 0 ? `Show ${nextCount} more` : "Show more";
+  };
+  const [workspaceMenuId, setWorkspaceMenuId] = createSignal<string | null>(null);
+  let workspaceMenuRef: HTMLDivElement | undefined;
+
+  createEffect(() => {
+    if (!workspaceMenuId()) return;
+    const closeMenu = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (workspaceMenuRef && target && workspaceMenuRef.contains(target)) return;
+      setWorkspaceMenuId(null);
+    };
+    window.addEventListener("click", closeMenu);
+    onCleanup(() => window.removeEventListener("click", closeMenu));
+  });
   const attachmentsEnabled = createMemo(() => {
     if (props.activeWorkspaceDisplay.workspaceType !== "remote") return true;
     return props.openworkServerStatus === "connected";
@@ -614,7 +626,11 @@ export default function SessionView(props: SessionViewProps) {
   const selectedSessionTitle = createMemo(() => {
     const id = props.selectedSessionId;
     if (!id) return "";
-    return props.sessions.find((session) => session.id === id)?.title ?? "";
+    for (const group of props.workspaceSessionGroups) {
+      const match = group.sessions.find((session) => session.id === id);
+      if (match) return match.title ?? "";
+    }
+    return "";
   });
 
   const renameCanSave = createMemo(() => {
@@ -729,10 +745,20 @@ export default function SessionView(props: SessionViewProps) {
     props.setPrompt(draft.text);
   };
 
-  const openSessionFromList = (sessionId: string) => {
+  const openSessionFromList = (workspaceId: string, sessionId: string) => {
     if (!sessionId) return;
-    void props.selectSession(sessionId);
-    props.setView("session", sessionId);
+    // For same-workspace clicks, just select the session without workspace activation
+    if (workspaceId === props.activeWorkspaceId) {
+      void props.selectSession(sessionId);
+      props.setView("session", sessionId);
+      return;
+    }
+    // For different workspace, activate workspace first
+    void (async () => {
+      await Promise.resolve(props.activateWorkspace(workspaceId));
+      void props.selectSession(sessionId);
+      props.setView("session", sessionId);
+    })();
   };
 
   const openSettings = (tab: SettingsTab = "general") => {
@@ -810,65 +836,10 @@ export default function SessionView(props: SessionViewProps) {
           </button>
         </div>
 
-        <div class="space-y-2 mb-6">
-          <div class="flex items-center justify-between text-[11px] font-bold text-dls-secondary uppercase px-3 tracking-tight">
-            <span>Workspaces</span>
-            <button
-              type="button"
-              aria-label="Workspace settings"
-              onClick={() => openSettings("general")}
-              class="text-dls-secondary hover:text-dls-text"
-            >
-              <Settings size={14} />
-            </button>
-          </div>
-          <div class="space-y-1">
-            <For each={props.workspaces}>
-              {(workspace) => {
-                const isActive = () => props.activeWorkspaceId === workspace.id;
-                const isConnecting = () => props.connectingWorkspaceId === workspace.id;
-                return (
-                  <button
-                    type="button"
-                    class={`w-full flex items-center justify-between h-10 px-3 rounded-lg text-left transition-colors ${
-                      isActive()
-                        ? "bg-dls-active text-dls-text"
-                        : "text-dls-text hover:bg-dls-hover"
-                    }`}
-                    onClick={() => props.activateWorkspace(workspace.id)}
-                  >
-                    <div class="min-w-0">
-                      <div class="text-sm font-medium truncate">{workspaceLabel(workspace)}</div>
-                      <div class="text-[11px] text-dls-secondary">
-                        {workspaceKindLabel(workspace)}
-                        {isActive() ? ` · ${workspaceStatus().label}` : ""}
-                      </div>
-                    </div>
-                    <Show when={isConnecting()}>
-                      <Loader2 size={14} class="animate-spin text-dls-secondary" />
-                    </Show>
-                  </button>
-                );
-              }}
-            </For>
-          </div>
-          <button
-            type="button"
-            onClick={props.openCreateWorkspace}
-            class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
-          >
-            <Plus size={14} />
-            Add a workspace
-          </button>
-        </div>
-
         <div class="flex-1 overflow-y-auto">
           <div class="flex items-center justify-between text-[11px] font-bold text-dls-secondary uppercase px-3 mb-3 tracking-tight">
             <span>Sessions</span>
             <div class="flex gap-2 text-dls-secondary">
-              <button type="button" class="hover:text-dls-text" aria-label="Session layout">
-                <Layout size={14} />
-              </button>
               <button
                 type="button"
                 class="hover:text-dls-text"
@@ -881,105 +852,175 @@ export default function SessionView(props: SessionViewProps) {
             </div>
           </div>
 
-          <div class="mb-2">
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={() => setSessionsExpanded((current) => !current)}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
-                event.preventDefault();
-                setSessionsExpanded((current) => !current);
-              }}
-              class="group flex items-center justify-between h-8 px-3 rounded-lg cursor-pointer text-dls-text transition-colors hover:bg-dls-hover"
-            >
-              <div class="flex items-center gap-2">
-                <ChevronRight
-                  size={14}
-                  class={`text-dls-secondary transition-transform ${
-                    sessionsExpanded() ? "rotate-90" : ""
-                  }`}
-                />
-                <span class="text-sm font-medium">{props.activeWorkspaceDisplay.name}</span>
-              </div>
-              <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  type="button"
-                  class="p-1 hover:bg-dls-active rounded-md text-dls-secondary transition-colors"
-                  onClick={(event) => event.stopPropagation()}
-                  aria-label="Workspace options"
-                >
-                  <MoreHorizontal size={14} />
-                </button>
-              </div>
-            </div>
+          <div class="space-y-3 mb-3">
+            <For each={props.workspaceSessionGroups}>
+              {(group) => {
+                const workspace = () => group.workspace;
+                const isConnecting = () => props.connectingWorkspaceId === workspace().id;
+                const isMenuOpen = () => workspaceMenuId() === workspace().id;
 
-            <Show when={sessionsExpanded()}>
-              <div class="mt-0.5 space-y-0.5 border-l border-dls-border ml-4">
-                <Show
-                  when={props.sessions.length > 0}
-                  fallback={
-                    <div class="px-3 py-2 text-xs text-dls-secondary">
-                      No sessions yet.
-                    </div>
-                  }
-                >
-                  <For each={visibleSessions()}>
-                    {(session) => (
+                return (
+                  <div class="space-y-1">
+                    <div class="relative group">
                       <div
                         role="button"
                         tabIndex={0}
-                        class="group flex items-center justify-between h-8 px-3 hover:bg-dls-hover rounded-lg cursor-pointer relative overflow-hidden ml-5 w-[calc(100%-1.25rem)]"
-                        onClick={() => openSessionFromList(session.id)}
+                        class="w-full flex items-center justify-between h-10 px-3 rounded-lg text-left transition-colors text-dls-text hover:bg-dls-hover"
+                        onClick={() => props.activateWorkspace(workspace().id)}
                         onKeyDown={(event) => {
                           if (event.key !== "Enter" && event.key !== " ") return;
                           event.preventDefault();
-                          openSessionFromList(session.id);
+                          props.activateWorkspace(workspace().id);
                         }}
                       >
-                        <span class="text-sm text-dls-text truncate mr-2 font-medium group-hover:pr-14 transition-all">
-                          {session.title}
-                        </span>
-                        <Show when={session.time?.updated}>
-                          <span class="text-xs text-dls-secondary whitespace-nowrap group-hover:opacity-0 transition-opacity">
-                            {formatRelativeTime(session.time?.updated ?? Date.now())}
-                          </span>
+                        <div class="min-w-0">
+                          <div class="text-sm font-medium truncate">{workspaceLabel(workspace())}</div>
+                          <div class="text-[11px] text-dls-secondary">
+                            {workspaceKindLabel(workspace())}
+                          </div>
+                        </div>
+                        <Show when={isConnecting()}>
+                          <Loader2 size={14} class="animate-spin text-dls-secondary" />
                         </Show>
-                        <div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      </div>
+                      <button
+                        type="button"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-dls-secondary hover:text-dls-text hover:bg-dls-active opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setWorkspaceMenuId((current) =>
+                            current === workspace().id ? null : workspace().id
+                          );
+                        }}
+                        aria-label="Workspace options"
+                      >
+                        <MoreHorizontal size={14} />
+                      </button>
+                      <Show when={isMenuOpen()}>
+                        <div
+                          ref={(el) => (workspaceMenuRef = el)}
+                          class="absolute right-2 top-[calc(100%+4px)] z-20 w-44 rounded-lg border border-dls-border bg-dls-surface shadow-lg p-1"
+                          onClick={(event) => event.stopPropagation()}
+                        >
                           <button
                             type="button"
-                            class="p-1 hover:bg-dls-active rounded-md text-dls-text transition-colors"
-                            onClick={(event) => event.stopPropagation()}
-                            aria-label="Session options"
+                            class="w-full text-left px-2 py-1.5 text-sm rounded-md hover:bg-dls-hover"
+                            onClick={() => {
+                              props.openRenameWorkspace(workspace().id);
+                              setWorkspaceMenuId(null);
+                            }}
                           >
-                            <MoreHorizontal size={14} />
+                            Edit name
                           </button>
+                          <Show when={workspace().workspaceType === "remote"}>
+                            <button
+                              type="button"
+                              class="w-full text-left px-2 py-1.5 text-sm rounded-md hover:bg-dls-hover"
+                              onClick={() => {
+                                props.editWorkspaceConnection(workspace().id);
+                                setWorkspaceMenuId(null);
+                              }}
+                            >
+                              Edit connection
+                            </button>
+                          </Show>
                           <button
                             type="button"
-                            class="p-1 hover:bg-dls-active rounded-md text-dls-text transition-colors"
-                            onClick={(event) => event.stopPropagation()}
-                            aria-label="Rename session"
+                            class="w-full text-left px-2 py-1.5 text-sm rounded-md hover:bg-dls-hover text-red-11"
+                            onClick={() => {
+                              props.forgetWorkspace(workspace().id);
+                              setWorkspaceMenuId(null);
+                            }}
                           >
-                            <Edit2 size={14} />
+                            Remove workspace
                           </button>
                         </div>
-                      </div>
-                    )}
-                  </For>
-                </Show>
-              </div>
-            </Show>
+                      </Show>
+                    </div>
+
+                    <div class="mt-0.5 space-y-0.5 border-l border-dls-border ml-2">
+                      <Show
+                        when={group.sessions.length > 0}
+                        fallback={
+                          <div class="px-3 py-2 text-xs text-dls-secondary ml-2">
+                            No sessions yet.
+                          </div>
+                        }
+                      >
+                        <For each={previewSessions(workspace().id, group.sessions)}>
+                          {(session) => {
+                            const isSelected = () => props.selectedSessionId === session.id;
+                            return (
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                class={`group flex items-center justify-between h-8 px-3 rounded-lg cursor-pointer relative overflow-hidden ml-2 w-[calc(100%-0.5rem)] ${
+                                  isSelected()
+                                    ? "bg-dls-active text-dls-text"
+                                    : "hover:bg-dls-hover"
+                                }`}
+                                onClick={() => openSessionFromList(workspace().id, session.id)}
+                                onKeyDown={(event) => {
+                                  if (event.key !== "Enter" && event.key !== " ") return;
+                                  event.preventDefault();
+                                  openSessionFromList(workspace().id, session.id);
+                                }}
+                              >
+                                <span class="text-sm text-dls-text truncate mr-2 font-medium group-hover:pr-14 transition-all">
+                                  {session.title}
+                                </span>
+                                <Show when={session.time?.updated}>
+                                  <span class="text-xs text-dls-secondary whitespace-nowrap group-hover:opacity-0 transition-opacity">
+                                    {formatRelativeTime(session.time?.updated ?? Date.now())}
+                                  </span>
+                                </Show>
+                                <div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button
+                                    type="button"
+                                    class="p-1 hover:bg-dls-active rounded-md text-dls-text transition-colors"
+                                    onClick={(event) => event.stopPropagation()}
+                                    aria-label="Session options"
+                                  >
+                                    <MoreHorizontal size={14} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    class="p-1 hover:bg-dls-active rounded-md text-dls-text transition-colors"
+                                    onClick={(event) => event.stopPropagation()}
+                                    aria-label="Rename session"
+                                  >
+                                    <Edit2 size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          }}
+                        </For>
+                        <Show when={group.sessions.length > previewCount(workspace().id)}>
+                          <button
+                            type="button"
+                            class="ml-2 w-[calc(100%-0.5rem)] px-3 py-2 text-xs text-dls-secondary hover:text-dls-text hover:bg-dls-hover rounded-lg transition-colors text-left"
+                            onClick={() => showMoreSessions(workspace().id, group.sessions.length)}
+                          >
+                            {showMoreLabel(workspace().id, group.sessions.length)}
+                          </button>
+                        </Show>
+                      </Show>
+                    </div>
+                  </div>
+                );
+              }}
+            </For>
           </div>
 
-          <Show when={props.sessions.length > 5}>
-            <button
-              type="button"
-              onClick={() => setShowAllSessions((current) => !current)}
-              class="px-3 py-1.5 text-xs text-dls-secondary hover:text-dls-text font-medium"
-            >
-              {showAllSessions() ? "Show less" : "Show more"}
-            </button>
-          </Show>
+          <button
+            type="button"
+            onClick={props.openCreateWorkspace}
+            class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
+          >
+            <Plus size={14} />
+            Add a workspace
+          </button>
         </div>
 
         <div class="pt-4 border-t border-dls-border">

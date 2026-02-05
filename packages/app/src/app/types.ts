@@ -13,6 +13,22 @@ export type Client = ReturnType<typeof createClient>;
 
 export type ProviderListItem = ProviderListResponse["all"][number];
 
+export type SidebarSessionItem = {
+  id: string;
+  title: string;
+  slug?: string | null;
+  time?: {
+    updated?: number | null;
+    created?: number | null;
+  };
+  directory?: string | null;
+};
+
+export type WorkspaceSessionGroup = {
+  workspace: WorkspaceInfo;
+  sessions: SidebarSessionItem[];
+};
+
 export type PlaceholderAssistantMessage = {
   id: string;
   sessionID: string;
