@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
-import { ArrowUp, AtSign, ChevronDown, File, History, Mic, Paperclip, X, Zap } from "lucide-solid";
+import { ArrowUp, AtSign, ChevronDown, File, Paperclip, X, Zap } from "lucide-solid";
 
 import type { ComposerAttachment, ComposerDraft, ComposerPart, PromptMode } from "../../types";
 
@@ -1007,12 +1007,6 @@ export default function Composer(props: ComposerProps) {
                         </div>
                       </div>
                       <div class="flex items-center gap-3 text-dls-secondary">
-                        <button type="button" class="cursor-pointer hover:text-dls-text">
-                          <History size={18} />
-                        </button>
-                        <button type="button" class="cursor-pointer hover:text-dls-text">
-                          <Mic size={18} />
-                        </button>
                         <button
                           type="button"
                           disabled={!props.prompt.trim() && !attachments().length}

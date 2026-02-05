@@ -25,7 +25,6 @@ import type { WorkspaceInfo } from "../lib/tauri";
 import {
   Box,
   ChevronDown,
-  Edit2,
   HardDrive,
   History,
   Loader2,
@@ -966,32 +965,14 @@ export default function SessionView(props: SessionViewProps) {
                                   openSessionFromList(workspace().id, session.id);
                                 }}
                               >
-                                <span class="text-sm text-dls-text truncate mr-2 font-medium group-hover:pr-14 transition-all">
+                                <span class="text-sm text-dls-text truncate mr-2 font-medium">
                                   {session.title}
                                 </span>
                                 <Show when={session.time?.updated}>
-                                  <span class="text-xs text-dls-secondary whitespace-nowrap group-hover:opacity-0 transition-opacity">
+                                  <span class="text-xs text-dls-secondary whitespace-nowrap">
                                     {formatRelativeTime(session.time?.updated ?? Date.now())}
                                   </span>
                                 </Show>
-                                <div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button
-                                    type="button"
-                                    class="p-1 hover:bg-dls-active rounded-md text-dls-text transition-colors"
-                                    onClick={(event) => event.stopPropagation()}
-                                    aria-label="Session options"
-                                  >
-                                    <MoreHorizontal size={14} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    class="p-1 hover:bg-dls-active rounded-md text-dls-text transition-colors"
-                                    onClick={(event) => event.stopPropagation()}
-                                    aria-label="Rename session"
-                                  >
-                                    <Edit2 size={14} />
-                                  </button>
-                                </div>
                               </div>
                             );
                           }}
