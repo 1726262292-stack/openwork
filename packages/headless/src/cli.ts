@@ -955,7 +955,7 @@ async function readCliVersion(bin: string, timeoutMs = 4000): Promise<string | u
   });
 
   const result = await Promise.race([
-    once(child, "exit").then(() => "exit"),
+    once(child, "close").then(() => "close"),
     once(child, "error").then(() => "error"),
     new Promise((resolve) => setTimeout(resolve, timeoutMs, "timeout")),
   ]);
@@ -1697,6 +1697,9 @@ async function owpenbotSupportsOpencodeUrl(bin: string): Promise<boolean> {
 }
 
 async function verifyOwpenbotVersion(binary: ResolvedBinary): Promise<string | undefined> {
+  if (binary.source !== "external") {
+    return binary.expectedVersion;
+  }
   const actual = await readCliVersion(binary.bin);
   assertVersionMatch("owpenbot", binary.expectedVersion, actual, binary.bin);
   return actual;
