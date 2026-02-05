@@ -3154,6 +3154,7 @@ async function runStart(args: ParsedArgs) {
         const result = await copyToClipboard(attachCommand);
         return { command: attachCommand, ...result };
       },
+      onCopySelection: async (text) => copyToClipboard(text),
       onOwpenbotHealth: async () => fetchOwpenbotHealth(owpenbotHealthUrl),
       onOwpenbotQr: async () => {
         if (!owpenbotBinary) {

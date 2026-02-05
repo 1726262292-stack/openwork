@@ -1,6 +1,6 @@
-import { RGBA, TextAttributes, type InputRenderable, type KeyEvent } from "@opentui/core";
-import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid";
-import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
+import { RGBA, TextAttributes, type InputRenderable, type KeyEvent, type TabSelectRenderable } from "@opentui/core";
+import { render, useKeyboard, useRenderer, useSelectionHandler, useTerminalDimensions } from "@opentui/solid";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { createStore } from "solid-js/store";
 
 export type TuiLogLevel = "debug" | "info" | "warn" | "error";
@@ -67,6 +67,7 @@ type TuiOptions = {
   onQuit: () => void | Promise<void>;
   onDetach: () => void | Promise<void>;
   onCopyAttach: () => Promise<{ command: string; copied: boolean; error?: string }>;
+  onCopySelection?: (text: string) => Promise<{ copied: boolean; error?: string }>;
   onOwpenbotHealth: () => Promise<TuiOwpenbotHealth>;
   onOwpenbotQr: () => Promise<string>;
   onOwpenbotSetTelegramToken: (token: string) => Promise<{ ok: boolean; error?: string }>;
@@ -115,6 +116,15 @@ const levelColor: Record<TuiLogLevel, RGBA> = {
 const levelCycle: Array<"all" | TuiLogLevel> = ["all", "info", "warn", "error", "debug"];
 
 const serviceCycle = ["all", "openwrk", "opencode", "openwork-server", "owpenbot"];
+
+const viewTabs: Array<{ name: string; description: string; value: ViewName }> = [
+  { name: "Overview", description: "Overview", value: "overview" },
+  { name: "Logs", description: "Logs", value: "logs" },
+  { name: "Owpenbot", description: "Owpenbot", value: "owpenbot" },
+  { name: "Help", description: "Help", value: "help" },
+];
+
+const viewIndexByName = new Map(viewTabs.map((entry, index) => [entry.value, index]));
 
 function formatDuration(ms: number) {
   if (ms < 1000) return `${ms}ms`;
@@ -215,6 +225,67 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
         if (toastTimer) clearTimeout(toastTimer);
       });
 
+      const setView = (view: ViewName) => {
+        setState("view", view);
+        if (view !== "owpenbot") {
+          setState("owpenbotEditing", false);
+        }
+      };
+
+      let tabSelect: TabSelectRenderable | undefined;
+      const tabWidth = createMemo(() => {
+        const width = Math.max(0, dimensions().width - 4);
+        return Math.max(12, Math.floor(width / viewTabs.length));
+      });
+      createEffect(() => {
+        if (!tabSelect) return;
+        const index = viewIndexByName.get(state.view) ?? 0;
+        if (tabSelect.getSelectedIndex() !== index) {
+          tabSelect.setSelectedIndex(index);
+        }
+      });
+
+      const copySelection = async (text: string) => {
+        let copied = false;
+        let error: string | undefined;
+        if (options.onCopySelection) {
+          try {
+            const result = await options.onCopySelection(text);
+            copied = result.copied;
+            error = result.error;
+          } catch (err) {
+            error = err instanceof Error ? err.message : String(err);
+          }
+        }
+        if (!copied && renderer.isOsc52Supported()) {
+          copied = renderer.copyToClipboardOSC52(text);
+        }
+        if (!copied) {
+          if (error) {
+            showToast(`Selection copy failed: ${error}`);
+          }
+          return;
+        }
+        showToast("Selection copied");
+      };
+
+      let lastCopiedSelection = "";
+      useSelectionHandler((selection) => {
+        if (!selection || !selection.isActive) {
+          lastCopiedSelection = "";
+          return;
+        }
+        const text = selection.getSelectedText();
+        if (!text) {
+          lastCopiedSelection = "";
+          return;
+        }
+        if (selection.isDragging) return;
+        if (text === lastCopiedSelection) return;
+        lastCopiedSelection = text;
+        void copySelection(text);
+      });
+
       let tokenInput: InputRenderable | undefined;
 
       const logHeight = createMemo(() => {
@@ -294,23 +365,22 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
         }
         if (evt.name === "l") {
           evt.preventDefault();
-          setState("view", "logs");
+          setView("logs");
           return;
         }
         if (evt.name === "w") {
           evt.preventDefault();
-          setState("view", "owpenbot");
+          setView("owpenbot");
           return;
         }
         if (evt.name === "h" || evt.name === "?") {
           evt.preventDefault();
-          setState("view", "help");
+          setView("help");
           return;
         }
         if (evt.name === "b" || evt.name === "o") {
           evt.preventDefault();
-          setState("view", "overview");
-          setState("owpenbotEditing", false);
+          setView("overview");
           return;
         }
         if (evt.name === "c") {
@@ -331,7 +401,7 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
         if (state.view === "owpenbot") {
           if (evt.name === "b" || evt.name === "o") {
             evt.preventDefault();
-            setState("view", "overview");
+            setView("overview");
             return;
           }
           if (evt.name === "g") {
@@ -425,6 +495,34 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
             <text fg={theme.textMuted}>v{options.version}</text>
           </box>
           <text fg={theme.textMuted}>run id: {state.connect.runId}</text>
+
+          <box paddingTop={1}>
+            <tab_select
+              ref={(node) => {
+                tabSelect = node;
+                if (tabSelect) {
+                  const index = viewIndexByName.get(state.view) ?? 0;
+                  tabSelect.setSelectedIndex(index);
+                }
+              }}
+              options={viewTabs}
+              tabWidth={tabWidth()}
+              showDescription={false}
+              showUnderline={true}
+              wrapSelection={true}
+              backgroundColor={theme.panel}
+              textColor={theme.textMuted}
+              focusedBackgroundColor={theme.border}
+              focusedTextColor={theme.text}
+              selectedBackgroundColor={theme.accent}
+              selectedTextColor={theme.panel}
+              selectedDescriptionColor={theme.text}
+              onSelect={(_, option) => {
+                if (!option?.value) return;
+                setView(option.value as ViewName);
+              }}
+            />
+          </box>
 
           <Show when={state.view === "overview"}>
             <box flexDirection="row" gap={4} paddingTop={1}>
@@ -596,6 +694,8 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
               <text fg={theme.textMuted}>T: Telegram token (owpenbot)</text>
               <text fg={theme.textMuted}>D: Detach</text>
               <text fg={theme.textMuted}>Q: Quit</text>
+              <text fg={theme.textMuted}>Mouse: click tabs</text>
+              <text fg={theme.textMuted}>Mouse: select text to copy</text>
             </box>
           </Show>
 
@@ -615,6 +715,8 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
       targetFps: 60,
       gatherStats: false,
       exitOnCtrlC: false,
+      useMouse: true,
+      enableMouseMovement: true,
       useKittyKeyboard: {},
       autoFocus: false,
       consoleOptions: {
