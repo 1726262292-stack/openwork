@@ -29,6 +29,7 @@ import {
   HardDrive,
   History,
   Layout,
+  Loader2,
   MoreHorizontal,
   Plus,
   Settings,
@@ -179,9 +180,14 @@ export default function SessionView(props: SessionViewProps) {
         return { label: "Offline", className: "bg-red-3 text-red-11" };
     }
   });
-  const workspaceTypeLabel = createMemo(() =>
-    props.activeWorkspaceDisplay.workspaceType === "remote" ? "Remote" : "Local"
-  );
+  const workspaceLabel = (workspace: WorkspaceInfo) =>
+    workspace.displayName?.trim() ||
+    workspace.openworkWorkspaceName?.trim() ||
+    workspace.name?.trim() ||
+    workspace.path?.trim() ||
+    "Workspace";
+  const workspaceKindLabel = (workspace: WorkspaceInfo) =>
+    workspace.workspaceType === "remote" ? "Remote" : "Local";
   const [sessionsExpanded, setSessionsExpanded] = createSignal(true);
   const [showAllSessions, setShowAllSessions] = createSignal(false);
   const visibleSessions = createMemo(() =>
@@ -806,7 +812,7 @@ export default function SessionView(props: SessionViewProps) {
 
         <div class="space-y-2 mb-6">
           <div class="flex items-center justify-between text-[11px] font-bold text-dls-secondary uppercase px-3 tracking-tight">
-            <span>Workspace</span>
+            <span>Workspaces</span>
             <button
               type="button"
               aria-label="Workspace settings"
@@ -816,15 +822,44 @@ export default function SessionView(props: SessionViewProps) {
               <Settings size={14} />
             </button>
           </div>
-          <div class="rounded-lg border border-dls-border bg-dls-surface px-3 py-2">
-            <div class="text-sm font-semibold text-dls-text truncate">
-              {props.activeWorkspaceDisplay.name}
-            </div>
-            <div class="mt-1 flex items-center gap-2 text-xs text-dls-secondary">
-              <span>{workspaceTypeLabel()}</span>
-              <span>{workspaceStatus().label}</span>
-            </div>
+          <div class="space-y-1">
+            <For each={props.workspaces}>
+              {(workspace) => {
+                const isActive = () => props.activeWorkspaceId === workspace.id;
+                const isConnecting = () => props.connectingWorkspaceId === workspace.id;
+                return (
+                  <button
+                    type="button"
+                    class={`w-full flex items-center justify-between h-10 px-3 rounded-lg text-left transition-colors ${
+                      isActive()
+                        ? "bg-dls-active text-dls-text"
+                        : "text-dls-text hover:bg-dls-hover"
+                    }`}
+                    onClick={() => props.activateWorkspace(workspace.id)}
+                  >
+                    <div class="min-w-0">
+                      <div class="text-sm font-medium truncate">{workspaceLabel(workspace)}</div>
+                      <div class="text-[11px] text-dls-secondary">
+                        {workspaceKindLabel(workspace)}
+                        {isActive() ? ` · ${workspaceStatus().label}` : ""}
+                      </div>
+                    </div>
+                    <Show when={isConnecting()}>
+                      <Loader2 size={14} class="animate-spin text-dls-secondary" />
+                    </Show>
+                  </button>
+                );
+              }}
+            </For>
           </div>
+          <button
+            type="button"
+            onClick={props.openCreateWorkspace}
+            class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
+          >
+            <Plus size={14} />
+            Add a workspace
+          </button>
         </div>
 
         <div class="flex-1 overflow-y-auto">

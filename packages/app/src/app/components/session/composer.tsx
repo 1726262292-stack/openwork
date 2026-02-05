@@ -833,60 +833,7 @@ export default function Composer(props: ComposerProps) {
             </div>
           </Show>
 
-          <div class="hidden">
-            <button
-              type="button"
-              class="flex items-center gap-1.5 text-gray-7 hover:text-gray-11 transition-colors"
-              onClick={props.onModelClick}
-              disabled={props.busy}
-            >
-              <Zap size={10} class="text-gray-7 group-hover:text-amber-11 transition-colors" />
-              <span>{props.selectedModelLabel}</span>
-            </button>
-            <div class="relative z-40" ref={(el) => (variantPickerRef = el)}>
-              <button
-                type="button"
-                class="flex items-center gap-2 rounded-full border border-gray-6/80 bg-gray-1/60 px-2 py-0.5 text-[9px] text-gray-9 hover:text-gray-11 hover:border-gray-7 transition-colors"
-                onClick={() => setVariantMenuOpen((open) => !open)}
-                disabled={props.busy}
-                aria-expanded={variantMenuOpen()}
-              >
-                <span class="text-gray-8">Variant</span>
-                <span class="font-mono text-gray-11">{props.modelVariantLabel}</span>
-                <ChevronDown size={12} class="text-gray-8" />
-              </button>
-              <Show when={variantMenuOpen()}>
-                <div class="absolute left-0 bottom-full mb-2 w-40 rounded-2xl border border-gray-6 bg-gray-1/95 shadow-2xl backdrop-blur-md overflow-hidden z-40">
-                  <div class="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-8 border-b border-gray-6/30">
-                    Thinking effort
-                  </div>
-                  <div class="p-2 space-y-1">
-                    <For each={MODEL_VARIANT_OPTIONS}>
-                      {(option) => (
-                        <button
-                          type="button"
-                          class={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs transition-colors ${
-                            activeVariant() === option.value
-                              ? "bg-gray-12/10 text-gray-12"
-                              : "text-gray-11 hover:bg-gray-12/5"
-                          }`}
-                          onClick={() => {
-                            props.onModelVariantChange(option.value);
-                            setVariantMenuOpen(false);
-                          }}
-                        >
-                          <span>{option.label}</span>
-                          <Show when={activeVariant() === option.value}>
-                            <span class="text-[10px] uppercase tracking-wider text-gray-9">Active</span>
-                          </Show>
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </div>
-              </Show>
-            </div>
-          </div>
+
 
           <div class="p-3 px-4">
             <Show when={props.showNotionBanner}>
@@ -1015,6 +962,49 @@ export default function Composer(props: ComposerProps) {
                           {props.selectedModelLabel}
                           <ChevronDown size={14} />
                         </button>
+                        <div class="relative" ref={(el) => (variantPickerRef = el)}>
+                          <button
+                            type="button"
+                            class="flex items-center gap-1.5 px-2 py-1 hover:bg-dls-hover rounded-md text-xs font-medium text-dls-secondary hover:text-dls-text"
+                            onClick={() => setVariantMenuOpen((open) => !open)}
+                            disabled={props.busy}
+                            aria-expanded={variantMenuOpen()}
+                          >
+                            <span>Thinking</span>
+                            <span class="font-mono text-dls-text">{props.modelVariantLabel}</span>
+                            <ChevronDown size={14} />
+                          </button>
+                          <Show when={variantMenuOpen()}>
+                            <div class="absolute left-0 bottom-full mb-2 w-48 rounded-xl border border-dls-border bg-dls-surface shadow-xl backdrop-blur-md overflow-hidden z-40">
+                              <div class="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-dls-secondary border-b border-dls-border">
+                                Thinking effort
+                              </div>
+                              <div class="p-2 space-y-1">
+                                <For each={MODEL_VARIANT_OPTIONS}>
+                                  {(option) => (
+                                    <button
+                                      type="button"
+                                      class={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors ${
+                                        activeVariant() === option.value
+                                          ? "bg-dls-active text-dls-text"
+                                          : "text-dls-secondary hover:bg-dls-hover"
+                                      }`}
+                                      onClick={() => {
+                                        props.onModelVariantChange(option.value);
+                                        setVariantMenuOpen(false);
+                                      }}
+                                    >
+                                      <span>{option.label}</span>
+                                      <Show when={activeVariant() === option.value}>
+                                        <span class="text-[10px] uppercase tracking-wider text-dls-secondary">Active</span>
+                                      </Show>
+                                    </button>
+                                  )}
+                                </For>
+                              </div>
+                            </div>
+                          </Show>
+                        </div>
                       </div>
                       <div class="flex items-center gap-3 text-dls-secondary">
                         <button type="button" class="cursor-pointer hover:text-dls-text">
