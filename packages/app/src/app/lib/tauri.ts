@@ -802,3 +802,12 @@ export async function owpenbotRestart(options: {
   await owpenbotStop();
   return owpenbotStart(options);
 }
+
+/**
+ * Set window decorations (titlebar) visibility.
+ * When `decorations` is false, the native titlebar is hidden.
+ * Useful for tiling window managers on Linux (e.g., Hyprland, i3, sway).
+ */
+export async function setWindowDecorations(decorations: boolean): Promise<void> {
+  return invoke<void>("set_window_decorations", { decorations });
+}

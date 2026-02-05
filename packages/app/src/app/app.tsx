@@ -41,6 +41,7 @@ import ProtoV1UxView from "./pages/proto-v1-ux";
 import { createClient, unwrap, waitForHealthy } from "./lib/opencode";
 import {
   DEFAULT_MODEL,
+  HIDE_TITLEBAR_PREF_KEY,
   MCP_QUICK_CONNECT,
   MODEL_PREF_KEY,
   SESSION_MODEL_PREF_KEY,
@@ -124,6 +125,7 @@ import {
   openworkServerInfo,
   openwrkStatus,
   owpenbotInfo,
+  setWindowDecorations,
   type OpenwrkStatus,
   type OpenworkServerInfo,
   type OwpenbotInfo,
@@ -1240,6 +1242,7 @@ export default function App() {
   const [modelPickerQuery, setModelPickerQuery] = createSignal("");
 
   const [showThinking, setShowThinking] = createSignal(false);
+  const [hideTitlebar, setHideTitlebar] = createSignal(false);
   const [modelVariant, setModelVariant] = createSignal<string | null>(null);
 
   const MODEL_VARIANT_OPTIONS = [
@@ -3056,6 +3059,18 @@ export default function App() {
           }
         }
 
+        const storedHideTitlebar = window.localStorage.getItem(HIDE_TITLEBAR_PREF_KEY);
+        if (storedHideTitlebar != null) {
+          try {
+            const parsed = JSON.parse(storedHideTitlebar);
+            if (typeof parsed === "boolean") {
+              setHideTitlebar(parsed);
+            }
+          } catch {
+            // ignore
+          }
+        }
+
         const storedVariant = window.localStorage.getItem(VARIANT_PREF_KEY);
         if (storedVariant && storedVariant.trim()) {
           const normalized = normalizeModelVariant(storedVariant);
@@ -3408,7 +3423,22 @@ export default function App() {
     }
   });
 
-
+  // Persist and apply hideTitlebar setting
+  createEffect(() => {
+    if (typeof window === "undefined") return;
+    const hide = hideTitlebar();
+    try {
+      window.localStorage.setItem(HIDE_TITLEBAR_PREF_KEY, JSON.stringify(hide));
+    } catch {
+      // ignore
+    }
+    // Apply to window decorations (only in Tauri desktop environment)
+    if (isTauriRuntime()) {
+      setWindowDecorations(!hide).catch(() => {
+        // ignore errors (e.g., window not ready)
+      });
+    }
+  });
 
   createEffect(() => {
     if (typeof window === "undefined") return;
@@ -3710,6 +3740,8 @@ export default function App() {
       openDefaultModelPicker,
       showThinking: showThinking(),
       toggleShowThinking: () => setShowThinking((v) => !v),
+      hideTitlebar: hideTitlebar(),
+      toggleHideTitlebar: () => setHideTitlebar((v) => !v),
       modelVariantLabel: formatModelVariantLabel(modelVariant()),
       editModelVariant: handleEditModelVariant,
       updateAutoCheck: updateAutoCheck(),

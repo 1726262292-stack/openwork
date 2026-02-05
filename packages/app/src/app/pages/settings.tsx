@@ -85,6 +85,8 @@ export type SettingsViewProps = {
   openDefaultModelPicker: () => void;
   showThinking: boolean;
   toggleShowThinking: () => void;
+  hideTitlebar: boolean;
+  toggleHideTitlebar: () => void;
   modelVariantLabel: string;
   editModelVariant: () => void;
   themeMode: "light" | "dark" | "system";
@@ -1600,6 +1602,32 @@ export default function SettingsView(props: SettingsViewProps) {
                 This clears your saved preference and shows the connection choice on next launch.
               </p>
             </div>
+
+            <Show when={isTauriRuntime()}>
+              <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
+                <div>
+                  <div class="text-sm font-medium text-gray-12">Appearance</div>
+                  <div class="text-xs text-gray-10">Customize window appearance.</div>
+                </div>
+
+                <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                  <div class="min-w-0">
+                    <div class="text-sm text-gray-12">Hide titlebar</div>
+                    <div class="text-xs text-gray-7">
+                      Hide the window titlebar. Useful for tiling window managers on Linux (Hyprland, i3, sway).
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    class="text-xs h-8 py-0 px-3 shrink-0"
+                    onClick={props.toggleHideTitlebar}
+                    disabled={props.busy}
+                  >
+                    {props.hideTitlebar ? "On" : "Off"}
+                  </Button>
+                </div>
+              </div>
+            </Show>
 
             <Show when={isTauriRuntime() && isLocalPreference()}>
               <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
