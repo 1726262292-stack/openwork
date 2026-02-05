@@ -9,6 +9,13 @@ npm install -g openwrk
 openwrk start --workspace /path/to/workspace --approval auto
 ```
 
+When run in a TTY, `openwrk` shows an interactive status dashboard with service health, ports, and
+connection details. Use `openwrk serve` or `--no-tui` for log-only mode.
+
+```bash
+openwrk serve --workspace /path/to/workspace
+```
+
 `openwrk` ships as a compiled binary, so Bun is not required at runtime.
 
 `openwrk` downloads and caches the `openwork-server`, `owpenbot`, and `opencode` sidecars on
@@ -39,6 +46,9 @@ pnpm --filter openwrk dev -- \
 ```
 
 The command prints pairing details (OpenWork server URL + token, OpenCode URL + auth) so remote OpenWork clients can connect.
+
+Use `--detach` to keep services running and exit the dashboard. The detach summary includes the
+OpenWork URL, tokens, and the `opencode attach` command.
 
 ## Logging
 
