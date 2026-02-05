@@ -585,7 +585,7 @@ function OwpenbotSettings(props: {
               }
             >
               <div class="relative">
-                <div class="flex justify-center p-4 bg-white rounded-lg">
+                <div class="flex justify-center p-4 bg-dls-surface rounded-lg">
                   <img
                     src={`data:image/png;base64,${qrCode()}`}
                     alt="WhatsApp QR Code"

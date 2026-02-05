@@ -248,7 +248,7 @@ export default function OnboardingView(props: OnboardingViewProps) {
                 <div class="space-y-3">
                   <div class="flex gap-2">
                     <input
-                      class="w-full bg-gray-2/50 border border-gray-6 rounded-xl px-3 py-2 text-sm text-gray-12 placeholder-gray-7 focus:outline-none focus:ring-1 focus:ring-gray-8 focus:border-gray-8 transition-all"
+                      class="w-full bg-dls-surface border border-dls-border rounded-xl px-3 py-2 text-sm text-dls-text placeholder:text-dls-secondary focus:outline-none focus:ring-1 focus:ring-[rgba(var(--dls-accent-rgb),0.2)] focus:border-dls-accent transition-all"
                       placeholder={translate("onboarding.add_folder_path")}
                       value={props.newAuthorizedDir}
                       onInput={(e) => props.onSetAuthorizedDir(e.currentTarget.value)}

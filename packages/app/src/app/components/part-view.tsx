@@ -92,7 +92,7 @@ function createCustomRenderer(tone: "light" | "dark") {
         href="${safeHref}"
         target="_blank"
         rel="noopener noreferrer"
-        class="underline underline-offset-2 text-blue-600 hover:text-blue-700"
+        class="underline underline-offset-2 text-dls-accent hover:text-[var(--dls-accent-hover)]"
         ${safeTitle ? `title="${safeTitle}"` : ""}
       >
         ${text}
@@ -337,10 +337,10 @@ export default function PartView(props: Props) {
                 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3
                 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3
                 [&_li]:my-1
-                [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:my-4 [&_blockquote]:italic
+                [&_blockquote]:border-l-4 [&_blockquote]:border-dls-border [&_blockquote]:pl-4 [&_blockquote]:my-4 [&_blockquote]:italic
                 [&_table]:w-full [&_table]:border-collapse [&_table]:my-4
-                [&_th]:border [&_th]:border-gray-300 [&_th]:p-2 [&_th]:bg-gray-50
-                [&_td]:border [&_td]:border-gray-300 [&_td]:p-2
+                [&_th]:border [&_th]:border-dls-border [&_th]:p-2 [&_th]:bg-dls-hover
+                [&_td]:border [&_td]:border-dls-border [&_td]:p-2
               `.trim()}
               innerHTML={renderedMarkdown()!}
             />

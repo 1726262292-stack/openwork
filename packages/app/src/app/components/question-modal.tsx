@@ -183,15 +183,15 @@ export default function QuestionModal(props: QuestionModalProps) {
                         </div>
 
                         <Show when={currentQuestion()!.custom}>
-                            <div class="mt-4 pt-4 border-t border-gray-6/30">
-                                <label class="block text-xs font-semibold text-gray-11 mb-2 uppercase tracking-wide">
+                            <div class="mt-4 pt-4 border-t border-dls-border">
+                                <label class="block text-xs font-semibold text-dls-secondary mb-2 uppercase tracking-wide">
                                     Or type a custom answer
                                 </label>
                                 <input
                                     type="text"
                                     value={customInput()}
                                     onInput={(e) => setCustomInput(e.currentTarget.value)}
-                                    class="w-full px-4 py-3 rounded-xl bg-gray-1 border border-gray-6 focus:border-blue-9/50 focus:ring-4 focus:ring-blue-9/10 focus:outline-none text-sm text-gray-12 placeholder-gray-9 transition-shadow"
+                                    class="w-full px-4 py-3 rounded-xl bg-dls-surface border border-dls-border focus:border-dls-accent focus:ring-4 focus:ring-[rgba(var(--dls-accent-rgb),0.2)] focus:outline-none text-sm text-dls-text placeholder:text-dls-secondary transition-shadow"
                                     placeholder="Type your answer here..."
                                     onKeyDown={(e) => {
                                         if (e.key === "Enter") {
@@ -204,9 +204,9 @@ export default function QuestionModal(props: QuestionModalProps) {
                         </Show>
                     </div>
 
-                    <div class="p-6 border-t border-gray-6/40 bg-gray-2/50 flex justify-between items-center">
-                        <div class="text-xs text-gray-10 flex items-center gap-2">
-                            <span class="px-1.5 py-0.5 rounded border border-gray-6 bg-gray-3 font-mono">↑↓</span>
+                    <div class="p-6 border-t border-dls-border bg-dls-hover flex justify-between items-center">
+                        <div class="text-xs text-dls-secondary flex items-center gap-2">
+                            <span class="px-1.5 py-0.5 rounded border border-dls-border bg-dls-active font-mono">↑↓</span>
                             <span>navigate</span>
                             <span class="px-1.5 py-0.5 rounded border border-gray-6 bg-gray-3 font-mono ml-2">↵</span>
                             <span>select</span>

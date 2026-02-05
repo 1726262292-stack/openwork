@@ -133,18 +133,18 @@ export default function ModelPickerModal(props: ModelPickerModalProps) {
 
             <div class="mt-5">
               <div class="relative">
-                <Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-10" />
+                <Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-dls-secondary" />
                 <input
                   ref={(el) => (searchInputRef = el)}
                   type="text"
                   value={props.query}
                   onInput={(e) => props.setQuery(e.currentTarget.value)}
                   placeholder={translate("settings.search_models")}
-                  class="w-full bg-gray-1/40 border border-gray-6 rounded-xl py-2.5 pl-9 pr-3 text-sm text-gray-12 placeholder-gray-6 focus:outline-none focus:ring-1 focus:ring-gray-8 focus:border-gray-8"
+                  class="w-full bg-dls-surface border border-dls-border rounded-xl py-2.5 pl-9 pr-3 text-sm text-dls-text placeholder:text-dls-secondary focus:outline-none focus:ring-1 focus:ring-[rgba(var(--dls-accent-rgb),0.2)] focus:border-dls-accent"
                 />
               </div>
               <Show when={props.query.trim()}>
-                <div class="mt-2 text-xs text-gray-10">
+                <div class="mt-2 text-xs text-dls-secondary">
                   {translate("settings.showing_models").replace("{count}", String(props.filteredOptions.length)).replace("{total}", String(props.options.length))}
                 </div>
               </Show>

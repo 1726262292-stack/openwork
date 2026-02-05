@@ -99,8 +99,6 @@ export type EngineRuntime = "direct" | "openwrk";
 export type OnboardingStep = "welcome" | "local" | "server" | "connecting";
 
 export type DashboardTab =
-  | "home"
-  | "sessions"
   | "scheduled"
   | "skills"
   | "plugins"
