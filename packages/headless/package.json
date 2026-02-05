@@ -3,7 +3,7 @@
   "version": "0.1.15",
   "description": "Headless OpenWork host orchestrator for OpenCode + OpenWork server + Owpenbot",
   "type": "module",
-  "opencodeVersion": "1.1.45",
+  "opencodeVersion": "1.1.51",
   "bin": {
     "openwrk": "dist/openwrk"
   },
