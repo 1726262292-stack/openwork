@@ -95,7 +95,7 @@ const navItems: Array<{
   label: string;
   icon: any;
 }> = [
-  { id: "home", label: "Dashboard", icon: Command },
+  { id: "scheduled", label: "Schedule", icon: Command },
   { id: "sessions", label: "Sessions", icon: Play },
   { id: "skills", label: "Skills", icon: Folder },
   { id: "settings", label: "Settings", icon: Settings },
@@ -224,7 +224,7 @@ export default function ProtoWorkspacesView() {
                     {(item) => (
                       <button
                         class={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                          item.id === "home"
+                          item.id === "scheduled"
                             ? "bg-gray-2 text-gray-12"
                             : "text-gray-10 hover:text-gray-12 hover:bg-gray-2/50"
                         }`}
@@ -277,7 +277,7 @@ export default function ProtoWorkspacesView() {
                         <div class="flex items-center gap-2 rounded-2xl border border-gray-6/60 bg-gray-2/50 px-4 py-3">
                           <input
                             placeholder="Draft a task to run..."
-                            class="flex-1 bg-transparent border-none p-0 text-sm text-gray-12 placeholder-gray-7 focus:ring-0"
+                            class="flex-1 bg-transparent border-none p-0 text-sm text-dls-text placeholder:text-dls-secondary focus:ring-0"
                           />
                           <button class="rounded-xl bg-gray-12 px-3 py-1.5 text-xs font-semibold text-gray-1">Run</button>
                         </div>
@@ -436,7 +436,7 @@ export default function ProtoWorkspacesView() {
               <div class="max-w-2xl mx-auto flex items-center gap-2 rounded-2xl border border-gray-6/60 bg-gray-2/40 px-4 py-3">
                 <input
                   placeholder="Describe a task..."
-                  class="flex-1 bg-transparent text-sm text-gray-12 placeholder-gray-7 focus:outline-none"
+                  class="flex-1 bg-transparent text-sm text-dls-text placeholder:text-dls-secondary focus:outline-none"
                 />
                 <button class="rounded-xl bg-gray-12 px-3 py-1.5 text-xs font-semibold text-gray-1">Send</button>
               </div>

@@ -9,6 +9,18 @@ safelist: [
     // OVERRIDE the base theme completely instead of extending it
     colors: {
       ...radixColors,
+      dls: {
+        surface: "var(--dls-surface)",
+        sidebar: "var(--dls-sidebar)",
+        border: "var(--dls-border)",
+        accent: "var(--dls-accent)",
+        text: "var(--dls-text-primary)",
+        secondary: "var(--dls-text-secondary)",
+        hover: "var(--dls-hover)",
+        active: "var(--dls-active)",
+      },
+      white: "#ffffff",
+      black: "#000000",
     }
   }
 };

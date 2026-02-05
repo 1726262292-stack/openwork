@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { openSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -69,6 +69,7 @@ const shutdown = (label: string, code: number | null, signal: NodeJS.Signals | n
 await ensureTmp();
 
 const host = process.env.OPENWORK_HOST ?? "0.0.0.0";
+const viteHost = process.env.VITE_HOST ?? process.env.HOST ?? host;
 const publicHost = process.env.OPENWORK_PUBLIC_HOST ?? null;
 const clientHost = publicHost ?? (host === "0.0.0.0" ? "127.0.0.1" : host);
 const workspace = process.env.OPENWORK_WORKSPACE ?? cwd;
@@ -78,11 +79,21 @@ const openworkToken = process.env.OPENWORK_TOKEN ?? randomUUID();
 const openworkHostToken = process.env.OPENWORK_HOST_TOKEN ?? randomUUID();
 const openworkServerBin = path.join(cwd, "packages/server/dist/bin/openwork-server");
 
+const ensureOpenworkServer = async () => {
+  try {
+    await access(openworkServerBin);
+  } catch {
+    logLine(`[dev:headless-web] Missing OpenWork server binary at ${openworkServerBin}`);
+    logLine("[dev:headless-web] Run: pnpm --filter openwork-server build:bin");
+    process.exit(1);
+  }
+};
+
 const openworkUrl = `http://${clientHost}:${openworkPort}`;
 const webUrl = `http://${clientHost}:${webPort}`;
 const viteEnv = {
   ...process.env,
-  HOST: process.env.HOST ?? "0.0.0.0",
+  HOST: viteHost,
   PORT: String(webPort),
   VITE_OPENWORK_URL: process.env.VITE_OPENWORK_URL ?? openworkUrl,
   VITE_OPENWORK_PORT: process.env.VITE_OPENWORK_PORT ?? String(openworkPort),
@@ -98,9 +109,12 @@ const headlessEnv = {
   OPENWORK_SERVER_BIN: openworkServerBin,
 };
 
+await ensureOpenworkServer();
+
 logLine("[dev:headless-web] Starting services");
 logLine(`[dev:headless-web] Workspace: ${workspace}`);
 logLine(`[dev:headless-web] OpenWork server: ${openworkUrl}`);
+logLine(`[dev:headless-web] Web host: ${viteHost}`);
 logLine(`[dev:headless-web] Web port: ${webPort}`);
 logLine(`[dev:headless-web] Web URL: ${webUrl}`);
 logLine(`[dev:headless-web] OPENWORK_TOKEN: ${openworkToken}`);
@@ -110,7 +124,17 @@ logLine(`[dev:headless-web] Headless logs: ${path.relative(cwd, path.join(tmpDir
 
 const webProcess = spawnLogged(
   "pnpm",
-  ["dev:web"],
+  [
+    "--filter",
+    "@different-ai/openwork-ui",
+    "exec",
+    "vite",
+    "--host",
+    viteHost,
+    "--port",
+    String(webPort),
+    "--strictPort",
+  ],
   path.join(tmpDir, "dev-web.log"),
   viteEnv,
 );

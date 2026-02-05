@@ -228,7 +228,7 @@ export default function MessageList(props: MessageListProps) {
   );
 
   return (
-    <div class="max-w-3xl mx-auto space-y-6 pb-32 px-4">
+    <div class="space-y-6 pb-32">
       <For each={messageBlocks()}>
         {(block) => {
           if (block.kind === "steps-cluster") {
@@ -380,7 +380,7 @@ export default function MessageList(props: MessageListProps) {
                 </For>
                 <div class="absolute bottom-2 right-2 flex justify-end opacity-100 pointer-events-auto md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto md:group-focus-within:opacity-100 md:group-focus-within:pointer-events-auto transition-opacity select-none">
                   <button
-                    class="text-gray-9 hover:text-gray-11 p-1 rounded hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+                    class="text-dls-secondary hover:text-dls-text p-1 rounded hover:bg-dls-hover transition-colors"
                     title="Copy message"
                     onClick={() => {
                       const text = block.renderableParts

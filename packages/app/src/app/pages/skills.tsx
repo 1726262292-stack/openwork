@@ -3,7 +3,7 @@ import { For, Show, createMemo, createSignal } from "solid-js";
 import type { SkillCard } from "../types";
 
 import Button from "../components/button";
-import { FolderOpen, Package, Upload } from "lucide-solid";
+import { Edit2, FolderOpen, Package, Plus, RefreshCw, Search, Sparkles, Upload } from "lucide-solid";
 import { currentLocale, t } from "../../i18n";
 
 export type SkillsViewProps = {
@@ -30,138 +30,170 @@ export default function SkillsView(props: SkillsViewProps) {
 
   const [uninstallTarget, setUninstallTarget] = createSignal<SkillCard | null>(null);
   const uninstallOpen = createMemo(() => uninstallTarget() != null);
+  const [searchQuery, setSearchQuery] = createSignal("");
+
+  const filteredSkills = createMemo(() => {
+    const query = searchQuery().trim().toLowerCase();
+    if (!query) return props.skills;
+    return props.skills.filter((skill) => {
+      const description = skill.description ?? "";
+      return (
+        skill.name.toLowerCase().includes(query) ||
+        description.toLowerCase().includes(query)
+      );
+    });
+  });
+
+  const recommendedSkills = createMemo(() => [
+    {
+      id: "skill-creator",
+      title: translate("skills.install_skill_creator"),
+      description: translate("skills.install_skill_creator_hint"),
+      icon: Sparkles,
+      onClick: () => props.installSkillCreator(),
+      disabled: props.busy || skillCreatorInstalled() || !props.canInstallSkillCreator,
+    },
+    {
+      id: "import-local",
+      title: translate("skills.import_local"),
+      description: translate("skills.import_local_hint"),
+      icon: Upload,
+      onClick: props.importLocalSkill,
+      disabled: props.busy || !props.canUseDesktopTools,
+    },
+    {
+      id: "reveal-folder",
+      title: translate("skills.reveal_folder"),
+      description: translate("skills.reveal_folder_hint"),
+      icon: FolderOpen,
+      onClick: props.revealSkillsFolder,
+      disabled: props.busy || !props.canUseDesktopTools,
+    },
+  ]);
+
+  const handleNewSkill = () => {
+    if (props.busy) return;
+    if (props.canInstallSkillCreator && !skillCreatorInstalled()) {
+      props.installSkillCreator();
+      return;
+    }
+    if (props.canUseDesktopTools) {
+      props.revealSkillsFolder();
+    }
+  };
+
+  const newSkillDisabled = createMemo(
+    () =>
+      props.busy ||
+      (!props.canUseDesktopTools &&
+        (!props.canInstallSkillCreator || skillCreatorInstalled()))
+  );
 
   return (
-    <section class="space-y-8">
-      <div class="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h3 class="text-lg font-semibold text-gray-12">{translate("skills.title")}</h3>
-          <p class="text-sm text-gray-10 mt-1">{translate("skills.subtitle")}</p>
-        </div>
-        <Button variant="secondary" onClick={() => props.refreshSkills({ force: true })} disabled={props.busy}>
+    <section class="space-y-10">
+      <div class="flex flex-wrap items-center justify-end gap-4 border-b border-dls-border pb-4">
+        <button
+          type="button"
+          onClick={() => props.refreshSkills({ force: true })}
+          disabled={props.busy}
+          class={`flex items-center gap-1.5 text-xs font-medium transition-colors ${
+            props.busy
+              ? "text-dls-secondary"
+              : "text-dls-secondary hover:text-dls-text"
+          }`}
+        >
+          <RefreshCw size={14} />
           {translate("skills.refresh")}
-        </Button>
+        </button>
+        <div class="relative">
+          <Search size={14} class="absolute left-3 top-1/2 -translate-y-1/2 text-dls-secondary" />
+          <input
+            type="text"
+            value={searchQuery()}
+            onInput={(event) => setSearchQuery(event.currentTarget.value)}
+            placeholder="Search skills"
+            class="bg-dls-hover border border-dls-border rounded-lg py-1.5 pl-9 pr-4 text-xs w-48 focus:w-64 focus:outline-none transition-all"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleNewSkill}
+          disabled={newSkillDisabled()}
+          class={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+            newSkillDisabled()
+              ? "bg-dls-active text-dls-secondary"
+              : "bg-dls-text text-dls-surface hover:opacity-90"
+          }`}
+        >
+          <Plus size={14} />
+          New skill
+        </button>
       </div>
 
-      <div class="rounded-2xl border border-gray-6/60 bg-gray-1/40 overflow-hidden">
-        <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-6/60 bg-gray-2/40">
-          <div>
-            <div class="text-xs font-semibold text-gray-11 uppercase tracking-wider">{translate("skills.add_title")}</div>
-            <div class="text-sm text-gray-10 mt-2">{translate("skills.add_description")}</div>
-          </div>
-          <Show when={props.accessHint}>
-            <div class="text-xs text-gray-10">{props.accessHint}</div>
-          </Show>
-          <Show
-            when={
-              !props.accessHint &&
-              !props.canInstallSkillCreator &&
-              !props.canUseDesktopTools
-            }
-          >
-            <div class="text-xs text-gray-10">{translate("skills.host_mode_only")}</div>
-          </Show>
-        </div>
-
-        <div class="divide-y divide-gray-6/60">
-          <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-            <div>
-              <div class="text-sm font-medium text-gray-12">{translate("skills.install_skill_creator")}</div>
-              <div class="text-xs text-gray-10 mt-1">{translate("skills.install_skill_creator_hint")}</div>
-            </div>
-            <Button
-              variant={skillCreatorInstalled() ? "outline" : "secondary"}
-              onClick={() => {
-                if (skillCreatorInstalled()) return;
-                props.installSkillCreator();
-              }}
-              disabled={props.busy || skillCreatorInstalled() || !props.canInstallSkillCreator}
-            >
-              <Package size={16} />
-              {skillCreatorInstalled() ? translate("skills.installed_label") : translate("skills.install")}
-            </Button>
-          </div>
-
-          <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-            <div>
-              <div class="text-sm font-medium text-gray-12">{translate("skills.import_local")}</div>
-              <div class="text-xs text-gray-10 mt-1">{translate("skills.import_local_hint")}</div>
-            </div>
-            <Button
-              variant="secondary"
-              onClick={props.importLocalSkill}
-              disabled={props.busy || !props.canUseDesktopTools}
-            >
-              <Upload size={16} />
-              {translate("skills.import")}
-            </Button>
-          </div>
-
-          <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-            <div>
-              <div class="text-sm font-medium text-gray-12">{translate("skills.reveal_folder")}</div>
-              <div class="text-xs text-gray-10 mt-1">{translate("skills.reveal_folder_hint")}</div>
-            </div>
-            <Button
-              variant="secondary"
-              onClick={props.revealSkillsFolder}
-              disabled={props.busy || !props.canUseDesktopTools}
-            >
-              <FolderOpen size={16} />
-              {translate("skills.reveal_button")}
-            </Button>
-          </div>
-        </div>
-
-        <Show when={props.skillsStatus}>
-          <div class="border-t border-gray-6/60 px-5 py-3 text-xs text-gray-11 whitespace-pre-wrap break-words">
-            {props.skillsStatus}
-          </div>
+      <div class="space-y-2">
+        <h2 class="text-3xl font-bold text-dls-text">{translate("skills.title")}</h2>
+        <p class="text-sm text-dls-secondary">
+          {translate("skills.subtitle")} {" "}
+          <button type="button" class="text-dls-accent hover:underline">
+            Learn more
+          </button>
+        </p>
+        <Show when={props.accessHint}>
+          <div class="text-xs text-dls-secondary">{props.accessHint}</div>
+        </Show>
+        <Show
+          when={!props.accessHint && !props.canInstallSkillCreator && !props.canUseDesktopTools}
+        >
+          <div class="text-xs text-dls-secondary">{translate("skills.host_mode_only")}</div>
         </Show>
       </div>
 
-      <div>
-        <div class="flex items-center justify-between mb-3">
-          <div>
-            <div class="text-sm font-semibold text-gray-12">{translate("skills.installed")}</div>
-            <div class="text-xs text-gray-10 mt-1">{translate("skills.installed_description")}</div>
-          </div>
-          <div class="text-xs text-gray-10">{props.skills.length}</div>
+      <Show when={props.skillsStatus}>
+        <div class="rounded-xl border border-dls-border bg-dls-hover px-4 py-3 text-xs text-dls-secondary whitespace-pre-wrap break-words">
+          {props.skillsStatus}
         </div>
+      </Show>
 
+      <div class="space-y-4">
+        <h3 class="text-[11px] font-bold text-dls-secondary uppercase tracking-widest">
+          {translate("skills.installed")}
+        </h3>
         <Show
-          when={props.skills.length}
+          when={filteredSkills().length}
           fallback={
-            <div class="rounded-2xl border border-gray-6/60 bg-gray-1/40 px-5 py-6 text-sm text-zinc-500">
+            <div class="rounded-xl border border-dls-border bg-dls-surface px-5 py-6 text-sm text-dls-secondary">
               {translate("skills.no_skills")}
             </div>
           }
         >
-          <div class="rounded-2xl border border-gray-6/60 bg-gray-1/40 divide-y divide-gray-6/60">
-            <For each={props.skills}>
-              {(s) => (
-                <div class="px-5 py-4">
-                  <div class="flex flex-wrap items-start justify-between gap-3">
-                    <div class="space-y-2">
-                      <div class="flex items-center gap-2">
-                        <Package size={16} class="text-gray-11" />
-                        <div class="font-medium text-gray-12">{s.name}</div>
-                      </div>
-                      <Show when={s.description}>
-                        <div class="text-sm text-gray-10">{s.description}</div>
-                      </Show>
-                      <div class="text-xs text-gray-7 font-mono">{s.path}</div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <For each={filteredSkills()}>
+              {(skill) => (
+                <div class="bg-dls-surface border border-dls-border rounded-xl p-4 flex items-start justify-between group hover:border-dls-border transition-all">
+                  <div class="flex gap-4">
+                    <div class="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm border border-dls-border bg-dls-surface">
+                      <Package size={20} class="text-dls-secondary" />
                     </div>
-                    <Button
-                      variant="danger"
-                      class="!px-3 !py-2 text-xs"
-                      onClick={() => setUninstallTarget(s)}
-                      disabled={props.busy || !props.canUseDesktopTools}
-                      title={translate("skills.uninstall")}
-                    >
-                      {translate("skills.uninstall")}
-                    </Button>
+                    <div>
+                      <div class="flex items-center gap-2 mb-0.5">
+                        <h4 class="text-sm font-semibold text-dls-text">{skill.name}</h4>
+                      </div>
+                      <Show when={skill.description}>
+                        <p class="text-xs text-dls-secondary line-clamp-1">
+                          {skill.description}
+                        </p>
+                      </Show>
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    class="p-1.5 text-dls-secondary hover:text-dls-text hover:bg-dls-hover rounded-md transition-colors"
+                    onClick={() => setUninstallTarget(skill)}
+                    disabled={props.busy || !props.canUseDesktopTools}
+                    title={translate("skills.uninstall")}
+                  >
+                    <Edit2 size={14} />
+                  </button>
                 </div>
               )}
             </For>
@@ -169,20 +201,59 @@ export default function SkillsView(props: SkillsViewProps) {
         </Show>
       </div>
 
+      <div class="space-y-4">
+        <h3 class="text-[11px] font-bold text-dls-secondary uppercase tracking-widest">Recommended</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <For each={recommendedSkills()}>
+            {(item) => (
+              <div class="bg-dls-surface border border-dls-border rounded-xl p-4 flex items-start justify-between group hover:border-dls-border transition-all">
+                <div class="flex gap-4">
+                  <div class="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm border border-dls-border bg-dls-hover">
+                    <item.icon size={20} class="text-dls-secondary" />
+                  </div>
+                  <div>
+                    <div class="flex items-center gap-2 mb-0.5">
+                      <h4 class="text-sm font-semibold text-dls-text">{item.title}</h4>
+                    </div>
+                    <p class="text-xs text-dls-secondary line-clamp-1">{item.description}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class={`p-1.5 rounded-md transition-colors ${
+                    item.disabled
+                      ? "text-dls-secondary opacity-40"
+                      : "text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
+                  }`}
+                  onClick={() => {
+                    if (item.disabled) return;
+                    item.onClick();
+                  }}
+                  disabled={item.disabled}
+                  title={item.title}
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+            )}
+          </For>
+        </div>
+      </div>
+
       <Show when={uninstallOpen()}>
-        <div class="fixed inset-0 z-50 bg-gray-1/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div class="bg-gray-2 border border-gray-6/70 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+        <div class="fixed inset-0 z-50 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4">
+          <div class="bg-dls-surface border border-dls-border w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
             <div class="p-6">
               <div class="flex items-start justify-between gap-4">
                 <div>
-                  <h3 class="text-lg font-semibold text-gray-12">{translate("skills.uninstall_title")}</h3>
-                  <p class="text-sm text-gray-11 mt-1">
+                  <h3 class="text-lg font-semibold text-dls-text">{translate("skills.uninstall_title")}</h3>
+                  <p class="text-sm text-dls-secondary mt-1">
                     {translate("skills.uninstall_warning").replace("{name}", uninstallTarget()?.name ?? "")}
                   </p>
                 </div>
               </div>
 
-              <div class="mt-4 rounded-xl bg-gray-1/20 border border-gray-6 p-3 text-xs text-gray-11 font-mono break-all">
+              <div class="mt-4 rounded-xl bg-dls-hover border border-dls-border p-3 text-xs text-dls-secondary font-mono break-all">
                 {uninstallTarget()?.path}
               </div>
 

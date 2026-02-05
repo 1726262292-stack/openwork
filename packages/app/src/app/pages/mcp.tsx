@@ -43,16 +43,16 @@ export type McpViewProps = {
 const statusBadge = (status: "connected" | "needs_auth" | "needs_client_registration" | "failed" | "disabled" | "disconnected") => {
   switch (status) {
     case "connected":
-      return "bg-green-7/10 text-green-11 border-green-7/20";
+      return "bg-green-3 text-green-11 border-green-6";
     case "needs_auth":
     case "needs_client_registration":
-      return "bg-amber-7/10 text-amber-11 border-amber-7/20";
+      return "bg-amber-3 text-amber-11 border-amber-6";
     case "disabled":
-      return "bg-gray-4/60 text-gray-11 border-gray-7/50";
+      return "bg-gray-3 text-gray-11 border-gray-6";
     case "disconnected":
-      return "bg-gray-2/80 text-gray-12 border-gray-7/50";
+      return "bg-gray-2 text-gray-11 border-gray-6";
     default:
-      return "bg-red-7/10 text-red-11 border-red-7/20";
+      return "bg-red-3 text-red-11 border-red-6";
   }
 };
 
@@ -180,41 +180,37 @@ export default function McpView(props: McpViewProps) {
   const canConnect = () => !props.busy;
 
   return (
-    <section class="space-y-6">
-        <div class="space-y-1">
-          <h2 class="text-lg font-semibold text-gray-12">{translate("mcp.title")}</h2>
-          <p class="text-sm text-gray-11">
-            {translate("mcp.description")}
-          </p>
-        </div>
-
-        <div class="grid gap-6 lg:grid-cols-[1.5fr_1fr] animate-in fade-in slide-in-from-top-11 duration-300">
-          <div class="space-y-6">
-            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
-              <div class="flex items-start justify-between gap-4">
-                <div>
-                  <div class="text-sm font-medium text-gray-12">{translate("mcp.mcps_title")}</div>
-                  <div class="text-xs text-gray-10">
-                    {translate("mcp.connect_mcp_hint")}
-                  </div>
-                </div>
-                <div class="text-xs text-gray-10 text-right">
-                  <div>{props.mcpServers.length} {translate("mcp.configured")}</div>
-                  <Show when={props.mcpLastUpdatedAt}>
-                    <div>{translate("mcp.updated")} {formatRelativeTime(props.mcpLastUpdatedAt ?? Date.now())}</div>
-                  </Show>
-                </div>
-              </div>
-              <Show when={props.mcpStatus}>
-                <div class="text-xs text-gray-10">{props.mcpStatus}</div>
+    <section class="space-y-10">
+        <div class="rounded-2xl border border-dls-border bg-dls-surface p-6 md:p-8 space-y-4">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 class="text-2xl font-bold text-dls-text">{translate("mcp.title")}</h2>
+              <p class="text-sm text-dls-secondary mt-1">
+                {translate("mcp.description")}
+              </p>
+            </div>
+            <div class="text-xs text-dls-secondary text-right">
+              <div>{props.mcpServers.length} {translate("mcp.configured")}</div>
+              <Show when={props.mcpLastUpdatedAt}>
+                <div>{translate("mcp.updated")} {formatRelativeTime(props.mcpLastUpdatedAt ?? Date.now())}</div>
               </Show>
             </div>
+          </div>
+          <Show when={props.mcpStatus}>
+            <div class="rounded-xl border border-dls-border bg-dls-hover px-4 py-3 text-xs text-dls-secondary">
+              {props.mcpStatus}
+            </div>
+          </Show>
+        </div>
+
+        <div class="grid gap-8 lg:grid-cols-[1.5fr_1fr] animate-in fade-in slide-in-from-top-11 duration-300">
+          <div class="space-y-6">
 
             <Show when={props.showMcpReloadBanner}>
-              <div class="bg-gray-2/60 border border-gray-6/70 rounded-2xl px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div class="bg-dls-hover border border-dls-border rounded-xl px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <div class="text-sm font-medium text-gray-12">{translate("mcp.reload_banner_title")}</div>
-                  <div class="text-xs text-gray-10">
+                  <div class="text-sm font-semibold text-dls-text">{translate("mcp.reload_banner_title")}</div>
+                  <div class="text-xs text-dls-secondary">
                     {props.reloadBlocked
                       ? translate("mcp.reload_banner_description_blocked")
                       : translate("mcp.reload_banner_description")}
@@ -231,20 +227,20 @@ export default function McpView(props: McpViewProps) {
               </div>
             </Show>
 
-            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+            <div class="rounded-2xl border border-dls-border bg-dls-surface p-6 space-y-4">
               <div class="flex items-center justify-between">
-                <div class="text-sm font-medium text-gray-12">{translate("mcp.quick_connect_title")}</div>
-                <div class="text-[11px] text-gray-10">{translate("mcp.oauth_only_label")}</div>
+                <div class="text-sm font-semibold text-dls-text">{translate("mcp.quick_connect_title")}</div>
+                <div class="text-[11px] text-dls-secondary">{translate("mcp.oauth_only_label")}</div>
               </div>
               <div class="grid gap-3">
                 <For each={quickConnectList()}>
                   {(entry) => (
-                    <div class="rounded-2xl border border-gray-6/70 bg-gray-1/40 p-4 space-y-3">
+                    <div class="rounded-xl border border-dls-border bg-dls-hover p-4 space-y-3">
                       <div class="flex items-start justify-between gap-4">
                         <div>
-                          <div class="text-sm font-medium text-gray-12">{entry.name}</div>
-                          <div class="text-xs text-gray-10 mt-1">{entry.description}</div>
-                          <div class="text-xs text-gray-7 font-mono mt-1">
+                          <div class="text-sm font-semibold text-dls-text">{entry.name}</div>
+                          <div class="text-xs text-dls-secondary mt-1">{entry.description}</div>
+                          <div class="text-xs text-dls-secondary font-mono mt-1">
                             {entry.type === "local" ? entry.command?.join(" ") : entry.url}
                           </div>
                         </div>
@@ -252,7 +248,7 @@ export default function McpView(props: McpViewProps) {
                           <Show
                             when={!isQuickConnectConnected(entry.name)}
                             fallback={
-                              <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green-7/10 border border-green-7/20">
+                              <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green-3 border border-green-6">
                                 <CheckCircle2 size={16} class="text-green-11" />
                                 <span class="text-sm text-green-11">{translate("mcp.connected_status")}</span>
                               </div>
@@ -287,22 +283,22 @@ export default function McpView(props: McpViewProps) {
                           </Show>
                         </div>
                       </div>
-                      <div class="text-[11px] text-gray-10">{translate("mcp.no_env_vars")}</div>
+                      <div class="text-[11px] text-dls-secondary">{translate("mcp.no_env_vars")}</div>
                     </div>
                   )}
                 </For>
               </div>
             </div>
 
-            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+            <div class="bg-dls-surface border border-dls-border rounded-2xl p-5 space-y-4">
               <div class="flex items-center justify-between">
-                <div class="text-sm font-medium text-gray-12">{translate("mcp.connected_title")}</div>
-                <div class="text-[11px] text-gray-10">{translate("mcp.from_opencode_json")}</div>
+                <div class="text-sm font-medium text-dls-text">{translate("mcp.connected_title")}</div>
+                <div class="text-[11px] text-dls-secondary">{translate("mcp.from_opencode_json")}</div>
               </div>
               <Show
                 when={props.mcpServers.length}
                 fallback={
-                  <div class="rounded-xl border border-gray-6/60 bg-gray-1/40 p-4 text-sm text-gray-10">
+                  <div class="rounded-xl border border-dls-border bg-dls-hover p-4 text-sm text-dls-secondary">
                     {translate("mcp.no_servers_yet")}
                   </div>
                 }
@@ -320,17 +316,17 @@ export default function McpView(props: McpViewProps) {
                       return (
                         <button
                           type="button"
-                          class={`text-left rounded-2xl border px-4 py-3 transition-all ${
+                          class={`text-left rounded-2xl border px-4 py-3 transition-colors ${
                             props.selectedMcp === entry.name
-                              ? "border-gray-8 bg-gray-2/70"
-                              : "border-gray-6/70 bg-gray-1/40 hover:border-gray-7"
+                              ? "border-dls-border bg-dls-active"
+                              : "border-dls-border bg-dls-hover hover:bg-dls-active"
                           }`}
                           onClick={() => props.setSelectedMcp(entry.name)}
                         >
                           <div class="flex items-center justify-between gap-3">
                             <div>
-                              <div class="text-sm font-medium text-gray-12">{entry.name}</div>
-                              <div class="text-xs text-gray-10 font-mono">
+                              <div class="text-sm font-medium text-dls-text">{entry.name}</div>
+                              <div class="text-xs text-dls-secondary font-mono">
                                 {entry.config.type === "remote" ? entry.config.url : entry.config.command?.join(" ")}
                               </div>
                             </div>
@@ -346,11 +342,11 @@ export default function McpView(props: McpViewProps) {
               </Show>
             </div>
 
-            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
+            <div class="bg-dls-surface border border-dls-border rounded-2xl p-5 space-y-4">
               <div class="flex items-start justify-between gap-4">
                 <div class="space-y-1">
-                  <div class="text-sm font-medium text-gray-12">{translate("mcp.edit_config_title")}</div>
-                  <div class="text-xs text-gray-10">
+                  <div class="text-sm font-medium text-dls-text">{translate("mcp.edit_config_title")}</div>
+                  <div class="text-xs text-dls-secondary">
                     {translate("mcp.edit_config_description")}
                   </div>
                 </div>
@@ -358,7 +354,7 @@ export default function McpView(props: McpViewProps) {
                   href="https://opencode.ai/docs/mcp-servers/"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="inline-flex items-center gap-1.5 text-xs text-gray-10 hover:text-gray-12 underline decoration-gray-6/30 underline-offset-4 transition-colors"
+                  class="inline-flex items-center gap-1.5 text-xs text-dls-secondary hover:text-dls-text underline decoration-dls-border underline-offset-4 transition-colors"
                 >
                   <ExternalLink size={12} />
                   {translate("mcp.docs_link")}
@@ -369,8 +365,8 @@ export default function McpView(props: McpViewProps) {
                 <button
                   class={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
                     configScope() === "project"
-                      ? "bg-gray-12/10 text-gray-12 border-gray-6/30"
-                      : "text-gray-10 border-gray-6 hover:text-gray-12"
+                      ? "bg-dls-active text-dls-text border-dls-border"
+                      : "text-dls-secondary border-dls-border hover:text-dls-text hover:bg-dls-hover"
                   }`}
                   onClick={() => setConfigScope("project")}
                 >
@@ -379,8 +375,8 @@ export default function McpView(props: McpViewProps) {
                 <button
                   class={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
                     configScope() === "global"
-                      ? "bg-gray-12/10 text-gray-12 border-gray-6/30"
-                      : "text-gray-10 border-gray-6 hover:text-gray-12"
+                      ? "bg-dls-active text-dls-text border-dls-border"
+                      : "text-dls-secondary border-dls-border hover:text-dls-text hover:bg-dls-hover"
                   }`}
                   onClick={() => setConfigScope("global")}
                 >
@@ -388,9 +384,9 @@ export default function McpView(props: McpViewProps) {
                 </button>
               </div>
 
-              <div class="flex flex-col gap-1 text-xs text-gray-10">
+              <div class="flex flex-col gap-1 text-xs text-dls-secondary">
                 <div>{translate("mcp.config_label")}</div>
-                <div class="text-gray-7 font-mono truncate">
+                <div class="text-dls-secondary font-mono truncate">
                   {activeConfig()?.path ?? translate("mcp.config_not_loaded")}
                 </div>
               </div>
@@ -415,38 +411,38 @@ export default function McpView(props: McpViewProps) {
                   </Show>
                 </Button>
                 <Show when={activeConfig() && activeConfig()!.exists === false}>
-                  <div class="text-[11px] text-zinc-600">{translate("mcp.file_not_found")}</div>
+                  <div class="text-[11px] text-dls-secondary">{translate("mcp.file_not_found")}</div>
                 </Show>
               </div>
 
               <Show when={configError()}>
-                <div class="text-xs text-red-300">{configError()}</div>
+                <div class="text-xs text-red-11">{configError()}</div>
               </Show>
             </div>
           </div>
 
-          <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4 lg:sticky lg:top-6 self-start">
+          <div class="bg-dls-surface border border-dls-border rounded-2xl p-5 space-y-4 lg:sticky lg:top-6 self-start">
             <div class="flex items-center justify-between">
-              <div class="text-sm font-medium text-gray-12">{translate("mcp.details_title")}</div>
-              <div class="text-xs text-gray-10">{selectedEntry()?.name ?? translate("mcp.select_server_hint").split(" ").slice(0, 3).join(" ")}</div>
+              <div class="text-sm font-medium text-dls-text">{translate("mcp.details_title")}</div>
+              <div class="text-xs text-dls-secondary">{selectedEntry()?.name ?? translate("mcp.select_server_hint").split(" ").slice(0, 3).join(" ")}</div>
             </div>
 
             <Show
               when={selectedEntry()}
               fallback={
-                <div class="rounded-xl border border-gray-6/60 bg-gray-1/40 p-4 text-sm text-gray-10">
+                <div class="rounded-xl border border-dls-border bg-dls-hover p-4 text-sm text-dls-secondary">
                   {translate("mcp.select_server_hint")}
                 </div>
               }
             >
               {(entry) => (
                 <div class="space-y-4">
-                  <div class="rounded-xl border border-gray-6/70 bg-gray-1/40 p-4 space-y-2">
-                    <div class="flex items-center gap-2 text-sm text-gray-12">
+                  <div class="rounded-xl border border-dls-border bg-dls-hover p-4 space-y-2">
+                    <div class="flex items-center gap-2 text-sm text-dls-text">
                       <Settings size={16} />
                       {entry().name}
                     </div>
-                    <div class="text-xs text-gray-10 font-mono break-all">
+                    <div class="text-xs text-dls-secondary font-mono break-all">
                       {entry().config.type === "remote" ? entry().config.url : entry().config.command?.join(" ")}
                     </div>
                     <div class="flex items-center gap-2">
@@ -467,28 +463,28 @@ export default function McpView(props: McpViewProps) {
                     </div>
                   </div>
 
-                  <div class="rounded-xl border border-gray-6/70 bg-gray-1/40 p-4 space-y-2">
-                    <div class="text-xs text-gray-11 uppercase tracking-wider">{translate("mcp.capabilities_label")}</div>
+                  <div class="rounded-xl border border-dls-border bg-dls-hover p-4 space-y-2">
+                    <div class="text-xs text-dls-secondary uppercase tracking-wider">{translate("mcp.capabilities_label")}</div>
                     <div class="flex flex-wrap gap-2">
-                      <span class="text-[10px] uppercase tracking-wide bg-gray-4/70 text-gray-11 px-2 py-0.5 rounded-full">
+                      <span class="text-[10px] uppercase tracking-wide bg-dls-active text-dls-secondary px-2 py-0.5 rounded-full">
                         {translate("mcp.tools_enabled_label")}
                       </span>
-                      <span class="text-[10px] uppercase tracking-wide bg-gray-4/70 text-gray-11 px-2 py-0.5 rounded-full">
+                      <span class="text-[10px] uppercase tracking-wide bg-dls-active text-dls-secondary px-2 py-0.5 rounded-full">
                         {translate("mcp.oauth_ready_label")}
                       </span>
                     </div>
-                    <div class="text-xs text-gray-10">
+                    <div class="text-xs text-dls-secondary">
                       {translate("mcp.usage_hint_text")}
                     </div>
                   </div>
 
-                  <div class="rounded-xl border border-gray-6/70 bg-gray-1/40 p-4 space-y-2">
-                    <div class="text-xs text-gray-11 uppercase tracking-wider">{translate("mcp.next_steps_label")}</div>
-                    <div class="flex items-center gap-2 text-xs text-gray-10">
+                  <div class="rounded-xl border border-dls-border bg-dls-hover p-4 space-y-2">
+                    <div class="text-xs text-dls-secondary uppercase tracking-wider">{translate("mcp.next_steps_label")}</div>
+                    <div class="flex items-center gap-2 text-xs text-dls-secondary">
                       <CheckCircle2 size={14} />
                       {translate("mcp.reload_step")}
                     </div>
-                    <div class="flex items-center gap-2 text-xs text-gray-10">
+                    <div class="flex items-center gap-2 text-xs text-dls-secondary">
                       <CircleAlert size={14} />
                       {translate("mcp.auth_step")}
                     </div>
