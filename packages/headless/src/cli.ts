@@ -49,6 +49,22 @@ type LogEvent = {
   attributes?: LogAttributes;
 };
 
+type OwpenbotHealthSnapshot = {
+  ok: boolean;
+  opencode: {
+    url: string;
+    healthy: boolean;
+    version?: string;
+  };
+  channels: {
+    telegram: boolean;
+    whatsapp: boolean;
+  };
+  config: {
+    groupsEnabled: boolean;
+  };
+};
+
 const FALLBACK_VERSION = "0.1.0";
 const DEFAULT_OPENWORK_PORT = 8787;
 const DEFAULT_OWPENBOT_HEALTH_PORT = 3005;
@@ -976,6 +992,47 @@ async function readCliVersion(bin: string, timeoutMs = 4000): Promise<string | u
   return parseVersion(output.trim());
 }
 
+async function captureCommandOutput(
+  bin: string,
+  args: string[],
+  options?: { env?: NodeJS.ProcessEnv; timeoutMs?: number },
+): Promise<string> {
+  const resolved = resolveBinCommand(bin);
+  const child = spawn(resolved.command, [...resolved.prefixArgs, ...args], {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: options?.env ?? process.env,
+  });
+  let output = "";
+  child.stdout?.on("data", (chunk) => {
+    output += chunk.toString();
+  });
+  child.stderr?.on("data", (chunk) => {
+    output += chunk.toString();
+  });
+
+  const timeoutMs = options?.timeoutMs ?? 30_000;
+  const result = await Promise.race([
+    once(child, "close").then(() => "close"),
+    once(child, "error").then(() => "error"),
+    new Promise((resolve) => setTimeout(resolve, timeoutMs, "timeout")),
+  ]);
+
+  if (result === "timeout") {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // ignore
+    }
+    throw new Error("Command timed out");
+  }
+
+  if (result === "error") {
+    throw new Error("Command failed to run");
+  }
+
+  return output.trim();
+}
+
 function assertVersionMatch(
   name: string,
   expected: string | undefined,
@@ -1362,6 +1419,28 @@ async function waitForHealthy(url: string, timeoutMs = 10_000, pollMs = 250): Pr
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
   throw new Error(lastError ?? "Timed out waiting for health check");
+}
+
+async function fetchOwpenbotHealth(baseUrl: string): Promise<OwpenbotHealthSnapshot> {
+  return (await fetchJson(`${baseUrl.replace(/\/$/, "")}/health`)) as OwpenbotHealthSnapshot;
+}
+
+async function waitForOwpenbotHealthy(baseUrl: string, timeoutMs = 10_000, pollMs = 500) {
+  const start = Date.now();
+  let lastError: string | null = null;
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const response = await fetch(`${baseUrl.replace(/\/$/, "")}/health`);
+      if (response.ok) {
+        return (await response.json()) as OwpenbotHealthSnapshot;
+      }
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+  throw new Error(lastError ?? "Timed out waiting for owpenbot health");
 }
 
 async function waitForOpencodeHealthy(client: ReturnType<typeof createOpencodeClient>, timeoutMs = 10_000, pollMs = 250) {
@@ -2978,13 +3057,28 @@ async function runStart(args: ParsedArgs) {
     password: opencodePassword,
   });
 
+  const owpenbotHealthUrl = `http://127.0.0.1:${owpenbotHealthPort}`;
+  const owpenbotEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    OPENCODE_DIRECTORY: resolvedWorkspace,
+    OPENCODE_URL: opencodeConnectUrl,
+    ...(opencodeUsername ? { OPENCODE_SERVER_USERNAME: opencodeUsername } : {}),
+    ...(opencodePassword ? { OPENCODE_SERVER_PASSWORD: opencodePassword } : {}),
+    ...(owpenbotHealthPort ? { OWPENBOT_HEALTH_PORT: String(owpenbotHealthPort) } : {}),
+  };
+
   const children: ChildHandle[] = [];
   let shuttingDown = false;
   let detached = false;
   const startedAt = Date.now();
+  let owpenbotHealthInterval: NodeJS.Timeout | null = null;
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    if (owpenbotHealthInterval) {
+      clearInterval(owpenbotHealthInterval);
+      owpenbotHealthInterval = null;
+    }
     logger.info("Shutting down", { children: children.map((handle) => handle.name) }, "openwrk");
     await Promise.all(children.map((handle) => stopChild(handle.child)));
   };
@@ -3012,6 +3106,10 @@ async function runStart(args: ParsedArgs) {
 
   const handleDetach = async () => {
     if (detached) return;
+    if (owpenbotHealthInterval) {
+      clearInterval(owpenbotHealthInterval);
+      owpenbotHealthInterval = null;
+    }
     tui?.stop();
     detachChildren();
     const summary = [
@@ -3055,6 +3153,33 @@ async function runStart(args: ParsedArgs) {
       onCopyAttach: async () => {
         const result = await copyToClipboard(attachCommand);
         return { command: attachCommand, ...result };
+      },
+      onOwpenbotHealth: async () => fetchOwpenbotHealth(owpenbotHealthUrl),
+      onOwpenbotQr: async () => {
+        if (!owpenbotBinary) {
+          throw new Error("Owpenbot binary missing");
+        }
+        const output = await captureCommandOutput(
+          owpenbotBinary.bin,
+          ["whatsapp", "qr", "--format", "ascii"],
+          { env: owpenbotEnv },
+        );
+        if (!output) {
+          throw new Error("No QR output received");
+        }
+        return output;
+      },
+      onOwpenbotSetTelegramToken: async (token) => {
+        try {
+          await fetchJson(`${owpenbotHealthUrl}/config/telegram-token`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          });
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
       },
     });
     tui.setUptimeStart(startedAt);
@@ -3186,6 +3311,28 @@ async function runStart(args: ParsedArgs) {
         port: owpenbotHealthPort,
       });
       logger.info("Process spawned", { pid: owpenbotChild.pid ?? 0 }, "owpenbot");
+      try {
+        logger.info("Waiting for health", { url: owpenbotHealthUrl }, "owpenbot");
+        const health = await waitForOwpenbotHealthy(owpenbotHealthUrl);
+        tui?.setOwpenbotHealth(health);
+        tui?.updateService("owpenbot", { status: health.ok ? "healthy" : "running" });
+        logger.info("Healthy", { url: owpenbotHealthUrl, ok: health.ok }, "owpenbot");
+      } catch (error) {
+        logger.warn("Owpenbot health check failed", { error: String(error) }, "owpenbot");
+        tui?.updateService("owpenbot", { status: "running", message: String(error) });
+      }
+      if (!owpenbotHealthInterval) {
+        owpenbotHealthInterval = setInterval(() => {
+          fetchOwpenbotHealth(owpenbotHealthUrl)
+            .then((health) => {
+              tui?.setOwpenbotHealth(health);
+              if (health.ok) {
+                tui?.updateService("owpenbot", { status: "healthy" });
+              }
+            })
+            .catch(() => undefined);
+        }, 15_000);
+      }
       owpenbotChild.on("exit", (code, signal) => {
         if (owpenbotRequired) {
           handleExit("owpenbot", code, signal);

@@ -1,4 +1,4 @@
-import { RGBA, TextAttributes, type KeyEvent } from "@opentui/core";
+import { RGBA, TextAttributes, type InputRenderable, type KeyEvent } from "@opentui/core";
 import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid";
 import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
 import { createStore } from "solid-js/store";
@@ -28,6 +28,22 @@ export type TuiConnectInfo = {
   attachCommand: string;
 };
 
+export type TuiOwpenbotHealth = {
+  ok: boolean;
+  opencode: {
+    url: string;
+    healthy: boolean;
+    version?: string;
+  };
+  channels: {
+    telegram: boolean;
+    whatsapp: boolean;
+  };
+  config: {
+    groupsEnabled: boolean;
+  };
+};
+
 export type TuiLogEntry = {
   time: number;
   level: TuiLogLevel;
@@ -38,6 +54,7 @@ export type TuiLogEntry = {
 export type TuiHandle = {
   updateService: (name: string, update: Partial<TuiService>) => void;
   setConnectInfo: (info: Partial<TuiConnectInfo>) => void;
+  setOwpenbotHealth: (health: TuiOwpenbotHealth | null) => void;
   pushLog: (entry: TuiLogEntry) => void;
   setUptimeStart: (time: number) => void;
   stop: () => void;
@@ -50,9 +67,12 @@ type TuiOptions = {
   onQuit: () => void | Promise<void>;
   onDetach: () => void | Promise<void>;
   onCopyAttach: () => Promise<{ command: string; copied: boolean; error?: string }>;
+  onOwpenbotHealth: () => Promise<TuiOwpenbotHealth>;
+  onOwpenbotQr: () => Promise<string>;
+  onOwpenbotSetTelegramToken: (token: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
-type ViewName = "overview" | "logs" | "help";
+type ViewName = "overview" | "logs" | "help" | "owpenbot";
 
 const MAX_LOGS = 800;
 
@@ -121,6 +141,7 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
   const api: TuiHandle = {
     updateService: () => undefined,
     setConnectInfo: () => undefined,
+    setOwpenbotHealth: () => undefined,
     pushLog: () => undefined,
     setUptimeStart: () => undefined,
     stop: () => stop?.(),
@@ -141,6 +162,11 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
         logs: [] as TuiLogEntry[],
         services: options.services as TuiService[],
         connect: options.connect,
+        owpenbotHealth: null as TuiOwpenbotHealth | null,
+        owpenbotQr: "",
+        owpenbotQrError: "",
+        owpenbotToken: "",
+        owpenbotEditing: false,
         uptimeStart: Date.now(),
       });
 
@@ -152,6 +178,10 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
 
       api.setConnectInfo = (info) => {
         setState("connect", (prev) => ({ ...prev, ...info }));
+      };
+
+      api.setOwpenbotHealth = (health) => {
+        setState("owpenbotHealth", health);
       };
 
       api.pushLog = (entry) => {
@@ -184,6 +214,8 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
       onCleanup(() => {
         if (toastTimer) clearTimeout(toastTimer);
       });
+
+      let tokenInput: InputRenderable | undefined;
 
       const logHeight = createMemo(() => {
         const height = dimensions().height;
@@ -218,6 +250,11 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
         return healthy ? "All green" : "Starting";
       });
 
+      const owpenbotStatus = createMemo(() => {
+        if (!state.owpenbotHealth) return "Pending";
+        return state.owpenbotHealth.ok ? "Healthy" : "Needs attention";
+      });
+
       const actions = (view: ViewName) => {
         if (view === "logs") {
           return "[B] Back  [F] Follow  [S] Service  [E] Level  [D] Detach  [Q] Quit";
@@ -225,7 +262,10 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
         if (view === "help") {
           return "[B] Back  [D] Detach  [Q] Quit";
         }
-        return "[L] Logs  [C] Copy attach command  [D] Detach  [Q] Quit";
+        if (view === "owpenbot") {
+          return "[B] Back  [G] QR  [T] Telegram token  [R] Refresh  [D] Detach  [Q] Quit";
+        }
+        return "[L] Logs  [W] Owpenbot  [C] Copy attach command  [D] Detach  [Q] Quit";
       };
 
       useKeyboard((evt: KeyEvent) => {
@@ -244,9 +284,22 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
           void options.onDetach();
           return;
         }
+        if (state.owpenbotEditing) {
+          if (evt.name === "escape") {
+            evt.preventDefault();
+            setState("owpenbotEditing", false);
+            tokenInput?.blur();
+          }
+          return;
+        }
         if (evt.name === "l") {
           evt.preventDefault();
           setState("view", "logs");
+          return;
+        }
+        if (evt.name === "w") {
+          evt.preventDefault();
+          setState("view", "owpenbot");
           return;
         }
         if (evt.name === "h" || evt.name === "?") {
@@ -257,6 +310,7 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
         if (evt.name === "b" || evt.name === "o") {
           evt.preventDefault();
           setState("view", "overview");
+          setState("owpenbotEditing", false);
           return;
         }
         if (evt.name === "c") {
@@ -273,6 +327,48 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
               showToast(`Attach command error: ${String(error)}`);
             });
           return;
+        }
+        if (state.view === "owpenbot") {
+          if (evt.name === "b" || evt.name === "o") {
+            evt.preventDefault();
+            setState("view", "overview");
+            return;
+          }
+          if (evt.name === "g") {
+            evt.preventDefault();
+            setState("owpenbotQr", "");
+            setState("owpenbotQrError", "");
+            options
+              .onOwpenbotQr()
+              .then((qr) => {
+                setState("owpenbotQr", qr.trim());
+                showToast("WhatsApp QR loaded");
+              })
+              .catch((error) => {
+                setState("owpenbotQrError", String(error));
+                showToast("WhatsApp QR failed");
+              });
+            return;
+          }
+          if (evt.name === "r") {
+            evt.preventDefault();
+            options
+              .onOwpenbotHealth()
+              .then((health) => {
+                api.setOwpenbotHealth(health);
+                showToast("Owpenbot health refreshed");
+              })
+              .catch((error) => {
+                showToast(`Owpenbot health error: ${String(error)}`);
+              });
+            return;
+          }
+          if (evt.name === "t") {
+            evt.preventDefault();
+            setState("owpenbotEditing", true);
+            setTimeout(() => tokenInput?.focus(), 1);
+            return;
+          }
         }
         if (state.view !== "logs") return;
         if (evt.name === "f") {
@@ -403,13 +499,101 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
             </box>
           </Show>
 
+          <Show when={state.view === "owpenbot"}>
+            <box flexDirection="column" paddingTop={1} gap={1}>
+              <text fg={theme.text} attributes={TextAttributes.BOLD}>
+                Owpenbot
+              </text>
+              <text fg={theme.textMuted}>Health: {owpenbotStatus()}</text>
+              <Show when={state.owpenbotHealth}>
+                <text fg={theme.textMuted}>
+                  OpenCode: {state.owpenbotHealth?.opencode.healthy ? "healthy" : "down"}
+                </text>
+                <text fg={theme.textMuted}>
+                  WhatsApp: {state.owpenbotHealth?.channels.whatsapp ? "connected" : "not connected"}
+                </text>
+                <text fg={theme.textMuted}>
+                  Telegram: {state.owpenbotHealth?.channels.telegram ? "enabled" : "not configured"}
+                </text>
+                <text fg={theme.textMuted}>
+                  Groups enabled: {state.owpenbotHealth?.config.groupsEnabled ? "yes" : "no"}
+                </text>
+              </Show>
+              <Show when={!state.owpenbotHealth}>
+                <text fg={theme.textMuted}>Press [R] to refresh owpenbot health.</text>
+              </Show>
+
+              <box paddingTop={1}>
+                <text fg={theme.text} attributes={TextAttributes.BOLD}>
+                  WhatsApp QR
+                </text>
+              </box>
+              <Show when={state.owpenbotQr}>
+                <box flexDirection="column" gap={0}>
+                  <For each={state.owpenbotQr.split(/\r?\n/)}>
+                    {(line) => <text fg={theme.textMuted}>{line}</text>}
+                  </For>
+                </box>
+              </Show>
+              <Show when={!state.owpenbotQr && !state.owpenbotQrError}>
+                <text fg={theme.textMuted}>Press [G] to fetch a QR code.</text>
+              </Show>
+              <Show when={state.owpenbotQrError}>
+                <text fg={theme.error}>{state.owpenbotQrError}</text>
+              </Show>
+
+              <box paddingTop={1}>
+                <text fg={theme.text} attributes={TextAttributes.BOLD}>
+                  Telegram token
+                </text>
+              </box>
+              <input
+                value={state.owpenbotToken}
+                placeholder="Paste token and press enter"
+                focused={state.owpenbotEditing}
+                onInput={(value) => setState("owpenbotToken", value)}
+                onSubmit={(value) => {
+                  const token = typeof value === "string" ? value.trim() : "";
+                  if (!token) {
+                    showToast("Telegram token required");
+                    return;
+                  }
+                  options
+                    .onOwpenbotSetTelegramToken(token)
+                    .then((result) => {
+                      if (!result.ok) {
+                        showToast(result.error ? `Telegram error: ${result.error}` : "Telegram token failed");
+                        return;
+                      }
+                      setState("owpenbotToken", "");
+                      setState("owpenbotEditing", false);
+                      tokenInput?.blur();
+                      showToast("Telegram token saved");
+                    })
+                    .catch((error) => {
+                      showToast(`Telegram error: ${String(error)}`);
+                    });
+                }}
+                ref={(node) => {
+                  tokenInput = node;
+                  if (state.owpenbotEditing) {
+                    setTimeout(() => tokenInput?.focus(), 1);
+                  }
+                }}
+              />
+            </box>
+          </Show>
+
           <Show when={state.view === "help"}>
             <box flexDirection="column" paddingTop={1} gap={1}>
               <text fg={theme.text} attributes={TextAttributes.BOLD}>
                 Shortcuts
               </text>
               <text fg={theme.textMuted}>L: Logs</text>
+              <text fg={theme.textMuted}>W: Owpenbot</text>
               <text fg={theme.textMuted}>C: Copy attach command</text>
+              <text fg={theme.textMuted}>G: WhatsApp QR (owpenbot)</text>
+              <text fg={theme.textMuted}>T: Telegram token (owpenbot)</text>
               <text fg={theme.textMuted}>D: Detach</text>
               <text fg={theme.textMuted}>Q: Quit</text>
             </box>
