@@ -56,13 +56,17 @@ const targetVersion = async () => {
 const updatePackageJson = async (nextVersion) => {
   const uiPath = path.join(ROOT, "package.json");
   const tauriPath = path.join(REPO_ROOT, "packages", "desktop", "package.json");
+  const headlessPath = path.join(REPO_ROOT, "packages", "headless", "package.json");
   const uiData = await readJson(uiPath);
   const tauriData = await readJson(tauriPath);
+  const headlessData = await readJson(headlessPath);
   uiData.version = nextVersion;
   tauriData.version = nextVersion;
+  headlessData.version = nextVersion;
   if (!isDryRun) {
     await writeFile(uiPath, JSON.stringify(uiData, null, 2) + "\n");
     await writeFile(tauriPath, JSON.stringify(tauriData, null, 2) + "\n");
+    await writeFile(headlessPath, JSON.stringify(headlessData, null, 2) + "\n");
   }
 };
 
@@ -106,6 +110,7 @@ const main = async () => {
         files: [
           "packages/app/package.json",
           "packages/desktop/package.json",
+          "packages/headless/package.json",
           "packages/desktop/src-tauri/Cargo.toml",
           "packages/desktop/src-tauri/tauri.conf.json",
         ],
