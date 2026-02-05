@@ -8,7 +8,6 @@ import {
   ChevronDown,
   ChevronRight,
   Cloud,
-  Edit2,
   ExternalLink,
   FileCode,
   FileText,
@@ -16,7 +15,6 @@ import {
   History,
   Layout,
   MessageSquare,
-  Mic,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -143,28 +141,12 @@ const SidebarItem = (props: {
 
 const ThreadItem = (props: { text: string; time: string }) => (
   <div class="group relative flex items-center justify-between rounded-xl px-3 py-2 transition-colors hover:bg-gray-2">
-    <span class="truncate pr-6 text-sm font-medium text-gray-11 group-hover:text-gray-12">
+    <span class="truncate text-sm font-medium text-gray-11 group-hover:text-gray-12">
       {props.text}
     </span>
-    <span class="text-xs text-gray-8 transition-opacity group-hover:opacity-0">
+    <span class="text-xs text-gray-8">
       {props.time}
     </span>
-    <div class="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-      <button
-        type="button"
-        aria-label="Thread options"
-        class="rounded-md p-1 text-gray-9 transition-colors hover:bg-gray-3 hover:text-gray-12"
-      >
-        <MoreHorizontal size={14} />
-      </button>
-      <button
-        type="button"
-        aria-label="Rename thread"
-        class="rounded-md p-1 text-gray-9 transition-colors hover:bg-gray-3 hover:text-gray-12"
-      >
-        <Edit2 size={14} />
-      </button>
-    </div>
   </div>
 );
 
@@ -669,20 +651,6 @@ export default function ProtoV1UxView() {
                           </button>
                         </div>
                         <div class="flex items-center gap-3">
-                          <button
-                            type="button"
-                            aria-label="Thread history"
-                            class="rounded-md p-1.5 text-gray-8 transition-colors hover:bg-gray-2 hover:text-gray-12"
-                          >
-                            <History size={18} />
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="Voice input"
-                            class="rounded-md p-1.5 text-gray-8 transition-colors hover:bg-gray-2 hover:text-gray-12"
-                          >
-                            <Mic size={18} />
-                          </button>
                           <button
                             type="button"
                             aria-label="Send"
