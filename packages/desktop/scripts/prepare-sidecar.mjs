@@ -41,6 +41,37 @@ const opencodeVersion = (() => {
   }
   return null;
 })();
+
+const normalizeVersion = (value) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  if (raw.toLowerCase() === "latest") return null;
+  return raw.startsWith("v") ? raw.slice(1) : raw;
+};
+
+const fetchLatestOpencodeVersion = async () => {
+  // Use GitHub API (no auth required). If this fails, the caller can fall back
+  // to an explicitly configured version via OPENCODE_VERSION.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch("https://api.github.com/repos/anomalyco/opencode/releases/latest", {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const tagName = typeof data?.tag_name === "string" ? data.tag_name : "";
+    return normalizeVersion(tagName);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
 const opencodeAssetOverride = process.env.OPENCODE_ASSET?.trim() || null;
 const owpenbotVersion = (() => {
   if (process.env.OWPENBOT_VERSION?.trim()) return process.env.OWPENBOT_VERSION.trim();
@@ -303,13 +334,14 @@ if (existsSync(openworkServerBuildPath)) {
   }
 }
 
-const normalizedOpencodeVersion = opencodeVersion?.startsWith("v")
-  ? opencodeVersion.slice(1)
-  : opencodeVersion;
+let normalizedOpencodeVersion = normalizeVersion(opencodeVersion);
+if (!normalizedOpencodeVersion) {
+  normalizedOpencodeVersion = await fetchLatestOpencodeVersion();
+}
 
 if (!normalizedOpencodeVersion) {
   console.error(
-    "OpenCode version is not configured. Set OPENCODE_VERSION or add opencodeVersion to packages/desktop/package.json."
+    "OpenCode version could not be resolved. Set OPENCODE_VERSION to pin a version, or ensure GitHub is reachable to use latest."
   );
   process.exit(1);
 }

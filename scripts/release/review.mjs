@@ -76,11 +76,17 @@ addCheck(
   versions.owpenbot && versions.owpenbotVersionPinned && versions.owpenbot === versions.owpenbotVersionPinned,
   `${versions.owpenbotVersionPinned ?? "?"} vs ${versions.owpenbot ?? "?"}`,
 );
-addCheck(
-  "OpenCode version matches (desktop/headless)",
-  versions.opencode.desktop && versions.opencode.headless && versions.opencode.desktop === versions.opencode.headless,
-  `${versions.opencode.desktop ?? "?"} vs ${versions.opencode.headless ?? "?"}`,
-);
+if (versions.opencode.desktop || versions.opencode.headless) {
+  addCheck(
+    "OpenCode version matches (desktop/headless)",
+    versions.opencode.desktop && versions.opencode.headless && versions.opencode.desktop === versions.opencode.headless,
+    `${versions.opencode.desktop ?? "?"} vs ${versions.opencode.headless ?? "?"}`,
+  );
+} else {
+  addWarning(
+    "OpenCode version is not pinned (packages/desktop + packages/headless). Sidecar bundling will default to the latest OpenCode release at build time.",
+  );
+}
 
 const openworkServerRange = versions.headlessOpenworkServerRange ?? "";
 const openworkServerPinned = /^\d+\.\d+\.\d+/.test(openworkServerRange);

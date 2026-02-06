@@ -600,6 +600,8 @@ async function readVersionManifest(): Promise<VersionManifest | null> {
 
 const remoteManifestCache = new Map<string, Promise<RemoteSidecarManifest | null>>();
 
+let latestOpencodeVersionTask: Promise<string | undefined> | null = null;
+
 function resolveSidecarTarget(): SidecarTarget | null {
   if (process.platform === "darwin") {
     if (process.arch === "arm64") return "darwin-arm64";
@@ -664,6 +666,34 @@ async function fetchRemoteManifest(url: string): Promise<RemoteSidecarManifest |
   })();
   remoteManifestCache.set(url, task);
   return task;
+}
+
+async function resolveLatestOpencodeVersion(): Promise<string | undefined> {
+  if (latestOpencodeVersionTask) return latestOpencodeVersionTask;
+  latestOpencodeVersionTask = (async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const response = await fetch("https://api.github.com/repos/anomalyco/opencode/releases/latest", {
+        headers: {
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+        signal: controller.signal,
+      });
+      if (!response.ok) return undefined;
+      const data = (await response.json()) as { tag_name?: unknown };
+      const tag = typeof data.tag_name === "string" ? data.tag_name.trim() : "";
+      if (!tag) return undefined;
+      const normalized = tag.startsWith("v") ? tag.slice(1) : tag;
+      return normalized || undefined;
+    } catch {
+      return undefined;
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+  return latestOpencodeVersionTask;
 }
 
 function resolveAssetUrl(baseUrl: string, asset?: string, url?: string): string | null {
@@ -922,9 +952,15 @@ async function resolveExpectedVersion(
     }
     if (name === "opencode") {
       const envVersion = process.env.OPENCODE_VERSION?.trim();
-      if (envVersion) return envVersion.startsWith("v") ? envVersion.slice(1) : envVersion;
+      if (envVersion && envVersion.toLowerCase() !== "latest") {
+        return envVersion.startsWith("v") ? envVersion.slice(1) : envVersion;
+      }
       const pkgVersion = await readPackageField("opencodeVersion");
-      if (pkgVersion) return pkgVersion.startsWith("v") ? pkgVersion.slice(1) : pkgVersion;
+      if (pkgVersion && pkgVersion.toLowerCase() !== "latest") {
+        return pkgVersion.startsWith("v") ? pkgVersion.slice(1) : pkgVersion;
+      }
+      const latest = await resolveLatestOpencodeVersion();
+      if (latest) return latest;
     }
   } catch {
     // ignore
@@ -1187,7 +1223,9 @@ async function resolveOpencodeBin(options: {
     if (opencodeDownloaded) {
       return { bin: opencodeDownloaded, source: "downloaded", expectedVersion };
     }
-    throw new Error("opencode download failed. Check sidecar manifest or OPENCODE_VERSION.");
+    throw new Error(
+      "opencode download failed. Check sidecar manifest/network access, or set OPENCODE_VERSION to pin a version.",
+    );
   }
 
   if (options.source === "external") {
