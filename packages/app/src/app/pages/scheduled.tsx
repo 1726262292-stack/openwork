@@ -13,6 +13,7 @@ import {
   FolderOpen,
   MessageSquare,
   Plus,
+  Play,
   RefreshCw,
   Terminal,
   Trash2,
@@ -42,6 +43,92 @@ const toRelative = (value?: string | null) => {
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed)) return "Never";
   return formatRelativeTime(parsed);
+};
+
+const pad2 = (value: number) => String(value).padStart(2, "0");
+
+const parseCronNumbers = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return [] as number[];
+  const parts = trimmed.split(",");
+  const values = new Set<number>();
+  for (const part of parts) {
+    const segment = part.trim();
+    if (!segment) continue;
+    if (segment.includes("-")) {
+      const [startRaw, endRaw] = segment.split("-");
+      const start = Number.parseInt(startRaw ?? "", 10);
+      const end = Number.parseInt(endRaw ?? "", 10);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+      const lo = Math.min(start, end);
+      const hi = Math.max(start, end);
+      for (let i = lo; i <= hi; i += 1) values.add(i);
+      continue;
+    }
+    const num = Number.parseInt(segment, 10);
+    if (!Number.isFinite(num)) continue;
+    values.add(num);
+  }
+  return Array.from(values).sort((a, b) => a - b);
+};
+
+const humanizeCron = (cron: string) => {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length < 5) return "Custom schedule";
+  const [minuteRaw, hourRaw, dom, mon, dowRaw] = parts;
+  if (!minuteRaw || !hourRaw || !dom || !mon || !dowRaw) return "Custom schedule";
+
+  // Every N hours
+  if (minuteRaw === "0" && hourRaw.startsWith("*/") && dom === "*" && mon === "*" && dowRaw === "*") {
+    const interval = Number.parseInt(hourRaw.slice(2), 10);
+    if (Number.isFinite(interval) && interval > 0) {
+      return interval === 1 ? "Every hour" : `Every ${interval} hours`;
+    }
+  }
+
+  // Daily / weekly at a fixed time
+  const hour = Number.parseInt(hourRaw, 10);
+  const minute = Number.parseInt(minuteRaw, 10);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return "Custom schedule";
+  if (dom !== "*" || mon !== "*") return "Custom schedule";
+
+  const timeLabel = `${pad2(hour)}:${pad2(minute)}`;
+
+  if (dowRaw === "*") {
+    return `Every day at ${timeLabel}`;
+  }
+
+  const days = parseCronNumbers(dowRaw);
+  const normalized = new Set(days.map((d) => (d === 7 ? 0 : d)));
+  const allDays = [0, 1, 2, 3, 4, 5, 6];
+  const weekdayDays = [1, 2, 3, 4, 5];
+  const weekendDays = [0, 6];
+
+  const includesAll = allDays.every((d) => normalized.has(d));
+  if (includesAll) return `Every day at ${timeLabel}`;
+
+  const includesWeekdays = weekdayDays.every((d) => normalized.has(d)) && !weekendDays.some((d) => normalized.has(d));
+  if (includesWeekdays) return `Weekdays at ${timeLabel}`;
+
+  const includesWeekends = weekendDays.every((d) => normalized.has(d)) && !weekdayDays.some((d) => normalized.has(d));
+  if (includesWeekends) return `Weekends at ${timeLabel}`;
+
+  const labels: Record<number, string> = {
+    0: "Sun",
+    1: "Mon",
+    2: "Tue",
+    3: "Wed",
+    4: "Thu",
+    5: "Fri",
+    6: "Sat",
+  };
+  const list = Array.from(normalized)
+    .filter((d) => d >= 0 && d <= 6)
+    .sort((a, b) => a - b)
+    .map((d) => labels[d] ?? String(d))
+    .join(", ");
+  if (!list) return `At ${timeLabel}`;
+  return `${list} at ${timeLabel}`;
 };
 
 const taskSummary = (job: ScheduledJob) => {
@@ -188,14 +275,16 @@ const AutomationCard = (props: {
       type="button"
       onClick={props.onClick}
       disabled={props.disabled}
-      class={`flex min-h-[132px] w-full flex-col gap-4 rounded-2xl border border-gray-6 bg-white p-5 text-left transition-all hover:border-gray-7 hover:shadow-sm ${
+      class={`group w-full rounded-2xl border bg-gray-1 p-5 text-left transition-shadow hover:shadow-md ${
         props.disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-      }`}
+      } border-gray-4 hover:border-gray-5`}
     >
-      <div class={`flex h-9 w-9 items-center justify-center rounded-xl border border-gray-4 bg-white ${props.tone ?? ""}`}>
+      <div class={`mb-4 flex h-8 w-8 items-center justify-center rounded-lg border border-gray-3 bg-gray-1 ${
+        props.tone ?? ""
+      }`}>
         <Icon size={18} />
       </div>
-      <p class="text-[13px] leading-relaxed text-gray-10">{props.description}</p>
+      <p class="text-[13px] text-gray-10 leading-relaxed group-hover:text-gray-12">{props.description}</p>
     </button>
   );
 };
@@ -205,15 +294,17 @@ const AutomationJobCard = (props: {
   supported: boolean;
   busy: boolean;
   onDelete: () => void;
+  onRun: () => void;
 }) => {
   const summary = () => taskSummary(props.job);
   const status = () => props.job.lastRunStatus;
+  const scheduleLabel = () => humanizeCron(props.job.schedule);
   return (
-    <div class="flex flex-col gap-4 rounded-2xl border border-gray-6 bg-white p-5 shadow-sm">
+    <div class="flex flex-col gap-4 rounded-2xl border border-gray-4 bg-gray-1 p-5 shadow-sm">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="flex min-w-0 items-start gap-3">
           <div
-            class={`flex h-9 w-9 items-center justify-center rounded-xl border bg-white ${statusIconTone(
+            class={`flex h-8 w-8 items-center justify-center rounded-lg border bg-gray-1 ${statusIconTone(
               status()
             )}`}
           >
@@ -230,29 +321,41 @@ const AutomationJobCard = (props: {
                 {statusLabel(status())}
               </span>
             </div>
-            <div class="mt-1 text-xs text-gray-9">
-              Cron <span class="font-mono text-gray-12">{props.job.schedule}</span>
-            </div>
-            <div class="text-[11px] text-gray-8 font-mono">{props.job.slug}</div>
+            <div class="mt-1 text-xs text-gray-9">{scheduleLabel()}</div>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={props.onDelete}
-          disabled={!props.supported || props.busy}
-          class={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-            !props.supported || props.busy
-              ? "border-gray-5 text-gray-8"
-              : "border-red-6 text-red-10 hover:bg-red-3"
-          }`}
-        >
-          <Trash2 size={12} />
-          Delete
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={props.onRun}
+            disabled={props.busy}
+            class={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+              props.busy
+                ? "border-gray-5 text-gray-8"
+                : "border-gray-5 text-gray-10 hover:bg-gray-2/70 hover:text-gray-12"
+            }`}
+          >
+            <Play size={12} />
+            Run
+          </button>
+          <button
+            type="button"
+            onClick={props.onDelete}
+            disabled={!props.supported || props.busy}
+            class={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+              !props.supported || props.busy
+                ? "border-gray-5 text-gray-8"
+                : "border-red-6 text-red-10 hover:bg-red-3"
+            }`}
+          >
+            <Trash2 size={12} />
+            Delete
+          </button>
+        </div>
       </div>
 
       <div class="grid gap-3 md:grid-cols-2">
-        <div class="rounded-xl border border-gray-6 bg-gray-2 px-3 py-3">
+        <div class="rounded-xl border border-gray-4 bg-gray-2/60 px-3 py-3">
           <div class="text-[10px] uppercase tracking-wide text-gray-8">{summary().label}</div>
           <div
             class={`mt-1 text-sm text-gray-12 break-words ${summary().mono ? "font-mono" : ""}`}
@@ -260,7 +363,7 @@ const AutomationJobCard = (props: {
             {summary().value}
           </div>
         </div>
-        <div class="rounded-xl border border-gray-6 bg-gray-2 px-3 py-3 space-y-2">
+        <div class="rounded-xl border border-gray-4 bg-gray-2/60 px-3 py-3 space-y-2">
           <div class="text-[10px] uppercase tracking-wide text-gray-8">Run context</div>
           <div class="space-y-2 text-xs text-gray-9">
             <div class="flex items-center gap-2">
@@ -417,6 +520,34 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
     setCreateModalOpen(false);
   };
 
+  const runAutomationNow = (job: ScheduledJob) => {
+    const run = job.run;
+    const workdir = (job.workdir ?? props.activeWorkspaceRoot ?? "").trim();
+    const schedule = humanizeCron(job.schedule);
+
+    if (run?.prompt || job.prompt) {
+      const promptBody = (run?.prompt ?? job.prompt ?? "").trim();
+      const workdirHint = workdir ? `\n\nRun from ${workdir}.` : "";
+      props.setPrompt(`Run this automation now: ${job.name}.\nSchedule: ${schedule}.\n\n${promptBody}${workdirHint}`.trim());
+      props.createSessionAndOpen();
+      return;
+    }
+
+    if (run?.command) {
+      const args = run.arguments ? ` ${run.arguments}` : "";
+      const cmd = `${run.command}${args}`.trim();
+      const workdirHint = workdir ? `\n\nRun from ${workdir}.` : "";
+      props.setPrompt(
+        `Run this automation now: ${job.name}.\nSchedule: ${schedule}.\n\nRun the following command:\n${cmd}${workdirHint}`.trim()
+      );
+      props.createSessionAndOpen();
+      return;
+    }
+
+    props.setPrompt(`Run this automation now: ${job.name}.\nSchedule: ${schedule}.`);
+    props.createSessionAndOpen();
+  };
+
   const toggleDay = (id: string) => {
     setScheduleDays((current) => {
       const next = new Set(current);
@@ -438,7 +569,7 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
 
   return (
     <section class="space-y-10">
-      <div class="flex flex-wrap items-center justify-end gap-3 border-b border-gray-6 pb-4">
+      <div class="flex flex-wrap items-center justify-end gap-4">
         <button
           type="button"
           onClick={openSchedulerDocs}
@@ -474,45 +605,21 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
         </button>
       </div>
 
-      <div class="flex flex-col items-center text-center gap-3">
-        <div class="flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-6 bg-gray-2 shadow-sm">
+      <div class="pt-8 text-center">
+        <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-4 bg-gray-1 shadow-sm">
           <Terminal size={28} class="text-gray-9" />
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center justify-center gap-2">
           <h2 class="text-2xl font-semibold text-gray-12">Automations</h2>
-          <span class="rounded-full border border-gray-6 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gray-9">
+          <span class="rounded border border-gray-4 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-tight text-gray-8">
             Beta
           </span>
         </div>
-        <p class="text-sm text-gray-9">{sourceDescription()}</p>
-      </div>
-
-      <div class="flex flex-wrap justify-center gap-3 text-xs text-gray-9">
-        <div class="rounded-xl border border-gray-6 bg-gray-1 px-3 py-2">
-          <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-8">Automations</div>
-          <div class="text-sm font-semibold text-gray-12">{props.jobs.length}</div>
-          <div class="text-[10px] text-gray-8">Active automations</div>
-        </div>
-        <div class="rounded-xl border border-gray-6 bg-gray-1 px-3 py-2">
-          <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-8">Last sync</div>
-          <div class="text-sm font-semibold text-gray-12">
-            {supported() ? lastUpdatedLabel() : "Unavailable"}
-          </div>
-          <div class="text-[10px] text-gray-8">{sourceLabel()}</div>
-        </div>
-        <div class="rounded-xl border border-gray-6 bg-gray-1 px-3 py-2">
-          <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-8">Scheduler</div>
-          <div class="text-sm font-semibold text-gray-12">
-            {supported() ? schedulerLabel() : "Unavailable"}
-          </div>
-          <div class="text-[10px] text-gray-8">
-            {supported() ? schedulerHint() : schedulerUnavailableHint()}
-          </div>
-        </div>
+        <p class="mt-2 text-sm text-gray-9">{sourceDescription()}</p>
       </div>
 
       <Show when={supportNote()}>
-        <div class="rounded-xl border border-gray-6 bg-gray-2 px-5 py-4 text-sm text-gray-9">
+        <div class="rounded-xl border border-gray-4 bg-gray-2/60 px-5 py-4 text-sm text-gray-10">
           {supportNote()}
         </div>
       </Show>
@@ -536,7 +643,7 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
             <div class="text-center text-sm text-gray-9">
               No automations yet. Pick a template or create your own automation prompt.
             </div>
-            <div class="grid w-full grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div class="grid w-full max-w-5xl mx-auto grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               <For each={automationTemplates}>
                 {(card) => (
                   <AutomationCard
@@ -567,6 +674,7 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
                 supported={supported()}
                 busy={props.busy || deleteBusy()}
                 onDelete={() => setDeleteTarget(job)}
+                onRun={() => runAutomationNow(job)}
               />
             )}
           </For>
@@ -629,7 +737,7 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
                     type="text"
                     value={automationName()}
                     onInput={(event) => setAutomationName(event.currentTarget.value)}
-                    class="w-full rounded-xl border border-gray-6 bg-gray-2 px-3 py-2 text-sm text-gray-12 focus:outline-none focus:ring-1 focus:ring-gray-7"
+                    class="w-full rounded-xl border border-gray-6 bg-gray-2 px-3 py-2 text-sm text-gray-12 focus:outline-none focus:ring-1 focus:ring-blue-9/20 focus:border-blue-7"
                   />
                 </div>
                 <div>
@@ -641,7 +749,7 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
                     value={automationProject()}
                     onInput={(event) => setAutomationProject(event.currentTarget.value)}
                     placeholder="Choose a folder"
-                    class="w-full rounded-xl border border-gray-6 bg-gray-2 px-3 py-2 text-sm text-gray-12 focus:outline-none focus:ring-1 focus:ring-gray-7"
+                    class="w-full rounded-xl border border-gray-6 bg-gray-2 px-3 py-2 text-sm text-gray-12 focus:outline-none focus:ring-1 focus:ring-blue-9/20 focus:border-blue-7"
                   />
                 </div>
                 <div>
@@ -662,14 +770,14 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
                     <label class="block text-[11px] font-bold uppercase tracking-wider text-gray-8">
                       Schedule
                     </label>
-                    <div class="flex rounded-lg bg-gray-2 p-0.5">
+                    <div class="flex rounded-lg bg-gray-3 p-0.5">
                       <button
                         type="button"
                         onClick={() => setScheduleMode("daily")}
                         class={`px-3 py-1 text-[10px] font-bold rounded-md transition-colors ${
                           scheduleMode() === "daily"
-                            ? "bg-white text-gray-12 shadow-sm"
-                            : "text-gray-8"
+                            ? "bg-gray-1 text-gray-12 shadow-sm"
+                            : "text-gray-9"
                         }`}
                       >
                         Daily
@@ -679,8 +787,8 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
                         onClick={() => setScheduleMode("interval")}
                         class={`px-3 py-1 text-[10px] font-bold rounded-md transition-colors ${
                           scheduleMode() === "interval"
-                            ? "bg-white text-gray-12 shadow-sm"
-                            : "text-gray-8"
+                            ? "bg-gray-1 text-gray-12 shadow-sm"
+                            : "text-gray-9"
                         }`}
                       >
                         Interval
@@ -725,7 +833,7 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
                               class={`h-8 w-8 rounded-full text-[10px] font-bold transition-colors ${
                                 scheduleDays().includes(day.id)
                                   ? "bg-gray-12 text-gray-1"
-                                  : "bg-gray-2 text-gray-8"
+                                  : "bg-gray-3 text-gray-9"
                               }`}
                             >
                               {day.label}
@@ -743,7 +851,7 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
                 </div>
               </div>
             </div>
-            <div class="flex items-center justify-between gap-4 border-t border-gray-6 bg-gray-2 px-8 py-4">
+            <div class="flex items-center justify-between gap-4 border-t border-gray-6 bg-gray-2/60 px-8 py-4">
               <button
                 type="button"
                 onClick={openSchedulerDocs}
@@ -765,7 +873,7 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
                   disabled={!canCreateAutomation() || props.newTaskDisabled}
                   class={`px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
                     !canCreateAutomation() || props.newTaskDisabled
-                      ? "bg-gray-3 text-gray-8"
+                      ? "bg-gray-3 text-gray-8 cursor-not-allowed"
                       : "bg-gray-12 text-gray-1 hover:bg-gray-11"
                   }`}
                 >
