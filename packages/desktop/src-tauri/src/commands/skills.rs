@@ -167,6 +167,13 @@ pub struct LocalSkillCard {
     pub trigger: Option<String>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalSkillContent {
+    pub path: String,
+    pub content: String,
+}
+
 fn extract_frontmatter_value(raw: &str, keys: &[&str]) -> Option<String> {
     let mut lines = raw.lines();
     let first = lines.next()?.trim();
@@ -185,7 +192,10 @@ fn extract_frontmatter_value(raw: &str, keys: &[&str]) -> Option<String> {
         let Some((key, value)) = trimmed.split_once(':') else {
             continue;
         };
-        if !keys.iter().any(|candidate| candidate.eq_ignore_ascii_case(key.trim())) {
+        if !keys
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(key.trim()))
+        {
             continue;
         }
         let mut cleaned = value.trim().to_string();
@@ -318,6 +328,79 @@ pub fn list_local_skills(project_dir: String) -> Result<Vec<LocalSkillCard>, Str
 
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
+}
+
+#[tauri::command]
+pub fn read_local_skill(project_dir: String, name: String) -> Result<LocalSkillContent, String> {
+    let project_dir = project_dir.trim();
+    if project_dir.is_empty() {
+        return Err("projectDir is required".to_string());
+    }
+
+    let name = validate_skill_name(&name)?;
+    let roots = collect_skill_roots(project_dir)?;
+
+    for root in roots {
+        let path = root.join(&name).join("SKILL.md");
+        if !path.is_file() {
+            continue;
+        }
+        let raw = fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+        return Ok(LocalSkillContent {
+            path: path.to_string_lossy().to_string(),
+            content: raw,
+        });
+    }
+
+    Err("Skill not found".to_string())
+}
+
+#[tauri::command]
+pub fn write_local_skill(
+    project_dir: String,
+    name: String,
+    content: String,
+) -> Result<ExecResult, String> {
+    let project_dir = project_dir.trim();
+    if project_dir.is_empty() {
+        return Err("projectDir is required".to_string());
+    }
+
+    let name = validate_skill_name(&name)?;
+    let roots = collect_skill_roots(project_dir)?;
+    let mut target: Option<PathBuf> = None;
+
+    for root in roots {
+        let path = root.join(&name).join("SKILL.md");
+        if path.is_file() {
+            target = Some(path);
+            break;
+        }
+    }
+
+    let Some(path) = target else {
+        return Ok(ExecResult {
+            ok: false,
+            status: 1,
+            stdout: String::new(),
+            stderr: "Skill not found".to_string(),
+        });
+    };
+
+    let next = if content.ends_with('\n') {
+        content
+    } else {
+        format!("{}\n", content)
+    };
+    fs::write(&path, next).map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
+
+    Ok(ExecResult {
+        ok: true,
+        status: 0,
+        stdout: format!("Saved skill {}", name),
+        stderr: String::new(),
+    })
 }
 
 #[tauri::command]

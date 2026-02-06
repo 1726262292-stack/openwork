@@ -709,6 +709,22 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
     return jsonResponse({ items });
   });
 
+  addRoute(routes, "GET", "/workspace/:id/skills/:name", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
+    const name = String(ctx.params.name ?? "").trim();
+    if (!name) {
+      throw new ApiError(400, "invalid_skill_name", "Skill name is required");
+    }
+    const items = await listSkills(workspace.path, includeGlobal);
+    const item = items.find((skill) => skill.name === name);
+    if (!item) {
+      throw new ApiError(404, "skill_not_found", `Skill not found: ${name}`);
+    }
+    const content = await readFile(item.path, "utf8");
+    return jsonResponse({ item, content });
+  });
+
   addRoute(routes, "POST", "/workspace/:id/skills", "client", async (ctx) => {
     ensureWritable(config);
     const workspace = await resolveWorkspace(config, ctx.params.id);

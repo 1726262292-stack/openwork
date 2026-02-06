@@ -3,7 +3,7 @@ import { For, Show, createMemo, createSignal } from "solid-js";
 import type { SkillCard } from "../types";
 
 import Button from "../components/button";
-import { Edit2, FolderOpen, Package, Plus, RefreshCw, Search, Sparkles, Upload } from "lucide-solid";
+import { Edit2, FolderOpen, Package, Plus, RefreshCw, Search, Sparkles, Trash2, Upload } from "lucide-solid";
 import { currentLocale, t } from "../../i18n";
 
 export type SkillsViewProps = {
@@ -18,6 +18,10 @@ export type SkillsViewProps = {
   installSkillCreator: () => void;
   revealSkillsFolder: () => void;
   uninstallSkill: (name: string) => void;
+  readSkill: (name: string) => Promise<{ name: string; path: string; content: string } | null>;
+  saveSkill: (input: { name: string; content: string; description?: string }) => void;
+  createSessionAndOpen: () => void;
+  setPrompt: (value: string) => void;
 };
 
 export default function SkillsView(props: SkillsViewProps) {
@@ -31,6 +35,12 @@ export default function SkillsView(props: SkillsViewProps) {
   const [uninstallTarget, setUninstallTarget] = createSignal<SkillCard | null>(null);
   const uninstallOpen = createMemo(() => uninstallTarget() != null);
   const [searchQuery, setSearchQuery] = createSignal("");
+
+  const [selectedSkill, setSelectedSkill] = createSignal<SkillCard | null>(null);
+  const [selectedContent, setSelectedContent] = createSignal("");
+  const [selectedLoading, setSelectedLoading] = createSignal(false);
+  const [selectedDirty, setSelectedDirty] = createSignal(false);
+  const [selectedError, setSelectedError] = createSignal<string | null>(null);
 
   const filteredSkills = createMemo(() => {
     const query = searchQuery().trim().toLowerCase();
@@ -71,22 +81,69 @@ export default function SkillsView(props: SkillsViewProps) {
     },
   ]);
 
-  const handleNewSkill = () => {
+  const handleNewSkill = async () => {
     if (props.busy) return;
+    // Ensure skill-creator exists when we can.
     if (props.canInstallSkillCreator && !skillCreatorInstalled()) {
-      props.installSkillCreator();
-      return;
+      await Promise.resolve(props.installSkillCreator());
     }
-    if (props.canUseDesktopTools) {
-      props.revealSkillsFolder();
+    // Open a new session and preselect /skill-creator.
+    await Promise.resolve(props.createSessionAndOpen());
+    props.setPrompt("/skill-creator");
+  };
+
+  const openSkill = async (skill: SkillCard) => {
+    if (props.busy) return;
+    setSelectedSkill(skill);
+    setSelectedContent("");
+    setSelectedDirty(false);
+    setSelectedError(null);
+    setSelectedLoading(true);
+    try {
+      const result = await props.readSkill(skill.name);
+      if (!result) {
+        setSelectedError("Failed to load skill.");
+        return;
+      }
+      setSelectedContent(result.content);
+    } catch (e) {
+      setSelectedError(e instanceof Error ? e.message : "Failed to load skill.");
+    } finally {
+      setSelectedLoading(false);
+    }
+  };
+
+  const closeSkill = () => {
+    setSelectedSkill(null);
+    setSelectedContent("");
+    setSelectedDirty(false);
+    setSelectedError(null);
+    setSelectedLoading(false);
+  };
+
+  const saveSelectedSkill = async () => {
+    const skill = selectedSkill();
+    if (!skill) return;
+    if (!selectedDirty()) return;
+    setSelectedError(null);
+    try {
+      await Promise.resolve(
+        props.saveSkill({
+          name: skill.name,
+          content: selectedContent(),
+          description: skill.description,
+        }),
+      );
+      setSelectedDirty(false);
+    } catch (e) {
+      setSelectedError(e instanceof Error ? e.message : "Failed to save skill.");
     }
   };
 
   const newSkillDisabled = createMemo(
     () =>
       props.busy ||
-      (!props.canUseDesktopTools &&
-        (!props.canInstallSkillCreator || skillCreatorInstalled()))
+      (!props.canInstallSkillCreator && !props.canUseDesktopTools)
   );
 
   return (
@@ -169,7 +226,18 @@ export default function SkillsView(props: SkillsViewProps) {
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <For each={filteredSkills()}>
               {(skill) => (
-                <div class="bg-dls-surface border border-dls-border rounded-xl p-4 flex items-start justify-between group hover:border-dls-border transition-all">
+                <div
+                  role="button"
+                  tabindex="0"
+                  class="bg-dls-surface border border-dls-border rounded-xl p-4 flex items-start justify-between group hover:border-dls-border hover:bg-dls-hover transition-all text-left cursor-pointer"
+                  onClick={() => void openSkill(skill)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      void openSkill(skill);
+                    }
+                  }}
+                >
                   <div class="flex gap-4">
                     <div class="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm border border-dls-border bg-dls-surface">
                       <Package size={20} class="text-dls-secondary" />
@@ -185,21 +253,101 @@ export default function SkillsView(props: SkillsViewProps) {
                       </Show>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    class="p-1.5 text-dls-secondary hover:text-dls-text hover:bg-dls-hover rounded-md transition-colors"
-                    onClick={() => setUninstallTarget(skill)}
-                    disabled={props.busy || !props.canUseDesktopTools}
-                    title={translate("skills.uninstall")}
-                  >
-                    <Edit2 size={14} />
-                  </button>
+                  <div class="flex items-center gap-1">
+                    <button
+                      type="button"
+                      class="p-1.5 text-dls-secondary hover:text-dls-text hover:bg-dls-active rounded-md transition-colors"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void openSkill(skill);
+                      }}
+                      disabled={props.busy}
+                      title="Edit"
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      class={`p-1.5 rounded-md transition-colors ${
+                        props.busy || !props.canUseDesktopTools
+                          ? "text-dls-secondary opacity-40"
+                          : "text-dls-secondary hover:text-red-11 hover:bg-red-3/10"
+                      }`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (props.busy || !props.canUseDesktopTools) return;
+                        setUninstallTarget(skill);
+                      }}
+                      disabled={props.busy || !props.canUseDesktopTools}
+                      title={translate("skills.uninstall")}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
               )}
             </For>
           </div>
         </Show>
       </div>
+
+      <Show when={selectedSkill()}>
+        <div class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div class="w-full max-w-4xl rounded-2xl border border-dls-border bg-dls-surface shadow-2xl overflow-hidden">
+            <div class="px-5 py-4 border-b border-dls-border flex items-center justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-sm font-semibold text-dls-text truncate">{selectedSkill()!.name}</div>
+                <div class="text-xs text-dls-secondary truncate">{selectedSkill()!.path}</div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  class={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                    selectedDirty() && !props.busy
+                      ? "bg-dls-text text-dls-surface hover:opacity-90"
+                      : "bg-dls-active text-dls-secondary"
+                  }`}
+                  disabled={!selectedDirty() || props.busy}
+                  onClick={() => void saveSelectedSkill()}
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  class="px-3 py-1.5 text-xs font-medium rounded-lg bg-dls-hover text-dls-text hover:bg-dls-active transition-colors"
+                  onClick={closeSkill}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div class="p-5">
+              <Show when={selectedError()}>
+                <div class="mb-3 rounded-xl border border-red-7/20 bg-red-1/40 px-4 py-3 text-xs text-red-12">
+                  {selectedError()}
+                </div>
+              </Show>
+              <Show
+                when={!selectedLoading()}
+                fallback={<div class="text-xs text-dls-secondary">Loading…</div>}
+              >
+                <textarea
+                  value={selectedContent()}
+                  onInput={(e) => {
+                    setSelectedContent(e.currentTarget.value);
+                    setSelectedDirty(true);
+                  }}
+                  class="w-full min-h-[420px] rounded-xl border border-dls-border bg-dls-hover px-4 py-3 text-xs font-mono text-dls-text focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb)/0.25)]"
+                  spellcheck={false}
+                />
+              </Show>
+            </div>
+          </div>
+        </div>
+      </Show>
 
       <div class="space-y-4">
         <h3 class="text-[11px] font-bold text-dls-secondary uppercase tracking-widest">Recommended</h3>

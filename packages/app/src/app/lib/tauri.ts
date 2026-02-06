@@ -489,8 +489,21 @@ export type LocalSkillCard = {
   trigger?: string;
 };
 
+export type LocalSkillContent = {
+  path: string;
+  content: string;
+};
+
 export async function listLocalSkills(projectDir: string): Promise<LocalSkillCard[]> {
   return invoke<LocalSkillCard[]>("list_local_skills", { projectDir });
+}
+
+export async function readLocalSkill(projectDir: string, name: string): Promise<LocalSkillContent> {
+  return invoke<LocalSkillContent>("read_local_skill", { projectDir, name });
+}
+
+export async function writeLocalSkill(projectDir: string, name: string, content: string): Promise<ExecResult> {
+  return invoke<ExecResult>("write_local_skill", { projectDir, name, content });
 }
 
 export async function uninstallSkill(projectDir: string, name: string): Promise<ExecResult> {

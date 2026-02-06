@@ -60,6 +60,23 @@ OpenWork is a Tauri application with two runtime modes:
 
 This split makes mobile "first-class" without requiring the full engine to run on-device.
 
+## Web Parity + Filesystem Actions
+
+The browser runtime cannot read or write arbitrary local files. Any feature that:
+
+- reads skills/commands/plugins from `.opencode/`
+- edits `SKILL.md` / command templates / `opencode.json`
+- opens folders / reveals paths
+
+must be routed through a host-side service.
+
+In OpenWork, the long-term direction is:
+
+- Use the OpenWork server (`packages/server`) as the single API surface for filesystem-backed operations.
+- Treat Tauri-only file operations as an implementation detail / convenience fallback, not a separate feature set.
+
+This ensures the same UI flows work on desktop, mobile, and web clients, with approvals and auditing handled centrally.
+
 ## OpenCode Integration (Exact SDK + APIs)
 
 OpenWork uses the official JavaScript/TypeScript SDK:

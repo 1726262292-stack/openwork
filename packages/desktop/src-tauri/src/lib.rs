@@ -29,7 +29,9 @@ use commands::owpenbot::{
     owpenbot_config_set, owpenbot_info, owpenbot_pairing_approve, owpenbot_pairing_deny,
     owpenbot_pairing_list, owpenbot_qr, owpenbot_start, owpenbot_status, owpenbot_stop,
 };
-use commands::skills::{install_skill_template, list_local_skills, uninstall_skill};
+use commands::skills::{
+    install_skill_template, list_local_skills, read_local_skill, uninstall_skill, write_local_skill,
+};
 use commands::updater::updater_environment;
 use commands::window::set_window_decorations;
 use commands::workspace::{
@@ -99,7 +101,9 @@ pub fn run() {
             import_skill,
             install_skill_template,
             list_local_skills,
+            read_local_skill,
             uninstall_skill,
+            write_local_skill,
             read_opencode_config,
             write_opencode_config,
             updater_environment,

@@ -17,7 +17,9 @@ import {
   importSkill,
   installSkillTemplate,
   listLocalSkills,
+  readLocalSkill,
   uninstallSkill as uninstallSkillCommand,
+  writeLocalSkill,
   pickDirectory,
   readOpencodeConfig,
   writeOpencodeConfig,
@@ -722,6 +724,150 @@ export function createExtensionsStore(options: {
     }
   }
 
+  async function readSkill(name: string): Promise<{ name: string; path: string; content: string } | null> {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+
+    const root = options.activeWorkspaceRoot().trim();
+    if (!root) {
+      setSkillsStatus(translate("skills.pick_workspace_first"));
+      return null;
+    }
+
+    const isRemoteWorkspace = options.workspaceType() === "remote";
+    const isLocalWorkspace = options.workspaceType() === "local";
+    const openworkClient = options.openworkServerClient();
+    const openworkWorkspaceId = options.openworkServerWorkspaceId();
+    const openworkCapabilities = options.openworkServerCapabilities();
+    const canUseOpenworkServer =
+      options.openworkServerStatus() === "connected" &&
+      openworkClient &&
+      openworkWorkspaceId &&
+      openworkCapabilities?.skills?.read &&
+      typeof (openworkClient as any).getSkill === "function";
+
+    if (canUseOpenworkServer) {
+      try {
+        setSkillsStatus(null);
+        const result = await (openworkClient as OpenworkServerClient & { getSkill: any }).getSkill(
+          openworkWorkspaceId,
+          trimmed,
+          { includeGlobal: isLocalWorkspace },
+        );
+        return {
+          name: result.item.name,
+          path: result.item.path,
+          content: result.content,
+        };
+      } catch (e) {
+        setSkillsStatus(e instanceof Error ? e.message : translate("skills.failed_to_load"));
+        return null;
+      }
+    }
+
+    if (isRemoteWorkspace) {
+      setSkillsStatus("OpenWork server unavailable. Connect to view skills.");
+      return null;
+    }
+
+    if (!isTauriRuntime()) {
+      setSkillsStatus(translate("skills.desktop_required"));
+      return null;
+    }
+
+    if (!isLocalWorkspace) {
+      setSkillsStatus("Local workspaces are required to view skills.");
+      return null;
+    }
+
+    try {
+      setSkillsStatus(null);
+      const result = await readLocalSkill(root, trimmed);
+      return { name: trimmed, path: result.path, content: result.content };
+    } catch (e) {
+      setSkillsStatus(e instanceof Error ? e.message : translate("skills.failed_to_load"));
+      return null;
+    }
+  }
+
+  async function saveSkill(input: { name: string; content: string; description?: string }) {
+    const trimmed = input.name.trim();
+    if (!trimmed) return;
+
+    const root = options.activeWorkspaceRoot().trim();
+    if (!root) {
+      setSkillsStatus(translate("skills.pick_workspace_first"));
+      return;
+    }
+
+    const isRemoteWorkspace = options.workspaceType() === "remote";
+    const isLocalWorkspace = options.workspaceType() === "local";
+    const openworkClient = options.openworkServerClient();
+    const openworkWorkspaceId = options.openworkServerWorkspaceId();
+    const openworkCapabilities = options.openworkServerCapabilities();
+    const canUseOpenworkServer =
+      options.openworkServerStatus() === "connected" &&
+      openworkClient &&
+      openworkWorkspaceId &&
+      openworkCapabilities?.skills?.write;
+
+    if (canUseOpenworkServer) {
+      options.setBusy(true);
+      options.setError(null);
+      setSkillsStatus(null);
+      try {
+        await openworkClient.upsertSkill(openworkWorkspaceId, {
+          name: trimmed,
+          content: input.content,
+          description: input.description,
+        });
+        options.markReloadRequired("skills", { type: "skill", name: trimmed, action: "updated" });
+        await refreshSkills({ force: true });
+        setSkillsStatus("Saved.");
+      } catch (e) {
+        const message = e instanceof Error ? e.message : translate("skills.unknown_error");
+        options.setError(addOpencodeCacheHint(message));
+      } finally {
+        options.setBusy(false);
+      }
+      return;
+    }
+
+    if (isRemoteWorkspace) {
+      setSkillsStatus("OpenWork server unavailable. Connect to edit skills.");
+      return;
+    }
+
+    if (!isTauriRuntime()) {
+      setSkillsStatus(translate("skills.desktop_required"));
+      return;
+    }
+
+    if (!isLocalWorkspace) {
+      setSkillsStatus("Local workspaces are required to edit skills.");
+      return;
+    }
+
+    options.setBusy(true);
+    options.setError(null);
+    setSkillsStatus(null);
+    try {
+      const result = await writeLocalSkill(root, trimmed, input.content);
+      if (!result.ok) {
+        setSkillsStatus(result.stderr || result.stdout || translate("skills.unknown_error"));
+      } else {
+        setSkillsStatus(result.stdout || "Saved.");
+        options.markReloadRequired("skills", { type: "skill", name: trimmed, action: "updated" });
+      }
+      await refreshSkills({ force: true });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : translate("skills.unknown_error");
+      options.setError(addOpencodeCacheHint(message));
+    } finally {
+      options.setBusy(false);
+    }
+  }
+
   function abortRefreshes() {
     refreshSkillsAborted = true;
     refreshPluginsAborted = true;
@@ -750,6 +896,8 @@ export function createExtensionsStore(options: {
     installSkillCreator,
     revealSkillsFolder,
     uninstallSkill,
+    readSkill,
+    saveSkill,
     abortRefreshes,
   };
 }

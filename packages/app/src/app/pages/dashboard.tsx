@@ -132,6 +132,8 @@ export type DashboardViewProps = {
   installSkillCreator: () => void;
   revealSkillsFolder: () => void;
   uninstallSkill: (name: string) => void;
+  readSkill: (name: string) => Promise<{ name: string; path: string; content: string } | null>;
+  saveSkill: (input: { name: string; content: string; description?: string }) => void;
   pluginsAccessHint?: string | null;
   canEditPlugins: boolean;
   canUseGlobalPluginScope: boolean;
@@ -798,6 +800,10 @@ export default function DashboardView(props: DashboardViewProps) {
                 installSkillCreator={props.installSkillCreator}
                 revealSkillsFolder={props.revealSkillsFolder}
                 uninstallSkill={props.uninstallSkill}
+                readSkill={props.readSkill}
+                saveSkill={props.saveSkill}
+                createSessionAndOpen={props.createSessionAndOpen}
+                setPrompt={props.setPrompt}
               />
             </Match>
 

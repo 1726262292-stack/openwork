@@ -68,6 +68,11 @@ export type OpenworkSkillItem = {
   trigger?: string;
 };
 
+export type OpenworkSkillContent = {
+  item: OpenworkSkillItem;
+  content: string;
+};
+
 export type OpenworkCommandItem = {
   name: string;
   description?: string;
@@ -438,6 +443,14 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       return requestJson<{ items: OpenworkSkillItem[] }>(
         baseUrl,
         `/workspace/${workspaceId}/skills${query}`,
+        { token, hostToken },
+      );
+    },
+    getSkill: (workspaceId: string, name: string, options?: { includeGlobal?: boolean }) => {
+      const query = options?.includeGlobal ? "?includeGlobal=true" : "";
+      return requestJson<OpenworkSkillContent>(
+        baseUrl,
+        `/workspace/${workspaceId}/skills/${encodeURIComponent(name)}${query}`,
         { token, hostToken },
       );
     },
