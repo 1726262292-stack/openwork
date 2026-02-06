@@ -1,5 +1,5 @@
-use std::fs;
 use std::collections::HashSet;
+use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 
@@ -83,7 +83,7 @@ End with two friendly next actions to try in OpenWork."#;
 }
 
 fn seed_get_started_skill(skill_root: &PathBuf) -> Result<(), String> {
-  let skill_dir = skill_root.join("get-started");
+    let skill_dir = skill_root.join("get-started");
     if skill_dir.exists() {
         return Ok(());
     }
@@ -91,7 +91,7 @@ fn seed_get_started_skill(skill_root: &PathBuf) -> Result<(), String> {
     fs::create_dir_all(&skill_dir)
         .map_err(|e| format!("Failed to create {}: {e}", skill_dir.display()))?;
 
-  let doc = r#"---
+    let doc = r#"---
 name: get-started
 description: Guide users through the get started setup and Chrome DevTools demo.
 ---
@@ -113,6 +113,65 @@ description: Guide users through the get started setup and Chrome DevTools demo.
 
     fs::write(skill_dir.join("SKILL.md"), doc)
         .map_err(|e| format!("Failed to write SKILL.md: {e}"))?;
+
+    Ok(())
+}
+
+fn seed_openwork_agent(agent_root: &PathBuf) -> Result<(), String> {
+    let agent_path = agent_root.join("openwork.md");
+    if agent_path.exists() {
+        return Ok(());
+    }
+
+    fs::create_dir_all(agent_root)
+        .map_err(|e| format!("Failed to create {}: {e}", agent_root.display()))?;
+
+    let doc = r#"---
+description: OpenWork default agent (safe, mobile-first, self-referential)
+mode: primary
+temperature: 0.2
+---
+
+You are OpenWork.
+
+When the user refers to \"you\", they mean the OpenWork app and the current workspace.
+
+Your job:
+- Help the user work on files safely.
+- Automate repeatable work.
+- Keep behavior portable and reproducible.
+
+Memory (two kinds)
+1) Behavior memory (shareable, in git)
+- `.opencode/skills/**`
+- `.opencode/agents/**`
+- repo docs
+
+2) Private memory (never commit)
+- Tokens, IDs, credentials
+- Local DBs/logs/config files (gitignored)
+- Notion pages/databases (if configured via MCP)
+
+Hard rule: never copy private memory into repo files verbatim. Store only redacted summaries, schemas/templates, and stable pointers.
+
+Reconstruction-first
+- Do not assume env vars or prior setup.
+- If required state is missing, ask one targeted question.
+- After the user provides it, store it in private memory and continue.
+
+Verification-first
+- If you change code, run the smallest meaningful test or smoke check.
+- If you touch UI or remote behavior, validate end-to-end and capture logs on failure.
+
+Incremental adoption loop
+- Do the task once end-to-end.
+- If steps repeat, factor them into a skill.
+- If the work becomes ongoing, create/refine an agent role.
+- If it should run regularly, schedule it and store outputs in private memory.
+"#;
+
+    fs::write(&agent_path, doc)
+        .map_err(|e| format!("Failed to write {}: {e}", agent_path.display()))?;
 
     Ok(())
 }
@@ -150,8 +209,8 @@ fn seed_enterprise_creator_skills(root: &PathBuf, skill_root: &PathBuf) -> Resul
         .map_err(|e| format!("Failed to read enterprise archive: {e}"))?;
 
     let cursor = Cursor::new(buffer);
-    let mut archive = ZipArchive::new(cursor)
-        .map_err(|e| format!("Failed to open enterprise archive: {e}"))?;
+    let mut archive =
+        ZipArchive::new(cursor).map_err(|e| format!("Failed to open enterprise archive: {e}"))?;
 
     for i in 0..archive.len() {
         let mut entry = archive
@@ -219,15 +278,15 @@ fn seed_enterprise_creator_skills(root: &PathBuf, skill_root: &PathBuf) -> Resul
 }
 
 fn seed_commands(commands_dir: &PathBuf, preset: &str) -> Result<(), String> {
-  if fs::read_dir(commands_dir)
-    .map_err(|e| format!("Failed to read {}: {e}", commands_dir.display()))?
-    .next()
-    .is_some()
-  {
-    return Ok(());
-  }
+    if fs::read_dir(commands_dir)
+        .map_err(|e| format!("Failed to read {}: {e}", commands_dir.display()))?
+        .next()
+        .is_some()
+    {
+        return Ok(());
+    }
 
-  let defaults = vec![
+    let defaults = vec![
     OpencodeCommand {
       name: "learn-files".to_string(),
       description: Some("Safe, practical file workflows".to_string()),
@@ -254,32 +313,32 @@ fn seed_commands(commands_dir: &PathBuf, preset: &str) -> Result<(), String> {
     },
   ];
 
-  let mut defaults = defaults;
-  if preset == "starter" {
-    defaults.push(OpencodeCommand {
-      name: "Get Started".to_string(),
-      description: Some("Get started".to_string()),
-      template: "get started".to_string(),
-      agent: None,
-      model: None,
-      subtask: None,
-    });
-  }
+    let mut defaults = defaults;
+    if preset == "starter" {
+        defaults.push(OpencodeCommand {
+            name: "Get Started".to_string(),
+            description: Some("Get started".to_string()),
+            template: "get started".to_string(),
+            agent: None,
+            model: None,
+            subtask: None,
+        });
+    }
 
     for command in defaults {
         let Some(name) = sanitize_command_name(&command.name) else {
             continue;
         };
 
-    let file_path = commands_dir.join(format!("{name}.md"));
-    if file_path.exists() {
-      continue;
-    }
+        let file_path = commands_dir.join(format!("{name}.md"));
+        if file_path.exists() {
+            continue;
+        }
 
-    let serialized = serialize_command_frontmatter(&command)?;
-    fs::write(&file_path, serialized)
-      .map_err(|e| format!("Failed to write {}: {e}", file_path.display()))?;
-  }
+        let serialized = serialize_command_frontmatter(&command)?;
+        fs::write(&file_path, serialized)
+            .map_err(|e| format!("Failed to write {}: {e}", file_path.display()))?;
+    }
 
     Ok(())
 }
@@ -291,17 +350,22 @@ pub fn ensure_workspace_files(workspace_path: &str, preset: &str) -> Result<(), 
     fs::create_dir_all(&skill_root)
         .map_err(|e| format!("Failed to create .opencode/skills: {e}"))?;
     seed_workspace_guide(&skill_root)?;
-  if preset == "starter" {
-    seed_get_started_skill(&skill_root)?;
-    if let Err(err) = seed_enterprise_creator_skills(&root, &skill_root) {
-      println!("[workspace] Failed to seed creator skills: {err}");
+    if preset == "starter" {
+        seed_get_started_skill(&skill_root)?;
+        if let Err(err) = seed_enterprise_creator_skills(&root, &skill_root) {
+            println!("[workspace] Failed to seed creator skills: {err}");
+        }
     }
-  }
+
+    let agents_dir = root.join(".opencode").join("agents");
+    fs::create_dir_all(&agents_dir)
+        .map_err(|e| format!("Failed to create .opencode/agents: {e}"))?;
+    seed_openwork_agent(&agents_dir)?;
 
     let commands_dir = root.join(".opencode").join("commands");
     fs::create_dir_all(&commands_dir)
         .map_err(|e| format!("Failed to create .opencode/commands: {e}"))?;
-  seed_commands(&commands_dir, preset)?;
+    seed_commands(&commands_dir, preset)?;
 
     let config_path_jsonc = root.join("opencode.jsonc");
     let config_path_json = root.join("opencode.json");
@@ -330,6 +394,21 @@ pub fn ensure_workspace_files(workspace_path: &str, preset: &str) -> Result<(), 
           "$schema": "https://opencode.ai/config.json"
         });
         config_changed = true;
+    }
+
+    if let Some(obj) = config.as_object_mut() {
+        let current = obj
+            .get("default_agent")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if current.is_empty() {
+            obj.insert(
+                "default_agent".to_string(),
+                serde_json::Value::String("openwork".to_string()),
+            );
+            config_changed = true;
+        }
     }
 
     let required_plugins: Vec<&str> = match preset {
