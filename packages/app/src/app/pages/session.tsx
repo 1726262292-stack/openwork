@@ -1079,9 +1079,9 @@ export default function SessionView(props: SessionViewProps) {
         </div>
       </Show>
 
-      <div class="flex-1 flex overflow-hidden">
+      <div class="flex-1 flex overflow-hidden relative">
         <div
-          class="flex-1 overflow-y-auto px-12 py-10 scroll-smooth relative bg-dls-surface"
+          class="flex-1 overflow-y-auto px-12 py-10 scroll-smooth bg-dls-surface"
           ref={(el) => (chatContainerEl = el)}
         >
           <div class="max-w-5xl mx-auto w-full">
@@ -1201,20 +1201,19 @@ export default function SessionView(props: SessionViewProps) {
 
           <div ref={(el) => (messagesEndEl = el)} />
           </div>
-
-          <Show when={!autoScrollEnabled() && props.messages.length > 0}>
-            <div class="absolute bottom-4 left-0 right-0 z-20 flex justify-center pointer-events-none">
-              <button
-                type="button"
-                class="pointer-events-auto rounded-full border border-gray-6 bg-gray-1/90 px-4 py-2 text-xs text-gray-11 shadow-lg shadow-gray-12/5 backdrop-blur-md hover:bg-gray-2 transition-colors"
-                onClick={() => scrollToLatest("smooth")}
-              >
-                Jump to latest
-              </button>
-            </div>
-          </Show>
         </div>
 
+        <Show when={!autoScrollEnabled() && props.messages.length > 0}>
+          <div class="absolute bottom-4 left-0 right-0 z-20 flex justify-center pointer-events-none">
+            <button
+              type="button"
+              class="pointer-events-auto rounded-full border border-gray-6 bg-gray-1/90 px-4 py-2 text-xs text-gray-11 shadow-lg shadow-gray-12/5 backdrop-blur-md hover:bg-gray-2 transition-colors"
+              onClick={() => scrollToLatest("smooth")}
+            >
+              Jump to latest
+            </button>
+          </div>
+        </Show>
       </div>
 
       <Show when={todoCount() > 0}>
