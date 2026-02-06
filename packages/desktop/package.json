@@ -1,7 +1,7 @@
 {
   "name": "@different-ai/openwork",
   "private": true,
-  "version": "0.11.23",
+  "version": "0.11.24",
   "owpenbotVersion": "0.1.19",
   "type": "module",
   "scripts": {
