@@ -1,5 +1,5 @@
 pkgname=openwork
-pkgver=0.11.19
+pkgver=0.11.20
 pkgrel=1 # pkgrel should change when PKGBUILD does. Standard is to change back to 1 next time. Any interger is valid.
 pkgdesc="An Open source alternative to Claude Cowork"
 arch=('x86_64')
@@ -9,7 +9,7 @@ depends=('gtk3' 'glib2' 'libayatana-appindicator' 'libsoup3' 'webkit2gtk-4.1' 'o
 
 # Renaming to ${pkgname}-${pkgver}.deb
 source=("${pkgname}-${pkgver}.deb::${url}/releases/download/v${pkgver}/openwork-desktop-linux-amd64.deb")
-sha256sums=('8db648e37de159291bae36592eafd71cc60901a5b7f36f7933816b8f7be2581b')
+sha256sums=('0ae3c71aed098e834d34b3fa508101a9997a8c405a650cb7a13de7e31a1a95cc')
 # Makes sure makepkg doesn't extract the .deb since it will break
 noextract=("${pkgname}-${pkgver}.deb")
 
