@@ -192,32 +192,16 @@ export default async function Home() {
           </div>
 
           <div className="group relative mb-6 rounded-2xl border border-gray-100 bg-gradient-to-br from-blue-50 to-orange-50 p-10 shadow-sm">
-            <div className="flex aspect-video flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-2xl transition-transform duration-500 group-hover:scale-[1.01]">
-              <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-4 py-2">
-                <div className="flex gap-1.5">
-                  <div className="h-2.5 w-2.5 rounded-full bg-gray-200"></div>
-                  <div className="h-2.5 w-2.5 rounded-full bg-gray-200"></div>
-                </div>
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-400">
-                  OpenWork Console
-                </span>
-              </div>
-              <div className="flex flex-1 flex-col gap-4 p-6">
-                <div className="rounded-md border border-gray-100 bg-gray-50 p-4 text-sm italic text-gray-600">
-                  "Open Chrome and find me a green couch on Facebook Marketplace."
-                </div>
-                <div className="border-l-2 border-green-500 py-1 pl-4">
-                  <div className="mb-2 text-[10px] font-bold uppercase text-green-600">
-                    Active Task
-                  </div>
-                  <div className="mono space-y-1 text-xs text-gray-500">
-                    <div>[1] Launching Chrome...</div>
-                    <div>[2] Navigating to marketplace...</div>
-                    <div>[3] Searching: "green couch"</div>
-                    <div>[4] Found 12 matches. Filtering for color...</div>
-                  </div>
-                </div>
-              </div>
+            <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-2xl transition-transform duration-500 group-hover:scale-[1.01]">
+              <video
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="w-full"
+              >
+                <source src="/app-demo.mp4" type="video/mp4" />
+              </video>
             </div>
           </div>
 
