@@ -191,6 +191,49 @@ export default async function Home() {
             </p>
           </div>
 
+          <div className="mb-10 flex flex-wrap items-center gap-3">
+            <a
+              href={github.downloads.macos}
+              className="doc-button"
+              rel="noreferrer"
+              target="_blank"
+            >
+              Download for macOS
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                />
+              </svg>
+            </a>
+            <div className="ml-2 flex gap-4">
+              <a
+                href={github.downloads.windows}
+                className="text-[13px] text-gray-400 transition hover:text-black"
+                rel="noreferrer"
+                target="_blank"
+              >
+                Windows <span className="alpha-tag ml-1">Alpha</span>
+              </a>
+              <a
+                href={github.downloads.linux}
+                className="text-[13px] text-gray-400 transition hover:text-black"
+                rel="noreferrer"
+                target="_blank"
+              >
+                Linux <span className="alpha-tag ml-1">Alpha</span>
+              </a>
+            </div>
+          </div>
+
           <div className="group relative mb-6 rounded-2xl border border-gray-100 bg-gradient-to-br from-blue-50 to-orange-50 p-10 shadow-sm">
             <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-2xl transition-transform duration-500 group-hover:scale-[1.01]">
               <video
