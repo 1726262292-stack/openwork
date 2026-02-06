@@ -14,7 +14,7 @@ export default function Button(props: ButtonProps) {
 
   const variants: Record<NonNullable<ButtonProps["variant"]>, string> = {
     primary: "bg-dls-accent text-white hover:bg-[var(--dls-accent-hover)] border border-transparent shadow-[0_1px_2px_rgba(17,24,39,0.12)]",
-    secondary: "bg-dls-surface text-dls-text hover:bg-dls-hover border border-dls-border",
+    secondary: "bg-gray-12 text-gray-1 hover:bg-gray-11 border border-transparent font-semibold",
     ghost: "bg-transparent text-dls-secondary hover:text-dls-text hover:bg-dls-hover",
     outline: "border border-dls-border text-dls-text hover:bg-dls-hover bg-transparent",
     danger: "bg-red-3 text-red-11 hover:bg-red-4 border border-red-6",

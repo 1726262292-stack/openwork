@@ -427,26 +427,9 @@ export default function DashboardView(props: DashboardViewProps) {
   return (
     <div class="flex h-screen w-full bg-dls-surface text-dls-text font-sans overflow-hidden">
       <aside class="w-64 hidden md:flex flex-col bg-dls-sidebar border-r border-dls-border p-4">
-        <div class="space-y-0.5 mb-6 pt-2">
-          {navItem("scheduled", "Automations", <History size={18} />)}
-          {navItem("skills", "Skills", <Zap size={18} />)}
-          {navItem("mcp", "Apps", <Box size={18} />)}
-        </div>
-
         <div class="flex-1 overflow-y-auto">
-          <div class="flex items-center justify-between text-[11px] font-bold text-dls-secondary uppercase px-3 mb-3 tracking-tight">
-            <span>Sessions</span>
-            <div class="flex gap-2 text-dls-secondary">
-              <button
-                type="button"
-                class="hover:text-dls-text"
-                aria-label="New session"
-                onClick={props.createSessionAndOpen}
-                disabled={props.newTaskDisabled}
-              >
-                <Plus size={14} />
-              </button>
-            </div>
+          <div class="flex items-center text-[11px] font-bold text-dls-secondary uppercase px-3 mb-3 pt-2 tracking-tight">
+            <span>Tasks</span>
           </div>
 
           <div class="space-y-3 mb-3">
@@ -470,7 +453,7 @@ export default function DashboardView(props: DashboardViewProps) {
                           props.activateWorkspace(workspace().id);
                         }}
                       >
-                        <div class="min-w-0">
+                        <div class="min-w-0 flex-1">
                           <div class="text-sm font-medium truncate">{workspaceLabel(workspace())}</div>
                           <div class="text-[11px] text-dls-secondary">
                             {workspaceKindLabel(workspace())}
@@ -480,19 +463,33 @@ export default function DashboardView(props: DashboardViewProps) {
                           <Loader2 size={14} class="animate-spin text-dls-secondary" />
                         </Show>
                       </div>
-                      <button
-                        type="button"
-                        class="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-dls-secondary hover:text-dls-text hover:bg-dls-active opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setWorkspaceMenuId((current) =>
-                            current === workspace().id ? null : workspace().id
-                          );
-                        }}
-                        aria-label="Workspace options"
-                      >
-                        <MoreHorizontal size={14} />
-                      </button>
+                      <div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          class="p-1 rounded-md text-dls-secondary hover:text-dls-text hover:bg-dls-active"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            props.createSessionAndOpen();
+                          }}
+                          disabled={props.newTaskDisabled}
+                          aria-label="New task"
+                        >
+                          <Plus size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          class="p-1 rounded-md text-dls-secondary hover:text-dls-text hover:bg-dls-active"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setWorkspaceMenuId((current) =>
+                              current === workspace().id ? null : workspace().id
+                            );
+                          }}
+                          aria-label="Workspace options"
+                        >
+                          <MoreHorizontal size={14} />
+                        </button>
+                      </div>
                       <Show when={isMenuOpen()}>
                         <div
                           ref={(el) => (workspaceMenuRef = el)}
@@ -539,9 +536,15 @@ export default function DashboardView(props: DashboardViewProps) {
                       <Show
                         when={group.sessions.length > 0}
                         fallback={
-                          <div class="px-3 py-2 text-xs text-dls-secondary ml-2">
-                            No sessions yet.
-                          </div>
+                          <button
+                            type="button"
+                            class="group/empty w-full px-3 py-2 text-xs text-dls-secondary ml-2 text-left rounded-lg hover:bg-dls-hover hover:text-dls-text transition-colors"
+                            onClick={() => props.createSessionAndOpen()}
+                            disabled={props.newTaskDisabled}
+                          >
+                            <span class="group-hover/empty:hidden">No tasks yet.</span>
+                            <span class="hidden group-hover/empty:inline font-medium">+ New task</span>
+                          </button>
                         }
                       >
                         <For each={previewSessions(workspace().id, group.sessions)}>
@@ -925,6 +928,27 @@ export default function DashboardView(props: DashboardViewProps) {
           </nav>
         </div>
       </main>
+
+      <aside class="w-56 hidden md:flex flex-col bg-dls-sidebar border-l border-dls-border p-4">
+        <div class="space-y-1 pt-2">
+          {navItem("scheduled", "Automations", <History size={18} />)}
+          {navItem("skills", "Skills", <Zap size={18} />)}
+          {navItem("mcp", "Apps", <Box size={18} />)}
+        </div>
+
+        <div class="flex-1" />
+
+        <div class="pt-4 border-t border-dls-border">
+          <button
+            type="button"
+            onClick={() => openSettings("general")}
+            class="flex items-center gap-3 px-3 py-2 rounded-lg text-dls-secondary hover:bg-dls-hover transition-colors"
+          >
+            <Settings size={18} />
+            <span class="text-sm font-medium">Settings</span>
+          </button>
+        </div>
+      </aside>
     </div>
   );
 }
