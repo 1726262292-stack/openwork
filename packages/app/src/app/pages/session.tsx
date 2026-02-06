@@ -28,7 +28,10 @@ import {
   ChevronDown,
   HardDrive,
   History,
+  ListTodo,
   Loader2,
+  Maximize2,
+  Minimize2,
   MoreHorizontal,
   Plus,
   Settings,
@@ -333,6 +336,7 @@ export default function SessionView(props: SessionViewProps) {
     partCount: 0,
   });
   const [thinkingExpanded, setThinkingExpanded] = createSignal(false);
+  const [todoExpanded, setTodoExpanded] = createSignal(false);
 
   const lastAssistantSnapshot = createMemo(() => {
     for (let i = props.messages.length - 1; i >= 0; i -= 1) {
@@ -1111,60 +1115,6 @@ export default function SessionView(props: SessionViewProps) {
             </div>
           </Show>
 
-          <Show when={todoCount() > 0}>
-            <div class="mb-8">
-              <div class="rounded-2xl border border-gray-6/70 bg-gray-1/70 px-5 py-4 shadow-sm shadow-gray-12/5">
-                <div class="flex items-center justify-between text-xs text-gray-9">
-                  <span class="font-semibold text-gray-11">{todoLabel()}</span>
-                  <span class="text-[10px] uppercase tracking-wide text-gray-8">Task list</span>
-                </div>
-                <div class="mt-3 space-y-3 max-h-80 overflow-auto pr-1">
-                  <For each={todoList()}>
-                    {(todo, index) => {
-                      const done = () => todo.status === "completed";
-                      const cancelled = () => todo.status === "cancelled";
-                      const active = () => todo.status === "in_progress";
-                      return (
-                        <div class="flex items-start gap-3">
-                          <div class="flex items-center gap-2 pt-0.5">
-                            <span class="text-xs text-gray-9 font-semibold w-5 text-right">
-                              {index() + 1}.
-                            </span>
-                            <div
-                              class={`h-5 w-5 rounded-full border flex items-center justify-center ${
-                                done()
-                                  ? "border-green-6 bg-green-2 text-green-11"
-                                  : active()
-                                    ? "border-amber-6 bg-amber-2 text-amber-11"
-                                    : cancelled()
-                                      ? "border-gray-6 bg-gray-2 text-gray-8"
-                                      : "border-gray-6 bg-gray-1 text-gray-8"
-                              }`}
-                            >
-                              <Show when={done()}>
-                                <Check size={12} />
-                              </Show>
-                              <Show when={!done() && active()}>
-                                <span class="h-1.5 w-1.5 rounded-full bg-amber-9" />
-                              </Show>
-                            </div>
-                          </div>
-                          <div
-                            class={`flex-1 text-sm leading-relaxed ${
-                              cancelled() ? "text-gray-9 line-through" : "text-gray-12"
-                            }`}
-                          >
-                            {todo.content}
-                          </div>
-                        </div>
-                      );
-                    }}
-                  </For>
-                </div>
-              </div>
-            </div>
-          </Show>
-
           <MessageList
             messages={props.messages}
             developerMode={props.developerMode}
@@ -1250,7 +1200,7 @@ export default function SessionView(props: SessionViewProps) {
           />
 
           <Show when={!autoScrollEnabled() && props.messages.length > 0}>
-            <div class="sticky bottom-24 z-20 flex justify-center pointer-events-none px-4">
+            <div class="sticky bottom-4 z-20 flex justify-end pointer-events-none px-4">
               <button
                 type="button"
                 class="pointer-events-auto rounded-full border border-gray-6 bg-gray-1/90 px-4 py-2 text-xs text-gray-11 shadow-lg shadow-gray-12/5 backdrop-blur-md hover:bg-gray-2 transition-colors"
@@ -1266,6 +1216,70 @@ export default function SessionView(props: SessionViewProps) {
         </div>
 
       </div>
+
+      <Show when={todoCount() > 0}>
+        <div class="mx-auto w-full max-w-[68ch] px-4">
+          <div class="rounded-t-xl border border-b-0 border-gray-6/70 bg-gray-1/70 shadow-sm shadow-gray-12/5">
+            <button
+              type="button"
+              class="w-full flex items-center justify-between px-4 py-2.5 text-xs text-gray-9 hover:bg-gray-2/50 transition-colors rounded-t-xl"
+              onClick={() => setTodoExpanded((prev) => !prev)}
+            >
+              <div class="flex items-center gap-2">
+                <ListTodo size={14} class="text-gray-8" />
+                <span class="text-gray-11 font-medium">{todoLabel()}</span>
+              </div>
+              <Minimize2
+                size={12}
+                class={`text-gray-8 transition-transform ${todoExpanded() ? "" : "rotate-180"}`}
+              />
+            </button>
+            <Show when={todoExpanded()}>
+              <div class="px-4 pb-3 space-y-2.5 max-h-60 overflow-auto border-t border-gray-6/50">
+                <For each={todoList()}>
+                  {(todo, index) => {
+                    const done = () => todo.status === "completed";
+                    const cancelled = () => todo.status === "cancelled";
+                    const active = () => todo.status === "in_progress";
+                    return (
+                      <div class="flex items-start gap-2.5 pt-2.5 first:pt-2.5">
+                        <div class="flex items-center gap-1.5 pt-0.5">
+                          <div
+                            class={`h-4.5 w-4.5 rounded-full border flex items-center justify-center ${
+                              done()
+                                ? "border-green-6 bg-green-2 text-green-11"
+                                : active()
+                                  ? "border-amber-6 bg-amber-2 text-amber-11"
+                                  : cancelled()
+                                    ? "border-gray-6 bg-gray-2 text-gray-8"
+                                    : "border-gray-6 bg-gray-1 text-gray-8"
+                            }`}
+                          >
+                            <Show when={done()}>
+                              <Check size={10} />
+                            </Show>
+                            <Show when={!done() && active()}>
+                              <span class="h-1.5 w-1.5 rounded-full bg-amber-9" />
+                            </Show>
+                          </div>
+                        </div>
+                        <div
+                          class={`flex-1 text-sm leading-relaxed ${
+                            cancelled() ? "text-gray-9 line-through" : "text-gray-12"
+                          }`}
+                        >
+                          <span class="text-gray-9 mr-1.5">{index() + 1}.</span>
+                          {todo.content}
+                        </div>
+                      </div>
+                    );
+                  }}
+                </For>
+              </div>
+            </Show>
+          </div>
+        </div>
+      </Show>
 
       <Composer
         prompt={props.prompt}
