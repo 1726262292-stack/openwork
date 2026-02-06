@@ -718,7 +718,9 @@ export default function App() {
       if (trimmed.startsWith("/")) return trimmed;
       // Windows absolute path, e.g. C:\foo\bar
       if (/^[a-zA-Z]:\\/.test(trimmed)) return trimmed;
-      if (!root) return trimmed;
+      // Without a workspace root, we cannot safely resolve relative paths.
+      // Returning "" avoids emitting invalid file:// URLs.
+      if (!root) return "";
       return (root + "/" + trimmed).replace("//", "/");
     };
     const filenameFromPath = (path: string) => {
@@ -754,6 +756,61 @@ export default function App() {
     }
 
     return parts;
+  };
+
+  const buildCommandFileParts = (draft: ComposerDraft): FilePartInput[] => {
+    const parts: FilePartInput[] = [];
+    const root = workspaceProjectDir().trim();
+
+    const toAbsolutePath = (path: string) => {
+      const trimmed = path.trim();
+      if (!trimmed) return "";
+      if (trimmed.startsWith("/")) return trimmed;
+      if (/^[a-zA-Z]:\\/.test(trimmed)) return trimmed;
+      if (!root) return "";
+      return (root + "/" + trimmed).replace("//", "/");
+    };
+
+    const filenameFromPath = (path: string) => {
+      const normalized = path.replace(/\\/g, "/");
+      const segments = normalized.split("/").filter(Boolean);
+      return segments[segments.length - 1] ?? "file";
+    };
+
+    for (const part of draft.parts) {
+      if (part.type !== "file") continue;
+      const absolute = toAbsolutePath(part.path);
+      if (!absolute) continue;
+      parts.push({
+        type: "file",
+        mime: "text/plain",
+        url: `file://${absolute}`,
+        filename: filenameFromPath(part.path),
+      } as FilePartInput);
+    }
+
+    for (const attachment of draft.attachments) {
+      parts.push({
+        type: "file",
+        url: attachment.dataUrl,
+        filename: attachment.name,
+        mime: attachment.mimeType,
+      } as FilePartInput);
+    }
+
+    return parts;
+  };
+
+  const assertNoClientError = (result: unknown) => {
+    const maybe = result as { error?: unknown } | null | undefined;
+    if (!maybe || maybe.error === undefined) return;
+    const message =
+      maybe.error instanceof Error
+        ? maybe.error.message
+        : typeof maybe.error === "string"
+          ? maybe.error
+          : JSON.stringify(maybe.error);
+    throw new Error(message || "Unknown error");
   };
 
   async function sendPrompt(draft?: ComposerDraft) {
@@ -792,53 +849,52 @@ export default function App() {
       if (resolvedDraft.mode === "shell") {
         const sessionApi = c.session as any;
         if (sessionApi.shellAsync) {
-          await sessionApi.shellAsync({ sessionID, command: content });
+          const result = await sessionApi.shellAsync({ sessionID, command: content });
+          assertNoClientError(result);
         } else if (sessionApi.shell) {
-          await sessionApi.shell({ sessionID, command: content });
+          const result = await sessionApi.shell({ sessionID, command: content });
+          assertNoClientError(result);
         } else {
-          await c.session.promptAsync({
+          const result = await c.session.promptAsync({
             sessionID,
             model,
             agent: agent ?? undefined,
             variant: modelVariant() ?? undefined,
             parts: [{ type: "text", text: `!${content}` }],
           });
+          assertNoClientError(result);
         }
       } else if (resolvedDraft.command) {
         // Slash command: route through session.command() API
-        const sessionApi = c.session as any;
-        if (sessionApi.command) {
-          await sessionApi.command({
+        const selected = selectedSessionModel();
+        const modelString = `${selected.providerID}/${selected.modelID}`;
+        const files = buildCommandFileParts(resolvedDraft);
+
+        // session.command() expects `model` as a provider/model string and only supports file parts.
+        unwrap(
+          await c.session.command({
             sessionID,
             command: resolvedDraft.command.name,
             arguments: resolvedDraft.command.arguments,
             agent: agent ?? undefined,
-            model,
+            model: modelString,
             variant: modelVariant() ?? undefined,
-            parts,
-          });
-        } else {
-          // Fallback: send as regular prompt with the slash prefix
-          await c.session.promptAsync({
-            sessionID,
-            model,
-            agent: agent ?? undefined,
-            variant: modelVariant() ?? undefined,
-            parts,
-          });
-        }
+            parts: files.length ? files : undefined,
+          }),
+        );
 
         await loadSessionsWithReady(workspaceStore.activeWorkspaceRoot().trim()).catch(
           () => undefined
         );
       } else {
-        await c.session.promptAsync({
+        const result = await c.session.promptAsync({
           sessionID,
           model,
           agent: agent ?? undefined,
           variant: modelVariant() ?? undefined,
           parts,
         });
+        assertNoClientError(result);
 
         setSessionModelById((current) => ({
           ...current,
@@ -1187,6 +1243,8 @@ export default function App() {
     installSkillCreator,
     revealSkillsFolder,
     uninstallSkill,
+    readSkill,
+    saveSkill,
     abortRefreshes,
   } = extensionsStore;
 
@@ -3996,6 +4054,8 @@ export default function App() {
       installSkillCreator,
       revealSkillsFolder,
       uninstallSkill,
+      readSkill,
+      saveSkill,
       pluginsAccessHint,
       canEditPlugins,
       canUseGlobalPluginScope,

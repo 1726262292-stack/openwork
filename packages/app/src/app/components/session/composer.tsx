@@ -102,6 +102,25 @@ const createMentionSpan = (part: Extract<ComposerPart, { type: "agent" | "file" 
   return span;
 };
 
+const createSlashSpan = (cmd: SlashCommandOption) => {
+  const span = document.createElement("span");
+  span.textContent = `/${cmd.name}`;
+  span.contentEditable = "false";
+  span.dataset.slashCommand = cmd.name;
+  span.dataset.slashSource = cmd.source ?? "command";
+  span.title = cmd.source ? `${cmd.source} command` : "command";
+
+  const tone =
+    cmd.source === "skill"
+      ? "bg-indigo-3/20 text-indigo-11 border-indigo-7/30"
+      : cmd.source === "mcp"
+        ? "bg-purple-3/15 text-purple-11 border-purple-7/30"
+        : "bg-blue-3/15 text-blue-11 border-blue-7/30";
+
+  span.className = `inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold border ${tone}`;
+  return span;
+};
+
 const insertTextWithBreaks = (target: HTMLElement, text: string) => {
   const chunks = text.split("\n");
   chunks.forEach((chunk, index) => {
@@ -484,14 +503,27 @@ export default function Composer(props: ComposerProps) {
       .finally(() => setSlashLoaded(true));
   });
 
+  // If the editor contains an exact /command (no spaces), auto-convert it into a styled chip.
+  // This enables flows like pre-filling "/skill-creator" from other pages.
+  createEffect(() => {
+    if (!slashOpen()) return;
+    const query = slashQuery().trim();
+    if (!query) return;
+    const cmd = slashCommands().find((c) => c.name === query);
+    if (!cmd) return;
+    handleSlashSelect(cmd);
+  });
+
   const handleSlashSelect = (cmd: SlashCommandOption) => {
     if (!editorRef) return;
     setSlashOpen(false);
     setSlashQuery("");
-    // Replace editor content with "/<command> " so user can type arguments
+    // Replace editor content with a styled "/<command>" chip and a trailing space for args.
     const text = `/${cmd.name} `;
     editorRef.innerHTML = "";
-    editorRef.textContent = text;
+    const chip = createSlashSpan(cmd);
+    editorRef.appendChild(chip);
+    editorRef.appendChild(document.createTextNode(" "));
     suppressPromptSync = true;
     props.onDraftChange({
       mode: mode(),
@@ -691,6 +723,45 @@ export default function Composer(props: ComposerProps) {
   };
 
   const handleKeyDown = (event: KeyboardEvent) => {
+    // Make slash chips behave like single tokens.
+    if ((event.key === "Backspace" || event.key === "Delete") && editorRef) {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount) {
+        const range = selection.getRangeAt(0);
+        if (range.collapsed) {
+          const container = range.startContainer;
+          const offset = range.startOffset;
+
+          const resolvePreviousSibling = () => {
+            if (container === editorRef) {
+              return offset > 0 ? editorRef.childNodes[offset - 1] : null;
+            }
+            if (container.nodeType === Node.TEXT_NODE) {
+              const parent = container.parentNode;
+              if (parent === editorRef) {
+                if (offset > 0) return null;
+                return container.previousSibling;
+              }
+            }
+            return null;
+          };
+
+          const prev = resolvePreviousSibling();
+          if (prev instanceof HTMLElement && prev.dataset.slashCommand) {
+            event.preventDefault();
+            // Also remove a single trailing space node if present.
+            const next = prev.nextSibling;
+            if (next && next.nodeType === Node.TEXT_NODE && (next.textContent ?? "") === " ") {
+              next.parentNode?.removeChild(next);
+            }
+            prev.parentNode?.removeChild(prev);
+            emitDraftChange();
+            return;
+          }
+        }
+      }
+    }
+
     if (event.key === "Enter" && event.shiftKey) {
       event.preventDefault();
       document.execCommand("insertLineBreak");
@@ -902,8 +973,8 @@ export default function Composer(props: ComposerProps) {
     <div class="px-4 pb-4 pt-0 bg-dls-surface sticky bottom-0 z-20">
       <div class="max-w-3xl mx-auto">
         <div
-          class={`bg-dls-surface border border-dls-border rounded-2xl shadow-xl overflow-visible transition-all relative group/input ${
-            mentionOpen() || slashOpen() ? "rounded-t-none border-t-transparent" : ""
+          class={`bg-dls-surface border border-dls-border rounded-2xl overflow-visible transition-all relative group/input ${
+            mentionOpen() || slashOpen() ? "rounded-t-none border-t-transparent shadow-none" : "shadow-xl"
           }`}
           onDrop={handleDrop}
           onDragOver={(event: DragEvent) => {
@@ -913,7 +984,7 @@ export default function Composer(props: ComposerProps) {
         >
           <Show when={mentionOpen()}>
             <div class="absolute bottom-full left-[-1px] right-[-1px] z-30">
-              <div class="rounded-t-3xl border border-dls-border border-b-0 bg-dls-surface shadow-2xl overflow-hidden">
+              <div class="rounded-t-3xl border border-dls-border border-b-0 bg-dls-surface shadow-xl overflow-hidden">
                 <div class="p-2 bg-dls-surface max-h-64 overflow-y-auto" onMouseDown={(event: MouseEvent) => event.preventDefault()}>
                   <Show
                     when={mentionVisible().length}
@@ -975,7 +1046,7 @@ export default function Composer(props: ComposerProps) {
           {/* Slash command popup */}
           <Show when={slashOpen()}>
             <div class="absolute bottom-full left-[-1px] right-[-1px] z-30">
-              <div class="rounded-t-3xl border border-dls-border border-b-0 bg-dls-surface shadow-2xl overflow-hidden">
+              <div class="rounded-t-3xl border border-dls-border border-b-0 bg-dls-surface shadow-xl overflow-hidden">
                 <div class="p-2 bg-dls-surface max-h-64 overflow-y-auto" onMouseDown={(event: MouseEvent) => event.preventDefault()}>
                   <Show
                     when={slashFiltered().length}
