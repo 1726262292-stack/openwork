@@ -1671,11 +1671,15 @@ export default function App() {
     }
     const hostUrl = active.openworkHostUrl?.trim() ?? "";
     if (!hostUrl) return;
+    const token = active.openworkToken?.trim() ?? "";
     const settings = openworkServerSettings();
-    if (settings.urlOverride?.trim() === hostUrl) return;
+    if (settings.urlOverride?.trim() === hostUrl && (!token || settings.token?.trim() === token)) {
+      return;
+    }
     updateOpenworkServerSettings({
       ...settings,
       urlOverride: hostUrl,
+      token: token || settings.token,
     });
   });
 
@@ -1722,7 +1726,7 @@ export default function App() {
     if (!workspace || workspace.workspaceType !== "remote") return null;
     return {
       openworkHostUrl: workspace.openworkHostUrl ?? workspace.baseUrl ?? "",
-      openworkToken: openworkServerSettings().token ?? "",
+      openworkToken: workspace.openworkToken ?? openworkServerSettings().token ?? "",
       directory: workspace.directory ?? "",
       displayName: workspace.displayName ?? "",
     };
@@ -4188,8 +4192,13 @@ export default function App() {
     openCreateRemoteWorkspace: () => workspaceStore.setCreateRemoteWorkspaceOpen(true),
     importWorkspaceConfig: workspaceStore.importWorkspaceConfig,
     importingWorkspaceConfig: workspaceStore.importingWorkspaceConfig(),
+    exportWorkspaceConfig: workspaceStore.exportWorkspaceConfig,
+    exportWorkspaceBusy: workspaceStore.exportingWorkspaceConfig(),
     clientConnected: Boolean(client()),
     openworkServerStatus: openworkServerStatus(),
+    openworkServerSettings: openworkServerSettings(),
+    openworkServerHostInfo: openworkServerHostInfo(),
+    engineInfo: workspaceStore.engine(),
     stopHost,
     headerStatus: headerStatus(),
     busyHint: busyHint(),
