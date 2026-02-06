@@ -1791,8 +1791,8 @@ export default function SettingsView(props: SettingsViewProps) {
               </div>
 
               <Button variant="secondary" class="w-full justify-between group" onClick={props.onResetStartupPreference}>
-                <span class="text-gray-11">Reset startup preference</span>
-                <RefreshCcw size={14} class="text-gray-10 group-hover:rotate-180 transition-transform" />
+                <span>Reset startup preference</span>
+                <RefreshCcw size={14} class="opacity-80 group-hover:rotate-180 transition-transform" />
               </Button>
 
               <p class="text-xs text-gray-7">

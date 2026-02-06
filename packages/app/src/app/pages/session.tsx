@@ -187,6 +187,10 @@ export default function SessionView(props: SessionViewProps) {
   const [autoScrollEnabled, setAutoScrollEnabled] = createSignal(false);
   const [scrollOnNextUpdate, setScrollOnNextUpdate] = createSignal(false);
 
+  // When a session is selected (i.e. we are in SessionView), the right sidebar is
+  // navigation-only. Avoid showing any tab as "selected" to reduce confusion.
+  const showRightSidebarSelection = createMemo(() => !props.selectedSessionId);
+
   const agentLabel = createMemo(() => props.selectedSessionAgent ?? "Default agent");
   const workspaceLabel = (workspace: WorkspaceInfo) =>
     workspace.displayName?.trim() ||
@@ -1542,7 +1546,7 @@ export default function SessionView(props: SessionViewProps) {
           <button
             type="button"
             class={`w-full h-10 flex items-center gap-3 px-3 rounded-lg text-sm font-medium transition-colors ${
-              props.tab === "scheduled"
+              showRightSidebarSelection() && props.tab === "scheduled"
                 ? "bg-dls-active text-dls-text"
                 : "text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
             }`}
@@ -1557,7 +1561,7 @@ export default function SessionView(props: SessionViewProps) {
           <button
             type="button"
             class={`w-full h-10 flex items-center gap-3 px-3 rounded-lg text-sm font-medium transition-colors ${
-              props.tab === "skills"
+              showRightSidebarSelection() && props.tab === "skills"
                 ? "bg-dls-active text-dls-text"
                 : "text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
             }`}
@@ -1572,7 +1576,7 @@ export default function SessionView(props: SessionViewProps) {
           <button
             type="button"
             class={`w-full h-10 flex items-center gap-3 px-3 rounded-lg text-sm font-medium transition-colors ${
-              props.tab === "mcp"
+              showRightSidebarSelection() && props.tab === "mcp"
                 ? "bg-dls-active text-dls-text"
                 : "text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
             }`}
@@ -1587,7 +1591,7 @@ export default function SessionView(props: SessionViewProps) {
           <button
             type="button"
             class={`w-full h-10 flex items-center gap-3 px-3 rounded-lg text-sm font-medium transition-colors ${
-              props.tab === "config"
+              showRightSidebarSelection() && props.tab === "config"
                 ? "bg-dls-active text-dls-text"
                 : "text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
             }`}
