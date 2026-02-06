@@ -319,24 +319,46 @@ jobs:
       - name: Resolve OpenCode version
         id: opencode-version
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           node <<'NODE' >> "$GITHUB_OUTPUT"
           const fs = require('fs');
 
           async function resolveLatest() {
-            const res = await fetch('https://api.github.com/repos/anomalyco/opencode/releases/latest', {
-              headers: {
-                'Accept': 'application/vnd.github+json',
-                'X-GitHub-Api-Version': '2022-11-28',
-              },
+            const token = (process.env.GITHUB_TOKEN || '').trim();
+            const headers = {
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'openwork-ci',
+            };
+            if (token) headers.Authorization = `Bearer ${token}`;
+
+            // Prefer API, but fall back to the web "latest" redirect if rate-limited (403) or otherwise blocked.
+            try {
+              const res = await fetch('https://api.github.com/repos/anomalyco/opencode/releases/latest', { headers });
+              if (res.ok) {
+                const data = await res.json();
+                const tag = (typeof data.tag_name === 'string' ? data.tag_name : '').trim();
+                let v = tag.startsWith('v') ? tag.slice(1) : tag;
+                v = v.trim();
+                if (v) return v;
+              }
+              if (res.status !== 403) {
+                throw new Error(`Failed to resolve latest OpenCode version (HTTP ${res.status})`);
+              }
+            } catch {
+              // continue to fallback
+            }
+
+            const web = await fetch('https://github.com/anomalyco/opencode/releases/latest', {
+              headers: { 'User-Agent': 'openwork-ci' },
+              redirect: 'follow',
             });
-            if (!res.ok) throw new Error(`Failed to resolve latest OpenCode version (HTTP ${res.status})`);
-            const data = await res.json();
-            const tag = (typeof data.tag_name === 'string' ? data.tag_name : '').trim();
-            let v = tag.startsWith('v') ? tag.slice(1) : tag;
-            v = v.trim();
-            if (!v) throw new Error('OpenCode latest release tag missing');
-            return v;
+            const url = (web && web.url) ? String(web.url) : '';
+            const match = url.match(/\/tag\/v([^/?#]+)/);
+            if (!match) throw new Error('Failed to resolve latest OpenCode version (web redirect).');
+            return match[1];
           }
 
           async function main() {
