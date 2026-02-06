@@ -804,6 +804,33 @@ export default function App() {
             parts: [{ type: "text", text: `!${content}` }],
           });
         }
+      } else if (resolvedDraft.command) {
+        // Slash command: route through session.command() API
+        const sessionApi = c.session as any;
+        if (sessionApi.command) {
+          await sessionApi.command({
+            sessionID,
+            command: resolvedDraft.command.name,
+            arguments: resolvedDraft.command.arguments,
+            agent: agent ?? undefined,
+            model,
+            variant: modelVariant() ?? undefined,
+            parts,
+          });
+        } else {
+          // Fallback: send as regular prompt with the slash prefix
+          await c.session.promptAsync({
+            sessionID,
+            model,
+            agent: agent ?? undefined,
+            variant: modelVariant() ?? undefined,
+            parts,
+          });
+        }
+
+        await loadSessionsWithReady(workspaceStore.activeWorkspaceRoot().trim()).catch(
+          () => undefined
+        );
       } else {
         await c.session.promptAsync({
           sessionID,
@@ -876,6 +903,26 @@ export default function App() {
     if (!c) return [];
     const list = unwrap(await c.app.agents());
     return list.filter((agent) => !agent.hidden && agent.mode !== "subagent");
+  }
+
+  async function listCommands(): Promise<{ id: string; name: string; description?: string; source?: "command" | "mcp" | "skill" }[]> {
+    const c = client();
+    if (!c) return [];
+    try {
+      const commandApi = c.command as any;
+      if (!commandApi?.list) return [];
+      const result = await commandApi.list({ directory: workspaceStore.activeWorkspaceRoot().trim() || undefined });
+      const list = result?.data ?? result ?? [];
+      if (!Array.isArray(list)) return [];
+      return list.map((cmd: any) => ({
+        id: `cmd:${cmd.name}`,
+        name: cmd.name,
+        description: cmd.description,
+        source: cmd.source,
+      }));
+    } catch {
+      return [];
+    }
   }
 
   function setSessionAgent(sessionID: string, agent: string | null) {
@@ -4145,6 +4192,7 @@ export default function App() {
     providers: providers(),
     providerConnectedIds: providerConnectedIds(),
     listAgents: listAgents,
+    listCommands: listCommands,
     selectedSessionAgent: selectedSessionAgent(),
     setSessionAgent: setSessionAgent,
     saveSession: saveSessionExport,

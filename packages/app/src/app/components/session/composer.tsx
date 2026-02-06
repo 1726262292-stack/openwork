@@ -1,9 +1,9 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
 import fuzzysort from "fuzzysort";
-import { ArrowUp, AtSign, ChevronDown, File, Paperclip, X, Zap } from "lucide-solid";
+import { ArrowUp, AtSign, ChevronDown, File, Paperclip, Terminal, X, Zap } from "lucide-solid";
 
-import type { ComposerAttachment, ComposerDraft, ComposerPart, PromptMode } from "../../types";
+import type { ComposerAttachment, ComposerDraft, ComposerPart, PromptMode, SlashCommandOption } from "../../types";
 
 type MentionOption = {
   id: string;
@@ -48,6 +48,7 @@ type ComposerProps = {
   isRemoteWorkspace: boolean;
   attachmentsEnabled: boolean;
   attachmentsDisabledReason: string | null;
+  listCommands: () => Promise<SlashCommandOption[]>;
 };
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
@@ -270,6 +271,13 @@ export default function Composer(props: ComposerProps) {
   const activeVariant = createMemo(() => props.modelVariant ?? "none");
   const attachmentsDisabled = createMemo(() => !props.attachmentsEnabled);
 
+  // Slash command state
+  const [slashOpen, setSlashOpen] = createSignal(false);
+  const [slashQuery, setSlashQuery] = createSignal("");
+  const [slashIndex, setSlashIndex] = createSignal(0);
+  const [slashCommands, setSlashCommands] = createSignal<SlashCommandOption[]>([]);
+  const [slashLoaded, setSlashLoaded] = createSignal(false);
+
   onMount(() => {
     queueMicrotask(() => focusEditorEnd());
   });
@@ -430,6 +438,84 @@ export default function Composer(props: ComposerProps) {
     setMentionOpen(true);
   };
 
+  const updateSlashQuery = () => {
+    if (!editorRef) return;
+    if (mode() === "shell") {
+      setSlashOpen(false);
+      setSlashQuery("");
+      return;
+    }
+    const text = normalizeText(partsToText(buildPartsFromEditor(editorRef)));
+    // Only trigger when the entire input matches /command (no spaces, starts with /)
+    const slashMatch = text.match(/^\/(\S*)$/);
+    if (!slashMatch) {
+      setSlashOpen(false);
+      setSlashQuery("");
+      return;
+    }
+    setSlashQuery(slashMatch[1] ?? "");
+    setSlashOpen(true);
+  };
+
+  const slashFiltered = createMemo(() => {
+    if (!slashOpen()) return [];
+    const query = slashQuery().trim().toLowerCase();
+    const commands = slashCommands();
+    if (!query) return commands.slice(0, 15);
+    return fuzzysort
+      .go(query, commands, { keys: ["name", "description"] })
+      .map((entry) => entry.obj)
+      .slice(0, 15);
+  });
+
+  createEffect(() => {
+    if (!slashOpen()) return;
+    slashFiltered();
+    setSlashIndex(0);
+  });
+
+  // Fetch commands when slash popup opens for the first time
+  createEffect(() => {
+    if (!slashOpen() || slashLoaded()) return;
+    props
+      .listCommands()
+      .then((commands) => setSlashCommands(commands))
+      .catch(() => setSlashCommands([]))
+      .finally(() => setSlashLoaded(true));
+  });
+
+  const handleSlashSelect = (cmd: SlashCommandOption) => {
+    if (!editorRef) return;
+    setSlashOpen(false);
+    setSlashQuery("");
+    // Replace editor content with "/<command> " so user can type arguments
+    const text = `/${cmd.name} `;
+    editorRef.innerHTML = "";
+    editorRef.textContent = text;
+    suppressPromptSync = true;
+    props.onDraftChange({
+      mode: mode(),
+      parts: [{ type: "text", text }],
+      attachments: attachments(),
+      text,
+    });
+    queueMicrotask(() => {
+      suppressPromptSync = false;
+    });
+    syncHeight();
+    requestAnimationFrame(() => {
+      editorRef!.focus();
+      const selection = window.getSelection();
+      if (selection) {
+        const range = document.createRange();
+        range.selectNodeContents(editorRef!);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    });
+  };
+
   const insertMention = (option: MentionOption) => {
     if (!editorRef) return;
     const selection = window.getSelection();
@@ -509,8 +595,23 @@ export default function Composer(props: ComposerProps) {
     const parts = buildPartsFromEditor(editorRef);
     const text = normalizeText(partsToText(parts));
     const draft: ComposerDraft = { mode: mode(), parts, attachments: attachments(), text };
+
+    // Detect slash command: text like "/commandname arg1 arg2"
+    if (text.startsWith("/")) {
+      const [cmdToken, ...argTokens] = text.split(" ");
+      const commandName = cmdToken.slice(1); // strip leading /
+      if (commandName) {
+        const matchedCommand = slashCommands().find((c) => c.name === commandName);
+        if (matchedCommand) {
+          draft.command = { name: commandName, arguments: argTokens.join(" ") };
+        }
+      }
+    }
+
     recordHistory(draft);
     props.onSend(draft);
+    setSlashOpen(false);
+    setSlashQuery("");
     setAttachments([]);
     setEditorText("");
     emitDraftChange();
@@ -633,6 +734,42 @@ export default function Composer(props: ComposerProps) {
       }
     }
 
+    // Slash command popup keyboard navigation
+    if (slashOpen()) {
+      const options = slashFiltered();
+      const ctrl = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+      if (event.key === "Enter" && !event.isComposing) {
+        event.preventDefault();
+        const active = options[slashIndex()] ?? options[0];
+        if (active) handleSlashSelect(active);
+        return;
+      }
+      if (event.key === "ArrowDown" || (ctrl && event.key === "n")) {
+        event.preventDefault();
+        if (!options.length) return;
+        setSlashIndex((i: number) => (i + 1) % options.length);
+        return;
+      }
+      if (event.key === "ArrowUp" || (ctrl && event.key === "p")) {
+        event.preventDefault();
+        if (!options.length) return;
+        setSlashIndex((i: number) => (i - 1 + options.length) % options.length);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSlashOpen(false);
+        setSlashQuery("");
+        return;
+      }
+      if (event.key === "Tab") {
+        event.preventDefault();
+        const active = options[slashIndex()] ?? options[0];
+        if (active) handleSlashSelect(active);
+        return;
+      }
+    }
+
     if (event.key === "!" && mode() === "prompt") {
       const offsets = editorRef ? getSelectionOffsets(editorRef) : null;
       if (offsets && offsets.start === 0 && offsets.end === 0) {
@@ -706,6 +843,8 @@ export default function Composer(props: ComposerProps) {
     if (mode() !== "shell") return;
     setMentionOpen(false);
     setMentionQuery("");
+    setSlashOpen(false);
+    setSlashQuery("");
   });
 
   createEffect(() => {
@@ -764,7 +903,7 @@ export default function Composer(props: ComposerProps) {
       <div class="max-w-3xl mx-auto">
         <div
           class={`bg-dls-surface border border-dls-border rounded-2xl shadow-xl overflow-visible transition-all relative group/input ${
-            mentionOpen() ? "rounded-t-none border-t-transparent" : ""
+            mentionOpen() || slashOpen() ? "rounded-t-none border-t-transparent" : ""
           }`}
           onDrop={handleDrop}
           onDragOver={(event: DragEvent) => {
@@ -833,7 +972,55 @@ export default function Composer(props: ComposerProps) {
             </div>
           </Show>
 
-
+          {/* Slash command popup */}
+          <Show when={slashOpen()}>
+            <div class="absolute bottom-full left-[-1px] right-[-1px] z-30">
+              <div class="rounded-t-3xl border border-dls-border border-b-0 bg-dls-surface shadow-2xl overflow-hidden">
+                <div class="p-2 bg-dls-surface max-h-64 overflow-y-auto" onMouseDown={(event: MouseEvent) => event.preventDefault()}>
+                  <Show
+                    when={slashFiltered().length}
+                    fallback={
+                      <div class="px-3 py-2 text-xs text-dls-secondary">
+                        {slashLoaded() ? "No commands found." : "Loading commands..."}
+                      </div>
+                    }
+                  >
+                    <For each={slashFiltered()}>
+                      {(cmd: SlashCommandOption, index) => {
+                        const active = createMemo(() => slashIndex() === index());
+                        return (
+                          <button
+                            type="button"
+                            class={`w-full flex items-center justify-between gap-4 rounded-xl px-3 py-2 text-left transition-colors ${
+                              active() ? "bg-dls-active text-dls-text" : "text-dls-text hover:bg-dls-hover"
+                            }`}
+                            onMouseDown={(event: MouseEvent) => {
+                              event.preventDefault();
+                              handleSlashSelect(cmd);
+                            }}
+                            onMouseEnter={() => setSlashIndex(index())}
+                          >
+                            <div class="flex items-center gap-2 min-w-0">
+                              <Terminal size={14} class="text-dls-secondary shrink-0" />
+                              <span class="text-xs font-semibold text-dls-text whitespace-nowrap">/{cmd.name}</span>
+                              <Show when={cmd.description}>
+                                <span class="text-xs text-dls-secondary truncate">{cmd.description}</span>
+                              </Show>
+                            </div>
+                            <Show when={cmd.source && cmd.source !== "command"}>
+                              <span class="text-[10px] uppercase tracking-wider text-dls-secondary shrink-0">
+                                {cmd.source === "skill" ? "Skill" : cmd.source === "mcp" ? "MCP" : ""}
+                              </span>
+                            </Show>
+                          </button>
+                        );
+                      }}
+                    </For>
+                  </Show>
+                </div>
+              </div>
+            </div>
+          </Show>
 
           <div class="p-3 px-4">
             <Show when={props.showNotionBanner}>
@@ -910,6 +1097,7 @@ export default function Composer(props: ComposerProps) {
                       aria-multiline="true"
                       onInput={() => {
                         updateMentionQuery();
+                        updateSlashQuery();
                         emitDraftChange();
                       }}
                       onKeyDown={handleKeyDown}

@@ -153,6 +153,7 @@ export type SessionViewProps = {
   providerConnectedIds: string[];
   listAgents: () => Promise<Agent[]>;
   searchFiles: (query: string) => Promise<string[]>;
+  listCommands: () => Promise<{ id: string; name: string; description?: string; source?: "command" | "mcp" | "skill" }[]>;
   selectedSessionAgent: string | null;
   setSessionAgent: (sessionId: string, agent: string | null) => void;
   saveSession: (sessionId: string) => Promise<string>;
@@ -1416,6 +1417,7 @@ export default function SessionView(props: SessionViewProps) {
         listAgents={props.listAgents}
         recentFiles={props.workingFiles}
         searchFiles={props.searchFiles}
+        listCommands={props.listCommands}
         isRemoteWorkspace={props.activeWorkspaceDisplay.workspaceType === "remote"}
         attachmentsEnabled={attachmentsEnabled()}
         attachmentsDisabledReason={attachmentsDisabledReason()}

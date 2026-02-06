@@ -85,11 +85,20 @@ export type ComposerAttachment = {
   dataUrl: string;
 };
 
+export type SlashCommandOption = {
+  id: string;
+  name: string;
+  description?: string;
+  source?: "command" | "mcp" | "skill";
+};
+
 export type ComposerDraft = {
   mode: PromptMode;
   parts: ComposerPart[];
   attachments: ComposerAttachment[];
   text: string;
+  /** When set, draft is a slash command invocation */
+  command?: { name: string; arguments: string } | undefined;
 };
 
 export type ArtifactItem = {
