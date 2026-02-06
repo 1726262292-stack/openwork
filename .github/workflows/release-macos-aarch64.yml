@@ -568,8 +568,13 @@ jobs:
 
   publish-npm:
     name: Publish npm packages
-    needs: [resolve-release, verify-release]
-    if: needs.resolve-release.outputs.publish_npm == 'true'
+    needs: [resolve-release, verify-release, release-openwrk-sidecars]
+    if: |
+      always() &&
+      needs.resolve-release.result == 'success' &&
+      needs.verify-release.result == 'success' &&
+      (needs.release-openwrk-sidecars.result == 'success' || needs.release-openwrk-sidecars.result == 'skipped') &&
+      needs.resolve-release.outputs.publish_npm == 'true'
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
