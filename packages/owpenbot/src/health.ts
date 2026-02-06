@@ -12,6 +12,7 @@ export type HealthSnapshot = {
   channels: {
     telegram: boolean;
     whatsapp: boolean;
+    slack: boolean;
   };
   config: {
     groupsEnabled: boolean;
@@ -23,12 +24,18 @@ export type TelegramTokenResult = {
   enabled: boolean;
 };
 
+export type SlackTokensResult = {
+  configured: boolean;
+  enabled: boolean;
+};
+
 export type GroupsConfigResult = {
   groupsEnabled: boolean;
 };
 
 export type HealthHandlers = {
   setTelegramToken?: (token: string) => Promise<TelegramTokenResult>;
+  setSlackTokens?: (tokens: { botToken: string; appToken: string }) => Promise<SlackTokensResult>;
   setGroupsEnabled?: (enabled: boolean) => Promise<GroupsConfigResult>;
   getGroupsEnabled?: () => boolean;
 };
@@ -109,6 +116,44 @@ export function startHealthServer(
           const result = await handlers.setTelegramToken(token);
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: true, telegram: result }));
+          return;
+        } catch (error) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: String(error) }));
+          return;
+        }
+      }
+
+      if (pathname === "/config/slack-tokens" && req.method === "POST") {
+        if (!handlers.setSlackTokens) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "Not supported" }));
+          return;
+        }
+
+        let raw = "";
+        for await (const chunk of req) {
+          raw += chunk.toString();
+          if (raw.length > 1024 * 1024) {
+            res.writeHead(413, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: "Payload too large" }));
+            return;
+          }
+        }
+
+        try {
+          const payload = JSON.parse(raw || "{}");
+          const botToken = typeof payload.botToken === "string" ? payload.botToken.trim() : "";
+          const appToken = typeof payload.appToken === "string" ? payload.appToken.trim() : "";
+          if (!botToken || !appToken) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: "Slack botToken and appToken are required" }));
+            return;
+          }
+
+          const result = await handlers.setSlackTokens({ botToken, appToken });
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, slack: result }));
           return;
         } catch (error) {
           res.writeHead(500, { "Content-Type": "application/json" });

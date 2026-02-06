@@ -278,6 +278,7 @@ pub async fn owpenbot_status(
     let status = owpenbot_json(&app, &["status", "--json"], "get status").await?;
     let whatsapp = owpenbot_json(&app, &["whatsapp", "status", "--json"], "get WhatsApp status").await?;
     let telegram = owpenbot_json(&app, &["telegram", "status", "--json"], "get Telegram status").await?;
+    let slack = owpenbot_json(&app, &["slack", "status", "--json"], "get Slack status").await?;
 
     let mut running = {
         let mut state = manager
@@ -344,6 +345,15 @@ pub async fn owpenbot_status(
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
 
+    let slack_configured = slack
+        .get("configured")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let slack_enabled = slack
+        .get("enabled")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+
     Ok(serde_json::json!({
         "running": running,
         "config": config_path,
@@ -356,6 +366,10 @@ pub async fn owpenbot_status(
         "telegram": {
             "configured": telegram_configured,
             "enabled": telegram_enabled,
+        },
+        "slack": {
+            "configured": slack_configured,
+            "enabled": slack_enabled,
         },
         "opencode": {
             "url": opencode_url,

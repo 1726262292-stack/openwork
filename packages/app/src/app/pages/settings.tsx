@@ -30,6 +30,7 @@ import {
   setOwpenbotDmPolicy,
   setOwpenbotAllowlist,
   setOwpenbotTelegramToken,
+  setOwpenbotSlackTokens,
   getOwpenbotPairingRequests,
   approveOwpenbotPairing,
   denyOwpenbotPairing,
@@ -149,10 +150,14 @@ function OwpenbotSettings(props: {
   const [pairingRequests, setPairingRequests] = createSignal<OwpenbotPairingRequest[]>([]);
   const [telegramToken, setTelegramToken] = createSignal("");
   const [telegramTokenVisible, setTelegramTokenVisible] = createSignal(false);
+  const [slackBotToken, setSlackBotToken] = createSignal("");
+  const [slackAppToken, setSlackAppToken] = createSignal("");
+  const [slackTokensVisible, setSlackTokensVisible] = createSignal(false);
   const [newAllowlistEntry, setNewAllowlistEntry] = createSignal("");
   const [savingPolicy, setSavingPolicy] = createSignal(false);
   const [savingAllowlist, setSavingAllowlist] = createSignal(false);
   const [savingTelegram, setSavingTelegram] = createSignal(false);
+  const [savingSlack, setSavingSlack] = createSignal(false);
   const [groupsEnabled, setGroupsEnabled] = createSignal<boolean | null>(null);
   const [savingGroups, setSavingGroups] = createSignal(false);
   const [telegramCheckState, setTelegramCheckState] = createSignal<
@@ -160,6 +165,11 @@ function OwpenbotSettings(props: {
   >("idle");
   const [telegramCheckMessage, setTelegramCheckMessage] = createSignal<string | null>(null);
   const [telegramCheckDetail, setTelegramCheckDetail] = createSignal<string | null>(null);
+  const [slackCheckState, setSlackCheckState] = createSignal<
+    "idle" | "checking" | "success" | "warning" | "error"
+  >("idle");
+  const [slackCheckMessage, setSlackCheckMessage] = createSignal<string | null>(null);
+  const [slackCheckDetail, setSlackCheckDetail] = createSignal<string | null>(null);
   const openworkServerClient = createMemo(() => {
     const baseUrl = props.openworkServerUrl.trim();
     const localBaseUrl = props.openworkServerHostInfo?.baseUrl?.trim() ?? "";
@@ -231,6 +241,22 @@ function OwpenbotSettings(props: {
     setTelegramCheckDetail(null);
   };
 
+  const setSlackFeedback = (
+    state: "checking" | "success" | "warning" | "error",
+    message: string,
+    detail?: string | null,
+  ) => {
+    setSlackCheckState(state);
+    setSlackCheckMessage(message);
+    setSlackCheckDetail(detail ?? null);
+  };
+
+  const resetSlackFeedback = () => {
+    setSlackCheckState("idle");
+    setSlackCheckMessage(null);
+    setSlackCheckDetail(null);
+  };
+
   const normalizeTelegramError = (raw: string) =>
     raw.replace(/^Error:\s*/i, "").replace(/^Failed to [^:]+:\s*/i, "").trim();
 
@@ -252,6 +278,31 @@ function OwpenbotSettings(props: {
     const detail = cleaned.length > 180 ? `${cleaned.slice(0, 177)}...` : cleaned;
     return {
       summary: "Telegram check failed.",
+      detail: detail || null,
+    };
+  };
+
+  const normalizeSlackError = (raw: string) =>
+    raw.replace(/^Error:\s*/i, "").replace(/^Failed to [^:]+:\s*/i, "").trim();
+
+  const formatSlackError = (raw: string) => {
+    const cleaned = normalizeSlackError(raw);
+    const lower = cleaned.toLowerCase();
+    if (lower.includes("invalid_auth") || lower.includes("not_authed") || lower.includes("token_revoked")) {
+      return {
+        summary: "Slack rejected these tokens.",
+        detail: "Double-check your xoxb- (bot) and xapp- (app) tokens and try again.",
+      };
+    }
+    if (lower.includes("missing_scope") || lower.includes("scope")) {
+      return {
+        summary: "Slack scopes are missing.",
+        detail: "Ensure your Slack app has the required scopes (chat:write, app_mentions:read, im:history) and is reinstalled.",
+      };
+    }
+    const detail = cleaned.length > 180 ? `${cleaned.slice(0, 177)}...` : cleaned;
+    return {
+      summary: "Slack check failed.",
       detail: detail || null,
     };
   };
@@ -418,6 +469,120 @@ function OwpenbotSettings(props: {
     }
   };
 
+  const handleSaveSlackTokens = async () => {
+    const botToken = slackBotToken().trim();
+    const appToken = slackAppToken().trim();
+    if (!botToken || !appToken || savingSlack()) return;
+
+    setSavingSlack(true);
+    try {
+      const latestStatus = await getOwpenbotStatus();
+      if (latestStatus) {
+        setOwpenbotStatus(latestStatus);
+      }
+      const serverClient = openworkServerClient();
+      const workspaceId = props.openworkServerWorkspaceId;
+      const useRemote = Boolean(serverClient && workspaceId);
+      debugOwpenbot("save-slack:start", {
+        connection: props.openworkServerHostInfo ? "local" : "remote",
+        tauri: isTauriRuntime(),
+        useRemote,
+        openworkServerStatus: props.openworkServerStatus,
+        openworkServerUrl: props.openworkServerUrl,
+        openworkServerWorkspaceId: props.openworkServerWorkspaceId,
+        owpenbotHealthPort: latestStatus?.healthPort ?? owpenbotStatus()?.healthPort ?? null,
+      });
+
+      if (useRemote && serverClient && workspaceId) {
+        if (props.openworkServerStatus === "disconnected") {
+          setSlackFeedback(
+            "error",
+            "OpenWork server is not connected.",
+            "Add a server URL and token, then try again.",
+          );
+          debugOwpenbot("save-slack:remote-missing-client", {
+            openworkServerStatus: props.openworkServerStatus,
+            openworkServerUrl: props.openworkServerUrl,
+            openworkServerWorkspaceId: props.openworkServerWorkspaceId,
+          });
+          return;
+        }
+
+        setSlackFeedback("checking", "Saving tokens on the host...");
+        try {
+          await serverClient.setOwpenbotSlackTokens(
+            workspaceId,
+            botToken,
+            appToken,
+            latestStatus?.healthPort ?? owpenbotStatus()?.healthPort ?? null,
+          );
+          debugOwpenbot("save-slack:remote-success");
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          setSlackFeedback("error", "Failed to save tokens.", detail || null);
+          debugOwpenbot("save-slack:remote-error", { detail });
+          return;
+        }
+
+        setSlackFeedback("success", "Slack tokens saved.");
+        setSlackBotToken("");
+        setSlackAppToken("");
+        return;
+      }
+
+      setSlackFeedback("checking", "Saving tokens and verifying Slack...");
+      const result = await setOwpenbotSlackTokens(botToken, appToken);
+      if (!result.ok) {
+        const detail = normalizeSlackError(result.stderr || "");
+        setSlackFeedback("error", "Failed to save tokens.", detail || null);
+        debugOwpenbot("save-slack:local-error", { detail });
+        return;
+      }
+
+      const statusResult = await getOwpenbotStatusDetailed();
+      if (!statusResult.ok) {
+        const parsed = formatSlackError(statusResult.error || "Failed to verify Slack.");
+        setOwpenbotStatus(null);
+        setSlackFeedback("error", parsed.summary, parsed.detail);
+        return;
+      }
+
+      const status = statusResult.status;
+      setOwpenbotStatus(status);
+
+      if (!status.slack.configured) {
+        setSlackFeedback(
+          "error",
+          "Tokens saved, but Slack is still unconfigured.",
+          "Check the tokens and try again.",
+        );
+        return;
+      }
+      if (!status.running) {
+        setSlackFeedback(
+          "warning",
+          "Tokens saved, but the messaging bridge is offline.",
+          "Start OpenWork to activate Slack.",
+        );
+        return;
+      }
+      if (!status.slack.enabled) {
+        setSlackFeedback(
+          "warning",
+          "Tokens saved, but Slack is disabled.",
+          "Enable the bot or review owpenbot settings.",
+        );
+        return;
+      }
+
+      setSlackFeedback("success", "Slack connected.");
+      setSlackBotToken("");
+      setSlackAppToken("");
+    } finally {
+      setSavingSlack(false);
+    }
+  };
+
   const handleApprovePairing = async (code: string) => {
     await approveOwpenbotPairing(code);
     await refreshPairingRequests();
@@ -449,8 +614,30 @@ function OwpenbotSettings(props: {
     return "text-gray-9";
   });
 
+  const slackStatusStyle = createMemo(() => {
+    if (owpenbotStatus()?.slack.configured) {
+      return "text-green-11";
+    }
+    return "text-gray-9";
+  });
+
   const telegramCheckStyle = createMemo(() => {
     switch (telegramCheckState()) {
+      case "success":
+        return "bg-green-7/10 text-green-11 border-green-7/20";
+      case "warning":
+        return "bg-amber-7/10 text-amber-11 border-amber-7/20";
+      case "error":
+        return "bg-red-7/10 text-red-11 border-red-7/20";
+      case "checking":
+        return "bg-gray-4/60 text-gray-11 border-gray-7/50";
+      default:
+        return "bg-gray-4/60 text-gray-11 border-gray-7/50";
+    }
+  });
+
+  const slackCheckStyle = createMemo(() => {
+    switch (slackCheckState()) {
       case "success":
         return "bg-green-7/10 text-green-11 border-green-7/20";
       case "warning":
@@ -479,7 +666,7 @@ function OwpenbotSettings(props: {
             <MessageCircle size={16} class="text-gray-11" />
             <div class="text-sm font-medium text-gray-12">Messaging Bridge</div>
           </div>
-          <div class="text-xs text-gray-10 mt-1">Connect Telegram and WhatsApp to chat with your AI.</div>
+          <div class="text-xs text-gray-10 mt-1">Connect Slack, Telegram, and WhatsApp to chat with your AI.</div>
         </div>
         <div class={`text-xs px-2 py-1 rounded-full border ${bridgeStatusStyle()}`}>
           {owpenbotStatus()?.running ? "Running" : "Offline"}
@@ -551,6 +738,96 @@ function OwpenbotSettings(props: {
           <div class="flex items-center justify-between bg-gray-2/50 rounded-lg p-3">
             <div class="text-xs text-gray-11">
               Bot is {owpenbotStatus()?.telegram.enabled ? "enabled" : "disabled"}
+            </div>
+          </div>
+        </Show>
+      </div>
+
+      {/* Slack Section */}
+      <div class="bg-gray-1 rounded-xl border border-gray-6 p-4 space-y-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="w-6 h-6 rounded-full bg-rose-7/20 flex items-center justify-center">
+              <span class="text-xs">S</span>
+            </div>
+            <span class="text-sm font-medium text-gray-12">Slack</span>
+          </div>
+          <span class={`text-xs ${slackStatusStyle()}`}>
+            {owpenbotStatus()?.slack.configured ? "Configured" : "Not configured"}
+          </span>
+        </div>
+
+        <div class="space-y-2">
+          <div class="text-xs font-medium text-gray-11">Bot Token</div>
+          <div class="flex gap-2">
+            <div class="flex-1 flex items-center gap-2">
+              <input
+                type={slackTokensVisible() ? "text" : "password"}
+                value={slackBotToken()}
+                onInput={(e) => {
+                  setSlackBotToken(e.currentTarget.value);
+                  if (slackCheckState() !== "idle") {
+                    resetSlackFeedback();
+                  }
+                }}
+                placeholder="xoxb-..."
+                class="flex-1 rounded-lg bg-gray-2/60 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-10 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] focus:outline-none focus:ring-2 focus:ring-gray-6/20"
+                disabled={props.busy || savingSlack()}
+              />
+              <Button
+                variant="outline"
+                class="text-xs h-9 px-3 shrink-0"
+                onClick={() => setSlackTokensVisible((prev) => !prev)}
+              >
+                {slackTokensVisible() ? "Hide" : "Show"}
+              </Button>
+            </div>
+          </div>
+
+          <div class="text-xs font-medium text-gray-11">App Token</div>
+          <div class="flex gap-2">
+            <input
+              type={slackTokensVisible() ? "text" : "password"}
+              value={slackAppToken()}
+              onInput={(e) => {
+                setSlackAppToken(e.currentTarget.value);
+                if (slackCheckState() !== "idle") {
+                  resetSlackFeedback();
+                }
+              }}
+              placeholder="xapp-..."
+              class="flex-1 rounded-lg bg-gray-2/60 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-10 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] focus:outline-none focus:ring-2 focus:ring-gray-6/20"
+              disabled={props.busy || savingSlack()}
+            />
+            <Button
+              variant="secondary"
+              class="text-xs h-9 px-3"
+              onClick={handleSaveSlackTokens}
+              disabled={props.busy || savingSlack() || !slackBotToken().trim() || !slackAppToken().trim()}
+            >
+              {savingSlack() ? "Saving..." : "Save"}
+            </Button>
+          </div>
+
+          <Show when={slackCheckState() !== "idle"}>
+            <div class={`text-[11px] px-2 py-1 rounded-lg border ${slackCheckStyle()}`}>
+              {slackCheckMessage()}
+            </div>
+            <Show when={slackCheckDetail()}>
+              <div class="text-[11px] text-gray-9">{slackCheckDetail()}</div>
+            </Show>
+          </Show>
+
+          <div class="text-[11px] text-gray-8">
+            Enable Socket Mode in your Slack app and paste <span class="font-mono">xoxb-</span> and{' '}
+            <span class="font-mono">xapp-</span> tokens here.
+          </div>
+        </div>
+
+        <Show when={owpenbotStatus()?.slack.configured}>
+          <div class="flex items-center justify-between bg-gray-2/50 rounded-lg p-3">
+            <div class="text-xs text-gray-11">
+              Bot is {owpenbotStatus()?.slack.enabled ? "enabled" : "disabled"}
             </div>
           </div>
         </Show>
@@ -744,7 +1021,7 @@ function OwpenbotSettings(props: {
 
       {/* Info Note */}
       <div class="text-[11px] text-gray-8">
-        Messaging bridge connects your WhatsApp and Telegram to OpenCode. Messages are processed locally.
+        Messaging bridge connects your Slack, WhatsApp, and Telegram to OpenCode. Messages are processed locally.
       </div>
     </div>
   );

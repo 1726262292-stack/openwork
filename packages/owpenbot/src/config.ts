@@ -10,7 +10,7 @@ const packageDir = path.resolve(moduleDir, "..");
 dotenv.config({ path: path.join(packageDir, ".env") });
 dotenv.config();
 
-export type ChannelName = "telegram" | "whatsapp";
+export type ChannelName = "telegram" | "whatsapp" | "slack";
 
 export type DmPolicy = "pairing" | "allowlist" | "open" | "disabled";
 
@@ -36,6 +36,11 @@ export type OwpenbotConfigFile = {
       token?: string;
       enabled?: boolean;
     };
+    slack?: {
+      botToken?: string;
+      appToken?: string;
+      enabled?: boolean;
+    };
   };
 };
 
@@ -54,6 +59,9 @@ export type Config = {
   model?: ModelRef;
   telegramToken?: string;
   telegramEnabled: boolean;
+  slackBotToken?: string;
+  slackAppToken?: string;
+  slackEnabled: boolean;
   whatsappAuthDir: string;
   whatsappAccountId: string;
   whatsappDmPolicy: DmPolicy;
@@ -167,21 +175,25 @@ function parseAllowlist(env: EnvLike): Record<ChannelName, Set<string>> {
   const allowlist: Record<ChannelName, Set<string>> = {
     telegram: new Set<string>(),
     whatsapp: new Set<string>(),
+    slack: new Set<string>(),
   };
 
   const shared = parseList(env.ALLOW_FROM);
   for (const entry of shared) {
     if (entry.includes(":")) {
-      const [channel, peer] = entry.split(":");
+      const idx = entry.indexOf(":");
+      const channel = entry.slice(0, idx);
+      const peer = entry.slice(idx + 1);
       const normalized = channel.trim().toLowerCase();
-      if (normalized === "telegram" || normalized === "whatsapp") {
-        if (peer?.trim()) {
+      if (normalized === "telegram" || normalized === "whatsapp" || normalized === "slack") {
+        if (peer.trim()) {
           allowlist[normalized].add(peer.trim());
         }
       }
     } else {
       allowlist.telegram.add(entry);
       allowlist.whatsapp.add(entry);
+      allowlist.slack.add(entry);
     }
   }
 
@@ -190,6 +202,9 @@ function parseAllowlist(env: EnvLike): Record<ChannelName, Set<string>> {
   }
   for (const entry of parseList(env.ALLOW_FROM_WHATSAPP)) {
     allowlist.whatsapp.add(entry);
+  }
+  for (const entry of parseList(env.ALLOW_FROM_SLACK)) {
+    allowlist.slack.add(entry);
   }
 
   return allowlist;
@@ -235,6 +250,8 @@ export function loadConfig(
   const permissionMode = env.PERMISSION_MODE?.toLowerCase() === "deny" ? "deny" : "allow";
 
   const telegramToken = env.TELEGRAM_BOT_TOKEN?.trim() || configFile.channels?.telegram?.token || undefined;
+  const slackBotToken = env.SLACK_BOT_TOKEN?.trim() || configFile.channels?.slack?.botToken || undefined;
+  const slackAppToken = env.SLACK_APP_TOKEN?.trim() || configFile.channels?.slack?.appToken || undefined;
   const healthPort = parseInteger(env.OWPENBOT_HEALTH_PORT) ?? 3005;
   const model = parseModel(env.OWPENBOT_MODEL);
 
@@ -250,6 +267,12 @@ export function loadConfig(
     telegramEnabled: parseBoolean(
       env.TELEGRAM_ENABLED,
       configFile.channels?.telegram?.enabled ?? Boolean(telegramToken),
+    ),
+    slackBotToken,
+    slackAppToken,
+    slackEnabled: parseBoolean(
+      env.SLACK_ENABLED,
+      configFile.channels?.slack?.enabled ?? Boolean(slackBotToken && slackAppToken),
     ),
     whatsappAuthDir,
     whatsappAccountId,

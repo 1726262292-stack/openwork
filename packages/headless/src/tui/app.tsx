@@ -38,6 +38,7 @@ export type TuiOwpenbotHealth = {
   channels: {
     telegram: boolean;
     whatsapp: boolean;
+    slack: boolean;
   };
   config: {
     groupsEnabled: boolean;
@@ -612,6 +613,9 @@ export function startOpenwrkTui(options: TuiOptions): TuiHandle {
                 </text>
                 <text fg={theme.textMuted}>
                   Telegram: {state.owpenbotHealth?.channels.telegram ? "enabled" : "not configured"}
+                </text>
+                <text fg={theme.textMuted}>
+                  Slack: {state.owpenbotHealth?.channels.slack ? "enabled" : "not configured"}
                 </text>
                 <text fg={theme.textMuted}>
                   Groups enabled: {state.owpenbotHealth?.config.groupsEnabled ? "yes" : "no"}

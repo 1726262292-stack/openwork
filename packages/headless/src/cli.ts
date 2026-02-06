@@ -59,6 +59,7 @@ type OwpenbotHealthSnapshot = {
   channels: {
     telegram: boolean;
     whatsapp: boolean;
+    slack: boolean;
   };
   config: {
     groupsEnabled: boolean;

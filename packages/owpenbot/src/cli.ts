@@ -16,6 +16,7 @@ import {
 import { BridgeStore } from "./db.js";
 import { createLogger } from "./logger.js";
 import { createClient } from "./opencode.js";
+import { parseSlackPeerId } from "./slack.js";
 import { truncateText } from "./text.js";
 import { loginWhatsApp, unpairWhatsApp } from "./whatsapp.js";
 import { hasWhatsAppCreds } from "./whatsapp-session.js";
@@ -64,7 +65,8 @@ function createAppLogger(config: ReturnType<typeof loadConfig>) {
 }
 
 function createConsoleReporter(): BridgeReporter {
-  const formatChannel = (channel: ChannelName) => (channel === "whatsapp" ? "WhatsApp" : "Telegram");
+  const formatChannel = (channel: ChannelName) =>
+    channel === "whatsapp" ? "WhatsApp" : channel === "telegram" ? "Telegram" : "Slack";
   const formatPeer = (channel: ChannelName, peerId: string, fromMe?: boolean) => {
     const base = channel === "whatsapp" ? normalizeWhatsAppId(peerId) : peerId;
     return fromMe ? `${base} (me)` : base;
@@ -161,7 +163,7 @@ async function runStart(pathOverride?: string, options?: { opencodeUrl?: string 
     process.env.OPENCODE_DIRECTORY = config.opencodeDirectory;
   }
   const bridge = await startBridge(config, logger, reporter);
-  reporter.onStatus?.("Commands: owpenwork whatsapp login, owpenwork pairing list, owpenwork status");
+  reporter.onStatus?.("Commands: owpenwork whatsapp login, owpenwork slack status, owpenwork pairing list, owpenwork status");
 
   const shutdown = async () => {
     logger.info("shutting down");
@@ -231,7 +233,7 @@ const program = new Command();
 program
   .name("owpenbot")
   .version(VERSION)
-  .description("OpenCode WhatsApp + Telegram bridge")
+  .description("OpenCode WhatsApp + Telegram + Slack bridge")
   .option("--json", "Output in JSON format", false);
 
 // -----------------------------------------------------------------------------
@@ -268,6 +270,7 @@ program
           channels: {
             whatsapp: hasWhatsAppCreds(config.whatsappAuthDir) ? "linked" : "unlinked",
             telegram: config.telegramToken ? "configured" : "unconfigured",
+            slack: config.slackBotToken && config.slackAppToken ? "configured" : "unconfigured",
           },
         });
       } else {
@@ -285,6 +288,7 @@ program
           channels: {
             whatsapp: hasWhatsAppCreds(config.whatsappAuthDir) ? "linked" : "unlinked",
             telegram: config.telegramToken ? "configured" : "unconfigured",
+            slack: config.slackBotToken && config.slackAppToken ? "configured" : "unconfigured",
           },
         });
       } else {
@@ -321,6 +325,10 @@ program
           configured: Boolean(config.telegramToken),
           enabled: config.telegramEnabled,
         },
+        slack: {
+          configured: Boolean(config.slackBotToken && config.slackAppToken),
+          enabled: config.slackEnabled,
+        },
         opencode: {
           url: config.opencodeUrl,
           directory: config.opencodeDirectory,
@@ -332,6 +340,7 @@ program
       console.log(`WhatsApp linked: ${whatsappLinked ? "yes" : "no"}`);
       console.log(`WhatsApp DM policy: ${config.whatsappDmPolicy}`);
       console.log(`Telegram configured: ${config.telegramToken ? "yes" : "no"}`);
+      console.log(`Slack configured: ${config.slackBotToken && config.slackAppToken ? "yes" : "no"}`);
       console.log(`Auth dir: ${config.whatsappAuthDir}`);
       console.log(`OpenCode URL: ${config.opencodeUrl}`);
     }
@@ -544,6 +553,60 @@ telegram
   });
 
 // -----------------------------------------------------------------------------
+// slack subcommand
+// -----------------------------------------------------------------------------
+
+const slack = program.command("slack").description("Slack helpers");
+
+slack
+  .command("status")
+  .description("Show Slack status")
+  .action(() => {
+    const useJson = program.opts().json;
+    const config = loadConfig(process.env, { requireOpencode: false });
+    const configured = Boolean(config.slackBotToken && config.slackAppToken);
+
+    if (useJson) {
+      outputJson({
+        configured,
+        enabled: config.slackEnabled,
+        hasBotToken: Boolean(config.slackBotToken),
+        hasAppToken: Boolean(config.slackAppToken),
+      });
+    } else {
+      console.log(`Slack configured: ${configured ? "yes" : "no"}`);
+      console.log(`Slack enabled: ${config.slackEnabled ? "yes" : "no"}`);
+    }
+  });
+
+slack
+  .command("set-tokens")
+  .argument("<botToken>", "Slack bot token (xoxb-...)")
+  .argument("<appToken>", "Slack app token (xapp-...)")
+  .description("Set Slack bot/app tokens")
+  .action((botToken: string, appToken: string) => {
+    const useJson = program.opts().json;
+    const config = loadConfig(process.env, { requireOpencode: false });
+
+    updateConfig(config.configPath, (cfg) => {
+      const next = { ...cfg } as OwpenbotConfigFile;
+      next.channels = next.channels ?? {};
+      next.channels.slack = {
+        botToken,
+        appToken,
+        enabled: true,
+      };
+      return next;
+    });
+
+    if (useJson) {
+      outputJson({ success: true, message: "Slack tokens saved" });
+    } else {
+      console.log("Slack tokens saved.");
+    }
+  });
+
+// -----------------------------------------------------------------------------
 // pairing subcommand
 // -----------------------------------------------------------------------------
 
@@ -710,7 +773,7 @@ program
 program
   .command("send")
   .description("Send a test message")
-  .requiredOption("--channel <channel>", "Channel: whatsapp or telegram")
+  .requiredOption("--channel <channel>", "Channel: whatsapp, telegram, or slack")
   .requiredOption("--to <recipient>", "Recipient ID (phone number or chat ID)")
   .requiredOption("--message <text>", "Message text to send")
   .action(async (opts) => {
@@ -719,11 +782,14 @@ program
     const to = opts.to as string;
     const message = opts.message as string;
 
-    if (channel !== "whatsapp" && channel !== "telegram") {
+    if (channel !== "whatsapp" && channel !== "telegram" && channel !== "slack") {
       if (useJson) {
-        outputJson({ success: false, error: `Invalid channel: ${channel}. Must be 'whatsapp' or 'telegram'.` });
+        outputJson({
+          success: false,
+          error: `Invalid channel: ${channel}. Must be 'whatsapp', 'telegram', or 'slack'.`,
+        });
       } else {
-        console.error(`Error: Invalid channel '${channel}'. Must be 'whatsapp' or 'telegram'.`);
+        console.error(`Error: Invalid channel '${channel}'. Must be 'whatsapp', 'telegram', or 'slack'.`);
       }
       process.exit(1);
     }
@@ -753,7 +819,7 @@ program
         } else {
           console.log(`Message sent to ${peerId} via WhatsApp`);
         }
-      } else {
+      } else if (channel === "telegram") {
         const { createTelegramAdapter } = await import("./telegram.js");
         const adapter = createTelegramAdapter(config, logger, async () => {});
         // Note: Telegram adapter's start() begins long-polling, we just need to send
@@ -769,6 +835,28 @@ program
           outputJson({ success: true, channel, to, message });
         } else {
           console.log(`Message sent to ${to} via Telegram`);
+        }
+      } else {
+        // Slack
+        const { WebClient } = await import("@slack/web-api");
+        if (!config.slackBotToken) {
+          throw new Error("Slack bot token not configured. Use 'owpenbot slack set-tokens <bot> <app>' first.");
+        }
+        const web = new WebClient(config.slackBotToken);
+        const peer = parseSlackPeerId(to);
+        if (!peer.channelId) {
+          throw new Error("Invalid recipient for Slack. Use a channel ID (C..., D...) or encoded peerId (C...|threadTs)");
+        }
+        await web.chat.postMessage({
+          channel: peer.channelId,
+          text: message,
+          ...(peer.threadTs ? { thread_ts: peer.threadTs } : {}),
+        });
+
+        if (useJson) {
+          outputJson({ success: true, channel, to, message });
+        } else {
+          console.log(`Message sent to ${to} via Slack`);
         }
       }
       process.exit(0);

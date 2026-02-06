@@ -1,7 +1,7 @@
 {
   "name": "owpenwork",
   "version": "0.1.19",
-  "description": "WhatsApp bridge for a running OpenCode server",
+  "description": "Slack + WhatsApp + Telegram bridge for a running OpenCode server",
   "private": false,
   "type": "module",
   "bin": {
@@ -16,6 +16,8 @@
   },
   "keywords": [
     "opencode",
+    "slack",
+    "telegram",
     "whatsapp",
     "bridge",
     "bot"
@@ -37,13 +39,15 @@
     "pairing-code": "bun dist/cli.js pairing-code",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "setup": "bun scripts/setup.mjs",
-    "test:unit": "pnpm build && node --test test/*.test.js",
+    "test:unit": "pnpm build && bun test test/*.test.js",
     "test:smoke": "bun scripts/smoke.mjs",
     "test:cli": "pnpm build && bun scripts/test-cli.mjs",
     "test:npx": "bun scripts/test-npx.mjs"
   },
   "dependencies": {
     "@opencode-ai/sdk": "^1.1.31",
+    "@slack/socket-mode": "^2.0.5",
+    "@slack/web-api": "^7.13.0",
     "@whiskeysockets/baileys": "7.0.0-rc.9",
     "commander": "^12.1.0",
     "dotenv": "^16.4.7",

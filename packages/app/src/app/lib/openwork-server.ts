@@ -93,6 +93,14 @@ export type OpenworkOwpenbotTelegramResult = {
   };
 };
 
+export type OpenworkOwpenbotSlackResult = {
+  ok: boolean;
+  slack?: {
+    configured: boolean;
+    enabled: boolean;
+  };
+};
+
 export type OpenworkActor = {
   type: "remote" | "host";
   clientId?: string;
@@ -366,6 +374,22 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
           hostToken,
           method: "POST",
           body: { token: tokenValue, healthPort },
+        },
+      ),
+    setOwpenbotSlackTokens: (
+      workspaceId: string,
+      botToken: string,
+      appToken: string,
+      healthPort?: number | null,
+    ) =>
+      requestJson<OpenworkOwpenbotSlackResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/owpenbot/slack-tokens`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: { botToken, appToken, healthPort },
         },
       ),
     patchConfig: (workspaceId: string, payload: { opencode?: Record<string, unknown>; openwork?: Record<string, unknown> }) =>

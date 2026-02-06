@@ -557,6 +557,49 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
     return jsonResponse(result);
   });
 
+  addRoute(routes, "POST", "/workspace/:id/owpenbot/slack-tokens", "client", async (ctx) => {
+    ensureWritable(config);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const botToken = typeof body.botToken === "string" ? body.botToken.trim() : "";
+    const appToken = typeof body.appToken === "string" ? body.appToken.trim() : "";
+    const healthPort = normalizeHealthPort(body.healthPort);
+    const requestHost = ctx.url.hostname;
+    logOwpenbotDebug("slack-tokens:request", {
+      workspaceId: workspace.id,
+      actor: ctx.actor?.type ?? "unknown",
+      hasBotToken: Boolean(botToken),
+      hasAppToken: Boolean(appToken),
+      healthPort: healthPort ?? null,
+      requestHost,
+    });
+    if (!botToken || !appToken) {
+      throw new ApiError(400, "token_required", "Slack botToken and appToken are required");
+    }
+
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "owpenbot.slack.set-tokens",
+      summary: "Set Slack bot tokens",
+      paths: [resolveOwpenbotConfigPath()],
+    });
+
+    const result = await updateOwpenbotSlackTokens(botToken, appToken, healthPort, requestHost);
+    logOwpenbotDebug("slack-tokens:updated", { workspaceId: workspace.id });
+
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "owpenbot.slack.set-tokens",
+      target: "owpenbot.slack",
+      summary: "Updated Slack bot tokens",
+      timestamp: Date.now(),
+    });
+
+    return jsonResponse(result);
+  });
+
   addRoute(routes, "GET", "/workspace/:id/events", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const sinceParam = ctx.url.searchParams.get("since");
@@ -1046,6 +1089,61 @@ async function updateOwpenbotTelegramToken(
     const detail = typeof parsed === "object" && parsed && "error" in parsed
       ? String((parsed as Record<string, unknown>).error)
       : "Owpenbot request failed";
+    throw new ApiError(response.status, "owpenbot_request_failed", detail, {
+      status: response.status,
+      body: parsed,
+    });
+  }
+
+  if (parsed && typeof parsed === "object") {
+    return parsed as Record<string, unknown>;
+  }
+  return { ok: true };
+}
+
+async function updateOwpenbotSlackTokens(
+  botToken: string,
+  appToken: string,
+  healthPortOverride?: number | null,
+  requestHost?: string | null,
+): Promise<Record<string, unknown>> {
+  const port = healthPortOverride ?? resolveOwpenbotHealthPort();
+  const candidates = ["127.0.0.1", requestHost].filter(
+    (host): host is string => Boolean(host && host.trim()),
+  );
+  let response: Response | null = null;
+  let lastError: unknown = null;
+
+  for (const host of candidates) {
+    const url = `http://${host}:${port}/config/slack-tokens`;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ botToken, appToken }),
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!response) {
+    throw new ApiError(502, "owpenbot_unreachable", "Owpenbot health server is unavailable", {
+      error: lastError ? String(lastError) : "no response",
+      port,
+      hosts: candidates,
+    });
+  }
+
+  const text = await response.text();
+  const parsed = parseJsonResponse(text);
+
+  if (!response.ok) {
+    const detail =
+      typeof parsed === "object" && parsed && "error" in parsed
+        ? String((parsed as Record<string, unknown>).error)
+        : "Owpenbot request failed";
     throw new ApiError(response.status, "owpenbot_request_failed", detail, {
       status: response.status,
       body: parsed,

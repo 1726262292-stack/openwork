@@ -9,6 +9,7 @@ import { normalizeEvent } from "./events.js";
 import { startHealthServer, type HealthSnapshot } from "./health.js";
 import { buildPermissionRules, createClient } from "./opencode.js";
 import { chunkText, formatInputSummary, truncateText } from "./text.js";
+import { createSlackAdapter } from "./slack.js";
 import { createTelegramAdapter } from "./telegram.js";
 import { createWhatsAppAdapter } from "./whatsapp.js";
 
@@ -23,6 +24,14 @@ import { createWhatsAppAdapter } from "./whatsapp.js";
 };
 
 type OutboundKind = "reply" | "system" | "tool";
+
+type BridgeDeps = {
+  client?: ReturnType<typeof createClient>;
+  store?: BridgeStore;
+  adapters?: Map<ChannelName, Adapter>;
+  disableEventStream?: boolean;
+  disableHealthServer?: boolean;
+};
 
 export type BridgeReporter = {
   onStatus?: (message: string) => void;
@@ -69,6 +78,7 @@ const TOOL_LABELS: Record<string, string> = {
 const CHANNEL_LABELS: Record<ChannelName, string> = {
   whatsapp: "WhatsApp",
   telegram: "Telegram",
+  slack: "Slack",
 };
 
 const TYPING_INTERVAL_MS = 6000;
@@ -100,11 +110,12 @@ function setUserModel(channel: ChannelName, peerId: string, model: ModelRef | un
   }
 }
 
-export async function startBridge(config: Config, logger: Logger, reporter?: BridgeReporter) {
+export async function startBridge(config: Config, logger: Logger, reporter?: BridgeReporter, deps: BridgeDeps = {}) {
   const reportStatus = reporter?.onStatus;
-  const client = createClient(config);
-  const store = new BridgeStore(config.dbPath);
+  const client = deps.client ?? createClient(config);
+  const store = deps.store ?? new BridgeStore(config.dbPath);
   store.seedAllowlist("telegram", config.allowlist.telegram);
+  store.seedAllowlist("slack", config.allowlist.slack);
   store.seedAllowlist(
     "whatsapp",
     [...config.whatsappAllowFrom].filter((entry) => entry !== "*"),
@@ -118,6 +129,9 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
       opencodeDirectory: config.opencodeDirectory,
       telegramEnabled: config.telegramEnabled,
       telegramTokenPresent: Boolean(config.telegramToken),
+      slackEnabled: config.slackEnabled,
+      slackBotTokenPresent: Boolean(config.slackBotToken),
+      slackAppTokenPresent: Boolean(config.slackAppToken),
       whatsappEnabled: config.whatsappEnabled,
       groupsEnabled: config.groupsEnabled,
       permissionMode: config.permissionMode,
@@ -126,24 +140,36 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
     "bridge config",
   );
 
-  const adapters = new Map<ChannelName, Adapter>();
-  if (config.telegramEnabled && config.telegramToken) {
-    logger.debug("telegram adapter enabled");
-    adapters.set("telegram", createTelegramAdapter(config, logger, handleInbound));
-  } else {
-    logger.info("telegram adapter disabled");
-    reportStatus?.("Telegram adapter disabled.");
-  }
+  const adapters = deps.adapters ?? new Map<ChannelName, Adapter>();
+  const usingInjectedAdapters = Boolean(deps.adapters);
 
-  if (config.whatsappEnabled) {
-    logger.debug("whatsapp adapter enabled");
-    adapters.set(
-      "whatsapp",
-      createWhatsAppAdapter(config, logger, handleInbound, { printQr: true, onStatus: reportStatus }),
-    );
-  } else {
-    logger.info("whatsapp adapter disabled");
-    reportStatus?.("WhatsApp adapter disabled.");
+  if (!usingInjectedAdapters) {
+    if (config.telegramEnabled && config.telegramToken) {
+      logger.debug("telegram adapter enabled");
+      adapters.set("telegram", createTelegramAdapter(config, logger, handleInbound));
+    } else {
+      logger.info("telegram adapter disabled");
+      reportStatus?.("Telegram adapter disabled.");
+    }
+
+    if (config.whatsappEnabled) {
+      logger.debug("whatsapp adapter enabled");
+      adapters.set(
+        "whatsapp",
+        createWhatsAppAdapter(config, logger, handleInbound, { printQr: true, onStatus: reportStatus }),
+      );
+    } else {
+      logger.info("whatsapp adapter disabled");
+      reportStatus?.("WhatsApp adapter disabled.");
+    }
+
+    if (config.slackEnabled && config.slackBotToken && config.slackAppToken) {
+      logger.debug("slack adapter enabled");
+      adapters.set("slack", createSlackAdapter(config, logger, handleInbound));
+    } else {
+      logger.info("slack adapter disabled");
+      reportStatus?.("Slack adapter disabled.");
+    }
   }
 
   const sessionQueue = new Map<string, Promise<void>>();
@@ -229,7 +255,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
   let groupsEnabled = config.groupsEnabled;
 
   let stopHealthServer: (() => void) | null = null;
-  if (config.healthPort) {
+  if (!deps.disableHealthServer && config.healthPort) {
     stopHealthServer = startHealthServer(
       config.healthPort,
       (): HealthSnapshot => ({
@@ -242,6 +268,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
         channels: {
           telegram: adapters.has("telegram"),
           whatsapp: adapters.has("whatsapp"),
+          slack: adapters.has("slack"),
         },
         config: {
           groupsEnabled,
@@ -311,16 +338,63 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
             enabled: true,
           };
         },
+        setSlackTokens: async (tokens: { botToken: string; appToken: string }) => {
+          const botToken = tokens.botToken.trim();
+          const appToken = tokens.appToken.trim();
+          if (!botToken || !appToken) {
+            throw new Error("Slack bot token and app token are required");
+          }
+
+          const { config: current } = readConfigFile(config.configPath);
+          const next: OwpenbotConfigFile = {
+            ...current,
+            channels: {
+              ...current.channels,
+              slack: {
+                ...current.channels?.slack,
+                botToken,
+                appToken,
+                enabled: true,
+              },
+            },
+          };
+          next.version = next.version ?? 1;
+          writeConfigFile(config.configPath, next);
+          config.configFile = next;
+          config.slackBotToken = botToken;
+          config.slackAppToken = appToken;
+          config.slackEnabled = true;
+
+          const existing = adapters.get("slack");
+          if (existing) {
+            try {
+              await existing.stop();
+            } catch (error) {
+              logger.warn({ error }, "failed to stop existing slack adapter");
+            }
+            adapters.delete("slack");
+          }
+
+          const adapter = createSlackAdapter(config, logger, handleInbound);
+          adapters.set("slack", adapter);
+          await adapter.start();
+
+          return {
+            configured: true,
+            enabled: true,
+          };
+        },
       },
     );
   }
 
   const eventAbort = new AbortController();
-  void (async () => {
-    const subscription = await client.event.subscribe(undefined, { signal: eventAbort.signal });
-    for await (const raw of subscription.stream as AsyncIterable<unknown>) {
-      const event = normalizeEvent(raw as any);
-      if (!event) continue;
+  if (!deps.disableEventStream) {
+    void (async () => {
+      const subscription = await client.event.subscribe(undefined, { signal: eventAbort.signal });
+      for await (const raw of subscription.stream as AsyncIterable<unknown>) {
+        const event = normalizeEvent(raw as any);
+        if (!event) continue;
 
       if (event.type === "message.updated") {
         if (event.properties && typeof event.properties === "object") {
@@ -406,11 +480,12 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
             });
           }
         }
+        }
       }
-    }
-  })().catch((error) => {
-    logger.error({ error }, "event stream closed");
-  });
+    })().catch((error) => {
+      logger.error({ error }, "event stream closed");
+    });
+  }
 
   async function sendText(
     channel: ChannelName,
@@ -712,7 +787,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
 
   for (const adapter of adapters.values()) {
     await adapter.start();
-    reportStatus?.(`${adapter.name === "whatsapp" ? "WhatsApp" : "Telegram"} adapter started.`);
+    reportStatus?.(`${CHANNEL_LABELS[adapter.name]} adapter started.`);
   }
 
   logger.info({ channels: Array.from(adapters.keys()) }, "bridge started");
@@ -732,6 +807,24 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
       }
       store.close();
       await delay(50);
+    },
+    async dispatchInbound(message: { channel: ChannelName; peerId: string; text: string; raw?: unknown; fromMe?: boolean }) {
+      await handleInbound({
+        channel: message.channel,
+        peerId: message.peerId,
+        text: message.text,
+        raw: message.raw ?? null,
+        fromMe: message.fromMe,
+      });
+
+      // For tests and programmatic callers: wait for the session queue to drain.
+      const peerKey = message.channel === "whatsapp" ? normalizeWhatsAppId(message.peerId) : message.peerId;
+      const session = store.getSession(message.channel, peerKey);
+      const sessionID = session?.session_id;
+      const pending = sessionID ? sessionQueue.get(sessionID) : null;
+      if (pending) {
+        await pending;
+      }
     },
   };
 }

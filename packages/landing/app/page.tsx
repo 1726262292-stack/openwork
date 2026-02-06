@@ -461,6 +461,14 @@ export default async function Home() {
                   with your team so they can run automations with one click.
                 </p>
               </div>
+              <div className="feature-card">
+                <h4 className="mb-2 text-[14px] font-bold">Slack-native agents</h4>
+                <p className="text-[13px] leading-relaxed text-gray-500">
+                  Bring OpenWork into Slack threads. Mention the agent, watch
+                  progress stream in real time, and keep the whole team in the
+                  loop.
+                </p>
+              </div>
             </div>
           </section>
 
@@ -508,12 +516,12 @@ export default async function Home() {
               </div>
               <div>
                 <h4 className="mb-2 text-[15px] font-bold">
-                  Can I use it with Telegram or WhatsApp?
+                  Can I use it with Slack, Telegram, or WhatsApp?
                 </h4>
                 <p className="text-[14px] leading-relaxed text-gray-600">
                   Yes. Once it is running somewhere, you can keep requests
-                  flowing from Telegram or WhatsApp and let OpenWork carry them
-                  out.
+                  flowing from Slack, Telegram, or WhatsApp and let OpenWork
+                  carry them out.
                 </p>
               </div>
             </div>

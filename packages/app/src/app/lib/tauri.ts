@@ -563,6 +563,11 @@ export type OwpenbotTelegramStatus = {
   enabled: boolean;
 };
 
+export type OwpenbotSlackStatus = {
+  configured: boolean;
+  enabled: boolean;
+};
+
 export type OwpenbotOpencodeStatus = {
   url: string;
 };
@@ -573,6 +578,7 @@ export type OwpenbotStatus = {
   healthPort?: number | null;
   whatsapp: OwpenbotWhatsAppStatus;
   telegram: OwpenbotTelegramStatus;
+  slack: OwpenbotSlackStatus;
   opencode: OwpenbotOpencodeStatus;
 };
 
@@ -671,6 +677,28 @@ export async function setOwpenbotTelegramToken(token: string): Promise<ExecResul
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
     });
+    if (!response.ok) {
+      const message = await response.text();
+      return { ok: false, status: response.status, stdout: "", stderr: message };
+    }
+    return { ok: true, status: 0, stdout: "", stderr: "" };
+  } catch (e) {
+    return { ok: false, status: 1, stdout: "", stderr: String(e) };
+  }
+}
+
+export async function setOwpenbotSlackTokens(botToken: string, appToken: string): Promise<ExecResult> {
+  try {
+    const status = await getOwpenbotStatus();
+    const healthPort = status?.healthPort ?? 3005;
+    const response = await (isTauriRuntime() ? tauriFetch : fetch)(
+      `http://127.0.0.1:${healthPort}/config/slack-tokens`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ botToken, appToken }),
+      },
+    );
     if (!response.ok) {
       const message = await response.text();
       return { ok: false, status: response.status, stdout: "", stderr: message };

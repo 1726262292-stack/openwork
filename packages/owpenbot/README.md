@@ -1,6 +1,6 @@
 # Owpenbot
 
-Simple WhatsApp bridge for a running OpenCode server. Telegram support exists but is not yet E2E tested.
+Simple Slack + WhatsApp + Telegram bridge for a running OpenCode server.
 
 ## Install + Run (WhatsApp)
 
@@ -82,17 +82,37 @@ Telegram support is wired but not E2E tested yet. To try it:
 - Run `owpenwork login telegram --token <token>`.
 - Or set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ENABLED=true`.
 
+## Slack (Socket Mode)
+
+Slack support uses Socket Mode and replies in threads when @mentioned in channels.
+
+1) Create a Slack app.
+2) Enable Socket Mode and generate an app token (`xapp-...`).
+3) Add bot token scopes:
+   - `chat:write`
+   - `app_mentions:read`
+   - `im:history`
+4) Subscribe to events (bot events):
+   - `app_mention`
+   - `message.im`
+5) Set env vars (or save via `owpenbot slack set-tokens ...`):
+   - `SLACK_BOT_TOKEN=xoxb-...`
+   - `SLACK_APP_TOKEN=xapp-...`
+   - `SLACK_ENABLED=true`
+
 ## Commands
 
 ```bash
 owpenwork
 owpenwork --non-interactive
 owpenwork login whatsapp
-owpenwork login telegram --token <token>
-owpenwork pairing list
-owpenwork pairing approve <code>
-owpenwork status
-owpenwork doctor --reset
+  owpenwork login telegram --token <token>
+  owpenwork slack status
+  owpenwork slack set-tokens <xoxb> <xapp>
+  owpenwork pairing list
+  owpenwork pairing approve <code>
+  owpenwork status
+  owpenwork doctor --reset
 ```
 
 ## Defaults

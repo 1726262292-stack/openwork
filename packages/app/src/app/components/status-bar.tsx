@@ -48,10 +48,12 @@ export default function StatusBar(props: StatusBarProps) {
     }
     const whatsappLinked = status.whatsapp.linked;
     const telegramConfigured = status.telegram.configured;
-    if (whatsappLinked && telegramConfigured) {
+    const slackConfigured = status.slack.configured;
+    const configuredCount = [whatsappLinked, telegramConfigured, slackConfigured].filter(Boolean).length;
+    if (status.running && configuredCount > 0) {
       return { dot: "bg-green-9", text: "text-green-11", label: "Messaging bridge ready" };
     }
-    if (whatsappLinked || telegramConfigured || status.running) {
+    if (configuredCount > 0 || status.running) {
       return { dot: "bg-amber-9", text: "text-amber-11", label: "Messaging bridge setup" };
     }
     return { dot: "bg-gray-6", text: "text-gray-10", label: "Messaging bridge offline" };
@@ -76,6 +78,15 @@ export default function StatusBar(props: StatusBarProps) {
   };
 
   const proTips = createMemo<ProTip[]>(() => [
+    {
+      id: "slack",
+      label: "Connect Slack",
+      enabled: () => {
+        const status = owpenbotStatus();
+        return Boolean(status && !status.slack.configured);
+      },
+      action: () => runAction(props.onOpenMessaging),
+    },
     {
       id: "telegram",
       label: "Connect Telegram",
