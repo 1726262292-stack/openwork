@@ -15,7 +15,7 @@ Double-click, pick a folder, and you get three things instantly:
 It's an **extensible, open-source alternative** to “Claude Work”.
 
 
-<img width="1292" height="932" alt="Screenshot 2026-01-31 at 16 22 39" src="https://github.com/user-attachments/assets/5742be91-9cfb-4212-b32d-cf2a27b1c093" />
+<video src="https://github.com/different-ai/openwork/releases/download/v0.11.16/app-demo-compressed.mp4" width="1292" autoplay loop muted playsinline></video>
 
 
 <img width="1292" height="932" alt="Screenshot 2026-01-31 at 13 43 30" src="https://github.com/user-attachments/assets/6639d1ef-c831-406e-a812-87fde403e6d5" />
