@@ -1,24 +1,22 @@
 [![Discord](https://img.shields.io/badge/discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/VEhNQXxYMB)
 
 # OpenWork
-> Make your company feel 1000× more productive.
+> OpenWork helps you run your agents, skills, and MCP. It's an open-source alternative to Claude Cowork/Codex (desktop app).
 
-We give AI agents the tools your team already uses and let them learn from your behavior. The more you use OpenWork, the more connected your tools become, the more knowledge accumulates, and the bigger the chunks of work you can automate.
-
-OpenWork is the simplest interface to OpenCode: a desktop app for running agentic workflows across your tools without living in the terminal.
-Double-click, pick a folder, and you get three things instantly:
-1. Zero-friction setup — your existing opencode configuration just works, no migration needed
-2. Chat access — WhatsApp and Telegram ready to go (one token, done)
-3. Cloud-ready — every app doubles as a client; deploy to the cloud and access from anywhere
-> **The easiest way to create safe agentic workflows and share them with your team**
-
-It's an **extensible, open-source alternative** to “Claude Work”.
-
+How to use OpenWork:
+- Our Desktop app
+- WhatsApp
+- Slack
+  
+## Core Philos
+- Local-first, cloud-ready: OpenWork runs on your machine in one click. Send a message instantly.
+- Composable: desktop app, WhatsApp/Slack/Telegram connector, or server. Use what fits, no lock-in.
+- Ejectable: OpenWork is powered by OpenCode, so everything OpenCode can do works in OpenWork, even without a UI yet.
+- Sharing is caring: start solo, then share. One CLI or desktop command spins up an instantly shareable instance.
 
 <video src="https://github.com/different-ai/openwork/releases/download/v0.11.16/app-demo-compressed.mp4" width="1292" autoplay loop muted playsinline></video>
 
 
-<img width="1292" height="932" alt="Screenshot 2026-01-31 at 13 43 30" src="https://github.com/user-attachments/assets/6639d1ef-c831-406e-a812-87fde403e6d5" />
 
 
 OpenWork is designed around the idea that you can easily ship your agentic workflows as a repeatable, productized process.
