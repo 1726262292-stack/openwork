@@ -68,7 +68,6 @@ type OwpenbotHealthSnapshot = {
 
 const FALLBACK_VERSION = "0.1.0";
 const DEFAULT_OPENWORK_PORT = 8787;
-const DEFAULT_OWPENBOT_HEALTH_PORT = 3005;
 const DEFAULT_APPROVAL_TIMEOUT = 30000;
 const DEFAULT_OPENCODE_USERNAME = "opencode";
 
@@ -1546,7 +1545,7 @@ function printHelp(): void {
     "  --connect-host <host>     Override LAN host used for pairing URLs",
     "  --openwork-server-bin <p> Path to openwork-server binary (requires --allow-external)",
     "  --owpenbot-bin <path>     Path to owpenbot binary (requires --allow-external)",
-    "  --owpenbot-health-port <p> Health server port for owpenbot (default: 3005)",
+    "  --owpenbot-health-port <p> Health server port for owpenbot (default: random)",
     "  --no-owpenbot             Disable owpenbot sidecar",
     "  --owpenbot-required       Exit if owpenbot stops",
     "  --allow-external          Allow external sidecar binaries (dev only, required for custom bins)",
@@ -3014,10 +3013,11 @@ async function runStart(args: ParsedArgs) {
     "127.0.0.1",
     DEFAULT_OPENWORK_PORT,
   );
+  // Always choose a free owpenbot health port by default (avoid conflicts with
+  // other local processes using 3005).
   const owpenbotHealthPort = await resolvePort(
     readNumber(args.flags, "owpenbot-health-port", undefined, "OWPENBOT_HEALTH_PORT"),
     "127.0.0.1",
-    DEFAULT_OWPENBOT_HEALTH_PORT,
   );
   const openworkToken = readFlag(args.flags, "openwork-token") ?? process.env.OPENWORK_TOKEN ?? randomUUID();
   const openworkHostToken = readFlag(args.flags, "openwork-host-token") ?? process.env.OPENWORK_HOST_TOKEN ?? randomUUID();
