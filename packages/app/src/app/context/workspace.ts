@@ -112,6 +112,28 @@ export function createWorkspaceStore(options: {
   engineRuntime?: () => EngineRuntime;
 }) {
 
+  const wsDebugEnabled = () => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem("openwork.debug.workspaceSwitch") === "1";
+    } catch {
+      return false;
+    }
+  };
+
+  const wsDebug = (label: string, payload?: unknown) => {
+    if (!wsDebugEnabled()) return;
+    try {
+      if (payload === undefined) {
+        console.log(`[WSDBG] ${label}`);
+      } else {
+        console.log(`[WSDBG] ${label}`, payload);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   const [engine, setEngine] = createSignal<EngineInfo | null>(null);
   const [engineAuth, setEngineAuth] = createSignal<OpencodeAuth | null>(null);
   const [engineDoctorResult, setEngineDoctorResult] = createSignal<EngineDoctorResult | null>(null);
@@ -509,6 +531,16 @@ export function createWorkspaceStore(options: {
     if (!next) return false;
     const isRemote = next.workspaceType === "remote";
     console.log("[workspace] activate", { id: next.id, type: next.workspaceType });
+    const activateStart = Date.now();
+    wsDebug("activate:start", {
+      id: next.id,
+      type: next.workspaceType,
+      remoteType: next.remoteType ?? null,
+      prevActiveId: activeWorkspaceId(),
+      prevProjectDir: projectDir(),
+      startupPref: options.startupPreference(),
+      hasClient: Boolean(options.client()),
+    });
 
     const remoteType = isRemote ? normalizeRemoteType(next.remoteType) : "opencode";
     const baseUrl = isRemote ? next.baseUrl?.trim() ?? "" : "";
@@ -692,6 +724,7 @@ export function createWorkspaceStore(options: {
         }
 
         updateWorkspaceConnectionState(id, { status: "connected", message: null });
+        wsDebug("activate:remote:done", { id, ms: Date.now() - activateStart });
         return true;
       }
 
@@ -700,6 +733,14 @@ export function createWorkspaceStore(options: {
     const nextRoot = isRemote ? next.directory?.trim() ?? "" : next.path;
     const oldWorkspacePath = projectDir();
     const workspaceChanged = oldWorkspacePath !== nextRoot;
+
+    wsDebug("activate:local:prep", {
+      id,
+      nextRoot,
+      workspaceChanged,
+      wasLocalConnection: Boolean(wasLocalConnection),
+      prevProjectDir: oldWorkspacePath,
+    });
 
     syncActiveWorkspaceId(id);
     setProjectDir(nextRoot);
@@ -750,6 +791,12 @@ export function createWorkspaceStore(options: {
     // Without this, we end up keeping the remote client while `startupPreference` flips to
     // "local", and subsequent session/file actions behave inconsistently.
     if (!isRemote && options.client() && !wasLocalConnection) {
+      wsDebug("activate:remote->local:reconnect", {
+        id,
+        nextPath: next.path,
+        engine: engine()?.baseUrl ?? null,
+        engineRunning: Boolean(engine()?.running),
+      });
       options.setSelectedSessionId(null);
       options.clearSessionCaches();
       options.setPendingPermissions([]);
@@ -764,8 +811,16 @@ export function createWorkspaceStore(options: {
         isTauriRuntime() &&
         Boolean(existingEngine?.running && existingEngine.baseUrl);
 
+      wsDebug("activate:remote->local:hostReuse", {
+        canReuseHost,
+        runtime,
+        existingEngineBaseUrl: existingEngine?.baseUrl ?? null,
+        existingEngineProjectDir: existingEngine?.projectDir ?? null,
+      });
+
       if (canReuseHost && runtime === "openwrk") {
         try {
+          const reuseStart = Date.now();
           await openwrkWorkspaceActivate({
             workspacePath: next.path,
             name: next.displayName?.trim() || next.name?.trim() || null,
@@ -789,13 +844,20 @@ export function createWorkspaceStore(options: {
               { navigate: false },
             );
           }
+          wsDebug("activate:remote->local:reuseHost:done", {
+            ok: connectedToLocalHost,
+            ms: Date.now() - reuseStart,
+          });
         } catch {
           connectedToLocalHost = false;
+          wsDebug("activate:remote->local:reuseHost:error");
         }
       }
 
       if (!connectedToLocalHost) {
+        const startHostAt = Date.now();
         const ok = await startHost({ workspacePath: next.path, navigate: false });
+        wsDebug("activate:remote->local:startHost:done", { ok, ms: Date.now() - startHostAt });
         if (!ok) {
           updateWorkspaceConnectionState(id, {
             status: "error",
@@ -808,6 +870,7 @@ export function createWorkspaceStore(options: {
 
     // When running locally, restart the engine when workspace changes
     if (!isRemote && wasLocalConnection && workspaceChanged) {
+      wsDebug("activate:local->local:restartEngine", { id, nextPath: next.path });
       options.setError(null);
       options.setBusy(true);
       options.setBusyLabel("status.restarting_engine");
@@ -887,9 +950,11 @@ export function createWorkspaceStore(options: {
       options.refreshSkills({ force: true }).catch(() => undefined);
       options.refreshPlugins().catch(() => undefined);
       updateWorkspaceConnectionState(id, { status: "connected", message: null });
+      wsDebug("activate:local:done", { id, ms: Date.now() - activateStart });
       return true;
     } finally {
       setConnectingWorkspaceId(null);
+      wsDebug("activate:finally", { id, ms: Date.now() - activateStart });
     }
   }
 
@@ -909,6 +974,17 @@ export function createWorkspaceStore(options: {
       baseUrl: nextBaseUrl,
       directory: directory ?? null,
       workspaceType: context?.workspaceType ?? null,
+    });
+    const connectStart = Date.now();
+    wsDebug("connect:start", {
+      baseUrl: nextBaseUrl,
+      directory: directory ?? null,
+      reason: context?.reason ?? null,
+      workspaceType: context?.workspaceType ?? null,
+      targetRoot: context?.targetRoot ?? null,
+      quiet: connectOptions?.quiet ?? false,
+      navigate: connectOptions?.navigate ?? true,
+      authMode: auth && "mode" in auth ? (auth as any).mode : auth ? "basic" : "none",
     });
     const quiet = connectOptions?.quiet ?? false;
     const navigate = connectOptions?.navigate ?? true;
@@ -934,6 +1010,7 @@ export function createWorkspaceStore(options: {
       let resolvedDirectory = directory?.trim() ?? "";
       let nextClient = createClient(nextBaseUrl, resolvedDirectory || undefined, auth);
       const health = await waitForHealthy(nextClient, { timeoutMs: 12_000 });
+      wsDebug("connect:healthy", { ms: Date.now() - connectStart, version: health.version });
 
       if (context?.workspaceType === "remote" && !resolvedDirectory) {
         try {
@@ -964,7 +1041,10 @@ export function createWorkspaceStore(options: {
       options.setClientDirectory(resolvedDirectory);
 
       const targetRoot = context?.targetRoot ?? (resolvedDirectory || activeWorkspaceRoot().trim());
+      wsDebug("connect:loadSessions", { targetRoot, resolvedDirectory });
+      const sessionsAt = Date.now();
       await options.loadSessions(targetRoot);
+      wsDebug("connect:loadSessions:done", { ms: Date.now() - sessionsAt });
       await options.refreshPendingPermissions();
 
       try {
@@ -1002,11 +1082,13 @@ export function createWorkspaceStore(options: {
       markOnboardingComplete();
       options.onEngineStable?.();
       options.setOpencodeConnectStatus?.({ ...connectMeta, status: "connected" });
+      wsDebug("connect:done", { ok: true, ms: Date.now() - connectStart });
       return true;
     } catch (e) {
       options.setClient(null);
       options.setConnectedVersion(null);
       const message = e instanceof Error ? e.message : safeStringify(e);
+      wsDebug("connect:error", { ms: Date.now() - connectStart, message });
       options.setOpencodeConnectStatus?.({
         ...connectMeta,
         status: "error",

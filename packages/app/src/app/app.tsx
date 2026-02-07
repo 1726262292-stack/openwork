@@ -147,6 +147,27 @@ import {
 } from "./lib/openwork-server";
 
 export default function App() {
+  const wsDebugEnabled = () => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem("openwork.debug.workspaceSwitch") === "1";
+    } catch {
+      return false;
+    }
+  };
+
+  const wsDebug = (label: string, payload?: unknown) => {
+    if (!wsDebugEnabled()) return;
+    try {
+      if (payload === undefined) {
+        console.log(`[WSDBG] ${label}`);
+      } else {
+        console.log(`[WSDBG] ${label}`, payload);
+      }
+    } catch {
+      // ignore
+    }
+  };
   type ProviderAuthMethod = { type: "oauth" | "api"; label: string };
 
   const location = useLocation();
@@ -1524,6 +1545,7 @@ export default function App() {
 
     // For local workspaces, avoid thrashing UI with errors if the engine is offline.
     if (!config.baseUrl) {
+      wsDebug("sidebar:skip", { id, reason: "no-baseUrl" });
       setSidebarSessionStatusByWorkspaceId((prev) => ({ ...prev, [id]: "idle" }));
       setSidebarSessionErrorByWorkspaceId((prev) => ({ ...prev, [id]: null }));
       return;
@@ -1536,6 +1558,7 @@ export default function App() {
     setSidebarSessionErrorByWorkspaceId((prev) => ({ ...prev, [id]: null }));
 
     try {
+      const start = Date.now();
       let directory = config.directory;
       let c = createClient(config.baseUrl, directory || undefined, config.auth);
 
@@ -1565,6 +1588,14 @@ export default function App() {
       const list = unwrap(
         await c.session.list({ directory: queryDirectory, roots: true, limit: SIDEBAR_SESSION_LIMIT }),
       );
+      wsDebug("sidebar:list", {
+        id,
+        baseUrl: config.baseUrl,
+        directory: directory || null,
+        queryDirectory: queryDirectory ?? null,
+        count: list.length,
+        ms: Date.now() - start,
+      });
       if (sidebarRefreshSeqByWorkspaceId[id] !== seq) return;
 
       // Defensive client-side filter in case upstream ignores the directory query.
@@ -1588,6 +1619,7 @@ export default function App() {
     } catch (error) {
       if (sidebarRefreshSeqByWorkspaceId[id] !== seq) return;
       const message = error instanceof Error ? error.message : safeStringify(error);
+      wsDebug("sidebar:error", { id, message });
       setSidebarSessionStatusByWorkspaceId((prev) => ({ ...prev, [id]: "error" }));
       setSidebarSessionErrorByWorkspaceId((prev) => ({ ...prev, [id]: message }));
     }
@@ -1651,6 +1683,13 @@ export default function App() {
     lastSidebarWorkspaceKey = combinedWorkspaceKey;
 
     pruneSidebarSessionState(new Set(workspaceStore.workspaces().map((ws) => ws.id)));
+
+    wsDebug("sidebar:refresh", {
+      engineChanged,
+      workspacesChanged,
+      activeWorkspaceId: workspaceStore.activeWorkspaceId(),
+      engineBaseUrl,
+    });
 
     // Avoid refreshing remote workspace sessions when only the local engine auth/baseUrl changes.
     // Remote->local switches commonly change engineBaseUrl, and refreshing every remote workspace

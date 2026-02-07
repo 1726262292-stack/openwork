@@ -133,6 +133,28 @@ export function createSessionStore(options: {
   setSseConnected: (connected: boolean) => void;
   markReloadRequired?: (reason: ReloadReason, trigger?: ReloadTrigger) => void;
 }) {
+
+  const sessionDebugEnabled = () => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem("openwork.debug.workspaceSwitch") === "1";
+    } catch {
+      return false;
+    }
+  };
+
+  const sessionDebug = (label: string, payload?: unknown) => {
+    if (!sessionDebugEnabled()) return;
+    try {
+      if (payload === undefined) {
+        console.log(`[WSDBG] ${label}`);
+      } else {
+        console.log(`[WSDBG] ${label}`, payload);
+      }
+    } catch {
+      // ignore
+    }
+  };
   const MAX_RELOAD_DETECTION_KEYS = 5000;
 
   const [store, setStore] = createStore<StoreState>({
@@ -424,7 +446,10 @@ export function createSessionStore(options: {
       return withoutTrailing || "/";
     })();
 
+    const start = Date.now();
+    sessionDebug("sessions:load:start", { scopeRoot: scopeRoot ?? null, queryDirectory: queryDirectory ?? null });
     const list = unwrap(await c.session.list({ directory: queryDirectory, roots: true }));
+    sessionDebug("sessions:load:raw", { count: list.length, ms: Date.now() - start });
 
     // Defensive client-side filter in case the server returns sessions spanning
     // multiple roots (e.g. older servers or proxies).
@@ -432,6 +457,7 @@ export function createSessionStore(options: {
     const filtered = root
       ? list.filter((session) => normalizeDirectoryPath(session.directory) === root)
       : list;
+    sessionDebug("sessions:load:filtered", { root: root || null, count: filtered.length });
     setStore("sessions", reconcile(sortSessionsByActivity(filtered), { key: "id" }));
     pruneSessionCaches(new Set(filtered.map((session) => session.id)));
   }
