@@ -134,14 +134,7 @@ export function createSessionStore(options: {
   markReloadRequired?: (reason: ReloadReason, trigger?: ReloadTrigger) => void;
 }) {
 
-  const sessionDebugEnabled = () => {
-    if (typeof window === "undefined") return false;
-    try {
-      return window.localStorage.getItem("openwork.debug.workspaceSwitch") === "1";
-    } catch {
-      return false;
-    }
-  };
+  const sessionDebugEnabled = () => options.developerMode();
 
   const sessionDebug = (label: string, payload?: unknown) => {
     if (!sessionDebugEnabled()) return;

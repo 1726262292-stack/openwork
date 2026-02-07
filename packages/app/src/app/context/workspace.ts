@@ -110,16 +110,10 @@ export function createWorkspaceStore(options: {
   setOpencodeConnectStatus?: (status: OpencodeConnectStatus | null) => void;
   onEngineStable?: () => void;
   engineRuntime?: () => EngineRuntime;
+  developerMode: () => boolean;
 }) {
 
-  const wsDebugEnabled = () => {
-    if (typeof window === "undefined") return false;
-    try {
-      return window.localStorage.getItem("openwork.debug.workspaceSwitch") === "1";
-    } catch {
-      return false;
-    }
-  };
+  const wsDebugEnabled = () => options.developerMode();
 
   const wsDebug = (label: string, payload?: unknown) => {
     if (!wsDebugEnabled()) return;

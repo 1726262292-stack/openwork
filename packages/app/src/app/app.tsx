@@ -147,14 +147,9 @@ import {
 } from "./lib/openwork-server";
 
 export default function App() {
-  const wsDebugEnabled = () => {
-    if (typeof window === "undefined") return false;
-    try {
-      return window.localStorage.getItem("openwork.debug.workspaceSwitch") === "1";
-    } catch {
-      return false;
-    }
-  };
+  // Workspace switch tracing is noisy, so only emit in developer mode.
+  // (OpenWork already has a developer mode toggle in Settings.)
+  const wsDebugEnabled = () => developerMode();
 
   const wsDebug = (label: string, payload?: unknown) => {
     if (!wsDebugEnabled()) return;
@@ -1446,6 +1441,7 @@ export default function App() {
     openworkServerClient,
     onEngineStable: () => setReloadLastFinishedAtRef(Date.now()),
     engineRuntime,
+    developerMode,
   });
 
   type SidebarWorkspaceSessionsStatus = WorkspaceSessionGroup["status"];
