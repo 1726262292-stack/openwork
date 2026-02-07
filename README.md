@@ -3,10 +3,7 @@
 # OpenWork
 > OpenWork helps you run your agents, skills, and MCP. It's an open-source alternative to Claude Cowork/Codex (desktop app).
 
-How to use OpenWork:
-- Our Desktop app
-- WhatsApp
-- Slack
+
   
 ## Core Philos
 - Local-first, cloud-ready: OpenWork runs on your machine in one click. Send a message instantly.
@@ -17,18 +14,7 @@ How to use OpenWork:
 <video src="https://github.com/different-ai/openwork/releases/download/v0.11.16/app-demo-compressed.mp4" width="1292" autoplay loop muted playsinline></video>
 
 
-
-
 OpenWork is designed around the idea that you can easily ship your agentic workflows as a repeatable, productized process.
-
-It’s a native desktop app that runs **OpenCode** under the hood, but presents it as a clean, guided workflow:
-- pick a workspace
-- start a run
-- watch progress + plan updates
-- approve permissions when needed
-- reuse what works (commands + skills)
-
-The goal: make “agentic work” feel like a product, not a terminal.
 
 
 ## Alternate UIs
