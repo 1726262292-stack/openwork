@@ -1514,6 +1514,7 @@ export default function App() {
   };
 
   const sidebarRefreshSeqByWorkspaceId: Record<string, number> = {};
+  const SIDEBAR_SESSION_LIMIT = 200;
   const refreshSidebarWorkspaceSessions = async (workspaceId: string) => {
     const id = workspaceId.trim();
     if (!id) return;
@@ -1561,7 +1562,9 @@ export default function App() {
 
       // Fetch sessions scoped to the workspace directory to avoid loading the
       // full global session list for every workspace.
-      const list = unwrap(await c.session.list({ directory: queryDirectory, roots: true }));
+      const list = unwrap(
+        await c.session.list({ directory: queryDirectory, roots: true, limit: SIDEBAR_SESSION_LIMIT }),
+      );
       if (sidebarRefreshSeqByWorkspaceId[id] !== seq) return;
 
       // Defensive client-side filter in case upstream ignores the directory query.
@@ -1604,13 +1607,29 @@ export default function App() {
     }
   };
 
-  let lastSidebarRefreshKey = "";
+  const refreshLocalSidebarWorkspaceSessions = async (prioritizeWorkspaceId?: string | null) => {
+    const list = workspaceStore.workspaces().filter((ws) => ws.workspaceType === "local");
+    if (!list.length) return;
+    const prioritize = (prioritizeWorkspaceId ?? "").trim();
+    const ordered = prioritize
+      ? [...list.filter((ws) => ws.id === prioritize), ...list.filter((ws) => ws.id !== prioritize)]
+      : list;
+    for (const ws of ordered) {
+      await refreshSidebarWorkspaceSessions(ws.id);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+  };
+
+  let lastSidebarEngineKey = "";
+  let lastSidebarWorkspaceKey = "";
   createEffect(() => {
     const engineInfo = workspaceStore.engine();
     const engineBaseUrl = engineInfo?.baseUrl?.trim() ?? "";
     const engineUser = engineInfo?.opencodeUsername?.trim() ?? "";
     const enginePass = engineInfo?.opencodePassword?.trim() ?? "";
     const tokenFallback = openworkServerSettings().token?.trim() ?? "";
+
+    const engineKey = [engineBaseUrl, engineUser, enginePass].join("::");
     const workspaceKey = workspaceStore
       .workspaces()
       .map((ws) => {
@@ -1622,11 +1641,25 @@ export default function App() {
       })
       .join(";");
 
-    const key = [engineBaseUrl, engineUser, enginePass, tokenFallback, workspaceKey].join("::");
-    if (key === lastSidebarRefreshKey) return;
-    lastSidebarRefreshKey = key;
+    const combinedWorkspaceKey = [tokenFallback, workspaceKey].join("::");
+    if (engineKey === lastSidebarEngineKey && combinedWorkspaceKey === lastSidebarWorkspaceKey) return;
+
+    const engineChanged = engineKey !== lastSidebarEngineKey;
+    const workspacesChanged = combinedWorkspaceKey !== lastSidebarWorkspaceKey;
+
+    lastSidebarEngineKey = engineKey;
+    lastSidebarWorkspaceKey = combinedWorkspaceKey;
 
     pruneSidebarSessionState(new Set(workspaceStore.workspaces().map((ws) => ws.id)));
+
+    // Avoid refreshing remote workspace sessions when only the local engine auth/baseUrl changes.
+    // Remote->local switches commonly change engineBaseUrl, and refreshing every remote workspace
+    // at the same time can trigger large /session responses and UI hangs.
+    if (engineChanged && !workspacesChanged) {
+      void refreshLocalSidebarWorkspaceSessions(workspaceStore.activeWorkspaceId()).catch(() => undefined);
+      return;
+    }
+
     void refreshAllSidebarWorkspaceSessions(workspaceStore.activeWorkspaceId()).catch(() => undefined);
   });
 
