@@ -39,6 +39,17 @@ export type SlackTokensResult = {
   error?: string;
 };
 
+export type WhatsAppEnabledResult = {
+  enabled: boolean;
+  applied?: boolean;
+  starting?: boolean;
+  error?: string;
+};
+
+export type WhatsAppQrResult = {
+  qr: string;
+};
+
 export type GroupsConfigResult = {
   groupsEnabled: boolean;
 };
@@ -59,6 +70,9 @@ export type HealthHandlers = {
   setSlackTokens?: (tokens: { botToken: string; appToken: string }) => Promise<SlackTokensResult>;
   setGroupsEnabled?: (enabled: boolean) => Promise<GroupsConfigResult>;
   getGroupsEnabled?: () => boolean;
+  getWhatsAppEnabled?: () => boolean;
+  setWhatsAppEnabled?: (enabled: boolean) => Promise<WhatsAppEnabledResult>;
+  getWhatsAppQr?: () => Promise<WhatsAppQrResult>;
   listBindings?: () => Promise<BindingsListResult>;
   setBinding?: (input: { channel: string; peerId: string; directory: string }) => Promise<void>;
   clearBinding?: (input: { channel: string; peerId: string }) => Promise<void>;
@@ -223,6 +237,70 @@ export function startHealthServer(
           const enabled = payload.enabled === true || payload.enabled === "true";
 
           const result = await handlers.setGroupsEnabled(enabled);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, ...result }));
+          return;
+        } catch (error) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: String(error) }));
+          return;
+        }
+      }
+
+      // GET /config/whatsapp-enabled - get current whatsapp enabled setting
+      if (pathname === "/config/whatsapp-enabled" && req.method === "GET") {
+        if (!handlers.getWhatsAppEnabled) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "Not supported" }));
+          return;
+        }
+        const enabled = handlers.getWhatsAppEnabled();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, enabled }));
+        return;
+      }
+
+      // POST /config/whatsapp-enabled - enable/disable whatsapp adapter
+      if (pathname === "/config/whatsapp-enabled" && req.method === "POST") {
+        if (!handlers.setWhatsAppEnabled) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "Not supported" }));
+          return;
+        }
+
+        let raw = "";
+        for await (const chunk of req) {
+          raw += chunk.toString();
+          if (raw.length > 1024 * 1024) {
+            res.writeHead(413, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: "Payload too large" }));
+            return;
+          }
+        }
+
+        try {
+          const payload = JSON.parse(raw || "{}");
+          const enabled = payload.enabled === true || payload.enabled === "true";
+          const result = await handlers.setWhatsAppEnabled(enabled);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, ...result }));
+          return;
+        } catch (error) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: String(error) }));
+          return;
+        }
+      }
+
+      // GET /whatsapp/qr - get a WhatsApp QR code for pairing (non-interactive)
+      if (pathname === "/whatsapp/qr" && req.method === "GET") {
+        if (!handlers.getWhatsAppQr) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "Not supported" }));
+          return;
+        }
+        try {
+          const result = await handlers.getWhatsAppQr();
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: true, ...result }));
           return;

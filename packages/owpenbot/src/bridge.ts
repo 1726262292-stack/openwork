@@ -1,4 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
+import fs from "node:fs";
+import path from "node:path";
 
 import type { Logger } from "pino";
 
@@ -11,7 +13,6 @@ import { buildPermissionRules, createClient } from "./opencode.js";
 import { chunkText, formatInputSummary, truncateText } from "./text.js";
 import { createSlackAdapter } from "./slack.js";
 import { createTelegramAdapter } from "./telegram.js";
-import { createWhatsAppAdapter } from "./whatsapp.js";
 
 type Adapter = {
   name: ChannelName;
@@ -205,9 +206,15 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
 
     if (config.whatsappEnabled) {
       logger.debug("whatsapp adapter enabled");
+      // Lazy-load WhatsApp adapter to avoid Bun WS warnings (Baileys) when the
+      // channel is disabled.
+      const { createWhatsAppAdapter } = await import("./whatsapp.js");
       adapters.set(
         "whatsapp",
-        createWhatsAppAdapter(config, logger, handleInbound, { printQr: true, onStatus: reportStatus }),
+        // Never print QR codes from the long-running bridge process.
+        // Pairing/onboarding should be driven by explicit user action (CLI
+        // subcommand or REST API) so `openwrk`/desktop startup stays quiet.
+        createWhatsAppAdapter(config, logger, handleInbound, { printQr: false, onStatus: reportStatus }),
       );
     } else {
       logger.info("whatsapp adapter disabled");
@@ -499,6 +506,111 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
             enabled: true,
             applied: true,
           };
+        },
+        getWhatsAppEnabled: () => Boolean(config.whatsappEnabled),
+        setWhatsAppEnabled: async (enabled: boolean) => {
+          const nextEnabled = Boolean(enabled);
+          const { config: current } = readConfigFile(config.configPath);
+          const next: OwpenbotConfigFile = {
+            ...current,
+            channels: {
+              ...current.channels,
+              whatsapp: {
+                ...current.channels?.whatsapp,
+                enabled: nextEnabled,
+              },
+            },
+          };
+          next.version = next.version ?? 1;
+          writeConfigFile(config.configPath, next);
+          config.configFile = next;
+          config.whatsappEnabled = nextEnabled;
+
+          const existing = adapters.get("whatsapp");
+          if (!nextEnabled) {
+            if (existing) {
+              try {
+                await existing.stop();
+              } catch (error) {
+                logger.warn({ error }, "failed to stop existing whatsapp adapter");
+              }
+              adapters.delete("whatsapp");
+            }
+            return { enabled: false, applied: true };
+          }
+
+          if (existing) {
+            // Already enabled; no-op.
+            return { enabled: true, applied: true };
+          }
+
+          const { createWhatsAppAdapter } = await import("./whatsapp.js");
+          const adapter = createWhatsAppAdapter(config, logger, handleInbound, {
+            printQr: false,
+            onStatus: reportStatus,
+          });
+          adapters.set("whatsapp", adapter);
+
+          const startResult = await startAdapterBounded(adapter, {
+            timeoutMs: 5_000,
+            onError: (error) => {
+              logger.error({ error }, "whatsapp adapter start failed");
+              adapters.delete("whatsapp");
+            },
+          });
+
+          if (startResult.status === "timeout") {
+            logger.warn({ timeoutMs: 5_000 }, "whatsapp adapter start timed out");
+            return { enabled: true, applied: false, starting: true };
+          }
+
+          if (startResult.status === "error") {
+            return { enabled: true, applied: false, error: String(startResult.error) };
+          }
+
+          return { enabled: true, applied: true };
+        },
+        getWhatsAppQr: async () => {
+          // Avoid printing the QR to stdout; return the raw QR string so a UI
+          // can render it.
+          const credsPath = path.join(config.whatsappAuthDir, "creds.json");
+          if (fs.existsSync(credsPath)) {
+            throw new Error("WhatsApp already linked");
+          }
+
+          const { createWhatsAppSocket, closeWhatsAppSocket } = await import("./whatsapp-session.js");
+
+          return new Promise<{ qr: string }>((resolve, reject) => {
+            let resolved = false;
+            const timeout = setTimeout(() => {
+              if (resolved) return;
+              resolved = true;
+              reject(new Error("Timeout waiting for QR code"));
+            }, 30_000);
+
+            void createWhatsAppSocket({
+              authDir: config.whatsappAuthDir,
+              logger,
+              printQr: false,
+              onQr: (qr) => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timeout);
+                resolve({ qr });
+              },
+            })
+              .then((sock) => {
+                setTimeout(() => {
+                  closeWhatsAppSocket(sock);
+                }, resolved ? 500 : 30_500);
+              })
+              .catch((error) => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timeout);
+                reject(error);
+              });
+          });
         },
         listBindings: async () => {
           const bindings = store.listBindings();

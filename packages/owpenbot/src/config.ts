@@ -21,6 +21,7 @@ export type OwpenbotConfigFile = {
   groupsEnabled?: boolean;
   channels?: {
     whatsapp?: {
+      enabled?: boolean;
       dmPolicy?: DmPolicy;
       allowFrom?: string[];
       selfChatMode?: boolean;
@@ -255,6 +256,18 @@ export function loadConfig(
   const healthPort = parseInteger(env.OWPENBOT_HEALTH_PORT) ?? 3005;
   const model = parseModel(env.OWPENBOT_MODEL);
 
+  // Preserve existing installs that are already paired by auto-enabling WhatsApp
+  // when creds are present, but avoid auto-onboarding (QR printing) on fresh
+  // installs.
+  const whatsappCredsPresent = (() => {
+    try {
+      return fs.existsSync(path.join(whatsappAuthDir, "creds.json"));
+    } catch {
+      return false;
+    }
+  })();
+  const whatsappEnabledDefault = configFile.channels?.whatsapp?.enabled ?? whatsappCredsPresent;
+
   return {
     configPath,
     configFile,
@@ -279,7 +292,7 @@ export function loadConfig(
     whatsappDmPolicy: dmPolicy,
     whatsappAllowFrom,
     whatsappSelfChatMode: selfChatMode,
-    whatsappEnabled: parseBoolean(env.WHATSAPP_ENABLED, true),
+    whatsappEnabled: parseBoolean(env.WHATSAPP_ENABLED, whatsappEnabledDefault),
     dataDir,
     dbPath,
     logFile,

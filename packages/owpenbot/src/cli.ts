@@ -163,7 +163,11 @@ async function runStart(pathOverride?: string, options?: { opencodeUrl?: string 
     process.env.OPENCODE_DIRECTORY = config.opencodeDirectory;
   }
   const bridge = await startBridge(config, logger, reporter);
-  reporter.onStatus?.("Commands: owpenwork whatsapp login, owpenwork slack status, owpenwork pairing list, owpenwork status");
+  // Avoid noisy startup output when running under openwrk/desktop (stdio is
+  // usually piped). Keep the hint for interactive CLI usage.
+  if (process.stdout.isTTY) {
+    reporter.onStatus?.("Commands: owpenwork whatsapp login, owpenwork slack status, owpenwork pairing list, owpenwork status");
+  }
 
   const shutdown = async () => {
     logger.info("shutting down");
