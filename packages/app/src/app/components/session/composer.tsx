@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
 import fuzzysort from "fuzzysort";
-import { ArrowUp, AtSign, ChevronDown, File as FileIcon, Paperclip, Terminal, X, Zap } from "lucide-solid";
+import { ArrowUp, AtSign, Check, ChevronDown, File as FileIcon, Paperclip, Terminal, X, Zap } from "lucide-solid";
 
 import type { ComposerAttachment, ComposerDraft, ComposerPart, PromptMode, SlashCommandOption } from "../../types";
 
@@ -1274,6 +1274,90 @@ export default function Composer(props: ComposerProps) {
                         >
                           <Paperclip size={16} />
                         </button>
+
+                        <div class="relative" ref={(el) => props.setAgentPickerRef(el)}>
+                          <button
+                            type="button"
+                            class="flex items-center gap-1.5 px-2 py-1 hover:bg-dls-hover rounded-md text-xs font-medium text-dls-secondary hover:text-dls-text"
+                            onClick={props.onToggleAgentPicker}
+                            disabled={props.busy}
+                            aria-expanded={props.agentPickerOpen}
+                            title="Agent"
+                          >
+                            <AtSign size={14} />
+                            <span class="max-w-[140px] truncate">{props.agentLabel}</span>
+                            <ChevronDown size={14} />
+                          </button>
+
+                          <Show when={props.agentPickerOpen}>
+                            <div class="absolute left-0 bottom-full mb-2 w-64 rounded-xl border border-dls-border bg-dls-surface shadow-xl backdrop-blur-md overflow-hidden z-40">
+                              <div class="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-dls-secondary border-b border-dls-border">
+                                Agent
+                              </div>
+
+                              <div class="p-2 space-y-1 max-h-64 overflow-y-auto" onMouseDown={(event: MouseEvent) => event.preventDefault()}>
+                                <Show
+                                  when={!props.agentPickerBusy}
+                                  fallback={
+                                    <div class="px-3 py-2 text-xs text-dls-secondary">Loading agents...</div>
+                                  }
+                                >
+                                  <Show when={!props.agentPickerError}>
+                                    <button
+                                      type="button"
+                                      class={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors ${
+                                        !props.selectedAgent
+                                          ? "bg-dls-active text-dls-text"
+                                          : "text-dls-secondary hover:bg-dls-hover"
+                                      }`}
+                                      onMouseDown={(event: MouseEvent) => {
+                                        event.preventDefault();
+                                        props.onSelectAgent(null);
+                                      }}
+                                    >
+                                      <span>Default agent</span>
+                                      <Show when={!props.selectedAgent}>
+                                        <Check size={14} class="text-dls-secondary" />
+                                      </Show>
+                                    </button>
+
+                                    <For each={props.agentOptions}>
+                                      {(agent: Agent) => {
+                                        const active = () => props.selectedAgent === agent.name;
+                                        return (
+                                          <button
+                                            type="button"
+                                            class={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors ${
+                                              active()
+                                                ? "bg-dls-active text-dls-text"
+                                                : "text-dls-secondary hover:bg-dls-hover"
+                                            }`}
+                                            onMouseDown={(event: MouseEvent) => {
+                                              event.preventDefault();
+                                              props.onSelectAgent(agent.name);
+                                            }}
+                                          >
+                                            <span class="truncate">@{agent.name}</span>
+                                            <Show when={active()}>
+                                              <Check size={14} class="text-dls-secondary" />
+                                            </Show>
+                                          </button>
+                                        );
+                                      }}
+                                    </For>
+                                  </Show>
+
+                                  <Show when={props.agentPickerError}>
+                                    <div class="px-3 py-2 text-xs text-red-11">
+                                      {props.agentPickerError}
+                                    </div>
+                                  </Show>
+                                </Show>
+                              </div>
+                            </div>
+                          </Show>
+                        </div>
+
                         <button
                           type="button"
                           class="flex items-center gap-1.5 px-2 py-1 hover:bg-dls-hover rounded-md text-xs font-medium text-dls-secondary hover:text-dls-text"
