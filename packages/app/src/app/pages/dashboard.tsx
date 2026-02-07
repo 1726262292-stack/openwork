@@ -39,6 +39,7 @@ import {
   Box,
   ChevronDown,
   ChevronRight,
+  Cpu,
   History,
   Loader2,
   MoreHorizontal,
@@ -1360,7 +1361,7 @@ export default function DashboardView(props: DashboardViewProps) {
               mcpStatuses={props.mcpStatuses}
             />
           <nav class="md:hidden border-t border-dls-border bg-dls-surface">
-            <div class="mx-auto max-w-5xl px-4 py-3 grid grid-cols-4 gap-2">
+            <div class="mx-auto max-w-5xl px-4 py-3 grid grid-cols-5 gap-2">
               <button
                 class={`flex flex-col items-center gap-1 text-xs ${
                   props.tab === "scheduled" ? "text-gray-12" : "text-gray-10"
@@ -1378,6 +1379,15 @@ export default function DashboardView(props: DashboardViewProps) {
               >
                 <Zap size={18} />
                 Skills
+              </button>
+              <button
+                class={`flex flex-col items-center gap-1 text-xs ${
+                  props.tab === "plugins" ? "text-gray-12" : "text-gray-10"
+                }`}
+                onClick={() => props.setTab("plugins")}
+              >
+                <Cpu size={18} />
+                Plugins
               </button>
               <button
                 class={`flex flex-col items-center gap-1 text-xs ${
@@ -1406,6 +1416,7 @@ export default function DashboardView(props: DashboardViewProps) {
         <div class="space-y-1 pt-2">
           {navItem("scheduled", "Automations", <History size={18} />)}
           {navItem("skills", "Skills", <Zap size={18} />)}
+          {navItem("plugins", "Plugins", <Cpu size={18} />)}
           {navItem("mcp", "Apps", <Box size={18} />)}
           {navItem("config", "Config", <SlidersHorizontal size={18} />)}
         </div>
