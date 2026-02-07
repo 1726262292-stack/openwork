@@ -222,7 +222,7 @@ export function loadConfig(
   const dbPath = expandHome(env.OWPENBOT_DB_PATH ?? path.join(dataDir, "owpenbot.db"));
   const logFile = expandHome(env.OWPENBOT_LOG_FILE ?? path.join(dataDir, "logs", "owpenbot.log"));
   const configPath = resolveConfigPath(dataDir, env);
-  const { config: configFile } = readConfigFile(configPath);
+  let { config: configFile } = readConfigFile(configPath);
   const opencodeDirectory = env.OPENCODE_DIRECTORY?.trim() || configFile.opencodeDirectory || "";
   if (!opencodeDirectory && requireOpencode) {
     throw new Error("OPENCODE_DIRECTORY is required");
@@ -256,9 +256,9 @@ export function loadConfig(
   const healthPort = parseInteger(env.OWPENBOT_HEALTH_PORT) ?? 3005;
   const model = parseModel(env.OWPENBOT_MODEL);
 
-  // Preserve existing installs that are already paired by auto-enabling WhatsApp
-  // when creds are present, but avoid auto-onboarding (QR printing) on fresh
-  // installs.
+  // WhatsApp should be config-driven (default disabled). To avoid breaking
+  // existing installs that already have creds, do a one-time migration that
+  // persists `channels.whatsapp.enabled=true` when creds are detected.
   const whatsappCredsPresent = (() => {
     try {
       return fs.existsSync(path.join(whatsappAuthDir, "creds.json"));
@@ -266,7 +266,29 @@ export function loadConfig(
       return false;
     }
   })();
-  const whatsappEnabledDefault = configFile.channels?.whatsapp?.enabled ?? whatsappCredsPresent;
+
+  const whatsappEnabledFromConfig = configFile.channels?.whatsapp?.enabled;
+  if (whatsappEnabledFromConfig === undefined && whatsappCredsPresent) {
+    try {
+      const next: OwpenbotConfigFile = {
+        ...configFile,
+        channels: {
+          ...configFile.channels,
+          whatsapp: {
+            ...configFile.channels?.whatsapp,
+            enabled: true,
+          },
+        },
+      };
+      next.version = next.version ?? 1;
+      writeConfigFile(configPath, next);
+      configFile = next;
+    } catch {
+      // ignore (read-only config path, etc.)
+    }
+  }
+
+  const whatsappEnabledDefault = configFile.channels?.whatsapp?.enabled ?? false;
 
   return {
     configPath,

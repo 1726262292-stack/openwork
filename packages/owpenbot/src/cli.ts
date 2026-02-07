@@ -251,6 +251,13 @@ program
   .option("--opencode-url <url>", "OpenCode server URL")
   .action((pathArg?: string, options?: { opencodeUrl?: string }) => runStart(pathArg, options));
 
+program
+  .command("serve")
+  .description("Start the bridge (headless)")
+  .argument("[path]", "OpenCode workspace path")
+  .option("--opencode-url <url>", "OpenCode server URL")
+  .action((pathArg?: string, options?: { opencodeUrl?: string }) => runStart(pathArg, options));
+
 // -----------------------------------------------------------------------------
 // health command
 // -----------------------------------------------------------------------------

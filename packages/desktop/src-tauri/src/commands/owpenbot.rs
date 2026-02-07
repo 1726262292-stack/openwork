@@ -3,6 +3,7 @@ use tauri_plugin_shell::process::CommandEvent;
 
 use crate::owpenbot::manager::OwpenbotManager;
 use crate::owpenbot::spawn::{resolve_owpenbot_health_port, spawn_owpenbot, DEFAULT_OWPENBOT_HEALTH_PORT};
+use crate::openwork_server::manager::OpenworkServerManager;
 use crate::types::OwpenbotInfo;
 use crate::utils::truncate_output;
 
@@ -217,47 +218,59 @@ pub fn owpenbot_stop(manager: State<OwpenbotManager>) -> Result<OwpenbotInfo, St
 }
 
 #[tauri::command]
-pub async fn owpenbot_qr(app: AppHandle) -> Result<String, String> {
-    use tauri_plugin_shell::ShellExt;
+pub async fn owpenbot_qr(
+    _app: AppHandle,
+    openwork: State<'_, OpenworkServerManager>,
+) -> Result<String, String> {
     use base64::engine::general_purpose;
     use base64::Engine as _;
     use image::{DynamicImage, ImageFormat, Luma};
     use qrcode::QrCode;
     use std::io::Cursor;
 
-    let command = match app.shell().sidecar("owpenbot") {
-        Ok(command) => command,
-        Err(_) => app.shell().command("owpenbot"),
+    let snapshot = {
+        let mut state = openwork
+            .inner
+            .lock()
+            .map_err(|_| "openwork-server mutex poisoned".to_string())?;
+        OpenworkServerManager::snapshot_locked(&mut state)
     };
+    let base_url = snapshot
+        .base_url
+        .or(snapshot.connect_url)
+        .ok_or_else(|| "OpenWork server is not running".to_string())?;
+    let host_token = snapshot
+        .host_token
+        .ok_or_else(|| "OpenWork host token missing".to_string())?;
 
-    let output = command
-        .args(["whatsapp", "qr", "--format", "ascii", "--json"])
-        .output()
-        .await
+    let url = format!("{}/owpenbot/whatsapp/qr?format=raw", base_url.trim_end_matches('/'));
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(8))
+        .build();
+
+    let response = agent
+        .get(&url)
+        .set("X-OpenWork-Host-Token", &host_token)
+        .call()
         .map_err(|e| format!("Failed to get QR code: {e}"))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to get QR code: {stderr}"));
+    let payload: serde_json::Value = response
+        .into_json()
+        .map_err(|e| format!("Failed to parse QR response: {e}"))?;
+
+    if payload.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+        let message = payload
+            .get("error")
+            .and_then(|v| v.as_str())
+            .or_else(|| payload.get("message").and_then(|v| v.as_str()))
+            .unwrap_or("Failed to get QR code");
+        return Err(message.to_string());
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    // Parse JSON response
-    #[derive(serde::Deserialize)]
-    struct QrResponse {
-        qr: Option<String>,
-        error: Option<String>,
-    }
-
-    let response: QrResponse =
-        serde_json::from_str(&stdout).map_err(|e| format!("Failed to parse QR response: {e}"))?;
-
-    if let Some(error) = response.error {
-        return Err(error);
-    }
-
-    let qr_data = response.qr.ok_or_else(|| "No QR code returned".to_string())?;
+    let qr_data = payload
+        .get("qr")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "No QR code returned".to_string())?;
     let code = QrCode::new(qr_data.as_bytes()).map_err(|e| format!("Failed to encode QR: {e}"))?;
     let image = code
         .render::<Luma<u8>>()

@@ -124,6 +124,15 @@ OpenCode proxy:
 - `GET|POST|... /opencode/*`
 - `GET|POST|... /w/:id/opencode/*`
 
+Owpenbot proxy:
+
+- `GET|POST|... /owpenbot/*`
+- `GET|POST|... /w/:id/owpenbot/*`
+
+Auth policy:
+- `GET /owpenbot/health` requires client auth.
+- All other `/owpenbot/*` endpoints require host/owner auth.
+
 ## Approvals
 
 All writes are gated by host approval.

@@ -300,9 +300,26 @@ export function startHealthServer(
           return;
         }
         try {
+          const parsed = req.url ? new URL(req.url, "http://localhost") : null;
+          const format = (parsed?.searchParams.get("format") ?? "raw").trim().toLowerCase();
+          if (format && format !== "raw" && format !== "ascii") {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: "Invalid format (use raw|ascii)" }));
+            return;
+          }
+
           const result = await handlers.getWhatsAppQr();
+          if (format === "ascii") {
+            const qrcode = await import("qrcode-terminal");
+            const ascii = await new Promise<string>((resolve) => {
+              qrcode.default.generate(result.qr, { small: true }, (out: string) => resolve(out));
+            });
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: true, qr: ascii, format: "ascii" }));
+            return;
+          }
           res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ ok: true, ...result }));
+          res.end(JSON.stringify({ ok: true, ...result, format: "raw" }));
           return;
         } catch (error) {
           res.writeHead(500, { "Content-Type": "application/json" });

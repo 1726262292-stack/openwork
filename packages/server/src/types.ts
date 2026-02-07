@@ -73,6 +73,10 @@ export interface Capabilities {
   sandbox: { enabled: boolean; backend: SandboxBackend };
   ui: { toy: boolean };
   tokens: { scoped: boolean; scopes: TokenScope[] };
+  proxy: {
+    opencode: boolean;
+    owpenbot: boolean;
+  };
   toolProviders: {
     browser: {
       enabled: boolean;

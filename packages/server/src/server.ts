@@ -82,15 +82,17 @@ function logRequest(input: {
   response: Response;
   durationMs: number;
   authMode: AuthMode;
+  proxyService?: "opencode" | "owpenbot";
   proxyBaseUrl?: string;
   error?: string;
 }) {
-  const { logger, request, response, durationMs, authMode, proxyBaseUrl, error } = input;
+  const { logger, request, response, durationMs, authMode, proxyService, proxyBaseUrl, error } = input;
   const status = response.status;
   const level: LogLevel = status >= 500 ? "error" : status >= 400 ? "warn" : "info";
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
-  const message = `${method} ${url.pathname} ${status} ${durationMs}ms${proxyBaseUrl ? " (opencode)" : ""}`;
+  const proxyLabel = proxyBaseUrl ? ` (${proxyService ?? "proxy"})` : "";
+  const message = `${method} ${url.pathname} ${status} ${durationMs}ms${proxyLabel}`;
   const attributes: LogAttributes = {
     method,
     path: url.pathname,
@@ -99,7 +101,8 @@ function logRequest(input: {
     auth: authMode,
   };
   if (proxyBaseUrl) {
-    attributes["opencode.base_url"] = proxyBaseUrl;
+    attributes["proxy.base_url"] = proxyBaseUrl;
+    if (proxyService) attributes["proxy.service"] = proxyService;
   }
   if (error) {
     attributes.error = error;
@@ -160,21 +163,23 @@ export function startServer(config: ServerConfig) {
       const url = new URL(request.url);
       const startedAt = Date.now();
       let authMode: AuthMode = "none";
+      let proxyService: "opencode" | "owpenbot" | undefined;
       let proxyBaseUrl: string | undefined;
       let errorMessage: string | undefined;
 
       const finalize = (response: Response) => {
         const wrapped = withCors(response, request, config);
         if (config.logRequests) {
-          logRequest({
-            logger,
-            request,
-            response: wrapped,
-            durationMs: Date.now() - startedAt,
-            authMode,
-            proxyBaseUrl,
-            error: errorMessage,
-          });
+            logRequest({
+              logger,
+              request,
+              response: wrapped,
+              durationMs: Date.now() - startedAt,
+              authMode,
+              proxyService,
+              proxyBaseUrl,
+              error: errorMessage,
+            });
         }
         return wrapped;
       };
@@ -193,8 +198,33 @@ export function startServer(config: ServerConfig) {
             throw new ApiError(403, "forbidden", "Viewer tokens are read-only");
           }
           const workspace = await resolveWorkspace(config, mount.workspaceId);
+          proxyService = "opencode";
           proxyBaseUrl = workspace.baseUrl?.trim() || undefined;
           const response = await proxyOpencodeRequest({ request, url, workspace, proxyPath: mount.restPath });
+          return finalize(response);
+        } catch (error) {
+          const apiError = error instanceof ApiError
+            ? error
+            : new ApiError(500, "internal_error", "Unexpected server error");
+          errorMessage = apiError.message;
+          return finalize(jsonResponse(formatError(apiError), apiError.status));
+        }
+      }
+
+      if (mount && (mount.restPath === "/owpenbot" || mount.restPath.startsWith("/owpenbot/"))) {
+        const isHealth =
+          request.method === "GET" &&
+          (mount.restPath === "/owpenbot" || mount.restPath === "/owpenbot/" || mount.restPath === "/owpenbot/health");
+        authMode = isHealth ? "client" : "host";
+        try {
+          if (authMode === "host") {
+            await requireHost(request, config, tokens);
+          } else {
+            await requireClient(request, config, tokens);
+          }
+          proxyService = "owpenbot";
+          proxyBaseUrl = resolveOwpenbotBaseUrl();
+          const response = await proxyOwpenbotRequest({ request, url, proxyPath: mount.restPath });
           return finalize(response);
         } catch (error) {
           const apiError = error instanceof ApiError
@@ -231,7 +261,32 @@ export function startServer(config: ServerConfig) {
           if (actor.scope === "viewer" && method !== "GET" && method !== "HEAD") {
             throw new ApiError(403, "forbidden", "Viewer tokens are read-only");
           }
+          proxyService = "opencode";
           const response = await proxyOpencodeRequest({ request, url, workspace: config.workspaces[0] });
+          return finalize(response);
+        } catch (error) {
+          const apiError = error instanceof ApiError
+            ? error
+            : new ApiError(500, "internal_error", "Unexpected server error");
+          errorMessage = apiError.message;
+          return finalize(jsonResponse(formatError(apiError), apiError.status));
+        }
+      }
+
+      if (url.pathname === "/owpenbot" || url.pathname.startsWith("/owpenbot/")) {
+        const isHealth =
+          request.method === "GET" &&
+          (url.pathname === "/owpenbot" || url.pathname === "/owpenbot/" || url.pathname === "/owpenbot/health");
+        authMode = isHealth ? "client" : "host";
+        try {
+          if (authMode === "host") {
+            await requireHost(request, config, tokens);
+          } else {
+            await requireClient(request, config, tokens);
+          }
+          proxyService = "owpenbot";
+          proxyBaseUrl = resolveOwpenbotBaseUrl();
+          const response = await proxyOwpenbotRequest({ request, url });
           return finalize(response);
         } catch (error) {
           const apiError = error instanceof ApiError
@@ -319,6 +374,15 @@ function buildOpencodeProxyUrl(baseUrl: string, path: string, search: string) {
   return target.toString();
 }
 
+function buildOwpenbotProxyUrl(baseUrl: string, path: string, search: string) {
+  const target = new URL(baseUrl);
+  const trimmedPath = path.replace(/^\/owpenbot/, "");
+  const normalized = trimmedPath.startsWith("/") ? trimmedPath : `/${trimmedPath}`;
+  target.pathname = normalized === "/" ? "/" : normalized;
+  target.search = search;
+  return target.toString();
+}
+
 async function proxyOpencodeRequest(input: {
   request: Request;
   url: URL;
@@ -335,6 +399,8 @@ async function proxyOpencodeRequest(input: {
   const targetUrl = buildOpencodeProxyUrl(baseUrl, proxyPath, input.url.search);
   const headers = new Headers(input.request.headers);
   headers.delete("authorization");
+  headers.delete("x-openwork-host-token");
+  headers.delete("x-openwork-client-id");
   headers.delete("host");
   headers.delete("origin");
 
@@ -356,6 +422,39 @@ async function proxyOpencodeRequest(input: {
     body,
   });
 
+  return response;
+}
+
+function resolveOwpenbotBaseUrl(): string {
+  const port = parseInteger(process.env.OWPENBOT_HEALTH_PORT);
+  if (!port) {
+    throw new ApiError(404, "owpenbot_unconfigured", "Owpenbot is not configured on this host");
+  }
+  return `http://127.0.0.1:${port}`;
+}
+
+async function proxyOwpenbotRequest(input: {
+  request: Request;
+  url: URL;
+  proxyPath?: string;
+}) {
+  const baseUrl = resolveOwpenbotBaseUrl();
+  const proxyPath = input.proxyPath ?? input.url.pathname;
+  const targetUrl = buildOwpenbotProxyUrl(baseUrl, proxyPath, input.url.search);
+  const headers = new Headers(input.request.headers);
+  headers.delete("authorization");
+  headers.delete("x-openwork-host-token");
+  headers.delete("x-openwork-client-id");
+  headers.delete("host");
+  headers.delete("origin");
+
+  const method = input.request.method.toUpperCase();
+  const body = method === "GET" || method === "HEAD" ? undefined : input.request.body;
+  const response = await fetch(targetUrl, {
+    method,
+    headers,
+    body,
+  });
   return response;
 }
 
@@ -443,6 +542,8 @@ function buildCapabilities(config: ServerConfig): Capabilities {
   const maxBytes = resolveInboxMaxBytes();
   const toyUiEnabled = resolveToyUiEnabled();
   const browserProvider = resolveBrowserProvider();
+  const owpenbotConfigured = Boolean(parseInteger(process.env.OWPENBOT_HEALTH_PORT));
+  const opencodeConfigured = config.workspaces.some((workspace) => Boolean(workspace.baseUrl?.trim()));
   return {
     schemaVersion,
     serverVersion: SERVER_VERSION,
@@ -456,6 +557,10 @@ function buildCapabilities(config: ServerConfig): Capabilities {
     sandbox: { enabled: sandboxEnabled, backend: sandboxBackend },
     ui: { toy: toyUiEnabled },
     tokens: { scoped: true, scopes: ["owner", "collaborator", "viewer"] },
+    proxy: {
+      opencode: opencodeConfigured,
+      owpenbot: owpenbotConfigured,
+    },
     toolProviders: {
       browser: browserProvider,
       files: {

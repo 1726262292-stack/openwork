@@ -306,6 +306,11 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
   let opencodeHealthy = false;
   let opencodeVersion: string | undefined;
 
+  const HEALTH_SLOW_INTERVAL_MS = 30_000;
+  const HEALTH_FAST_INTERVAL_MS = 1_000;
+  let healthIntervalMs = HEALTH_FAST_INTERVAL_MS;
+  let healthTimer: NodeJS.Timeout | null = null;
+
   async function refreshHealth() {
     try {
       const health = await rootClient.global.health();
@@ -315,10 +320,19 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
       logger.warn({ error }, "failed to reach opencode health");
       opencodeHealthy = false;
     }
+
+    // After initial startup, switch to a slower poll once OpenCode is healthy.
+    if (opencodeHealthy && healthIntervalMs !== HEALTH_SLOW_INTERVAL_MS) {
+      healthIntervalMs = HEALTH_SLOW_INTERVAL_MS;
+      if (healthTimer) {
+        clearInterval(healthTimer);
+      }
+      healthTimer = setInterval(refreshHealth, healthIntervalMs);
+    }
   }
 
   await refreshHealth();
-  const healthTimer = setInterval(refreshHealth, 30_000);
+  healthTimer = setInterval(refreshHealth, healthIntervalMs);
 
   // Mutable runtime state for groups (persisted to config file)
   let groupsEnabled = config.groupsEnabled;
