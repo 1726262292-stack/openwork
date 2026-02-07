@@ -1550,7 +1550,20 @@ export default function App() {
 
       const list = unwrap(await c.session.list());
       if (sidebarRefreshSeqByWorkspaceId[id] !== seq) return;
-      setSidebarSessionsByWorkspaceId((prev) => ({ ...prev, [id]: sortSessionsByActivity(list) }));
+
+      // `session.list()` can return sessions across multiple workspace roots.
+      // The dashboard sidebar shows sessions grouped by workspace, so we must
+      // filter by the workspace root to avoid every local workspace rendering the
+      // same global list.
+      const root = normalizeDirectoryPath(directory);
+      const filtered = root
+        ? list.filter((session) => normalizeDirectoryPath(session.directory) === root)
+        : list;
+
+      setSidebarSessionsByWorkspaceId((prev) => ({
+        ...prev,
+        [id]: sortSessionsByActivity(filtered),
+      }));
       setSidebarSessionStatusByWorkspaceId((prev) => ({ ...prev, [id]: "ready" }));
     } catch (error) {
       if (sidebarRefreshSeqByWorkspaceId[id] !== seq) return;
@@ -3404,6 +3417,31 @@ export default function App() {
         "session.list"
       );
       mark("sessions loaded");
+
+      // Keep the dashboard/sidebar session lists in sync with the active workspace.
+      // (Sidebar sessions are fetched per-workspace and won't automatically update when
+      // we create a new session through the active client.)
+      try {
+        const activeWorkspaceId = workspaceStore.activeWorkspaceId().trim();
+        if (activeWorkspaceId) {
+          const list = sessions();
+          setSidebarSessionsByWorkspaceId((prev) => ({
+            ...prev,
+            [activeWorkspaceId]: sortSessionsByActivity(list),
+          }));
+          setSidebarSessionStatusByWorkspaceId((prev) => ({
+            ...prev,
+            [activeWorkspaceId]: "ready",
+          }));
+          setSidebarSessionErrorByWorkspaceId((prev) => ({
+            ...prev,
+            [activeWorkspaceId]: null,
+          }));
+        }
+      } catch {
+        // ignore sidebar sync failures
+      }
+
       await selectSession(session.id);
       mark("session selected");
       // Now switch view AFTER session is selected

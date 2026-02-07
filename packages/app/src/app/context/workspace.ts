@@ -730,13 +730,26 @@ export function createWorkspaceStore(options: {
       setAuthorizedDirs([]);
     }
 
-    if (!isRemote && workspaceChanged && options.client() && !wasLocalConnection) {
+    // If we were previously connected to a remote engine, switching back to a local workspace
+    // requires starting (or reconnecting) the local host engine.
+    //
+    // Without this, we end up keeping the remote client while `startupPreference` flips to
+    // "local", and subsequent session/file actions behave inconsistently.
+    if (!isRemote && options.client() && !wasLocalConnection) {
       options.setSelectedSessionId(null);
       options.setMessages([]);
       options.setTodos([]);
       options.setPendingPermissions([]);
       options.setSessionStatusById({});
-      await options.loadSessions(next.path).catch(() => undefined);
+
+      const ok = await startHost({ workspacePath: next.path });
+      if (!ok) {
+        updateWorkspaceConnectionState(id, {
+          status: "error",
+          message: "Failed to start local engine.",
+        });
+        return false;
+      }
     }
 
     // When running locally, restart the engine when workspace changes
