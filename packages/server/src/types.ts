@@ -2,6 +2,12 @@ export type WorkspaceType = "local" | "remote";
 
 export type ApprovalMode = "manual" | "auto";
 
+export type TokenScope = "owner" | "collaborator" | "viewer";
+
+export type SandboxBackend = "none" | "docker" | "container";
+
+export type ProviderPlacement = "in-sandbox" | "host-machine" | "client-machine" | "external";
+
 export type LogFormat = "pretty" | "json";
 
 export interface WorkspaceConfig {
@@ -55,11 +61,32 @@ export interface ServerConfig {
 }
 
 export interface Capabilities {
+  schemaVersion: number;
+  serverVersion: string;
   skills: { read: boolean; write: boolean; source: "openwork" | "opencode" };
   plugins: { read: boolean; write: boolean };
   mcp: { read: boolean; write: boolean };
   commands: { read: boolean; write: boolean };
   config: { read: boolean; write: boolean };
+
+  approvals: { mode: ApprovalMode; timeoutMs: number };
+  sandbox: { enabled: boolean; backend: SandboxBackend };
+  ui: { toy: boolean };
+  tokens: { scoped: boolean; scopes: TokenScope[] };
+  toolProviders: {
+    browser: {
+      enabled: boolean;
+      placement: ProviderPlacement;
+      mode: "none" | "headless" | "interactive";
+    };
+    files: {
+      injection: boolean;
+      outbox: boolean;
+      inboxPath: string;
+      outboxPath: string;
+      maxBytes: number;
+    };
+  };
 }
 
 export type ReloadReason = "plugins" | "skills" | "mcp" | "config" | "agents" | "commands";
@@ -122,6 +149,7 @@ export interface Actor {
   type: "remote" | "host";
   clientId?: string;
   tokenHash?: string;
+  scope?: TokenScope;
 }
 
 export interface ApprovalRequest {

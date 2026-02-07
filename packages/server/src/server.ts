@@ -1,7 +1,7 @@
-import { readFile, writeFile, rm, rename } from "node:fs/promises";
+import { readFile, writeFile, rm, readdir, rename, stat } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
-import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger } from "./types.js";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
 import { ApprovalService } from "./approvals.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { addMcp, listMcp, removeMcp } from "./mcp.js";
@@ -16,6 +16,8 @@ import { parseFrontmatter } from "./frontmatter.js";
 import { opencodeConfigPath, openworkConfigPath, projectCommandsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId } from "./utils.js";
 import { sanitizeCommandName } from "./validators.js";
+import { TokenService } from "./tokens.js";
+import { TOY_UI_CSS, TOY_UI_HTML, TOY_UI_JS, cssResponse, htmlResponse, jsResponse } from "./toy-ui.js";
 import pkg from "../package.json" with { type: "json" };
 
 const SERVER_VERSION = pkg.version;
@@ -136,13 +138,15 @@ interface RequestContext {
   config: ServerConfig;
   approvals: ApprovalService;
   reloadEvents: ReloadEventStore;
+  tokens: TokenService;
   actor?: Actor;
 }
 
 export function startServer(config: ServerConfig) {
   const approvals = new ApprovalService(config.approval);
   const reloadEvents = new ReloadEventStore();
-  const routes = createRoutes(config, approvals);
+  const tokens = new TokenService(config);
+  const routes = createRoutes(config, approvals, tokens);
   const logger = createServerLogger(config);
 
   const serverOptions: {
@@ -183,7 +187,11 @@ export function startServer(config: ServerConfig) {
       if (mount && (mount.restPath === "/opencode" || mount.restPath.startsWith("/opencode/"))) {
         authMode = "client";
         try {
-          requireClient(request, config);
+          const actor = await requireClient(request, config, tokens);
+          const method = request.method.toUpperCase();
+          if (actor.scope === "viewer" && method !== "GET" && method !== "HEAD") {
+            throw new ApiError(403, "forbidden", "Viewer tokens are read-only");
+          }
           const workspace = await resolveWorkspace(config, mount.workspaceId);
           proxyBaseUrl = workspace.baseUrl?.trim() || undefined;
           const response = await proxyOpencodeRequest({ request, url, workspace, proxyPath: mount.restPath });
@@ -218,7 +226,11 @@ export function startServer(config: ServerConfig) {
         authMode = "client";
         proxyBaseUrl = config.workspaces[0]?.baseUrl?.trim() || undefined;
         try {
-          requireClient(request, config);
+          const actor = await requireClient(request, config, tokens);
+          const method = request.method.toUpperCase();
+          if (actor.scope === "viewer" && method !== "GET" && method !== "HEAD") {
+            throw new ApiError(403, "forbidden", "Viewer tokens are read-only");
+          }
           const response = await proxyOpencodeRequest({ request, url, workspace: config.workspaces[0] });
           return finalize(response);
         } catch (error) {
@@ -238,7 +250,11 @@ export function startServer(config: ServerConfig) {
 
       authMode = route.auth;
       try {
-        const actor = route.auth === "host" ? requireHost(request, config) : route.auth === "client" ? requireClient(request, config) : undefined;
+        const actor = route.auth === "host"
+          ? await requireHost(request, config, tokens)
+          : route.auth === "client"
+            ? await requireClient(request, config, tokens)
+            : undefined;
         const response = await route.handler({
           request,
           url,
@@ -246,6 +262,7 @@ export function startServer(config: ServerConfig) {
           config,
           approvals,
           reloadEvents,
+          tokens,
           actor,
         });
         return finalize(response);
@@ -381,34 +398,227 @@ function withCors(response: Response, request: Request, config: ServerConfig) {
   return new Response(response.body, { status: response.status, headers });
 }
 
-function requireClient(request: Request, config: ServerConfig): Actor {
+async function requireClient(request: Request, config: ServerConfig, tokens: TokenService): Promise<Actor> {
   const header = request.headers.get("authorization") ?? "";
   const match = header.match(/^Bearer\s+(.+)$/i);
   const token = match?.[1];
-  if (!token || token !== config.token) {
+  if (!token) {
+    throw new ApiError(401, "unauthorized", "Invalid bearer token");
+  }
+  const scope = await tokens.scopeForToken(token);
+  if (!scope) {
     throw new ApiError(401, "unauthorized", "Invalid bearer token");
   }
   const clientId = request.headers.get("x-openwork-client-id") ?? undefined;
-  return { type: "remote", clientId, tokenHash: hashToken(token) };
+  return { type: "remote", clientId, tokenHash: hashToken(token), scope };
 }
 
-function requireHost(request: Request, config: ServerConfig): Actor {
-  const token = request.headers.get("x-openwork-host-token");
-  if (!token || token !== config.hostToken) {
+async function requireHost(request: Request, config: ServerConfig, tokens: TokenService): Promise<Actor> {
+  const hostToken = request.headers.get("x-openwork-host-token");
+  if (hostToken && hostToken === config.hostToken) {
+    return { type: "host", tokenHash: hashToken(hostToken), scope: "owner" };
+  }
+
+  const header = request.headers.get("authorization") ?? "";
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  const bearer = match?.[1];
+  if (!bearer) {
     throw new ApiError(401, "unauthorized", "Invalid host token");
   }
-  return { type: "host", tokenHash: hashToken(token) };
+  const scope = await tokens.scopeForToken(bearer);
+  if (scope !== "owner") {
+    throw new ApiError(401, "unauthorized", "Invalid host token");
+  }
+  const clientId = request.headers.get("x-openwork-client-id") ?? undefined;
+  return { type: "remote", clientId, tokenHash: hashToken(bearer), scope };
 }
 
 function buildCapabilities(config: ServerConfig): Capabilities {
   const writeEnabled = !config.readOnly;
+  const schemaVersion = 1;
+  const sandboxBackend = resolveSandboxBackend();
+  const sandboxEnabled = resolveSandboxEnabled(sandboxBackend);
+  const inboxEnabled = resolveInboxEnabled();
+  const outboxEnabled = resolveOutboxEnabled();
+  const maxBytes = resolveInboxMaxBytes();
+  const toyUiEnabled = resolveToyUiEnabled();
+  const browserProvider = resolveBrowserProvider();
   return {
+    schemaVersion,
+    serverVersion: SERVER_VERSION,
     skills: { read: true, write: writeEnabled, source: "openwork" },
     plugins: { read: true, write: writeEnabled },
     mcp: { read: true, write: writeEnabled },
     commands: { read: true, write: writeEnabled },
     config: { read: true, write: writeEnabled },
+
+    approvals: { mode: config.approval.mode, timeoutMs: config.approval.timeoutMs },
+    sandbox: { enabled: sandboxEnabled, backend: sandboxBackend },
+    ui: { toy: toyUiEnabled },
+    tokens: { scoped: true, scopes: ["owner", "collaborator", "viewer"] },
+    toolProviders: {
+      browser: browserProvider,
+      files: {
+        injection: writeEnabled && inboxEnabled,
+        outbox: outboxEnabled,
+        inboxPath: ".opencode/openwork/inbox/",
+        outboxPath: ".opencode/openwork/outbox/",
+        maxBytes,
+      },
+    },
   };
+}
+
+function resolveSandboxBackend(): Capabilities["sandbox"]["backend"] {
+  const raw = (process.env.OPENWORK_SANDBOX_BACKEND ?? "").trim().toLowerCase();
+  if (raw === "docker") return "docker";
+  if (raw === "container") return "container";
+  return "none";
+}
+
+function resolveSandboxEnabled(backend: Capabilities["sandbox"]["backend"]): boolean {
+  const raw = (process.env.OPENWORK_SANDBOX_ENABLED ?? "").trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  return backend !== "none";
+}
+
+function resolveInboxEnabled(): boolean {
+  const raw = (process.env.OPENWORK_INBOX_ENABLED ?? "").trim().toLowerCase();
+  if (!raw) return true;
+  return ["1", "true", "yes", "on"].includes(raw);
+}
+
+function resolveOutboxEnabled(): boolean {
+  const raw = (process.env.OPENWORK_OUTBOX_ENABLED ?? "").trim().toLowerCase();
+  if (!raw) return true;
+  return ["1", "true", "yes", "on"].includes(raw);
+}
+
+function resolveInboxMaxBytes(): number {
+  const raw = (process.env.OPENWORK_INBOX_MAX_BYTES ?? "").trim();
+  const parsed = raw ? Number(raw) : NaN;
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return Math.min(Math.trunc(parsed), 250_000_000);
+  }
+  return 50_000_000;
+}
+
+function resolveToyUiEnabled(): boolean {
+  const raw = (process.env.OPENWORK_TOY_UI ?? "").trim().toLowerCase();
+  if (!raw) return true;
+  return ["1", "true", "yes", "on"].includes(raw);
+}
+
+function resolveBrowserProvider(): Capabilities["toolProviders"]["browser"] {
+  const raw = (process.env.OPENWORK_BROWSER_PROVIDER ?? "").trim().toLowerCase();
+  if (raw === "sandbox-headless") {
+    return { enabled: true, placement: "in-sandbox", mode: "headless" };
+  }
+  if (raw === "host-interactive") {
+    return { enabled: true, placement: "host-machine", mode: "interactive" };
+  }
+  if (raw === "client-interactive") {
+    return { enabled: true, placement: "client-machine", mode: "interactive" };
+  }
+  return { enabled: false, placement: "external", mode: "none" };
+}
+
+function resolveInboxDir(workspaceRoot: string): string {
+  return join(workspaceRoot, ".opencode", "openwork", "inbox");
+}
+
+function resolveOutboxDir(workspaceRoot: string): string {
+  return join(workspaceRoot, ".opencode", "openwork", "outbox");
+}
+
+function normalizeWorkspaceRelativePath(input: string, options: { allowSubdirs: boolean }): string {
+  const raw = String(input ?? "").trim();
+  if (!raw) {
+    throw new ApiError(400, "invalid_path", "Path is required");
+  }
+  if (raw.includes("\u0000")) {
+    throw new ApiError(400, "invalid_path", "Path contains null byte");
+  }
+
+  const normalized = raw.replace(/\\/g, "/").replace(/^\/+/, "");
+  const parts = normalized.split("/").filter(Boolean);
+  if (!parts.length) {
+    throw new ApiError(400, "invalid_path", "Path is required");
+  }
+  if (!options.allowSubdirs && parts.length > 1) {
+    throw new ApiError(400, "invalid_path", "Subdirectories are not allowed");
+  }
+  for (const part of parts) {
+    if (part === "." || part === "..") {
+      throw new ApiError(400, "invalid_path", "Path traversal is not allowed");
+    }
+  }
+  return parts.join("/");
+}
+
+function resolveSafeChildPath(root: string, child: string): string {
+  const rootResolved = resolve(root);
+  const candidate = resolve(rootResolved, child);
+  if (candidate === rootResolved) {
+    throw new ApiError(400, "invalid_path", "Path must point to a file");
+  }
+  if (!candidate.startsWith(rootResolved + sep)) {
+    throw new ApiError(400, "invalid_path", "Path traversal is not allowed");
+  }
+  return candidate;
+}
+
+function encodeArtifactId(path: string): string {
+  return Buffer.from(path, "utf8").toString("base64url");
+}
+
+function decodeArtifactId(id: string): string {
+  const raw = (id ?? "").trim();
+  if (!raw) {
+    throw new ApiError(400, "invalid_artifact", "Artifact id is required");
+  }
+  try {
+    const decoded = Buffer.from(raw, "base64url").toString("utf8");
+    return normalizeWorkspaceRelativePath(decoded, { allowSubdirs: true });
+  } catch {
+    throw new ApiError(400, "invalid_artifact", "Artifact id is invalid");
+  }
+}
+
+async function listArtifacts(outboxRoot: string): Promise<Array<{ id: string; path: string; size: number; updatedAt: number }>> {
+  const rootResolved = resolve(outboxRoot);
+  if (!(await exists(rootResolved))) return [];
+
+  const items: Array<{ id: string; path: string; size: number; updatedAt: number }> = [];
+  const walk = async (dir: string) => {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const abs = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(abs);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const rel = normalizeWorkspaceRelativePath(relative(rootResolved, abs), { allowSubdirs: true });
+      const info = await stat(abs);
+      items.push({
+        id: encodeArtifactId(rel),
+        path: rel,
+        size: info.size,
+        updatedAt: info.mtimeMs,
+      });
+    }
+  };
+
+  try {
+    await walk(rootResolved);
+  } catch {
+    return [];
+  }
+
+  items.sort((a, b) => b.updatedAt - a.updatedAt);
+  return items;
 }
 
 function emitReloadEvent(
@@ -448,7 +658,7 @@ function serializeWorkspace(workspace: ServerConfig["workspaces"][number]) {
   };
 }
 
-function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[] {
+function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: TokenService): Route[] {
   const routes: Route[] = [];
 
   addRoute(routes, "GET", "/health", "none", async () => {
@@ -457,6 +667,34 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
 
   addRoute(routes, "GET", "/w/:id/health", "none", async () => {
     return jsonResponse({ ok: true, version: SERVER_VERSION, uptimeMs: Date.now() - config.startedAt });
+  });
+
+  addRoute(routes, "GET", "/ui", "none", async () => {
+    if (!resolveToyUiEnabled()) {
+      throw new ApiError(404, "ui_disabled", "Toy UI is disabled");
+    }
+    return htmlResponse(TOY_UI_HTML);
+  });
+
+  addRoute(routes, "GET", "/w/:id/ui", "none", async () => {
+    if (!resolveToyUiEnabled()) {
+      throw new ApiError(404, "ui_disabled", "Toy UI is disabled");
+    }
+    return htmlResponse(TOY_UI_HTML);
+  });
+
+  addRoute(routes, "GET", "/ui/assets/toy.css", "none", async () => {
+    if (!resolveToyUiEnabled()) {
+      throw new ApiError(404, "ui_disabled", "Toy UI is disabled");
+    }
+    return cssResponse(TOY_UI_CSS);
+  });
+
+  addRoute(routes, "GET", "/ui/assets/toy.js", "none", async () => {
+    if (!resolveToyUiEnabled()) {
+      throw new ApiError(404, "ui_disabled", "Toy UI is disabled");
+    }
+    return jsResponse(TOY_UI_JS);
   });
 
   addRoute(routes, "GET", "/w/:id/status", "client", async (ctx) => {
@@ -518,6 +756,10 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
     });
   });
 
+  addRoute(routes, "GET", "/whoami", "client", async (ctx) => {
+    return jsonResponse({ ok: true, actor: ctx.actor ?? null });
+  });
+
   addRoute(routes, "GET", "/capabilities", "client", async () => {
     return jsonResponse(buildCapabilities(config));
   });
@@ -526,6 +768,33 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
     const active = config.workspaces[0] ?? null;
     const items = config.workspaces.map(serializeWorkspace);
     return jsonResponse({ items, activeId: active?.id ?? null });
+  });
+
+  addRoute(routes, "GET", "/tokens", "host", async () => {
+    const items = await tokens.list();
+    return jsonResponse({ items });
+  });
+
+  addRoute(routes, "POST", "/tokens", "host", async (ctx) => {
+    ensureWritable(config);
+    const body = await readJsonBody(ctx.request);
+    const scopeRaw = typeof body.scope === "string" ? body.scope.trim() : "";
+    const scope = scopeRaw === "owner" || scopeRaw === "collaborator" || scopeRaw === "viewer" ? scopeRaw : null;
+    if (!scope) {
+      throw new ApiError(400, "invalid_scope", "Token scope must be owner, collaborator, or viewer");
+    }
+    const label = typeof body.label === "string" ? body.label.trim() : undefined;
+    const issued = await tokens.create(scope, { label });
+    return jsonResponse(issued, 201);
+  });
+
+  addRoute(routes, "DELETE", "/tokens/:id", "host", async (ctx) => {
+    ensureWritable(config);
+    const ok = await tokens.revoke(ctx.params.id);
+    if (!ok) {
+      throw new ApiError(404, "token_not_found", "Token not found");
+    }
+    return jsonResponse({ ok: true });
   });
 
   addRoute(routes, "POST", "/workspaces/:id/activate", "host", async (ctx) => {
@@ -565,6 +834,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
 
   addRoute(routes, "PATCH", "/workspace/:id/config", "client", async (ctx) => {
     ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const opencode = body.opencode as Record<string, unknown> | undefined;
@@ -607,6 +877,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
 
   addRoute(routes, "POST", "/workspace/:id/owpenbot/telegram-token", "client", async (ctx) => {
     ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const token = typeof body.token === "string" ? body.token.trim() : "";
@@ -652,6 +923,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
 
   addRoute(routes, "POST", "/workspace/:id/owpenbot/slack-tokens", "client", async (ctx) => {
     ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const botToken = typeof body.botToken === "string" ? body.botToken.trim() : "";
@@ -707,6 +979,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
   });
 
   addRoute(routes, "POST", "/workspace/:id/engine/reload", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
@@ -727,6 +1000,95 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
     return jsonResponse({ ok: true, reloadedAt: Date.now() });
   });
 
+  addRoute(routes, "POST", "/workspace/:id/inbox", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    if (!resolveInboxEnabled()) {
+      throw new ApiError(404, "inbox_disabled", "Workspace inbox is disabled");
+    }
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+
+    const contentType = ctx.request.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().includes("multipart/form-data")) {
+      throw new ApiError(400, "invalid_payload", "Expected multipart/form-data");
+    }
+    const form = await ctx.request.formData();
+    const file = form.get("file");
+    if (!(file instanceof File)) {
+      throw new ApiError(400, "file_required", "Form field 'file' is required");
+    }
+
+    const queryPath = (ctx.url.searchParams.get("path") ?? "").trim();
+    const formPath = typeof form.get("path") === "string" ? String(form.get("path") || "").trim() : "";
+    const requestedPath = queryPath || formPath || file.name;
+
+    const relativePath = normalizeWorkspaceRelativePath(requestedPath, { allowSubdirs: true });
+    const inboxRoot = resolveInboxDir(workspace.path);
+    const dest = resolveSafeChildPath(inboxRoot, relativePath);
+    const maxBytes = resolveInboxMaxBytes();
+    if (file.size > maxBytes) {
+      throw new ApiError(413, "file_too_large", "File exceeds upload limit", { maxBytes, size: file.size });
+    }
+
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "workspace.inbox.upload",
+      summary: `Upload ${relativePath} to inbox`,
+      paths: [dest],
+    });
+
+    await ensureDir(dirname(dest));
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const tmp = `${dest}.tmp-${shortId()}`;
+    await writeFile(tmp, bytes);
+    await rename(tmp, dest);
+
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "workspace.inbox.upload",
+      target: dest,
+      summary: `Uploaded ${relativePath} to inbox`,
+      timestamp: Date.now(),
+    });
+
+    return jsonResponse({ ok: true, path: relativePath, bytes: file.size });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/artifacts", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    if (!resolveOutboxEnabled()) {
+      return jsonResponse({ items: [] });
+    }
+    const outboxRoot = resolveOutboxDir(workspace.path);
+    const items = await listArtifacts(outboxRoot);
+    return jsonResponse({ items });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/artifacts/:artifactId", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    if (!resolveOutboxEnabled()) {
+      throw new ApiError(404, "outbox_disabled", "Workspace outbox is disabled");
+    }
+    const outboxRoot = resolveOutboxDir(workspace.path);
+    const relativePath = decodeArtifactId(ctx.params.artifactId);
+    const absPath = resolveSafeChildPath(outboxRoot, relativePath);
+    if (!(await exists(absPath))) {
+      throw new ApiError(404, "artifact_not_found", "Artifact not found");
+    }
+    const info = await stat(absPath);
+    if (!info.isFile()) {
+      throw new ApiError(404, "artifact_not_found", "Artifact not found");
+    }
+
+    const headers = new Headers();
+    headers.set("Content-Type", "application/octet-stream");
+    headers.set("Content-Length", String(info.size));
+    headers.set("Content-Disposition", `attachment; filename="${basename(relativePath)}"`);
+    return new Response(Bun.file(absPath), { status: 200, headers });
+  });
+
   addRoute(routes, "GET", "/workspace/:id/plugins", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
@@ -736,6 +1098,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
 
   addRoute(routes, "POST", "/workspace/:id/plugins", "client", async (ctx) => {
     ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const spec = String(body.spec ?? "");
@@ -769,6 +1132,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
 
   addRoute(routes, "DELETE", "/workspace/:id/plugins/:name", "client", async (ctx) => {
     ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const name = ctx.params.name ?? "";
     const normalized = normalizePluginSpec(name);
@@ -824,6 +1188,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
 
   addRoute(routes, "POST", "/workspace/:id/skills", "client", async (ctx) => {
     ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const name = String(body.name ?? "");
@@ -862,6 +1227,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
 
   addRoute(routes, "POST", "/workspace/:id/mcp", "client", async (ctx) => {
     ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const name = String(body.name ?? "");
@@ -896,6 +1262,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
 
   addRoute(routes, "DELETE", "/workspace/:id/mcp/:name", "client", async (ctx) => {
     ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const name = ctx.params.name ?? "";
     await requireApproval(ctx, {
@@ -928,7 +1295,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
   addRoute(routes, "GET", "/workspace/:id/commands", "client", async (ctx) => {
     const scope = ctx.url.searchParams.get("scope") === "global" ? "global" : "workspace";
     if (scope === "global") {
-      requireHost(ctx.request, config);
+      await requireHost(ctx.request, config, tokens);
     }
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const items = await listCommands(workspace.path, scope);
@@ -937,6 +1304,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
 
   addRoute(routes, "POST", "/workspace/:id/commands", "client", async (ctx) => {
     ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const name = String(body.name ?? "");
@@ -977,6 +1345,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
 
   addRoute(routes, "DELETE", "/workspace/:id/commands/:name", "client", async (ctx) => {
     ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const name = ctx.params.name ?? "";
     await requireApproval(ctx, {
@@ -1013,6 +1382,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
 
   addRoute(routes, "DELETE", "/workspace/:id/scheduler/jobs/:name", "client", async (ctx) => {
     ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const name = ctx.params.name ?? "";
     const { job, jobFile, systemPaths } = await resolveScheduledJob(name);
@@ -1043,6 +1413,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService): Route[]
 
   addRoute(routes, "POST", "/workspace/:id/import", "client", async (ctx) => {
     ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     await requireApproval(ctx, {
@@ -1108,6 +1479,22 @@ async function isAuthorizedRoot(workspacePath: string, roots: string[]): Promise
 function ensureWritable(config: ServerConfig): void {
   if (config.readOnly) {
     throw new ApiError(403, "read_only", "Server is read-only");
+  }
+}
+
+function scopeRank(scope: TokenScope): number {
+  if (scope === "viewer") return 1;
+  if (scope === "collaborator") return 2;
+  return 3;
+}
+
+function requireClientScope(ctx: RequestContext, required: TokenScope): void {
+  const scope = ctx.actor?.scope;
+  if (!scope) {
+    throw new ApiError(401, "unauthorized", "Missing token scope");
+  }
+  if (scopeRank(scope) < scopeRank(required)) {
+    throw new ApiError(403, "forbidden", "Insufficient token scope", { required, scope });
   }
 }
 
