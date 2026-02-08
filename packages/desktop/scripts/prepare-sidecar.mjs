@@ -128,6 +128,9 @@ const opencodeTargetName = resolvedTargetTriple
   : null;
 const opencodeTargetPath = opencodeTargetName ? join(sidecarDir, opencodeTargetName) : null;
 
+const opencodeCandidatePath = opencodeTargetPath ?? opencodePath;
+let existingOpencodeVersion = null;
+
 // openwork-server paths
 const openworkServerBaseName = "openwork-server";
 const openworkServerName = process.platform === "win32" ? `${openworkServerBaseName}.exe` : openworkServerBaseName;
@@ -334,7 +337,17 @@ if (existsSync(openworkServerBuildPath)) {
   }
 }
 
+if (!existingOpencodeVersion && opencodeCandidatePath) {
+  existingOpencodeVersion =
+    existsSync(opencodeCandidatePath) && !isStubBinary(opencodeCandidatePath)
+      ? readBinaryVersion(opencodeCandidatePath)
+      : null;
+}
+
 let normalizedOpencodeVersion = normalizeVersion(opencodeVersion);
+if (!normalizedOpencodeVersion && existingOpencodeVersion) {
+  normalizedOpencodeVersion = normalizeVersion(existingOpencodeVersion);
+}
 if (!normalizedOpencodeVersion) {
   normalizedOpencodeVersion = await fetchLatestOpencodeVersion();
 }
@@ -361,12 +374,6 @@ const opencodeAsset =
 const opencodeUrl = opencodeAsset
   ? `https://github.com/anomalyco/opencode/releases/download/v${normalizedOpencodeVersion}/${opencodeAsset}`
   : null;
-
-const opencodeCandidatePath = opencodeTargetPath ?? opencodePath;
-const existingOpencodeVersion =
-  opencodeCandidatePath && existsSync(opencodeCandidatePath)
-    ? readBinaryVersion(opencodeCandidatePath)
-    : null;
 
 const shouldDownloadOpencode =
   !opencodeCandidatePath ||

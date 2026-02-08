@@ -1533,14 +1533,12 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
     if (!name) {
       throw new ApiError(400, "invalid_skill_name", "Skill name is required");
     }
-
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.delete",
       summary: `Delete skill ${name}`,
       paths: [join(workspace.path, ".opencode", "skills", name)],
     });
-
     const result = await deleteSkill(workspace.path, name);
     await recordAudit(workspace.path, {
       id: shortId(),
