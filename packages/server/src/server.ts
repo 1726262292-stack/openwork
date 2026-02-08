@@ -13,6 +13,7 @@ import { readJsoncFile, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
 import { recordAudit, readAuditEntries, readLastAudit } from "./audit.js";
 import { ReloadEventStore } from "./events.js";
 import { parseFrontmatter } from "./frontmatter.js";
+import { startReloadWatchers } from "./reload-watcher.js";
 import { opencodeConfigPath, openworkConfigPath, projectCommandsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId } from "./utils.js";
 import { sanitizeCommandName } from "./validators.js";
@@ -200,6 +201,15 @@ export function startServer(config: ServerConfig) {
   const routes = createRoutes(config, approvals, tokens);
   const logger = createServerLogger(config);
 
+  let reloadWatcher: { close: () => void } | null = null;
+  try {
+    reloadWatcher = startReloadWatchers({ config, reloadEvents, logger });
+  } catch (error) {
+    logger.log("warn", "Reload watcher failed to initialize", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   const serverOptions: {
     hostname: string;
     port: number;
@@ -376,6 +386,10 @@ export function startServer(config: ServerConfig) {
   (serverOptions as { idleTimeout?: number }).idleTimeout = 120;
 
   const server = Bun.serve(serverOptions);
+
+  if (reloadWatcher) {
+    (server as any).reloadWatcher = reloadWatcher;
+  }
 
   return server;
 }
@@ -933,7 +947,7 @@ function emitReloadEvent(
   reason: ReloadReason,
   trigger?: ReloadTrigger,
 ) {
-  reloadEvents.record(workspace.id, reason, trigger);
+  reloadEvents.recordDebounced(workspace.id, reason, trigger);
 }
 
 function buildConfigTrigger(path: string): ReloadTrigger {
