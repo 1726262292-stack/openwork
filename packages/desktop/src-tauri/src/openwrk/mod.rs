@@ -3,22 +3,27 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::de::DeserializeOwned;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 use crate::paths::home_dir;
 use crate::types::{
-    OpenwrkBinaryState,
-    OpenwrkDaemonState,
-    OpenwrkOpencodeState,
-    OpenwrkSidecarInfo,
-    OpenwrkStatus,
-    OpenwrkWorkspace,
+    OpenwrkBinaryState, OpenwrkDaemonState, OpenwrkOpencodeState, OpenwrkSidecarInfo,
+    OpenwrkStatus, OpenwrkWorkspace,
 };
 
 pub mod manager;
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenwrkAuthFile {
+    pub opencode_username: Option<String>,
+    pub opencode_password: Option<String>,
+    pub project_dir: Option<String>,
+    pub updated_at: Option<u64>,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,6 +101,47 @@ pub fn resolve_openwrk_data_dir() -> String {
 
 fn openwrk_state_path(data_dir: &str) -> PathBuf {
     Path::new(data_dir).join("openwrk-state.json")
+}
+
+fn openwrk_auth_path(data_dir: &str) -> PathBuf {
+    Path::new(data_dir).join("openwrk-auth.json")
+}
+
+pub fn read_openwrk_auth(data_dir: &str) -> Option<OpenwrkAuthFile> {
+    let path = openwrk_auth_path(data_dir);
+    let payload = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&payload).ok()
+}
+
+pub fn write_openwrk_auth(
+    data_dir: &str,
+    opencode_username: Option<&str>,
+    opencode_password: Option<&str>,
+    project_dir: Option<&str>,
+) -> Result<(), String> {
+    let path = openwrk_auth_path(data_dir);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create {}: {e}", parent.display()))?;
+    }
+
+    let payload = OpenwrkAuthFile {
+        opencode_username: opencode_username.map(|value| value.to_string()),
+        opencode_password: opencode_password.map(|value| value.to_string()),
+        project_dir: project_dir.map(|value| value.to_string()),
+        updated_at: Some(crate::utils::now_ms()),
+    };
+    fs::write(
+        &path,
+        serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
+    Ok(())
+}
+
+pub fn clear_openwrk_auth(data_dir: &str) {
+    let path = openwrk_auth_path(data_dir);
+    let _ = fs::remove_file(path);
 }
 
 pub fn read_openwrk_state(data_dir: &str) -> Option<OpenwrkStateFile> {
