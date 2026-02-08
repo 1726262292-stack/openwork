@@ -5,7 +5,7 @@ import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor,
 import { ApprovalService } from "./approvals.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { addMcp, listMcp, removeMcp } from "./mcp.js";
-import { listSkills, upsertSkill } from "./skills.js";
+import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
 import { deleteCommand, listCommands, upsertCommand } from "./commands.js";
 import { deleteScheduledJob, listScheduledJobs, resolveScheduledJob } from "./scheduler.js";
 import { ApiError, formatError } from "./errors.js";
@@ -126,6 +126,31 @@ function parseWorkspaceMount(pathname: string): { workspaceId: string; restPath:
   return { workspaceId: decodeURIComponent(workspaceId), restPath };
 }
 
+function normalizeOpencodeProxyPath(proxyPath: string): string {
+  const raw = (proxyPath ?? "").trim() || "/";
+  const withoutPrefix = raw.startsWith("/opencode") ? raw.slice("/opencode".length) : raw;
+  const normalized = (withoutPrefix || "/").replace(/\/+$/, "");
+  return normalized || "/";
+}
+
+function assertOpencodeProxyAllowed(actor: Actor, method: string, proxyPath: string) {
+  const m = method.toUpperCase();
+  const scope = actor.scope ?? "viewer";
+
+  if (scope === "viewer" && m !== "GET" && m !== "HEAD") {
+    throw new ApiError(403, "forbidden", "Viewer tokens are read-only");
+  }
+
+  // Prevent collaborators/viewers from self-approving OpenCode permission requests via the proxy.
+  // OpenCode uses /permission/:requestId/reply (and historically also a session-scoped variant).
+  if (scope !== "owner" && m !== "GET" && m !== "HEAD") {
+    const normalized = normalizeOpencodeProxyPath(proxyPath);
+    if (/\/permission\/[^/]+\/reply$/.test(normalized)) {
+      throw new ApiError(403, "forbidden", "Only owner tokens can reply to permission requests");
+    }
+  }
+}
+
 interface Route {
   method: string;
   regex: RegExp;
@@ -144,6 +169,29 @@ interface RequestContext {
   tokens: TokenService;
   actor?: Actor;
 }
+
+type AgentLabSchedule =
+  | { kind: "interval"; seconds: number }
+  | { kind: "daily"; hour: number; minute: number }
+  | { kind: "weekly"; weekday: number; hour: number; minute: number };
+
+type AgentLabAutomation = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  schedule: AgentLabSchedule;
+  prompt: string;
+  createdAt: number;
+  updatedAt?: number;
+  lastRunAt?: number;
+  lastRunSessionId?: string;
+};
+
+type AgentLabAutomationStore = {
+  schemaVersion: number;
+  updatedAt: number;
+  items: AgentLabAutomation[];
+};
 
 export function startServer(config: ServerConfig) {
   const approvals = new ApprovalService(config.approval);
@@ -193,10 +241,7 @@ export function startServer(config: ServerConfig) {
         authMode = "client";
         try {
           const actor = await requireClient(request, config, tokens);
-          const method = request.method.toUpperCase();
-          if (actor.scope === "viewer" && method !== "GET" && method !== "HEAD") {
-            throw new ApiError(403, "forbidden", "Viewer tokens are read-only");
-          }
+          assertOpencodeProxyAllowed(actor, request.method, mount.restPath);
           const workspace = await resolveWorkspace(config, mount.workspaceId);
           proxyService = "opencode";
           proxyBaseUrl = workspace.baseUrl?.trim() || undefined;
@@ -257,10 +302,7 @@ export function startServer(config: ServerConfig) {
         proxyBaseUrl = config.workspaces[0]?.baseUrl?.trim() || undefined;
         try {
           const actor = await requireClient(request, config, tokens);
-          const method = request.method.toUpperCase();
-          if (actor.scope === "viewer" && method !== "GET" && method !== "HEAD") {
-            throw new ApiError(403, "forbidden", "Viewer tokens are read-only");
-          }
+          assertOpencodeProxyAllowed(actor, request.method, url.pathname);
           proxyService = "opencode";
           const response = await proxyOpencodeRequest({ request, url, workspace: config.workspaces[0] });
           return finalize(response);
@@ -372,6 +414,52 @@ function buildOpencodeProxyUrl(baseUrl: string, path: string, search: string) {
   target.pathname = trimmedPath.startsWith("/") ? trimmedPath : `/${trimmedPath}`;
   target.search = search;
   return target.toString();
+}
+
+async function fetchOpencodeJson(workspace: WorkspaceInfo, path: string, init: { method: string; body?: unknown }) {
+  const baseUrl = workspace.baseUrl?.trim() ?? "";
+  if (!baseUrl) {
+    throw new ApiError(400, "opencode_unconfigured", "OpenCode base URL is missing for this workspace");
+  }
+
+  const url = new URL(baseUrl);
+  url.pathname = path.startsWith("/") ? path : `/${path}`;
+  url.search = "";
+
+  const headers = new Headers();
+  headers.set("Content-Type", "application/json");
+
+  const directory = resolveOpencodeDirectory(workspace);
+  if (directory) {
+    headers.set("x-opencode-directory", directory);
+  }
+
+  const auth = buildOpencodeAuthHeader(workspace);
+  if (auth) {
+    headers.set("Authorization", auth);
+  }
+
+  const response = await fetch(url.toString(), {
+    method: init.method,
+    headers,
+    body: init.body === undefined ? undefined : JSON.stringify(init.body),
+  });
+
+  const text = await response.text();
+  let json: any = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+  if (!response.ok) {
+    throw new ApiError(502, "opencode_request_failed", "OpenCode request failed", {
+      status: response.status,
+      body: json ?? text,
+      path,
+    });
+  }
+  return json;
 }
 
 function buildOwpenbotProxyUrl(baseUrl: string, path: string, search: string) {
@@ -635,6 +723,119 @@ function resolveInboxDir(workspaceRoot: string): string {
 
 function resolveOutboxDir(workspaceRoot: string): string {
   return join(workspaceRoot, ".opencode", "openwork", "outbox");
+}
+
+function resolveAgentLabDir(workspaceRoot: string): string {
+  return join(workspaceRoot, ".opencode", "openwork", "agentlab");
+}
+
+function resolveAgentLabAutomationsPath(workspaceRoot: string): string {
+  return join(resolveAgentLabDir(workspaceRoot), "automations.json");
+}
+
+function resolveAgentLabLogsDir(workspaceRoot: string): string {
+  return join(resolveAgentLabDir(workspaceRoot), "logs");
+}
+
+function clampInt(value: unknown, options: { min: number; max: number; name: string }): number {
+  const num = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(num)) {
+    throw new ApiError(400, "invalid_payload", `${options.name} must be a number`);
+  }
+  const int = Math.trunc(num);
+  if (int < options.min || int > options.max) {
+    throw new ApiError(400, "invalid_payload", `${options.name} must be between ${options.min} and ${options.max}`);
+  }
+  return int;
+}
+
+function parseAgentLabSchedule(value: unknown): AgentLabSchedule {
+  if (!value || typeof value !== "object") {
+    throw new ApiError(400, "invalid_payload", "schedule is required");
+  }
+  const schedule = value as Record<string, unknown>;
+  const kind = typeof schedule.kind === "string" ? schedule.kind.trim() : "";
+  if (kind === "interval") {
+    const seconds = clampInt(schedule.seconds, { min: 60, max: 7 * 24 * 60 * 60, name: "schedule.seconds" });
+    return { kind: "interval", seconds };
+  }
+  if (kind === "daily") {
+    const hour = clampInt(schedule.hour, { min: 0, max: 23, name: "schedule.hour" });
+    const minute = clampInt(schedule.minute, { min: 0, max: 59, name: "schedule.minute" });
+    return { kind: "daily", hour, minute };
+  }
+  if (kind === "weekly") {
+    const weekday = clampInt(schedule.weekday, { min: 1, max: 7, name: "schedule.weekday" });
+    const hour = clampInt(schedule.hour, { min: 0, max: 23, name: "schedule.hour" });
+    const minute = clampInt(schedule.minute, { min: 0, max: 59, name: "schedule.minute" });
+    return { kind: "weekly", weekday, hour, minute };
+  }
+  throw new ApiError(400, "invalid_payload", "schedule.kind must be interval, daily, or weekly");
+}
+
+function validateAgentLabAutomationId(value: unknown): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) {
+    throw new ApiError(400, "invalid_payload", "automation id is required");
+  }
+  if (raw.length > 80) {
+    throw new ApiError(400, "invalid_payload", "automation id is too long");
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(raw)) {
+    throw new ApiError(400, "invalid_payload", "automation id must match /^[a-zA-Z0-9_-]+$/");
+  }
+  return raw;
+}
+
+async function readAgentLabAutomations(workspaceRoot: string): Promise<AgentLabAutomationStore> {
+  const path = resolveAgentLabAutomationsPath(workspaceRoot);
+  if (!(await exists(path))) {
+    return { schemaVersion: 1, updatedAt: Date.now(), items: [] };
+  }
+  try {
+    const raw = await readFile(path, "utf8");
+    const parsed = JSON.parse(raw) as Partial<AgentLabAutomationStore>;
+    const items = Array.isArray(parsed.items) ? parsed.items : [];
+    const normalized: AgentLabAutomation[] = [];
+    for (const item of items) {
+      const record = item as Partial<AgentLabAutomation>;
+      const id = typeof record.id === "string" ? record.id.trim() : "";
+      const name = typeof record.name === "string" ? record.name.trim() : "";
+      const prompt = typeof record.prompt === "string" ? record.prompt : "";
+      const enabled = typeof record.enabled === "boolean" ? record.enabled : true;
+      if (!id || !name || !prompt) continue;
+      let schedule: AgentLabSchedule;
+      try {
+        schedule = parseAgentLabSchedule(record.schedule);
+      } catch {
+        continue;
+      }
+      normalized.push({
+        id,
+        name,
+        enabled,
+        schedule,
+        prompt,
+        createdAt: typeof record.createdAt === "number" ? record.createdAt : Date.now(),
+        updatedAt: typeof record.updatedAt === "number" ? record.updatedAt : undefined,
+        lastRunAt: typeof record.lastRunAt === "number" ? record.lastRunAt : undefined,
+        lastRunSessionId: typeof record.lastRunSessionId === "string" ? record.lastRunSessionId : undefined,
+      });
+    }
+    return {
+      schemaVersion: typeof parsed.schemaVersion === "number" ? parsed.schemaVersion : 1,
+      updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now(),
+      items: normalized,
+    };
+  } catch {
+    throw new ApiError(422, "invalid_json", "Failed to parse Agent Lab automations");
+  }
+}
+
+async function writeAgentLabAutomations(workspaceRoot: string, store: AgentLabAutomationStore): Promise<void> {
+  const path = resolveAgentLabAutomationsPath(workspaceRoot);
+  await ensureDir(dirname(path));
+  await writeFile(path, JSON.stringify({ ...store, updatedAt: Date.now() }, null, 2) + "\n", "utf8");
 }
 
 function normalizeWorkspaceRelativePath(input: string, options: { allowSubdirs: boolean }): string {
@@ -1191,7 +1392,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
     headers.set("Content-Type", "application/octet-stream");
     headers.set("Content-Length", String(info.size));
     headers.set("Content-Disposition", `attachment; filename="${basename(relativePath)}"`);
-    return new Response(Bun.file(absPath), { status: 200, headers });
+    return new Response((Bun as any).file(absPath), { status: 200, headers });
   });
 
   addRoute(routes, "GET", "/workspace/:id/plugins", "client", async (ctx) => {
@@ -1322,6 +1523,41 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
       path: result.path,
     });
     return jsonResponse({ name, path: result.path, description: description ?? "", scope: "project" });
+  });
+
+  addRoute(routes, "DELETE", "/workspace/:id/skills/:name", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const name = String(ctx.params.name ?? "").trim();
+    if (!name) {
+      throw new ApiError(400, "invalid_skill_name", "Skill name is required");
+    }
+
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "skills.delete",
+      summary: `Delete skill ${name}`,
+      paths: [join(workspace.path, ".opencode", "skills", name)],
+    });
+
+    const result = await deleteSkill(workspace.path, name);
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "skills.delete",
+      target: result.path,
+      summary: `Deleted skill ${name}`,
+      timestamp: Date.now(),
+    });
+    emitReloadEvent(ctx.reloadEvents, workspace, "skills", {
+      type: "skill",
+      name,
+      action: "removed",
+      path: result.path,
+    });
+    return jsonResponse({ ok: true, name, path: result.path });
   });
 
   addRoute(routes, "GET", "/workspace/:id/mcp", "client", async (ctx) => {
@@ -1477,6 +1713,196 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
       path: join(workspace.path, ".opencode", "commands", `${sanitizeCommandName(name)}.md`),
     });
     return jsonResponse({ ok: true });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/agentlab/automations", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const store = await readAgentLabAutomations(workspace.path);
+    return jsonResponse({ items: store.items, updatedAt: store.updatedAt });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/agentlab/automations", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    const enabled = typeof body.enabled === "boolean" ? body.enabled : true;
+    if (!name) {
+      throw new ApiError(400, "invalid_payload", "name is required");
+    }
+    if (!prompt) {
+      throw new ApiError(400, "invalid_payload", "prompt is required");
+    }
+
+    const schedule = parseAgentLabSchedule(body.schedule);
+    const id = body.id ? validateAgentLabAutomationId(body.id) : `agentlab_${shortId().replace(/-/g, "")}`;
+
+    const path = resolveAgentLabAutomationsPath(workspace.path);
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "agentlab.automations.upsert",
+      summary: `Upsert automation ${name}`,
+      paths: [path],
+    });
+
+    const store = await readAgentLabAutomations(workspace.path);
+    const now = Date.now();
+    const existingIndex = store.items.findIndex((item) => item.id === id);
+    if (existingIndex !== -1) {
+      const prev = store.items[existingIndex];
+      store.items[existingIndex] = {
+        ...prev,
+        id,
+        name,
+        enabled,
+        schedule,
+        prompt,
+        updatedAt: now,
+      };
+    } else {
+      store.items.unshift({
+        id,
+        name,
+        enabled,
+        schedule,
+        prompt,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    await writeAgentLabAutomations(workspace.path, store);
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "agentlab.automations.upsert",
+      target: path,
+      summary: `Upserted automation ${name}`,
+      timestamp: now,
+    });
+
+    const next = await readAgentLabAutomations(workspace.path);
+    return jsonResponse({ items: next.items, updatedAt: next.updatedAt }, 201);
+  });
+
+  addRoute(routes, "DELETE", "/workspace/:id/agentlab/automations/:automationId", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const automationId = validateAgentLabAutomationId(ctx.params.automationId);
+
+    const path = resolveAgentLabAutomationsPath(workspace.path);
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "agentlab.automations.delete",
+      summary: `Delete automation ${automationId}`,
+      paths: [path],
+    });
+
+    const store = await readAgentLabAutomations(workspace.path);
+    const before = store.items.length;
+    store.items = store.items.filter((item) => item.id !== automationId);
+    if (store.items.length === before) {
+      throw new ApiError(404, "automation_not_found", "Automation not found");
+    }
+    await writeAgentLabAutomations(workspace.path, store);
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "agentlab.automations.delete",
+      target: path,
+      summary: `Deleted automation ${automationId}`,
+      timestamp: Date.now(),
+    });
+    return jsonResponse({ ok: true });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/agentlab/automations/:automationId/run", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const automationId = validateAgentLabAutomationId(ctx.params.automationId);
+
+    const store = await readAgentLabAutomations(workspace.path);
+    const automation = store.items.find((item) => item.id === automationId);
+    if (!automation) {
+      throw new ApiError(404, "automation_not_found", "Automation not found");
+    }
+
+    const now = Date.now();
+    const created = await fetchOpencodeJson(workspace, "/session", {
+      method: "POST",
+      body: { title: `Automation: ${automation.name}` },
+    });
+    const sessionId = typeof created?.id === "string" ? created.id : String(created?.id ?? "");
+    if (!sessionId.trim()) {
+      throw new ApiError(502, "opencode_failed", "OpenCode session did not return an id");
+    }
+
+    await fetchOpencodeJson(workspace, `/session/${encodeURIComponent(sessionId)}/prompt_async`, {
+      method: "POST",
+      body: {
+        parts: [{ type: "text", text: automation.prompt }],
+      },
+    });
+
+    automation.lastRunAt = now;
+    automation.lastRunSessionId = sessionId;
+    automation.updatedAt = now;
+    if (!config.readOnly) {
+      await writeAgentLabAutomations(workspace.path, store);
+    }
+
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "agentlab.automations.run",
+      target: resolveAgentLabAutomationsPath(workspace.path),
+      summary: `Ran automation ${automation.name}`,
+      timestamp: now,
+    });
+
+    return jsonResponse({ ok: true, automationId, sessionId, ranAt: now });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/agentlab/automations/logs", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const logsDir = resolveAgentLabLogsDir(workspace.path);
+    if (!(await exists(logsDir))) {
+      return jsonResponse({ items: [] });
+    }
+    const entries = await readdir(logsDir, { withFileTypes: true });
+    const items: Array<{ id: string; path: string; size: number; updatedAt: number }> = [];
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      if (!entry.name.endsWith(".log")) continue;
+      const id = entry.name.slice(0, -4);
+      const abs = join(logsDir, entry.name);
+      try {
+        const info = await stat(abs);
+        items.push({ id, path: entry.name, size: info.size, updatedAt: info.mtimeMs });
+      } catch {
+        // ignore
+      }
+    }
+    items.sort((a, b) => b.updatedAt - a.updatedAt);
+    return jsonResponse({ items });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/agentlab/automations/logs/:automationId", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const automationId = validateAgentLabAutomationId(ctx.params.automationId);
+    const logsDir = resolveAgentLabLogsDir(workspace.path);
+    const abs = join(logsDir, `${automationId}.log`);
+    if (!(await exists(abs))) {
+      throw new ApiError(404, "log_not_found", "Log not found");
+    }
+    const content = await readFile(abs, "utf8");
+    return jsonResponse({ id: automationId, content });
   });
 
   addRoute(routes, "GET", "/workspace/:id/scheduler/jobs", "client", async (ctx) => {

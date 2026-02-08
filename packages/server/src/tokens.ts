@@ -50,7 +50,14 @@ async function readTokenStore(path: string): Promise<TokenStoreFile> {
           const createdAt = typeof record.createdAt === "number" ? record.createdAt : Date.now();
           const label = typeof record.label === "string" ? record.label : undefined;
           if (!id || !hash || !scope) return null;
-          return { id, hash, scope, createdAt, label } satisfies TokenRecord;
+          const parsedRecord: TokenRecord = {
+            id,
+            hash,
+            scope,
+            createdAt,
+            ...(label ? { label } : {}),
+          };
+          return parsedRecord;
         })
         .filter((token): token is TokenRecord => Boolean(token))
       : [];
