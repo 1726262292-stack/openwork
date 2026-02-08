@@ -1539,9 +1539,20 @@ export default function App() {
 
     // For local workspaces, avoid thrashing UI with errors if the engine is offline.
     if (!config.baseUrl) {
-      wsDebug("sidebar:skip", { id, reason: "no-baseUrl" });
-      setSidebarSessionStatusByWorkspaceId((prev) => ({ ...prev, [id]: "idle" }));
-      setSidebarSessionErrorByWorkspaceId((prev) => ({ ...prev, [id]: null }));
+      let changed = false;
+      setSidebarSessionStatusByWorkspaceId((prev) => {
+        if (prev[id] === "idle") return prev;
+        changed = true;
+        return { ...prev, [id]: "idle" };
+      });
+      setSidebarSessionErrorByWorkspaceId((prev) => {
+        if ((prev[id] ?? null) === null) return prev;
+        changed = true;
+        return { ...prev, [id]: null };
+      });
+      if (changed) {
+        wsDebug("sidebar:skip", { id, reason: "no-baseUrl" });
+      }
       return;
     }
 
