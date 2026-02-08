@@ -92,7 +92,6 @@ export function createWorkspaceStore(options: {
   setSelectedSessionId: (value: string | null) => void;
   setMessages: (value: any[]) => void;
   setTodos: (value: any[]) => void;
-  clearSessionCaches: () => void;
   setPendingPermissions: (value: any[]) => void;
   setSessionStatusById: (value: Record<string, string>) => void;
   defaultModel: () => any;
@@ -792,7 +791,8 @@ export function createWorkspaceStore(options: {
         engineRunning: Boolean(engine()?.running),
       });
       options.setSelectedSessionId(null);
-      options.clearSessionCaches();
+      options.setMessages([]);
+      options.setTodos([]);
       options.setPendingPermissions([]);
       options.setSessionStatusById({});
 
@@ -1060,7 +1060,8 @@ export function createWorkspaceStore(options: {
       }
 
       options.setSelectedSessionId(null);
-      options.clearSessionCaches();
+      options.setMessages([]);
+      options.setTodos([]);
       options.setPendingPermissions([]);
       options.setSessionStatusById({});
 
@@ -1763,7 +1764,8 @@ export function createWorkspaceStore(options: {
       options.setClient(null);
       options.setConnectedVersion(null);
       options.setSelectedSessionId(null);
-      options.clearSessionCaches();
+      options.setMessages([]);
+      options.setTodos([]);
       options.setPendingPermissions([]);
       options.setSessionStatusById({});
       options.setSseConnected(false);

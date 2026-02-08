@@ -663,7 +663,6 @@ export default function App() {
     setSessionStatusById,
     setMessages,
     setTodos,
-    clearSessionCaches,
     setPendingPermissions,
   } = sessionStore;
 
@@ -1424,7 +1423,6 @@ export default function App() {
     setSelectedSessionId,
     setMessages,
     setTodos,
-    clearSessionCaches,
     setPendingPermissions,
     setSessionStatusById,
     defaultModel,
