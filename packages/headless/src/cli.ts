@@ -4048,7 +4048,6 @@ async function runStart(args: ParsedArgs) {
   const openworkPort = await resolvePort(
     readNumber(args.flags, "openwork-port", undefined, "OPENWORK_PORT"),
     "127.0.0.1",
-    DEFAULT_OPENWORK_PORT,
   );
   // Always choose a free owpenbot health port by default (avoid conflicts with
   // other local processes using 3005).
@@ -4512,6 +4511,72 @@ async function runStart(args: ParsedArgs) {
       logger.info("Healthy", { url: opencodeBaseUrl }, "opencode");
       tui?.updateService("opencode", { status: "healthy" });
 
+      let owpenbotChild: ChildProcess | null = null;
+      let owpenbotReady = false;
+      if (owpenbotEnabled) {
+        if (!owpenbotBinary) {
+          throw new Error("Owpenbot binary missing.");
+        }
+        owpenbotActualVersion = await verifyOwpenbotVersion(owpenbotBinary);
+        logVerbose(`owpenbot version: ${owpenbotActualVersion ?? "unknown"}`);
+
+        try {
+          owpenbotChild = await startOwpenbot({
+            bin: owpenbotBinary.bin,
+            workspace: resolvedWorkspace,
+            opencodeUrl: opencodeConnectUrl,
+            opencodeUsername,
+            opencodePassword,
+            owpenbotHealthPort,
+            owpenbotDataDir: owpenbotDataDir ?? undefined,
+            logger,
+            runId,
+            logFormat,
+          });
+          children.push({ name: "owpenbot", child: owpenbotChild });
+          tui?.updateService("owpenbot", {
+            status: "running",
+            pid: owpenbotChild.pid ?? undefined,
+            port: owpenbotHealthPort,
+          });
+          logger.info("Process spawned", { pid: owpenbotChild.pid ?? 0 }, "owpenbot");
+          owpenbotChild.on("exit", (code, signal) => {
+            if (owpenbotRequired) {
+              handleExit("owpenbot", code, signal);
+              return;
+            }
+            const reason = code !== null ? `code ${code}` : signal ? `signal ${signal}` : "unknown";
+            tui?.updateService("owpenbot", { status: "stopped", message: reason });
+            logger.warn("Process exited, continuing without owpenbot", { reason, code, signal }, "owpenbot");
+          });
+          owpenbotChild.on("error", (error) => handleSpawnError("owpenbot", error));
+
+          const healthBaseUrl = `http://127.0.0.1:${owpenbotHealthPort}`;
+          logger.info("Waiting for health", { url: healthBaseUrl }, "owpenbot");
+          const health = await waitForOwpenbotHealthy(healthBaseUrl, 10_000, 400);
+          tui?.setOwpenbotHealth(health);
+          tui?.updateService("owpenbot", { status: health.ok ? "healthy" : "running" });
+          logger.info("Healthy", { url: healthBaseUrl, ok: health.ok }, "owpenbot");
+          owpenbotReady = true;
+        } catch (error) {
+          if (owpenbotRequired) {
+            throw error;
+          }
+          const message = error instanceof Error ? error.message : String(error);
+          logger.warn("Owpenbot failed to start, continuing without it", { error: message }, "owpenbot");
+          tui?.updateService("owpenbot", { status: "stopped", message });
+          if (owpenbotChild) {
+            try {
+              owpenbotChild.kill();
+            } catch {
+              // ignore
+            }
+          }
+          owpenbotChild = null;
+          owpenbotReady = false;
+        }
+      }
+
       const openworkChild = await startOpenworkServer({
         bin: openworkServerBinary.bin,
         host: openworkHost,
@@ -4527,8 +4592,8 @@ async function runStart(args: ParsedArgs) {
         opencodeDirectory: resolvedWorkspace,
         opencodeUsername,
         opencodePassword,
-        owpenbotHealthPort: owpenbotEnabled ? owpenbotHealthPort : undefined,
-        owpenbotDataDir: owpenbotEnabled ? (owpenbotDataDir ?? undefined) : undefined,
+        owpenbotHealthPort: owpenbotReady ? owpenbotHealthPort : undefined,
+        owpenbotDataDir: owpenbotReady ? (owpenbotDataDir ?? undefined) : undefined,
         logger,
         runId,
         logFormat,
@@ -4560,6 +4625,19 @@ async function runStart(args: ParsedArgs) {
         expectedOpencodePassword: opencodePassword,
       });
       logVerbose(`openwork-server version: ${openworkActualVersion ?? "unknown"}`);
+
+      if (owpenbotReady && !owpenbotHealthInterval) {
+        owpenbotHealthInterval = setInterval(() => {
+          fetchOwpenbotHealthViaOpenwork(openworkBaseUrl, openworkToken)
+            .then((health) => {
+              tui?.setOwpenbotHealth(health);
+              if (health.ok) {
+                tui?.updateService("owpenbot", { status: "healthy" });
+              }
+            })
+            .catch(() => undefined);
+        }, 15_000);
+      }
     }
 
     if (owpenbotEnabled) {
@@ -4591,63 +4669,8 @@ async function runStart(args: ParsedArgs) {
           }, 15_000);
         }
       } else {
-        if (!owpenbotBinary) {
-          throw new Error("Owpenbot binary missing.");
-        }
-        owpenbotActualVersion = await verifyOwpenbotVersion(owpenbotBinary);
-        logVerbose(`owpenbot version: ${owpenbotActualVersion ?? "unknown"}`);
-        const owpenbotChild = await startOwpenbot({
-          bin: owpenbotBinary.bin,
-          workspace: resolvedWorkspace,
-          opencodeUrl: opencodeConnectUrl,
-          opencodeUsername,
-          opencodePassword,
-          owpenbotHealthPort,
-          owpenbotDataDir: owpenbotDataDir ?? undefined,
-          logger,
-          runId,
-          logFormat,
-        });
-        children.push({ name: "owpenbot", child: owpenbotChild });
-          tui?.updateService("owpenbot", {
-            status: "running",
-            pid: owpenbotChild.pid ?? undefined,
-            port: owpenbotHealthPort,
-          });
-        logger.info("Process spawned", { pid: owpenbotChild.pid ?? 0 }, "owpenbot");
-        try {
-          const url = `${openworkBaseUrl.replace(/\/$/, "")}/owpenbot/health`;
-          logger.info("Waiting for health", { url }, "owpenbot");
-          const health = await waitForOwpenbotHealthyViaOpenwork(openworkBaseUrl, openworkToken);
-          tui?.setOwpenbotHealth(health);
-          tui?.updateService("owpenbot", { status: health.ok ? "healthy" : "running" });
-          logger.info("Healthy", { url, ok: health.ok }, "owpenbot");
-        } catch (error) {
-          logger.warn("Owpenbot health check failed", { error: String(error) }, "owpenbot");
-          tui?.updateService("owpenbot", { status: "running", message: String(error) });
-        }
-        if (!owpenbotHealthInterval) {
-          owpenbotHealthInterval = setInterval(() => {
-            fetchOwpenbotHealthViaOpenwork(openworkBaseUrl, openworkToken)
-              .then((health) => {
-                tui?.setOwpenbotHealth(health);
-                if (health.ok) {
-                  tui?.updateService("owpenbot", { status: "healthy" });
-                }
-              })
-              .catch(() => undefined);
-          }, 15_000);
-        }
-        owpenbotChild.on("exit", (code, signal) => {
-          if (owpenbotRequired) {
-            handleExit("owpenbot", code, signal);
-            return;
-          }
-          const reason = code !== null ? `code ${code}` : signal ? `signal ${signal}` : "unknown";
-          tui?.updateService("owpenbot", { status: "stopped", message: reason });
-          logger.warn("Process exited, continuing without owpenbot", { reason, code, signal }, "owpenbot");
-        });
-        owpenbotChild.on("error", (error) => handleSpawnError("owpenbot", error));
+        // In host mode, owpenbot is started before openwork-server so we can
+        // confirm health before wiring the proxy.
       }
     }
 

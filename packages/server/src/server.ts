@@ -589,12 +589,22 @@ async function proxyOwpenbotRequest(input: {
 
   const method = input.request.method.toUpperCase();
   const body = method === "GET" || method === "HEAD" ? undefined : input.request.body;
-  const response = await fetch(targetUrl, {
-    method,
-    headers,
-    body,
-  });
-  return response;
+  try {
+    const response = await fetch(targetUrl, {
+      method,
+      headers,
+      body,
+    });
+    return response;
+  } catch (error) {
+    const port = parseInteger(process.env.OWPENBOT_HEALTH_PORT);
+    throw new ApiError(503, "owpenbot_unreachable", "Owpenbot is not reachable on this host", {
+      baseUrl,
+      port,
+      targetUrl,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function jsonResponse(data: unknown, status = 200) {
