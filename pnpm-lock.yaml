@@ -110,11 +110,11 @@ importers:
         specifier: 0.1.77
         version: 0.1.77(solid-js@1.9.9)(stage-js@1.0.0-alpha.17)(typescript@5.9.3)(web-tree-sitter@0.25.10)
       openwork-server:
-        specifier: 0.1.2
-        version: 0.1.2
+        specifier: 0.11.38
+        version: link:../server
       owpenwork:
-        specifier: 0.1.19
-        version: 0.1.19(jimp@1.6.0)(sharp@0.34.5)
+        specifier: 0.11.38
+        version: link:../owpenbot
       solid-js:
         specifier: 1.9.9
         version: 1.9.9
@@ -2295,14 +2295,6 @@ packages:
   on-exit-leak-free@2.1.2:
     resolution: {integrity: sha512-0eJJY6hXLGf1udHwfNftBqH+g73EU4B504nZeKpz1sYRKafAghwxEJunB2O7rDZkL4PGfsMVnTXZ2EjibbqcsA==}
     engines: {node: '>=14.0.0'}
-
-  openwork-server@0.1.2:
-    resolution: {integrity: sha512-xN3iWCzr2crkdwwjJxFDBaToBsFxMlIyB1VBBLOdjvA3y7jfXwVi8R/rGWZ19Sflgm7yS5uchBmqO4oMZ4IYfA==}
-    hasBin: true
-
-  owpenwork@0.1.19:
-    resolution: {integrity: sha512-s/K0M82zq+nyhqyv0T8mYM8fMkFAN9H7yLDut9bwaXUtX2EzvSC0wqVjJaRLhXDq9CzSJ339LVy6kXPBdqfi0A==}
-    hasBin: true
 
   p-finally@1.0.0:
     resolution: {integrity: sha512-LICb2p9CB7FS+0eR1oqWnHhp0FljGLZCWBE9aix0Uye9W8LTQPwMTYVGWQWIw9RdQiDg4+epXQODwIYJtSJaow==}
@@ -4822,31 +4814,6 @@ snapshots:
   omggif@1.0.10: {}
 
   on-exit-leak-free@2.1.2: {}
-
-  openwork-server@0.1.2:
-    dependencies:
-      jsonc-parser: 3.3.1
-      minimatch: 10.1.1
-      yaml: 2.8.2
-
-  owpenwork@0.1.19(jimp@1.6.0)(sharp@0.34.5):
-    dependencies:
-      '@opencode-ai/sdk': 1.1.39
-      '@whiskeysockets/baileys': 7.0.0-rc.9(jimp@1.6.0)(sharp@0.34.5)
-      commander: 12.1.0
-      dotenv: 16.6.1
-      grammy: 1.39.3
-      pino: 9.14.0
-      qrcode-terminal: 0.12.0
-    transitivePeerDependencies:
-      - audio-decode
-      - bufferutil
-      - encoding
-      - jimp
-      - link-preview-js
-      - sharp
-      - supports-color
-      - utf-8-validate
 
   p-finally@1.0.0: {}
 
