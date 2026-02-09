@@ -351,12 +351,17 @@ if (!existingOpencodeVersion && opencodeCandidatePath) {
       : null;
 }
 
-let normalizedOpencodeVersion = normalizeVersion(opencodeVersion);
-if (!normalizedOpencodeVersion && existingOpencodeVersion) {
-  normalizedOpencodeVersion = normalizeVersion(existingOpencodeVersion);
-}
+// Prefer an explicitly pinned version. Otherwise, follow latest.
+const pinnedOpencodeVersion = normalizeVersion(opencodeVersion);
+let normalizedOpencodeVersion = pinnedOpencodeVersion;
+
 if (!normalizedOpencodeVersion) {
   normalizedOpencodeVersion = await fetchLatestOpencodeVersion();
+}
+
+// If GitHub is unreachable, fall back to whatever we already have.
+if (!normalizedOpencodeVersion && existingOpencodeVersion) {
+  normalizedOpencodeVersion = normalizeVersion(existingOpencodeVersion);
 }
 
 if (!normalizedOpencodeVersion) {
