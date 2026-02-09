@@ -4773,6 +4773,10 @@ export default function App() {
         onConfirm={(preset, folder) =>
           workspaceStore.createWorkspaceFlow(preset, folder)
         }
+        onConfirmWorker={(preset, folder) =>
+          workspaceStore.createWorkerFlow(preset, folder)
+        }
+        workerLabel="Create worker"
         submitting={busy() && busyLabel() === "status.creating_workspace"}
       />
 

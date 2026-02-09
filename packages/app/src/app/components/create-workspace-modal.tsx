@@ -9,6 +9,7 @@ export default function CreateWorkspaceModal(props: {
   open: boolean;
   onClose: () => void;
   onConfirm: (preset: "starter" | "automation" | "minimal", folder: string | null) => void;
+  onConfirmWorker?: (preset: "starter" | "automation" | "minimal", folder: string | null) => void;
   onPickFolder: () => Promise<string | null>;
   submitting?: boolean;
   inline?: boolean;
@@ -16,6 +17,7 @@ export default function CreateWorkspaceModal(props: {
   title?: string;
   subtitle?: string;
   confirmLabel?: string;
+  workerLabel?: string;
 }) {
   let pickFolderRef: HTMLButtonElement | undefined;
   const translate = (key: string) => t(key, currentLocale());
@@ -74,6 +76,7 @@ export default function CreateWorkspaceModal(props: {
   const title = () => props.title ?? translate("dashboard.create_workspace_title");
   const subtitle = () => props.subtitle ?? translate("dashboard.create_workspace_subtitle");
   const confirmLabel = () => props.confirmLabel ?? translate("dashboard.create_workspace_confirm");
+  const workerLabel = () => props.workerLabel ?? "Create worker";
   const isInline = () => props.inline ?? false;
   const submitting = () => props.submitting ?? false;
 
@@ -181,6 +184,16 @@ export default function CreateWorkspaceModal(props: {
         <Show when={showClose()}>
           <Button variant="ghost" onClick={props.onClose} disabled={submitting()}>
               {translate("common.cancel")}
+          </Button>
+        </Show>
+        <Show when={props.onConfirmWorker}>
+          <Button
+            variant="outline"
+            onClick={() => props.onConfirmWorker?.(preset(), selectedFolder())}
+            disabled={!selectedFolder() || submitting()}
+            title={!selectedFolder() ? translate("dashboard.choose_folder_continue") : undefined}
+          >
+            {workerLabel()}
           </Button>
         </Show>
         <Button

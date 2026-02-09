@@ -352,6 +352,19 @@ export async function openwrkInstanceDispose(workspacePath: string): Promise<boo
   return invoke<boolean>("openwrk_instance_dispose", { workspacePath });
 }
 
+export type OpenwrkDetachedHost = {
+  openworkUrl: string;
+  token: string;
+  hostToken: string;
+  port: number;
+};
+
+export async function openwrkStartDetached(input: { workspacePath: string }): Promise<OpenwrkDetachedHost> {
+  return invoke<OpenwrkDetachedHost>("openwrk_start_detached", {
+    workspacePath: input.workspacePath,
+  });
+}
+
 export async function openworkServerInfo(): Promise<OpenworkServerInfo> {
   return invoke<OpenworkServerInfo>("openwork_server_info");
 }

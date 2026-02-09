@@ -37,6 +37,7 @@ import {
   engineStart,
   engineStop,
   openwrkInstanceDispose,
+  openwrkStartDetached,
   openwrkWorkspaceActivate,
   pickFile,
   pickDirectory,
@@ -1143,6 +1144,68 @@ export function createWorkspaceStore(options: {
       options.setTab("scheduled");
       options.setView("dashboard");
       markOnboardingComplete();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : safeStringify(e);
+      options.setError(addOpencodeCacheHint(message));
+    } finally {
+      options.setBusy(false);
+      options.setBusyLabel(null);
+      options.setBusyStartedAt(null);
+    }
+  }
+
+  async function createWorkerFlow(preset: WorkspacePreset, folder: string | null) {
+    if (!isTauriRuntime()) {
+      options.setError(t("app.error.tauri_required", currentLocale()));
+      return;
+    }
+
+    if (!folder) {
+      options.setError(t("app.error.choose_folder", currentLocale()));
+      return;
+    }
+
+    options.setBusy(true);
+    options.setBusyLabel("status.creating_workspace");
+    options.setBusyStartedAt(Date.now());
+    options.setError(null);
+
+    try {
+      const resolvedFolder = await resolveWorkspacePath(folder);
+      if (!resolvedFolder) {
+        options.setError(t("app.error.choose_folder", currentLocale()));
+        return;
+      }
+
+      const name = resolvedFolder.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? "Worker";
+
+      // Ensure the workspace folder has baseline OpenWork/OpenCode files.
+      const created = await workspaceCreate({ folderPath: resolvedFolder, name, preset });
+      setWorkspaces(created.workspaces);
+      syncActiveWorkspaceId(created.activeId);
+
+      // Remove the local workspace entry to avoid duplicate Local+Remote rows.
+      const localId = created.activeId;
+      if (localId) {
+        const forgotten = await workspaceForget(localId);
+        setWorkspaces(forgotten.workspaces);
+        syncActiveWorkspaceId(forgotten.activeId);
+      }
+
+      options.setBusyLabel("Starting host...");
+      const host = await openwrkStartDetached({ workspacePath: resolvedFolder });
+
+      setCreateWorkspaceOpen(false);
+      options.setTab("scheduled");
+      options.setView("dashboard");
+      markOnboardingComplete();
+
+      await createRemoteWorkspaceFlow({
+        openworkHostUrl: host.openworkUrl,
+        openworkToken: host.token,
+        directory: resolvedFolder,
+        displayName: name,
+      });
     } catch (e) {
       const message = e instanceof Error ? e.message : safeStringify(e);
       options.setError(addOpencodeCacheHint(message));
@@ -2270,6 +2333,7 @@ export function createWorkspaceStore(options: {
     testWorkspaceConnection,
     connectToServer,
     createWorkspaceFlow,
+    createWorkerFlow,
     createRemoteWorkspaceFlow,
     updateRemoteWorkspaceFlow,
     updateWorkspaceDisplayName,
