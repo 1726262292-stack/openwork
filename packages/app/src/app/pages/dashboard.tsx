@@ -32,6 +32,7 @@ import ScheduledTasksView from "./scheduled";
 import ConfigView from "./config";
 import SettingsView from "./settings";
 import SkillsView from "./skills";
+import IdentitiesView from "./identities";
 import StatusBar from "../components/status-bar";
 import ProviderAuthModal from "../components/provider-auth-modal";
 import ShareWorkspaceModal from "../components/share-workspace-modal";
@@ -42,6 +43,7 @@ import {
   Cpu,
   History,
   Loader2,
+  MessageCircle,
   MoreHorizontal,
   Plus,
   Settings,
@@ -252,6 +254,8 @@ export default function DashboardView(props: DashboardViewProps) {
         return "Plugins";
       case "mcp":
         return "Apps";
+      case "identities":
+        return "Identities";
       case "config":
         return "Config";
       case "settings":
@@ -1180,6 +1184,18 @@ export default function DashboardView(props: DashboardViewProps) {
               />
             </Match>
 
+            <Match when={props.tab === "identities"}>
+              <IdentitiesView
+                busy={props.busy}
+                openworkServerStatus={props.openworkServerStatus}
+                openworkServerUrl={props.openworkServerUrl}
+                openworkServerSettings={props.openworkServerSettings}
+                openworkServerWorkspaceId={props.openworkServerWorkspaceId}
+                openworkServerHostInfo={props.openworkServerHostInfo}
+                developerMode={props.developerMode}
+              />
+            </Match>
+
             <Match when={props.tab === "config"}>
               <ConfigView
                 busy={props.busy}
@@ -1361,7 +1377,7 @@ export default function DashboardView(props: DashboardViewProps) {
               mcpStatuses={props.mcpStatuses}
             />
           <nav class="md:hidden border-t border-dls-border bg-dls-surface">
-            <div class="mx-auto max-w-5xl px-4 py-3 grid grid-cols-5 gap-2">
+            <div class="mx-auto max-w-5xl px-4 py-3 grid grid-cols-6 gap-2">
               <button
                 class={`flex flex-col items-center gap-1 text-xs ${
                   props.tab === "scheduled" ? "text-gray-12" : "text-gray-10"
@@ -1400,6 +1416,15 @@ export default function DashboardView(props: DashboardViewProps) {
               </button>
               <button
                 class={`flex flex-col items-center gap-1 text-xs ${
+                  props.tab === "identities" ? "text-gray-12" : "text-gray-10"
+                }`}
+                onClick={() => props.setTab("identities")}
+              >
+                <MessageCircle size={18} />
+                IDs
+              </button>
+              <button
+                class={`flex flex-col items-center gap-1 text-xs ${
                   props.tab === "config" ? "text-gray-12" : "text-gray-10"
                 }`}
                 onClick={() => props.setTab("config")}
@@ -1418,6 +1443,7 @@ export default function DashboardView(props: DashboardViewProps) {
           {navItem("skills", "Skills", <Zap size={18} />)}
           {navItem("plugins", "Plugins", <Cpu size={18} />)}
           {navItem("mcp", "Apps", <Box size={18} />)}
+          {navItem("identities", "Identities", <MessageCircle size={18} />)}
           {navItem("config", "Config", <SlidersHorizontal size={18} />)}
         </div>
 

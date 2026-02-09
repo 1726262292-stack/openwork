@@ -32,6 +32,7 @@ import {
   History,
   ListTodo,
   Loader2,
+  MessageCircle,
   Maximize2,
   Minimize2,
   MoreHorizontal,
@@ -1805,6 +1806,21 @@ export default function SessionView(props: SessionViewProps) {
           >
             <Box size={18} />
             Apps
+          </button>
+          <button
+            type="button"
+            class={`w-full h-10 flex items-center gap-3 px-3 rounded-lg text-sm font-medium transition-colors ${
+              showRightSidebarSelection() && props.tab === "identities"
+                ? "bg-dls-active text-dls-text"
+                : "text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
+            }`}
+            onClick={() => {
+              props.setTab("identities");
+              props.setView("dashboard");
+            }}
+          >
+            <MessageCircle size={18} />
+            Identities
           </button>
           <button
             type="button"

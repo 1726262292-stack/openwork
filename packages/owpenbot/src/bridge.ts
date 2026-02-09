@@ -521,6 +521,68 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
             applied: true,
           };
         },
+        getTelegramEnabled: () => Boolean(config.telegramEnabled),
+        setTelegramEnabled: async (enabled: boolean) => {
+          const nextEnabled = Boolean(enabled);
+          const { config: current } = readConfigFile(config.configPath);
+          const next: OwpenbotConfigFile = {
+            ...current,
+            channels: {
+              ...current.channels,
+              telegram: {
+                ...current.channels?.telegram,
+                enabled: nextEnabled,
+              },
+            },
+          };
+          next.version = next.version ?? 1;
+          writeConfigFile(config.configPath, next);
+          config.configFile = next;
+          config.telegramEnabled = nextEnabled;
+
+          const existing = adapters.get("telegram");
+          if (!nextEnabled) {
+            if (existing) {
+              try {
+                await existing.stop();
+              } catch (error) {
+                logger.warn({ error }, "failed to stop existing telegram adapter");
+              }
+              adapters.delete("telegram");
+            }
+            return { enabled: false, applied: true };
+          }
+
+          if (!config.telegramToken) {
+            throw new Error("Telegram bot token is not configured");
+          }
+
+          if (existing) {
+            return { enabled: true, applied: true };
+          }
+
+          const adapter = createTelegramAdapter(config, logger, handleInbound);
+          adapters.set("telegram", adapter);
+
+          const startResult = await startAdapterBounded(adapter, {
+            timeoutMs: 2_500,
+            onError: (error) => {
+              logger.error({ error }, "telegram adapter start failed");
+              adapters.delete("telegram");
+            },
+          });
+
+          if (startResult.status === "timeout") {
+            logger.warn({ timeoutMs: 2_500 }, "telegram adapter start timed out");
+            return { enabled: true, applied: false, starting: true };
+          }
+
+          if (startResult.status === "error") {
+            return { enabled: true, applied: false, error: String(startResult.error) };
+          }
+
+          return { enabled: true, applied: true };
+        },
         getWhatsAppEnabled: () => Boolean(config.whatsappEnabled),
         setWhatsAppEnabled: async (enabled: boolean) => {
           const nextEnabled = Boolean(enabled);

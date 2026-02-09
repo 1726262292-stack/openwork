@@ -113,6 +113,35 @@ function logRequest(input: {
 
 type AuthMode = "none" | "client" | "host";
 
+function normalizeOwpenbotProxyPath(pathname: string): string {
+  const trimmed = pathname.trim();
+  if (!trimmed) return "/owpenbot";
+  if (trimmed === "/owpenbot/") return "/owpenbot";
+  return trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed;
+}
+
+function resolveOwpenbotProxyPolicy(
+  method: string,
+  pathname: string,
+): { auth: AuthMode; requiredScope?: TokenScope } {
+  const normalized = normalizeOwpenbotProxyPath(pathname);
+  const upper = method.trim().toUpperCase();
+
+  if (upper === "GET") {
+    if (normalized === "/owpenbot" || normalized === "/owpenbot/health") {
+      return { auth: "client" };
+    }
+    if (normalized === "/owpenbot/bindings") {
+      return { auth: "client", requiredScope: "collaborator" };
+    }
+    if (normalized === "/owpenbot/config/whatsapp-enabled") {
+      return { auth: "client", requiredScope: "collaborator" };
+    }
+  }
+
+  return { auth: "host" };
+}
+
 function parseWorkspaceMount(pathname: string): { workspaceId: string; restPath: string } | null {
   if (!pathname.startsWith("/w/")) return null;
   const remainder = pathname.slice(3);
@@ -267,15 +296,19 @@ export function startServer(config: ServerConfig) {
       }
 
       if (mount && (mount.restPath === "/owpenbot" || mount.restPath.startsWith("/owpenbot/"))) {
-        const isHealth =
-          request.method === "GET" &&
-          (mount.restPath === "/owpenbot" || mount.restPath === "/owpenbot/" || mount.restPath === "/owpenbot/health");
-        authMode = isHealth ? "client" : "host";
+        const policy = resolveOwpenbotProxyPolicy(request.method, mount.restPath);
+        authMode = policy.auth;
         try {
           if (authMode === "host") {
             await requireHost(request, config, tokens);
           } else {
-            await requireClient(request, config, tokens);
+            const actor = await requireClient(request, config, tokens);
+            if (policy.requiredScope && scopeRank(actor.scope ?? "viewer") < scopeRank(policy.requiredScope)) {
+              throw new ApiError(403, "forbidden", "Insufficient token scope", {
+                required: policy.requiredScope,
+                scope: actor.scope,
+              });
+            }
           }
           proxyService = "owpenbot";
           proxyBaseUrl = resolveOwpenbotBaseUrl();
@@ -326,15 +359,19 @@ export function startServer(config: ServerConfig) {
       }
 
       if (url.pathname === "/owpenbot" || url.pathname.startsWith("/owpenbot/")) {
-        const isHealth =
-          request.method === "GET" &&
-          (url.pathname === "/owpenbot" || url.pathname === "/owpenbot/" || url.pathname === "/owpenbot/health");
-        authMode = isHealth ? "client" : "host";
+        const policy = resolveOwpenbotProxyPolicy(request.method, url.pathname);
+        authMode = policy.auth;
         try {
           if (authMode === "host") {
             await requireHost(request, config, tokens);
           } else {
-            await requireClient(request, config, tokens);
+            const actor = await requireClient(request, config, tokens);
+            if (policy.requiredScope && scopeRank(actor.scope ?? "viewer") < scopeRank(policy.requiredScope)) {
+              throw new ApiError(403, "forbidden", "Insufficient token scope", {
+                required: policy.requiredScope,
+                scope: actor.scope,
+              });
+            }
           }
           proxyService = "owpenbot";
           proxyBaseUrl = resolveOwpenbotBaseUrl();
@@ -1241,6 +1278,64 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
     return jsonResponse(result);
   });
 
+  addRoute(routes, "GET", "/workspace/:id/owpenbot/telegram", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    const info = await readOwpenbotTelegramInfo();
+    return jsonResponse({ ok: true, ...info });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/owpenbot/telegram-enabled", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const enabled = body.enabled === true || body.enabled === "true";
+    const clearToken = body.clearToken === true || body.clearToken === "true";
+    const healthPort = normalizeHealthPort(body.healthPort);
+    const requestHost = ctx.url.hostname;
+
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "owpenbot.telegram.set-enabled",
+      summary: enabled ? "Enable Telegram" : "Disable Telegram",
+      paths: [resolveOwpenbotConfigPath()],
+    });
+
+    await persistOwpenbotTelegramEnabled(enabled, { clearToken: !enabled && clearToken });
+
+    const port = healthPort ?? resolveOwpenbotHealthPort();
+    const apply = await tryPostOwpenbotHealth(
+      "/config/telegram-enabled",
+      { enabled },
+      { port, requestHost, timeoutMs: 3_000 },
+    );
+
+    const response: Record<string, unknown> = {
+      ok: true,
+      persisted: true,
+      enabled,
+      applied: apply.applied,
+    };
+
+    if (!apply.applied) {
+      response.applyError = apply.error ?? "Owpenbot did not apply the update";
+      if (typeof apply.status === "number") response.applyStatus = apply.status;
+    }
+
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "owpenbot.telegram.set-enabled",
+      target: "owpenbot.telegram",
+      summary: enabled ? "Enabled Telegram" : "Disabled Telegram",
+      timestamp: Date.now(),
+    });
+
+    return jsonResponse(response);
+  });
+
   addRoute(routes, "POST", "/workspace/:id/owpenbot/slack-tokens", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -2099,6 +2194,12 @@ type OwpenbotConfigFile = Record<string, unknown> & {
   };
 };
 
+type TelegramBotInfo = {
+  id: number;
+  username?: string;
+  name?: string;
+};
+
 function ensurePlainObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
@@ -2167,6 +2268,71 @@ async function persistOwpenbotTelegramToken(token: string): Promise<void> {
     },
   };
   await writeOwpenbotConfigFile(configPath, next);
+}
+
+async function persistOwpenbotTelegramEnabled(enabled: boolean, options?: { clearToken?: boolean }) {
+  const configPath = resolveOwpenbotConfigPath();
+  const current = await readOwpenbotConfigFile(configPath);
+  const channels = ensurePlainObject(current.channels);
+  const telegram = ensurePlainObject(channels.telegram);
+
+  const nextTelegram: Record<string, unknown> = {
+    ...telegram,
+    enabled,
+  };
+  if (!enabled && options?.clearToken) {
+    delete nextTelegram.token;
+  }
+
+  const next: OwpenbotConfigFile = {
+    ...current,
+    channels: {
+      ...channels,
+      telegram: nextTelegram,
+    },
+  };
+  await writeOwpenbotConfigFile(configPath, next);
+}
+
+async function fetchTelegramBotInfo(token: string): Promise<TelegramBotInfo | null> {
+  const trimmed = token.trim();
+  if (!trimmed) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3_000);
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${trimmed}/getMe`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    const json = (await response.json().catch(() => null)) as any;
+    if (!response.ok || !json?.ok || !json?.result) return null;
+    const result = json.result as Record<string, unknown>;
+    const id = typeof result.id === "number" ? result.id : null;
+    if (id == null) return null;
+    const username = typeof result.username === "string" ? result.username : undefined;
+    const name = typeof result.first_name === "string" ? result.first_name : undefined;
+    return { id, username, name };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readOwpenbotTelegramInfo(): Promise<{
+  configured: boolean;
+  enabled: boolean;
+  bot: TelegramBotInfo | null;
+}> {
+  const configPath = resolveOwpenbotConfigPath();
+  const current = await readOwpenbotConfigFile(configPath);
+  const channels = ensurePlainObject(current.channels);
+  const telegram = ensurePlainObject(channels.telegram);
+  const token = typeof telegram.token === "string" ? telegram.token.trim() : "";
+  const enabled = telegram.enabled === true || telegram.enabled === "true";
+  const configured = Boolean(token);
+  const bot = configured ? await fetchTelegramBotInfo(token) : null;
+  return { configured, enabled: configured ? enabled : false, bot };
 }
 
 async function persistOwpenbotSlackTokens(botToken: string, appToken: string): Promise<void> {
@@ -2301,6 +2467,11 @@ async function updateOwpenbotTelegramToken(
     applied: apply.applied,
     telegram: { configured: true, enabled: true },
   };
+
+  const bot = await fetchTelegramBotInfo(token);
+  if (bot) {
+    (response.telegram as Record<string, unknown>).bot = bot;
+  }
 
   // Prefer owpenbot's response payload when available.
   if (apply.body && typeof apply.body === "object") {

@@ -1335,6 +1335,10 @@ function parseVersion(output: string): string | undefined {
 async function readCliVersion(bin: string, timeoutMs = 4000): Promise<string | undefined> {
   const resolved = resolveBinCommand(bin);
   const child = spawn(resolved.command, [...resolved.prefixArgs, "--version"], {
+    // Avoid picking up a local bunfig.toml preload from the caller's cwd.
+    // (Notably, packages/headless/bunfig.toml preloads @opentui/solid/preload which
+    // breaks running bun-compiled binaries like owpenbot during version checks.)
+    cwd: tmpdir(),
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
@@ -1374,6 +1378,7 @@ async function captureCommandOutput(
 ): Promise<string> {
   const resolved = resolveBinCommand(bin);
   const child = spawn(resolved.command, [...resolved.prefixArgs, ...args], {
+    cwd: tmpdir(),
     stdio: ["ignore", "pipe", "pipe"],
     env: options?.env ?? process.env,
   });
@@ -2119,6 +2124,7 @@ async function startOpenworkServer(options: {
   opencodeUsername?: string;
   opencodePassword?: string;
   owpenbotHealthPort?: number;
+  owpenbotDataDir?: string;
   logger: Logger;
   runId: string;
   logFormat: LogFormat;
@@ -2183,6 +2189,7 @@ async function startOpenworkServer(options: {
         process.env.OTEL_RESOURCE_ATTRIBUTES,
       ),
       ...(options.owpenbotHealthPort ? { OWPENBOT_HEALTH_PORT: String(options.owpenbotHealthPort) } : {}),
+      ...(options.owpenbotDataDir ? { OWPENBOT_DATA_DIR: options.owpenbotDataDir } : {}),
       ...(options.opencodeBaseUrl ? { OPENWORK_OPENCODE_BASE_URL: options.opencodeBaseUrl } : {}),
       ...(options.opencodeDirectory ? { OPENWORK_OPENCODE_DIRECTORY: options.opencodeDirectory } : {}),
       ...(options.opencodeUsername ? { OPENWORK_OPENCODE_USERNAME: options.opencodeUsername } : {}),
@@ -2203,6 +2210,7 @@ async function startOwpenbot(options: {
   opencodeUsername?: string;
   opencodePassword?: string;
   owpenbotHealthPort?: number;
+  owpenbotDataDir?: string;
   logger: Logger;
   runId: string;
   logFormat: LogFormat;
@@ -2233,6 +2241,7 @@ async function startOwpenbot(options: {
       ...(options.opencodeUrl ? { OPENCODE_URL: options.opencodeUrl } : {}),
       OPENCODE_DIRECTORY: options.workspace,
       ...(options.owpenbotHealthPort ? { OWPENBOT_HEALTH_PORT: String(options.owpenbotHealthPort) } : {}),
+      ...(options.owpenbotDataDir ? { OWPENBOT_DATA_DIR: options.owpenbotDataDir } : {}),
       ...(options.opencodeUsername ? { OPENCODE_SERVER_USERNAME: options.opencodeUsername } : {}),
       ...(options.opencodePassword ? { OPENCODE_SERVER_PASSWORD: options.opencodePassword } : {}),
     },
@@ -2248,6 +2257,7 @@ async function owpenbotSupportsOpencodeUrl(bin: string): Promise<boolean> {
   const resolved = resolveBinCommand(bin);
   return new Promise((resolve) => {
     const child = spawn(resolved.command, [...resolved.prefixArgs, "--help"], {
+      cwd: tmpdir(),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -3991,6 +4001,11 @@ async function runStart(args: ParsedArgs) {
     readFlag(args.flags, "sandbox-image") ?? process.env.OPENWRK_SANDBOX_IMAGE ?? "debian:bookworm-slim";
   const sandboxPersistOverride = readFlag(args.flags, "sandbox-persist-dir") ?? process.env.OPENWRK_SANDBOX_PERSIST_DIR;
   const dataDir = resolveRouterDataDir(args.flags);
+  const owpenbotDataDir =
+    sandboxMode === "none" ? join(dataDir, "owpenbot", workspaceIdForLocal(resolvedWorkspace)) : null;
+  if (owpenbotDataDir) {
+    await mkdir(owpenbotDataDir, { recursive: true });
+  }
   const sandboxPersistDir = resolve(
     sandboxPersistOverride?.trim()
       ? sandboxPersistOverride.trim()
@@ -4513,6 +4528,7 @@ async function runStart(args: ParsedArgs) {
         opencodeUsername,
         opencodePassword,
         owpenbotHealthPort: owpenbotEnabled ? owpenbotHealthPort : undefined,
+        owpenbotDataDir: owpenbotEnabled ? (owpenbotDataDir ?? undefined) : undefined,
         logger,
         runId,
         logFormat,
@@ -4587,6 +4603,7 @@ async function runStart(args: ParsedArgs) {
           opencodeUsername,
           opencodePassword,
           owpenbotHealthPort,
+          owpenbotDataDir: owpenbotDataDir ?? undefined,
           logger,
           runId,
           logFormat,

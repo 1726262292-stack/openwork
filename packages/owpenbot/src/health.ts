@@ -31,6 +31,13 @@ export type TelegramTokenResult = {
   error?: string;
 };
 
+export type TelegramEnabledResult = {
+  enabled: boolean;
+  applied?: boolean;
+  starting?: boolean;
+  error?: string;
+};
+
 export type SlackTokensResult = {
   configured: boolean;
   enabled: boolean;
@@ -67,6 +74,8 @@ export type BindingsListResult = {
 
 export type HealthHandlers = {
   setTelegramToken?: (token: string) => Promise<TelegramTokenResult>;
+  getTelegramEnabled?: () => boolean;
+  setTelegramEnabled?: (enabled: boolean) => Promise<TelegramEnabledResult>;
   setSlackTokens?: (tokens: { botToken: string; appToken: string }) => Promise<SlackTokensResult>;
   setGroupsEnabled?: (enabled: boolean) => Promise<GroupsConfigResult>;
   getGroupsEnabled?: () => boolean;
@@ -154,6 +163,51 @@ export function startHealthServer(
           const result = await handlers.setTelegramToken(token);
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: true, telegram: result }));
+          return;
+        } catch (error) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: String(error) }));
+          return;
+        }
+      }
+
+      // GET /config/telegram-enabled - get current telegram enabled setting
+      if (pathname === "/config/telegram-enabled" && req.method === "GET") {
+        if (!handlers.getTelegramEnabled) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "Not supported" }));
+          return;
+        }
+        const enabled = handlers.getTelegramEnabled();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, enabled }));
+        return;
+      }
+
+      // POST /config/telegram-enabled - enable/disable telegram adapter
+      if (pathname === "/config/telegram-enabled" && req.method === "POST") {
+        if (!handlers.setTelegramEnabled) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "Not supported" }));
+          return;
+        }
+
+        let raw = "";
+        for await (const chunk of req) {
+          raw += chunk.toString();
+          if (raw.length > 1024 * 1024) {
+            res.writeHead(413, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: "Payload too large" }));
+            return;
+          }
+        }
+
+        try {
+          const payload = JSON.parse(raw || "{}");
+          const enabled = payload.enabled === true || payload.enabled === "true";
+          const result = await handlers.setTelegramEnabled(enabled);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, ...result }));
           return;
         } catch (error) {
           res.writeHead(500, { "Content-Type": "application/json" });

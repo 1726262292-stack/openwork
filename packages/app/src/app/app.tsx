@@ -4577,6 +4577,7 @@ export default function App() {
     "skills",
     "plugins",
     "mcp",
+    "identities",
     "config",
     "settings",
   ]);

@@ -120,6 +120,74 @@ export type OpenworkOwpenbotSlackResult = {
   };
 };
 
+export type OpenworkOwpenbotTelegramBotInfo = {
+  id: number;
+  username?: string;
+  name?: string;
+};
+
+export type OpenworkOwpenbotTelegramInfo = {
+  ok: boolean;
+  configured: boolean;
+  enabled: boolean;
+  bot: OpenworkOwpenbotTelegramBotInfo | null;
+};
+
+export type OpenworkOwpenbotTelegramEnabledResult = {
+  ok: boolean;
+  persisted?: boolean;
+  enabled: boolean;
+  applied?: boolean;
+  applyError?: string;
+  applyStatus?: number;
+};
+
+export type OpenworkOwpenbotHealthSnapshot = {
+  ok: boolean;
+  opencode: {
+    url: string;
+    healthy: boolean;
+    version?: string;
+  };
+  channels: {
+    telegram: boolean;
+    whatsapp: boolean;
+    slack: boolean;
+  };
+  config: {
+    groupsEnabled: boolean;
+  };
+};
+
+export type OpenworkOwpenbotBindingItem = {
+  channel: string;
+  peerId: string;
+  directory: string;
+  updatedAt?: number;
+};
+
+export type OpenworkOwpenbotBindingsResult = {
+  ok: boolean;
+  items: OpenworkOwpenbotBindingItem[];
+};
+
+export type OpenworkOwpenbotWhatsAppEnabledResult = {
+  ok: boolean;
+  enabled: boolean;
+};
+
+export type OpenworkOwpenbotWhatsAppQrResult = {
+  ok: boolean;
+  qr: string;
+  format?: "raw" | "ascii" | string;
+};
+
+type RawJsonResponse<T> = {
+  ok: boolean;
+  status: number;
+  json: T | null;
+};
+
 export type OpenworkActor = {
   type: "remote" | "host";
   clientId?: string;
@@ -382,6 +450,30 @@ async function requestJson<T>(
   return json as T;
 }
 
+async function requestJsonRaw<T>(
+  baseUrl: string,
+  path: string,
+  options: { method?: string; token?: string; hostToken?: string; body?: unknown } = {},
+): Promise<RawJsonResponse<T>> {
+  const url = `${baseUrl}${path}`;
+  const fetchImpl = resolveFetch();
+  const response = await fetchImpl(url, {
+    method: options.method ?? "GET",
+    headers: buildHeaders(options.token, options.hostToken),
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  const text = await response.text();
+  let json: T | null = null;
+  try {
+    json = text ? (JSON.parse(text) as T) : null;
+  } catch {
+    json = null;
+  }
+
+  return { ok: response.ok, status: response.status, json };
+}
+
 export function createOpenworkServerClient(options: { baseUrl: string; token?: string; hostToken?: string }) {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
   const token = options.token;
@@ -394,6 +486,18 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       requestJson<{ ok: boolean; version: string; uptimeMs: number }>(baseUrl, "/health", { token, hostToken }),
     status: () => requestJson<OpenworkServerDiagnostics>(baseUrl, "/status", { token, hostToken }),
     capabilities: () => requestJson<OpenworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken }),
+    owpenbotHealth: () =>
+      requestJsonRaw<OpenworkOwpenbotHealthSnapshot>(baseUrl, "/owpenbot/health", { token, hostToken }),
+    owpenbotBindings: () =>
+      requestJsonRaw<OpenworkOwpenbotBindingsResult>(baseUrl, "/owpenbot/bindings", { token, hostToken }),
+    owpenbotWhatsAppEnabled: () =>
+      requestJsonRaw<OpenworkOwpenbotWhatsAppEnabledResult>(baseUrl, "/owpenbot/config/whatsapp-enabled", { token, hostToken }),
+    owpenbotWhatsAppQr: (format: "raw" | "ascii" = "ascii") =>
+      requestJsonRaw<OpenworkOwpenbotWhatsAppQrResult>(
+        baseUrl,
+        `/owpenbot/whatsapp/qr?format=${encodeURIComponent(format)}`,
+        { token, hostToken },
+      ),
     listWorkspaces: () => requestJson<OpenworkWorkspaceList>(baseUrl, "/workspaces", { token, hostToken }),
     activateWorkspace: (workspaceId: string) =>
       requestJson<{ activeId: string; workspace: OpenworkWorkspaceInfo }>(
@@ -436,6 +540,27 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
           hostToken,
           method: "POST",
           body: { botToken, appToken, healthPort },
+        },
+      ),
+    getOwpenbotTelegram: (workspaceId: string) =>
+      requestJson<OpenworkOwpenbotTelegramInfo>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/owpenbot/telegram`,
+        { token, hostToken },
+      ),
+    setOwpenbotTelegramEnabled: (
+      workspaceId: string,
+      enabled: boolean,
+      options?: { clearToken?: boolean; healthPort?: number | null },
+    ) =>
+      requestJson<OpenworkOwpenbotTelegramEnabledResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/owpenbot/telegram-enabled`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: { enabled, clearToken: options?.clearToken ?? false, healthPort: options?.healthPort ?? null },
         },
       ),
     patchConfig: (workspaceId: string, payload: { opencode?: Record<string, unknown>; openwork?: Record<string, unknown> }) =>
