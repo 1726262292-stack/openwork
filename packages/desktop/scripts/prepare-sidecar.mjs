@@ -573,7 +573,23 @@ if (shouldBuildOpenwrk) {
     console.error(`Openwrk CLI source not found at ${openwrkCliPath}`);
     process.exit(1);
   }
-  const openwrkArgs = ["build", "--compile", openwrkCliPath, "--outfile", openwrkBuildPath];
+  const openwrkVersionForDefine = (() => {
+    try {
+      const raw = readFileSync(resolve(openwrkDir, "package.json"), "utf8");
+      return String(JSON.parse(raw).version ?? "").trim();
+    } catch {
+      return "";
+    }
+  })();
+  const openwrkArgs = [
+    "build",
+    "--compile",
+    openwrkCliPath,
+    "--define",
+    `__OPENWRK_VERSION__=\"${openwrkVersionForDefine}\"`,
+    "--outfile",
+    openwrkBuildPath,
+  ];
   if (bunTarget) {
     openwrkArgs.push("--target", bunTarget);
   }

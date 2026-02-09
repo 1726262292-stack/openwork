@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID, createHash } from "node:crypto";
 import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile, realpath } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
@@ -71,6 +71,8 @@ type OwpenbotHealthSnapshot = {
 };
 
 const FALLBACK_VERSION = "0.1.0";
+
+declare const __OPENWRK_VERSION__: string | undefined;
 const DEFAULT_OPENWORK_PORT = 8787;
 const DEFAULT_APPROVAL_TIMEOUT = 30000;
 const DEFAULT_OPENCODE_USERNAME = "opencode";
@@ -638,6 +640,9 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 async function resolveCliVersion(): Promise<string> {
+  if (typeof __OPENWRK_VERSION__ === "string" && __OPENWRK_VERSION__.trim()) {
+    return __OPENWRK_VERSION__.trim();
+  }
   const candidates = [
     join(dirname(process.execPath), "..", "package.json"),
     join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"),
@@ -4420,7 +4425,7 @@ async function runStart(args: ParsedArgs) {
       tui?.updateService("opencode", { status: "running", port: SANDBOX_INTERNAL_OPENCODE_PORT });
       tui?.updateService("openwork-server", { status: "running", port: openworkPort });
       if (owpenbotEnabled) {
-        tui?.updateService("owpenbot", { status: "running", port: sandboxMode !== "none" ? undefined : owpenbotHealthPort });
+        tui?.updateService("owpenbot", { status: "running", port: undefined });
       }
 
       if (!detachRequested) {

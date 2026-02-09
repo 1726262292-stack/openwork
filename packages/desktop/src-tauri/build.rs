@@ -1,16 +1,72 @@
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 fn main() {
+    emit_build_info();
     ensure_opencode_sidecar();
     ensure_openwork_server_sidecar();
     ensure_owpenbot_sidecar();
     ensure_openwrk_sidecar();
     tauri_build::build();
+}
+
+fn emit_build_info() {
+    let sha = env::var("OPENWORK_GIT_SHA")
+        .ok()
+        .and_then(|value| {
+            let trimmed = value.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+        .or_else(|| {
+            let output = Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .output()
+                .ok()?;
+            if !output.status.success() {
+                return None;
+            }
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if value.is_empty() {
+                None
+            } else {
+                Some(value)
+            }
+        });
+    if let Some(value) = sha {
+        println!("cargo:rustc-env=OPENWORK_GIT_SHA={}", value);
+    }
+
+    let build_epoch = env::var("SOURCE_DATE_EPOCH")
+        .ok()
+        .and_then(|value| {
+            let trimmed = value.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+        .or_else(|| {
+            // Best-effort fallback; not reproducible, but useful in dev builds.
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_secs();
+            Some(now.to_string())
+        });
+
+    if let Some(value) = build_epoch {
+        println!("cargo:rustc-env=OPENWORK_BUILD_EPOCH={}", value);
+    }
 }
 
 fn ensure_openwrk_sidecar() {

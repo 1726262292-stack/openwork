@@ -18,11 +18,13 @@ import type {
   OpenwrkBinaryInfo,
   OpenwrkStatus,
   OpenworkServerInfo,
+  AppBuildInfo,
   OwpenbotInfo,
   OwpenbotStatus,
   OwpenbotPairingRequest,
 } from "../lib/tauri";
 import {
+  appBuildInfo,
   getOwpenbotStatus,
   getOwpenbotStatusDetailed,
   getOwpenbotQr,
@@ -1128,6 +1130,7 @@ export function OwpenbotSettings(props: {
 }
 
 export default function SettingsView(props: SettingsViewProps) {
+  const [buildInfo, setBuildInfo] = createSignal<AppBuildInfo | null>(null);
   const updateState = () => props.updateStatus?.state ?? "idle";
   const updateNotes = () => props.updateStatus?.notes ?? null;
   const updateVersion = () => props.updateStatus?.version ?? null;
@@ -1528,6 +1531,11 @@ export default function SettingsView(props: SettingsViewProps) {
   };
 
   const appVersionLabel = () => (props.appVersion ? `v${props.appVersion}` : "—");
+  const appCommitLabel = () => {
+    const sha = buildInfo()?.gitSha?.trim();
+    if (!sha) return "—";
+    return sha.length > 12 ? sha.slice(0, 12) : sha;
+  };
   const opencodeVersionLabel = () => {
     const fromOpenwrk = formatOpenwrkBinaryVersion(props.openwrkStatus?.binaries?.opencode ?? null);
     if (fromOpenwrk !== "—") return fromOpenwrk;
@@ -1536,6 +1544,11 @@ export default function SettingsView(props: SettingsViewProps) {
   const openworkServerVersionLabel = () => props.openworkServerDiagnostics?.version ?? "—";
   const owpenbotVersionLabel = () => props.owpenbotInfo?.version ?? "—";
   const openwrkVersionLabel = () => props.openwrkStatus?.cliVersion ?? "—";
+
+  onMount(() => {
+    if (!isTauriRuntime()) return;
+    void appBuildInfo().then((info) => setBuildInfo(info)).catch(() => setBuildInfo(null));
+  });
 
   const formatUptime = (uptimeMs?: number | null) => {
     if (!uptimeMs) return "—";
@@ -2080,15 +2093,16 @@ export default function SettingsView(props: SettingsViewProps) {
                         <div class="text-sm font-medium text-gray-12">Versions</div>
                         <div class="text-xs text-gray-10">Sidecar + desktop build info.</div>
                       </div>
-                      <div class="space-y-1">
-                        <div class="text-[11px] text-gray-7 font-mono truncate">Desktop app: {appVersionLabel()}</div>
-                        <div class="text-[11px] text-gray-7 font-mono truncate">Openwrk: {openwrkVersionLabel()}</div>
-                        <div class="text-[11px] text-gray-7 font-mono truncate">OpenCode: {opencodeVersionLabel()}</div>
-                        <div class="text-[11px] text-gray-7 font-mono truncate">
-                          OpenWork server: {openworkServerVersionLabel()}
+                        <div class="space-y-1">
+                          <div class="text-[11px] text-gray-7 font-mono truncate">Desktop app: {appVersionLabel()}</div>
+                          <div class="text-[11px] text-gray-7 font-mono truncate">Commit: {appCommitLabel()}</div>
+                          <div class="text-[11px] text-gray-7 font-mono truncate">Openwrk: {openwrkVersionLabel()}</div>
+                          <div class="text-[11px] text-gray-7 font-mono truncate">OpenCode: {opencodeVersionLabel()}</div>
+                          <div class="text-[11px] text-gray-7 font-mono truncate">
+                            OpenWork server: {openworkServerVersionLabel()}
+                          </div>
+                          <div class="text-[11px] text-gray-7 font-mono truncate">Owpenbot: {owpenbotVersionLabel()}</div>
                         </div>
-                        <div class="text-[11px] text-gray-7 font-mono truncate">Owpenbot: {owpenbotVersionLabel()}</div>
-                      </div>
                     </div>
 
                     <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">

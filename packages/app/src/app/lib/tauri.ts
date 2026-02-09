@@ -352,6 +352,16 @@ export async function openwrkInstanceDispose(workspacePath: string): Promise<boo
   return invoke<boolean>("openwrk_instance_dispose", { workspacePath });
 }
 
+export type AppBuildInfo = {
+  version: string;
+  gitSha?: string | null;
+  buildEpoch?: string | null;
+};
+
+export async function appBuildInfo(): Promise<AppBuildInfo> {
+  return invoke<AppBuildInfo>("app_build_info");
+}
+
 export type OpenwrkDetachedHost = {
   openworkUrl: string;
   token: string;

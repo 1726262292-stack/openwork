@@ -20,7 +20,7 @@ use commands::command_files::{
 };
 use commands::config::{read_opencode_config, write_opencode_config};
 use commands::engine::{engine_doctor, engine_info, engine_install, engine_start, engine_stop};
-use commands::misc::{opencode_mcp_auth, reset_opencode_cache, reset_openwork_state};
+use commands::misc::{app_build_info, opencode_mcp_auth, reset_opencode_cache, reset_openwork_state};
 use commands::openwrk::{
     openwrk_instance_dispose, openwrk_start_detached, openwrk_status, openwrk_workspace_activate,
 };
@@ -111,6 +111,7 @@ pub fn run() {
             read_opencode_config,
             write_opencode_config,
             updater_environment,
+            app_build_info,
             reset_openwork_state,
             reset_opencode_cache,
             opencode_mcp_auth,
