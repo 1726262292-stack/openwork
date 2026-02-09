@@ -45,6 +45,7 @@ use engine::manager::EngineManager;
 use openwrk::manager::OpenwrkManager;
 use openwork_server::manager::OpenworkServerManager;
 use owpenbot::manager::OwpenbotManager;
+use tauri::Manager;
 use workspace::watch::WorkspaceWatchState;
 
 pub fn run() {
@@ -59,7 +60,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build());
 
-    builder
+    let app = builder
         .manage(EngineManager::default())
         .manage(OpenwrkManager::default())
         .manage(OpenworkServerManager::default())
@@ -117,6 +118,26 @@ pub fn run() {
             scheduler_delete_job,
             set_window_decorations
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running OpenWork");
+        .build(tauri::generate_context!())
+        .expect("error while building OpenWork");
+
+    // Best-effort cleanup on app exit. Without this, background sidecars can keep
+    // running after the UI quits (especially during dev), leading to multiple
+    // openwrk/opencode/openwork-server processes and stale ports.
+    app.run(|app_handle, event| {
+        if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+            if let Ok(mut engine) = app_handle.state::<EngineManager>().inner.lock() {
+                EngineManager::stop_locked(&mut engine);
+            }
+            if let Ok(mut openwrk) = app_handle.state::<OpenwrkManager>().inner.lock() {
+                OpenwrkManager::stop_locked(&mut openwrk);
+            }
+            if let Ok(mut openwork_server) = app_handle.state::<OpenworkServerManager>().inner.lock() {
+                OpenworkServerManager::stop_locked(&mut openwork_server);
+            }
+            if let Ok(mut owpenbot) = app_handle.state::<OwpenbotManager>().inner.lock() {
+                OwpenbotManager::stop_locked(&mut owpenbot);
+            }
+        }
+    });
 }
