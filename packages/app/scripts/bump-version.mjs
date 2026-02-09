@@ -94,6 +94,16 @@ const updateCargoToml = async (nextVersion) => {
   const updated = raw.replace(/\bversion\s*=\s*"[^"]+"/m, `version = "${nextVersion}"`);
   if (!isDryRun) {
     await writeFile(filePath, updated);
+    // Regenerate Cargo.lock so it stays in sync with the version bump.
+    const { execFileSync } = await import("node:child_process");
+    try {
+      execFileSync("cargo", ["generate-lockfile"], {
+        cwd: path.join(REPO_ROOT, "packages", "desktop", "src-tauri"),
+        stdio: "ignore",
+      });
+    } catch {
+      // cargo may not be installed (e.g. CI without Rust); skip silently.
+    }
   }
 };
 
