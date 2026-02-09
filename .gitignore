@@ -21,6 +21,12 @@ packages/desktop/src-tauri/sidecars/
 # Bun build artifacts
 *.bun-build
 
+# pnpm store (created by Docker volume mounts)
+.pnpm-store/
+
+# Docker dev workspace (ephemeral mount point)
+packaging/docker/workspace/
+
 # OS
 .DS_Store
 
