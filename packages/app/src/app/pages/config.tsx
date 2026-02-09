@@ -4,7 +4,6 @@ import { isTauriRuntime } from "../utils";
 
 import Button from "../components/button";
 import TextInput from "../components/text-input";
-import { OwpenbotSettings } from "./settings";
 
 import { RefreshCcw } from "lucide-solid";
 
@@ -446,15 +445,12 @@ export default function ConfigView(props: ConfigViewProps) {
         </Show>
       </div>
 
-      <OwpenbotSettings
-        busy={props.busy}
-        openworkServerStatus={props.openworkServerStatus}
-        openworkServerUrl={props.openworkServerUrl}
-        openworkServerSettings={props.openworkServerSettings}
-        openworkServerWorkspaceId={props.openworkServerWorkspaceId}
-        openworkServerHostInfo={props.openworkServerHostInfo}
-        developerMode={props.developerMode}
-      />
+      <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-2">
+        <div class="text-sm font-medium text-gray-12">Messaging identities</div>
+        <div class="text-xs text-gray-10">
+          Manage Telegram/Slack identities and routing in the <span class="font-medium text-gray-12">Identities</span> tab.
+        </div>
+      </div>
 
       <Show when={!isTauriRuntime()}>
         <div class="text-xs text-gray-9">

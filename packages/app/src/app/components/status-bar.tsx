@@ -46,10 +46,9 @@ export default function StatusBar(props: StatusBarProps) {
     if (!status) {
       return { dot: "bg-gray-6", text: "text-gray-10", label: "Messaging bridge unavailable" };
     }
-    const whatsappLinked = status.whatsapp.linked;
-    const telegramConfigured = status.telegram.configured;
-    const slackConfigured = status.slack.configured;
-    const configuredCount = [whatsappLinked, telegramConfigured, slackConfigured].filter(Boolean).length;
+    const telegramConfigured = (status.telegram.items?.length ?? 0) > 0;
+    const slackConfigured = (status.slack.items?.length ?? 0) > 0;
+    const configuredCount = [telegramConfigured, slackConfigured].filter(Boolean).length;
     if (status.running && configuredCount > 0) {
       return { dot: "bg-green-9", text: "text-green-11", label: "Messaging bridge ready" };
     }
@@ -83,7 +82,7 @@ export default function StatusBar(props: StatusBarProps) {
       label: "Connect Slack",
       enabled: () => {
         const status = owpenbotStatus();
-        return Boolean(status && !status.slack.configured);
+        return Boolean(status && (status.slack.items?.length ?? 0) === 0);
       },
       action: () => runAction(props.onOpenMessaging),
     },
@@ -92,16 +91,7 @@ export default function StatusBar(props: StatusBarProps) {
       label: "Connect Telegram",
       enabled: () => {
         const status = owpenbotStatus();
-        return Boolean(status && !status.telegram.configured);
-      },
-      action: () => runAction(props.onOpenMessaging),
-    },
-    {
-      id: "whatsapp",
-      label: "Connect WhatsApp",
-      enabled: () => {
-        const status = owpenbotStatus();
-        return Boolean(status && !status.whatsapp.linked);
+        return Boolean(status && (status.telegram.items?.length ?? 0) === 0);
       },
       action: () => runAction(props.onOpenMessaging),
     },

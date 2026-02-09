@@ -28,8 +28,7 @@ use commands::openwork_server::openwork_server_info;
 use commands::scheduler::{scheduler_delete_job, scheduler_list_jobs};
 use commands::opkg::{import_skill, opkg_install};
 use commands::owpenbot::{
-    owpenbot_config_set, owpenbot_info, owpenbot_pairing_approve, owpenbot_pairing_deny,
-    owpenbot_pairing_list, owpenbot_qr, owpenbot_start, owpenbot_status, owpenbot_stop,
+    owpenbot_config_set, owpenbot_info, owpenbot_start, owpenbot_status, owpenbot_stop,
 };
 use commands::skills::{
     install_skill_template, list_local_skills, read_local_skill, uninstall_skill, write_local_skill,
@@ -80,12 +79,8 @@ pub fn run() {
             owpenbot_info,
             owpenbot_start,
             owpenbot_stop,
-            owpenbot_qr,
             owpenbot_status,
             owpenbot_config_set,
-            owpenbot_pairing_list,
-            owpenbot_pairing_approve,
-            owpenbot_pairing_deny,
             workspace_bootstrap,
             workspace_set_active,
             workspace_create,

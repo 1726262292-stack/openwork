@@ -1,14 +1,15 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 
+import { HardDrive, MessageCircle, RefreshCcw, Shield } from "lucide-solid";
+
 import Button from "../components/button";
-import { HardDrive, MessageCircle, PlugZap, RefreshCcw, Shield, Smartphone } from "lucide-solid";
 import { createOpenworkServerClient, OpenworkServerError } from "../lib/openwork-server";
 import type {
   OpenworkOwpenbotBindingsResult,
   OpenworkOwpenbotHealthSnapshot,
-  OpenworkOwpenbotTelegramInfo,
-  OpenworkOwpenbotWhatsAppEnabledResult,
-  OpenworkOwpenbotWhatsAppQrResult,
+  OpenworkOwpenbotIdentityItem,
+  OpenworkOwpenbotSlackIdentitiesResult,
+  OpenworkOwpenbotTelegramIdentitiesResult,
   OpenworkServerSettings,
   OpenworkServerStatus,
 } from "../lib/openwork-server";
@@ -48,16 +49,10 @@ function isOwpenbotBindings(value: unknown): value is OpenworkOwpenbotBindingsRe
   return typeof record.ok === "boolean" && Array.isArray(record.items);
 }
 
-function isWhatsAppEnabled(value: unknown): value is OpenworkOwpenbotWhatsAppEnabledResult {
+function isOwpenbotIdentities(value: unknown): value is { ok: boolean; items: OpenworkOwpenbotIdentityItem[] } {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
-  return typeof record.ok === "boolean" && typeof record.enabled === "boolean";
-}
-
-function isWhatsAppQr(value: unknown): value is OpenworkOwpenbotWhatsAppQrResult {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return typeof record.ok === "boolean" && typeof record.qr === "string";
+  return typeof record.ok === "boolean" && Array.isArray(record.items);
 }
 
 export default function IdentitiesView(props: IdentitiesViewProps) {
@@ -70,23 +65,31 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
   const [bindings, setBindings] = createSignal<OpenworkOwpenbotBindingsResult["items"]>([]);
   const [bindingsError, setBindingsError] = createSignal<string | null>(null);
 
-  const [whatsAppEnabled, setWhatsAppEnabled] = createSignal<boolean | null>(null);
-  const [whatsAppEnabledError, setWhatsAppEnabledError] = createSignal<string | null>(null);
-  const [whatsAppQr, setWhatsAppQr] = createSignal<string | null>(null);
-  const [whatsAppQrError, setWhatsAppQrError] = createSignal<string | null>(null);
-  const [whatsAppQrBusy, setWhatsAppQrBusy] = createSignal(false);
+  const [telegramIdentities, setTelegramIdentities] = createSignal<OpenworkOwpenbotIdentityItem[]>([]);
+  const [telegramIdentitiesError, setTelegramIdentitiesError] = createSignal<string | null>(null);
+
+  const [slackIdentities, setSlackIdentities] = createSignal<OpenworkOwpenbotIdentityItem[]>([]);
+  const [slackIdentitiesError, setSlackIdentitiesError] = createSignal<string | null>(null);
 
   const [telegramToken, setTelegramToken] = createSignal("");
+  const [telegramEnabled, setTelegramEnabled] = createSignal(true);
   const [telegramSaving, setTelegramSaving] = createSignal(false);
   const [telegramStatus, setTelegramStatus] = createSignal<string | null>(null);
   const [telegramError, setTelegramError] = createSignal<string | null>(null);
-  const [telegramInfo, setTelegramInfo] = createSignal<OpenworkOwpenbotTelegramInfo | null>(null);
 
   const [slackBotToken, setSlackBotToken] = createSignal("");
   const [slackAppToken, setSlackAppToken] = createSignal("");
+  const [slackEnabled, setSlackEnabled] = createSignal(true);
   const [slackSaving, setSlackSaving] = createSignal(false);
   const [slackStatus, setSlackStatus] = createSignal<string | null>(null);
   const [slackError, setSlackError] = createSignal<string | null>(null);
+
+  const [bindingChannel, setBindingChannel] = createSignal<"telegram" | "slack">("telegram");
+  const [bindingPeerId, setBindingPeerId] = createSignal("");
+  const [bindingDirectory, setBindingDirectory] = createSignal("");
+  const [bindingSaving, setBindingSaving] = createSignal(false);
+  const [bindingStatus, setBindingStatus] = createSignal<string | null>(null);
+  const [bindingError, setBindingError] = createSignal<string | null>(null);
 
   const openworkServerClient = createMemo(() => {
     const baseUrl = props.openworkServerUrl.trim();
@@ -95,7 +98,6 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     const clientToken = props.openworkServerHostInfo?.clientToken?.trim() ?? "";
     const settingsToken = props.openworkServerSettings.token?.trim() ?? "";
 
-    // Use clientToken only when connecting to the local server; use settingsToken for remote.
     const isLocalServer = localBaseUrl && baseUrl === localBaseUrl;
     const token = isLocalServer ? (clientToken || settingsToken) : (settingsToken || clientToken);
     if (!baseUrl || !token) return null;
@@ -111,7 +113,9 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     if (healthError()) return "border-red-7/20 bg-red-1/40 text-red-12";
     const snapshot = health();
     if (!snapshot) return "border-gray-7/20 bg-gray-2/60 text-gray-12";
-    return snapshot.ok ? "border-emerald-7/25 bg-emerald-1/40 text-emerald-11" : "border-amber-7/25 bg-amber-1/40 text-amber-12";
+    return snapshot.ok
+      ? "border-emerald-7/25 bg-emerald-1/40 text-emerald-11"
+      : "border-amber-7/25 bg-amber-1/40 text-amber-12";
   });
 
   const statusLabel = createMemo(() => {
@@ -131,13 +135,18 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     try {
       setHealthError(null);
       setBindingsError(null);
-      setWhatsAppEnabledError(null);
+      setTelegramIdentitiesError(null);
+      setSlackIdentitiesError(null);
 
-      const [healthRes, bindingsRes, enabledRes, telegramRes] = await Promise.all([
+      const [healthRes, bindingsRes, tgRes, slackRes] = await Promise.all([
         client.owpenbotHealth(),
-        client.owpenbotBindings(),
-        client.owpenbotWhatsAppEnabled(),
-        workspaceId() ? client.getOwpenbotTelegram(workspaceId()) : Promise.resolve(null),
+        client.owpenbotBindings(workspaceId() ? { identityId: workspaceId() } : undefined),
+        workspaceId()
+          ? client.getOwpenbotTelegramIdentities(workspaceId())
+          : client.owpenbotTelegramIdentities().then((raw) => raw.json as unknown),
+        workspaceId()
+          ? client.getOwpenbotSlackIdentities(workspaceId())
+          : client.owpenbotSlackIdentities().then((raw) => raw.json as unknown),
       ]);
 
       if (isOwpenbotSnapshot(healthRes.json)) {
@@ -166,73 +175,44 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
         }
       }
 
-      if (isWhatsAppEnabled(enabledRes.json)) {
-        setWhatsAppEnabled(enabledRes.json.enabled);
+      if (isOwpenbotIdentities(tgRes)) {
+        setTelegramIdentities(tgRes.items ?? []);
       } else {
-        setWhatsAppEnabled(null);
-        if (!enabledRes.ok) {
-          const message =
-            (enabledRes.json && typeof (enabledRes.json as any).message === "string")
-              ? String((enabledRes.json as any).message)
-              : `WhatsApp status unavailable (${enabledRes.status})`;
-          setWhatsAppEnabledError(message);
-        }
+        setTelegramIdentities([]);
+        setTelegramIdentitiesError("Telegram identities unavailable.");
       }
 
-      if (telegramRes && typeof telegramRes === "object") {
-        const info = telegramRes as OpenworkOwpenbotTelegramInfo;
-        setTelegramInfo(info.ok ? info : null);
+      if (isOwpenbotIdentities(slackRes)) {
+        setSlackIdentities(slackRes.items ?? []);
+      } else {
+        setSlackIdentities([]);
+        setSlackIdentitiesError("Slack identities unavailable.");
       }
 
       setLastUpdatedAt(Date.now());
     } catch (error) {
+      const message = formatRequestError(error);
       setHealth(null);
       setBindings([]);
-      setWhatsAppEnabled(null);
-      setWhatsAppQr(null);
-      const message = formatRequestError(error);
+      setTelegramIdentities([]);
+      setSlackIdentities([]);
       setHealthError(message);
       setBindingsError(message);
-      setWhatsAppEnabledError(message);
-      setTelegramInfo(null);
+      setTelegramIdentitiesError(message);
+      setSlackIdentitiesError(message);
     } finally {
       setRefreshing(false);
     }
   };
 
-  const fetchWhatsAppQr = async () => {
-    if (whatsAppQrBusy()) return;
-    if (!serverReady()) return;
-    const client = openworkServerClient();
-    if (!client) return;
-
-    setWhatsAppQrBusy(true);
-    setWhatsAppQrError(null);
-    try {
-      const res = await client.owpenbotWhatsAppQr("ascii");
-      if (isWhatsAppQr(res.json)) {
-        setWhatsAppQr(res.json.qr);
-        return;
-      }
-      const message =
-        (res.json && typeof (res.json as any).message === "string")
-          ? String((res.json as any).message)
-          : `QR unavailable (${res.status})`;
-      setWhatsAppQrError(message);
-    } catch (error) {
-      setWhatsAppQrError(formatRequestError(error));
-    } finally {
-      setWhatsAppQrBusy(false);
-    }
-  };
-
-  const saveTelegramToken = async () => {
+  const upsertTelegram = async () => {
     if (telegramSaving()) return;
     if (!serverReady()) return;
     const id = workspaceId();
     if (!id) return;
     const client = openworkServerClient();
     if (!client) return;
+
     const token = telegramToken().trim();
     if (!token) return;
 
@@ -240,16 +220,16 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     setTelegramStatus(null);
     setTelegramError(null);
     try {
-      const result = await client.setOwpenbotTelegramToken(id, token);
-      if (result.ok && result.telegram?.configured && result.telegram.enabled) {
-        setTelegramStatus(result.applied === false ? "Token saved (pending apply)." : "Telegram connected.");
-      } else if (result.ok) {
-        setTelegramStatus("Token saved.");
+      const result = await client.upsertOwpenbotTelegramIdentity(id, { token, enabled: telegramEnabled() });
+      if (result.ok) {
+        const username = (result.telegram as any)?.bot?.username;
+        if (username) {
+          setTelegramStatus(`Saved (@${String(username)})`);
+        } else {
+          setTelegramStatus(result.applied === false ? "Saved (pending apply)." : "Saved.");
+        }
       } else {
-        setTelegramError("Failed to save token.");
-      }
-      if ((result.telegram as any)?.bot?.username) {
-        setTelegramStatus(`Telegram connected (@${(result.telegram as any).bot.username}).`);
+        setTelegramError("Failed to save.");
       }
       if (typeof result.applyError === "string" && result.applyError.trim()) {
         setTelegramError(result.applyError.trim());
@@ -263,23 +243,24 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     }
   };
 
-  const disconnectTelegram = async () => {
+  const deleteTelegram = async (identityId: string) => {
     if (telegramSaving()) return;
     if (!serverReady()) return;
     const id = workspaceId();
     if (!id) return;
     const client = openworkServerClient();
     if (!client) return;
+    if (!identityId.trim()) return;
 
     setTelegramSaving(true);
     setTelegramStatus(null);
     setTelegramError(null);
     try {
-      const result = await client.setOwpenbotTelegramEnabled(id, false, { clearToken: true });
+      const result = await client.deleteOwpenbotTelegramIdentity(id, identityId);
       if (result.ok) {
-        setTelegramStatus(result.applied === false ? "Disconnected (pending apply)." : "Disconnected.");
+        setTelegramStatus(result.applied === false ? "Deleted (pending apply)." : "Deleted.");
       } else {
-        setTelegramError("Failed to disconnect.");
+        setTelegramError("Failed to delete.");
       }
       if (typeof result.applyError === "string" && result.applyError.trim()) {
         setTelegramError(result.applyError.trim());
@@ -292,13 +273,14 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     }
   };
 
-  const saveSlackTokens = async () => {
+  const upsertSlack = async () => {
     if (slackSaving()) return;
     if (!serverReady()) return;
     const id = workspaceId();
     if (!id) return;
     const client = openworkServerClient();
     if (!client) return;
+
     const botToken = slackBotToken().trim();
     const appToken = slackAppToken().trim();
     if (!botToken || !appToken) return;
@@ -307,13 +289,11 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     setSlackStatus(null);
     setSlackError(null);
     try {
-      const result = await client.setOwpenbotSlackTokens(id, botToken, appToken);
-      if (result.ok && result.slack?.configured && result.slack.enabled) {
-        setSlackStatus(result.applied === false ? "Tokens saved (pending apply)." : "Slack connected.");
-      } else if (result.ok) {
-        setSlackStatus("Tokens saved.");
+      const result = await client.upsertOwpenbotSlackIdentity(id, { botToken, appToken, enabled: slackEnabled() });
+      if (result.ok) {
+        setSlackStatus(result.applied === false ? "Saved (pending apply)." : "Saved.");
       } else {
-        setSlackError("Failed to save tokens.");
+        setSlackError("Failed to save.");
       }
       if (typeof result.applyError === "string" && result.applyError.trim()) {
         setSlackError(result.applyError.trim());
@@ -328,6 +308,90 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     }
   };
 
+  const deleteSlack = async (identityId: string) => {
+    if (slackSaving()) return;
+    if (!serverReady()) return;
+    const id = workspaceId();
+    if (!id) return;
+    const client = openworkServerClient();
+    if (!client) return;
+    if (!identityId.trim()) return;
+
+    setSlackSaving(true);
+    setSlackStatus(null);
+    setSlackError(null);
+    try {
+      const result = await client.deleteOwpenbotSlackIdentity(id, identityId);
+      if (result.ok) {
+        setSlackStatus(result.applied === false ? "Deleted (pending apply)." : "Deleted.");
+      } else {
+        setSlackError("Failed to delete.");
+      }
+      if (typeof result.applyError === "string" && result.applyError.trim()) {
+        setSlackError(result.applyError.trim());
+      }
+      void refreshAll({ force: true });
+    } catch (error) {
+      setSlackError(formatRequestError(error));
+    } finally {
+      setSlackSaving(false);
+    }
+  };
+
+  const saveBinding = async () => {
+    if (bindingSaving()) return;
+    if (!serverReady()) return;
+    const id = workspaceId();
+    if (!id) return;
+    const client = openworkServerClient();
+    if (!client) return;
+
+    const channel = bindingChannel();
+    const peerId = bindingPeerId().trim();
+    const directory = bindingDirectory().trim();
+    if (!peerId || !directory) return;
+
+    setBindingSaving(true);
+    setBindingStatus(null);
+    setBindingError(null);
+    try {
+      await client.setOwpenbotBinding(id, { channel, peerId, directory });
+      setBindingStatus("Binding saved.");
+      setBindingPeerId("");
+      setBindingDirectory("");
+      void refreshAll({ force: true });
+    } catch (error) {
+      setBindingError(formatRequestError(error));
+    } finally {
+      setBindingSaving(false);
+    }
+  };
+
+  const clearBinding = async (input: { channel: string; peerId: string }) => {
+    if (bindingSaving()) return;
+    if (!serverReady()) return;
+    const id = workspaceId();
+    if (!id) return;
+    const client = openworkServerClient();
+    if (!client) return;
+
+    setBindingSaving(true);
+    setBindingStatus(null);
+    setBindingError(null);
+    try {
+      await client.setOwpenbotBinding(id, {
+        channel: input.channel,
+        peerId: input.peerId,
+      });
+      setBindingStatus("Binding cleared.");
+      void refreshAll({ force: true });
+    } catch (error) {
+      setBindingError(formatRequestError(error));
+    } finally {
+      setBindingSaving(false);
+    }
+  };
+
   createEffect(() => {
     const baseUrl = props.openworkServerUrl.trim();
     const id = workspaceId();
@@ -339,11 +403,10 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     setHealthError(null);
     setBindings([]);
     setBindingsError(null);
-    setWhatsAppEnabled(null);
-    setWhatsAppEnabledError(null);
-    setWhatsAppQr(null);
-    setWhatsAppQrError(null);
-    setTelegramInfo(null);
+    setTelegramIdentities([]);
+    setTelegramIdentitiesError(null);
+    setSlackIdentities([]);
+    setSlackIdentitiesError(null);
     setLastUpdatedAt(null);
   });
 
@@ -358,7 +421,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div class="text-sm font-semibold text-gray-12">Messaging identities</div>
-          <div class="text-xs text-gray-9">Slack, Telegram, WhatsApp routing + status (REST-driven).</div>
+          <div class="text-xs text-gray-9">Slack + Telegram multi-identities with identity-scoped routing.</div>
         </div>
         <Button
           variant="secondary"
@@ -388,9 +451,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
               <div>
                 <div class="text-sm font-semibold text-gray-12">Owpenbot health</div>
                 <Show when={lastUpdatedAt()}>
-                  {(value) => (
-                    <div class="text-[11px] text-gray-9">Updated {new Date(value()).toLocaleTimeString()}</div>
-                  )}
+                  {(value) => <div class="text-[11px] text-gray-9">Updated {new Date(value()).toLocaleTimeString()}</div>}
                 </Show>
               </div>
             </div>
@@ -401,9 +462,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
 
           <Show when={healthError()}>
             {(value) => (
-              <div class="rounded-xl border border-red-7/20 bg-red-1/30 px-4 py-3 text-xs text-red-12">
-                {value()}
-              </div>
+              <div class="rounded-xl border border-red-7/20 bg-red-1/30 px-4 py-3 text-xs text-red-12">{value()}</div>
             )}
           </Show>
 
@@ -412,32 +471,196 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div class="rounded-xl border border-gray-4 bg-gray-1 px-4 py-3">
                   <div class="text-[11px] text-gray-9 uppercase tracking-wide font-semibold">OpenCode</div>
-                  <div class="mt-1 text-xs text-gray-12">
-                    {snapshot().opencode.healthy ? "Healthy" : "Unhealthy"}
-                  </div>
+                  <div class="mt-1 text-xs text-gray-12">{snapshot().opencode.healthy ? "Healthy" : "Unhealthy"}</div>
                   <div class="mt-1 text-[11px] text-gray-9 font-mono truncate">{snapshot().opencode.url}</div>
                 </div>
                 <div class="rounded-xl border border-gray-4 bg-gray-1 px-4 py-3">
                   <div class="text-[11px] text-gray-9 uppercase tracking-wide font-semibold">Channels</div>
-                  <div class="mt-1 text-xs text-gray-12">
-                    Telegram: {snapshot().channels.telegram ? "on" : "off"}
-                  </div>
-                  <div class="mt-1 text-xs text-gray-12">
-                    Slack: {snapshot().channels.slack ? "on" : "off"}
-                  </div>
-                  <div class="mt-1 text-xs text-gray-12">
-                    WhatsApp: {snapshot().channels.whatsapp ? "on" : "off"}
-                  </div>
+                  <div class="mt-1 text-xs text-gray-12">Telegram: {snapshot().channels.telegram ? "on" : "off"}</div>
+                  <div class="mt-1 text-xs text-gray-12">Slack: {snapshot().channels.slack ? "on" : "off"}</div>
                 </div>
                 <div class="rounded-xl border border-gray-4 bg-gray-1 px-4 py-3">
                   <div class="text-[11px] text-gray-9 uppercase tracking-wide font-semibold">Groups</div>
-                  <div class="mt-1 text-xs text-gray-12">
-                    Groups enabled: {snapshot().config.groupsEnabled ? "yes" : "no"}
-                  </div>
+                  <div class="mt-1 text-xs text-gray-12">Groups enabled: {snapshot().config.groupsEnabled ? "yes" : "no"}</div>
                 </div>
               </div>
             )}
           </Show>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="rounded-2xl border border-gray-4 bg-gray-1 p-5 shadow-sm space-y-4">
+            <div class="flex items-center gap-2">
+              <MessageCircle size={18} class="text-gray-10" />
+              <div>
+                <div class="text-sm font-semibold text-gray-12">Telegram identities</div>
+                <div class="text-xs text-gray-9">Telegram bot for this workspace.</div>
+              </div>
+            </div>
+
+            <Show when={telegramIdentitiesError()}>
+              {(value) => (
+                <div class="rounded-xl border border-amber-7/20 bg-amber-1/30 px-4 py-3 text-xs text-amber-12">{value()}</div>
+              )}
+            </Show>
+
+            <Show when={telegramIdentities().length === 0 && !telegramIdentitiesError()}>
+              <div class="text-xs text-gray-10">No Telegram identities configured.</div>
+            </Show>
+
+            <Show when={telegramIdentities().length > 0}>
+              <div class="divide-y divide-gray-4 rounded-xl border border-gray-4 overflow-hidden">
+                <For each={telegramIdentities()}>
+                  {(item) => (
+                    <div class="px-4 py-3 bg-gray-1 flex items-center justify-between gap-3">
+                      <div>
+                        <div class="text-xs font-semibold text-gray-12">Workspace identity</div>
+                        <div class="mt-0.5 text-[11px] text-gray-9">
+                          <span class="font-mono">{item.id}</span> · {item.enabled ? "enabled" : "disabled"} · {item.running ? "running" : "stopped"}
+                        </div>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        class="h-8 px-3 text-xs"
+                        disabled={telegramSaving() || item.id === "env" || !workspaceId()}
+                        onClick={() => void deleteTelegram(item.id)}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+
+            <div class="rounded-xl border border-gray-4 bg-gray-1 px-4 py-3 space-y-2">
+              <div class="grid grid-cols-1 gap-2">
+                <input
+                  class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-xs text-gray-12 placeholder:text-gray-9"
+                  placeholder="Telegram bot token"
+                  type="password"
+                  value={telegramToken()}
+                  onInput={(e) => setTelegramToken(e.currentTarget.value)}
+                />
+              </div>
+
+              <label class="flex items-center gap-2 text-xs text-gray-11">
+                <input
+                  type="checkbox"
+                  checked={telegramEnabled()}
+                  onChange={(e) => setTelegramEnabled(e.currentTarget.checked)}
+                />
+                Enabled
+              </label>
+
+              <div class="flex items-center gap-2">
+                <Button
+                  variant="primary"
+                  class="h-8 px-3 text-xs"
+                  onClick={() => void upsertTelegram()}
+                  disabled={telegramSaving() || !workspaceId() || !telegramToken().trim()}
+                >
+                  {telegramSaving() ? "Saving..." : "Save"}
+                </Button>
+                <Show when={telegramStatus()}>
+                  {(value) => <div class="text-[11px] text-gray-9">{value()}</div>}
+                </Show>
+              </div>
+              <Show when={telegramError()}>
+                {(value) => <div class="text-[11px] text-red-12">{value()}</div>}
+              </Show>
+            </div>
+          </div>
+
+          <div class="rounded-2xl border border-gray-4 bg-gray-1 p-5 shadow-sm space-y-4">
+            <div class="flex items-center gap-2">
+              <MessageCircle size={18} class="text-gray-10" />
+              <div>
+                <div class="text-sm font-semibold text-gray-12">Slack identities</div>
+                <div class="text-xs text-gray-9">Slack app for this workspace.</div>
+              </div>
+            </div>
+
+            <Show when={slackIdentitiesError()}>
+              {(value) => (
+                <div class="rounded-xl border border-amber-7/20 bg-amber-1/30 px-4 py-3 text-xs text-amber-12">{value()}</div>
+              )}
+            </Show>
+
+            <Show when={slackIdentities().length === 0 && !slackIdentitiesError()}>
+              <div class="text-xs text-gray-10">No Slack identities configured.</div>
+            </Show>
+
+            <Show when={slackIdentities().length > 0}>
+              <div class="divide-y divide-gray-4 rounded-xl border border-gray-4 overflow-hidden">
+                <For each={slackIdentities()}>
+                  {(item) => (
+                    <div class="px-4 py-3 bg-gray-1 flex items-center justify-between gap-3">
+                      <div>
+                        <div class="text-xs font-semibold text-gray-12">Workspace identity</div>
+                        <div class="mt-0.5 text-[11px] text-gray-9">
+                          <span class="font-mono">{item.id}</span> · {item.enabled ? "enabled" : "disabled"} · {item.running ? "running" : "stopped"}
+                        </div>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        class="h-8 px-3 text-xs"
+                        disabled={slackSaving() || item.id === "env" || !workspaceId()}
+                        onClick={() => void deleteSlack(item.id)}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+
+            <div class="rounded-xl border border-gray-4 bg-gray-1 px-4 py-3 space-y-2">
+              <div class="grid grid-cols-1 gap-2">
+                <input
+                  class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-xs text-gray-12 placeholder:text-gray-9"
+                  placeholder="Slack bot token (xoxb-...)"
+                  type="password"
+                  value={slackBotToken()}
+                  onInput={(e) => setSlackBotToken(e.currentTarget.value)}
+                />
+                <input
+                  class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-xs text-gray-12 placeholder:text-gray-9"
+                  placeholder="Slack app token (xapp-...)"
+                  type="password"
+                  value={slackAppToken()}
+                  onInput={(e) => setSlackAppToken(e.currentTarget.value)}
+                />
+              </div>
+
+              <label class="flex items-center gap-2 text-xs text-gray-11">
+                <input
+                  type="checkbox"
+                  checked={slackEnabled()}
+                  onChange={(e) => setSlackEnabled(e.currentTarget.checked)}
+                />
+                Enabled
+              </label>
+
+              <div class="flex items-center gap-2">
+                <Button
+                  variant="primary"
+                  class="h-8 px-3 text-xs"
+                  onClick={() => void upsertSlack()}
+                  disabled={slackSaving() || !workspaceId() || !slackBotToken().trim() || !slackAppToken().trim()}
+                >
+                  {slackSaving() ? "Saving..." : "Save"}
+                </Button>
+                <Show when={slackStatus()}>
+                  {(value) => <div class="text-[11px] text-gray-9">{value()}</div>}
+                </Show>
+              </div>
+              <Show when={slackError()}>
+                {(value) => <div class="text-[11px] text-red-12">{value()}</div>}
+              </Show>
+            </div>
+          </div>
         </div>
 
         <div class="rounded-2xl border border-gray-4 bg-gray-1 p-5 shadow-sm space-y-4">
@@ -445,15 +668,13 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
             <HardDrive size={18} class="text-gray-10" />
             <div>
               <div class="text-sm font-semibold text-gray-12">Routing (bindings)</div>
-              <div class="text-xs text-gray-9">Which identity routes to which directory.</div>
+              <div class="text-xs text-gray-9">(channel, peerId) {"->"} directory</div>
             </div>
           </div>
 
           <Show when={bindingsError()}>
             {(value) => (
-              <div class="rounded-xl border border-amber-7/20 bg-amber-1/30 px-4 py-3 text-xs text-amber-12">
-                {value()}
-              </div>
+              <div class="rounded-xl border border-amber-7/20 bg-amber-1/30 px-4 py-3 text-xs text-amber-12">{value()}</div>
             )}
           </Show>
 
@@ -470,9 +691,19 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
                       <div class="text-xs font-semibold text-gray-12">
                         {item.channel} / {item.peerId}
                       </div>
-                      <Show when={typeof item.updatedAt === "number"}>
-                        <div class="text-[11px] text-gray-9">{new Date(item.updatedAt as number).toLocaleString()}</div>
-                      </Show>
+                      <div class="flex items-center gap-2">
+                        <Button
+                          variant="secondary"
+                          class="h-8 px-3 text-xs"
+                          disabled={bindingSaving() || !workspaceId()}
+                          onClick={() => void clearBinding({ channel: item.channel, peerId: item.peerId })}
+                        >
+                          Clear
+                        </Button>
+                        <Show when={typeof item.updatedAt === "number"}>
+                          <div class="text-[11px] text-gray-9">{new Date(item.updatedAt as number).toLocaleString()}</div>
+                        </Show>
+                      </div>
                     </div>
                     <div class="mt-1 text-[11px] text-gray-9 font-mono break-all">{item.directory}</div>
                   </div>
@@ -480,189 +711,48 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
               </For>
             </div>
           </Show>
-        </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div class="rounded-2xl border border-gray-4 bg-gray-1 p-5 shadow-sm space-y-4">
-            <div class="flex items-center gap-2">
-              <MessageCircle size={18} class="text-gray-10" />
-              <div>
-                <div class="text-sm font-semibold text-gray-12">Telegram</div>
-                <div class="text-xs text-gray-9">Save bot token on the host (REST).</div>
-              </div>
+          <div class="rounded-xl border border-gray-4 bg-gray-1 px-4 py-3 space-y-2">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <select
+                class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-xs text-gray-12"
+                value={bindingChannel()}
+                onChange={(e) => setBindingChannel(e.currentTarget.value === "slack" ? "slack" : "telegram")}
+              >
+                <option value="telegram">telegram</option>
+                <option value="slack">slack</option>
+              </select>
+              <input
+                class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-xs text-gray-12 placeholder:text-gray-9"
+                placeholder="peerId"
+                value={bindingPeerId()}
+                onInput={(e) => setBindingPeerId(e.currentTarget.value)}
+              />
+              <input
+                class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-xs text-gray-12 placeholder:text-gray-9"
+                placeholder="directory"
+                value={bindingDirectory()}
+                onInput={(e) => setBindingDirectory(e.currentTarget.value)}
+              />
             </div>
 
-            <Show when={telegramInfo()}>
-              {(info) => (
-                <div class="text-xs text-gray-10">
-                  <span class="font-semibold text-gray-12">
-                    {info().configured ? "Configured" : "Not configured"}
-                  </span>
-                  <span class="mx-2 text-gray-8">•</span>
-                  <span>{info().enabled ? "Enabled" : "Disabled"}</span>
-                  <Show when={info().bot?.username}>
-                    {(u) => (
-                      <>
-                        <span class="mx-2 text-gray-8">•</span>
-                        <span class="font-mono">@{u()}</span>
-                      </>
-                    )}
-                  </Show>
-                </div>
-              )}
-            </Show>
-            <input
-              type="password"
-              value={telegramToken()}
-              onInput={(e) => setTelegramToken(e.currentTarget.value)}
-              placeholder="Telegram bot token"
-              class="w-full rounded-xl border border-gray-5 bg-gray-1 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-8 focus:outline-none focus:ring-2 focus:ring-gray-6"
-            />
             <div class="flex items-center gap-2">
               <Button
                 variant="primary"
-                class="h-9 px-4 text-xs"
-                onClick={saveTelegramToken}
-                disabled={telegramSaving() || !telegramToken().trim() || !workspaceId()}
+                class="h-8 px-3 text-xs"
+                onClick={() => void saveBinding()}
+                disabled={bindingSaving() || !workspaceId() || !bindingPeerId().trim() || !bindingDirectory().trim()}
               >
-                {telegramSaving() ? "Saving..." : "Save"}
+                {bindingSaving() ? "Saving..." : "Save binding"}
               </Button>
-              <Button
-                variant="outline"
-                class="h-9 px-4 text-xs"
-                onClick={disconnectTelegram}
-                disabled={telegramSaving() || !(telegramInfo()?.configured ?? false)}
-              >
-                Disconnect
-              </Button>
-              <Show when={!workspaceId()}>
-                <div class="text-[11px] text-gray-9">Select an active workspace.</div>
+              <Show when={bindingStatus()}>
+                {(value) => <div class="text-[11px] text-gray-9">{value()}</div>}
               </Show>
             </div>
-            <Show when={telegramStatus()}>
-              {(value) => (
-                <div class="rounded-xl border border-emerald-7/20 bg-emerald-1/20 px-4 py-3 text-xs text-emerald-11">
-                  {value()}
-                </div>
-              )}
-            </Show>
-            <Show when={telegramError()}>
-              {(value) => (
-                <div class="rounded-xl border border-red-7/20 bg-red-1/30 px-4 py-3 text-xs text-red-12">
-                  {value()}
-                </div>
-              )}
+            <Show when={bindingError()}>
+              {(value) => <div class="text-[11px] text-red-12">{value()}</div>}
             </Show>
           </div>
-
-          <div class="rounded-2xl border border-gray-4 bg-gray-1 p-5 shadow-sm space-y-4">
-            <div class="flex items-center gap-2">
-              <PlugZap size={18} class="text-gray-10" />
-              <div>
-                <div class="text-sm font-semibold text-gray-12">Slack</div>
-                <div class="text-xs text-gray-9">Save bot + app tokens on the host (REST).</div>
-              </div>
-            </div>
-            <input
-              type="password"
-              value={slackBotToken()}
-              onInput={(e) => setSlackBotToken(e.currentTarget.value)}
-              placeholder="Slack bot token (xoxb-...)"
-              class="w-full rounded-xl border border-gray-5 bg-gray-1 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-8 focus:outline-none focus:ring-2 focus:ring-gray-6"
-            />
-            <input
-              type="password"
-              value={slackAppToken()}
-              onInput={(e) => setSlackAppToken(e.currentTarget.value)}
-              placeholder="Slack app token (xapp-...)"
-              class="w-full rounded-xl border border-gray-5 bg-gray-1 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-8 focus:outline-none focus:ring-2 focus:ring-gray-6"
-            />
-            <Button
-              variant="primary"
-              class="h-9 px-4 text-xs"
-              onClick={saveSlackTokens}
-              disabled={slackSaving() || !slackBotToken().trim() || !slackAppToken().trim() || !workspaceId()}
-            >
-              {slackSaving() ? "Saving..." : "Save"}
-            </Button>
-            <Show when={slackStatus()}>
-              {(value) => (
-                <div class="rounded-xl border border-emerald-7/20 bg-emerald-1/20 px-4 py-3 text-xs text-emerald-11">
-                  {value()}
-                </div>
-              )}
-            </Show>
-            <Show when={slackError()}>
-              {(value) => (
-                <div class="rounded-xl border border-red-7/20 bg-red-1/30 px-4 py-3 text-xs text-red-12">
-                  {value()}
-                </div>
-              )}
-            </Show>
-          </div>
-        </div>
-
-        <div class="rounded-2xl border border-gray-4 bg-gray-1 p-5 shadow-sm space-y-4">
-          <div class="flex items-center gap-2">
-            <Smartphone size={18} class="text-gray-10" />
-            <div>
-              <div class="text-sm font-semibold text-gray-12">WhatsApp</div>
-              <div class="text-xs text-gray-9">Pairing QR is owner-only.</div>
-            </div>
-          </div>
-
-          <Show when={whatsAppEnabledError()}>
-            {(value) => (
-              <div class="rounded-xl border border-amber-7/20 bg-amber-1/30 px-4 py-3 text-xs text-amber-12">
-                {value()}
-              </div>
-            )}
-          </Show>
-
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="text-xs text-gray-10">Enabled:</span>
-            <span class="text-xs font-semibold text-gray-12">
-              {whatsAppEnabled() === null ? "Unknown" : whatsAppEnabled() ? "Yes" : "No"}
-            </span>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-2">
-            <Button
-              variant="secondary"
-              class="h-9 px-4 text-xs"
-              onClick={fetchWhatsAppQr}
-              disabled={whatsAppQrBusy()}
-            >
-              {whatsAppQrBusy() ? "Fetching QR..." : "Show QR (ASCII)"}
-            </Button>
-            <Button
-              variant="outline"
-              class="h-9 px-4 text-xs"
-              onClick={() => {
-                setWhatsAppQr(null);
-                setWhatsAppQrError(null);
-              }}
-              disabled={!whatsAppQr() && !whatsAppQrError()}
-            >
-              Hide
-            </Button>
-          </div>
-
-          <Show when={whatsAppQrError()}>
-            {(value) => (
-              <div class="rounded-xl border border-red-7/20 bg-red-1/30 px-4 py-3 text-xs text-red-12">
-                {value()}
-              </div>
-            )}
-          </Show>
-
-          <Show when={whatsAppQr()}>
-            {(value) => (
-              <pre class="rounded-xl border border-gray-4 bg-gray-1 p-4 text-[11px] leading-snug text-gray-12 overflow-auto">
-                {value()}
-              </pre>
-            )}
-          </Show>
         </div>
       </Show>
     </div>
