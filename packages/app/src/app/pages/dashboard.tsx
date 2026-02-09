@@ -30,6 +30,7 @@ import McpView from "./mcp";
 import PluginsView from "./plugins";
 import ScheduledTasksView from "./scheduled";
 import ConfigView from "./config";
+import DeployView from "./deploy";
 import SettingsView from "./settings";
 import SkillsView from "./skills";
 import IdentitiesView from "./identities";
@@ -43,6 +44,7 @@ import {
   Cpu,
   History,
   Loader2,
+  Package,
   MessageCircle,
   MoreHorizontal,
   Plus,
@@ -256,6 +258,8 @@ export default function DashboardView(props: DashboardViewProps) {
         return "Apps";
       case "identities":
         return "Identities";
+      case "deploy":
+        return "Deploy";
       case "config":
         return "Config";
       case "settings":
@@ -1196,6 +1200,18 @@ export default function DashboardView(props: DashboardViewProps) {
               />
             </Match>
 
+            <Match when={props.tab === "deploy"}>
+              <DeployView
+                busy={props.busy}
+                openworkServerStatus={props.openworkServerStatus}
+                openworkServerUrl={props.openworkServerUrl}
+                openworkServerSettings={props.openworkServerSettings}
+                openworkServerWorkspaceId={props.openworkServerWorkspaceId}
+                openworkServerHostInfo={props.openworkServerHostInfo}
+                developerMode={props.developerMode}
+              />
+            </Match>
+
             <Match when={props.tab === "config"}>
               <ConfigView
                 busy={props.busy}
@@ -1425,6 +1441,15 @@ export default function DashboardView(props: DashboardViewProps) {
               </button>
               <button
                 class={`flex flex-col items-center gap-1 text-xs ${
+                  props.tab === "deploy" ? "text-gray-12" : "text-gray-10"
+                }`}
+                onClick={() => props.setTab("deploy")}
+              >
+                <Package size={18} />
+                Deploy
+              </button>
+              <button
+                class={`flex flex-col items-center gap-1 text-xs ${
                   props.tab === "config" ? "text-gray-12" : "text-gray-10"
                 }`}
                 onClick={() => props.setTab("config")}
@@ -1444,6 +1469,7 @@ export default function DashboardView(props: DashboardViewProps) {
           {navItem("plugins", "Plugins", <Cpu size={18} />)}
           {navItem("mcp", "Apps", <Box size={18} />)}
           {navItem("identities", "Identities", <MessageCircle size={18} />)}
+          {navItem("deploy", "Deploy", <Package size={18} />)}
           {navItem("config", "Config", <SlidersHorizontal size={18} />)}
         </div>
 

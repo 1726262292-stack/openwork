@@ -182,6 +182,15 @@ export type OpenworkOwpenbotWhatsAppQrResult = {
   format?: "raw" | "ascii" | string;
 };
 
+export type OpenworkWorkspaceExport = {
+  workspaceId: string;
+  exportedAt: number;
+  opencode?: Record<string, unknown>;
+  openwork?: Record<string, unknown>;
+  skills?: Array<{ name: string; description?: string; content: string }>;
+  commands?: Array<{ name: string; description?: string; template?: string }>;
+};
+
 type RawJsonResponse<T> = {
   ok: boolean;
   status: number;
@@ -505,6 +514,18 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspaces/${encodeURIComponent(workspaceId)}/activate`,
         { token, hostToken, method: "POST" },
       ),
+    exportWorkspace: (workspaceId: string) =>
+      requestJson<OpenworkWorkspaceExport>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/export`, {
+        token,
+        hostToken,
+      }),
+    importWorkspace: (workspaceId: string, payload: Record<string, unknown>) =>
+      requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/import`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: payload,
+      }),
     getConfig: (workspaceId: string) =>
       requestJson<{ opencode: Record<string, unknown>; openwork: Record<string, unknown>; updatedAt?: number | null }>(
         baseUrl,
