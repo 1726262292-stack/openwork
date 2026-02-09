@@ -16,6 +16,9 @@ export type TelegramIdentity = {
   id: string;
   token: string;
   enabled?: boolean;
+  // Optional default workspace directory to route peers into.
+  // When set, owpenbot will auto-bind new peerIds to this directory.
+  directory?: string;
 };
 
 export type SlackIdentity = {
@@ -23,6 +26,7 @@ export type SlackIdentity = {
   botToken: string;
   appToken: string;
   enabled?: boolean;
+  directory?: string;
 };
 
 export type OwpenbotConfigFile = {
@@ -152,7 +156,13 @@ function coerceTelegramBots(file: OwpenbotConfigFile): TelegramIdentity[] {
     const token = typeof record.token === "string" ? record.token.trim() : "";
     if (!token) continue;
     const id = normalizeId(typeof record.id === "string" ? record.id : "default");
-    normalized.push({ id, token, enabled: record.enabled === undefined ? true : record.enabled === true });
+    const directory = typeof record.directory === "string" ? record.directory.trim() : "";
+    normalized.push({
+      id,
+      token,
+      enabled: record.enabled === undefined ? true : record.enabled === true,
+      ...(directory ? { directory } : {}),
+    });
   }
   if (normalized.length) return normalized;
 
@@ -175,7 +185,14 @@ function coerceSlackApps(file: OwpenbotConfigFile): SlackIdentity[] {
     const appToken = typeof record.appToken === "string" ? record.appToken.trim() : "";
     if (!botToken || !appToken) continue;
     const id = normalizeId(typeof record.id === "string" ? record.id : "default");
-    normalized.push({ id, botToken, appToken, enabled: record.enabled === undefined ? true : record.enabled === true });
+    const directory = typeof record.directory === "string" ? record.directory.trim() : "";
+    normalized.push({
+      id,
+      botToken,
+      appToken,
+      enabled: record.enabled === undefined ? true : record.enabled === true,
+      ...(directory ? { directory } : {}),
+    });
   }
   if (normalized.length) return normalized;
 

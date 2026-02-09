@@ -178,6 +178,27 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
   const clients = new Map<string, ReturnType<typeof createClient>>();
   const defaultDirectory = config.opencodeDirectory;
 
+  const isDangerousRootDirectory = (dir: string) => {
+    const normalized = dir.trim();
+    if (!normalized) return true;
+    if (process.platform !== "win32") {
+      return normalized === "/";
+    }
+    // Windows roots like C:, C:/, C:\
+    return /^[a-zA-Z]:\/?$/.test(normalized.replace(/\\/g, "/"));
+  };
+
+  const resolveIdentityDirectory = (channel: ChannelName, identityId: string): string => {
+    const id = identityId.trim();
+    if (!id) return "";
+    if (channel === "telegram") {
+      const bot = config.telegramBots.find((entry) => entry.id === id);
+      return typeof (bot as any)?.directory === "string" ? String((bot as any).directory).trim() : "";
+    }
+    const app = config.slackApps.find((entry) => entry.id === id);
+    return typeof (app as any)?.directory === "string" ? String((app as any).directory).trim() : "";
+  };
+
   const getClient = (directory?: string | null) => {
     const resolved = (directory ?? "").trim() || defaultDirectory;
     if (deps.client && resolved === defaultDirectory) {
@@ -396,12 +417,13 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
             })),
           };
         },
-        upsertTelegramIdentity: async (input: { id?: string; token: string; enabled?: boolean }) => {
+        upsertTelegramIdentity: async (input: { id?: string; token: string; enabled?: boolean; directory?: string }) => {
           const token = input.token?.trim() ?? "";
           if (!token) throw new Error("token is required");
           const id = normalizeIdentityId(input.id);
           if (id === "env") throw new Error("identity id 'env' is reserved");
           const enabled = input.enabled !== false;
+          const directoryInput = typeof input.directory === "string" ? input.directory.trim() : "";
 
           // Persist to config file.
           const { config: current } = readConfigFile(config.configPath);
@@ -418,9 +440,13 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
               continue;
             }
             found = true;
-            nextBots.push({ id, token, enabled });
+            const existingDirectory = typeof record.directory === "string" ? record.directory.trim() : "";
+            const directory = directoryInput || existingDirectory;
+            nextBots.push({ id, token, enabled, ...(directory ? { directory } : {}) });
           }
-          if (!found) nextBots.push({ id, token, enabled });
+          if (!found) {
+            nextBots.push({ id, token, enabled, ...(directoryInput ? { directory: directoryInput } : {}) });
+          }
 
           const next: OwpenbotConfigFile = {
             ...current,
@@ -440,9 +466,11 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
           // Update runtime identity list.
           const existingIdx = config.telegramBots.findIndex((bot) => bot.id === id);
           if (existingIdx >= 0) {
-            config.telegramBots[existingIdx] = { id, token, enabled };
+            const prev = config.telegramBots[existingIdx];
+            const nextDirectory = directoryInput || (prev as any)?.directory || undefined;
+            config.telegramBots[existingIdx] = { id, token, enabled, ...(nextDirectory ? { directory: String(nextDirectory).trim() } : {}) };
           } else {
-            config.telegramBots.push({ id, token, enabled });
+            config.telegramBots.push({ id, token, enabled, ...(directoryInput ? { directory: directoryInput } : {}) });
           }
 
           // Start/stop adapter.
@@ -468,7 +496,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
             }
             adapters.delete(key);
           }
-          const base = createTelegramAdapter({ id, token, enabled }, config, logger, handleInbound);
+          const base = createTelegramAdapter({ id, token, enabled, ...(directoryInput ? { directory: directoryInput } : {}) }, config, logger, handleInbound);
           const adapter = { ...base, key };
           adapters.set(key, adapter);
 
@@ -549,13 +577,14 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
             })),
           };
         },
-        upsertSlackIdentity: async (input: { id?: string; botToken: string; appToken: string; enabled?: boolean }) => {
+        upsertSlackIdentity: async (input: { id?: string; botToken: string; appToken: string; enabled?: boolean; directory?: string }) => {
           const botToken = input.botToken?.trim() ?? "";
           const appToken = input.appToken?.trim() ?? "";
           if (!botToken || !appToken) throw new Error("botToken and appToken are required");
           const id = normalizeIdentityId(input.id);
           if (id === "env") throw new Error("identity id 'env' is reserved");
           const enabled = input.enabled !== false;
+          const directoryInput = typeof input.directory === "string" ? input.directory.trim() : "";
 
           const { config: current } = readConfigFile(config.configPath);
           const slack = current.channels?.slack;
@@ -571,9 +600,13 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
               continue;
             }
             found = true;
-            nextApps.push({ id, botToken, appToken, enabled });
+            const existingDirectory = typeof record.directory === "string" ? record.directory.trim() : "";
+            const directory = directoryInput || existingDirectory;
+            nextApps.push({ id, botToken, appToken, enabled, ...(directory ? { directory } : {}) });
           }
-          if (!found) nextApps.push({ id, botToken, appToken, enabled });
+          if (!found) {
+            nextApps.push({ id, botToken, appToken, enabled, ...(directoryInput ? { directory: directoryInput } : {}) });
+          }
 
           const next: OwpenbotConfigFile = {
             ...current,
@@ -592,9 +625,17 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
 
           const existingIdx = config.slackApps.findIndex((app) => app.id === id);
           if (existingIdx >= 0) {
-            config.slackApps[existingIdx] = { id, botToken, appToken, enabled };
+            const prev = config.slackApps[existingIdx];
+            const nextDirectory = directoryInput || (prev as any)?.directory || undefined;
+            config.slackApps[existingIdx] = {
+              id,
+              botToken,
+              appToken,
+              enabled,
+              ...(nextDirectory ? { directory: String(nextDirectory).trim() } : {}),
+            };
           } else {
-            config.slackApps.push({ id, botToken, appToken, enabled });
+            config.slackApps.push({ id, botToken, appToken, enabled, ...(directoryInput ? { directory: directoryInput } : {}) });
           }
 
           const key = adapterKey("slack", id);
@@ -619,7 +660,12 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
             }
             adapters.delete(key);
           }
-          const base = createSlackAdapter({ id, botToken, appToken, enabled }, config, logger, handleInbound);
+          const base = createSlackAdapter(
+            { id, botToken, appToken, enabled, ...(directoryInput ? { directory: directoryInput } : {}) },
+            config,
+            logger,
+            handleInbound,
+          );
           const adapter = { ...base, key };
           adapters.set(key, adapter);
 
@@ -933,13 +979,20 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
     const binding = store.getBinding(inbound.channel, inbound.identityId, peerKey);
     const session = store.getSession(inbound.channel, inbound.identityId, peerKey);
 
-    const boundDirectory =
-      binding?.directory?.trim() || session?.directory?.trim() || defaultDirectory;
+    const identityDirectory = resolveIdentityDirectory(inbound.channel, inbound.identityId);
 
-    if (!boundDirectory) {
-      await sendText(inbound.channel, inbound.identityId, inbound.peerId, "No workspace directory configured.", {
-        kind: "system",
-      });
+    const boundDirectory =
+      binding?.directory?.trim() || session?.directory?.trim() || identityDirectory || defaultDirectory;
+
+    const hasExplicitBinding = Boolean(binding?.directory?.trim() || session?.directory?.trim() || identityDirectory);
+    if (!boundDirectory || (!hasExplicitBinding && isDangerousRootDirectory(boundDirectory))) {
+      await sendText(
+        inbound.channel,
+        inbound.identityId,
+        inbound.peerId,
+        "No workspace directory configured for this identity. Ask your OpenWork host to set it, or reply with /dir <path>.",
+        { kind: "system" },
+      );
       return;
     }
 

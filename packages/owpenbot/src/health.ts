@@ -63,6 +63,7 @@ export type TelegramIdentityUpsertInput = {
   id?: string;
   token: string;
   enabled?: boolean;
+  directory?: string;
 };
 
 export type SlackIdentityUpsertInput = {
@@ -70,6 +71,7 @@ export type SlackIdentityUpsertInput = {
   botToken: string;
   appToken: string;
   enabled?: boolean;
+  directory?: string;
 };
 
 export type BindingItem = {
@@ -259,13 +261,19 @@ export function startHealthServer(
           const payload = JSON.parse(raw || "{}");
           const token = typeof payload.token === "string" ? payload.token.trim() : "";
           const id = typeof payload.id === "string" ? payload.id.trim() : undefined;
+          const directory = typeof payload.directory === "string" ? payload.directory.trim() : undefined;
           const enabled = payload.enabled === undefined ? undefined : payload.enabled === true || payload.enabled === "true";
           if (!token) {
             res.writeHead(400, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ ok: false, error: "token is required" }));
             return;
           }
-          const result = await handlers.upsertTelegramIdentity({ id, token, ...(enabled === undefined ? {} : { enabled }) });
+          const result = await handlers.upsertTelegramIdentity({
+            id,
+            token,
+            ...(enabled === undefined ? {} : { enabled }),
+            ...(directory ? { directory } : {}),
+          });
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: true, telegram: result }));
           return;
@@ -341,6 +349,7 @@ export function startHealthServer(
           const botToken = typeof payload.botToken === "string" ? payload.botToken.trim() : "";
           const appToken = typeof payload.appToken === "string" ? payload.appToken.trim() : "";
           const id = typeof payload.id === "string" ? payload.id.trim() : undefined;
+          const directory = typeof payload.directory === "string" ? payload.directory.trim() : undefined;
           const enabled = payload.enabled === undefined ? undefined : payload.enabled === true || payload.enabled === "true";
           if (!botToken || !appToken) {
             res.writeHead(400, { "Content-Type": "application/json" });
@@ -352,6 +361,7 @@ export function startHealthServer(
             botToken,
             appToken,
             ...(enabled === undefined ? {} : { enabled }),
+            ...(directory ? { directory } : {}),
           });
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: true, slack: result }));

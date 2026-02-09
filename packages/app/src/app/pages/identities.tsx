@@ -5,7 +5,6 @@ import { HardDrive, MessageCircle, RefreshCcw, Shield } from "lucide-solid";
 import Button from "../components/button";
 import { createOpenworkServerClient, OpenworkServerError } from "../lib/openwork-server";
 import type {
-  OpenworkOwpenbotBindingsResult,
   OpenworkOwpenbotHealthSnapshot,
   OpenworkOwpenbotIdentityItem,
   OpenworkOwpenbotSlackIdentitiesResult,
@@ -43,12 +42,6 @@ function isOwpenbotSnapshot(value: unknown): value is OpenworkOwpenbotHealthSnap
   );
 }
 
-function isOwpenbotBindings(value: unknown): value is OpenworkOwpenbotBindingsResult {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return typeof record.ok === "boolean" && Array.isArray(record.items);
-}
-
 function isOwpenbotIdentities(value: unknown): value is { ok: boolean; items: OpenworkOwpenbotIdentityItem[] } {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
@@ -61,9 +54,6 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
 
   const [health, setHealth] = createSignal<OpenworkOwpenbotHealthSnapshot | null>(null);
   const [healthError, setHealthError] = createSignal<string | null>(null);
-
-  const [bindings, setBindings] = createSignal<OpenworkOwpenbotBindingsResult["items"]>([]);
-  const [bindingsError, setBindingsError] = createSignal<string | null>(null);
 
   const [telegramIdentities, setTelegramIdentities] = createSignal<OpenworkOwpenbotIdentityItem[]>([]);
   const [telegramIdentitiesError, setTelegramIdentitiesError] = createSignal<string | null>(null);
@@ -83,13 +73,6 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
   const [slackSaving, setSlackSaving] = createSignal(false);
   const [slackStatus, setSlackStatus] = createSignal<string | null>(null);
   const [slackError, setSlackError] = createSignal<string | null>(null);
-
-  const [bindingChannel, setBindingChannel] = createSignal<"telegram" | "slack">("telegram");
-  const [bindingPeerId, setBindingPeerId] = createSignal("");
-  const [bindingDirectory, setBindingDirectory] = createSignal("");
-  const [bindingSaving, setBindingSaving] = createSignal(false);
-  const [bindingStatus, setBindingStatus] = createSignal<string | null>(null);
-  const [bindingError, setBindingError] = createSignal<string | null>(null);
 
   const openworkServerClient = createMemo(() => {
     const baseUrl = props.openworkServerUrl.trim();
@@ -134,13 +117,11 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     setRefreshing(true);
     try {
       setHealthError(null);
-      setBindingsError(null);
       setTelegramIdentitiesError(null);
       setSlackIdentitiesError(null);
 
-      const [healthRes, bindingsRes, tgRes, slackRes] = await Promise.all([
+      const [healthRes, tgRes, slackRes] = await Promise.all([
         client.owpenbotHealth(),
-        client.owpenbotBindings(workspaceId() ? { identityId: workspaceId() } : undefined),
         workspaceId()
           ? client.getOwpenbotTelegramIdentities(workspaceId())
           : client.owpenbotTelegramIdentities().then((raw) => raw.json as unknown),
@@ -162,19 +143,6 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
         }
       }
 
-      if (isOwpenbotBindings(bindingsRes.json)) {
-        setBindings(bindingsRes.json.items);
-      } else {
-        setBindings([]);
-        if (!bindingsRes.ok) {
-          const message =
-            (bindingsRes.json && typeof (bindingsRes.json as any).message === "string")
-              ? String((bindingsRes.json as any).message)
-              : `Bindings unavailable (${bindingsRes.status})`;
-          setBindingsError(message);
-        }
-      }
-
       if (isOwpenbotIdentities(tgRes)) {
         setTelegramIdentities(tgRes.items ?? []);
       } else {
@@ -193,11 +161,9 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     } catch (error) {
       const message = formatRequestError(error);
       setHealth(null);
-      setBindings([]);
       setTelegramIdentities([]);
       setSlackIdentities([]);
       setHealthError(message);
-      setBindingsError(message);
       setTelegramIdentitiesError(message);
       setSlackIdentitiesError(message);
     } finally {
@@ -338,60 +304,6 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     }
   };
 
-  const saveBinding = async () => {
-    if (bindingSaving()) return;
-    if (!serverReady()) return;
-    const id = workspaceId();
-    if (!id) return;
-    const client = openworkServerClient();
-    if (!client) return;
-
-    const channel = bindingChannel();
-    const peerId = bindingPeerId().trim();
-    const directory = bindingDirectory().trim();
-    if (!peerId || !directory) return;
-
-    setBindingSaving(true);
-    setBindingStatus(null);
-    setBindingError(null);
-    try {
-      await client.setOwpenbotBinding(id, { channel, peerId, directory });
-      setBindingStatus("Binding saved.");
-      setBindingPeerId("");
-      setBindingDirectory("");
-      void refreshAll({ force: true });
-    } catch (error) {
-      setBindingError(formatRequestError(error));
-    } finally {
-      setBindingSaving(false);
-    }
-  };
-
-  const clearBinding = async (input: { channel: string; peerId: string }) => {
-    if (bindingSaving()) return;
-    if (!serverReady()) return;
-    const id = workspaceId();
-    if (!id) return;
-    const client = openworkServerClient();
-    if (!client) return;
-
-    setBindingSaving(true);
-    setBindingStatus(null);
-    setBindingError(null);
-    try {
-      await client.setOwpenbotBinding(id, {
-        channel: input.channel,
-        peerId: input.peerId,
-      });
-      setBindingStatus("Binding cleared.");
-      void refreshAll({ force: true });
-    } catch (error) {
-      setBindingError(formatRequestError(error));
-    } finally {
-      setBindingSaving(false);
-    }
-  };
-
   createEffect(() => {
     const baseUrl = props.openworkServerUrl.trim();
     const id = workspaceId();
@@ -401,8 +313,6 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
 
     setHealth(null);
     setHealthError(null);
-    setBindings([]);
-    setBindingsError(null);
     setTelegramIdentities([]);
     setTelegramIdentitiesError(null);
     setSlackIdentities([]);
@@ -663,95 +573,16 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
           </div>
         </div>
 
-        <div class="rounded-2xl border border-gray-4 bg-gray-1 p-5 shadow-sm space-y-4">
+        <div class="rounded-2xl border border-gray-4 bg-gray-1 p-5 shadow-sm space-y-3">
           <div class="flex items-center gap-2">
             <HardDrive size={18} class="text-gray-10" />
             <div>
-              <div class="text-sm font-semibold text-gray-12">Routing (bindings)</div>
-              <div class="text-xs text-gray-9">(channel, peerId) {"->"} directory</div>
+              <div class="text-sm font-semibold text-gray-12">Routing</div>
+              <div class="text-xs text-gray-9">New chats auto-bind to this workspace on first message.</div>
             </div>
           </div>
-
-          <Show when={bindingsError()}>
-            {(value) => (
-              <div class="rounded-xl border border-amber-7/20 bg-amber-1/30 px-4 py-3 text-xs text-amber-12">{value()}</div>
-            )}
-          </Show>
-
-          <Show when={bindings().length === 0 && !bindingsError()}>
-            <div class="text-xs text-gray-10">No bindings yet.</div>
-          </Show>
-
-          <Show when={bindings().length > 0}>
-            <div class="divide-y divide-gray-4 rounded-xl border border-gray-4 overflow-hidden">
-              <For each={bindings()}>
-                {(item) => (
-                  <div class="px-4 py-3 bg-gray-1">
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                      <div class="text-xs font-semibold text-gray-12">
-                        {item.channel} / {item.peerId}
-                      </div>
-                      <div class="flex items-center gap-2">
-                        <Button
-                          variant="secondary"
-                          class="h-8 px-3 text-xs"
-                          disabled={bindingSaving() || !workspaceId()}
-                          onClick={() => void clearBinding({ channel: item.channel, peerId: item.peerId })}
-                        >
-                          Clear
-                        </Button>
-                        <Show when={typeof item.updatedAt === "number"}>
-                          <div class="text-[11px] text-gray-9">{new Date(item.updatedAt as number).toLocaleString()}</div>
-                        </Show>
-                      </div>
-                    </div>
-                    <div class="mt-1 text-[11px] text-gray-9 font-mono break-all">{item.directory}</div>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Show>
-
-          <div class="rounded-xl border border-gray-4 bg-gray-1 px-4 py-3 space-y-2">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-              <select
-                class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-xs text-gray-12"
-                value={bindingChannel()}
-                onChange={(e) => setBindingChannel(e.currentTarget.value === "slack" ? "slack" : "telegram")}
-              >
-                <option value="telegram">telegram</option>
-                <option value="slack">slack</option>
-              </select>
-              <input
-                class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-xs text-gray-12 placeholder:text-gray-9"
-                placeholder="peerId"
-                value={bindingPeerId()}
-                onInput={(e) => setBindingPeerId(e.currentTarget.value)}
-              />
-              <input
-                class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-xs text-gray-12 placeholder:text-gray-9"
-                placeholder="directory"
-                value={bindingDirectory()}
-                onInput={(e) => setBindingDirectory(e.currentTarget.value)}
-              />
-            </div>
-
-            <div class="flex items-center gap-2">
-              <Button
-                variant="primary"
-                class="h-8 px-3 text-xs"
-                onClick={() => void saveBinding()}
-                disabled={bindingSaving() || !workspaceId() || !bindingPeerId().trim() || !bindingDirectory().trim()}
-              >
-                {bindingSaving() ? "Saving..." : "Save binding"}
-              </Button>
-              <Show when={bindingStatus()}>
-                {(value) => <div class="text-[11px] text-gray-9">{value()}</div>}
-              </Show>
-            </div>
-            <Show when={bindingError()}>
-              {(value) => <div class="text-[11px] text-red-12">{value()}</div>}
-            </Show>
+          <div class="text-xs text-gray-10">
+            Advanced: reply with <span class="font-mono">/dir &lt;path&gt;</span> in Slack/Telegram to override the directory for a specific chat.
           </div>
         </div>
       </Show>

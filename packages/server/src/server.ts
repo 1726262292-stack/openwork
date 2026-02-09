@@ -1269,12 +1269,12 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
     });
 
     const identityId = normalizeOwpenbotIdentityId(workspace.id);
-    await persistOwpenbotTelegramIdentity({ id: identityId, token, enabled: true });
+    await persistOwpenbotTelegramIdentity({ id: identityId, token, enabled: true, directory: workspace.path });
 
     const port = healthPort ?? resolveOwpenbotHealthPort();
     const apply = await tryPostOwpenbotHealth(
       "/identities/telegram",
-      { id: identityId, token, enabled: true },
+      { id: identityId, token, enabled: true, directory: workspace.path },
       { port, requestHost, timeoutMs: 3_000 },
     );
 
@@ -1412,12 +1412,12 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
     });
 
     const identityId = normalizeOwpenbotIdentityId(workspace.id);
-    await persistOwpenbotSlackIdentity({ id: identityId, botToken, appToken, enabled: true });
+    await persistOwpenbotSlackIdentity({ id: identityId, botToken, appToken, enabled: true, directory: workspace.path });
 
     const port = healthPort ?? resolveOwpenbotHealthPort();
     const apply = await tryPostOwpenbotHealth(
       "/identities/slack",
-      { id: identityId, botToken, appToken, enabled: true },
+      { id: identityId, botToken, appToken, enabled: true, directory: workspace.path },
       { port, requestHost, timeoutMs: 3_000 },
     );
 
@@ -1556,12 +1556,12 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
       paths: [resolveOwpenbotConfigPath()],
     });
 
-    await persistOwpenbotTelegramIdentity({ id: identityId, token, enabled });
+    await persistOwpenbotTelegramIdentity({ id: identityId, token, enabled, directory: workspace.path });
 
     const port = healthPort ?? resolveOwpenbotHealthPort();
     const apply = await tryPostOwpenbotHealth(
       "/identities/telegram",
-      { id: identityId, token, enabled },
+      { id: identityId, token, enabled, directory: workspace.path },
       { port, requestHost, timeoutMs: 3_000 },
     );
 
@@ -1761,12 +1761,12 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
       paths: [resolveOwpenbotConfigPath()],
     });
 
-    await persistOwpenbotSlackIdentity({ id: identityId, botToken, appToken, enabled });
+    await persistOwpenbotSlackIdentity({ id: identityId, botToken, appToken, enabled, directory: workspace.path });
 
     const port = healthPort ?? resolveOwpenbotHealthPort();
     const apply = await tryPostOwpenbotHealth(
       "/identities/slack",
-      { id: identityId, botToken, appToken, enabled },
+      { id: identityId, botToken, appToken, enabled, directory: workspace.path },
       { port, requestHost, timeoutMs: 3_000 },
     );
 
@@ -2904,6 +2904,7 @@ async function persistOwpenbotTelegramIdentity(identity: {
   id: string;
   token: string;
   enabled: boolean;
+  directory?: string;
 }): Promise<void> {
   const configPath = resolveOwpenbotConfigPath();
   const current = await readOwpenbotConfigFile(configPath);
@@ -2912,6 +2913,7 @@ async function persistOwpenbotTelegramIdentity(identity: {
 
   const id = normalizeOwpenbotIdentityId(identity.id);
   const token = identity.token.trim();
+  const directory = typeof identity.directory === "string" ? identity.directory.trim() : "";
   if (!token) {
     throw new ApiError(400, "token_required", "Telegram token is required");
   }
@@ -2929,10 +2931,12 @@ async function persistOwpenbotTelegramIdentity(identity: {
       continue;
     }
     found = true;
-    nextBots.push({ id, token, enabled: identity.enabled });
+    const prevDir = typeof record.directory === "string" ? record.directory.trim() : "";
+    const nextDir = directory || prevDir;
+    nextBots.push({ id, token, enabled: identity.enabled, ...(nextDir ? { directory: nextDir } : {}) });
   }
   if (!found) {
-    nextBots.push({ id, token, enabled: identity.enabled });
+    nextBots.push({ id, token, enabled: identity.enabled, ...(directory ? { directory } : {}) });
   }
 
   const nextTelegram: Record<string, unknown> = {
@@ -3149,6 +3153,7 @@ async function persistOwpenbotSlackIdentity(identity: {
   botToken: string;
   appToken: string;
   enabled: boolean;
+  directory?: string;
 }): Promise<void> {
   const configPath = resolveOwpenbotConfigPath();
   const current = await readOwpenbotConfigFile(configPath);
@@ -3158,6 +3163,7 @@ async function persistOwpenbotSlackIdentity(identity: {
   const id = normalizeOwpenbotIdentityId(identity.id);
   const botToken = identity.botToken.trim();
   const appToken = identity.appToken.trim();
+  const directory = typeof identity.directory === "string" ? identity.directory.trim() : "";
   if (!botToken || !appToken) {
     throw new ApiError(400, "token_required", "Slack botToken and appToken are required");
   }
@@ -3175,10 +3181,12 @@ async function persistOwpenbotSlackIdentity(identity: {
       continue;
     }
     found = true;
-    nextApps.push({ id, botToken, appToken, enabled: identity.enabled });
+    const prevDir = typeof record.directory === "string" ? record.directory.trim() : "";
+    const nextDir = directory || prevDir;
+    nextApps.push({ id, botToken, appToken, enabled: identity.enabled, ...(nextDir ? { directory: nextDir } : {}) });
   }
   if (!found) {
-    nextApps.push({ id, botToken, appToken, enabled: identity.enabled });
+    nextApps.push({ id, botToken, appToken, enabled: identity.enabled, ...(directory ? { directory } : {}) });
   }
 
   const nextSlack: Record<string, unknown> = {
