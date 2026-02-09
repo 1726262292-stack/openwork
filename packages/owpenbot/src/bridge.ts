@@ -1,11 +1,9 @@
 import { setTimeout as delay } from "node:timers/promises";
-import fs from "node:fs";
-import path from "node:path";
 
 import type { Logger } from "pino";
 
 import type { Config, ChannelName, OwpenbotConfigFile } from "./config.js";
-import { normalizeWhatsAppId, readConfigFile, writeConfigFile } from "./config.js";
+import { readConfigFile, writeConfigFile } from "./config.js";
 import { BridgeStore } from "./db.js";
 import { normalizeEvent } from "./events.js";
 import { startHealthServer, type HealthSnapshot } from "./health.js";
@@ -15,7 +13,9 @@ import { createSlackAdapter } from "./slack.js";
 import { createTelegramAdapter } from "./telegram.js";
 
 type Adapter = {
+  key: string;
   name: ChannelName;
+  identityId: string;
   maxTextLength: number;
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -62,19 +62,32 @@ type BridgeDeps = {
   client?: ReturnType<typeof createClient>;
   clientFactory?: (directory: string) => ReturnType<typeof createClient>;
   store?: BridgeStore;
-  adapters?: Map<ChannelName, Adapter>;
+  adapters?: Map<string, Adapter>;
   disableEventStream?: boolean;
   disableHealthServer?: boolean;
 };
 
 export type BridgeReporter = {
   onStatus?: (message: string) => void;
-  onInbound?: (message: { channel: ChannelName; peerId: string; text: string; fromMe?: boolean }) => void;
-  onOutbound?: (message: { channel: ChannelName; peerId: string; text: string; kind: OutboundKind }) => void;
+  onInbound?: (message: {
+    channel: ChannelName;
+    identityId: string;
+    peerId: string;
+    text: string;
+    fromMe?: boolean;
+  }) => void;
+  onOutbound?: (message: {
+    channel: ChannelName;
+    identityId: string;
+    peerId: string;
+    text: string;
+    kind: OutboundKind;
+  }) => void;
 };
 
 type InboundMessage = {
   channel: ChannelName;
+  identityId: string;
   peerId: string;
   text: string;
   raw: unknown;
@@ -91,6 +104,8 @@ type RunState = {
   directory: string;
   sessionID: string;
   channel: ChannelName;
+  identityId: string;
+  adapterKey: string;
   peerId: string;
   peerKey: string;
   toolUpdatesEnabled: boolean;
@@ -113,7 +128,6 @@ const TOOL_LABELS: Record<string, string> = {
 };
 
 const CHANNEL_LABELS: Record<ChannelName, string> = {
-  whatsapp: "WhatsApp",
   telegram: "Telegram",
   slack: "Slack",
 };
@@ -129,22 +143,34 @@ const MODEL_PRESETS: Record<string, ModelRef> = {
 // Per-user model overrides (channel:peerId -> ModelRef)
 const userModelOverrides = new Map<string, ModelRef>();
 
-function getUserModelKey(channel: ChannelName, peerId: string): string {
-  return `${channel}:${peerId}`;
+function getUserModelKey(channel: ChannelName, identityId: string, peerId: string): string {
+  return `${channel}:${identityId}:${peerId}`;
 }
 
-function getUserModel(channel: ChannelName, peerId: string, defaultModel?: ModelRef): ModelRef | undefined {
-  const key = getUserModelKey(channel, peerId);
+function getUserModel(channel: ChannelName, identityId: string, peerId: string, defaultModel?: ModelRef): ModelRef | undefined {
+  const key = getUserModelKey(channel, identityId, peerId);
   return userModelOverrides.get(key) ?? defaultModel;
 }
 
-function setUserModel(channel: ChannelName, peerId: string, model: ModelRef | undefined): void {
-  const key = getUserModelKey(channel, peerId);
+function setUserModel(channel: ChannelName, identityId: string, peerId: string, model: ModelRef | undefined): void {
+  const key = getUserModelKey(channel, identityId, peerId);
   if (model) {
     userModelOverrides.set(key, model);
   } else {
     userModelOverrides.delete(key);
   }
+}
+
+function adapterKey(channel: ChannelName, identityId: string): string {
+  return `${channel}:${identityId}`;
+}
+
+function normalizeIdentityId(value: string | undefined): string {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return "default";
+  const safe = trimmed.replace(/[^a-zA-Z0-9_.-]+/g, "-");
+  const cleaned = safe.replace(/^-+|-+$/g, "").slice(0, 48);
+  return cleaned || "default";
 }
 
 export async function startBridge(config: Config, logger: Logger, reporter?: BridgeReporter, deps: BridgeDeps = {}) {
@@ -166,25 +192,14 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
 
   const rootClient = getClient(defaultDirectory);
   const store = deps.store ?? new BridgeStore(config.dbPath);
-  store.seedAllowlist("telegram", config.allowlist.telegram);
-  store.seedAllowlist("slack", config.allowlist.slack);
-  store.seedAllowlist(
-    "whatsapp",
-    [...config.whatsappAllowFrom].filter((entry) => entry !== "*"),
-  );
-  store.prunePairingRequests();
 
   logger.debug(
     {
       configPath: config.configPath,
       opencodeUrl: config.opencodeUrl,
       opencodeDirectory: config.opencodeDirectory,
-      telegramEnabled: config.telegramEnabled,
-      telegramTokenPresent: Boolean(config.telegramToken),
-      slackEnabled: config.slackEnabled,
-      slackBotTokenPresent: Boolean(config.slackBotToken),
-      slackAppTokenPresent: Boolean(config.slackAppToken),
-      whatsappEnabled: config.whatsappEnabled,
+      telegramBots: config.telegramBots.map((bot) => ({ id: bot.id, enabled: bot.enabled !== false })),
+      slackApps: config.slackApps.map((app) => ({ id: app.id, enabled: app.enabled !== false })),
       groupsEnabled: config.groupsEnabled,
       permissionMode: config.permissionMode,
       toolUpdatesEnabled: config.toolUpdatesEnabled,
@@ -192,41 +207,32 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
     "bridge config",
   );
 
-  const adapters = deps.adapters ?? new Map<ChannelName, Adapter>();
+  const adapters = deps.adapters ?? new Map<string, Adapter>();
   const usingInjectedAdapters = Boolean(deps.adapters);
 
   if (!usingInjectedAdapters) {
-    if (config.telegramEnabled && config.telegramToken) {
-      logger.debug("telegram adapter enabled");
-      adapters.set("telegram", createTelegramAdapter(config, logger, handleInbound));
-    } else {
-      logger.info("telegram adapter disabled");
-      reportStatus?.("Telegram adapter disabled.");
+    const enabledTelegram = config.telegramBots.filter((bot) => bot.enabled !== false);
+    if (enabledTelegram.length === 0) {
+      logger.info("telegram adapters disabled");
+      reportStatus?.("Telegram adapters disabled.");
+    }
+    for (const bot of enabledTelegram) {
+      const key = adapterKey("telegram", bot.id);
+      logger.debug({ identityId: bot.id }, "telegram adapter enabled");
+      const base = createTelegramAdapter(bot, config, logger, handleInbound);
+      adapters.set(key, { ...base, key });
     }
 
-    if (config.whatsappEnabled) {
-      logger.debug("whatsapp adapter enabled");
-      // Lazy-load WhatsApp adapter to avoid Bun WS warnings (Baileys) when the
-      // channel is disabled.
-      const { createWhatsAppAdapter } = await import("./whatsapp.js");
-      adapters.set(
-        "whatsapp",
-        // Never print QR codes from the long-running bridge process.
-        // Pairing/onboarding should be driven by explicit user action (CLI
-        // subcommand or REST API) so `openwrk`/desktop startup stays quiet.
-        createWhatsAppAdapter(config, logger, handleInbound, { printQr: false, onStatus: reportStatus }),
-      );
-    } else {
-      logger.info("whatsapp adapter disabled");
-      reportStatus?.("WhatsApp adapter disabled.");
+    const enabledSlack = config.slackApps.filter((app) => app.enabled !== false);
+    if (enabledSlack.length === 0) {
+      logger.info("slack adapters disabled");
+      reportStatus?.("Slack adapters disabled.");
     }
-
-    if (config.slackEnabled && config.slackBotToken && config.slackAppToken) {
-      logger.debug("slack adapter enabled");
-      adapters.set("slack", createSlackAdapter(config, logger, handleInbound));
-    } else {
-      logger.info("slack adapter disabled");
-      reportStatus?.("Slack adapter disabled.");
+    for (const app of enabledSlack) {
+      const key = adapterKey("slack", app.id);
+      logger.debug({ identityId: app.id }, "slack adapter enabled");
+      const base = createSlackAdapter(app, config, logger, handleInbound);
+      adapters.set(key, { ...base, key });
     }
   }
 
@@ -237,8 +243,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
   const sessionModels = new Map<string, ModelRef>();
   const typingLoops = new Map<string, NodeJS.Timeout>();
 
-  const formatPeer = (channel: ChannelName, peerId: string) =>
-    channel === "whatsapp" ? normalizeWhatsAppId(peerId) : peerId;
+  const formatPeer = (_channel: ChannelName, peerId: string) => peerId;
 
   const normalizeDirectory = (input: string) => {
     const trimmed = input.trim();
@@ -269,26 +274,28 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
     if (run.thinkingLabel === nextLabel && run.thinkingActive) return;
     run.thinkingLabel = nextLabel;
     run.thinkingActive = true;
-    reportStatus(`[${CHANNEL_LABELS[run.channel]}] ${formatPeer(run.channel, run.peerId)} ${nextLabel}`);
+    reportStatus(
+      `[${CHANNEL_LABELS[run.channel]}/${run.identityId}] ${formatPeer(run.channel, run.peerId)} ${nextLabel}`,
+    );
   };
 
   const reportDone = (run: RunState) => {
     if (!reportStatus || !run.thinkingActive) return;
     const modelLabel = formatModelLabel(sessionModels.get(run.key));
     const suffix = modelLabel ? ` (${modelLabel})` : "";
-    reportStatus(`[${CHANNEL_LABELS[run.channel]}] ${formatPeer(run.channel, run.peerId)} Done${suffix}`);
+    reportStatus(`[${CHANNEL_LABELS[run.channel]}/${run.identityId}] ${formatPeer(run.channel, run.peerId)} Done${suffix}`);
     run.thinkingActive = false;
   };
 
   const startTyping = (run: RunState) => {
-    const adapter = adapters.get(run.channel);
+    const adapter = adapters.get(run.adapterKey);
     if (!adapter?.sendTyping) return;
     if (typingLoops.has(run.key)) return;
     const sendTyping = async () => {
       try {
         await adapter.sendTyping?.(run.peerId);
       } catch (error) {
-        logger.warn({ error, channel: run.channel }, "typing update failed");
+        logger.warn({ error, channel: run.channel, identityId: run.identityId }, "typing update failed");
       }
     };
     void sendTyping();
@@ -349,9 +356,10 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
           version: opencodeVersion,
         },
         channels: {
-          telegram: adapters.has("telegram"),
-          whatsapp: adapters.has("whatsapp"),
-          slack: adapters.has("slack"),
+          telegram: Array.from(adapters.keys()).some((key) => key.startsWith("telegram:")),
+          // WhatsApp removed; keep field for backward compatibility.
+          whatsapp: false,
+          slack: Array.from(adapters.keys()).some((key) => key.startsWith("slack:")),
         },
         config: {
           groupsEnabled,
@@ -378,353 +386,358 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
           logger.info({ groupsEnabled: enabled }, "groups config updated");
           return { groupsEnabled: enabled };
         },
-        setTelegramToken: async (token: string) => {
-          const trimmed = token.trim();
-          if (!trimmed) {
-            throw new Error("Telegram token is required");
-          }
 
+        listTelegramIdentities: async () => {
+          return {
+            items: config.telegramBots.map((bot) => ({
+              id: bot.id,
+              enabled: bot.enabled !== false,
+              running: adapters.has(adapterKey("telegram", bot.id)),
+            })),
+          };
+        },
+        upsertTelegramIdentity: async (input: { id?: string; token: string; enabled?: boolean }) => {
+          const token = input.token?.trim() ?? "";
+          if (!token) throw new Error("token is required");
+          const id = normalizeIdentityId(input.id);
+          if (id === "env") throw new Error("identity id 'env' is reserved");
+          const enabled = input.enabled !== false;
+
+          // Persist to config file.
           const { config: current } = readConfigFile(config.configPath);
+          const telegram = current.channels?.telegram;
+          const bots = Array.isArray((telegram as any)?.bots) ? (((telegram as any).bots as unknown[]) ?? []) : [];
+          const nextBots: any[] = [];
+          let found = false;
+          for (const entry of bots) {
+            if (!entry || typeof entry !== "object") continue;
+            const record = entry as Record<string, unknown>;
+            const entryId = normalizeIdentityId(typeof record.id === "string" ? record.id : "default");
+            if (entryId !== id) {
+              nextBots.push(entry);
+              continue;
+            }
+            found = true;
+            nextBots.push({ id, token, enabled });
+          }
+          if (!found) nextBots.push({ id, token, enabled });
+
           const next: OwpenbotConfigFile = {
             ...current,
             channels: {
               ...current.channels,
               telegram: {
-                ...current.channels?.telegram,
-                token: trimmed,
+                ...(current.channels?.telegram ?? {}),
                 enabled: true,
+                bots: nextBots,
               },
             },
           };
           next.version = next.version ?? 1;
           writeConfigFile(config.configPath, next);
           config.configFile = next;
-          config.telegramToken = trimmed;
-          config.telegramEnabled = true;
 
-          const existing = adapters.get("telegram");
+          // Update runtime identity list.
+          const existingIdx = config.telegramBots.findIndex((bot) => bot.id === id);
+          if (existingIdx >= 0) {
+            config.telegramBots[existingIdx] = { id, token, enabled };
+          } else {
+            config.telegramBots.push({ id, token, enabled });
+          }
+
+          // Start/stop adapter.
+          const key = adapterKey("telegram", id);
+          const existing = adapters.get(key);
+          if (!enabled) {
+            if (existing) {
+              try {
+                await existing.stop();
+              } catch (error) {
+                logger.warn({ error, channel: "telegram", identityId: id }, "failed to stop telegram adapter");
+              }
+              adapters.delete(key);
+            }
+            return { id, enabled: false, applied: true };
+          }
+
           if (existing) {
             try {
               await existing.stop();
             } catch (error) {
-              logger.warn({ error }, "failed to stop existing telegram adapter");
+              logger.warn({ error, channel: "telegram", identityId: id }, "failed to stop existing telegram adapter");
             }
-            adapters.delete("telegram");
+            adapters.delete(key);
           }
-
-          const adapter = createTelegramAdapter(config, logger, handleInbound);
-          adapters.set("telegram", adapter);
+          const base = createTelegramAdapter({ id, token, enabled }, config, logger, handleInbound);
+          const adapter = { ...base, key };
+          adapters.set(key, adapter);
 
           const startResult = await startAdapterBounded(adapter, {
             timeoutMs: 2_500,
             onError: (error) => {
-              logger.error({ error }, "telegram adapter start failed");
-              adapters.delete("telegram");
+              logger.error({ error, channel: "telegram", identityId: id }, "telegram adapter start failed");
+              adapters.delete(key);
             },
           });
 
           if (startResult.status === "timeout") {
-            logger.warn({ timeoutMs: 2_500 }, "telegram adapter start timed out");
-            return {
-              configured: true,
-              enabled: true,
-              applied: false,
-              starting: true,
-            };
+            return { id, enabled: true, applied: false, starting: true };
           }
-
           if (startResult.status === "error") {
-            return {
-              configured: true,
-              enabled: true,
-              applied: false,
-              error: String(startResult.error),
-            };
+            return { id, enabled: true, applied: false, error: String(startResult.error) };
           }
-
-          return {
-            configured: true,
-            enabled: true,
-            applied: true,
-          };
+          return { id, enabled: true, applied: true };
         },
-        setSlackTokens: async (tokens: { botToken: string; appToken: string }) => {
-          const botToken = tokens.botToken.trim();
-          const appToken = tokens.appToken.trim();
-          if (!botToken || !appToken) {
-            throw new Error("Slack bot token and app token are required");
-          }
+        deleteTelegramIdentity: async (rawId: string) => {
+          const id = normalizeIdentityId(rawId);
+          if (id === "env") throw new Error("env identity cannot be deleted");
 
           const { config: current } = readConfigFile(config.configPath);
+          const telegram = current.channels?.telegram;
+          const bots = Array.isArray((telegram as any)?.bots) ? (((telegram as any).bots as unknown[]) ?? []) : [];
+          const nextBots: any[] = [];
+          let deleted = false;
+          for (const entry of bots) {
+            if (!entry || typeof entry !== "object") continue;
+            const record = entry as Record<string, unknown>;
+            const entryId = normalizeIdentityId(typeof record.id === "string" ? record.id : "default");
+            if (entryId === id) {
+              deleted = true;
+              continue;
+            }
+            nextBots.push(entry);
+          }
+          const next: OwpenbotConfigFile = {
+            ...current,
+            channels: {
+              ...current.channels,
+              telegram: {
+                ...(current.channels?.telegram ?? {}),
+                bots: nextBots,
+              },
+            },
+          };
+          next.version = next.version ?? 1;
+          writeConfigFile(config.configPath, next);
+          config.configFile = next;
+
+          config.telegramBots.splice(
+            0,
+            config.telegramBots.length,
+            ...config.telegramBots.filter((bot) => bot.id !== id),
+          );
+
+          const key = adapterKey("telegram", id);
+          const existing = adapters.get(key);
+          if (existing) {
+            try {
+              await existing.stop();
+            } catch (error) {
+              logger.warn({ error, channel: "telegram", identityId: id }, "failed to stop telegram adapter");
+            }
+            adapters.delete(key);
+          }
+          return { id, deleted };
+        },
+
+        listSlackIdentities: async () => {
+          return {
+            items: config.slackApps.map((app) => ({
+              id: app.id,
+              enabled: app.enabled !== false,
+              running: adapters.has(adapterKey("slack", app.id)),
+            })),
+          };
+        },
+        upsertSlackIdentity: async (input: { id?: string; botToken: string; appToken: string; enabled?: boolean }) => {
+          const botToken = input.botToken?.trim() ?? "";
+          const appToken = input.appToken?.trim() ?? "";
+          if (!botToken || !appToken) throw new Error("botToken and appToken are required");
+          const id = normalizeIdentityId(input.id);
+          if (id === "env") throw new Error("identity id 'env' is reserved");
+          const enabled = input.enabled !== false;
+
+          const { config: current } = readConfigFile(config.configPath);
+          const slack = current.channels?.slack;
+          const apps = Array.isArray((slack as any)?.apps) ? (((slack as any).apps as unknown[]) ?? []) : [];
+          const nextApps: any[] = [];
+          let found = false;
+          for (const entry of apps) {
+            if (!entry || typeof entry !== "object") continue;
+            const record = entry as Record<string, unknown>;
+            const entryId = normalizeIdentityId(typeof record.id === "string" ? record.id : "default");
+            if (entryId !== id) {
+              nextApps.push(entry);
+              continue;
+            }
+            found = true;
+            nextApps.push({ id, botToken, appToken, enabled });
+          }
+          if (!found) nextApps.push({ id, botToken, appToken, enabled });
+
           const next: OwpenbotConfigFile = {
             ...current,
             channels: {
               ...current.channels,
               slack: {
-                ...current.channels?.slack,
-                botToken,
-                appToken,
+                ...(current.channels?.slack ?? {}),
                 enabled: true,
+                apps: nextApps,
               },
             },
           };
           next.version = next.version ?? 1;
           writeConfigFile(config.configPath, next);
           config.configFile = next;
-          config.slackBotToken = botToken;
-          config.slackAppToken = appToken;
-          config.slackEnabled = true;
 
-          const existing = adapters.get("slack");
+          const existingIdx = config.slackApps.findIndex((app) => app.id === id);
+          if (existingIdx >= 0) {
+            config.slackApps[existingIdx] = { id, botToken, appToken, enabled };
+          } else {
+            config.slackApps.push({ id, botToken, appToken, enabled });
+          }
+
+          const key = adapterKey("slack", id);
+          const existing = adapters.get(key);
+          if (!enabled) {
+            if (existing) {
+              try {
+                await existing.stop();
+              } catch (error) {
+                logger.warn({ error, channel: "slack", identityId: id }, "failed to stop slack adapter");
+              }
+              adapters.delete(key);
+            }
+            return { id, enabled: false, applied: true };
+          }
+
           if (existing) {
             try {
               await existing.stop();
             } catch (error) {
-              logger.warn({ error }, "failed to stop existing slack adapter");
+              logger.warn({ error, channel: "slack", identityId: id }, "failed to stop existing slack adapter");
             }
-            adapters.delete("slack");
+            adapters.delete(key);
           }
-
-          const adapter = createSlackAdapter(config, logger, handleInbound);
-          adapters.set("slack", adapter);
+          const base = createSlackAdapter({ id, botToken, appToken, enabled }, config, logger, handleInbound);
+          const adapter = { ...base, key };
+          adapters.set(key, adapter);
 
           const startResult = await startAdapterBounded(adapter, {
             timeoutMs: 2_500,
             onError: (error) => {
-              logger.error({ error }, "slack adapter start failed");
-              adapters.delete("slack");
+              logger.error({ error, channel: "slack", identityId: id }, "slack adapter start failed");
+              adapters.delete(key);
             },
           });
 
           if (startResult.status === "timeout") {
-            logger.warn({ timeoutMs: 2_500 }, "slack adapter start timed out");
-            return {
-              configured: true,
-              enabled: true,
-              applied: false,
-              starting: true,
-            };
+            return { id, enabled: true, applied: false, starting: true };
           }
-
           if (startResult.status === "error") {
-            return {
-              configured: true,
-              enabled: true,
-              applied: false,
-              error: String(startResult.error),
-            };
+            return { id, enabled: true, applied: false, error: String(startResult.error) };
           }
-
-          return {
-            configured: true,
-            enabled: true,
-            applied: true,
-          };
+          return { id, enabled: true, applied: true };
         },
-        getTelegramEnabled: () => Boolean(config.telegramEnabled),
-        setTelegramEnabled: async (enabled: boolean) => {
-          const nextEnabled = Boolean(enabled);
+        deleteSlackIdentity: async (rawId: string) => {
+          const id = normalizeIdentityId(rawId);
+          if (id === "env") throw new Error("env identity cannot be deleted");
+
           const { config: current } = readConfigFile(config.configPath);
+          const slack = current.channels?.slack;
+          const apps = Array.isArray((slack as any)?.apps) ? (((slack as any).apps as unknown[]) ?? []) : [];
+          const nextApps: any[] = [];
+          let deleted = false;
+          for (const entry of apps) {
+            if (!entry || typeof entry !== "object") continue;
+            const record = entry as Record<string, unknown>;
+            const entryId = normalizeIdentityId(typeof record.id === "string" ? record.id : "default");
+            if (entryId === id) {
+              deleted = true;
+              continue;
+            }
+            nextApps.push(entry);
+          }
           const next: OwpenbotConfigFile = {
             ...current,
             channels: {
               ...current.channels,
-              telegram: {
-                ...current.channels?.telegram,
-                enabled: nextEnabled,
+              slack: {
+                ...(current.channels?.slack ?? {}),
+                apps: nextApps,
               },
             },
           };
           next.version = next.version ?? 1;
           writeConfigFile(config.configPath, next);
           config.configFile = next;
-          config.telegramEnabled = nextEnabled;
 
-          const existing = adapters.get("telegram");
-          if (!nextEnabled) {
-            if (existing) {
-              try {
-                await existing.stop();
-              } catch (error) {
-                logger.warn({ error }, "failed to stop existing telegram adapter");
-              }
-              adapters.delete("telegram");
-            }
-            return { enabled: false, applied: true };
-          }
+          config.slackApps.splice(0, config.slackApps.length, ...config.slackApps.filter((app) => app.id !== id));
 
-          if (!config.telegramToken) {
-            throw new Error("Telegram bot token is not configured");
-          }
-
+          const key = adapterKey("slack", id);
+          const existing = adapters.get(key);
           if (existing) {
-            return { enabled: true, applied: true };
-          }
-
-          const adapter = createTelegramAdapter(config, logger, handleInbound);
-          adapters.set("telegram", adapter);
-
-          const startResult = await startAdapterBounded(adapter, {
-            timeoutMs: 2_500,
-            onError: (error) => {
-              logger.error({ error }, "telegram adapter start failed");
-              adapters.delete("telegram");
-            },
-          });
-
-          if (startResult.status === "timeout") {
-            logger.warn({ timeoutMs: 2_500 }, "telegram adapter start timed out");
-            return { enabled: true, applied: false, starting: true };
-          }
-
-          if (startResult.status === "error") {
-            return { enabled: true, applied: false, error: String(startResult.error) };
-          }
-
-          return { enabled: true, applied: true };
-        },
-        getWhatsAppEnabled: () => Boolean(config.whatsappEnabled),
-        setWhatsAppEnabled: async (enabled: boolean) => {
-          const nextEnabled = Boolean(enabled);
-          const { config: current } = readConfigFile(config.configPath);
-          const next: OwpenbotConfigFile = {
-            ...current,
-            channels: {
-              ...current.channels,
-              whatsapp: {
-                ...current.channels?.whatsapp,
-                enabled: nextEnabled,
-              },
-            },
-          };
-          next.version = next.version ?? 1;
-          writeConfigFile(config.configPath, next);
-          config.configFile = next;
-          config.whatsappEnabled = nextEnabled;
-
-          const existing = adapters.get("whatsapp");
-          if (!nextEnabled) {
-            if (existing) {
-              try {
-                await existing.stop();
-              } catch (error) {
-                logger.warn({ error }, "failed to stop existing whatsapp adapter");
-              }
-              adapters.delete("whatsapp");
+            try {
+              await existing.stop();
+            } catch (error) {
+              logger.warn({ error, channel: "slack", identityId: id }, "failed to stop slack adapter");
             }
-            return { enabled: false, applied: true };
+            adapters.delete(key);
           }
-
-          if (existing) {
-            // Already enabled; no-op.
-            return { enabled: true, applied: true };
-          }
-
-          const { createWhatsAppAdapter } = await import("./whatsapp.js");
-          const adapter = createWhatsAppAdapter(config, logger, handleInbound, {
-            printQr: false,
-            onStatus: reportStatus,
-          });
-          adapters.set("whatsapp", adapter);
-
-          const startResult = await startAdapterBounded(adapter, {
-            timeoutMs: 5_000,
-            onError: (error) => {
-              logger.error({ error }, "whatsapp adapter start failed");
-              adapters.delete("whatsapp");
-            },
-          });
-
-          if (startResult.status === "timeout") {
-            logger.warn({ timeoutMs: 5_000 }, "whatsapp adapter start timed out");
-            return { enabled: true, applied: false, starting: true };
-          }
-
-          if (startResult.status === "error") {
-            return { enabled: true, applied: false, error: String(startResult.error) };
-          }
-
-          return { enabled: true, applied: true };
+          return { id, deleted };
         },
-        getWhatsAppQr: async () => {
-          // Avoid printing the QR to stdout; return the raw QR string so a UI
-          // can render it.
-          const credsPath = path.join(config.whatsappAuthDir, "creds.json");
-          if (fs.existsSync(credsPath)) {
-            throw new Error("WhatsApp already linked");
+
+        listBindings: async (filters?: { channel?: string; identityId?: string }) => {
+          const channelRaw = filters?.channel?.trim().toLowerCase();
+          const identityIdRaw = filters?.identityId?.trim();
+          let channel: ChannelName | undefined;
+          if (channelRaw) {
+            if (channelRaw === "telegram" || channelRaw === "slack") {
+              channel = channelRaw as ChannelName;
+            } else {
+              throw new Error("Invalid channel");
+            }
           }
-
-          const { createWhatsAppSocket, closeWhatsAppSocket } = await import("./whatsapp-session.js");
-
-          return new Promise<{ qr: string }>((resolve, reject) => {
-            let resolved = false;
-            const timeout = setTimeout(() => {
-              if (resolved) return;
-              resolved = true;
-              reject(new Error("Timeout waiting for QR code"));
-            }, 30_000);
-
-            void createWhatsAppSocket({
-              authDir: config.whatsappAuthDir,
-              logger,
-              printQr: false,
-              onQr: (qr) => {
-                if (resolved) return;
-                resolved = true;
-                clearTimeout(timeout);
-                resolve({ qr });
-              },
-            })
-              .then((sock) => {
-                setTimeout(() => {
-                  closeWhatsAppSocket(sock);
-                }, resolved ? 500 : 30_500);
-              })
-              .catch((error) => {
-                if (resolved) return;
-                resolved = true;
-                clearTimeout(timeout);
-                reject(error);
-              });
-          });
-        },
-        listBindings: async () => {
-          const bindings = store.listBindings();
+          const identityId = identityIdRaw ? normalizeIdentityId(identityIdRaw) : undefined;
+          const bindings = store.listBindings({ ...(channel ? { channel } : {}), ...(identityId ? { identityId } : {}) });
           return {
             items: bindings.map((entry) => ({
               channel: entry.channel,
+              identityId: entry.identity_id,
               peerId: entry.peer_id,
               directory: entry.directory,
               updatedAt: entry.updated_at,
             })),
           };
         },
-        setBinding: async (input: { channel: string; peerId: string; directory: string }) => {
+        setBinding: async (input: { channel: string; identityId?: string; peerId: string; directory: string }) => {
           const channel = input.channel.trim().toLowerCase();
-          if (channel !== "whatsapp" && channel !== "telegram" && channel !== "slack") {
+          if (channel !== "telegram" && channel !== "slack") {
             throw new Error("Invalid channel");
           }
-          const peerKey = channel === "whatsapp" ? normalizeWhatsAppId(input.peerId) : input.peerId.trim();
+          const identityId = normalizeIdentityId(input.identityId);
+          const peerKey = input.peerId.trim();
           const directory = input.directory.trim();
           if (!peerKey || !directory) {
             throw new Error("peerId and directory are required");
           }
           const normalizedDir = normalizeDirectory(directory);
-          store.upsertBinding(channel as ChannelName, peerKey, normalizedDir);
-          store.deleteSession(channel as ChannelName, peerKey);
+          store.upsertBinding(channel as ChannelName, identityId, peerKey, normalizedDir);
+          store.deleteSession(channel as ChannelName, identityId, peerKey);
           ensureEventSubscription(normalizedDir);
         },
-        clearBinding: async (input: { channel: string; peerId: string }) => {
+        clearBinding: async (input: { channel: string; identityId?: string; peerId: string }) => {
           const channel = input.channel.trim().toLowerCase();
-          if (channel !== "whatsapp" && channel !== "telegram" && channel !== "slack") {
+          if (channel !== "telegram" && channel !== "slack") {
             throw new Error("Invalid channel");
           }
-          const peerKey = channel === "whatsapp" ? normalizeWhatsAppId(input.peerId) : input.peerId.trim();
+          const identityId = normalizeIdentityId(input.identityId);
+          const peerKey = input.peerId.trim();
           if (!peerKey) {
             throw new Error("peerId is required");
           }
-          store.deleteBinding(channel as ChannelName, peerKey);
-          store.deleteSession(channel as ChannelName, peerKey);
+          store.deleteBinding(channel as ChannelName, identityId, peerKey);
+          store.deleteSession(channel as ChannelName, identityId, peerKey);
         },
       },
     );
@@ -814,7 +827,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
             if (output) message += `\n${output}`;
           }
 
-          await sendText(run.channel, run.peerId, message, { kind: "tool" });
+          await sendText(run.channel, run.identityId, run.peerId, message, { kind: "tool" });
         }
 
         if (event.type === "permission.asked") {
@@ -829,7 +842,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
           if (response === "reject") {
             const run = activeRuns.get(keyForSession(resolved, permission.sessionID));
             if (run) {
-              await sendText(run.channel, run.peerId, "Permission denied. Update configuration to allow tools.", {
+              await sendText(run.channel, run.identityId, run.peerId, "Permission denied. Update configuration to allow tools.", {
                 kind: "system",
               });
             }
@@ -846,16 +859,17 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
 
   async function sendText(
     channel: ChannelName,
+    identityId: string,
     peerId: string,
     text: string,
     options: { kind?: OutboundKind; display?: boolean } = {},
   ) {
-    const adapter = adapters.get(channel);
+    const adapter = adapters.get(adapterKey(channel, identityId));
     if (!adapter) return;
     const kind = options.kind ?? "system";
-    logger.debug({ channel, peerId, kind, length: text.length }, "sendText requested");
+    logger.debug({ channel, identityId, peerId, kind, length: text.length }, "sendText requested");
     if (options.display !== false) {
-      reporter?.onOutbound?.({ channel, peerId, text, kind });
+      reporter?.onOutbound?.({ channel, identityId, peerId, text, kind });
     }
 
     // CHECK IF IT'S A FILE COMMAND
@@ -875,12 +889,13 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
   }
 
   async function handleInbound(message: InboundMessage) {
-    const adapter = adapters.get(message.channel);
+    const adapter = adapters.get(adapterKey(message.channel, message.identityId));
     if (!adapter) return;
     let inbound = message;
     logger.debug(
       {
         channel: inbound.channel,
+        identityId: inbound.identityId,
         peerId: inbound.peerId,
         fromMe: inbound.fromMe,
         length: inbound.text.length,
@@ -889,93 +904,47 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
       "inbound received",
     );
     logger.info(
-      { channel: inbound.channel, peerId: inbound.peerId, length: inbound.text.length },
+      { channel: inbound.channel, identityId: inbound.identityId, peerId: inbound.peerId, length: inbound.text.length },
       "received message",
     );
-    const peerKey = inbound.channel === "whatsapp" ? normalizeWhatsAppId(inbound.peerId) : inbound.peerId;
-    if (inbound.channel === "whatsapp") {
-      if (config.whatsappDmPolicy === "disabled") {
-        return;
-      }
-
-      const allowAll = config.whatsappDmPolicy === "open" || config.whatsappAllowFrom.has("*");
-      const isSelf = Boolean(inbound.fromMe && config.whatsappSelfChatMode);
-      const allowed = allowAll || isSelf || store.isAllowed("whatsapp", peerKey);
-      logger.debug(
-        { allowAll, isSelf, allowed, dmPolicy: config.whatsappDmPolicy, peerKey },
-        "whatsapp allowlist check",
-      );
-      if (!allowed) {
-        if (config.whatsappDmPolicy === "allowlist") {
-          await sendText(
-            inbound.channel,
-            inbound.peerId,
-            "Access denied. Ask the owner to allowlist your number.",
-            { kind: "system" },
-          );
-          return;
-        }
-
-        store.prunePairingRequests();
-        const active = store.getPairingRequest("whatsapp", peerKey);
-        const pending = store.listPairingRequests("whatsapp");
-        if (!active && pending.length >= 3) {
-          await sendText(
-            inbound.channel,
-            inbound.peerId,
-            "Pairing queue full. Ask the owner to approve pending requests.",
-            { kind: "system" },
-          );
-          return;
-        }
-
-        const code = active?.code ?? String(Math.floor(100000 + Math.random() * 900000));
-        if (!active) {
-          store.createPairingRequest("whatsapp", peerKey, code, 60 * 60_000);
-        }
-        await sendText(
-          inbound.channel,
-          inbound.peerId,
-          `Pairing required. Ask the owner to approve code: ${code}`,
-          { kind: "system" },
-        );
-        return;
-      }
-    } else if (config.allowlist[inbound.channel].size > 0) {
-      if (!store.isAllowed(inbound.channel, peerKey)) {
-        logger.debug({ channel: inbound.channel, peerKey }, "telegram allowlist denied");
-        await sendText(inbound.channel, inbound.peerId, "Access denied.", { kind: "system" });
-        return;
-      }
-    }
+    const peerKey = inbound.peerId;
 
     // Handle bot commands
     const trimmedText = inbound.text.trim();
     if (trimmedText.startsWith("/")) {
-      const commandHandled = await handleCommand(inbound.channel, peerKey, inbound.peerId, trimmedText);
+      const commandHandled = await handleCommand(
+        inbound.channel,
+        inbound.identityId,
+        peerKey,
+        inbound.peerId,
+        trimmedText,
+      );
       if (commandHandled) return;
     }
 
     reporter?.onInbound?.({
       channel: inbound.channel,
+      identityId: inbound.identityId,
       peerId: inbound.peerId,
       text: inbound.text,
       fromMe: inbound.fromMe,
     });
 
-    const binding = store.getBinding(inbound.channel, peerKey);
-    const session = store.getSession(inbound.channel, peerKey);
+    const binding = store.getBinding(inbound.channel, inbound.identityId, peerKey);
+    const session = store.getSession(inbound.channel, inbound.identityId, peerKey);
 
     const boundDirectory =
       binding?.directory?.trim() || session?.directory?.trim() || defaultDirectory;
 
     if (!boundDirectory) {
-      await sendText(inbound.channel, inbound.peerId, "No workspace directory configured.", { kind: "system" });
+      await sendText(inbound.channel, inbound.identityId, inbound.peerId, "No workspace directory configured.", {
+        kind: "system",
+      });
       return;
     }
 
     if (!binding?.directory?.trim()) {
-      store.upsertBinding(inbound.channel, peerKey, boundDirectory);
+      store.upsertBinding(inbound.channel, inbound.identityId, peerKey, boundDirectory);
     }
 
     ensureEventSubscription(boundDirectory);
@@ -985,6 +954,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
         ? session.session_id
         : await createSession({
             channel: inbound.channel,
+            identityId: inbound.identityId,
             peerId: inbound.peerId,
             peerKey,
             directory: boundDirectory,
@@ -1006,6 +976,8 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
         directory: boundDirectory,
         sessionID,
         channel: inbound.channel,
+        identityId: inbound.identityId,
+        adapterKey: adapterKey(inbound.channel, inbound.identityId),
         peerId: inbound.peerId,
         peerKey,
         toolUpdatesEnabled: config.toolUpdatesEnabled,
@@ -1015,7 +987,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
       reportThinking(runState);
       startTyping(runState);
       try {
-        const effectiveModel = getUserModel(inbound.channel, peerKey, config.model);
+        const effectiveModel = getUserModel(inbound.channel, inbound.identityId, peerKey, config.model);
         logger.debug({ sessionID, length: inbound.text.length, model: effectiveModel }, "prompt start");
         const response = await getClient(boundDirectory).session.prompt({
           sessionID,
@@ -1042,10 +1014,10 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
 
         if (reply) {
           logger.debug({ sessionID, replyLength: reply.length }, "reply built");
-          await sendText(inbound.channel, inbound.peerId, reply, { kind: "reply" });
+          await sendText(inbound.channel, inbound.identityId, inbound.peerId, reply, { kind: "reply" });
         } else {
           logger.debug({ sessionID }, "reply empty");
-          await sendText(inbound.channel, inbound.peerId, "No response generated. Try again.", {
+          await sendText(inbound.channel, inbound.identityId, inbound.peerId, "No response generated. Try again.", {
             kind: "system",
           });
         }
@@ -1085,7 +1057,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
           }
         }
         
-        await sendText(inbound.channel, inbound.peerId, errorMessage, {
+        await sendText(inbound.channel, inbound.identityId, inbound.peerId, errorMessage, {
           kind: "system",
         });
       } finally {
@@ -1096,7 +1068,13 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
     });
   }
 
-  async function handleCommand(channel: ChannelName, peerKey: string, peerId: string, text: string): Promise<boolean> {
+  async function handleCommand(
+    channel: ChannelName,
+    identityId: string,
+    peerKey: string,
+    peerId: string,
+    text: string,
+  ): Promise<boolean> {
     const parts = text.slice(1).split(/\s+/);
     const command = parts[0]?.toLowerCase();
     const args = parts.slice(1);
@@ -1104,25 +1082,29 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
     // Model switching commands
     if (command && MODEL_PRESETS[command]) {
       const model = MODEL_PRESETS[command];
-      setUserModel(channel, peerKey, model);
-      await sendText(channel, peerId, `Model switched to ${model.providerID}/${model.modelID}`, { kind: "system" });
+      setUserModel(channel, identityId, peerKey, model);
+      await sendText(channel, identityId, peerId, `Model switched to ${model.providerID}/${model.modelID}`, {
+        kind: "system",
+      });
       logger.info({ channel, peerId: peerKey, model }, "model switched via command");
       return true;
     }
 
     // /model command - show current model
     if (command === "model") {
-      const current = getUserModel(channel, peerKey, config.model);
+      const current = getUserModel(channel, identityId, peerKey, config.model);
       const modelStr = current ? `${current.providerID}/${current.modelID}` : "default";
-      await sendText(channel, peerId, `Current model: ${modelStr}`, { kind: "system" });
+      await sendText(channel, identityId, peerId, `Current model: ${modelStr}`, { kind: "system" });
       return true;
     }
 
     // /reset command - clear model override and session
     if (command === "reset") {
-      setUserModel(channel, peerKey, undefined);
-      store.deleteSession(channel, peerKey);
-      await sendText(channel, peerId, "Session and model reset. Send a message to start fresh.", { kind: "system" });
+      setUserModel(channel, identityId, peerKey, undefined);
+      store.deleteSession(channel, identityId, peerKey);
+      await sendText(channel, identityId, peerId, "Session and model reset. Send a message to start fresh.", {
+        kind: "system",
+      });
       logger.info({ channel, peerId: peerKey }, "session and model reset");
       return true;
     }
@@ -1130,23 +1112,24 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
     if (command === "dir" || command === "cd") {
       const next = args.join(" ").trim();
       if (!next) {
-        const binding = store.getBinding(channel, peerKey);
-        const current = binding?.directory?.trim() || store.getSession(channel, peerKey)?.directory?.trim() || defaultDirectory;
-        await sendText(channel, peerId, `Current directory: ${current || "(none)"}`, { kind: "system" });
+        const binding = store.getBinding(channel, identityId, peerKey);
+        const current =
+          binding?.directory?.trim() || store.getSession(channel, identityId, peerKey)?.directory?.trim() || defaultDirectory;
+        await sendText(channel, identityId, peerId, `Current directory: ${current || "(none)"}`, { kind: "system" });
         return true;
       }
       const normalized = normalizeDirectory(next);
-      store.upsertBinding(channel, peerKey, normalized);
-      store.deleteSession(channel, peerKey);
+      store.upsertBinding(channel, identityId, peerKey, normalized);
+      store.deleteSession(channel, identityId, peerKey);
       ensureEventSubscription(normalized);
-      await sendText(channel, peerId, `Directory set to: ${normalized}`, { kind: "system" });
+      await sendText(channel, identityId, peerId, `Directory set to: ${normalized}`, { kind: "system" });
       return true;
     }
 
     // /help command
     if (command === "help") {
       const helpText = `/opus - Claude Opus 4.5\n/codex - GPT 5.2 Codex\n/dir <path> - bind this chat to a directory\n/dir - show current directory\n/model - show current\n/reset - start fresh\n/help - this`;
-      await sendText(channel, peerId, helpText, { kind: "system" });
+      await sendText(channel, identityId, peerId, helpText, { kind: "system" });
       return true;
     }
 
@@ -1156,23 +1139,27 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
 
   async function createSession(input: {
     channel: ChannelName;
+    identityId: string;
     peerId: string;
     peerKey: string;
     directory: string;
   }): Promise<string> {
-    const title = `owpenbot ${input.channel} ${input.peerId}`;
+    const title = `owpenbot ${input.channel}/${input.identityId} ${input.peerId}`;
     const session = await getClient(input.directory).session.create({
       title,
       permission: buildPermissionRules(config.permissionMode),
     });
     const sessionID = (session as { id?: string }).id;
     if (!sessionID) throw new Error("Failed to create session");
-    store.upsertSession(input.channel, input.peerKey, sessionID, input.directory);
-    logger.info({ sessionID, channel: input.channel, peerId: input.peerKey, directory: input.directory }, "session created");
-    reportStatus?.(
-      `${CHANNEL_LABELS[input.channel]} session created for ${formatPeer(input.channel, input.peerId)} (ID: ${sessionID}).`,
+    store.upsertSession(input.channel, input.identityId, input.peerKey, sessionID, input.directory);
+    logger.info(
+      { sessionID, channel: input.channel, identityId: input.identityId, peerId: input.peerKey, directory: input.directory },
+      "session created",
     );
-    await sendText(input.channel, input.peerId, "🧭 Session started.", { kind: "system" });
+    reportStatus?.(
+      `${CHANNEL_LABELS[input.channel]}/${input.identityId} session created for ${formatPeer(input.channel, input.peerId)} (ID: ${sessionID}).`,
+    );
+    await sendText(input.channel, input.identityId, input.peerId, "🧭 Session started.", { kind: "system" });
     return sessionID;
   }
 
@@ -1191,27 +1178,27 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
     sessionQueue.set(key, next);
   }
 
-  for (const [channel, adapter] of Array.from(adapters.entries())) {
+  for (const adapter of Array.from(adapters.values())) {
     const startResult = await startAdapterBounded(adapter, {
       timeoutMs: 8_000,
       onError: (error) => {
-        logger.error({ error, channel }, "adapter start failed");
-        adapters.delete(channel);
+        logger.error({ error, channel: adapter.name, identityId: adapter.identityId }, "adapter start failed");
+        adapters.delete(adapter.key);
       },
     });
 
     if (startResult.status === "timeout") {
-      logger.warn({ channel, timeoutMs: 8_000 }, "adapter start timed out");
-      reportStatus?.(`${CHANNEL_LABELS[channel]} adapter starting...`);
+      logger.warn({ channel: adapter.name, identityId: adapter.identityId, timeoutMs: 8_000 }, "adapter start timed out");
+      reportStatus?.(`${CHANNEL_LABELS[adapter.name]}/${adapter.identityId} adapter starting...`);
       continue;
     }
 
     if (startResult.status === "error") {
-      reportStatus?.(`${CHANNEL_LABELS[channel]} adapter failed to start.`);
+      reportStatus?.(`${CHANNEL_LABELS[adapter.name]}/${adapter.identityId} adapter failed to start.`);
       continue;
     }
 
-    reportStatus?.(`${CHANNEL_LABELS[channel]} adapter started.`);
+    reportStatus?.(`${CHANNEL_LABELS[adapter.name]}/${adapter.identityId} adapter started.`);
   }
 
   logger.info({ channels: Array.from(adapters.keys()) }, "bridge started");
@@ -1238,9 +1225,18 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
       store.close();
       await delay(50);
     },
-    async dispatchInbound(message: { channel: ChannelName; peerId: string; text: string; raw?: unknown; fromMe?: boolean }) {
+    async dispatchInbound(message: {
+      channel: ChannelName;
+      identityId?: string;
+      peerId: string;
+      text: string;
+      raw?: unknown;
+      fromMe?: boolean;
+    }) {
+      const identityId = (message.identityId ?? "default").trim() || "default";
       await handleInbound({
         channel: message.channel,
+        identityId,
         peerId: message.peerId,
         text: message.text,
         raw: message.raw ?? null,
@@ -1248,10 +1244,11 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
       });
 
       // For tests and programmatic callers: wait for the session queue to drain.
-      const peerKey = message.channel === "whatsapp" ? normalizeWhatsAppId(message.peerId) : message.peerId;
-      const session = store.getSession(message.channel, peerKey);
+      const peerKey = message.peerId;
+      const session = store.getSession(message.channel, identityId, peerKey);
       const sessionID = session?.session_id;
-      const directory = session?.directory?.trim() || store.getBinding(message.channel, peerKey)?.directory?.trim() || defaultDirectory;
+      const directory =
+        session?.directory?.trim() || store.getBinding(message.channel, identityId, peerKey)?.directory?.trim() || defaultDirectory;
       const pending = sessionID && directory ? sessionQueue.get(keyForSession(directory, sessionID)) : null;
       if (pending) {
         await pending;
