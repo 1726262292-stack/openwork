@@ -1,6 +1,6 @@
 {
   "name": "openwrk",
-  "version": "0.11.39",
+  "version": "0.11.40",
   "description": "Headless OpenWork host orchestrator for OpenCode + OpenWork server + Owpenbot",
   "type": "module",
   "bin": {
@@ -44,8 +44,8 @@
     "@opencode-ai/sdk": "^1.1.31",
     "@opentui/core": "0.1.77",
     "@opentui/solid": "0.1.77",
-    "openwork-server": "0.11.39",
-    "owpenwork": "0.11.39",
+    "openwork-server": "0.11.40",
+    "owpenwork": "0.11.40",
     "solid-js": "1.9.9"
   },
   "devDependencies": {
