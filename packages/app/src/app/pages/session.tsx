@@ -1274,9 +1274,21 @@ export default function SessionView(props: SessionViewProps) {
                               type="button"
                               class="w-full text-left px-2 py-1.5 text-sm rounded-md hover:bg-dls-hover"
                               onClick={() => {
+                                void props.testWorkspaceConnection(workspace().id);
+                                setWorkspaceMenuId(null);
+                              }}
+                              disabled={isConnecting()}
+                            >
+                              Test connection
+                            </button>
+                            <button
+                              type="button"
+                              class="w-full text-left px-2 py-1.5 text-sm rounded-md hover:bg-dls-hover"
+                              onClick={() => {
                                 props.editWorkspaceConnection(workspace().id);
                                 setWorkspaceMenuId(null);
                               }}
+                              disabled={isConnecting()}
                             >
                               Edit connection
                             </button>

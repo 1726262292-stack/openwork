@@ -4313,6 +4313,7 @@ export default function App() {
       activeWorkspaceId: workspaceStore.activeWorkspaceId(),
       connectingWorkspaceId: workspaceStore.connectingWorkspaceId(),
       activateWorkspace: workspaceStore.activateWorkspace,
+      testWorkspaceConnection: workspaceStore.testWorkspaceConnection,
       openCreateWorkspace: () => workspaceStore.setCreateWorkspaceOpen(true),
       openCreateRemoteWorkspace: () => workspaceStore.setCreateRemoteWorkspaceOpen(true),
       importWorkspaceConfig: workspaceStore.importWorkspaceConfig,
