@@ -1,6 +1,6 @@
 {
   "name": "owpenwork",
-  "version": "0.11.40",
+  "version": "0.11.41",
   "description": "Slack + Telegram bridge for a running OpenCode server",
   "private": false,
   "type": "module",
