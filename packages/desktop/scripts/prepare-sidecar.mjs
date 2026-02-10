@@ -684,6 +684,10 @@ try {
   mkdirSync(sidecarDir, { recursive: true });
   const content = JSON.stringify(versions, null, 2) + "\n";
   writeFileSync(versionsPath, content, "utf8");
+  if (resolvedTargetTriple) {
+    const targetVersionsPath = join(sidecarDir, `versions.json-${resolvedTargetTriple}`);
+    writeFileSync(targetVersionsPath, content, "utf8");
+  }
 } catch (error) {
   console.error(`Failed to write versions.json: ${error}`);
   process.exit(1);
