@@ -1743,8 +1743,13 @@ export default function SessionView(props: SessionViewProps) {
                   onClick={() => {
                     handleSendPrompt({
                       mode: "prompt",
-                      text: "Help me set up browser automation.",
-                      parts: [{ type: "text", text: "Help me set up browser automation." }],
+                      text: "Help me set up browser automation. Start by using the bash tool to run `ls` in the workspace and tell me what you find.",
+                      parts: [
+                        {
+                          type: "text",
+                          text: "Help me set up browser automation. Start by using the bash tool to run `ls` in the workspace and tell me what you find.",
+                        },
+                      ],
                       attachments: [],
                     });
                   }}
