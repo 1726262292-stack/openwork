@@ -1064,10 +1064,13 @@ export function createWorkspaceStore(options: {
     };
     options.setOpencodeConnectStatus?.(connectMeta);
 
+    const connectMetrics: NonNullable<OpencodeConnectStatus["metrics"]> = {};
+
     try {
       let resolvedDirectory = directory?.trim() ?? "";
       let nextClient = createClient(nextBaseUrl, resolvedDirectory || undefined, auth);
       const health = await waitForHealthy(nextClient, { timeoutMs: 12_000 });
+      connectMetrics.healthyMs = Date.now() - connectStart;
       wsDebug("connect:healthy", { ms: Date.now() - connectStart, version: health.version });
 
       if (context?.workspaceType === "remote" && !resolvedDirectory) {
@@ -1098,30 +1101,67 @@ export function createWorkspaceStore(options: {
       options.setBaseUrl(nextBaseUrl);
       options.setClientDirectory(resolvedDirectory);
 
+      const providersPromise = (async () => {
+        const providersAt = Date.now();
+        wsDebug("connect:providers:start", { baseUrl: nextBaseUrl });
+        try {
+          const providerList = unwrap(await nextClient.provider.list());
+          wsDebug("connect:providers:done", {
+            ms: Date.now() - providersAt,
+            source: "provider.list",
+            available: providerList.all?.length ?? 0,
+            connected: providerList.connected?.length ?? 0,
+          });
+          return {
+            providers: providerList.all,
+            defaults: providerList.default,
+            connectedIds: providerList.connected,
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : safeStringify(error);
+          wsDebug("connect:providers:fallback", { ms: Date.now() - providersAt, message });
+          try {
+            const cfg = unwrap(await nextClient.config.providers());
+            const mapped = mapConfigProvidersToList(cfg.providers);
+            wsDebug("connect:providers:done", {
+              ms: Date.now() - providersAt,
+              source: "config.providers",
+              available: mapped.length,
+              connected: 0,
+            });
+            return {
+              providers: mapped,
+              defaults: cfg.default,
+              connectedIds: [],
+            };
+          } catch (fallbackError) {
+            const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : safeStringify(fallbackError);
+            wsDebug("connect:providers:error", { ms: Date.now() - providersAt, message: fallbackMessage });
+            return {
+              providers: [],
+              defaults: {},
+              connectedIds: [],
+            };
+          }
+        } finally {
+          connectMetrics.providersMs = Date.now() - providersAt;
+        }
+      })();
+
       const targetRoot = context?.targetRoot ?? (resolvedDirectory || activeWorkspaceRoot().trim());
       wsDebug("connect:loadSessions", { targetRoot, resolvedDirectory });
       const sessionsAt = Date.now();
       await options.loadSessions(targetRoot);
+      connectMetrics.loadSessionsMs = Date.now() - sessionsAt;
       wsDebug("connect:loadSessions:done", { ms: Date.now() - sessionsAt });
+      const pendingPermissionsAt = Date.now();
       await options.refreshPendingPermissions();
+      connectMetrics.pendingPermissionsMs = Date.now() - pendingPermissionsAt;
 
-      try {
-        const providerList = unwrap(await nextClient.provider.list());
-        options.setProviders(providerList.all);
-        options.setProviderDefaults(providerList.default);
-        options.setProviderConnectedIds(providerList.connected);
-      } catch {
-        try {
-          const cfg = unwrap(await nextClient.config.providers());
-          options.setProviders(mapConfigProvidersToList(cfg.providers));
-          options.setProviderDefaults(cfg.default);
-          options.setProviderConnectedIds([]);
-        } catch {
-          options.setProviders([]);
-          options.setProviderDefaults({});
-          options.setProviderConnectedIds([]);
-        }
-      }
+      const providerState = await providersPromise;
+      options.setProviders(providerState.providers);
+      options.setProviderDefaults(providerState.defaults);
+      options.setProviderConnectedIds(providerState.connectedIds);
 
       options.setSelectedSessionId(null);
       options.setMessages([]);
@@ -1140,7 +1180,8 @@ export function createWorkspaceStore(options: {
       // don't force the onboarding flow on subsequent launches.
       markOnboardingComplete();
       options.onEngineStable?.();
-      options.setOpencodeConnectStatus?.({ ...connectMeta, status: "connected" });
+      connectMetrics.totalMs = Date.now() - connectStart;
+      options.setOpencodeConnectStatus?.({ ...connectMeta, status: "connected", metrics: connectMetrics });
       wsDebug("connect:done", { ok: true, ms: Date.now() - connectStart });
       return true;
     } catch (e) {
@@ -1148,10 +1189,12 @@ export function createWorkspaceStore(options: {
       options.setConnectedVersion(null);
       const message = e instanceof Error ? e.message : safeStringify(e);
       wsDebug("connect:error", { ms: Date.now() - connectStart, message });
+      connectMetrics.totalMs = Date.now() - connectStart;
       options.setOpencodeConnectStatus?.({
         ...connectMeta,
         status: "error",
         error: addOpencodeCacheHint(message),
+        metrics: connectMetrics,
       });
       if (!quiet) {
         options.setError(addOpencodeCacheHint(message));

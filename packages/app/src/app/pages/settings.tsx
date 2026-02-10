@@ -1211,6 +1211,29 @@ export default function SettingsView(props: SettingsViewProps) {
                         <Show when={props.opencodeConnectStatus?.reason}>
                           <div class="text-[11px] text-gray-7">Reason: {props.opencodeConnectStatus?.reason}</div>
                         </Show>
+                        <Show when={props.opencodeConnectStatus?.metrics}>
+                          {(metrics) => (
+                            <div class="pt-1 space-y-1 text-[11px] text-gray-7">
+                              <Show when={metrics().healthyMs != null}>
+                                <div>Healthy: {Math.round(metrics().healthyMs as number)}ms</div>
+                              </Show>
+                              <Show when={metrics().loadSessionsMs != null}>
+                                <div>Load sessions: {Math.round(metrics().loadSessionsMs as number)}ms</div>
+                              </Show>
+                              <Show when={metrics().pendingPermissionsMs != null}>
+                                <div>
+                                  Pending permissions: {Math.round(metrics().pendingPermissionsMs as number)}ms
+                                </div>
+                              </Show>
+                              <Show when={metrics().providersMs != null}>
+                                <div>Providers: {Math.round(metrics().providersMs as number)}ms</div>
+                              </Show>
+                              <Show when={metrics().totalMs != null}>
+                                <div>Total: {Math.round(metrics().totalMs as number)}ms</div>
+                              </Show>
+                            </div>
+                          )}
+                        </Show>
                       </div>
                       <Show when={props.opencodeConnectStatus?.error}>
                         <div>

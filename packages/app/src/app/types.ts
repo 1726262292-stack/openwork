@@ -232,6 +232,13 @@ export type OpencodeConnectStatus = {
   reason?: string | null;
   status: "connecting" | "connected" | "error";
   error?: string | null;
+  metrics?: {
+    healthyMs?: number;
+    loadSessionsMs?: number;
+    pendingPermissionsMs?: number;
+    providersMs?: number;
+    totalMs?: number;
+  };
 };
 
 export type ReloadTrigger = {
