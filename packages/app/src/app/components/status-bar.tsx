@@ -196,7 +196,7 @@ export default function StatusBar(props: StatusBarProps) {
         >
           <span class={`w-2 h-2 rounded-full ${opencodeStatusMeta().dot}`} />
           <Cpu class="w-4 h-4 text-gray-11" />
-          <Show when={props.developerMode}>
+          <Show when={props.developerMode || !props.clientConnected}>
             <span class="text-gray-11 font-medium">OpenCode</span>
             <span class={opencodeStatusMeta().text}>{opencodeStatusMeta().label}</span>
           </Show>
@@ -208,7 +208,7 @@ export default function StatusBar(props: StatusBarProps) {
         >
           <span class={`w-2 h-2 rounded-full ${openworkStatusMeta().dot}`} />
           <Server class="w-4 h-4 text-gray-11" />
-          <Show when={props.developerMode}>
+          <Show when={props.developerMode || props.openworkServerStatus !== "connected"}>
             <span class="text-gray-11 font-medium">OpenWork</span>
             <span class={openworkStatusMeta().text}>{openworkStatusMeta().label}</span>
           </Show>
