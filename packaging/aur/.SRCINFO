@@ -1,6 +1,6 @@
 pkgbase = openwork
 	pkgdesc = An Open source alternative to Claude Cowork
-	pkgver = 0.11.44
+	pkgver = 0.11.45
 	pkgrel = 1
 	url = https://github.com/different-ai/openwork
 	arch = x86_64
@@ -13,8 +13,8 @@ pkgbase = openwork
 	depends = openssl
 	depends = dbus
 	depends = librsvg
-	noextract = openwork-0.11.44.deb
-	source = openwork-0.11.44.deb::https://github.com/different-ai/openwork/releases/download/v0.11.44/openwork-desktop-linux-amd64.deb
-	sha256sums = 0f236a0575e546886721289a4a8160ccb5ec4c3654679d2efd6cdfcda89e5114
+	noextract = openwork-0.11.45.deb
+	source = openwork-0.11.45.deb::https://github.com/different-ai/openwork/releases/download/v0.11.45/openwork-desktop-linux-amd64.deb
+	sha256sums = 33764d46fea50c2f74968e8b865e75f8d264e185e63cb45c94ab420b977d8de1
 
 pkgname = openwork
