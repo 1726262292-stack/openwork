@@ -147,6 +147,7 @@ export function createSessionStore(options: {
   });
   const [permissionReplyBusy, setPermissionReplyBusy] = createSignal(false);
   const reloadDetectionSet = new Set<string>();
+  const invalidToolDetectionSet = new Set<string>();
 
   const skillPathPattern = /[\\/]\.opencode[\\/](skill|skills)[\\/]/i;
   const skillNamePattern = /[\\/]\.opencode[\\/](?:skill|skills)[\\/]+([^\\/]+)/i;
@@ -302,6 +303,60 @@ export function createSessionStore(options: {
     if (!detection) return;
     reloadDetectionSet.add(key);
     options.markReloadRequired(detection.reason, detection.trigger);
+  };
+
+  const toolErrorText = (part: Part) => {
+    if (part.type !== "tool") return "";
+    const record = part as any;
+    const state = (record.state ?? {}) as Record<string, unknown>;
+    const title = typeof state.title === "string" ? state.title : "";
+    const error = typeof state.error === "string" ? state.error : "";
+    const detail = typeof state.detail === "string" ? state.detail : "";
+    return [title, error, detail].filter(Boolean).join("\n");
+  };
+
+  const isInvalidToolError = (part: Part) => {
+    if (part.type !== "tool") return false;
+    const haystack = toolErrorText(part).toLowerCase();
+    if (!haystack) return false;
+    return (
+      haystack.includes("invalid tool") ||
+      haystack.includes("model tried to call") ||
+      haystack.includes("unavailable tool") ||
+      haystack.includes("unknown tool") ||
+      haystack.includes("tool not found")
+    );
+  };
+
+  const invalidToolNextStepHint = (part: Part) => {
+    const record = part as any;
+    const name = typeof record.tool === "string" ? record.tool : "";
+    const lower = name.toLowerCase();
+    if (lower.includes("browser") || lower.includes("chrome") || lower.includes("devtools")) {
+      return "OpenWork browser automation isn't set up yet. Go to Plugins and ensure the browser plugin/extension is installed and connected, then retry.";
+    }
+    return "Try again, or switch to an agent/prompt that only uses available tools in this workspace.";
+  };
+
+  const maybeHandleInvalidToolError = (part: Part) => {
+    if (!options.setError) return;
+    if (!isInvalidToolError(part)) return;
+    if (!part?.id || !part.messageID) return;
+
+    const key = `${part.messageID}:${part.id}`;
+    if (invalidToolDetectionSet.has(key)) return;
+    invalidToolDetectionSet.add(key);
+
+    // Ensure the UI doesn't get stuck in a "Responding" state when the model
+    // tries to call a tool that isn't available.
+    if (part.sessionID) {
+      setStore("sessionStatus", part.sessionID, "idle");
+    }
+
+    const record = part as any;
+    const tool = typeof record.tool === "string" && record.tool.trim() ? record.tool.trim() : "(unknown tool)";
+    const hint = invalidToolNextStepHint(part);
+    options.setError(`Invalid tool call: ${tool}.\n\n${hint}`);
   };
 
   const addError = (error: unknown, fallback = "Unknown error") => {
@@ -779,6 +834,7 @@ export function createSessionStore(options: {
             }),
           );
           maybeMarkReloadRequired(part);
+          maybeHandleInvalidToolError(part);
         }
       }
     }

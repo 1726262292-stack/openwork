@@ -54,7 +54,9 @@ import StatusBar from "../components/status-bar";
 import { buildOpenworkWorkspaceBaseUrl, createOpenworkServerClient } from "../lib/openwork-server";
 import type { OpenworkServerClient, OpenworkServerSettings, OpenworkServerStatus } from "../lib/openwork-server";
 import { join } from "@tauri-apps/api/path";
-import { formatRelativeTime, isTauriRuntime, normalizeDirectoryPath } from "../utils";
+import { formatRelativeTime, isTauriRuntime, normalizeDirectoryPath, parseTemplateFrontmatter } from "../utils";
+
+import browserSetupTemplate from "../data/commands/browser-setup.md?raw";
 
 import MessageList from "../components/session/message-list";
 import Composer from "../components/session/composer";
@@ -181,6 +183,14 @@ export type SessionViewProps = {
   sessionStatusById: Record<string, string>;
   deleteSession: (sessionId: string) => Promise<void>;
 };
+
+const BROWSER_SETUP_TEMPLATE = (() => {
+  const parsed = parseTemplateFrontmatter(browserSetupTemplate);
+  const name = parsed?.data?.name?.trim() || "browser-setup";
+  const description = parsed?.data?.description?.trim() || "Guide the user through browser automation setup";
+  const body = (parsed?.body ?? browserSetupTemplate).trim();
+  return { name, description, body };
+})();
 
 export default function SessionView(props: SessionViewProps) {
   let messagesEndEl: HTMLDivElement | undefined;
@@ -1167,6 +1177,36 @@ export default function SessionView(props: SessionViewProps) {
     props.sendPromptAsync(draft).catch(() => undefined);
   };
 
+  const handleBrowserAutomationQuickstart = async () => {
+    const name = BROWSER_SETUP_TEMPLATE.name;
+    try {
+      const commands = await props.listCommands();
+      const hasCommand = commands.some((cmd) => cmd.name === name);
+      if (hasCommand) {
+        handleSendPrompt({
+          mode: "prompt",
+          text: `/${name}`,
+          resolvedText: `/${name}`,
+          parts: [{ type: "text", text: `/${name}` }],
+          attachments: [],
+          command: { name, arguments: "" },
+        });
+        return;
+      }
+    } catch {
+      // Fall back to prompt-based setup below.
+    }
+
+    const text = BROWSER_SETUP_TEMPLATE.body || "Help me set up browser automation.";
+    handleSendPrompt({
+      mode: "prompt",
+      text,
+      resolvedText: text,
+      parts: [{ type: "text", text }],
+      attachments: [],
+    });
+  };
+
   const isSandboxWorkspace = createMemo(() => Boolean((props.activeWorkspaceDisplay as any)?.sandboxContainerName?.trim()));
 
   const uploadInboxFiles = async (files: File[]) => {
@@ -1741,17 +1781,7 @@ export default function SessionView(props: SessionViewProps) {
                   type="button"
                   class="px-4 py-2.5 rounded-xl border border-gray-6 bg-gray-2 text-sm text-gray-12 hover:bg-gray-3 hover:border-gray-7 transition-all"
                   onClick={() => {
-                    handleSendPrompt({
-                      mode: "prompt",
-                      text: "Help me set up browser automation. Start by using the bash tool to run `ls` in the workspace and tell me what you find.",
-                      parts: [
-                        {
-                          type: "text",
-                          text: "Help me set up browser automation. Start by using the bash tool to run `ls` in the workspace and tell me what you find.",
-                        },
-                      ],
-                      attachments: [],
-                    });
+                    void handleBrowserAutomationQuickstart();
                   }}
                 >
                   Automate your browser
