@@ -562,7 +562,7 @@ export function createExtensionsStore(options: {
     }
   }
 
-  async function installSkillCreator() {
+  async function installSkillCreator(): Promise<{ ok: boolean; message: string }> {
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isLocalWorkspace = options.workspaceType() === "local";
     const openworkClient = options.openworkServerClient();
@@ -585,37 +585,48 @@ export function createExtensionsStore(options: {
           name: "skill-creator",
           content: skillCreatorTemplate,
         });
-        setSkillsStatus(translate("skills.skill_creator_installed"));
+        const message = translate("skills.skill_creator_installed");
+        setSkillsStatus(message);
+        options.markReloadRequired("skills", { type: "skill", name: "skill-creator", action: "added" });
         await refreshSkills({ force: true });
+        return { ok: true, message };
       } catch (e) {
-        const message = e instanceof Error ? e.message : translate("skills.unknown_error");
-        options.setError(addOpencodeCacheHint(message));
+        const raw = e instanceof Error ? e.message : translate("skills.unknown_error");
+        const message = addOpencodeCacheHint(raw);
+        // Ensure we show feedback on the Skills page (not just the global error banner).
+        setSkillsStatus(message);
+        options.setError(message);
+        return { ok: false, message };
       } finally {
         options.setBusy(false);
       }
-      return;
     }
 
     // Remote workspace without server
     if (isRemoteWorkspace) {
-      setSkillsStatus("OpenWork server unavailable. Connect to install skills.");
-      return;
+      const message = "OpenWork server unavailable. Connect to install skills.";
+      setSkillsStatus(message);
+      return { ok: false, message };
     }
 
     if (!isTauriRuntime()) {
-      setSkillsStatus(translate("skills.desktop_required"));
-      return;
+      const message = translate("skills.desktop_required");
+      setSkillsStatus(message);
+      return { ok: false, message };
     }
 
     if (!isLocalWorkspace) {
-      options.setError("Local workspaces are required to install skills.");
-      return;
+      const message = "Local workspaces are required to install skills.";
+      options.setError(message);
+      setSkillsStatus(message);
+      return { ok: false, message };
     }
 
     const targetDir = options.activeWorkspaceRoot().trim();
     if (!targetDir) {
-      setSkillsStatus(translate("skills.pick_workspace_first"));
-      return;
+      const message = translate("skills.pick_workspace_first");
+      setSkillsStatus(message);
+      return { ok: false, message };
     }
 
     options.setBusy(true);
@@ -626,21 +637,34 @@ export function createExtensionsStore(options: {
       const result = await installSkillTemplate(targetDir, "skill-creator", skillCreatorTemplate, { overwrite: false });
 
       if (!result.ok && /already exists/i.test(result.stderr)) {
-        setSkillsStatus(translate("skills.skill_creator_already_installed"));
+        const message = translate("skills.skill_creator_already_installed");
+        setSkillsStatus(message);
+        await refreshSkills({ force: true });
+        return { ok: true, message };
       } else if (!result.ok) {
-        setSkillsStatus(result.stderr || result.stdout || translate("skills.install_failed"));
+        const message = result.stderr || result.stdout || translate("skills.install_failed");
+        setSkillsStatus(message);
+        await refreshSkills({ force: true });
+        return { ok: false, message };
       } else {
-        setSkillsStatus(result.stdout || translate("skills.skill_creator_installed"));
+        const message = result.stdout || translate("skills.skill_creator_installed");
+        setSkillsStatus(message);
         options.markReloadRequired("skills", { type: "skill", name: "skill-creator", action: "added" });
+        await refreshSkills({ force: true });
+        return { ok: true, message };
       }
-
-      await refreshSkills({ force: true });
     } catch (e) {
-      const message = e instanceof Error ? e.message : translate("skills.unknown_error");
-      options.setError(addOpencodeCacheHint(message));
+      const raw = e instanceof Error ? e.message : translate("skills.unknown_error");
+      const message = addOpencodeCacheHint(raw);
+      setSkillsStatus(message);
+      options.setError(message);
+      return { ok: false, message };
     } finally {
       options.setBusy(false);
     }
+
+    // Should be unreachable, but keep TS happy.
+    return { ok: false, message: translate("skills.install_failed") };
   }
 
   async function revealSkillsFolder() {
