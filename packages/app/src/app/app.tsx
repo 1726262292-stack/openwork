@@ -4417,6 +4417,8 @@ export default function App() {
       setThemeMode,
       pendingPermissions: pendingPermissions(),
       events: events(),
+      workspaceDebugEvents: workspaceStore.workspaceDebugEvents(),
+      clearWorkspaceDebugEvents: workspaceStore.clearWorkspaceDebugEvents,
       safeStringify,
       repairOpencodeCache,
       cacheRepairBusy: cacheRepairBusy(),

@@ -233,6 +233,8 @@ export type DashboardViewProps = {
   onResetStartupPreference: () => void;
   pendingPermissions: unknown;
   events: unknown;
+  workspaceDebugEvents: unknown;
+  clearWorkspaceDebugEvents: () => void;
   safeStringify: (value: unknown) => string;
   repairOpencodeCache: () => void;
   cacheRepairBusy: boolean;
@@ -1300,6 +1302,8 @@ export default function DashboardView(props: DashboardViewProps) {
                   resetModalBusy={props.resetModalBusy}
                   pendingPermissions={props.pendingPermissions}
                   events={props.events}
+                  workspaceDebugEvents={props.workspaceDebugEvents}
+                  clearWorkspaceDebugEvents={props.clearWorkspaceDebugEvents}
                   safeStringify={props.safeStringify}
                   repairOpencodeCache={props.repairOpencodeCache}
                   cacheRepairBusy={props.cacheRepairBusy}

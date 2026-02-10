@@ -67,6 +67,12 @@ import { mapConfigProvidersToList } from "../utils/providers";
 
 export type WorkspaceStore = ReturnType<typeof createWorkspaceStore>;
 
+export type WorkspaceDebugEvent = {
+  at: number;
+  label: string;
+  payload?: unknown;
+};
+
 export function createWorkspaceStore(options: {
   startupPreference: () => StartupPreference | null;
   setStartupPreference: (value: StartupPreference | null) => void;
@@ -118,6 +124,21 @@ export function createWorkspaceStore(options: {
 
   const wsDebugEnabled = () => options.developerMode();
 
+  const WORKSPACE_DEBUG_EVENT_LIMIT = 200;
+  const [workspaceDebugEvents, setWorkspaceDebugEvents] = createSignal<WorkspaceDebugEvent[]>([]);
+  const clearWorkspaceDebugEvents = () => setWorkspaceDebugEvents([]);
+  const pushWorkspaceDebugEvent = (label: string, payload?: unknown) => {
+    if (!wsDebugEnabled()) return;
+    const entry: WorkspaceDebugEvent = { at: Date.now(), label, payload };
+    setWorkspaceDebugEvents((prev) => {
+      if (!prev.length) return [entry];
+      const sliceStart = Math.max(0, prev.length - WORKSPACE_DEBUG_EVENT_LIMIT + 1);
+      const next = prev.slice(sliceStart);
+      next.push(entry);
+      return next;
+    });
+  };
+
   const wsDebug = (label: string, payload?: unknown) => {
     if (!wsDebugEnabled()) return;
     try {
@@ -126,6 +147,7 @@ export function createWorkspaceStore(options: {
       } else {
         console.log(`[WSDBG] ${label}`, payload);
       }
+      pushWorkspaceDebugEvent(label, payload);
     } catch {
       // ignore
     }
@@ -2474,5 +2496,7 @@ export function createWorkspaceStore(options: {
     persistReloadSettings,
     setEngineInstallLogs,
     refreshSandboxDoctor,
+    workspaceDebugEvents,
+    clearWorkspaceDebugEvents,
   };
 }

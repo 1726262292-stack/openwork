@@ -94,6 +94,8 @@ export type SettingsViewProps = {
   resetModalBusy: boolean;
   pendingPermissions: unknown;
   events: unknown;
+  workspaceDebugEvents: unknown;
+  clearWorkspaceDebugEvents: () => void;
   safeStringify: (value: unknown) => string;
   repairOpencodeCache: () => void;
   cacheRepairBusy: boolean;
@@ -1377,6 +1379,23 @@ export default function SettingsView(props: SettingsViewProps) {
                         {props.safeStringify(props.events)}
                       </pre>
                     </div>
+                  </div>
+
+                  <div class="bg-gray-1 border border-gray-6 rounded-xl p-4">
+                    <div class="flex items-center justify-between gap-3 mb-2">
+                      <div class="text-xs text-gray-10">Workspace debug events</div>
+                      <Button
+                        variant="outline"
+                        class="text-xs h-7 py-0 px-2 shrink-0"
+                        onClick={props.clearWorkspaceDebugEvents}
+                        disabled={props.busy}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                    <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-64 overflow-auto">
+                      {props.safeStringify(props.workspaceDebugEvents)}
+                    </pre>
                   </div>
 
                   <div class="bg-gray-1 p-4 rounded-xl border border-gray-6 space-y-3">
