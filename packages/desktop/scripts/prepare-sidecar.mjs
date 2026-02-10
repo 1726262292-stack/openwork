@@ -685,7 +685,8 @@ try {
   const content = JSON.stringify(versions, null, 2) + "\n";
   writeFileSync(versionsPath, content, "utf8");
   if (resolvedTargetTriple) {
-    const targetVersionsPath = join(sidecarDir, `versions.json-${resolvedTargetTriple}`);
+    const targetSuffix = process.platform === "win32" ? ".exe" : "";
+    const targetVersionsPath = join(sidecarDir, `versions.json-${resolvedTargetTriple}${targetSuffix}`);
     writeFileSync(targetVersionsPath, content, "utf8");
   }
 } catch (error) {
