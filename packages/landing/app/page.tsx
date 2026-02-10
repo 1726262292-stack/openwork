@@ -305,55 +305,47 @@ export default async function Home() {
           <hr />
 
           <section id="cloud" className="py-12">
-            <div className="mx-auto max-w-xl text-center">
-              <div className="mb-3 text-[12px] font-bold uppercase tracking-wider text-gray-500">
-                Coming soon
+            <h2 className="mb-2 text-2xl font-bold">
+              Automate your entire company, safely
+            </h2>
+            <p className="mb-8 text-[15px] leading-relaxed text-gray-600">
+              OpenWork Cloud runs your automations so you don&apos;t have to
+              manage infrastructure. Join the waitlist to get early access and
+              a free series that walks you through automating every part of
+              your business.
+            </p>
+
+            <div className="mb-10 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
+              <div className="feature-card">
+                <h4 className="mb-2 text-[14px] font-bold">
+                  Hosted for your team
+                </h4>
+                <p className="text-[13px] leading-relaxed text-gray-500">
+                  No servers to maintain. We handle the infrastructure so
+                  your team can focus on the work.
+                </p>
               </div>
-              <h2 className="mb-4 text-2xl font-bold">
-                Automate your entire company, safely
-              </h2>
-              <p className="mb-4 text-[15px] leading-relaxed text-gray-600">
-                OpenWork Cloud lets your team run automations without managing
-                infrastructure. Join the waitlist to get early access and a
-                free step-by-step series on safely automating every part of
-                your business.
-              </p>
-              <div className="mb-6 grid grid-cols-1 gap-3 text-left text-[13px] sm:grid-cols-2">
-                <div className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
-                  <span className="mt-0.5 text-teal-600">
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                  </span>
-                  <span className="text-gray-600">Hosted infrastructure, zero setup</span>
-                </div>
-                <div className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
-                  <span className="mt-0.5 text-teal-600">
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                  </span>
-                  <span className="text-gray-600">Permissioned agents with audit logs</span>
-                </div>
-                <div className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
-                  <span className="mt-0.5 text-teal-600">
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                  </span>
-                  <span className="text-gray-600">Step-by-step automation series</span>
-                </div>
-                <div className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
-                  <span className="mt-0.5 text-teal-600">
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                  </span>
-                  <span className="text-gray-600">Team-wide skills and scheduling</span>
-                </div>
+              <div className="feature-card">
+                <h4 className="mb-2 text-[14px] font-bold">
+                  Permissioned &amp; auditable
+                </h4>
+                <p className="text-[13px] leading-relaxed text-gray-500">
+                  Every agent action is logged. Set clear boundaries for what
+                  agents can and cannot do.
+                </p>
               </div>
-              <WaitlistForm />
+              <div className="feature-card">
+                <h4 className="mb-2 text-[14px] font-bold">
+                  Free automation series
+                </h4>
+                <p className="text-[13px] leading-relaxed text-gray-500">
+                  Step-by-step guides on safely automating ops, sales, support,
+                  and more. Delivered to your inbox.
+                </p>
+              </div>
             </div>
+
+            <WaitlistForm />
           </section>
 
           <hr />

@@ -23,7 +23,6 @@ export function WaitlistForm() {
       const email = inputRef.current?.value?.trim();
       if (!email) return;
 
-      // Rate limit: one signup per 60 s
       const now = Date.now();
       const prev = localStorage.getItem("loops-form-timestamp");
       if (prev && Number(prev) + 60_000 > now) {
@@ -70,47 +69,76 @@ export function WaitlistForm() {
     []
   );
 
+  if (state === "success") {
+    return (
+      <div className="space-y-3">
+        <p className="text-[14px] text-gray-600">
+          Thanks! We&apos;ll be in touch.
+        </p>
+        <button
+          onClick={reset}
+          className="text-[13px] text-gray-400 transition hover:text-black"
+        >
+          &larr; Sign up another email
+        </button>
+      </div>
+    );
+  }
+
+  if (state === "error" || state === "rate-limited") {
+    return (
+      <div className="space-y-3">
+        <p className="text-[14px] text-red-700">
+          {errorMsg || "Oops! Something went wrong, please try again"}
+        </p>
+        <button
+          onClick={reset}
+          className="text-[13px] text-gray-400 transition hover:text-black"
+        >
+          &larr; Try again
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="waitlist-form-wrapper">
-      {(state === "idle" || state === "loading") && (
-        <form onSubmit={handleSubmit} className="waitlist-form">
-          <input
-            ref={inputRef}
-            type="email"
-            name="email"
-            required
-            placeholder="you@example.com"
-            autoComplete="email"
-            className="waitlist-input"
-            disabled={state === "loading"}
-          />
-          <button
-            type="submit"
-            className="waitlist-button"
-            disabled={state === "loading"}
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-wrap items-center gap-3"
+    >
+      <input
+        ref={inputRef}
+        type="email"
+        name="email"
+        required
+        placeholder="you@example.com"
+        autoComplete="email"
+        disabled={state === "loading"}
+        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-[14px] text-gray-900 outline-none transition focus:border-gray-300 disabled:opacity-60 sm:w-auto"
+      />
+      <button
+        type="submit"
+        disabled={state === "loading"}
+        className="doc-button disabled:opacity-60"
+      >
+        {state === "loading" ? "Please wait\u2026" : "Join the waitlist"}
+        {state !== "loading" && (
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
           >
-            {state === "loading" ? "Please wait..." : "Join Waitlist"}
-          </button>
-        </form>
-      )}
-
-      {state === "success" && (
-        <div className="waitlist-message waitlist-success-msg">
-          <p>Thanks! We'll be in touch.</p>
-          <button onClick={reset} className="waitlist-back">
-            &larr; Back
-          </button>
-        </div>
-      )}
-
-      {(state === "error" || state === "rate-limited") && (
-        <div className="waitlist-message waitlist-error-msg">
-          <p>{errorMsg || "Oops! Something went wrong, please try again"}</p>
-          <button onClick={reset} className="waitlist-back">
-            &larr; Back
-          </button>
-        </div>
-      )}
-    </div>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M14 5l7 7m0 0l-7 7m7-7H3"
+            />
+          </svg>
+        )}
+      </button>
+    </form>
   );
 }
