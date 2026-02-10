@@ -119,6 +119,21 @@ importers:
         specifier: 1.9.9
         version: 1.9.9
     devDependencies:
+      '@opentui/core-darwin-arm64':
+        specifier: 0.1.77
+        version: 0.1.77
+      '@opentui/core-darwin-x64':
+        specifier: 0.1.77
+        version: 0.1.77
+      '@opentui/core-linux-arm64':
+        specifier: 0.1.77
+        version: 0.1.77
+      '@opentui/core-linux-x64':
+        specifier: 0.1.77
+        version: 0.1.77
+      '@opentui/core-win32-x64':
+        specifier: 0.1.77
+        version: 0.1.77
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.7
@@ -3176,23 +3191,18 @@ snapshots:
 
   '@opencode-ai/sdk@1.1.39': {}
 
-  '@opentui/core-darwin-arm64@0.1.77':
-    optional: true
+  '@opentui/core-darwin-arm64@0.1.77': {}
 
-  '@opentui/core-darwin-x64@0.1.77':
-    optional: true
+  '@opentui/core-darwin-x64@0.1.77': {}
 
-  '@opentui/core-linux-arm64@0.1.77':
-    optional: true
+  '@opentui/core-linux-arm64@0.1.77': {}
 
-  '@opentui/core-linux-x64@0.1.77':
-    optional: true
+  '@opentui/core-linux-x64@0.1.77': {}
 
   '@opentui/core-win32-arm64@0.1.77':
     optional: true
 
-  '@opentui/core-win32-x64@0.1.77':
-    optional: true
+  '@opentui/core-win32-x64@0.1.77': {}
 
   '@opentui/core@0.1.77(stage-js@1.0.0-alpha.17)(typescript@5.9.3)(web-tree-sitter@0.25.10)':
     dependencies:

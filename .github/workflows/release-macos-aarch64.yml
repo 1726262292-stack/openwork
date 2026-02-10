@@ -768,7 +768,8 @@ jobs:
             echo "openwrk sidecar release $tag not found. Publish sidecars before openwrk." >&2
             exit 1
           fi
-          pnpm --filter openwrk publish --access public --no-git-checks
+          pnpm --filter openwrk build:bin:all
+          node packages/headless/scripts/publish-npm.mjs
 
   aur-publish:
     name: Publish AUR
