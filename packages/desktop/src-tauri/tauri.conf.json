@@ -38,7 +38,8 @@
       "sidecars/opencode",
       "sidecars/openwork-server",
       "sidecars/owpenbot",
-      "sidecars/openwrk"
+      "sidecars/openwrk",
+      "sidecars/versions.json"
     ]
   },
   "plugins": {
