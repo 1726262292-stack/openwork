@@ -1,14 +1,18 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 
-import { HardDrive, MessageCircle, RefreshCcw, Shield } from "lucide-solid";
+import {
+  ArrowRight,
+  ChevronRight,
+  Link,
+  RefreshCcw,
+  Shield,
+} from "lucide-solid";
 
 import Button from "../components/button";
 import { createOpenworkServerClient, OpenworkServerError } from "../lib/openwork-server";
 import type {
   OpenworkOwpenbotHealthSnapshot,
   OpenworkOwpenbotIdentityItem,
-  OpenworkOwpenbotSlackIdentitiesResult,
-  OpenworkOwpenbotTelegramIdentitiesResult,
   OpenworkServerSettings,
   OpenworkServerStatus,
 } from "../lib/openwork-server";
@@ -48,6 +52,48 @@ function isOwpenbotIdentities(value: unknown): value is { ok: boolean; items: Op
   return typeof record.ok === "boolean" && Array.isArray(record.items);
 }
 
+/* ---- Brand channel icons ---- */
+
+function TelegramIcon(props: { size?: number }) {
+  const s = () => props.size ?? 20;
+  return (
+    <svg width={s()} height={s()} viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="10" fill="#229ED9" />
+      <path d="M7 12.5l2.5 2L16 8.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M9.5 14.5l-.5 3 2-1.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+  );
+}
+
+function SlackIcon(props: { size?: number }) {
+  const s = () => props.size ?? 20;
+  return (
+    <svg width={s()} height={s()} viewBox="0 0 24 24" fill="none">
+      <path d="M14.5 2a2 2 0 012 2v4.5h-2a2 2 0 010-4h0V2z" fill="#E01E5A" />
+      <path d="M2 9.5a2 2 0 012-2h4.5v2a2 2 0 01-4 0V9.5z" fill="#36C5F0" />
+      <path d="M9.5 22a2 2 0 01-2-2v-4.5h2a2 2 0 010 4v2.5z" fill="#2EB67D" />
+      <path d="M22 14.5a2 2 0 01-2 2h-4.5v-2a2 2 0 014 0h2.5z" fill="#ECB22E" />
+      <path d="M8.5 9.5h2v2h-2z" fill="#36C5F0" />
+      <path d="M13.5 9.5h2v2h-2z" fill="#ECB22E" />
+      <path d="M8.5 14.5h2v-2h-2z" fill="#2EB67D" />
+      <path d="M13.5 14.5h2v-2h-2z" fill="#E01E5A" />
+    </svg>
+  );
+}
+
+/* ---- Status pill sub-component ---- */
+
+function StatusPill(props: { label: string; value: string; ok: boolean }) {
+  return (
+    <div class="flex-1 rounded-lg border border-gray-4 bg-gray-1 px-3.5 py-2.5">
+      <div class="text-[11px] text-gray-9 mb-0.5">{props.label}</div>
+      <div class={`text-[13px] font-semibold ${props.ok ? "text-gray-12" : "text-gray-8"}`}>{props.value}</div>
+    </div>
+  );
+}
+
+/* ---- Main ---- */
+
 export default function IdentitiesView(props: IdentitiesViewProps) {
   const [refreshing, setRefreshing] = createSignal(false);
   const [lastUpdatedAt, setLastUpdatedAt] = createSignal<number | null>(null);
@@ -74,6 +120,8 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
   const [slackStatus, setSlackStatus] = createSignal<string | null>(null);
   const [slackError, setSlackError] = createSignal<string | null>(null);
 
+  const [expandedChannel, setExpandedChannel] = createSignal<string | null>(null);
+
   const openworkServerClient = createMemo(() => {
     const baseUrl = props.openworkServerUrl.trim();
     const localBaseUrl = props.openworkServerHostInfo?.baseUrl?.trim() ?? "";
@@ -92,21 +140,27 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
 
   let lastResetKey = "";
 
-  const statusTone = createMemo(() => {
-    if (healthError()) return "border-red-7/20 bg-red-1/40 text-red-12";
-    const snapshot = health();
-    if (!snapshot) return "border-gray-7/20 bg-gray-2/60 text-gray-12";
-    return snapshot.ok
-      ? "border-emerald-7/25 bg-emerald-1/40 text-emerald-11"
-      : "border-amber-7/25 bg-amber-1/40 text-amber-12";
-  });
-
   const statusLabel = createMemo(() => {
     if (healthError()) return "Unavailable";
     const snapshot = health();
     if (!snapshot) return "Unknown";
     return snapshot.ok ? "Running" : "Offline";
   });
+
+  const isWorkerOnline = createMemo(() => {
+    const snapshot = health();
+    return snapshot?.ok === true;
+  });
+
+  const connectedChannelCount = createMemo(() => {
+    let count = 0;
+    if (telegramIdentities().some((i) => i.enabled && i.running)) count++;
+    if (slackIdentities().some((i) => i.enabled && i.running)) count++;
+    return count;
+  });
+
+  const hasTelegramConnected = createMemo(() => telegramIdentities().some((i) => i.enabled));
+  const hasSlackConnected = createMemo(() => slackIdentities().some((i) => i.enabled));
 
   const refreshAll = async (options?: { force?: boolean }) => {
     if (refreshing() && !options?.force) return;
@@ -326,265 +380,498 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     onCleanup(() => window.clearInterval(interval));
   });
 
+  const toggleExpand = (channel: string) => {
+    setExpandedChannel((prev) => (prev === channel ? null : channel));
+  };
+
   return (
-    <div class="space-y-6">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div class="text-sm font-semibold text-gray-12">Messaging identities</div>
-          <div class="text-xs text-gray-9">Slack + Telegram multi-identities with identity-scoped routing.</div>
+    <div class="space-y-6 max-w-[680px]">
+
+      {/* ---- Header ---- */}
+      <div>
+        <div class="flex items-center justify-between mb-1.5">
+          <h1 class="text-lg font-bold text-gray-12 tracking-tight">Messaging channels</h1>
+          <Button
+            variant="outline"
+            class="h-8 px-3 text-xs"
+            onClick={() => refreshAll({ force: true })}
+            disabled={!serverReady() || refreshing()}
+          >
+            <RefreshCcw size={14} class={refreshing() ? "animate-spin" : ""} />
+            <span class="ml-1.5">Refresh</span>
+          </Button>
         </div>
-        <Button
-          variant="secondary"
-          class="h-8 px-3 text-xs"
-          onClick={() => refreshAll({ force: true })}
-          disabled={!serverReady() || refreshing()}
-        >
-          <RefreshCcw size={14} class={refreshing() ? "animate-spin" : ""} />
-          <span class="ml-2">Refresh</span>
-        </Button>
+        <p class="text-sm text-gray-9 leading-relaxed">
+          Let people reach your worker through messaging apps. Connect a channel and
+          your worker will automatically read and respond to messages.
+        </p>
       </div>
 
+      {/* ---- Not connected to server ---- */}
       <Show when={!serverReady()}>
-        <div class="rounded-2xl border border-gray-4 bg-gray-1 p-5 shadow-sm">
+        <div class="rounded-xl border border-gray-4 bg-gray-1 p-5">
           <div class="text-sm font-semibold text-gray-12">Connect to an OpenWork server</div>
           <div class="mt-1 text-xs text-gray-10">
-            Identities are available when you are connected to an OpenWork host (`openwrk`).
+            Identities are available when you are connected to an OpenWork host (<code class="text-[11px] font-mono bg-gray-3 px-1 py-0.5 rounded">openwrk</code>).
           </div>
         </div>
       </Show>
 
       <Show when={serverReady()}>
-        <div class="rounded-2xl border border-gray-4 bg-gray-1 p-5 shadow-sm space-y-4">
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div class="flex items-center gap-2">
-              <Shield size={18} class="text-gray-10" />
-              <div>
-                <div class="text-sm font-semibold text-gray-12">Owpenbot health</div>
-                <Show when={lastUpdatedAt()}>
-                  {(value) => <div class="text-[11px] text-gray-9">Updated {new Date(value()).toLocaleTimeString()}</div>}
-                </Show>
-              </div>
+
+        {/* ---- Worker status card ---- */}
+        <div class="rounded-xl border border-gray-4 bg-gray-1 p-4 space-y-3.5">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <Show
+                when={isWorkerOnline()}
+                fallback={
+                  <div class="w-2.5 h-2.5 rounded-full bg-gray-8" />
+                }
+              >
+                <div class="w-2.5 h-2.5 rounded-full bg-emerald-9 animate-pulse" />
+              </Show>
+              <span class="text-[15px] font-semibold text-gray-12">
+                {isWorkerOnline() ? "Worker online" : healthError() ? "Worker unavailable" : "Worker offline"}
+              </span>
             </div>
-            <span class={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusTone()}`}>
+            <span
+              class={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
+                isWorkerOnline()
+                  ? "border-emerald-7/25 bg-emerald-1/40 text-emerald-11"
+                  : healthError()
+                    ? "border-red-7/20 bg-red-1/40 text-red-12"
+                    : "border-amber-7/25 bg-amber-1/40 text-amber-12"
+              }`}
+            >
               {statusLabel()}
             </span>
           </div>
 
           <Show when={healthError()}>
             {(value) => (
-              <div class="rounded-xl border border-red-7/20 bg-red-1/30 px-4 py-3 text-xs text-red-12">{value()}</div>
+              <div class="rounded-lg border border-red-7/20 bg-red-1/30 px-3 py-2 text-xs text-red-12">{value()}</div>
             )}
           </Show>
 
-          <Show when={health()}>
-            {(snapshot) => (
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div class="rounded-xl border border-gray-4 bg-gray-1 px-4 py-3">
-                  <div class="text-[11px] text-gray-9 uppercase tracking-wide font-semibold">OpenCode</div>
-                  <div class="mt-1 text-xs text-gray-12">{snapshot().opencode.healthy ? "Healthy" : "Unhealthy"}</div>
-                  <div class="mt-1 text-[11px] text-gray-9 font-mono truncate">{snapshot().opencode.url}</div>
-                </div>
-                <div class="rounded-xl border border-gray-4 bg-gray-1 px-4 py-3">
-                  <div class="text-[11px] text-gray-9 uppercase tracking-wide font-semibold">Channels</div>
-                  <div class="mt-1 text-xs text-gray-12">Telegram: {snapshot().channels.telegram ? "on" : "off"}</div>
-                  <div class="mt-1 text-xs text-gray-12">Slack: {snapshot().channels.slack ? "on" : "off"}</div>
-                </div>
-                <div class="rounded-xl border border-gray-4 bg-gray-1 px-4 py-3">
-                  <div class="text-[11px] text-gray-9 uppercase tracking-wide font-semibold">Groups</div>
-                  <div class="mt-1 text-xs text-gray-12">Groups enabled: {snapshot().config.groupsEnabled ? "yes" : "no"}</div>
-                </div>
-              </div>
-            )}
-          </Show>
+          <div class="flex gap-3">
+            <StatusPill
+              label="Channels"
+              value={`${connectedChannelCount()} connected`}
+              ok={connectedChannelCount() > 0}
+            />
+            <StatusPill
+              label="Messages today"
+              value={"\u2014"}
+              ok={false}
+            />
+            <StatusPill
+              label="Last activity"
+              value={lastUpdatedAt() ? "Just now" : "\u2014"}
+              ok={Boolean(lastUpdatedAt())}
+            />
+          </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div class="rounded-2xl border border-gray-4 bg-gray-1 p-5 shadow-sm space-y-4">
-            <div class="flex items-center gap-2">
-              <MessageCircle size={18} class="text-gray-10" />
-              <div>
-                <div class="text-sm font-semibold text-gray-12">Telegram identities</div>
-                <div class="text-xs text-gray-9">Telegram bot for this workspace.</div>
-              </div>
-            </div>
+        {/* ---- Available channels ---- */}
+        <div>
+          <div class="text-[11px] font-semibold text-gray-9 uppercase tracking-wider mb-3">
+            Available channels
+          </div>
 
-            <Show when={telegramIdentitiesError()}>
-              {(value) => (
-                <div class="rounded-xl border border-amber-7/20 bg-amber-1/30 px-4 py-3 text-xs text-amber-12">{value()}</div>
-              )}
-            </Show>
+          <div class="flex flex-col gap-2.5">
 
-            <Show when={telegramIdentities().length === 0 && !telegramIdentitiesError()}>
-              <div class="text-xs text-gray-10">No Telegram identities configured.</div>
-            </Show>
+            {/* ---- Telegram channel card ---- */}
+            <div
+              class={`rounded-xl border overflow-hidden transition-colors ${
+                hasTelegramConnected()
+                  ? "border-emerald-7/30 bg-emerald-1/20"
+                  : "border-gray-4 bg-gray-1"
+              }`}
+            >
+              {/* Channel header (clickable) */}
+              <button
+                class="w-full flex items-center gap-3.5 px-4 py-3.5 text-left hover:bg-gray-2/50 transition-colors"
+                onClick={() => toggleExpand("telegram")}
+              >
+                <TelegramIcon size={28} />
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[15px] font-semibold text-gray-12">Telegram</span>
+                    <Show when={hasTelegramConnected()}>
+                      <span class="rounded-full px-2 py-0.5 text-[10px] font-semibold bg-emerald-1/40 text-emerald-11">
+                        Connected
+                      </span>
+                    </Show>
+                  </div>
+                  <div class="text-[13px] text-gray-9 mt-0.5 leading-snug">
+                    Create a Telegram bot that anyone can message. Great for personal automations and external contacts.
+                  </div>
+                </div>
+                <ChevronRight
+                  size={16}
+                  class={`text-gray-8 transition-transform flex-shrink-0 ${
+                    expandedChannel() === "telegram" ? "rotate-90" : ""
+                  }`}
+                />
+              </button>
 
-            <Show when={telegramIdentities().length > 0}>
-              <div class="divide-y divide-gray-4 rounded-xl border border-gray-4 overflow-hidden">
-                <For each={telegramIdentities()}>
-                  {(item) => (
-                    <div class="px-4 py-3 bg-gray-1 flex items-center justify-between gap-3">
-                      <div>
-                        <div class="text-xs font-semibold text-gray-12">Workspace identity</div>
-                        <div class="mt-0.5 text-[11px] text-gray-9">
-                          <span class="font-mono">{item.id}</span> · {item.enabled ? "enabled" : "disabled"} · {item.running ? "running" : "stopped"}
+              {/* Expanded section */}
+              <Show when={expandedChannel() === "telegram"}>
+                <div class="border-t border-gray-4 px-4 py-4 space-y-3 animate-[fadeUp_0.2s_ease-out]">
+                  <Show when={telegramIdentitiesError()}>
+                    {(value) => (
+                      <div class="rounded-lg border border-amber-7/20 bg-amber-1/30 px-3 py-2 text-xs text-amber-12">{value()}</div>
+                    )}
+                  </Show>
+
+                  {/* Existing identities */}
+                  <Show when={telegramIdentities().length > 0}>
+                    <div class="space-y-2">
+                      <For each={telegramIdentities()}>
+                        {(item) => (
+                          <div class="flex items-center justify-between gap-3 rounded-lg border border-gray-4 bg-gray-1 px-3 py-2.5">
+                            <div class="min-w-0">
+                              <div class="flex items-center gap-2">
+                                <div class={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${item.running ? "bg-emerald-9" : "bg-gray-8"}`} />
+                                <span class="text-[13px] font-semibold text-gray-12 truncate">
+                                  <span class="font-mono text-[12px]">{item.id}</span>
+                                </span>
+                              </div>
+                              <div class="text-[11px] text-gray-9 mt-0.5 pl-3.5">
+                                {item.enabled ? "Enabled" : "Disabled"} · {item.running ? "Running" : "Stopped"}
+                              </div>
+                            </div>
+                            <div class="flex items-center gap-2 flex-shrink-0">
+                              <Button
+                                variant="outline"
+                                class="h-7 px-2.5 text-[11px]"
+                                disabled={telegramSaving() || item.id === "env" || !workspaceId()}
+                                onClick={() => void deleteTelegram(item.id)}
+                              >
+                                Disconnect
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+
+                    {/* Connected stats summary */}
+                    <div class="flex gap-2.5">
+                      <div class="flex-1 rounded-lg border border-gray-4 bg-gray-2/50 px-3 py-2.5">
+                        <div class="text-[11px] text-gray-9 mb-0.5">Status</div>
+                        <div class="flex items-center gap-1.5">
+                          <div class={`w-1.5 h-1.5 rounded-full ${
+                            telegramIdentities().some((i) => i.running) ? "bg-emerald-9" : "bg-gray-8"
+                          }`} />
+                          <span class={`text-[13px] font-semibold ${
+                            telegramIdentities().some((i) => i.running) ? "text-emerald-11" : "text-gray-10"
+                          }`}>
+                            {telegramIdentities().some((i) => i.running) ? "Active" : "Stopped"}
+                          </span>
                         </div>
                       </div>
-                      <Button
-                        variant="secondary"
-                        class="h-8 px-3 text-xs"
-                        disabled={telegramSaving() || item.id === "env" || !workspaceId()}
-                        onClick={() => void deleteTelegram(item.id)}
-                      >
-                        Remove
-                      </Button>
+                      <div class="flex-1 rounded-lg border border-gray-4 bg-gray-2/50 px-3 py-2.5">
+                        <div class="text-[11px] text-gray-9 mb-0.5">Identities</div>
+                        <div class="text-[13px] font-semibold text-gray-12">{telegramIdentities().length} configured</div>
+                      </div>
+                      <div class="flex-1 rounded-lg border border-gray-4 bg-gray-2/50 px-3 py-2.5">
+                        <div class="text-[11px] text-gray-9 mb-0.5">Channel</div>
+                        <div class="text-[13px] font-semibold text-gray-12">
+                          {health()?.channels.telegram ? "On" : "Off"}
+                        </div>
+                      </div>
                     </div>
-                  )}
-                </For>
-              </div>
-            </Show>
 
-            <div class="rounded-xl border border-gray-4 bg-gray-1 px-4 py-3 space-y-2">
-              <div class="grid grid-cols-1 gap-2">
-                <input
-                  class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-xs text-gray-12 placeholder:text-gray-9"
-                  placeholder="Telegram bot token"
-                  type="password"
-                  value={telegramToken()}
-                  onInput={(e) => setTelegramToken(e.currentTarget.value)}
+                    <Show when={telegramStatus()}>
+                      {(value) => <div class="text-[11px] text-gray-9">{value()}</div>}
+                    </Show>
+                    <Show when={telegramError()}>
+                      {(value) => <div class="text-[11px] text-red-12">{value()}</div>}
+                    </Show>
+                  </Show>
+
+                  {/* Add new identity form */}
+                  <div class="space-y-2.5">
+                    <Show when={telegramIdentities().length === 0}>
+                      <p class="text-[13px] text-gray-10 leading-relaxed">
+                        Create a Telegram bot via @BotFather and paste the bot token here. We'll handle the rest.
+                      </p>
+                    </Show>
+
+                    <div>
+                      <label class="text-[12px] text-gray-9 block mb-1">Bot token</label>
+                      <input
+                        class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2.5 text-sm text-gray-12 placeholder:text-gray-8"
+                        placeholder="Paste Telegram bot token from @BotFather"
+                        type="password"
+                        value={telegramToken()}
+                        onInput={(e) => setTelegramToken(e.currentTarget.value)}
+                      />
+                    </div>
+
+                    <label class="flex items-center gap-2 text-xs text-gray-11">
+                      <input
+                        type="checkbox"
+                        checked={telegramEnabled()}
+                        onChange={(e) => setTelegramEnabled(e.currentTarget.checked)}
+                      />
+                      Enabled
+                    </label>
+
+                    <button
+                      onClick={() => void upsertTelegram()}
+                      disabled={telegramSaving() || !workspaceId() || !telegramToken().trim()}
+                      class={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white border-none transition-opacity ${
+                        telegramSaving() || !workspaceId() || !telegramToken().trim()
+                          ? "opacity-50 cursor-not-allowed"
+                          : "opacity-100 cursor-pointer hover:opacity-90"
+                      }`}
+                      style={{ background: "#229ED9" }}
+                    >
+                      <Show
+                        when={!telegramSaving()}
+                        fallback={
+                          <div class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        }
+                      >
+                        <Link size={15} />
+                      </Show>
+                      {telegramSaving() ? "Connecting..." : "Connect Telegram"}
+                    </button>
+
+                    <Show when={telegramIdentities().length === 0}>
+                      <Show when={telegramStatus()}>
+                        {(value) => <div class="text-[11px] text-gray-9">{value()}</div>}
+                      </Show>
+                      <Show when={telegramError()}>
+                        {(value) => <div class="text-[11px] text-red-12">{value()}</div>}
+                      </Show>
+                    </Show>
+                  </div>
+                </div>
+              </Show>
+            </div>
+
+            {/* ---- Slack channel card ---- */}
+            <div
+              class={`rounded-xl border overflow-hidden transition-colors ${
+                hasSlackConnected()
+                  ? "border-emerald-7/30 bg-emerald-1/20"
+                  : "border-gray-4 bg-gray-1"
+              }`}
+            >
+              {/* Channel header (clickable) */}
+              <button
+                class="w-full flex items-center gap-3.5 px-4 py-3.5 text-left hover:bg-gray-2/50 transition-colors"
+                onClick={() => toggleExpand("slack")}
+              >
+                <SlackIcon size={28} />
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[15px] font-semibold text-gray-12">Slack</span>
+                    <Show when={hasSlackConnected()}>
+                      <span class="rounded-full px-2 py-0.5 text-[10px] font-semibold bg-emerald-1/40 text-emerald-11">
+                        Connected
+                      </span>
+                    </Show>
+                  </div>
+                  <div class="text-[13px] text-gray-9 mt-0.5 leading-snug">
+                    Your worker appears as a bot in Slack channels. Team members can message it directly or mention it in threads.
+                  </div>
+                </div>
+                <ChevronRight
+                  size={16}
+                  class={`text-gray-8 transition-transform flex-shrink-0 ${
+                    expandedChannel() === "slack" ? "rotate-90" : ""
+                  }`}
                 />
-              </div>
+              </button>
 
-              <label class="flex items-center gap-2 text-xs text-gray-11">
-                <input
-                  type="checkbox"
-                  checked={telegramEnabled()}
-                  onChange={(e) => setTelegramEnabled(e.currentTarget.checked)}
-                />
-                Enabled
-              </label>
+              {/* Expanded section */}
+              <Show when={expandedChannel() === "slack"}>
+                <div class="border-t border-gray-4 px-4 py-4 space-y-3 animate-[fadeUp_0.2s_ease-out]">
+                  <Show when={slackIdentitiesError()}>
+                    {(value) => (
+                      <div class="rounded-lg border border-amber-7/20 bg-amber-1/30 px-3 py-2 text-xs text-amber-12">{value()}</div>
+                    )}
+                  </Show>
 
-              <div class="flex items-center gap-2">
-                <Button
-                  variant="primary"
-                  class="h-8 px-3 text-xs"
-                  onClick={() => void upsertTelegram()}
-                  disabled={telegramSaving() || !workspaceId() || !telegramToken().trim()}
-                >
-                  {telegramSaving() ? "Saving..." : "Save"}
-                </Button>
-                <Show when={telegramStatus()}>
-                  {(value) => <div class="text-[11px] text-gray-9">{value()}</div>}
-                </Show>
-              </div>
-              <Show when={telegramError()}>
-                {(value) => <div class="text-[11px] text-red-12">{value()}</div>}
+                  {/* Existing identities */}
+                  <Show when={slackIdentities().length > 0}>
+                    <div class="space-y-2">
+                      <For each={slackIdentities()}>
+                        {(item) => (
+                          <div class="flex items-center justify-between gap-3 rounded-lg border border-gray-4 bg-gray-1 px-3 py-2.5">
+                            <div class="min-w-0">
+                              <div class="flex items-center gap-2">
+                                <div class={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${item.running ? "bg-emerald-9" : "bg-gray-8"}`} />
+                                <span class="text-[13px] font-semibold text-gray-12 truncate">
+                                  <span class="font-mono text-[12px]">{item.id}</span>
+                                </span>
+                              </div>
+                              <div class="text-[11px] text-gray-9 mt-0.5 pl-3.5">
+                                {item.enabled ? "Enabled" : "Disabled"} · {item.running ? "Running" : "Stopped"}
+                              </div>
+                            </div>
+                            <div class="flex items-center gap-2 flex-shrink-0">
+                              <Button
+                                variant="outline"
+                                class="h-7 px-2.5 text-[11px]"
+                                disabled={slackSaving() || item.id === "env" || !workspaceId()}
+                                onClick={() => void deleteSlack(item.id)}
+                              >
+                                Disconnect
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+
+                    {/* Connected stats summary */}
+                    <div class="flex gap-2.5">
+                      <div class="flex-1 rounded-lg border border-gray-4 bg-gray-2/50 px-3 py-2.5">
+                        <div class="text-[11px] text-gray-9 mb-0.5">Status</div>
+                        <div class="flex items-center gap-1.5">
+                          <div class={`w-1.5 h-1.5 rounded-full ${
+                            slackIdentities().some((i) => i.running) ? "bg-emerald-9" : "bg-gray-8"
+                          }`} />
+                          <span class={`text-[13px] font-semibold ${
+                            slackIdentities().some((i) => i.running) ? "text-emerald-11" : "text-gray-10"
+                          }`}>
+                            {slackIdentities().some((i) => i.running) ? "Active" : "Stopped"}
+                          </span>
+                        </div>
+                      </div>
+                      <div class="flex-1 rounded-lg border border-gray-4 bg-gray-2/50 px-3 py-2.5">
+                        <div class="text-[11px] text-gray-9 mb-0.5">Identities</div>
+                        <div class="text-[13px] font-semibold text-gray-12">{slackIdentities().length} configured</div>
+                      </div>
+                      <div class="flex-1 rounded-lg border border-gray-4 bg-gray-2/50 px-3 py-2.5">
+                        <div class="text-[11px] text-gray-9 mb-0.5">Channel</div>
+                        <div class="text-[13px] font-semibold text-gray-12">
+                          {health()?.channels.slack ? "On" : "Off"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <Show when={slackStatus()}>
+                      {(value) => <div class="text-[11px] text-gray-9">{value()}</div>}
+                    </Show>
+                    <Show when={slackError()}>
+                      {(value) => <div class="text-[11px] text-red-12">{value()}</div>}
+                    </Show>
+                  </Show>
+
+                  {/* Add new identity form */}
+                  <div class="space-y-2.5">
+                    <Show when={slackIdentities().length === 0}>
+                      <p class="text-[13px] text-gray-10 leading-relaxed">
+                        Connect your Slack workspace to let team members interact with this worker in channels and DMs.
+                      </p>
+                    </Show>
+
+                    <div class="space-y-2">
+                      <div>
+                        <label class="text-[12px] text-gray-9 block mb-1">Bot token</label>
+                        <input
+                          class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2.5 text-sm text-gray-12 placeholder:text-gray-8"
+                          placeholder="xoxb-..."
+                          type="password"
+                          value={slackBotToken()}
+                          onInput={(e) => setSlackBotToken(e.currentTarget.value)}
+                        />
+                      </div>
+                      <div>
+                        <label class="text-[12px] text-gray-9 block mb-1">App token</label>
+                        <input
+                          class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2.5 text-sm text-gray-12 placeholder:text-gray-8"
+                          placeholder="xapp-..."
+                          type="password"
+                          value={slackAppToken()}
+                          onInput={(e) => setSlackAppToken(e.currentTarget.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <label class="flex items-center gap-2 text-xs text-gray-11">
+                      <input
+                        type="checkbox"
+                        checked={slackEnabled()}
+                        onChange={(e) => setSlackEnabled(e.currentTarget.checked)}
+                      />
+                      Enabled
+                    </label>
+
+                    <button
+                      onClick={() => void upsertSlack()}
+                      disabled={slackSaving() || !workspaceId() || !slackBotToken().trim() || !slackAppToken().trim()}
+                      class={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white border-none transition-opacity ${
+                        slackSaving() || !workspaceId() || !slackBotToken().trim() || !slackAppToken().trim()
+                          ? "opacity-50 cursor-not-allowed"
+                          : "opacity-100 cursor-pointer hover:opacity-90"
+                      }`}
+                      style={{ background: "#4A154B" }}
+                    >
+                      <Show
+                        when={!slackSaving()}
+                        fallback={
+                          <div class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        }
+                      >
+                        <Link size={15} />
+                      </Show>
+                      {slackSaving() ? "Connecting..." : "Connect Slack"}
+                    </button>
+
+                    <Show when={slackIdentities().length === 0}>
+                      <Show when={slackStatus()}>
+                        {(value) => <div class="text-[11px] text-gray-9">{value()}</div>}
+                      </Show>
+                      <Show when={slackError()}>
+                        {(value) => <div class="text-[11px] text-red-12">{value()}</div>}
+                      </Show>
+                    </Show>
+                  </div>
+                </div>
               </Show>
             </div>
           </div>
+        </div>
 
-          <div class="rounded-2xl border border-gray-4 bg-gray-1 p-5 shadow-sm space-y-4">
+        {/* ---- Message routing ---- */}
+        <div>
+          <div class="text-[11px] font-semibold text-gray-9 uppercase tracking-wider mb-2">
+            Message routing
+          </div>
+          <p class="text-[13px] text-gray-9 leading-relaxed mb-3">
+            Control which conversations go to which workspace folder. Messages are
+            routed to the worker's default folder unless you set up rules here.
+          </p>
+
+          <div class="rounded-xl border border-gray-4 bg-gray-2/50 px-4 py-3.5 space-y-3">
             <div class="flex items-center gap-2">
-              <MessageCircle size={18} class="text-gray-10" />
-              <div>
-                <div class="text-sm font-semibold text-gray-12">Slack identities</div>
-                <div class="text-xs text-gray-9">Slack app for this workspace.</div>
-              </div>
+              <Shield size={16} class="text-gray-9" />
+              <span class="text-[13px] font-medium text-gray-11">Default routing</span>
             </div>
-
-            <Show when={slackIdentitiesError()}>
-              {(value) => (
-                <div class="rounded-xl border border-amber-7/20 bg-amber-1/30 px-4 py-3 text-xs text-amber-12">{value()}</div>
-              )}
-            </Show>
-
-            <Show when={slackIdentities().length === 0 && !slackIdentitiesError()}>
-              <div class="text-xs text-gray-10">No Slack identities configured.</div>
-            </Show>
-
-            <Show when={slackIdentities().length > 0}>
-              <div class="divide-y divide-gray-4 rounded-xl border border-gray-4 overflow-hidden">
-                <For each={slackIdentities()}>
-                  {(item) => (
-                    <div class="px-4 py-3 bg-gray-1 flex items-center justify-between gap-3">
-                      <div>
-                        <div class="text-xs font-semibold text-gray-12">Workspace identity</div>
-                        <div class="mt-0.5 text-[11px] text-gray-9">
-                          <span class="font-mono">{item.id}</span> · {item.enabled ? "enabled" : "disabled"} · {item.running ? "running" : "stopped"}
-                        </div>
-                      </div>
-                      <Button
-                        variant="secondary"
-                        class="h-8 px-3 text-xs"
-                        disabled={slackSaving() || item.id === "env" || !workspaceId()}
-                        onClick={() => void deleteSlack(item.id)}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
-
-            <div class="rounded-xl border border-gray-4 bg-gray-1 px-4 py-3 space-y-2">
-              <div class="grid grid-cols-1 gap-2">
-                <input
-                  class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-xs text-gray-12 placeholder:text-gray-9"
-                  placeholder="Slack bot token (xoxb-...)"
-                  type="password"
-                  value={slackBotToken()}
-                  onInput={(e) => setSlackBotToken(e.currentTarget.value)}
-                />
-                <input
-                  class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-xs text-gray-12 placeholder:text-gray-9"
-                  placeholder="Slack app token (xapp-...)"
-                  type="password"
-                  value={slackAppToken()}
-                  onInput={(e) => setSlackAppToken(e.currentTarget.value)}
-                />
-              </div>
-
-              <label class="flex items-center gap-2 text-xs text-gray-11">
-                <input
-                  type="checkbox"
-                  checked={slackEnabled()}
-                  onChange={(e) => setSlackEnabled(e.currentTarget.checked)}
-                />
-                Enabled
-              </label>
-
-              <div class="flex items-center gap-2">
-                <Button
-                  variant="primary"
-                  class="h-8 px-3 text-xs"
-                  onClick={() => void upsertSlack()}
-                  disabled={slackSaving() || !workspaceId() || !slackBotToken().trim() || !slackAppToken().trim()}
-                >
-                  {slackSaving() ? "Saving..." : "Save"}
-                </Button>
-                <Show when={slackStatus()}>
-                  {(value) => <div class="text-[11px] text-gray-9">{value()}</div>}
-                </Show>
-              </div>
-              <Show when={slackError()}>
-                {(value) => <div class="text-[11px] text-red-12">{value()}</div>}
-              </Show>
+            <div class="flex items-center gap-2 pl-6">
+              <span class="rounded-md bg-gray-4 px-2.5 py-1 text-[12px] font-medium text-gray-11">
+                All channels
+              </span>
+              <ArrowRight size={14} class="text-gray-8" />
+              <span class="rounded-md bg-dls-accent/10 px-2.5 py-1 text-[12px] font-medium text-dls-accent">
+                ~/workspace
+              </span>
             </div>
+          </div>
+
+          <div class="text-xs text-gray-10 mt-2.5">
+            Advanced: reply with <code class="text-[11px] font-mono bg-gray-3 px-1 py-0.5 rounded">/dir &lt;path&gt;</code> in Slack/Telegram to override the directory for a specific chat.
           </div>
         </div>
 
-        <div class="rounded-2xl border border-gray-4 bg-gray-1 p-5 shadow-sm space-y-3">
-          <div class="flex items-center gap-2">
-            <HardDrive size={18} class="text-gray-10" />
-            <div>
-              <div class="text-sm font-semibold text-gray-12">Routing</div>
-              <div class="text-xs text-gray-9">New chats auto-bind to this workspace on first message.</div>
-            </div>
-          </div>
-          <div class="text-xs text-gray-10">
-            Advanced: reply with <span class="font-mono">/dir &lt;path&gt;</span> in Slack/Telegram to override the directory for a specific chat.
-          </div>
-        </div>
       </Show>
     </div>
   );
