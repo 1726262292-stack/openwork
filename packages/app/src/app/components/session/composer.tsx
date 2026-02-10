@@ -141,7 +141,18 @@ const partsToText = (parts: ComposerPart[]) =>
     .map((part) => {
       if (part.type === "text") return part.text;
       if (part.type === "agent") return `@${part.name}`;
-      return `@${part.path}`;
+      if (part.type === "file") return `@${part.path}`;
+      return part.label;
+    })
+    .join("");
+
+const partsToResolvedText = (parts: ComposerPart[]) =>
+  parts
+    .map((part) => {
+      if (part.type === "text") return part.text;
+      if (part.type === "agent") return `@${part.name}`;
+      if (part.type === "file") return `@${part.path}`;
+      return part.text;
     })
     .join("");
 
@@ -189,7 +200,27 @@ const insertTextWithBreaks = (target: HTMLElement, text: string) => {
   });
 };
 
-const buildPartsFromEditor = (root: HTMLElement): ComposerPart[] => {
+const sanitizePastedPlainText = (value: string) => normalizeText(value).replace(/\r\n?/g, "\n");
+
+const htmlToPlainText = (html: string) => {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  return div.innerText ?? "";
+};
+
+const countLines = (value: string) => (value ? value.split("\n").length : 0);
+
+const textToFragment = (text: string) => {
+  const frag = document.createDocumentFragment();
+  const chunks = text.split("\n");
+  chunks.forEach((chunk, index) => {
+    if (chunk.length) frag.appendChild(document.createTextNode(chunk));
+    if (index < chunks.length - 1) frag.appendChild(document.createElement("br"));
+  });
+  return frag;
+};
+
+const buildPartsFromEditor = (root: HTMLElement, pasteTextById?: Map<string, string>): ComposerPart[] => {
   const parts: ComposerPart[] = [];
   const pushText = (text: string) => {
     if (!text) return;
@@ -215,6 +246,14 @@ const buildPartsFromEditor = (root: HTMLElement): ComposerPart[] => {
       } else {
         parts.push({ type: "file", path: el.dataset.mentionValue ?? "", label: el.dataset.mentionLabel ?? undefined });
       }
+      return;
+    }
+    if (el.dataset.pasteId) {
+      const id = el.dataset.pasteId ?? "";
+      const label = el.dataset.pasteLabel ?? el.textContent ?? "[pasted text]";
+      const lines = Number(el.dataset.pasteLines ?? "0") || 0;
+      const text = pasteTextById?.get(id) ?? label;
+      parts.push({ type: "paste", id, label, text, lines });
       return;
     }
     if (el.tagName === "BR") {
@@ -331,6 +370,8 @@ export default function Composer(props: ComposerProps) {
   let variantPickerRef: HTMLDivElement | undefined;
   let mentionSearchRun = 0;
   let suppressPromptSync = false;
+  let pasteCounter = 0;
+  const pasteTextById = new Map<string, string>();
   // Track IME composition state so we can combine it with keyCode === 229 to
   // reliably suppress Enter during CJK input across Chrome, Safari, and WebKit.
   let imeComposing = false;
@@ -348,6 +389,20 @@ export default function Composer(props: ComposerProps) {
   const [variantMenuOpen, setVariantMenuOpen] = createSignal(false);
   const activeVariant = createMemo(() => props.modelVariant ?? "none");
   const attachmentsDisabled = createMemo(() => !props.attachmentsEnabled);
+
+  const createPasteSpan = (part: Extract<ComposerPart, { type: "paste" }>) => {
+    pasteTextById.set(part.id, part.text);
+    const span = document.createElement("span");
+    span.textContent = part.label;
+    span.contentEditable = "false";
+    span.dataset.pasteId = part.id;
+    span.dataset.pasteLabel = part.label;
+    span.dataset.pasteLines = String(part.lines);
+    span.title = "Click to expand pasted text";
+    span.className =
+      "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-dls-hover text-dls-secondary border border-dls-border cursor-pointer hover:bg-dls-active hover:text-dls-text";
+    return span;
+  };
 
   // Slash command state
   const [slashOpen, setSlashOpen] = createSignal(false);
@@ -454,14 +509,16 @@ export default function Composer(props: ComposerProps) {
 
   const emitDraftChange = () => {
     if (!editorRef) return;
-    const parts = buildPartsFromEditor(editorRef);
+    const parts = buildPartsFromEditor(editorRef, pasteTextById);
     const text = normalizeText(partsToText(parts));
+    const resolvedText = normalizeText(partsToResolvedText(parts));
     suppressPromptSync = true;
     props.onDraftChange({
       mode: mode(),
       parts,
       attachments: attachments(),
       text,
+      resolvedText,
     });
     queueMicrotask(() => {
       suppressPromptSync = false;
@@ -488,6 +545,12 @@ export default function Composer(props: ComposerProps) {
     parts.forEach((part) => {
       if (part.type === "text") {
         insertTextWithBreaks(editorRef!, part.text);
+        return;
+      }
+      if (part.type === "paste") {
+        const span = createPasteSpan(part);
+        editorRef?.appendChild(span);
+        editorRef?.appendChild(document.createTextNode(" "));
         return;
       }
       const span = createMentionSpan(part);
@@ -518,7 +581,7 @@ export default function Composer(props: ComposerProps) {
       setMentionQuery("");
       return;
     }
-    const text = normalizeText(partsToText(buildPartsFromEditor(editorRef)));
+    const text = normalizeText(partsToText(buildPartsFromEditor(editorRef, pasteTextById)));
     const before = text.slice(0, offsets.start);
     const match = before.match(/@(\S*)$/);
     if (!match) {
@@ -537,7 +600,7 @@ export default function Composer(props: ComposerProps) {
       setSlashQuery("");
       return;
     }
-    const text = normalizeText(partsToText(buildPartsFromEditor(editorRef)));
+    const text = normalizeText(partsToText(buildPartsFromEditor(editorRef, pasteTextById)));
     // Only trigger when the entire input matches /command (no spaces, starts with /)
     const slashMatch = text.match(/^\/(\S*)$/);
     if (!slashMatch) {
@@ -680,9 +743,10 @@ export default function Composer(props: ComposerProps) {
     if (nextIndex < -1 || nextIndex >= list.length) return;
 
     if (index === -1 && direction === "up") {
-      const parts = editorRef ? buildPartsFromEditor(editorRef) : [];
+      const parts = editorRef ? buildPartsFromEditor(editorRef, pasteTextById) : [];
       const text = normalizeText(partsToText(parts));
-      setHistorySnapshot({ mode: key, parts, attachments: attachments(), text });
+      const resolvedText = normalizeText(partsToResolvedText(parts));
+      setHistorySnapshot({ mode: key, parts, attachments: attachments(), text, resolvedText });
     }
 
     setHistoryIndex((current: { prompt: number; shell: number }) => ({ ...current, [key]: nextIndex }));
@@ -697,9 +761,10 @@ export default function Composer(props: ComposerProps) {
 
   const sendDraft = () => {
     if (!editorRef) return;
-    const parts = buildPartsFromEditor(editorRef);
+    const parts = buildPartsFromEditor(editorRef, pasteTextById);
     const text = normalizeText(partsToText(parts));
-    const draft: ComposerDraft = { mode: mode(), parts, attachments: attachments(), text };
+    const resolvedText = normalizeText(partsToResolvedText(parts));
+    const draft: ComposerDraft = { mode: mode(), parts, attachments: attachments(), text, resolvedText };
 
     // Detect slash command: text like "/commandname arg1 arg2"
     if (text.startsWith("/")) {
@@ -777,6 +842,84 @@ export default function Composer(props: ComposerProps) {
     }
   };
 
+  const insertPlainTextAtSelection = (text: string) => {
+    if (!editorRef) return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const fragment = textToFragment(text);
+    const last = fragment.lastChild;
+    range.insertNode(fragment);
+
+    if (!last) return;
+    const cursor = document.createRange();
+    cursor.setStartAfter(last);
+    cursor.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(cursor);
+  };
+
+  const insertCollapsedPasteAtSelection = (text: string, lines: number) => {
+    if (!editorRef) return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+
+    pasteCounter += 1;
+    const id = `paste-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const label = `[pasted text ${pasteCounter}]`;
+    const part = { type: "paste", id, label, text, lines } as const;
+    const span = createPasteSpan(part);
+
+    range.insertNode(span);
+    span.after(document.createTextNode(" "));
+
+    const cursor = document.createRange();
+    cursor.setStartAfter(span.nextSibling ?? span);
+    cursor.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(cursor);
+  };
+
+  const handleEditorClick = (event: MouseEvent) => {
+    if (!editorRef) return;
+    const target = event.target as HTMLElement | null;
+    const span = (target?.closest?.("span[data-paste-id]") as HTMLElement | null) ?? null;
+    if (!span || !editorRef.contains(span)) return;
+    const id = span.dataset.pasteId ?? "";
+    if (!id) return;
+    const text = pasteTextById.get(id);
+    if (typeof text !== "string") return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const fragment = textToFragment(text);
+    const last = fragment.lastChild;
+    span.replaceWith(fragment);
+    pasteTextById.delete(id);
+
+    const selection = window.getSelection();
+    if (selection) {
+      const cursor = document.createRange();
+      if (last && last.parentNode) {
+        cursor.setStartAfter(last);
+        cursor.collapse(true);
+      } else {
+        cursor.selectNodeContents(editorRef);
+        cursor.collapse(false);
+      }
+      selection.removeAllRanges();
+      selection.addRange(cursor);
+    }
+
+    updateMentionQuery();
+    updateSlashQuery();
+    emitDraftChange();
+  };
+
   const handlePaste = (event: ClipboardEvent) => {
     if (!event.clipboardData) return;
     const clipboard = event.clipboardData;
@@ -786,14 +929,35 @@ export default function Composer(props: ComposerProps) {
       .map((item) => item.getAsFile())
       .filter((file): file is File => !!file);
     const allFiles = files.length ? files : itemFiles;
-    if (!allFiles.length) return;
-    event.preventDefault();
-    const hasSupported = allFiles.some((file) => ACCEPTED_FILE_TYPES.includes(file.type));
-    if (!hasSupported) {
-      props.onToast("Unsupported attachment type.");
+
+    if (allFiles.length) {
+      event.preventDefault();
+      const hasSupported = allFiles.some((file) => ACCEPTED_FILE_TYPES.includes(file.type));
+      if (!hasSupported) {
+        props.onToast("Unsupported attachment type.");
+        return;
+      }
+      void addAttachments(allFiles);
       return;
     }
-    void addAttachments(allFiles);
+
+    const plain = clipboard.getData("text/plain") || clipboard.getData("text") || "";
+    const html = clipboard.getData("text/html") || "";
+    const raw = plain || (html ? htmlToPlainText(html) : "");
+    if (!raw) return;
+
+    event.preventDefault();
+    const text = sanitizePastedPlainText(raw);
+    const lines = countLines(text);
+    if (lines > 10) {
+      insertCollapsedPasteAtSelection(text, lines);
+    } else {
+      insertPlainTextAtSelection(text);
+    }
+
+    updateMentionQuery();
+    updateSlashQuery();
+    emitDraftChange();
   };
 
   const handleDrop = (event: DragEvent) => {
@@ -1259,6 +1423,7 @@ export default function Composer(props: ComposerProps) {
                       }}
                       onKeyDown={handleKeyDown}
                       onPaste={handlePaste}
+                      onClick={handleEditorClick}
                       class="bg-transparent border-none p-0 pb-8 pr-4 text-dls-text focus:ring-0 text-sm leading-relaxed resize-none min-h-[24px] outline-none relative z-10"
                     />
 

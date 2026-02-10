@@ -706,7 +706,8 @@ export default function App() {
 
   const buildPromptParts = (draft: ComposerDraft): PartInput[] => {
     const parts: PartInput[] = [];
-    parts.push({ type: "text", text: draft.text } as TextPartInput);
+    const text = draft.resolvedText ?? draft.text;
+    parts.push({ type: "text", text } as TextPartInput);
 
     const root = workspaceProjectDir().trim();
     const toAbsolutePath = (path: string) => {
@@ -818,7 +819,7 @@ export default function App() {
       attachments: [] as ComposerAttachment[],
       text: fallbackText,
     };
-    const content = resolvedDraft.text.trim();
+    const content = (resolvedDraft.resolvedText ?? resolvedDraft.text).trim();
     if (!content && !resolvedDraft.attachments.length) return;
 
     const c = client();
