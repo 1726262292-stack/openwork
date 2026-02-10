@@ -1242,7 +1242,12 @@ async function resolveBundledBinary(manifest: VersionManifest | null, name: stri
   }
   for (const bundled of candidates) {
     if (!(await isExecutable(bundled))) continue;
-    await verifyBinary(bundled, manifest.entries[name]);
+    // Desktop bundles may be code-signed after we generate versions.json, which
+    // mutates the on-disk bytes and makes a precomputed sha256 unstable.
+    // Linux bundles remain byte-stable, so keep integrity verification there.
+    if (process.platform === "linux") {
+      await verifyBinary(bundled, manifest.entries[name]);
+    }
     return bundled;
   }
   return null;
