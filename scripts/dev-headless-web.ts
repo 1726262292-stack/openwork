@@ -56,6 +56,29 @@ const readBool = (value: string | undefined) => {
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 };
 
+const silent = process.argv.includes("--silent");
+
+const autoBuildEnabled = process.env.OPENWORK_DEV_HEADLESS_WEB_AUTOBUILD == null
+  ? true
+  : readBool(process.env.OPENWORK_DEV_HEADLESS_WEB_AUTOBUILD);
+
+const runCommand = (command: string, args: string[]) =>
+  new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: process.env,
+      stdio: silent ? "ignore" : "inherit",
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`${command} ${args.join(" ")} exited with code ${code ?? "unknown"}`));
+    });
+  });
+
 const spawnLogged = (command: string, args: string[], logPath: string, env: NodeJS.ProcessEnv) => {
   const logFd = openSync(logPath, "w");
   return spawn(command, args, {
@@ -89,9 +112,23 @@ const ensureOpenworkServer = async () => {
   try {
     await access(openworkServerBin);
   } catch {
+    if (!autoBuildEnabled) {
+      logLine(`[dev:headless-web] Missing OpenWork server binary at ${openworkServerBin}`);
+      logLine("[dev:headless-web] Auto-build disabled (OPENWORK_DEV_HEADLESS_WEB_AUTOBUILD=0)");
+      logLine("[dev:headless-web] Run: pnpm --filter openwork-server build:bin");
+      logLine("[dev:headless-web] Or unset/enable OPENWORK_DEV_HEADLESS_WEB_AUTOBUILD to auto-build.");
+      process.exit(1);
+    }
+
     logLine(`[dev:headless-web] Missing OpenWork server binary at ${openworkServerBin}`);
-    logLine("[dev:headless-web] Run: pnpm --filter openwork-server build:bin");
-    process.exit(1);
+    logLine("[dev:headless-web] Auto-building: pnpm --filter openwork-server build:bin");
+    try {
+      await runCommand("pnpm", ["--filter", "openwork-server", "build:bin"]);
+      await access(openworkServerBin);
+    } catch (error) {
+      logLine(`[dev:headless-web] Auto-build failed: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
   }
 };
 
@@ -99,9 +136,23 @@ const ensureOwpenbot = async () => {
   try {
     await access(owpenbotBin);
   } catch {
+    if (!autoBuildEnabled) {
+      logLine(`[dev:headless-web] Missing owpenbot binary at ${owpenbotBin}`);
+      logLine("[dev:headless-web] Auto-build disabled (OPENWORK_DEV_HEADLESS_WEB_AUTOBUILD=0)");
+      logLine("[dev:headless-web] Run: pnpm --filter owpenwork build:bin");
+      logLine("[dev:headless-web] Or unset/enable OPENWORK_DEV_HEADLESS_WEB_AUTOBUILD to auto-build.");
+      process.exit(1);
+    }
+
     logLine(`[dev:headless-web] Missing owpenbot binary at ${owpenbotBin}`);
-    logLine("[dev:headless-web] Run: pnpm --filter owpenwork build:bin");
-    process.exit(1);
+    logLine("[dev:headless-web] Auto-building: pnpm --filter owpenwork build:bin");
+    try {
+      await runCommand("pnpm", ["--filter", "owpenwork", "build:bin"]);
+      await access(owpenbotBin);
+    } catch (error) {
+      logLine(`[dev:headless-web] Auto-build failed: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
   }
 };
 
