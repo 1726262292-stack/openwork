@@ -411,6 +411,9 @@ export function startServer(config: ServerConfig) {
         });
         return finalize(response);
       } catch (error) {
+        if (!(error instanceof ApiError)) {
+          console.error("[openwork-server] Unhandled error:", error);
+        }
         const apiError = error instanceof ApiError
           ? error
           : new ApiError(500, "internal_error", "Unexpected server error");

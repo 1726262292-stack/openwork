@@ -7,10 +7,10 @@ One command, no custom Dockerfile. Uses `node:22-bookworm-slim` off the shelf.
 From the repo root:
 
 ```bash
-docker compose -f packaging/docker/docker-compose.dev.yml up
+./packaging/docker/dev-up.sh
 ```
 
-Then open **http://localhost:5173** — the web UI is already wired to headless.
+Then open the printed Web UI URL (ports are randomized so you can run multiple stacks).
 
 What it does:
 - Starts **headless** (OpenCode + OpenWork server) on port 8787
@@ -20,14 +20,16 @@ What it does:
 - Builds Linux binaries inside the container (no host binary conflicts)
 
 Useful commands:
-- Logs: `docker compose -f packaging/docker/docker-compose.dev.yml logs`
-- Tear down: `docker compose -f packaging/docker/docker-compose.dev.yml down`
-- Health check: `curl http://localhost:8787/health`
+- Logs: `docker compose -p <project> -f packaging/docker/docker-compose.dev.yml logs`
+- Tear down: `docker compose -p <project> -f packaging/docker/docker-compose.dev.yml down`
+- Health check: `curl http://localhost:<openwork_port>/health`
 
 Optional env vars (via `.env` or `export`):
 - `OPENWORK_TOKEN` — fixed client token
 - `OPENWORK_HOST_TOKEN` — fixed host/admin token
 - `OPENWORK_WORKSPACE` — host path to mount as workspace
+- `OPENWORK_PORT` — host port to map to container :8787
+- `WEB_PORT` — host port to map to container :5173
 
 ---
 
