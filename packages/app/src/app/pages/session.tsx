@@ -58,6 +58,7 @@ import Composer from "../components/session/composer";
 import type { SidebarSectionState } from "../components/session/sidebar";
 import FlyoutItem from "../components/flyout-item";
 import QuestionModal from "../components/question-modal";
+import TouchedFilesPanel from "../components/session/touched-files-panel";
 
 export type SessionViewProps = {
   selectedSessionId: string | null;
@@ -210,6 +211,36 @@ export default function SessionView(props: SessionViewProps) {
   const todoCompletedCount = createMemo(() =>
     todoList().filter((todo) => todo.status === "completed").length
   );
+
+  const touchedFiles = createMemo(() => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const add = (value: string) => {
+      const normalized = String(value ?? "").trim().replace(/[\\/]+/g, "/");
+      if (!normalized) return;
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(normalized);
+    };
+
+    const artifacts = props.artifacts;
+    for (let idx = artifacts.length - 1; idx >= 0; idx -= 1) {
+      const item = artifacts[idx];
+      add(item?.path ?? item?.name ?? "");
+      if (out.length >= 48) break;
+    }
+
+    if (out.length === 0) {
+      const working = props.workingFiles;
+      for (let idx = working.length - 1; idx >= 0; idx -= 1) {
+        add(working[idx] ?? "");
+        if (out.length >= 48) break;
+      }
+    }
+
+    return out;
+  });
   const todoLabel = createMemo(() => {
     const total = todoCount();
     if (!total) return "";
@@ -1788,7 +1819,14 @@ export default function SessionView(props: SessionViewProps) {
       </main>
 
       <aside class="w-56 hidden md:flex flex-col bg-dls-sidebar border-l border-dls-border p-4">
-        <div class="space-y-1 pt-2">
+        <div class="flex-1 overflow-y-auto space-y-3 pt-2">
+          <TouchedFilesPanel
+            id="sidebar-context"
+            files={touchedFiles()}
+            workspaceRoot={props.activeWorkspaceRoot}
+          />
+
+          <div class="space-y-1">
           <button
             type="button"
             class={`w-full h-10 flex items-center gap-3 px-3 rounded-lg text-sm font-medium transition-colors ${
@@ -1876,9 +1914,8 @@ export default function SessionView(props: SessionViewProps) {
             <SlidersHorizontal size={18} />
             Config
           </button>
+          </div>
         </div>
-
-        <div class="flex-1" />
 
         <div class="pt-4 border-t border-dls-border">
           <button
