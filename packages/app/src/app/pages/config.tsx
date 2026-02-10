@@ -123,6 +123,53 @@ export default function ConfigView(props: ConfigViewProps) {
   });
   const hostConnectUrlUsesMdns = createMemo(() => hostConnectUrl().includes(".local"));
 
+  const diagnosticsBundle = createMemo(() => {
+    const urlOverride = props.openworkServerSettings.urlOverride?.trim() ?? "";
+    const token = props.openworkServerSettings.token?.trim() ?? "";
+    const host = hostInfo();
+    return {
+      capturedAt: new Date().toISOString(),
+      runtime: {
+        tauri: isTauriRuntime(),
+        developerMode: props.developerMode,
+      },
+      workspace: {
+        openworkServerWorkspaceId: props.openworkServerWorkspaceId ?? null,
+        clientConnected: props.clientConnected,
+        anyActiveRuns: props.anyActiveRuns,
+      },
+      openworkServer: {
+        status: props.openworkServerStatus,
+        url: props.openworkServerUrl,
+        settings: {
+          urlOverride: urlOverride || null,
+          tokenPresent: Boolean(token),
+        },
+        host: host
+          ? {
+              running: Boolean(host.running),
+              baseUrl: host.baseUrl ?? null,
+              connectUrl: host.connectUrl ?? null,
+              mdnsUrl: host.mdnsUrl ?? null,
+              lanUrl: host.lanUrl ?? null,
+            }
+          : null,
+      },
+      reload: {
+        canReloadWorkspace: props.canReloadWorkspace,
+        autoReloadAvailable: props.workspaceAutoReloadAvailable,
+        autoReloadEnabled: props.workspaceAutoReloadEnabled,
+        autoReloadResumeEnabled: props.workspaceAutoReloadResumeEnabled,
+      },
+      sharing: {
+        hostConnectUrl: hostConnectUrl() || null,
+        hostConnectUrlUsesMdns: hostConnectUrlUsesMdns(),
+      },
+    };
+  });
+
+  const diagnosticsBundleJson = createMemo(() => JSON.stringify(diagnosticsBundle(), null, 2));
+
   const handleCopy = async (value: string, field: string) => {
     if (!value) return;
     try {
@@ -231,6 +278,28 @@ export default function ConfigView(props: ConfigViewProps) {
           </Button>
         </div>
       </div>
+
+      <Show when={props.developerMode}>
+        <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
+          <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div class="text-sm font-medium text-gray-12">Diagnostics bundle</div>
+              <div class="text-xs text-gray-10">Copy sanitized runtime state for debugging.</div>
+            </div>
+            <Button
+              variant="secondary"
+              class="text-xs h-8 py-0 px-3 shrink-0"
+              onClick={() => void handleCopy(diagnosticsBundleJson(), "debug-bundle")}
+              disabled={props.busy}
+            >
+              {copyingField() === "debug-bundle" ? "Copied" : "Copy"}
+            </Button>
+          </div>
+          <pre class="text-xs text-gray-12 whitespace-pre-wrap break-words max-h-64 overflow-auto bg-gray-1/20 border border-gray-6 rounded-xl p-3">
+            {diagnosticsBundleJson()}
+          </pre>
+        </div>
+      </Show>
 
       <Show when={hostInfo()}>
         <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
