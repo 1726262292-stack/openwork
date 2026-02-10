@@ -654,14 +654,19 @@ export function createWorkspaceStore(options: {
               workspaceId: next.openworkWorkspaceId ?? null,
               directoryHint: next.directory ?? null,
             });
-            if (resolved.kind === "openwork") {
-              resolvedBaseUrl = resolved.opencodeBaseUrl;
-              resolvedDirectory = resolved.directory;
-              workspaceInfo = resolved.workspace;
-              resolvedAuth = resolved.auth;
-            } else {
-              resolvedBaseUrl = baseUrl || hostUrl;
+            if (resolved.kind !== "openwork") {
+              options.setError("OpenWork server unavailable. Check the URL and token.");
+              updateWorkspaceConnectionState(id, {
+                status: "error",
+                message: "OpenWork server unavailable. Check the URL and token.",
+              });
+              return false;
             }
+
+            resolvedBaseUrl = resolved.opencodeBaseUrl;
+            resolvedDirectory = resolved.directory;
+            workspaceInfo = resolved.workspace;
+            resolvedAuth = resolved.auth;
           } catch (error) {
             const message = error instanceof Error ? error.message : safeStringify(error);
             options.setError(addOpencodeCacheHint(message));

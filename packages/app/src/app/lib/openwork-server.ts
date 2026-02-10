@@ -544,18 +544,66 @@ function buildAuthHeaders(token?: string, hostToken?: string, extra?: Record<str
 // Use Tauri's fetch when running in the desktop app to avoid CORS issues
 const resolveFetch = () => (isTauriRuntime() ? tauriFetch : globalThis.fetch);
 
+const DEFAULT_OPENWORK_SERVER_TIMEOUT_MS = 10_000;
+
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+async function fetchWithTimeout(
+  fetchImpl: FetchLike,
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return fetchImpl(url, init);
+  }
+
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const signal = controller?.signal;
+  const initWithSignal = signal && !init.signal ? { ...init, signal } : init;
+
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      try {
+        controller?.abort();
+      } catch {
+        // ignore
+      }
+      reject(new Error("Request timed out."));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([fetchImpl(url, initWithSignal), timeoutPromise]);
+  } catch (error) {
+    const name = (error && typeof error === "object" && "name" in error ? (error as any).name : "") as string;
+    if (name === "AbortError") {
+      throw new Error("Request timed out.");
+    }
+    throw error;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 async function requestJson<T>(
   baseUrl: string,
   path: string,
-  options: { method?: string; token?: string; hostToken?: string; body?: unknown } = {},
+  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number } = {},
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
   const fetchImpl = resolveFetch();
-  const response = await fetchImpl(url, {
-    method: options.method ?? "GET",
-    headers: buildHeaders(options.token, options.hostToken),
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    url,
+    {
+      method: options.method ?? "GET",
+      headers: buildHeaders(options.token, options.hostToken),
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    },
+    options.timeoutMs ?? DEFAULT_OPENWORK_SERVER_TIMEOUT_MS,
+  );
 
   const text = await response.text();
   const json = text ? JSON.parse(text) : null;
@@ -572,15 +620,20 @@ async function requestJson<T>(
 async function requestJsonRaw<T>(
   baseUrl: string,
   path: string,
-  options: { method?: string; token?: string; hostToken?: string; body?: unknown } = {},
+  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number } = {},
 ): Promise<RawJsonResponse<T>> {
   const url = `${baseUrl}${path}`;
   const fetchImpl = resolveFetch();
-  const response = await fetchImpl(url, {
-    method: options.method ?? "GET",
-    headers: buildHeaders(options.token, options.hostToken),
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    url,
+    {
+      method: options.method ?? "GET",
+      headers: buildHeaders(options.token, options.hostToken),
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    },
+    options.timeoutMs ?? DEFAULT_OPENWORK_SERVER_TIMEOUT_MS,
+  );
 
   const text = await response.text();
   let json: T | null = null;
@@ -596,15 +649,20 @@ async function requestJsonRaw<T>(
 async function requestMultipartRaw(
   baseUrl: string,
   path: string,
-  options: { method?: string; token?: string; hostToken?: string; body?: FormData } = {},
+  options: { method?: string; token?: string; hostToken?: string; body?: FormData; timeoutMs?: number } = {},
 ): Promise<{ ok: boolean; status: number; text: string }>{
   const url = `${baseUrl}${path}`;
   const fetchImpl = resolveFetch();
-  const response = await fetchImpl(url, {
-    method: options.method ?? "POST",
-    headers: buildAuthHeaders(options.token, options.hostToken),
-    body: options.body,
-  });
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    url,
+    {
+      method: options.method ?? "POST",
+      headers: buildAuthHeaders(options.token, options.hostToken),
+      body: options.body,
+    },
+    options.timeoutMs ?? DEFAULT_OPENWORK_SERVER_TIMEOUT_MS,
+  );
   const text = await response.text();
   return { ok: response.ok, status: response.status, text };
 }
@@ -612,14 +670,19 @@ async function requestMultipartRaw(
 async function requestBinary(
   baseUrl: string,
   path: string,
-  options: { method?: string; token?: string; hostToken?: string } = {},
+  options: { method?: string; token?: string; hostToken?: string; timeoutMs?: number } = {},
 ): Promise<{ data: ArrayBuffer; contentType: string | null; filename: string | null }>{
   const url = `${baseUrl}${path}`;
   const fetchImpl = resolveFetch();
-  const response = await fetchImpl(url, {
-    method: options.method ?? "GET",
-    headers: buildAuthHeaders(options.token, options.hostToken),
-  });
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    url,
+    {
+      method: options.method ?? "GET",
+      headers: buildAuthHeaders(options.token, options.hostToken),
+    },
+    options.timeoutMs ?? DEFAULT_OPENWORK_SERVER_TIMEOUT_MS,
+  );
 
   if (!response.ok) {
     const text = await response.text();
@@ -648,38 +711,52 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
   const token = options.token;
   const hostToken = options.hostToken;
 
+  const timeouts = {
+    health: 3_000,
+    capabilities: 6_000,
+    listWorkspaces: 8_000,
+    activateWorkspace: 10_000,
+    status: 6_000,
+    config: 10_000,
+    owpenbot: 10_000,
+    workspaceExport: 30_000,
+    workspaceImport: 30_000,
+    binary: 60_000,
+  };
+
   return {
     baseUrl,
     token,
     health: () =>
-      requestJson<{ ok: boolean; version: string; uptimeMs: number }>(baseUrl, "/health", { token, hostToken }),
-    status: () => requestJson<OpenworkServerDiagnostics>(baseUrl, "/status", { token, hostToken }),
-    capabilities: () => requestJson<OpenworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken }),
+      requestJson<{ ok: boolean; version: string; uptimeMs: number }>(baseUrl, "/health", { token, hostToken, timeoutMs: timeouts.health }),
+    status: () => requestJson<OpenworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
+    capabilities: () => requestJson<OpenworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
     owpenbotHealth: () =>
-      requestJsonRaw<OpenworkOwpenbotHealthSnapshot>(baseUrl, "/owpenbot/health", { token, hostToken }),
+      requestJsonRaw<OpenworkOwpenbotHealthSnapshot>(baseUrl, "/owpenbot/health", { token, hostToken, timeoutMs: timeouts.owpenbot }),
     owpenbotBindings: (filters?: { channel?: string; identityId?: string }) => {
       const search = new URLSearchParams();
       if (filters?.channel?.trim()) search.set("channel", filters.channel.trim());
       if (filters?.identityId?.trim()) search.set("identityId", filters.identityId.trim());
       const suffix = search.toString();
       const path = suffix ? `/owpenbot/bindings?${suffix}` : "/owpenbot/bindings";
-      return requestJsonRaw<OpenworkOwpenbotBindingsResult>(baseUrl, path, { token, hostToken });
+      return requestJsonRaw<OpenworkOwpenbotBindingsResult>(baseUrl, path, { token, hostToken, timeoutMs: timeouts.owpenbot });
     },
     owpenbotTelegramIdentities: () =>
-      requestJsonRaw<OpenworkOwpenbotTelegramIdentitiesResult>(baseUrl, "/owpenbot/identities/telegram", { token, hostToken }),
+      requestJsonRaw<OpenworkOwpenbotTelegramIdentitiesResult>(baseUrl, "/owpenbot/identities/telegram", { token, hostToken, timeoutMs: timeouts.owpenbot }),
     owpenbotSlackIdentities: () =>
-      requestJsonRaw<OpenworkOwpenbotSlackIdentitiesResult>(baseUrl, "/owpenbot/identities/slack", { token, hostToken }),
-    listWorkspaces: () => requestJson<OpenworkWorkspaceList>(baseUrl, "/workspaces", { token, hostToken }),
+      requestJsonRaw<OpenworkOwpenbotSlackIdentitiesResult>(baseUrl, "/owpenbot/identities/slack", { token, hostToken, timeoutMs: timeouts.owpenbot }),
+    listWorkspaces: () => requestJson<OpenworkWorkspaceList>(baseUrl, "/workspaces", { token, hostToken, timeoutMs: timeouts.listWorkspaces }),
     activateWorkspace: (workspaceId: string) =>
       requestJson<{ activeId: string; workspace: OpenworkWorkspaceInfo }>(
         baseUrl,
         `/workspaces/${encodeURIComponent(workspaceId)}/activate`,
-        { token, hostToken, method: "POST" },
+        { token, hostToken, method: "POST", timeoutMs: timeouts.activateWorkspace },
       ),
     exportWorkspace: (workspaceId: string) =>
       requestJson<OpenworkWorkspaceExport>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/export`, {
         token,
         hostToken,
+        timeoutMs: timeouts.workspaceExport,
       }),
     importWorkspace: (workspaceId: string, payload: Record<string, unknown>) =>
       requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/import`, {
@@ -687,12 +764,13 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         hostToken,
         method: "POST",
         body: payload,
+        timeoutMs: timeouts.workspaceImport,
       }),
     getConfig: (workspaceId: string) =>
       requestJson<{ opencode: Record<string, unknown>; openwork: Record<string, unknown>; updatedAt?: number | null }>(
         baseUrl,
         `/workspace/${workspaceId}/config`,
-        { token, hostToken },
+        { token, hostToken, timeoutMs: timeouts.config },
       ),
     setOwpenbotTelegramToken: (
       workspaceId: string,
@@ -707,6 +785,7 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
           hostToken,
           method: "POST",
           body: { token: tokenValue, healthPort },
+          timeoutMs: timeouts.owpenbot,
         },
       ),
     setOwpenbotSlackTokens: (
@@ -723,20 +802,21 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
           hostToken,
           method: "POST",
           body: { botToken, appToken, healthPort },
+          timeoutMs: timeouts.owpenbot,
         },
       ),
     getOwpenbotTelegram: (workspaceId: string) =>
       requestJson<OpenworkOwpenbotTelegramInfo>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/owpenbot/telegram`,
-        { token, hostToken },
+        { token, hostToken, timeoutMs: timeouts.owpenbot },
       ),
     getOwpenbotTelegramIdentities: (workspaceId: string, options?: { healthPort?: number | null }) => {
       const query = typeof options?.healthPort === "number" ? `?healthPort=${encodeURIComponent(String(options.healthPort))}` : "";
       return requestJson<OpenworkOwpenbotTelegramIdentitiesResult>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/owpenbot/identities/telegram${query}`,
-        { token, hostToken },
+        { token, hostToken, timeoutMs: timeouts.owpenbot },
       );
     },
     upsertOwpenbotTelegramIdentity: (
@@ -988,6 +1068,7 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         hostToken,
         method: "POST",
         body: form,
+        timeoutMs: timeouts.binary,
       });
 
       if (!result.ok) {
@@ -1038,7 +1119,7 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       requestBinary(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(artifactId)}`,
-        { token, hostToken },
+        { token, hostToken, timeoutMs: timeouts.binary },
       ),
   };
 }

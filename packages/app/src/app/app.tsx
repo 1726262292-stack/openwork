@@ -1733,8 +1733,10 @@ export default function App() {
   createEffect(() => {
     const id = workspaceStore.activeWorkspaceId().trim();
     if (!id) return;
-    const status = sidebarSessionStatusByWorkspaceId()[id];
-    if (status === "ready" || status === "loading") return;
+    const status = sidebarSessionStatusByWorkspaceId()[id] ?? "idle";
+    // Only auto-load once per workspace activation.
+    // If a remote is offline, repeated retries here can create an endless refresh loop.
+    if (status !== "idle") return;
     refreshSidebarWorkspaceSessions(id).catch(() => undefined);
   });
 
