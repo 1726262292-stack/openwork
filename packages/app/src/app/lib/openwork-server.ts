@@ -214,6 +214,12 @@ export type OpenworkOwpenbotHealthSnapshot = {
     lastOutboundAt?: number;
     lastMessageAt?: number;
   };
+  agent?: {
+    scope: "workspace";
+    path: string;
+    loaded: boolean;
+    selected?: string;
+  };
 };
 
 export type OpenworkOwpenbotBindingItem = {
@@ -238,6 +244,7 @@ export type OpenworkOwpenbotSendResult = {
   channel: string;
   identityId?: string;
   directory: string;
+  peerId?: string;
   attempted: number;
   sent: number;
   failures?: Array<{ identityId: string; peerId: string; error: string }>;
@@ -1011,7 +1018,14 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       ),
     sendOwpenbotMessage: (
       workspaceId: string,
-      input: { channel: "telegram" | "slack"; text: string; identityId?: string; directory?: string },
+      input: {
+        channel: "telegram" | "slack";
+        text: string;
+        identityId?: string;
+        directory?: string;
+        peerId?: string;
+        autoBind?: boolean;
+      },
       options?: { healthPort?: number | null },
     ) => {
       const payload = {
@@ -1019,6 +1033,8 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         text: input.text,
         ...(input.identityId?.trim() ? { identityId: input.identityId.trim() } : {}),
         ...(input.directory?.trim() ? { directory: input.directory.trim() } : {}),
+        ...(input.peerId?.trim() ? { peerId: input.peerId.trim() } : {}),
+        ...(input.autoBind === true ? { autoBind: true } : {}),
         healthPort: options?.healthPort ?? null,
       };
 

@@ -2062,6 +2062,8 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
     const body = await readJsonBody(ctx.request);
     const channel = typeof body.channel === "string" ? body.channel.trim().toLowerCase() : "";
     const text = typeof body.text === "string" ? body.text : "";
+    const peerId = typeof body.peerId === "string" ? body.peerId.trim() : "";
+    const autoBind = body.autoBind === true || body.autoBind === "true";
     const directoryInput = typeof body.directory === "string" ? body.directory.trim() : "";
     const directory = directoryInput || workspace.path;
     const healthPort = normalizeHealthPort(body.healthPort);
@@ -2082,8 +2084,8 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
     if (channel !== "telegram" && channel !== "slack") {
       throw new ApiError(400, "invalid_channel", "channel must be 'telegram' or 'slack'");
     }
-    if (!directory.trim()) {
-      throw new ApiError(400, "directory_required", "directory is required");
+    if (!directory.trim() && !peerId) {
+      throw new ApiError(400, "directory_required", "directory is required when peerId is not provided");
     }
     if (!text.trim()) {
       throw new ApiError(400, "text_required", "text is required");
@@ -2095,7 +2097,9 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
       {
         channel,
         identityId,
-        directory,
+        ...(directory.trim() ? { directory } : {}),
+        ...(peerId ? { peerId } : {}),
+        ...(autoBind ? { autoBind: true } : {}),
         text,
       },
       { port, requestHost, timeoutMs: 5_000 },
@@ -2115,7 +2119,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
       actor: ctx.actor ?? { type: "remote" },
       action: "owpenbot.send",
       target: `owpenbot.${channel}`,
-      summary: `Sent outbound ${channel} message for ${identityId}`,
+      summary: `Sent outbound ${channel} message for ${identityId}${peerId ? ` to ${peerId}` : ""}`,
       timestamp: Date.now(),
     });
 

@@ -1,7 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import { readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import type { Logger } from "pino";
 
@@ -139,6 +139,13 @@ const TYPING_INTERVAL_MS = 6000;
 const OWPENBOT_AGENT_FILE_RELATIVE_PATH = ".opencode/agents/owpenbot.md";
 const OWPENBOT_AGENT_MAX_CHARS = 16_000;
 
+type MessagingAgentConfig = {
+  filePath: string;
+  loaded: boolean;
+  selectedAgent?: string;
+  instructions: string;
+};
+
 // Model presets for quick switching
 const MODEL_PRESETS: Record<string, ModelRef> = {
   opus: { providerID: "anthropic", modelID: "claude-opus-4-5-20251101" },
@@ -182,7 +189,83 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
   const reportStatus = reporter?.onStatus;
   const clients = new Map<string, ReturnType<typeof createClient>>();
   const defaultDirectory = config.opencodeDirectory;
-  const agentPromptCache = new Map<string, { mtimeMs: number; content: string }>();
+  const workspaceRoot = resolve(defaultDirectory || process.cwd());
+  const workspaceAgentFilePath = join(workspaceRoot, OWPENBOT_AGENT_FILE_RELATIVE_PATH);
+  const agentPromptCache = new Map<string, { mtimeMs: number; config: MessagingAgentConfig }>();
+  let latestAgentConfig: MessagingAgentConfig = {
+    filePath: workspaceAgentFilePath,
+    loaded: false,
+    instructions: "",
+  };
+
+  const parseMessagingAgentFile = (content: string): { selectedAgent?: string; instructions: string } => {
+    const lines = content.split(/\r?\n/);
+    let start = 0;
+    while (start < lines.length && !lines[start]?.trim()) {
+      start += 1;
+    }
+
+    let selectedAgent: string | undefined;
+    if (start < lines.length) {
+      const first = lines[start]?.trim() ?? "";
+      const match = first.match(/^@agent\s+([A-Za-z0-9_.:/-]+)$/);
+      if (match?.[1]) {
+        selectedAgent = match[1];
+        lines.splice(start, 1);
+      }
+    }
+
+    const instructions = lines.join("\n").trim();
+    return { ...(selectedAgent ? { selectedAgent } : {}), instructions };
+  };
+
+  const loadMessagingAgentConfig = async (): Promise<MessagingAgentConfig> => {
+    const filePath = workspaceAgentFilePath;
+    try {
+      const info = await stat(filePath);
+      if (!info.isFile()) {
+        agentPromptCache.delete(filePath);
+        latestAgentConfig = { filePath, loaded: false, instructions: "" };
+        return latestAgentConfig;
+      }
+
+      const cached = agentPromptCache.get(filePath);
+      if (cached && cached.mtimeMs === info.mtimeMs) {
+        latestAgentConfig = cached.config;
+        return latestAgentConfig;
+      }
+
+      const raw = (await readFile(filePath, "utf8")).trim();
+      if (!raw) {
+        const next: MessagingAgentConfig = { filePath, loaded: false, instructions: "" };
+        agentPromptCache.set(filePath, { mtimeMs: info.mtimeMs, config: next });
+        latestAgentConfig = next;
+        return next;
+      }
+
+      const truncated = raw.length > OWPENBOT_AGENT_MAX_CHARS ? raw.slice(0, OWPENBOT_AGENT_MAX_CHARS) : raw;
+      const parsed = parseMessagingAgentFile(truncated);
+      const next: MessagingAgentConfig = {
+        filePath,
+        loaded: Boolean(parsed.instructions || parsed.selectedAgent),
+        ...(parsed.selectedAgent ? { selectedAgent: parsed.selectedAgent } : {}),
+        instructions: parsed.instructions,
+      };
+      agentPromptCache.set(filePath, { mtimeMs: info.mtimeMs, config: next });
+      latestAgentConfig = next;
+      return next;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code;
+      if (code === "ENOENT") {
+        agentPromptCache.delete(filePath);
+        latestAgentConfig = { filePath, loaded: false, instructions: "" };
+        return latestAgentConfig;
+      }
+      logger.warn({ error, filePath }, "failed to load owpenbot agent file");
+      latestAgentConfig = { filePath, loaded: false, instructions: "" };
+      return latestAgentConfig;
+    }
+  };
 
   const isDangerousRootDirectory = (dir: string) => {
     const normalized = dir.trim();
@@ -215,46 +298,6 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
     const next = deps.clientFactory ? deps.clientFactory(resolved) : createClient(config, resolved);
     clients.set(resolved, next);
     return next;
-  };
-
-  const loadMessagingAgentPrompt = async (directory: string): Promise<string> => {
-    const base = directory.trim() || defaultDirectory;
-    if (!base) return "";
-
-    const filePath = join(base, OWPENBOT_AGENT_FILE_RELATIVE_PATH);
-    try {
-      const info = await stat(filePath);
-      if (!info.isFile()) {
-        agentPromptCache.delete(filePath);
-        return "";
-      }
-
-      const cached = agentPromptCache.get(filePath);
-      if (cached && cached.mtimeMs === info.mtimeMs) {
-        return cached.content;
-      }
-
-      const content = (await readFile(filePath, "utf8")).trim();
-      if (!content) {
-        agentPromptCache.set(filePath, { mtimeMs: info.mtimeMs, content: "" });
-        return "";
-      }
-
-      const next =
-        content.length > OWPENBOT_AGENT_MAX_CHARS
-          ? content.slice(0, OWPENBOT_AGENT_MAX_CHARS)
-          : content;
-      agentPromptCache.set(filePath, { mtimeMs: info.mtimeMs, content: next });
-      return next;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException)?.code;
-      if (code === "ENOENT") {
-        agentPromptCache.delete(filePath);
-        return "";
-      }
-      logger.warn({ error, filePath }, "failed to load owpenbot agent file");
-      return "";
-    }
   };
 
   const rootClient = getClient(defaultDirectory);
@@ -319,6 +362,31 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
     const withoutTrailing = unified.replace(/\/+$/, "");
     const normalized = withoutTrailing || "/";
     return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+  };
+
+  const workspaceRootNormalized = normalizeDirectory(workspaceRoot);
+
+  const isWithinWorkspaceRoot = (candidate: string) => {
+    const resolved = resolve(candidate || workspaceRoot);
+    const relativePath = relative(workspaceRoot, resolved);
+    if (!relativePath) return true;
+    if (relativePath === ".") return true;
+    if (relativePath.startsWith("..") || isAbsolute(relativePath)) return false;
+    const boundary = workspaceRoot.endsWith(sep) ? workspaceRoot : `${workspaceRoot}${sep}`;
+    return resolved === workspaceRoot || resolved.startsWith(boundary);
+  };
+
+  const resolveScopedDirectory = (input: string): { ok: true; directory: string } | { ok: false; error: string } => {
+    const trimmed = input.trim();
+    if (!trimmed) return { ok: false, error: "Directory is required." };
+    const resolved = resolve(isAbsolute(trimmed) ? trimmed : join(workspaceRoot, trimmed));
+    if (!isWithinWorkspaceRoot(resolved)) {
+      return {
+        ok: false,
+        error: `Directory must stay within workspace root: ${workspaceRootNormalized}`,
+      };
+    }
+    return { ok: true, directory: normalizeDirectory(resolved) };
   };
 
   const formatModelLabel = (model?: ModelRef) =>
@@ -443,6 +511,8 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
     lastOutboundAt = now;
   };
 
+  await loadMessagingAgentConfig();
+
   let stopHealthServer: (() => void) | null = null;
   if (!deps.disableHealthServer && config.healthPort) {
     stopHealthServer = startHealthServer(
@@ -472,6 +542,12 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
           ...(typeof lastInboundAt === "number" || typeof lastOutboundAt === "number"
             ? { lastMessageAt: Math.max(lastInboundAt ?? 0, lastOutboundAt ?? 0) }
             : {}),
+        },
+        agent: {
+          scope: "workspace",
+          path: latestAgentConfig.filePath,
+          loaded: latestAgentConfig.loaded,
+          ...(latestAgentConfig.selectedAgent ? { selected: latestAgentConfig.selectedAgent } : {}),
         },
       }),
       logger,
@@ -855,7 +931,13 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
           if (!peerKey || !directory) {
             throw new Error("peerId and directory are required");
           }
-          const normalizedDir = normalizeDirectory(directory);
+          const scoped = resolveScopedDirectory(directory);
+          if (!scoped.ok) {
+            const error = new Error(scoped.error) as Error & { status?: number };
+            error.status = 400;
+            throw error;
+          }
+          const normalizedDir = scoped.directory;
           store.upsertBinding(channel as ChannelName, identityId, peerKey, normalizedDir);
           store.deleteSession(channel as ChannelName, identityId, peerKey);
           ensureEventSubscription(normalizedDir);
@@ -874,23 +956,107 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
           store.deleteSession(channel as ChannelName, identityId, peerKey);
         },
 
-        sendMessage: async (input: { channel: string; identityId?: string; directory: string; text: string }) => {
+        sendMessage: async (input: {
+          channel: string;
+          identityId?: string;
+          directory?: string;
+          peerId?: string;
+          text: string;
+          autoBind?: boolean;
+        }) => {
           const channelRaw = input.channel.trim().toLowerCase();
           if (channelRaw !== "telegram" && channelRaw !== "slack") {
             throw new Error("Invalid channel");
           }
           const channel = channelRaw as ChannelName;
           const identityId = input.identityId?.trim() ? normalizeIdentityId(input.identityId) : undefined;
-          const directory = input.directory.trim();
+          const directoryInput = (input.directory ?? "").trim();
+          const peerId = (input.peerId ?? "").trim();
+          const autoBind = input.autoBind === true;
           const text = input.text ?? "";
-          if (!directory) {
-            throw new Error("directory is required");
-          }
           if (!text.trim()) {
             throw new Error("text is required");
           }
 
-          const normalizedDir = normalizeDirectory(directory);
+          if (!directoryInput && !peerId) {
+            throw new Error("directory or peerId is required");
+          }
+
+          const normalizedDir = directoryInput ? (() => {
+            const scoped = resolveScopedDirectory(directoryInput);
+            if (!scoped.ok) {
+              const error = new Error(scoped.error) as Error & { status?: number };
+              error.status = 400;
+              throw error;
+            }
+            return scoped.directory;
+          })() : "";
+
+          const resolveSendIdentityId = () => {
+            if (identityId) return identityId;
+            const active = Array.from(adapters.values()).find((adapter) => adapter.name === channel);
+            return active?.identityId;
+          };
+
+          const targetIdentityId = resolveSendIdentityId();
+          if (peerId && !targetIdentityId) {
+            return {
+              channel,
+              directory: normalizedDir || workspaceRootNormalized,
+              peerId,
+              attempted: 0,
+              sent: 0,
+              reason: `No ${channel} adapter is running for direct send`,
+            };
+          }
+
+          if (peerId && targetIdentityId) {
+            const adapter = adapters.get(adapterKey(channel, targetIdentityId));
+            if (!adapter) {
+              return {
+                channel,
+                directory: normalizedDir || workspaceRootNormalized,
+                identityId: targetIdentityId,
+                peerId,
+                attempted: 1,
+                sent: 0,
+                failures: [{ identityId: targetIdentityId, peerId, error: "Adapter not running" }],
+              };
+            }
+
+            if (autoBind && normalizedDir) {
+              store.upsertBinding(channel, targetIdentityId, peerId, normalizedDir);
+              store.deleteSession(channel, targetIdentityId, peerId);
+              ensureEventSubscription(normalizedDir);
+            }
+
+            try {
+              await sendText(channel, targetIdentityId, peerId, text, { kind: "system", display: false });
+              return {
+                channel,
+                directory: normalizedDir || workspaceRootNormalized,
+                identityId: targetIdentityId,
+                peerId,
+                attempted: 1,
+                sent: 1,
+              };
+            } catch (error) {
+              return {
+                channel,
+                directory: normalizedDir || workspaceRootNormalized,
+                identityId: targetIdentityId,
+                peerId,
+                attempted: 1,
+                sent: 0,
+                failures: [{
+                  identityId: targetIdentityId,
+                  peerId,
+                  error: error instanceof Error ? error.message : String(error),
+                }],
+              };
+            }
+          }
+
           const bindings = store.listBindings({
             channel,
             ...(identityId ? { identityId } : {}),
@@ -1140,11 +1306,11 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
 
     const identityDirectory = resolveIdentityDirectory(inbound.channel, inbound.identityId);
 
-    const boundDirectory =
+    const boundDirectoryCandidate =
       binding?.directory?.trim() || session?.directory?.trim() || identityDirectory || defaultDirectory;
 
     const hasExplicitBinding = Boolean(binding?.directory?.trim() || session?.directory?.trim() || identityDirectory);
-    if (!boundDirectory || (!hasExplicitBinding && isDangerousRootDirectory(boundDirectory))) {
+    if (!boundDirectoryCandidate || (!hasExplicitBinding && isDangerousRootDirectory(boundDirectoryCandidate))) {
       await sendText(
         inbound.channel,
         inbound.identityId,
@@ -1154,6 +1320,13 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
       );
       return;
     }
+
+    const scopedBound = resolveScopedDirectory(boundDirectoryCandidate);
+    if (!scopedBound.ok) {
+      await sendText(inbound.channel, inbound.identityId, inbound.peerId, scopedBound.error, { kind: "system" });
+      return;
+    }
+    const boundDirectory = scopedBound.directory;
 
     if (!binding?.directory?.trim()) {
       store.upsertBinding(inbound.channel, inbound.identityId, peerKey, boundDirectory);
@@ -1200,22 +1373,33 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
       startTyping(runState);
       try {
         const effectiveModel = getUserModel(inbound.channel, inbound.identityId, peerKey, config.model);
-        const messagingAgentPrompt = await loadMessagingAgentPrompt(boundDirectory);
-        const promptText = messagingAgentPrompt
+        const messagingAgent = await loadMessagingAgentConfig();
+        const promptText = messagingAgent.instructions
           ? [
               "You are handling a Slack/Telegram message via OpenWork.",
-              "Follow this workspace messaging agent file:",
-              messagingAgentPrompt,
+              `Workspace agent file: ${messagingAgent.filePath}`,
+              ...(messagingAgent.selectedAgent ? [`Selected OpenCode agent: ${messagingAgent.selectedAgent}`] : []),
+              "Follow these workspace messaging instructions:",
+              messagingAgent.instructions,
               "",
               "Incoming user message:",
               inbound.text,
             ].join("\n")
           : inbound.text;
-        logger.debug({ sessionID, length: inbound.text.length, model: effectiveModel }, "prompt start");
+        logger.debug(
+          {
+            sessionID,
+            length: inbound.text.length,
+            model: effectiveModel,
+            agent: messagingAgent.selectedAgent,
+          },
+          "prompt start",
+        );
         const response = await getClient(boundDirectory).session.prompt({
           sessionID,
           parts: [{ type: "text", text: promptText }],
           ...(effectiveModel ? { model: effectiveModel } : {}),
+          ...(messagingAgent.selectedAgent ? { agent: messagingAgent.selectedAgent } : {}),
         });
         const parts = (response as { parts?: Array<{ type?: string; text?: string; ignored?: boolean }> }).parts ?? [];
         const textParts = parts.filter((part) => part.type === "text" && !part.ignored);
@@ -1341,7 +1525,12 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
         await sendText(channel, identityId, peerId, `Current directory: ${current || "(none)"}`, { kind: "system" });
         return true;
       }
-      const normalized = normalizeDirectory(next);
+      const scoped = resolveScopedDirectory(next);
+      if (!scoped.ok) {
+        await sendText(channel, identityId, peerId, scoped.error, { kind: "system" });
+        return true;
+      }
+      const normalized = scoped.directory;
       store.upsertBinding(channel, identityId, peerKey, normalized);
       store.deleteSession(channel, identityId, peerKey);
       ensureEventSubscription(normalized);
@@ -1350,17 +1539,17 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
     }
 
     if (command === "agent") {
-      const binding = store.getBinding(channel, identityId, peerKey);
-      const current =
-        binding?.directory?.trim() || store.getSession(channel, identityId, peerKey)?.directory?.trim() || defaultDirectory;
-      const resolved = current.trim() || defaultDirectory;
-      const filePath = join(resolved, OWPENBOT_AGENT_FILE_RELATIVE_PATH);
-      const loaded = await loadMessagingAgentPrompt(resolved);
+      const config = await loadMessagingAgentConfig();
       await sendText(
         channel,
         identityId,
         peerId,
-        `Agent file: ${filePath}\nStatus: ${loaded ? "loaded" : "missing or empty"}`,
+        [
+          `Scope: workspace`,
+          `Agent file: ${config.filePath}`,
+          `OpenCode agent: ${config.selectedAgent ?? "(none)"}`,
+          `Status: ${config.loaded ? "loaded" : "missing or empty"}`,
+        ].join("\n"),
         { kind: "system" },
       );
       return true;
@@ -1368,7 +1557,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
 
     // /help command
     if (command === "help") {
-      const helpText = `/opus - Claude Opus 4.5\n/codex - GPT 5.2 Codex\n/dir <path> - bind this chat to a directory\n/dir - show current directory\n/agent - show workspace agent file path\n/model - show current\n/reset - start fresh\n/help - this`;
+      const helpText = `/opus - Claude Opus 4.5\n/codex - GPT 5.2 Codex\n/dir <path> - bind this chat to a workspace directory\n/dir - show current directory\n/agent - show workspace agent scope/path\n/model - show current\n/reset - start fresh\n/help - this`;
       await sendText(channel, identityId, peerId, helpText, { kind: "system" });
       return true;
     }

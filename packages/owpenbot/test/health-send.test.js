@@ -100,7 +100,7 @@ test("health /send delivers to directory bindings", async () => {
   store.close();
 });
 
-test("health /send returns 404 when no bindings exist", async () => {
+test("health /send reports no-op when no bindings exist", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "owpenbot-health-send-"));
   const dbPath = path.join(dir, "owpenbot.db");
   const store = new BridgeStore(dbPath);
@@ -149,6 +149,75 @@ test("health /send returns 404 when no bindings exist", async () => {
   assert.equal(json.attempted, 0);
   assert.equal(json.sent, 0);
   assert.equal(typeof json.reason, "string");
+
+  await bridge.stop();
+  store.close();
+});
+
+test("health /send can deliver directly with peerId", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "owpenbot-health-send-"));
+  const dbPath = path.join(dir, "owpenbot.db");
+  const store = new BridgeStore(dbPath);
+  const healthPort = await freePort();
+
+  const sent = [];
+  const slackAdapter = {
+    key: "slack:default",
+    name: "slack",
+    identityId: "default",
+    maxTextLength: 39_000,
+    async start() {},
+    async stop() {},
+    async sendText(peerId, text) {
+      sent.push({ peerId, text });
+    },
+  };
+
+  const bridge = await startBridge(
+    {
+      configPath: path.join(dir, "owpenbot.json"),
+      configFile: { version: 1 },
+      opencodeUrl: "http://127.0.0.1:4096",
+      opencodeDirectory: dir,
+      telegramBots: [],
+      slackApps: [],
+      dataDir: dir,
+      dbPath,
+      logFile: path.join(dir, "owpenbot.log"),
+      toolUpdatesEnabled: false,
+      groupsEnabled: false,
+      permissionMode: "allow",
+      toolOutputLimit: 1200,
+      healthPort,
+      logLevel: "silent",
+    },
+    createLoggerStub(),
+    undefined,
+    {
+      client: {
+        global: {
+          health: async () => ({ healthy: true, version: "test" }),
+        },
+      },
+      store,
+      adapters: new Map([["slack:default", slackAdapter]]),
+      disableEventStream: true,
+    },
+  );
+
+  const response = await fetch(`http://127.0.0.1:${healthPort}/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel: "slack", peerId: "D555", text: "hello-direct" }),
+  });
+  assert.equal(response.status, 200);
+  const json = await response.json();
+  assert.equal(json.ok, true);
+  assert.equal(json.peerId, "D555");
+  assert.equal(json.sent, 1);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].peerId, "D555");
+  assert.equal(sent[0].text, "hello-direct");
 
   await bridge.stop();
   store.close();

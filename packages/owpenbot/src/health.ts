@@ -25,6 +25,12 @@ export type HealthSnapshot = {
     lastOutboundAt?: number;
     lastMessageAt?: number;
   };
+  agent?: {
+    scope: "workspace";
+    path: string;
+    loaded: boolean;
+    selected?: string;
+  };
 };
 
 export type GroupsConfigResult = {
@@ -97,7 +103,9 @@ export type BindingsListResult = {
 export type SendMessageInput = {
   channel: string;
   identityId?: string;
-  directory: string;
+  directory?: string;
+  peerId?: string;
+  autoBind?: boolean;
   text: string;
 };
 
@@ -105,6 +113,7 @@ export type SendMessageResult = {
   channel: string;
   directory: string;
   identityId?: string;
+  peerId?: string;
   attempted: number;
   sent: number;
   failures?: Array<{ identityId: string; peerId: string; error: string }>;
@@ -582,17 +591,21 @@ export function startHealthServer(
           const channel = typeof payload.channel === "string" ? payload.channel.trim() : "";
           const identityId = typeof payload.identityId === "string" ? payload.identityId.trim() : "";
           const directory = typeof payload.directory === "string" ? payload.directory.trim() : "";
+          const peerId = typeof payload.peerId === "string" ? payload.peerId.trim() : "";
+          const autoBind = payload.autoBind === true;
           const text = typeof payload.text === "string" ? payload.text : "";
-          if (!channel || !directory || !text.trim()) {
+          if (!channel || !text.trim() || (!directory && !peerId)) {
             res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ ok: false, error: "channel, directory, and text are required" }));
+            res.end(JSON.stringify({ ok: false, error: "channel, text, and either directory or peerId are required" }));
             return;
           }
 
           const result = await handlers.sendMessage({
             channel,
             ...(identityId ? { identityId } : {}),
-            directory,
+            ...(directory ? { directory } : {}),
+            ...(peerId ? { peerId } : {}),
+            ...(autoBind ? { autoBind: true } : {}),
             text,
           });
           res.writeHead(200, { "Content-Type": "application/json" });

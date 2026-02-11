@@ -138,6 +138,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
   const [slackError, setSlackError] = createSignal<string | null>(null);
 
   const [expandedChannel, setExpandedChannel] = createSignal<string | null>(null);
+  const [activeTab, setActiveTab] = createSignal<"general" | "advanced">("general");
 
   const [agentLoading, setAgentLoading] = createSignal(false);
   const [agentSaving, setAgentSaving] = createSignal(false);
@@ -150,6 +151,8 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
 
   const [sendChannel, setSendChannel] = createSignal<"telegram" | "slack">("telegram");
   const [sendDirectory, setSendDirectory] = createSignal("");
+  const [sendPeerId, setSendPeerId] = createSignal("");
+  const [sendAutoBind, setSendAutoBind] = createSignal(true);
   const [sendText, setSendText] = createSignal("");
   const [sendBusy, setSendBusy] = createSignal(false);
   const [sendStatus, setSendStatus] = createSignal<string | null>(null);
@@ -226,6 +229,16 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     if (hours < 24) return `${hours}h ago`;
     const days = Math.floor(hours / 24);
     return `${days}d ago`;
+  });
+
+  const workspaceAgentStatus = createMemo(() => {
+    const agent = health()?.agent;
+    if (!agent) return null;
+    return {
+      path: agent.path,
+      loaded: agent.loaded,
+      selected: agent.selected ?? "",
+    };
   });
 
   const resetAgentState = () => {
@@ -353,9 +366,12 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
         channel: sendChannel(),
         text,
         ...(sendDirectory().trim() ? { directory: sendDirectory().trim() } : {}),
+        ...(sendPeerId().trim() ? { peerId: sendPeerId().trim() } : {}),
+        ...(sendAutoBind() ? { autoBind: true } : {}),
       });
       setSendResult(result);
-      setSendStatus(`Dispatched ${result.sent}/${result.attempted} messages.`);
+      const base = `Dispatched ${result.sent}/${result.attempted} messages.`;
+      setSendStatus(result.reason?.trim() ? `${base} ${result.reason.trim()}` : base);
     } catch (error) {
       setSendError(formatRequestError(error));
     } finally {
@@ -607,6 +623,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     setSendResult(null);
     setReconnectStatus(null);
     setReconnectError(null);
+    setActiveTab("general");
   });
 
   onMount(() => {
@@ -678,6 +695,31 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
             Workspace ID is required to manage identities. Reconnect with a workspace URL (for example: <code class="text-[11px]">/w/&lt;workspace-id&gt;</code>) or select a workspace mapped on this host.
           </div>
         </Show>
+
+        <div class="flex items-center gap-2 rounded-xl border border-gray-4 bg-gray-1 p-1">
+          <button
+            class={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+              activeTab() === "general"
+                ? "bg-gray-12 text-gray-1"
+                : "text-gray-10 hover:bg-gray-2"
+            }`}
+            onClick={() => setActiveTab("general")}
+          >
+            General
+          </button>
+          <button
+            class={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+              activeTab() === "advanced"
+                ? "bg-gray-12 text-gray-1"
+                : "text-gray-10 hover:bg-gray-2"
+            }`}
+            onClick={() => setActiveTab("advanced")}
+          >
+            Advanced
+          </button>
+        </div>
+
+        <Show when={activeTab() === "general"}>
 
         {/* ---- Worker status card ---- */}
         <div class="rounded-xl border border-gray-4 bg-gray-1 p-4 space-y-3.5">
@@ -1101,6 +1143,10 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
           </div>
         </div>
 
+        </Show>
+
+        <Show when={activeTab() === "advanced"}>
+
         {/* ---- Message routing ---- */}
         <div>
           <div class="text-[11px] font-semibold text-gray-9 uppercase tracking-wider mb-2">
@@ -1128,7 +1174,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
           </div>
 
           <div class="text-xs text-gray-10 mt-2.5">
-            Advanced: reply with <code class="text-[11px] font-mono bg-gray-3 px-1 py-0.5 rounded">/dir &lt;path&gt;</code> in Slack/Telegram to override the directory for a specific chat.
+            Advanced: reply with <code class="text-[11px] font-mono bg-gray-3 px-1 py-0.5 rounded">/dir &lt;path&gt;</code> in Slack/Telegram to override the directory for a specific chat (limited to this workspace root).
           </div>
         </div>
 
@@ -1138,13 +1184,21 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
             <div>
               <div class="text-[13px] font-semibold text-gray-12">Messaging agent behavior</div>
               <div class="text-[12px] text-gray-9 mt-0.5">
-                Edit the workspace instructions used before each inbound Telegram/Slack message.
+                One file per workspace. Add optional first line <code class="font-mono">@agent &lt;id&gt;</code> to route via a specific OpenCode agent.
               </div>
             </div>
             <span class="rounded-md border border-gray-4 bg-gray-2/50 px-2 py-1 text-[11px] font-mono text-gray-10">
               {OWPENBOT_AGENT_FILE_PATH}
             </span>
           </div>
+
+          <Show when={workspaceAgentStatus()}>
+            {(value) => (
+              <div class="rounded-lg border border-gray-4 bg-gray-2/40 px-3 py-2 text-[11px] text-gray-10">
+                Active scope: workspace · status: {value().loaded ? "loaded" : "missing"} · selected agent: {value().selected || "(none)"}
+              </div>
+            )}
+          </Show>
 
           <Show when={agentLoading()}>
             <div class="text-[11px] text-gray-9">Loading agent file…</div>
@@ -1208,7 +1262,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
           <div>
             <div class="text-[13px] font-semibold text-gray-12">Send test message</div>
             <div class="text-[12px] text-gray-9 mt-0.5">
-              Dispatch an outbound message via the workspace send route to validate bindings and channel wiring.
+              Validate outbound wiring. Use a peer ID for direct send, or leave peer ID empty to fan out by bindings in a directory.
             </div>
           </div>
 
@@ -1225,6 +1279,18 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
               </select>
             </div>
             <div>
+              <label class="text-[12px] text-gray-9 block mb-1">Peer ID (optional)</label>
+              <input
+                class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-8"
+                placeholder={sendChannel() === "telegram" ? "Telegram chat id (e.g. 123456789)" : "Slack peer id (e.g. D12345678|thread_ts)"}
+                value={sendPeerId()}
+                onInput={(e) => setSendPeerId(e.currentTarget.value)}
+              />
+            </div>
+          </div>
+
+          <div class="grid gap-2 sm:grid-cols-2">
+            <div>
               <label class="text-[12px] text-gray-9 block mb-1">Directory (optional)</label>
               <input
                 class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-8"
@@ -1232,6 +1298,16 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
                 value={sendDirectory()}
                 onInput={(e) => setSendDirectory(e.currentTarget.value)}
               />
+            </div>
+            <div class="flex items-end pb-1">
+              <label class="flex items-center gap-2 text-xs text-gray-11">
+                <input
+                  type="checkbox"
+                  checked={sendAutoBind()}
+                  onChange={(e) => setSendAutoBind(e.currentTarget.checked)}
+                />
+                Auto-bind peer to directory on direct send
+              </label>
             </div>
           </div>
 
@@ -1276,6 +1352,8 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
             )}
           </Show>
         </div>
+
+        </Show>
 
       </Show>
     </div>
