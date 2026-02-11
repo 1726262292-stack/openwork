@@ -114,6 +114,8 @@ export default function MarkdownEditorSidebar(props: MarkdownEditorSidebarProps)
   const [error, setError] = createSignal<string | null>(null);
   const [original, setOriginal] = createSignal("");
   const [draft, setDraft] = createSignal("");
+  const [loadedPath, setLoadedPath] = createSignal<string | null>(null);
+  const [view, setView] = createSignal<"write" | "preview">("write");
   const [baseUpdatedAt, setBaseUpdatedAt] = createSignal<number | null>(null);
 
   const [confirmDiscardClose, setConfirmDiscardClose] = createSignal(false);
@@ -153,6 +155,8 @@ export default function MarkdownEditorSidebar(props: MarkdownEditorSidebarProps)
     setError(null);
     setOriginal("");
     setDraft("");
+    setLoadedPath(null);
+    setView("write");
     setBaseUpdatedAt(null);
     setConfirmDiscardClose(false);
     setConfirmDiscardReload(false);
@@ -181,11 +185,13 @@ export default function MarkdownEditorSidebar(props: MarkdownEditorSidebarProps)
       const result = (await client.readWorkspaceFile(workspaceId, target)) as OpenworkWorkspaceFileContent;
       setOriginal(result.content ?? "");
       setDraft(result.content ?? "");
+      setLoadedPath(target);
       setBaseUpdatedAt(typeof result.updatedAt === "number" ? result.updatedAt : null);
       requestAnimationFrame(() => textareaRef?.focus());
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load file";
       setError(message);
+      setLoadedPath(target);
     } finally {
       setLoading(false);
     }
@@ -264,12 +270,23 @@ export default function MarkdownEditorSidebar(props: MarkdownEditorSidebarProps)
     const target = path();
     if (!target) return;
 
-    if (pendingReason() === "switch") return;
+    if (loading() || pendingReason() === "switch") return;
 
-    if (!original() && !draft() && !loading()) {
+    const active = loadedPath();
+    if (!active) {
       void load(target);
       return;
     }
+
+    if (target === active) return;
+
+    if (!dirty()) {
+      void load(target);
+      return;
+    }
+
+    setPendingPath(target);
+    setPendingReason("switch");
   });
 
   createEffect(() => {
@@ -291,17 +308,8 @@ export default function MarkdownEditorSidebar(props: MarkdownEditorSidebarProps)
 
   createEffect(() => {
     if (!props.open) return;
-    const next = props.path?.trim() ?? "";
-    if (!next) return;
-    if (next === path()) return;
-
-    if (!dirty()) {
-      void load(next);
-      return;
-    }
-
-    setPendingPath(next);
-    setPendingReason("switch");
+    if (view() !== "write") return;
+    requestAnimationFrame(() => textareaRef?.focus());
   });
 
   return (
@@ -326,6 +334,31 @@ export default function MarkdownEditorSidebar(props: MarkdownEditorSidebarProps)
           </div>
 
           <div class="flex items-center gap-2">
+            <div class="flex items-center rounded-lg border border-dls-border bg-dls-surface p-1">
+              <button
+                type="button"
+                class={`h-7 px-2.5 rounded-md text-xs font-medium transition-colors ${
+                  view() === "write"
+                    ? "bg-dls-active text-dls-text"
+                    : "text-dls-secondary hover:text-dls-text"
+                }`}
+                onClick={() => setView("write")}
+              >
+                Write
+              </button>
+              <button
+                type="button"
+                class={`h-7 px-2.5 rounded-md text-xs font-medium transition-colors ${
+                  view() === "preview"
+                    ? "bg-dls-active text-dls-text"
+                    : "text-dls-secondary hover:text-dls-text"
+                }`}
+                onClick={() => setView("preview")}
+              >
+                Preview
+              </button>
+            </div>
+
             <Button
               variant="outline"
               class="text-xs h-9 py-0 px-3"
@@ -490,41 +523,43 @@ export default function MarkdownEditorSidebar(props: MarkdownEditorSidebarProps)
         </Show>
 
         <div class="flex-1 overflow-hidden">
-          <div class="h-full grid grid-cols-1 lg:grid-cols-2 gap-3 p-4">
-            <div class="h-full flex flex-col overflow-hidden">
-              <div class="text-[11px] uppercase tracking-tight font-bold text-dls-secondary px-1 pb-2">
-                Markdown
+          <div class="h-full p-4">
+            <Show
+              when={view() === "preview"}
+              fallback={
+                <textarea
+                  ref={textareaRef}
+                  value={draft()}
+                  onInput={(event) => setDraft(event.currentTarget.value)}
+                  disabled={loading()}
+                  spellcheck={false}
+                  class="h-full w-full resize-none rounded-xl border border-dls-border bg-dls-surface px-4 py-3 font-mono text-[13px] leading-relaxed text-dls-text focus:outline-none focus:ring-2 focus:ring-[rgb(var(--dls-accent-rgb)_/_0.25)]"
+                />
+              }
+            >
+              <div class="relative h-full">
+                <div
+                  class="h-full overflow-auto rounded-xl border border-dls-border bg-dls-surface px-5 py-4 text-sm leading-relaxed text-dls-text"
+                  classList={{
+                    "[&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:mt-4 [&_h1]:mb-2": true,
+                    "[&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-4 [&_h2]:mb-2": true,
+                    "[&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mt-3 [&_h3]:mb-2": true,
+                    "[&_p]:my-3": true,
+                    "[&_ul]:my-3 [&_ul]:pl-5 [&_ul]:list-disc": true,
+                    "[&_ol]:my-3 [&_ol]:pl-5 [&_ol]:list-decimal": true,
+                    "[&_li]:my-1": true,
+                    "[&_blockquote]:border-l-2 [&_blockquote]:border-dls-border [&_blockquote]:pl-4 [&_blockquote]:text-dls-secondary [&_blockquote]:my-4": true,
+                    "[&_hr]:my-4 [&_hr]:border-dls-border": true,
+                  }}
+                  innerHTML={previewHtml()}
+                />
+                <Show when={!previewHtml()}>
+                  <div class="pointer-events-none absolute inset-x-6 top-6 text-xs text-dls-secondary">
+                    Nothing to preview yet. Start typing markdown in Write mode.
+                  </div>
+                </Show>
               </div>
-              <textarea
-                ref={textareaRef}
-                value={draft()}
-                onInput={(event) => setDraft(event.currentTarget.value)}
-                disabled={loading()}
-                spellcheck={false}
-                class="flex-1 w-full resize-none rounded-xl border border-dls-border bg-dls-surface px-4 py-3 font-mono text-[13px] leading-relaxed text-dls-text focus:outline-none focus:ring-2 focus:ring-[rgb(var(--dls-accent-rgb)_/_0.25)]"
-              />
-            </div>
-
-            <div class="h-full flex flex-col overflow-hidden">
-              <div class="text-[11px] uppercase tracking-tight font-bold text-dls-secondary px-1 pb-2">
-                Preview
-              </div>
-              <div
-                class="flex-1 overflow-auto rounded-xl border border-dls-border bg-dls-surface px-5 py-4 text-sm leading-relaxed text-dls-text"
-                classList={{
-                  "[&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:mt-4 [&_h1]:mb-2": true,
-                  "[&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-4 [&_h2]:mb-2": true,
-                  "[&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mt-3 [&_h3]:mb-2": true,
-                  "[&_p]:my-3": true,
-                  "[&_ul]:my-3 [&_ul]:pl-5 [&_ul]:list-disc": true,
-                  "[&_ol]:my-3 [&_ol]:pl-5 [&_ol]:list-decimal": true,
-                  "[&_li]:my-1": true,
-                  "[&_blockquote]:border-l-2 [&_blockquote]:border-dls-border [&_blockquote]:pl-4 [&_blockquote]:text-dls-secondary [&_blockquote]:my-4": true,
-                  "[&_hr]:my-4 [&_hr]:border-dls-border": true,
-                }}
-                innerHTML={previewHtml()}
-              />
-            </div>
+            </Show>
           </div>
         </div>
       </aside>

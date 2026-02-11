@@ -287,6 +287,12 @@ export default function SessionView(props: SessionViewProps) {
 
     let relative = normalized.replace(/^\.\/+/, "");
     if (!relative) return "";
+
+    // Tool output paths sometimes carry git-style prefixes (a/ or b/).
+    if (/^[ab]\/.+\.(md|mdx|markdown)$/i.test(relative)) {
+      relative = relative.slice(2);
+    }
+
     // Some tool outputs include a leading "workspace/" prefix.
     if (/^workspace\//i.test(relative)) {
       relative = relative.replace(/^workspace\//i, "");
