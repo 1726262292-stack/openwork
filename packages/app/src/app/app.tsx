@@ -966,6 +966,31 @@ export default function App() {
     await loadSessions(root || undefined).catch(() => undefined);
     await refreshSidebarWorkspaceSessions(workspaceStore.activeWorkspaceId()).catch(() => undefined);
 
+    // If we're currently routed to the deleted session, navigate away immediately.
+    // (Otherwise the route effect can try to re-select a session that no longer exists.)
+    try {
+      const path = location.pathname.toLowerCase();
+      if (path === `/session/${trimmed.toLowerCase()}`) {
+        navigate("/session", { replace: true });
+      }
+    } catch {
+      // ignore
+    }
+
+    // If the deleted session was selected, clear selection so routing can fall back cleanly.
+    if (selectedSessionId() === trimmed) {
+      setSelectedSessionId(null);
+      const activeWorkspace = workspaceStore.activeWorkspaceId().trim();
+      if (activeWorkspace) {
+        const map = readSessionByWorkspace();
+        if (map[activeWorkspace] === trimmed) {
+          const next = { ...map };
+          delete next[activeWorkspace];
+          writeSessionByWorkspace(next);
+        }
+      }
+    }
+
     const nextStatus = { ...sessionStatusById() };
     if (nextStatus[trimmed]) {
       delete nextStatus[trimmed];
@@ -4771,6 +4796,16 @@ export default function App() {
         if (fallback) {
           goToSession(fallback, { replace: true });
         }
+        return;
+      }
+
+      // If the URL points at a session that no longer exists (e.g. after deletion),
+      // route back to /session so the app can fall back safely.
+      if (sessionsLoaded() && !sessions().some((session) => session.id === id)) {
+        if (selectedSessionId() === id) {
+          setSelectedSessionId(null);
+        }
+        navigate("/session", { replace: true });
         return;
       }
 
