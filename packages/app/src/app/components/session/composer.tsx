@@ -483,7 +483,7 @@ export default function Composer(props: ComposerProps) {
       }
       bucket.set(category, [item]);
     }
-    const order: MentionGroup["category"][] = ["agent", "recent", "file"];
+    const order: MentionGroup["category"][] = ["agent", "file", "recent"];
     for (const category of order) {
       const items = bucket.get(category);
       if (!items?.length) continue;
