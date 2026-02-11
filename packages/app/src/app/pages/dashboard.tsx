@@ -1226,6 +1226,7 @@ export default function DashboardView(props: DashboardViewProps) {
                 openworkServerSettings={props.openworkServerSettings}
                 openworkServerWorkspaceId={props.openworkServerWorkspaceId}
                 openworkServerHostInfo={props.openworkServerHostInfo}
+                activeWorkspaceRoot={props.activeWorkspaceRoot}
                 developerMode={props.developerMode}
               />
             </Match>

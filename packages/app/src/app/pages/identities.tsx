@@ -30,6 +30,7 @@ export type IdentitiesViewProps = {
   openworkServerSettings: OpenworkServerSettings;
   openworkServerWorkspaceId: string | null;
   openworkServerHostInfo: OpenworkServerInfo | null;
+  activeWorkspaceRoot: string;
   developerMode: boolean;
 };
 
@@ -155,6 +156,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
 
   const serverReady = createMemo(() => props.openworkServerStatus === "connected" && Boolean(openworkServerClient()));
   const scopedWorkspaceReady = createMemo(() => Boolean(workspaceId()));
+  const defaultRoutingDirectory = createMemo(() => props.activeWorkspaceRoot.trim() || "Not set");
 
   let lastResetKey = "";
 
@@ -896,7 +898,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
               </span>
               <ArrowRight size={14} class="text-gray-8" />
               <span class="rounded-md bg-dls-accent/10 px-2.5 py-1 text-[12px] font-medium text-dls-accent">
-                ~/workspace
+                {defaultRoutingDirectory()}
               </span>
             </div>
           </div>
