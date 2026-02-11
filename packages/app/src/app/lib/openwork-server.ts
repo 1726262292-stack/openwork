@@ -16,6 +16,21 @@ export type OpenworkServerCapabilities = {
   commands: { read: boolean; write: boolean };
   config: { read: boolean; write: boolean };
   sandbox?: { enabled: boolean; backend: "none" | "docker" | "container" };
+  proxy?: { opencode: boolean; owpenbot: boolean };
+  toolProviders?: {
+    browser?: {
+      enabled: boolean;
+      placement: "in-sandbox" | "host-machine" | "client-machine" | "external";
+      mode: "none" | "headless" | "interactive";
+    };
+    files?: {
+      injection: boolean;
+      outbox: boolean;
+      inboxPath: string;
+      outboxPath: string;
+      maxBytes: number;
+    };
+  };
 };
 
 export type OpenworkServerStatus = "connected" | "disconnected" | "limited";
@@ -208,6 +223,16 @@ export type OpenworkOwpenbotBindingsResult = {
 
 export type OpenworkOwpenbotBindingUpdateResult = {
   ok: boolean;
+};
+
+export type OpenworkOwpenbotSendResult = {
+  ok: boolean;
+  channel: string;
+  identityId?: string;
+  directory: string;
+  attempted: number;
+  sent: number;
+  failures?: Array<{ identityId: string; peerId: string; error: string }>;
 };
 
 export type OpenworkOwpenbotIdentityItem = {
@@ -973,6 +998,28 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
             ...(input.directory?.trim() ? { directory: input.directory.trim() } : {}),
             healthPort: options?.healthPort ?? null,
           },
+        },
+      ),
+    sendOwpenbotMessage: (
+      workspaceId: string,
+      input: { channel: "telegram" | "slack"; text: string; identityId?: string; directory?: string },
+      options?: { healthPort?: number | null },
+    ) =>
+      requestJson<OpenworkOwpenbotSendResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/owpenbot/send`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: {
+            channel: input.channel,
+            text: input.text,
+            ...(input.identityId?.trim() ? { identityId: input.identityId.trim() } : {}),
+            ...(input.directory?.trim() ? { directory: input.directory.trim() } : {}),
+            healthPort: options?.healthPort ?? null,
+          },
+          timeoutMs: timeouts.owpenbot,
         },
       ),
     setOwpenbotTelegramEnabled: (

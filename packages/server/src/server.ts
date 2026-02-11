@@ -2055,6 +2055,83 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
     return jsonResponse({ ok: true });
   });
 
+  addRoute(routes, "POST", "/workspace/:id/owpenbot/send", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspaceIdentityId = normalizeOwpenbotIdentityId(workspace.id);
+    const body = await readJsonBody(ctx.request);
+    const channel = typeof body.channel === "string" ? body.channel.trim().toLowerCase() : "";
+    const text = typeof body.text === "string" ? body.text : "";
+    const directoryInput = typeof body.directory === "string" ? body.directory.trim() : "";
+    const directory = directoryInput || workspace.path;
+    const healthPort = normalizeHealthPort(body.healthPort);
+    const requestHost = ctx.url.hostname;
+
+    const identityIdParam = typeof body.identityId === "string" ? body.identityId.trim() : "";
+    const requestedId = identityIdParam ? normalizeOwpenbotIdentityId(identityIdParam) : "";
+    if (requestedId && requestedId !== workspaceIdentityId) {
+      throw new ApiError(
+        400,
+        "identity_mismatch",
+        `Identity id is scoped to this workspace (${workspace.id}).`,
+        { expected: workspaceIdentityId, received: requestedId },
+      );
+    }
+    const identityId = workspaceIdentityId;
+
+    if (channel !== "telegram" && channel !== "slack") {
+      throw new ApiError(400, "invalid_channel", "channel must be 'telegram' or 'slack'");
+    }
+    if (!directory.trim()) {
+      throw new ApiError(400, "directory_required", "directory is required");
+    }
+    if (!text.trim()) {
+      throw new ApiError(400, "text_required", "text is required");
+    }
+
+    const port = healthPort ?? resolveOwpenbotHealthPort();
+    const apply = await tryPostOwpenbotHealth(
+      "/send",
+      {
+        channel,
+        identityId,
+        directory,
+        text,
+      },
+      { port, requestHost, timeoutMs: 5_000 },
+    );
+
+    if (!apply.applied) {
+      throw new ApiError(503, "owpenbot_unreachable", "Owpenbot did not send the message", {
+        port,
+        error: apply.error,
+        status: apply.status,
+      });
+    }
+
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "owpenbot.send",
+      target: `owpenbot.${channel}`,
+      summary: `Sent outbound ${channel} message for ${identityId}`,
+      timestamp: Date.now(),
+    });
+
+    if (apply.body && typeof apply.body === "object") {
+      return jsonResponse(apply.body);
+    }
+    return jsonResponse({
+      ok: true,
+      channel,
+      identityId,
+      directory,
+      attempted: 0,
+      sent: 0,
+    });
+  });
+
   addRoute(routes, "GET", "/workspace/:id/events", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const sinceParam = ctx.url.searchParams.get("since");

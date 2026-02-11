@@ -1,5 +1,8 @@
 import { setTimeout as delay } from "node:timers/promises";
 
+import { readFile, stat } from "node:fs/promises";
+import { join } from "node:path";
+
 import type { Logger } from "pino";
 
 import type { Config, ChannelName, OwpenbotConfigFile } from "./config.js";
@@ -133,6 +136,8 @@ const CHANNEL_LABELS: Record<ChannelName, string> = {
 };
 
 const TYPING_INTERVAL_MS = 6000;
+const OWPENBOT_AGENT_FILE_RELATIVE_PATH = ".opencode/agents/owpenbot.md";
+const OWPENBOT_AGENT_MAX_CHARS = 16_000;
 
 // Model presets for quick switching
 const MODEL_PRESETS: Record<string, ModelRef> = {
@@ -177,6 +182,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
   const reportStatus = reporter?.onStatus;
   const clients = new Map<string, ReturnType<typeof createClient>>();
   const defaultDirectory = config.opencodeDirectory;
+  const agentPromptCache = new Map<string, { mtimeMs: number; content: string }>();
 
   const isDangerousRootDirectory = (dir: string) => {
     const normalized = dir.trim();
@@ -209,6 +215,46 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
     const next = deps.clientFactory ? deps.clientFactory(resolved) : createClient(config, resolved);
     clients.set(resolved, next);
     return next;
+  };
+
+  const loadMessagingAgentPrompt = async (directory: string): Promise<string> => {
+    const base = directory.trim() || defaultDirectory;
+    if (!base) return "";
+
+    const filePath = join(base, OWPENBOT_AGENT_FILE_RELATIVE_PATH);
+    try {
+      const info = await stat(filePath);
+      if (!info.isFile()) {
+        agentPromptCache.delete(filePath);
+        return "";
+      }
+
+      const cached = agentPromptCache.get(filePath);
+      if (cached && cached.mtimeMs === info.mtimeMs) {
+        return cached.content;
+      }
+
+      const content = (await readFile(filePath, "utf8")).trim();
+      if (!content) {
+        agentPromptCache.set(filePath, { mtimeMs: info.mtimeMs, content: "" });
+        return "";
+      }
+
+      const next =
+        content.length > OWPENBOT_AGENT_MAX_CHARS
+          ? content.slice(0, OWPENBOT_AGENT_MAX_CHARS)
+          : content;
+      agentPromptCache.set(filePath, { mtimeMs: info.mtimeMs, content: next });
+      return next;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code;
+      if (code === "ENOENT") {
+        agentPromptCache.delete(filePath);
+        return "";
+      }
+      logger.warn({ error, filePath }, "failed to load owpenbot agent file");
+      return "";
+    }
   };
 
   const rootClient = getClient(defaultDirectory);
@@ -1105,10 +1151,21 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
       startTyping(runState);
       try {
         const effectiveModel = getUserModel(inbound.channel, inbound.identityId, peerKey, config.model);
+        const messagingAgentPrompt = await loadMessagingAgentPrompt(boundDirectory);
+        const promptText = messagingAgentPrompt
+          ? [
+              "You are handling a Slack/Telegram message via OpenWork.",
+              "Follow this workspace messaging agent file:",
+              messagingAgentPrompt,
+              "",
+              "Incoming user message:",
+              inbound.text,
+            ].join("\n")
+          : inbound.text;
         logger.debug({ sessionID, length: inbound.text.length, model: effectiveModel }, "prompt start");
         const response = await getClient(boundDirectory).session.prompt({
           sessionID,
-          parts: [{ type: "text", text: inbound.text }],
+          parts: [{ type: "text", text: promptText }],
           ...(effectiveModel ? { model: effectiveModel } : {}),
         });
         const parts = (response as { parts?: Array<{ type?: string; text?: string; ignored?: boolean }> }).parts ?? [];
@@ -1243,9 +1300,26 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
       return true;
     }
 
+    if (command === "agent") {
+      const binding = store.getBinding(channel, identityId, peerKey);
+      const current =
+        binding?.directory?.trim() || store.getSession(channel, identityId, peerKey)?.directory?.trim() || defaultDirectory;
+      const resolved = current.trim() || defaultDirectory;
+      const filePath = join(resolved, OWPENBOT_AGENT_FILE_RELATIVE_PATH);
+      const loaded = await loadMessagingAgentPrompt(resolved);
+      await sendText(
+        channel,
+        identityId,
+        peerId,
+        `Agent file: ${filePath}\nStatus: ${loaded ? "loaded" : "missing or empty"}`,
+        { kind: "system" },
+      );
+      return true;
+    }
+
     // /help command
     if (command === "help") {
-      const helpText = `/opus - Claude Opus 4.5\n/codex - GPT 5.2 Codex\n/dir <path> - bind this chat to a directory\n/dir - show current directory\n/model - show current\n/reset - start fresh\n/help - this`;
+      const helpText = `/opus - Claude Opus 4.5\n/codex - GPT 5.2 Codex\n/dir <path> - bind this chat to a directory\n/dir - show current directory\n/agent - show workspace agent file path\n/model - show current\n/reset - start fresh\n/help - this`;
       await sendText(channel, identityId, peerId, helpText, { kind: "system" });
       return true;
     }

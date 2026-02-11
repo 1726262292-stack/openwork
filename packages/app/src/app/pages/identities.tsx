@@ -18,8 +18,10 @@ import {
 import type {
   OpenworkOwpenbotHealthSnapshot,
   OpenworkOwpenbotIdentityItem,
+  OpenworkOwpenbotSendResult,
   OpenworkServerSettings,
   OpenworkServerStatus,
+  OpenworkWorkspaceFileContent,
 } from "../lib/openwork-server";
 import type { OpenworkServerInfo } from "../lib/tauri";
 
@@ -33,6 +35,17 @@ export type IdentitiesViewProps = {
   activeWorkspaceRoot: string;
   developerMode: boolean;
 };
+
+const OWPENBOT_AGENT_FILE_PATH = ".opencode/agents/owpenbot.md";
+const OWPENBOT_AGENT_FILE_TEMPLATE = `# Owpenbot Messaging Agent
+
+Use this file to define how the assistant responds in Slack/Telegram for this workspace.
+
+Examples:
+- Keep responses concise and action-oriented.
+- Ask one clarifying question when requirements are ambiguous.
+- Prefer concrete tool use over speculation when troubleshooting.
+`;
 
 function formatRequestError(error: unknown): string {
   if (error instanceof OpenworkServerError) {
@@ -128,6 +141,23 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
 
   const [expandedChannel, setExpandedChannel] = createSignal<string | null>(null);
 
+  const [agentLoading, setAgentLoading] = createSignal(false);
+  const [agentSaving, setAgentSaving] = createSignal(false);
+  const [agentExists, setAgentExists] = createSignal(false);
+  const [agentContent, setAgentContent] = createSignal("");
+  const [agentDraft, setAgentDraft] = createSignal("");
+  const [agentBaseUpdatedAt, setAgentBaseUpdatedAt] = createSignal<number | null>(null);
+  const [agentStatus, setAgentStatus] = createSignal<string | null>(null);
+  const [agentError, setAgentError] = createSignal<string | null>(null);
+
+  const [sendChannel, setSendChannel] = createSignal<"telegram" | "slack">("telegram");
+  const [sendDirectory, setSendDirectory] = createSignal("");
+  const [sendText, setSendText] = createSignal("");
+  const [sendBusy, setSendBusy] = createSignal(false);
+  const [sendStatus, setSendStatus] = createSignal<string | null>(null);
+  const [sendError, setSendError] = createSignal<string | null>(null);
+  const [sendResult, setSendResult] = createSignal<OpenworkOwpenbotSendResult | null>(null);
+
   const workspaceId = createMemo(() => {
     const explicitId = props.openworkServerWorkspaceId?.trim() ?? "";
     if (explicitId) return explicitId;
@@ -181,6 +211,142 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
 
   const hasTelegramConnected = createMemo(() => telegramIdentities().some((i) => i.enabled));
   const hasSlackConnected = createMemo(() => slackIdentities().some((i) => i.enabled));
+  const agentDirty = createMemo(() => agentDraft() !== agentContent());
+
+  const resetAgentState = () => {
+    setAgentLoading(false);
+    setAgentSaving(false);
+    setAgentExists(false);
+    setAgentContent("");
+    setAgentDraft("");
+    setAgentBaseUpdatedAt(null);
+    setAgentStatus(null);
+    setAgentError(null);
+  };
+
+  const loadAgentFile = async () => {
+    if (agentLoading()) return;
+    if (!serverReady()) return;
+    const id = workspaceId();
+    if (!id) {
+      resetAgentState();
+      setAgentError("Workspace scope unavailable.");
+      return;
+    }
+    const client = openworkServerClient();
+    if (!client) return;
+
+    setAgentLoading(true);
+    setAgentError(null);
+    try {
+      const result = (await client.readWorkspaceFile(id, OWPENBOT_AGENT_FILE_PATH)) as OpenworkWorkspaceFileContent;
+      const nextContent = result.content ?? "";
+      setAgentExists(true);
+      setAgentContent(nextContent);
+      setAgentDraft(nextContent);
+      setAgentBaseUpdatedAt(typeof result.updatedAt === "number" ? result.updatedAt : null);
+    } catch (error) {
+      if (error instanceof OpenworkServerError && error.status === 404) {
+        setAgentExists(false);
+        setAgentContent("");
+        setAgentDraft("");
+        setAgentBaseUpdatedAt(null);
+        return;
+      }
+      setAgentError(formatRequestError(error));
+    } finally {
+      setAgentLoading(false);
+    }
+  };
+
+  const createDefaultAgentFile = async () => {
+    if (agentSaving()) return;
+    if (!serverReady()) return;
+    const id = workspaceId();
+    if (!id) return;
+    const client = openworkServerClient();
+    if (!client) return;
+
+    setAgentSaving(true);
+    setAgentStatus(null);
+    setAgentError(null);
+    try {
+      const result = await client.writeWorkspaceFile(id, {
+        path: OWPENBOT_AGENT_FILE_PATH,
+        content: OWPENBOT_AGENT_FILE_TEMPLATE,
+      });
+      setAgentExists(true);
+      setAgentContent(OWPENBOT_AGENT_FILE_TEMPLATE);
+      setAgentDraft(OWPENBOT_AGENT_FILE_TEMPLATE);
+      setAgentBaseUpdatedAt(typeof result.updatedAt === "number" ? result.updatedAt : null);
+      setAgentStatus("Created default messaging agent file.");
+    } catch (error) {
+      setAgentError(formatRequestError(error));
+    } finally {
+      setAgentSaving(false);
+    }
+  };
+
+  const saveAgentFile = async () => {
+    if (agentSaving()) return;
+    if (!serverReady()) return;
+    const id = workspaceId();
+    if (!id) return;
+    const client = openworkServerClient();
+    if (!client) return;
+
+    setAgentSaving(true);
+    setAgentStatus(null);
+    setAgentError(null);
+    try {
+      const result = await client.writeWorkspaceFile(id, {
+        path: OWPENBOT_AGENT_FILE_PATH,
+        content: agentDraft(),
+        baseUpdatedAt: agentBaseUpdatedAt(),
+      });
+      setAgentExists(true);
+      setAgentContent(agentDraft());
+      setAgentBaseUpdatedAt(typeof result.updatedAt === "number" ? result.updatedAt : null);
+      setAgentStatus("Saved messaging behavior.");
+    } catch (error) {
+      if (error instanceof OpenworkServerError && error.status === 409) {
+        setAgentError("File changed remotely. Reload and save again.");
+      } else {
+        setAgentError(formatRequestError(error));
+      }
+    } finally {
+      setAgentSaving(false);
+    }
+  };
+
+  const sendTestMessage = async () => {
+    if (sendBusy()) return;
+    if (!serverReady()) return;
+    const id = workspaceId();
+    if (!id) return;
+    const client = openworkServerClient();
+    if (!client) return;
+    const text = sendText().trim();
+    if (!text) return;
+
+    setSendBusy(true);
+    setSendStatus(null);
+    setSendError(null);
+    setSendResult(null);
+    try {
+      const result = await client.sendOwpenbotMessage(id, {
+        channel: sendChannel(),
+        text,
+        ...(sendDirectory().trim() ? { directory: sendDirectory().trim() } : {}),
+      });
+      setSendResult(result);
+      setSendStatus(`Dispatched ${result.sent}/${result.attempted} messages.`);
+    } catch (error) {
+      setSendError(formatRequestError(error));
+    } finally {
+      setSendBusy(false);
+    }
+  };
 
   const refreshAll = async (options?: { force?: boolean }) => {
     if (refreshing() && !options?.force) return;
@@ -202,6 +368,10 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
         setHealthError("Workspace scope unavailable. Reconnect using a workspace URL or switch to a known workspace.");
         setTelegramIdentitiesError("Workspace scope unavailable.");
         setSlackIdentitiesError("Workspace scope unavailable.");
+        resetAgentState();
+        setSendStatus(null);
+        setSendError(null);
+        setSendResult(null);
         setLastUpdatedAt(null);
         return;
       }
@@ -240,6 +410,9 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
       }
 
       setLastUpdatedAt(Date.now());
+      if (!agentDirty() && !agentSaving()) {
+        void loadAgentFile();
+      }
     } catch (error) {
       const message = formatRequestError(error);
       setHealth(null);
@@ -399,6 +572,10 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     setTelegramIdentitiesError(null);
     setSlackIdentities([]);
     setSlackIdentitiesError(null);
+    resetAgentState();
+    setSendStatus(null);
+    setSendError(null);
+    setSendResult(null);
     setLastUpdatedAt(null);
   });
 
@@ -906,6 +1083,148 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
           <div class="text-xs text-gray-10 mt-2.5">
             Advanced: reply with <code class="text-[11px] font-mono bg-gray-3 px-1 py-0.5 rounded">/dir &lt;path&gt;</code> in Slack/Telegram to override the directory for a specific chat.
           </div>
+        </div>
+
+        {/* ---- Messaging agent behavior ---- */}
+        <div class="rounded-xl border border-gray-4 bg-gray-1 p-4 space-y-3">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <div class="text-[13px] font-semibold text-gray-12">Messaging agent behavior</div>
+              <div class="text-[12px] text-gray-9 mt-0.5">
+                Edit the workspace instructions used before each inbound Telegram/Slack message.
+              </div>
+            </div>
+            <span class="rounded-md border border-gray-4 bg-gray-2/50 px-2 py-1 text-[11px] font-mono text-gray-10">
+              {OWPENBOT_AGENT_FILE_PATH}
+            </span>
+          </div>
+
+          <Show when={agentLoading()}>
+            <div class="text-[11px] text-gray-9">Loading agent file…</div>
+          </Show>
+
+          <Show when={!agentExists() && !agentLoading()}>
+            <div class="rounded-lg border border-amber-7/20 bg-amber-1/30 px-3 py-2 text-xs text-amber-12">
+              Agent file not found in this workspace yet.
+            </div>
+          </Show>
+
+          <textarea
+            class="min-h-[220px] w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2.5 text-[13px] font-mono text-gray-12 placeholder:text-gray-8"
+            placeholder="Add messaging behavior instructions for owpenbot here..."
+            value={agentDraft()}
+            onInput={(e) => setAgentDraft(e.currentTarget.value)}
+          />
+
+          <div class="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              class="h-8 px-3 text-xs"
+              onClick={() => void loadAgentFile()}
+              disabled={agentLoading() || !workspaceId()}
+            >
+              Reload
+            </Button>
+            <Show when={!agentExists()}>
+              <Button
+                variant="outline"
+                class="h-8 px-3 text-xs"
+                onClick={() => void createDefaultAgentFile()}
+                disabled={agentSaving() || !workspaceId()}
+              >
+                Create default file
+              </Button>
+            </Show>
+            <Button
+              variant="secondary"
+              class="h-8 px-3 text-xs"
+              onClick={() => void saveAgentFile()}
+              disabled={agentSaving() || !workspaceId() || !agentDirty()}
+            >
+              {agentSaving() ? "Saving..." : "Save behavior"}
+            </Button>
+            <Show when={agentDirty() && !agentSaving()}>
+              <span class="text-[11px] text-gray-9">Unsaved changes</span>
+            </Show>
+          </div>
+
+          <Show when={agentStatus()}>
+            {(value) => <div class="text-[11px] text-gray-9">{value()}</div>}
+          </Show>
+          <Show when={agentError()}>
+            {(value) => <div class="text-[11px] text-red-12">{value()}</div>}
+          </Show>
+        </div>
+
+        {/* ---- Outbound send test ---- */}
+        <div class="rounded-xl border border-gray-4 bg-gray-1 p-4 space-y-3">
+          <div>
+            <div class="text-[13px] font-semibold text-gray-12">Send test message</div>
+            <div class="text-[12px] text-gray-9 mt-0.5">
+              Dispatch an outbound message via the workspace send route to validate bindings and channel wiring.
+            </div>
+          </div>
+
+          <div class="grid gap-2 sm:grid-cols-2">
+            <div>
+              <label class="text-[12px] text-gray-9 block mb-1">Channel</label>
+              <select
+                class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-sm text-gray-12"
+                value={sendChannel()}
+                onChange={(e) => setSendChannel(e.currentTarget.value === "slack" ? "slack" : "telegram")}
+              >
+                <option value="telegram">Telegram</option>
+                <option value="slack">Slack</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[12px] text-gray-9 block mb-1">Directory (optional)</label>
+              <input
+                class="w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-8"
+                placeholder={defaultRoutingDirectory()}
+                value={sendDirectory()}
+                onInput={(e) => setSendDirectory(e.currentTarget.value)}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="text-[12px] text-gray-9 block mb-1">Message</label>
+            <textarea
+              class="min-h-[90px] w-full rounded-lg border border-gray-4 bg-gray-1 px-3 py-2 text-sm text-gray-12 placeholder:text-gray-8"
+              placeholder="Test message content"
+              value={sendText()}
+              onInput={(e) => setSendText(e.currentTarget.value)}
+            />
+          </div>
+
+          <div class="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              class="h-8 px-3 text-xs"
+              onClick={() => void sendTestMessage()}
+              disabled={sendBusy() || !workspaceId() || !sendText().trim()}
+            >
+              {sendBusy() ? "Sending..." : "Send test message"}
+            </Button>
+            <Show when={sendStatus()}>
+              {(value) => <span class="text-[11px] text-gray-9">{value()}</span>}
+            </Show>
+          </div>
+
+          <Show when={sendError()}>
+            {(value) => <div class="text-[11px] text-red-12">{value()}</div>}
+          </Show>
+          <Show when={sendResult()}>
+            {(value) => (
+              <div class="rounded-lg border border-gray-4 bg-gray-2/40 px-3 py-2 text-[11px] text-gray-10 font-mono">
+                sent={value().sent} attempted={value().attempted}
+                <Show when={value().failures?.length}>
+                  {(failures) => ` failures=${failures()}`}
+                </Show>
+              </div>
+            )}
+          </Show>
         </div>
 
       </Show>

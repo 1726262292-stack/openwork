@@ -1385,6 +1385,22 @@ export default function SettingsView(props: SettingsViewProps) {
                           <div>MCP: {formatCapability(caps().mcp)}</div>
                           <div>Commands: {formatCapability(caps().commands)}</div>
                           <div>Config: {formatCapability(caps().config)}</div>
+                          <div>Proxy (Owpenbot): {caps().proxy?.owpenbot ? "enabled" : "disabled"}</div>
+                          <div>
+                            Browser tools: {(() => {
+                              const browser = caps().toolProviders?.browser;
+                              if (!browser?.enabled) return "disabled";
+                              return `${browser.mode} · ${browser.placement}`;
+                            })()}
+                          </div>
+                          <div>
+                            File tools: {(() => {
+                              const files = caps().toolProviders?.files;
+                              if (!files) return "Unavailable";
+                              const parts = [files.injection ? "inbox on" : "inbox off", files.outbox ? "outbox on" : "outbox off"];
+                              return parts.join(" · ");
+                            })()}
+                          </div>
                           <div>
                             Sandbox: {(() => {
                               const sandbox = caps().sandbox;
