@@ -7,6 +7,7 @@ import TextInput from "../components/text-input";
 
 import { RefreshCcw } from "lucide-solid";
 
+import { buildOpenworkWorkspaceBaseUrl, parseOpenworkWorkspaceIdFromUrl } from "../lib/openwork-server";
 import type { OpenworkServerSettings, OpenworkServerStatus } from "../lib/openwork-server";
 import type { OpenworkServerInfo } from "../lib/tauri";
 
@@ -106,6 +107,18 @@ export default function ConfigView(props: ConfigViewProps) {
     const currentUrl = props.openworkServerSettings.urlOverride ?? "";
     const currentToken = props.openworkServerSettings.token ?? "";
     return openworkUrl().trim() !== currentUrl || openworkToken().trim() !== currentToken;
+  });
+
+  const resolvedWorkspaceId = createMemo(() => {
+    const explicitId = props.openworkServerWorkspaceId?.trim() ?? "";
+    if (explicitId) return explicitId;
+    return parseOpenworkWorkspaceIdFromUrl(openworkUrl()) ?? "";
+  });
+
+  const resolvedWorkspaceUrl = createMemo(() => {
+    const baseUrl = openworkUrl().trim();
+    if (!baseUrl) return "";
+    return buildOpenworkWorkspaceBaseUrl(baseUrl, resolvedWorkspaceId()) ?? baseUrl;
   });
 
   const hostInfo = createMemo(() => props.openworkServerHostInfo);
@@ -454,7 +467,10 @@ export default function ConfigView(props: ConfigViewProps) {
           </label>
         </div>
 
-        <div class="text-[11px] text-gray-7 font-mono truncate">Resolved server: {openworkUrl().trim() || "Not set"}</div>
+        <div class="space-y-1">
+          <div class="text-[11px] text-gray-7 font-mono truncate">Resolved workspace URL: {resolvedWorkspaceUrl() || "Not set"}</div>
+          <div class="text-[11px] text-gray-8 font-mono truncate">Workspace ID: {resolvedWorkspaceId() || "Unavailable"}</div>
+        </div>
 
         <div class="flex flex-wrap gap-2">
           <Button

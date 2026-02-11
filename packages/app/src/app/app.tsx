@@ -132,6 +132,7 @@ import {
   type OwpenbotInfo,
 } from "./lib/tauri";
 import {
+  parseOpenworkWorkspaceIdFromUrl,
   createOpenworkServerClient,
   hydrateOpenworkServerSettingsFromEnv,
   normalizeOpenworkServerUrl,
@@ -1820,6 +1821,7 @@ export default function App() {
   createEffect(() => {
     const active = workspaceStore.activeWorkspaceDisplay();
     const client = openworkServerClient();
+    const openworkUrl = openworkServerUrl().trim();
 
     if (!client || openworkServerStatus() !== "connected") {
       setOpenworkServerWorkspaceId(null);
@@ -1827,7 +1829,11 @@ export default function App() {
     }
 
     if (active.workspaceType === "remote" && active.remoteType === "openwork") {
-      const storedId = active.openworkWorkspaceId ?? null;
+      const inferredWorkspaceId =
+        parseOpenworkWorkspaceIdFromUrl(active.openworkHostUrl ?? "") ??
+        parseOpenworkWorkspaceIdFromUrl(active.baseUrl ?? "") ??
+        parseOpenworkWorkspaceIdFromUrl(openworkUrl);
+      const storedId = active.openworkWorkspaceId?.trim() || inferredWorkspaceId || null;
       if (storedId) {
         setOpenworkServerWorkspaceId(storedId);
         return;
@@ -1838,8 +1844,15 @@ export default function App() {
         try {
           const response = await client.listWorkspaces();
           if (cancelled) return;
-          const match = response.items?.[0];
-          setOpenworkServerWorkspaceId(match?.id ?? null);
+          const items = Array.isArray(response.items) ? response.items : [];
+          const directoryHint = normalizeDirectoryPath(active.directory?.trim() ?? active.path?.trim() ?? "");
+          const match = directoryHint
+            ? items.find((entry) => {
+                const entryPath = normalizeDirectoryPath((entry.opencode?.directory ?? entry.directory ?? entry.path ?? "").trim());
+                return Boolean(entryPath && entryPath === directoryHint);
+              })
+            : (response.activeId ? items.find((entry) => entry.id === response.activeId) : null) ?? items[0];
+          setOpenworkServerWorkspaceId(match?.id ?? response.activeId ?? null);
         } catch {
           if (!cancelled) setOpenworkServerWorkspaceId(null);
         }

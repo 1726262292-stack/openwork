@@ -357,6 +357,28 @@ export function normalizeOpenworkServerUrl(input: string) {
   return withProtocol.replace(/\/+$/, "");
 }
 
+export function parseOpenworkWorkspaceIdFromUrl(input: string) {
+  const normalized = normalizeOpenworkServerUrl(input) ?? "";
+  if (!normalized) return null;
+
+  try {
+    const url = new URL(normalized);
+    const segments = url.pathname.split("/").filter(Boolean);
+    const last = segments[segments.length - 1] ?? "";
+    const prev = segments[segments.length - 2] ?? "";
+    if (prev !== "w" || !last) return null;
+    return decodeURIComponent(last);
+  } catch {
+    const match = normalized.match(/\/w\/([^/?#]+)/);
+    if (!match?.[1]) return null;
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+}
+
 export function buildOpenworkWorkspaceBaseUrl(hostUrl: string, workspaceId?: string | null) {
   const normalized = normalizeOpenworkServerUrl(hostUrl) ?? "";
   if (!normalized) return null;

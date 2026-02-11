@@ -9,7 +9,12 @@ import {
 } from "lucide-solid";
 
 import Button from "../components/button";
-import { createOpenworkServerClient, OpenworkServerError } from "../lib/openwork-server";
+import {
+  buildOpenworkWorkspaceBaseUrl,
+  createOpenworkServerClient,
+  OpenworkServerError,
+  parseOpenworkWorkspaceIdFromUrl,
+} from "../lib/openwork-server";
 import type {
   OpenworkOwpenbotHealthSnapshot,
   OpenworkOwpenbotIdentityItem,
@@ -122,21 +127,34 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
 
   const [expandedChannel, setExpandedChannel] = createSignal<string | null>(null);
 
-  const openworkServerClient = createMemo(() => {
+  const workspaceId = createMemo(() => {
+    const explicitId = props.openworkServerWorkspaceId?.trim() ?? "";
+    if (explicitId) return explicitId;
+    return parseOpenworkWorkspaceIdFromUrl(props.openworkServerUrl) ?? "";
+  });
+
+  const scopedOpenworkBaseUrl = createMemo(() => {
     const baseUrl = props.openworkServerUrl.trim();
+    if (!baseUrl) return "";
+    return buildOpenworkWorkspaceBaseUrl(baseUrl, workspaceId()) ?? baseUrl;
+  });
+
+  const openworkServerClient = createMemo(() => {
+    const baseUrl = scopedOpenworkBaseUrl().trim();
     const localBaseUrl = props.openworkServerHostInfo?.baseUrl?.trim() ?? "";
+    const localScopedBaseUrl = buildOpenworkWorkspaceBaseUrl(localBaseUrl, workspaceId()) ?? localBaseUrl;
     const hostToken = props.openworkServerHostInfo?.hostToken?.trim() ?? "";
     const clientToken = props.openworkServerHostInfo?.clientToken?.trim() ?? "";
     const settingsToken = props.openworkServerSettings.token?.trim() ?? "";
 
-    const isLocalServer = localBaseUrl && baseUrl === localBaseUrl;
+    const isLocalServer = Boolean(localBaseUrl) && (baseUrl === localBaseUrl || baseUrl === localScopedBaseUrl);
     const token = isLocalServer ? (clientToken || settingsToken) : (settingsToken || clientToken);
     if (!baseUrl || !token) return null;
     return createOpenworkServerClient({ baseUrl, token, hostToken: isLocalServer ? hostToken : undefined });
   });
 
   const serverReady = createMemo(() => props.openworkServerStatus === "connected" && Boolean(openworkServerClient()));
-  const workspaceId = createMemo(() => props.openworkServerWorkspaceId?.trim() || "");
+  const scopedWorkspaceReady = createMemo(() => Boolean(workspaceId()));
 
   let lastResetKey = "";
 
@@ -167,6 +185,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     if (!serverReady()) return;
     const client = openworkServerClient();
     if (!client) return;
+    const id = workspaceId();
 
     setRefreshing(true);
     try {
@@ -174,14 +193,21 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
       setTelegramIdentitiesError(null);
       setSlackIdentitiesError(null);
 
+      if (!id) {
+        setHealth(null);
+        setTelegramIdentities([]);
+        setSlackIdentities([]);
+        setHealthError("Workspace scope unavailable. Reconnect using a workspace URL or switch to a known workspace.");
+        setTelegramIdentitiesError("Workspace scope unavailable.");
+        setSlackIdentitiesError("Workspace scope unavailable.");
+        setLastUpdatedAt(null);
+        return;
+      }
+
       const [healthRes, tgRes, slackRes] = await Promise.all([
         client.owpenbotHealth(),
-        workspaceId()
-          ? client.getOwpenbotTelegramIdentities(workspaceId())
-          : client.owpenbotTelegramIdentities().then((raw) => raw.json as unknown),
-        workspaceId()
-          ? client.getOwpenbotSlackIdentities(workspaceId())
-          : client.owpenbotSlackIdentities().then((raw) => raw.json as unknown),
+        client.getOwpenbotTelegramIdentities(id),
+        client.getOwpenbotSlackIdentities(id),
       ]);
 
       if (isOwpenbotSnapshot(healthRes.json)) {
@@ -359,7 +385,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
   };
 
   createEffect(() => {
-    const baseUrl = props.openworkServerUrl.trim();
+    const baseUrl = scopedOpenworkBaseUrl().trim();
     const id = workspaceId();
     const nextKey = `${baseUrl}|${id}`;
     if (nextKey === lastResetKey) return;
@@ -405,6 +431,9 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
           Let people reach your worker through messaging apps. Connect a channel and
           your worker will automatically read and respond to messages.
         </p>
+        <div class="mt-1.5 text-[11px] text-gray-8 font-mono truncate">
+          Workspace scope: {scopedOpenworkBaseUrl().trim() || props.openworkServerUrl.trim() || "Not set"}
+        </div>
       </div>
 
       {/* ---- Not connected to server ---- */}
@@ -418,6 +447,11 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
       </Show>
 
       <Show when={serverReady()}>
+        <Show when={!scopedWorkspaceReady()}>
+          <div class="rounded-xl border border-amber-7/20 bg-amber-1/30 px-3 py-2 text-xs text-amber-12">
+            Workspace ID is required to manage identities. Reconnect with a workspace URL (for example: <code class="text-[11px]">/w/&lt;workspace-id&gt;</code>) or select a workspace mapped on this host.
+          </div>
+        </Show>
 
         {/* ---- Worker status card ---- */}
         <div class="rounded-xl border border-gray-4 bg-gray-1 p-4 space-y-3.5">
