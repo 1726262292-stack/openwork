@@ -4,11 +4,12 @@ use std::path::{Path, PathBuf};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 use crate::paths::home_dir;
+use crate::paths::{prepended_path_env, sidecar_path_candidates};
 use crate::types::{
     OpenwrkBinaryState, OpenwrkDaemonState, OpenwrkOpencodeState, OpenwrkSidecarInfo,
     OpenwrkStatus, OpenwrkWorkspace,
@@ -237,8 +238,19 @@ pub fn spawn_openwrk_daemon(
         }
     }
 
+    let mut command = command.args(args);
+
+    let resource_dir = app.path().resource_dir().ok();
+    let current_bin_dir = tauri::process::current_binary(&app.env())
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.to_path_buf()));
+    let sidecar_paths =
+        sidecar_path_candidates(resource_dir.as_deref(), current_bin_dir.as_deref());
+    if let Some(path_env) = prepended_path_env(&sidecar_paths) {
+        command = command.env("PATH", path_env);
+    }
+
     command
-        .args(args)
         .spawn()
         .map_err(|e| format!("Failed to start openwrk: {e}"))
 }
