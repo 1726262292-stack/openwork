@@ -1014,6 +1014,14 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         hostToken,
         method: "DELETE",
       }),
+
+    logoutMcpAuth: (workspaceId: string, name: string) =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${workspaceId}/mcp/${encodeURIComponent(name)}/auth`, {
+        token,
+        hostToken,
+        method: "DELETE",
+      }),
+
     listCommands: (workspaceId: string, scope: "workspace" | "global" = "workspace") =>
       requestJson<{ items: OpenworkCommandItem[] }>(
         baseUrl,

@@ -404,6 +404,15 @@ export default {
   "mcp.use_debug_command": "使用 opencode mcp debug <name> 验证连接。",
   "mcp.add_failed": "添加 MCP 失败。",
 
+  "mcp.logout_label": "OAuth",
+  "mcp.logout_action": "退出登录",
+  "mcp.logout_working": "正在退出...",
+  "mcp.logout_hint": "将删除已保存的 OAuth 凭据。之后需要重新登录。",
+  "mcp.logout_modal_title": "退出登录？",
+  "mcp.logout_modal_message": "这将删除 {server} 的 OAuth 凭据。之后需要重新登录才能使用该应用。",
+  "mcp.logout_success": "{server} 已退出登录。",
+  "mcp.logout_failed": "退出登录失败。",
+
   // MCP Auth Modal
   "mcp.auth.open_browser_signin": "我们将打开您的浏览器完成登录。",
   "mcp.auth.connect_server": "连接 {server}",

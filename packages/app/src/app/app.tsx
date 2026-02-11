@@ -49,7 +49,7 @@ import {
   THINKING_PREF_KEY,
   VARIANT_PREF_KEY,
 } from "./constants";
-import { parseMcpServersFromContent } from "./mcp";
+import { parseMcpServersFromContent, validateMcpServerName } from "./mcp";
 import type {
   Client,
   DashboardTab,
@@ -3434,6 +3434,106 @@ export default function App() {
     }
   }
 
+  async function logoutMcpAuth(name: string) {
+    const isRemoteWorkspace =
+      workspaceStore.activeWorkspaceDisplay().workspaceType === "remote" ||
+      (!isTauriRuntime() && openworkServerStatus() === "connected");
+    const projectDir = workspaceProjectDir().trim();
+
+    const openworkClient = openworkServerClient();
+    let openworkWorkspaceId = openworkServerWorkspaceId();
+    const openworkCapabilities = resolvedOpenworkCapabilities();
+    if (!openworkWorkspaceId && openworkClient && openworkServerStatus() === "connected") {
+      try {
+        const response = await openworkClient.listWorkspaces();
+        const match = response.items?.[0];
+        if (match?.id) {
+          openworkWorkspaceId = match.id;
+          setOpenworkServerWorkspaceId(match.id);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    const canUseOpenworkServer =
+      openworkServerStatus() === "connected" &&
+      openworkClient &&
+      openworkWorkspaceId &&
+      openworkCapabilities?.mcp?.write;
+
+    if (isRemoteWorkspace && !canUseOpenworkServer) {
+      setMcpStatus("OpenWork server unavailable. MCP auth is read-only.");
+      return;
+    }
+
+    if (!canUseOpenworkServer && !isTauriRuntime()) {
+      setMcpStatus(t("mcp.desktop_required", currentLocale()));
+      return;
+    }
+
+    let activeClient = client();
+    if (!activeClient) {
+      const openworkBaseUrl = openworkServerBaseUrl().trim();
+      const auth = openworkServerAuth();
+      if (openworkBaseUrl && auth.token) {
+        const opencodeUrl = `${openworkBaseUrl.replace(/\/+$/, "")}/opencode`;
+        activeClient = createClient(opencodeUrl, undefined, { token: auth.token, mode: "openwork" });
+        setClient(activeClient);
+      }
+    }
+    if (!activeClient) {
+      setMcpStatus(t("mcp.connect_server_first", currentLocale()));
+      return;
+    }
+
+    let resolvedProjectDir = projectDir;
+    if (!resolvedProjectDir) {
+      try {
+        const pathInfo = unwrap(await activeClient.path.get());
+        const discoveredRaw = normalizeDirectoryPath(pathInfo.directory ?? "");
+        const discovered = discoveredRaw.replace(/^\/private\/tmp(?=\/|$)/, "/tmp");
+        if (discovered) {
+          resolvedProjectDir = discovered;
+          workspaceStore.setProjectDir(discovered);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (!resolvedProjectDir) {
+      setMcpStatus(t("mcp.pick_workspace_first", currentLocale()));
+      return;
+    }
+
+    const safeName = validateMcpServerName(name);
+    setMcpStatus(null);
+
+    try {
+      if (canUseOpenworkServer && openworkClient && openworkWorkspaceId) {
+        await openworkClient.logoutMcpAuth(openworkWorkspaceId, safeName);
+      } else {
+        try {
+          await activeClient.mcp.disconnect({ directory: resolvedProjectDir, name: safeName });
+        } catch {
+          // ignore
+        }
+        await activeClient.mcp.auth.remove({ directory: resolvedProjectDir, name: safeName });
+      }
+
+      try {
+        const status = unwrap(await activeClient.mcp.status({ directory: resolvedProjectDir }));
+        setMcpStatuses(status as McpStatusMap);
+      } catch {
+        // ignore
+      }
+
+      await refreshMcpServers();
+      setMcpStatus(t("mcp.logout_success", currentLocale()).replace("{server}", safeName));
+    } catch (e) {
+      setMcpStatus(e instanceof Error ? e.message : t("mcp.logout_failed", currentLocale()));
+    }
+  }
+
   async function createSessionAndOpen() {
     console.log("[DEBUG] createSessionAndOpen");
     console.log("[DEBUG] current baseUrl:", baseUrl());
@@ -4462,6 +4562,7 @@ export default function App() {
       setSelectedMcp,
       quickConnect: MCP_QUICK_CONNECT,
       connectMcp,
+      logoutMcpAuth,
       refreshMcpServers,
       showMcpReloadBanner: reloadRequired() && reloadReasons().includes("mcp"),
       mcpReloadBlocked: anyActiveRuns(),

@@ -431,6 +431,15 @@ export default {
   "mcp.use_debug_command": "Run opencode mcp debug <name> to troubleshoot.",
   "mcp.add_failed": "Couldn't add the app.",
 
+  "mcp.logout_label": "OAuth",
+  "mcp.logout_action": "Log out",
+  "mcp.logout_working": "Logging out...",
+  "mcp.logout_hint": "Removes stored OAuth credentials. You'll need to sign in again.",
+  "mcp.logout_modal_title": "Log out of this app?",
+  "mcp.logout_modal_message": "This will remove stored OAuth credentials for {server}. You'll need to sign in again to use this app.",
+  "mcp.logout_success": "Logged out of {server}.",
+  "mcp.logout_failed": "Failed to log out.",
+
   // MCP Auth Modal
   "mcp.auth.open_browser_signin": "We'll open your browser to finish sign-in.",
   "mcp.auth.connect_server": "Connect {server}",

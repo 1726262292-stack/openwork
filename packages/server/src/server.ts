@@ -16,7 +16,7 @@ import { parseFrontmatter } from "./frontmatter.js";
 import { startReloadWatchers } from "./reload-watcher.js";
 import { opencodeConfigPath, openworkConfigPath, projectCommandsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId } from "./utils.js";
-import { sanitizeCommandName } from "./validators.js";
+import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
 import { TOY_UI_CSS, TOY_UI_HTML, TOY_UI_JS, cssResponse, htmlResponse, jsResponse } from "./toy-ui.js";
 import pkg from "../package.json" with { type: "json" };
@@ -2439,6 +2439,59 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
     }
     const items = await listMcp(workspace.path);
     return jsonResponse({ items });
+  });
+
+  addRoute(routes, "DELETE", "/workspace/:id/mcp/:name/auth", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const name = String(ctx.params.name ?? "").trim();
+    validateMcpName(name);
+
+    const authStorePath = join(homedir(), ".config", "opencode", "mcp-auth.json");
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "mcp.auth.remove",
+      summary: `Logout MCP ${name}`,
+      paths: [authStorePath],
+    });
+
+    // Best-effort disconnect so any active connection is torn down.
+    try {
+      await fetchOpencodeJson(workspace, `/mcp/${encodeURIComponent(name)}/disconnect`, { method: "POST" });
+    } catch {
+      // ignore
+    }
+
+    try {
+      await fetchOpencodeJson(workspace, `/mcp/${encodeURIComponent(name)}/auth`, { method: "DELETE" });
+    } catch (error) {
+      // Treat missing credentials as a successful logout (idempotent).
+      if (
+        error instanceof ApiError &&
+        error.code === "opencode_request_failed" &&
+        error.details &&
+        typeof error.details === "object" &&
+        "status" in (error.details as Record<string, unknown>) &&
+        (error.details as { status?: unknown }).status === 404
+      ) {
+        // ok
+      } else {
+        throw error;
+      }
+    }
+
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "mcp.auth.remove",
+      target: authStorePath,
+      summary: `Logged out MCP ${name}`,
+      timestamp: Date.now(),
+    });
+
+    return jsonResponse({ ok: true });
   });
 
   addRoute(routes, "GET", "/workspace/:id/commands", "client", async (ctx) => {

@@ -6,6 +6,7 @@ import { formatRelativeTime, isTauriRuntime, isWindowsPlatform } from "../utils"
 import { readOpencodeConfig, type OpencodeConfigFile } from "../lib/tauri";
 
 import Button from "../components/button";
+import ConfirmModal from "../components/confirm-modal";
 import {
   BookOpen,
   CheckCircle2,
@@ -39,6 +40,7 @@ export type McpViewProps = {
   setSelectedMcp: (name: string | null) => void;
   quickConnect: McpDirectoryInfo[];
   connectMcp: (entry: McpDirectoryInfo) => void;
+  logoutMcpAuth: (name: string) => Promise<void> | void;
   showMcpReloadBanner: boolean;
   reloadBlocked: boolean;
   reloadMcpEngine: () => void;
@@ -124,6 +126,10 @@ const serviceIconBg = (name: string) => {
 export default function McpView(props: McpViewProps) {
   const locale = () => currentLocale();
   const tr = (key: string) => t(key, locale());
+
+  const [logoutOpen, setLogoutOpen] = createSignal(false);
+  const [logoutTarget, setLogoutTarget] = createSignal<string | null>(null);
+  const [logoutBusy, setLogoutBusy] = createSignal(false);
 
   const [configScope, setConfigScope] = createSignal<"project" | "global">("project");
   const [projectConfig, setProjectConfig] = createSignal<OpencodeConfigFile | null>(null);
@@ -231,6 +237,25 @@ export default function McpView(props: McpViewProps) {
   const connectedCount = createMemo(() =>
     props.mcpServers.filter((e) => resolveStatus(e) === "connected").length,
   );
+
+  const requestLogout = (name: string) => {
+    if (!name.trim()) return;
+    setLogoutTarget(name);
+    setLogoutOpen(true);
+  };
+
+  const confirmLogout = async () => {
+    const name = logoutTarget();
+    if (!name || logoutBusy()) return;
+    setLogoutBusy(true);
+    try {
+      await props.logoutMcpAuth(name);
+    } finally {
+      setLogoutBusy(false);
+      setLogoutOpen(false);
+      setLogoutTarget(null);
+    }
+  };
 
   return (
     <section class="space-y-8 animate-in fade-in duration-300">
@@ -472,6 +497,25 @@ export default function McpView(props: McpViewProps) {
                               : entry.config.command?.join(" ")}
                           </div>
                         </details>
+
+                        <Show when={entry.config.type === "remote"}>
+                          <div class="pt-1 flex items-center justify-between gap-3">
+                            <div class="text-xs text-dls-secondary">
+                              {tr("mcp.logout_label")}
+                            </div>
+                            <Button
+                              variant="danger"
+                              class="px-3 py-1.5 text-xs"
+                              disabled={props.busy || logoutBusy()}
+                              onClick={() => requestLogout(entry.name)}
+                            >
+                              {logoutBusy() && logoutTarget() === entry.name ? tr("mcp.logout_working") : tr("mcp.logout_action")}
+                            </Button>
+                          </div>
+                          <div class="text-[11px] text-dls-secondary/70">
+                            {tr("mcp.logout_hint")}
+                          </div>
+                        </Show>
                       </div>
                     </Show>
                   </div>
@@ -481,6 +525,23 @@ export default function McpView(props: McpViewProps) {
           </div>
         </Show>
       </div>
+
+      <ConfirmModal
+        open={logoutOpen()}
+        title={tr("mcp.logout_modal_title")}
+        message={tr("mcp.logout_modal_message").replace("{server}", logoutTarget() ?? "")}
+        confirmLabel={logoutBusy() ? tr("mcp.logout_working") : tr("mcp.logout_action")}
+        cancelLabel={tr("common.cancel")}
+        variant="danger"
+        onCancel={() => {
+          if (logoutBusy()) return;
+          setLogoutOpen(false);
+          setLogoutTarget(null);
+        }}
+        onConfirm={() => {
+          void confirmLogout();
+        }}
+      />
 
       {/* ── Advanced: Config editor ───────────────────── */}
       <div class="rounded-xl border border-dls-border bg-dls-surface overflow-hidden">
