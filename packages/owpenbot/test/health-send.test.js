@@ -143,9 +143,12 @@ test("health /send returns 404 when no bindings exist", async () => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ channel: "slack", directory: dir, text: "hello" }),
   });
-  assert.equal(response.status, 404);
+  assert.equal(response.status, 200);
   const json = await response.json();
-  assert.equal(json.ok, false);
+  assert.equal(json.ok, true);
+  assert.equal(json.attempted, 0);
+  assert.equal(json.sent, 0);
+  assert.equal(typeof json.reason, "string");
 
   await bridge.stop();
   store.close();

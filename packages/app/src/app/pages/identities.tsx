@@ -114,7 +114,6 @@ function StatusPill(props: { label: string; value: string; ok: boolean }) {
 
 export default function IdentitiesView(props: IdentitiesViewProps) {
   const [refreshing, setRefreshing] = createSignal(false);
-  const [lastUpdatedAt, setLastUpdatedAt] = createSignal<number | null>(null);
 
   const [health, setHealth] = createSignal<OpenworkOwpenbotHealthSnapshot | null>(null);
   const [healthError, setHealthError] = createSignal<string | null>(null);
@@ -202,6 +201,32 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
   const hasTelegramConnected = createMemo(() => telegramIdentities().some((i) => i.enabled));
   const hasSlackConnected = createMemo(() => slackIdentities().some((i) => i.enabled));
   const agentDirty = createMemo(() => agentDraft() !== agentContent());
+
+  const messagesToday = createMemo(() => {
+    const activity = health()?.activity;
+    if (!activity) return null;
+    const inbound = typeof activity.inboundToday === "number" ? activity.inboundToday : 0;
+    const outbound = typeof activity.outboundToday === "number" ? activity.outboundToday : 0;
+    return inbound + outbound;
+  });
+
+  const lastActivityAt = createMemo(() => {
+    const ts = health()?.activity?.lastMessageAt;
+    return typeof ts === "number" && Number.isFinite(ts) ? ts : null;
+  });
+
+  const lastActivityLabel = createMemo(() => {
+    const ts = lastActivityAt();
+    if (!ts) return "\u2014";
+    const elapsedMs = Math.max(0, Date.now() - ts);
+    if (elapsedMs < 60_000) return "Just now";
+    const minutes = Math.floor(elapsedMs / 60_000);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  });
 
   const resetAgentState = () => {
     setAgentLoading(false);
@@ -362,7 +387,6 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
         setSendStatus(null);
         setSendError(null);
         setSendResult(null);
-        setLastUpdatedAt(null);
         return;
       }
 
@@ -399,7 +423,6 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
         setSlackIdentitiesError("Slack identities unavailable.");
       }
 
-      setLastUpdatedAt(Date.now());
       if (!agentDirty() && !agentSaving()) {
         void loadAgentFile();
       }
@@ -584,7 +607,6 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     setSendResult(null);
     setReconnectStatus(null);
     setReconnectError(null);
-    setLastUpdatedAt(null);
   });
 
   onMount(() => {
@@ -700,13 +722,13 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
             />
             <StatusPill
               label="Messages today"
-              value={"\u2014"}
-              ok={false}
+              value={messagesToday() == null ? "\u2014" : String(messagesToday())}
+              ok={(messagesToday() ?? 0) > 0}
             />
             <StatusPill
               label="Last activity"
-              value={lastUpdatedAt() ? "Just now" : "\u2014"}
-              ok={Boolean(lastUpdatedAt())}
+              value={lastActivityLabel()}
+              ok={Boolean(lastActivityAt())}
             />
           </div>
         </div>
@@ -1246,6 +1268,9 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
                 sent={value().sent} attempted={value().attempted}
                 <Show when={value().failures?.length}>
                   {(failures) => ` failures=${failures()}`}
+                </Show>
+                <Show when={value().reason?.trim()}>
+                  {(reason) => ` reason=${reason()}`}
                 </Show>
               </div>
             )}

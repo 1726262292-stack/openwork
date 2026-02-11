@@ -17,6 +17,14 @@ export type HealthSnapshot = {
   config: {
     groupsEnabled: boolean;
   };
+  activity?: {
+    dayStart: number;
+    inboundToday: number;
+    outboundToday: number;
+    lastInboundAt?: number;
+    lastOutboundAt?: number;
+    lastMessageAt?: number;
+  };
 };
 
 export type GroupsConfigResult = {
@@ -100,6 +108,7 @@ export type SendMessageResult = {
   attempted: number;
   sent: number;
   failures?: Array<{ identityId: string; peerId: string; error: string }>;
+  reason?: string;
 };
 
 export type HealthHandlers = {

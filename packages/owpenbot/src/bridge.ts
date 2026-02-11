@@ -411,6 +411,38 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
   // Mutable runtime state for groups (persisted to config file)
   let groupsEnabled = config.groupsEnabled;
 
+  const startOfToday = (now: number) => {
+    const day = new Date(now);
+    day.setHours(0, 0, 0, 0);
+    return day.getTime();
+  };
+
+  let activityDayStart = startOfToday(Date.now());
+  let inboundToday = 0;
+  let outboundToday = 0;
+  let lastInboundAt: number | undefined;
+  let lastOutboundAt: number | undefined;
+
+  const ensureActivityDay = (now: number) => {
+    const nextDayStart = startOfToday(now);
+    if (nextDayStart === activityDayStart) return;
+    activityDayStart = nextDayStart;
+    inboundToday = 0;
+    outboundToday = 0;
+  };
+
+  const recordInboundActivity = (now: number) => {
+    ensureActivityDay(now);
+    inboundToday += 1;
+    lastInboundAt = now;
+  };
+
+  const recordOutboundActivity = (now: number) => {
+    ensureActivityDay(now);
+    outboundToday += 1;
+    lastOutboundAt = now;
+  };
+
   let stopHealthServer: (() => void) | null = null;
   if (!deps.disableHealthServer && config.healthPort) {
     stopHealthServer = startHealthServer(
@@ -430,6 +462,16 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
         },
         config: {
           groupsEnabled,
+        },
+        activity: {
+          dayStart: activityDayStart,
+          inboundToday,
+          outboundToday,
+          ...(typeof lastInboundAt === "number" ? { lastInboundAt } : {}),
+          ...(typeof lastOutboundAt === "number" ? { lastOutboundAt } : {}),
+          ...(typeof lastInboundAt === "number" || typeof lastOutboundAt === "number"
+            ? { lastMessageAt: Math.max(lastInboundAt ?? 0, lastOutboundAt ?? 0) }
+            : {}),
         },
       }),
       logger,
@@ -855,9 +897,14 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
             directory: normalizedDir,
           });
           if (bindings.length === 0) {
-            const err = new Error(`No bindings for ${channel}${identityId ? `/${identityId}` : ""} at directory ${normalizedDir}`) as any;
-            err.status = 404;
-            throw err;
+            return {
+              channel,
+              directory: normalizedDir,
+              ...(identityId ? { identityId } : {}),
+              attempted: 0,
+              sent: 0,
+              reason: `No bound conversations for ${channel}${identityId ? `/${identityId}` : ""} at directory ${normalizedDir}`,
+            };
           }
 
           const failures: Array<{ identityId: string; peerId: string; error: string }> = [];
@@ -1022,6 +1069,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
   ) {
     const adapter = adapters.get(adapterKey(channel, identityId));
     if (!adapter) return;
+    recordOutboundActivity(Date.now());
     const kind = options.kind ?? "system";
     logger.debug({ channel, identityId, peerId, kind, length: text.length }, "sendText requested");
     if (options.display !== false) {
@@ -1047,6 +1095,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
   async function handleInbound(message: InboundMessage) {
     const adapter = adapters.get(adapterKey(message.channel, message.identityId));
     if (!adapter) return;
+    recordInboundActivity(Date.now());
     let inbound = message;
     logger.debug(
       {

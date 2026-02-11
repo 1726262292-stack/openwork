@@ -206,6 +206,14 @@ export type OpenworkOwpenbotHealthSnapshot = {
   config: {
     groupsEnabled: boolean;
   };
+  activity?: {
+    dayStart: number;
+    inboundToday: number;
+    outboundToday: number;
+    lastInboundAt?: number;
+    lastOutboundAt?: number;
+    lastMessageAt?: number;
+  };
 };
 
 export type OpenworkOwpenbotBindingItem = {
@@ -233,6 +241,7 @@ export type OpenworkOwpenbotSendResult = {
   attempted: number;
   sent: number;
   failures?: Array<{ identityId: string; peerId: string; error: string }>;
+  reason?: string;
 };
 
 export type OpenworkOwpenbotIdentityItem = {
@@ -1004,24 +1013,41 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       workspaceId: string,
       input: { channel: "telegram" | "slack"; text: string; identityId?: string; directory?: string },
       options?: { healthPort?: number | null },
-    ) =>
-      requestJson<OpenworkOwpenbotSendResult>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/owpenbot/send`,
-        {
+    ) => {
+      const payload = {
+        channel: input.channel,
+        text: input.text,
+        ...(input.identityId?.trim() ? { identityId: input.identityId.trim() } : {}),
+        ...(input.directory?.trim() ? { directory: input.directory.trim() } : {}),
+        healthPort: options?.healthPort ?? null,
+      };
+
+      const primaryPath = `/workspace/${encodeURIComponent(workspaceId)}/owpenbot/send`;
+      const mountedWorkspaceId = parseOpenworkWorkspaceIdFromUrl(baseUrl);
+      const fallbackPath =
+        mountedWorkspaceId && mountedWorkspaceId === workspaceId
+          ? `/owpenbot/send`
+          : `/w/${encodeURIComponent(workspaceId)}/owpenbot/send`;
+
+      return requestJson<OpenworkOwpenbotSendResult>(baseUrl, primaryPath, {
+        token,
+        hostToken,
+        method: "POST",
+        body: payload,
+        timeoutMs: timeouts.owpenbot,
+      }).catch(async (error) => {
+        if (!(error instanceof OpenworkServerError) || error.status !== 404) {
+          throw error;
+        }
+        return requestJson<OpenworkOwpenbotSendResult>(baseUrl, fallbackPath, {
           token,
           hostToken,
           method: "POST",
-          body: {
-            channel: input.channel,
-            text: input.text,
-            ...(input.identityId?.trim() ? { identityId: input.identityId.trim() } : {}),
-            ...(input.directory?.trim() ? { directory: input.directory.trim() } : {}),
-            healthPort: options?.healthPort ?? null,
-          },
+          body: payload,
           timeoutMs: timeouts.owpenbot,
-        },
-      ),
+        });
+      });
+    },
     setOwpenbotTelegramEnabled: (
       workspaceId: string,
       enabled: boolean,
