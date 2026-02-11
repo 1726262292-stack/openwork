@@ -58,6 +58,7 @@ import { join } from "@tauri-apps/api/path";
 import { formatRelativeTime, isTauriRuntime, normalizeDirectoryPath, parseTemplateFrontmatter } from "../utils";
 
 import browserSetupTemplate from "../data/commands/browser-setup.md?raw";
+import soulSetupTemplate from "../data/commands/give-me-a-soul.md?raw";
 
 import MessageList from "../components/session/message-list";
 import Composer from "../components/session/composer";
@@ -190,6 +191,16 @@ const BROWSER_SETUP_TEMPLATE = (() => {
   const name = parsed?.data?.name?.trim() || "browser-setup";
   const description = parsed?.data?.description?.trim() || "Guide the user through browser automation setup";
   const body = (parsed?.body ?? browserSetupTemplate).trim();
+  return { name, description, body };
+})();
+
+const SOUL_SETUP_TEMPLATE = (() => {
+  const parsed = parseTemplateFrontmatter(soulSetupTemplate);
+  const name = parsed?.data?.name?.trim() || "give-me-a-soul";
+  const description =
+    parsed?.data?.description?.trim() ||
+    "Enable optional soul mode with persistent memory and scheduled check-ins";
+  const body = (parsed?.body ?? soulSetupTemplate).trim();
   return { name, description, body };
 })();
 
@@ -1264,6 +1275,36 @@ export default function SessionView(props: SessionViewProps) {
     });
   };
 
+  const handleSoulQuickstart = async () => {
+    const name = SOUL_SETUP_TEMPLATE.name;
+    try {
+      const commands = await props.listCommands();
+      const hasCommand = commands.some((cmd) => cmd.name === name);
+      if (hasCommand) {
+        handleSendPrompt({
+          mode: "prompt",
+          text: `/${name}`,
+          resolvedText: `/${name}`,
+          parts: [{ type: "text", text: `/${name}` }],
+          attachments: [],
+          command: { name, arguments: "" },
+        });
+        return;
+      }
+    } catch {
+      // Fall back to prompt-based setup below.
+    }
+
+    const text = SOUL_SETUP_TEMPLATE.body || "Give me a soul.";
+    handleSendPrompt({
+      mode: "prompt",
+      text,
+      resolvedText: text,
+      parts: [{ type: "text", text }],
+      attachments: [],
+    });
+  };
+
   const isSandboxWorkspace = createMemo(() => Boolean((props.activeWorkspaceDisplay as any)?.sandboxContainerName?.trim()));
 
   const uploadInboxFiles = async (files: File[]) => {
@@ -1859,15 +1900,31 @@ export default function SessionView(props: SessionViewProps) {
                   Pick a starting point or just type below.
                 </p>
               </div>
-              <div class="flex justify-center">
+              <div class="grid gap-3 sm:grid-cols-2 max-w-2xl mx-auto text-left">
                 <button
                   type="button"
-                  class="px-4 py-2.5 rounded-xl border border-gray-6 bg-gray-2 text-sm text-gray-12 hover:bg-gray-3 hover:border-gray-7 transition-all"
+                  class="rounded-2xl border border-dls-border bg-dls-hover p-4 transition-all hover:bg-dls-active hover:border-gray-7"
                   onClick={() => {
                     void handleBrowserAutomationQuickstart();
                   }}
                 >
-                  Automate your browser
+                  <div class="text-sm font-semibold text-dls-text">Automate your browser</div>
+                  <div class="mt-1 text-xs text-dls-secondary leading-relaxed">
+                    Set up browser actions and run reliable web tasks from OpenWork.
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  class="rounded-2xl border border-dls-border bg-dls-hover p-4 transition-all hover:bg-dls-active hover:border-gray-7"
+                  onClick={() => {
+                    void handleSoulQuickstart();
+                  }}
+                >
+                  <div class="text-sm font-semibold text-dls-text">Give me a soul</div>
+                  <div class="mt-1 text-xs text-dls-secondary leading-relaxed">
+                    Keep your goals and preferences across sessions with light scheduled check-ins.
+                    Tradeoff: more autonomy can create extra background runs, but revert is one command.
+                  </div>
                 </button>
               </div>
             </div>
