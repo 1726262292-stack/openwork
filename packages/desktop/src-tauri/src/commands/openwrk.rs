@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use crate::openwrk::manager::OpenwrkManager;
 use crate::openwrk::{resolve_openwrk_data_dir, resolve_openwrk_status};
+use crate::platform::configure_hidden;
 use crate::types::{ExecResult, OpenwrkStatus, OpenwrkWorkspace};
 
 const SANDBOX_PROGRESS_EVENT: &str = "openwork://sandbox-create-progress";
@@ -48,7 +49,9 @@ pub struct SandboxDoctorResult {
 }
 
 fn run_local_command(program: &str, args: &[&str]) -> Result<(i32, String, String), String> {
-    let output = Command::new(program)
+    let mut command = Command::new(program);
+    configure_hidden(&mut command);
+    let output = command
         .args(args)
         .output()
         .map_err(|e| format!("Failed to run {program}: {e}"))?;

@@ -637,12 +637,6 @@ export function createWorkspaceStore(options: {
     }
   }
 
-  createEffect(() => {
-    if (!createWorkspaceOpen()) return;
-    if (!isTauriRuntime()) return;
-    void refreshSandboxDoctor();
-  });
-
   async function activateWorkspace(workspaceId: string) {
     const id = workspaceId.trim();
     if (!id) return false;

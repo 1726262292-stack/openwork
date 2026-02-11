@@ -5001,16 +5001,18 @@ export default function App() {
         }
         workerDisabled={(() => {
           if (!isTauriRuntime()) return true;
+          if (workspaceStore.sandboxDoctorBusy?.()) return true;
           const doctor = workspaceStore.sandboxDoctorResult?.();
+          if (!doctor) return false;
           return !doctor?.ready;
         })()}
         workerDisabledReason={(() => {
           if (!isTauriRuntime()) return t("app.error.tauri_required", currentLocale());
-          const doctor = workspaceStore.sandboxDoctorResult?.();
-          if (doctor?.ready) return null;
           if (workspaceStore.sandboxDoctorBusy?.()) {
             return t("dashboard.sandbox_checking_docker", currentLocale());
           }
+          const doctor = workspaceStore.sandboxDoctorResult?.();
+          if (!doctor || doctor.ready) return null;
           const message = doctor?.error?.trim();
           return message || t("dashboard.sandbox_get_ready_desc", currentLocale());
         })()}

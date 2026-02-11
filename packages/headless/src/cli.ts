@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { randomUUID, createHash } from "node:crypto";
 import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile, realpath } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
@@ -920,9 +920,16 @@ function resolveSidecarConfigForTarget(
   };
 }
 
+function spawnProcess(command: string, args: string[], options: SpawnOptions = {}) {
+  if (process.platform === "win32") {
+    return spawn(command, args, { ...options, windowsHide: true });
+  }
+  return spawn(command, args, options);
+}
+
 async function probeCommand(command: string, args: string[], timeoutMs = 2500): Promise<boolean> {
   return await new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ["ignore", "ignore", "ignore"] });
+    const child = spawnProcess(command, args, { stdio: ["ignore", "ignore", "ignore"] });
     const timeout = setTimeout(() => {
       try {
         child.kill("SIGKILL");
@@ -1135,7 +1142,7 @@ function resolveOpencodeAsset(target: SidecarTarget): string | null {
 }
 
 async function runCommand(command: string, args: string[], cwd?: string): Promise<void> {
-  const child = spawn(command, args, { cwd, stdio: "inherit" });
+  const child = spawnProcess(command, args, { cwd, stdio: "inherit" });
   const result = await Promise.race([
     once(child, "exit").then(([code]) => ({ type: "exit" as const, code })),
     once(child, "error").then(([error]) => ({ type: "error" as const, error })),
@@ -1353,7 +1360,7 @@ function parseVersion(output: string): string | undefined {
 
 async function readCliVersion(bin: string, timeoutMs = 4000): Promise<string | undefined> {
   const resolved = resolveBinCommand(bin);
-  const child = spawn(resolved.command, [...resolved.prefixArgs, "--version"], {
+  const child = spawnProcess(resolved.command, [...resolved.prefixArgs, "--version"], {
     // Avoid picking up a local bunfig.toml preload from the caller's cwd.
     // (Notably, packages/headless/bunfig.toml preloads @opentui/solid/preload which
     // breaks running bun-compiled binaries like owpenbot during version checks.)
@@ -1396,7 +1403,7 @@ async function captureCommandOutput(
   options?: { env?: NodeJS.ProcessEnv; timeoutMs?: number },
 ): Promise<string> {
   const resolved = resolveBinCommand(bin);
-  const child = spawn(resolved.command, [...resolved.prefixArgs, ...args], {
+  const child = spawnProcess(resolved.command, [...resolved.prefixArgs, ...args], {
     cwd: tmpdir(),
     stdio: ["ignore", "pipe", "pipe"],
     env: options?.env ?? process.env,
@@ -2162,7 +2169,7 @@ async function startOpencode(options: {
     args.push("--cors", origin);
   }
 
-  const child = spawn(options.bin, args, {
+  const child = spawnProcess(options.bin, args, {
     cwd: options.workspace,
     stdio: ["ignore", "pipe", "pipe"],
     env: {
@@ -2254,7 +2261,7 @@ async function startOpenworkServer(options: {
   }
 
   const resolved = resolveBinCommand(options.bin);
-  const child = spawn(resolved.command, [...resolved.prefixArgs, ...args], {
+  const child = spawnProcess(resolved.command, [...resolved.prefixArgs, ...args], {
     cwd: options.workspace,
     stdio: ["ignore", "pipe", "pipe"],
     env: {
@@ -2307,7 +2314,7 @@ async function startOwpenbot(options: {
   }
 
   const resolved = resolveBinCommand(options.bin);
-  const child = spawn(resolved.command, [...resolved.prefixArgs, ...args], {
+  const child = spawnProcess(resolved.command, [...resolved.prefixArgs, ...args], {
     cwd: options.workspace,
     stdio: ["ignore", "pipe", "pipe"],
     env: {
@@ -2339,7 +2346,7 @@ async function startOwpenbot(options: {
 async function owpenbotSupportsOpencodeUrl(bin: string): Promise<boolean> {
   const resolved = resolveBinCommand(bin);
   return new Promise((resolve) => {
-    const child = spawn(resolved.command, [...resolved.prefixArgs, "--help"], {
+    const child = spawnProcess(resolved.command, [...resolved.prefixArgs, "--help"], {
       cwd: tmpdir(),
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -2374,7 +2381,7 @@ async function owpenbotSupportsOpencodeUrl(bin: string): Promise<boolean> {
 async function stopDockerContainer(name: string): Promise<void> {
   if (!name.trim()) return;
   await new Promise<void>((resolve) => {
-    const child = spawn("docker", ["stop", name], { stdio: ["ignore", "ignore", "ignore"] });
+    const child = spawnProcess("docker", ["stop", name], { stdio: ["ignore", "ignore", "ignore"] });
     child.on("error", () => resolve());
     child.on("exit", () => resolve());
   });
@@ -2383,14 +2390,14 @@ async function stopDockerContainer(name: string): Promise<void> {
 async function stopAppleContainer(name: string): Promise<void> {
   if (!name.trim()) return;
   await new Promise<void>((resolve) => {
-    const child = spawn("container", ["stop", name], { stdio: ["ignore", "ignore", "ignore"] });
+    const child = spawnProcess("container", ["stop", name], { stdio: ["ignore", "ignore", "ignore"] });
     child.on("error", () => resolve());
     child.on("exit", () => resolve());
   });
 }
 
 async function runQuiet(command: string, args: string[], timeoutMs = 60_000): Promise<void> {
-  const child = spawn(command, args, { stdio: ["ignore", "ignore", "ignore"] });
+  const child = spawnProcess(command, args, { stdio: ["ignore", "ignore", "ignore"] });
   type QuietResult =
     | { type: "exit"; code: number | null }
     | { type: "error"; error: unknown }
@@ -2672,7 +2679,7 @@ async function startDockerSandbox(options: {
   const scriptInContainer = `${staged.rootInContainer}/entrypoint.sh`;
   args.push(options.image, "sh", scriptInContainer);
 
-  const child = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawnProcess("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
   prefixStream(child.stdout, "sandbox", "stdout", options.logger, child.pid ?? undefined);
   prefixStream(child.stderr, "sandbox", "stderr", options.logger, child.pid ?? undefined);
 
@@ -2770,7 +2777,7 @@ async function startAppleContainerSandbox(options: {
   const scriptInContainer = `${staged.rootInContainer}/entrypoint.sh`;
   args.push(options.image, "sh", scriptInContainer);
 
-  const child = spawn("container", args, { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawnProcess("container", args, { stdio: ["ignore", "pipe", "pipe"] });
   prefixStream(child.stdout, "sandbox", "stdout", options.logger, child.pid ?? undefined);
   prefixStream(child.stderr, "sandbox", "stderr", options.logger, child.pid ?? undefined);
 
@@ -3288,7 +3295,7 @@ function buildAttachCommand(input: {
 
 async function runClipboardCommand(command: string, args: string[], text: string): Promise<boolean> {
   return await new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ["pipe", "ignore", "ignore"] });
+    const child = spawnProcess(command, args, { stdio: ["pipe", "ignore", "ignore"] });
     child.on("error", () => resolve(false));
     child.stdin?.write(text);
     child.stdin?.end();
@@ -3361,7 +3368,7 @@ async function spawnRouterDaemon(args: ParsedArgs, dataDir: string, host: string
   if (logFormat) commandArgs.push("--log-format", String(logFormat));
   if (runId) commandArgs.push("--run-id", String(runId));
 
-  const child = spawn(self.command, commandArgs, {
+  const child = spawnProcess(self.command, commandArgs, {
     detached: true,
     stdio: "ignore",
     env: {
