@@ -1,7 +1,16 @@
 import { RGBA, TextAttributes, type InputRenderable, type KeyEvent, type TabSelectRenderable } from "@opentui/core";
-import { render, useKeyboard, useRenderer, useSelectionHandler, useTerminalDimensions } from "@opentui/solid";
+import {
+  createElement as openTuiCreateElement,
+  render,
+  useKeyboard,
+  useRenderer,
+  useSelectionHandler,
+  useTerminalDimensions,
+} from "@opentui/solid";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { createStore } from "solid-js/store";
+
+const React = { createElement: openTuiCreateElement };
 
 export type TuiLogLevel = "debug" | "info" | "warn" | "error";
 

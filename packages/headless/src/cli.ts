@@ -748,6 +748,15 @@ async function resolvePort(preferred: number | undefined, host: string, fallback
   return findFreePort(host);
 }
 
+function isCompiledBunBinary(): boolean {
+  try {
+    const entryPath = fileURLToPath(import.meta.url);
+    return entryPath.startsWith("/$bunfs/");
+  } catch {
+    return false;
+  }
+}
+
 function resolveLanIp(): string | null {
   const interfaces = networkInterfaces();
   for (const key of Object.keys(interfaces)) {
@@ -2784,8 +2793,8 @@ async function verifyOpencodeVersion(binary: ResolvedBinary): Promise<string | u
   // release ships on GitHub before OpenWork updates its bundled binary. Log a
   // warning instead of throwing so the caller can still proceed.
   if (binary.source === "external" && binary.expectedVersion && actual && binary.expectedVersion !== actual) {
-    console.error(
-      `[openwrk] Warning: opencode version mismatch (expected ${binary.expectedVersion}, got ${actual}). Proceeding with ${binary.bin}.`,
+    process.stderr.write(
+      `[openwrk] Warning: opencode version mismatch (expected ${binary.expectedVersion}, got ${actual}). Proceeding with ${binary.bin}.\n`,
     );
     return actual;
   }
@@ -4056,20 +4065,19 @@ async function runStart(args: ParsedArgs) {
   const detachRequested = readBool(args.flags, "detach", false, "OPENWRK_DETACH");
   const defaultTui = process.stdout.isTTY && !outputJson && !checkOnly && !checkEvents;
   const tuiRequested = readBool(args.flags, "tui", defaultTui);
-  const useTui = tuiRequested && !detachRequested && !outputJson && !checkOnly && !checkEvents && logFormat === "pretty";
-  const colorEnabled =
-    !useTui && readBool(args.flags, "color", process.stdout.isTTY, "OPENWRK_COLOR") && !process.env.NO_COLOR;
+  let useTui = tuiRequested && !detachRequested && !outputJson && !checkOnly && !checkEvents && logFormat === "pretty";
+  const colorPreferred = readBool(args.flags, "color", process.stdout.isTTY, "OPENWRK_COLOR") && !process.env.NO_COLOR;
   const runId = readFlag(args.flags, "run-id") ?? process.env.OPENWRK_RUN_ID ?? randomUUID();
   const cliVersion = await resolveCliVersion();
+  const compiledBinary = isCompiledBunBinary();
   let tui: TuiHandle | undefined;
-  const logger = createLogger({
+  let restoreConsoleError: (() => void) | undefined;
+  const baseLoggerOptions = {
     format: logFormat,
     runId,
     serviceName: "openwrk",
     serviceVersion: cliVersion,
-    output: useTui ? "silent" : "stdout",
-    color: colorEnabled,
-    onLog: (event) => {
+    onLog: (event: LogEvent) => {
       if (!tui) return;
       const component = event.component ?? "openwrk";
       tui.pushLog({
@@ -4079,8 +4087,32 @@ async function runStart(args: ParsedArgs) {
         message: event.message,
       });
     },
+  };
+  let logger = createLogger({
+    ...baseLoggerOptions,
+    output: useTui ? "silent" : "stdout",
+    color: useTui ? false : colorPreferred,
   });
-  const logVerbose = createVerboseLogger(verbose && !outputJson, logger, "openwrk");
+  let logVerbose = createVerboseLogger(verbose && !outputJson, logger, "openwrk");
+  const switchToPlainOutput = (error: string) => {
+    if (!useTui) return;
+    useTui = false;
+    restoreConsoleError?.();
+    restoreConsoleError = undefined;
+    tui?.stop();
+    tui = undefined;
+    logger = createLogger({
+      ...baseLoggerOptions,
+      output: "stdout",
+      color: colorPreferred,
+    });
+    logVerbose = createVerboseLogger(verbose && !outputJson, logger, "openwrk");
+    logger.warn(
+      "TUI failed to start; falling back to plain output. Use `openwrk serve` for explicit non-TUI mode.",
+      { error },
+      "openwrk",
+    );
+  };
   const sidecarSourceInput = readBinarySource(args.flags, "sidecar-source", "auto", "OPENWRK_SIDECAR_SOURCE");
   const opencodeSourceInput = readBinarySource(args.flags, "opencode-source", "auto", "OPENWRK_OPENCODE_SOURCE");
 
@@ -4312,6 +4344,8 @@ async function runStart(args: ParsedArgs) {
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    restoreConsoleError?.();
+    restoreConsoleError = undefined;
     if (owpenbotHealthInterval) {
       clearInterval(owpenbotHealthInterval);
       owpenbotHealthInterval = null;
@@ -4350,6 +4384,8 @@ async function runStart(args: ParsedArgs) {
 
   const handleDetach = async () => {
     if (detached) return;
+    restoreConsoleError?.();
+    restoreConsoleError = undefined;
     if (owpenbotHealthInterval) {
       clearInterval(owpenbotHealthInterval);
       owpenbotHealthInterval = null;
@@ -4375,68 +4411,91 @@ async function runStart(args: ParsedArgs) {
   };
 
   if (useTui) {
-    tui = startOpenwrkTui({
-      version: cliVersion,
-      connect: {
-        runId,
-        workspace: resolvedWorkspace,
-        openworkUrl: openworkConnectUrl,
-        openworkToken,
-        hostToken: openworkHostToken,
-        opencodeUrl: opencodeConnectUrl,
-        opencodePassword: sandboxMode !== "none" ? undefined : (opencodePassword ?? undefined),
-        opencodeUsername: sandboxMode !== "none" ? undefined : (opencodeUsername ?? undefined),
-        attachCommand,
-      },
-      services: [
-        { name: "opencode", label: "opencode", status: "starting", port: opencodePort },
-        { name: "openwork-server", label: "openwork-server", status: "starting", port: openworkPort },
-        {
-          name: "owpenbot",
-          label: "owpenbot",
-          status: owpenbotEnabled ? "starting" : "disabled",
-          port: sandboxMode !== "none" ? undefined : owpenbotHealthPort,
-        },
-      ],
-      onQuit: handleQuit,
-      onDetach: handleDetach,
-      onCopyAttach: async () => {
-        const result = await copyToClipboard(attachCommand);
-        return { command: attachCommand, ...result };
-      },
-      onCopySelection: async (text) => copyToClipboard(text),
-      onOwpenbotHealth: async () => fetchOwpenbotHealthViaOpenwork(openworkBaseUrl, openworkToken),
-      onOwpenbotQr: async () => {
-        const url = `${openworkBaseUrl.replace(/\/$/, "")}/owpenbot/whatsapp/qr?format=ascii`;
-        const result = await fetchJson(url, {
-          headers: {
-            "X-OpenWork-Host-Token": openworkHostToken,
-          },
-        });
-        const qr = typeof result?.qr === "string" ? result.qr : "";
-        if (!qr.trim()) {
-          throw new Error("No QR output received");
+    if (compiledBinary) {
+      const originalConsoleError = console.error.bind(console);
+      restoreConsoleError = () => {
+        console.error = originalConsoleError;
+      };
+      console.error = (...items: unknown[]) => {
+        const text = items
+          .map((item) => {
+            if (typeof item === "string") return item;
+            if (item instanceof Error) return `${item.name}: ${item.message}`;
+            return String(item);
+          })
+          .join(" ");
+        if (text.includes("React is not defined") || text.includes("/$bunfs/root/openwrk")) {
+          switchToPlainOutput(text);
         }
-        return qr;
-      },
-      onOwpenbotSetTelegramToken: async (token) => {
-        try {
-          const url = `${openworkBaseUrl.replace(/\/$/, "")}/owpenbot/config/telegram-token`;
-          await fetchJson(url, {
-            method: "POST",
+        originalConsoleError(...items);
+      };
+    }
+    try {
+      tui = startOpenwrkTui({
+        version: cliVersion,
+        connect: {
+          runId,
+          workspace: resolvedWorkspace,
+          openworkUrl: openworkConnectUrl,
+          openworkToken,
+          hostToken: openworkHostToken,
+          opencodeUrl: opencodeConnectUrl,
+          opencodePassword: sandboxMode !== "none" ? undefined : (opencodePassword ?? undefined),
+          opencodeUsername: sandboxMode !== "none" ? undefined : (opencodeUsername ?? undefined),
+          attachCommand,
+        },
+        services: [
+          { name: "opencode", label: "opencode", status: "starting", port: opencodePort },
+          { name: "openwork-server", label: "openwork-server", status: "starting", port: openworkPort },
+          {
+            name: "owpenbot",
+            label: "owpenbot",
+            status: owpenbotEnabled ? "starting" : "disabled",
+            port: sandboxMode !== "none" ? undefined : owpenbotHealthPort,
+          },
+        ],
+        onQuit: handleQuit,
+        onDetach: handleDetach,
+        onCopyAttach: async () => {
+          const result = await copyToClipboard(attachCommand);
+          return { command: attachCommand, ...result };
+        },
+        onCopySelection: async (text) => copyToClipboard(text),
+        onOwpenbotHealth: async () => fetchOwpenbotHealthViaOpenwork(openworkBaseUrl, openworkToken),
+        onOwpenbotQr: async () => {
+          const url = `${openworkBaseUrl.replace(/\/$/, "")}/owpenbot/whatsapp/qr?format=ascii`;
+          const result = await fetchJson(url, {
             headers: {
-              "Content-Type": "application/json",
               "X-OpenWork-Host-Token": openworkHostToken,
             },
-            body: JSON.stringify({ token }),
           });
-          return { ok: true };
-        } catch (error) {
-          return { ok: false, error: error instanceof Error ? error.message : String(error) };
-        }
-      },
-    });
-    tui.setUptimeStart(startedAt);
+          const qr = typeof result?.qr === "string" ? result.qr : "";
+          if (!qr.trim()) {
+            throw new Error("No QR output received");
+          }
+          return qr;
+        },
+        onOwpenbotSetTelegramToken: async (token) => {
+          try {
+            const url = `${openworkBaseUrl.replace(/\/$/, "")}/owpenbot/config/telegram-token`;
+            await fetchJson(url, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-OpenWork-Host-Token": openworkHostToken,
+              },
+              body: JSON.stringify({ token }),
+            });
+            return { ok: true };
+          } catch (error) {
+            return { ok: false, error: error instanceof Error ? error.message : String(error) };
+          }
+        },
+      });
+      tui.setUptimeStart(startedAt);
+    } catch (error) {
+      switchToPlainOutput(error instanceof Error ? error.message : String(error));
+    }
   }
 
   const handleExit = (name: string, code: number | null, signal: NodeJS.Signals | null) => {

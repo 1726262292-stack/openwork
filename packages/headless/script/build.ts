@@ -91,8 +91,9 @@ function outputName(filename: string, target?: string) {
 async function buildOnce(entrypoint: string, outdir: string, filename: string, target?: string) {
   mkdirSync(outdir, { recursive: true });
   const outfile = join(outdir, outputName(filename, target));
+  const solidPluginPath = resolve("script", "opentui-solid-plugin.mjs");
 
-  const args = ["build", entrypoint, "--compile", "--outfile", outfile];
+  const args = ["build", entrypoint, "--compile", "--plugin", solidPluginPath, "--outfile", outfile];
   const pkgPath = resolve("package.json");
   try {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: string };
