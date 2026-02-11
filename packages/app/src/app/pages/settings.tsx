@@ -39,6 +39,8 @@ export type SettingsViewProps = {
   openProviderAuthModal: () => Promise<void>;
   openworkServerStatus: OpenworkServerStatus;
   openworkServerUrl: string;
+  openworkReconnectBusy: boolean;
+  reconnectOpenworkServer: () => Promise<boolean>;
   openworkServerHostInfo: OpenworkServerInfo | null;
   openworkServerCapabilities: OpenworkServerCapabilities | null;
   openworkServerDiagnostics: OpenworkServerDiagnostics | null;
@@ -263,6 +265,8 @@ export default function SettingsView(props: SettingsViewProps) {
   };
 
   const [providerConnectError, setProviderConnectError] = createSignal<string | null>(null);
+  const [openworkReconnectStatus, setOpenworkReconnectStatus] = createSignal<string | null>(null);
+  const [openworkReconnectError, setOpenworkReconnectError] = createSignal<string | null>(null);
   const providerConnectedCount = createMemo(() => (props.providerConnectedIds ?? []).length);
   const providerAvailableCount = createMemo(() => (props.providers ?? []).length);
   const providerStatusLabel = createMemo(() => {
@@ -291,6 +295,24 @@ export default function SettingsView(props: SettingsViewProps) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to open providers";
       setProviderConnectError(message);
+    }
+  };
+
+  const handleReconnectOpenworkServer = async () => {
+    if (props.busy || props.openworkReconnectBusy) return;
+    if (!props.openworkServerUrl.trim()) return;
+    setOpenworkReconnectStatus(null);
+    setOpenworkReconnectError(null);
+    try {
+      const ok = await props.reconnectOpenworkServer();
+      if (!ok) {
+        setOpenworkReconnectError("Reconnect failed. Check server URL/token and try again.");
+        return;
+      }
+      setOpenworkReconnectStatus("Reconnected to OpenWork server.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setOpenworkReconnectError(message || "Failed to reconnect OpenWork server.");
     }
   };
 
@@ -617,6 +639,14 @@ export default function SettingsView(props: SettingsViewProps) {
                   <Shield size={16} />
                   {props.developerMode ? "Disable Developer Mode" : "Enable Developer Mode"}
                 </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleReconnectOpenworkServer}
+                  disabled={props.busy || props.openworkReconnectBusy || !props.openworkServerUrl.trim()}
+                >
+                  <RefreshCcw size={14} class={props.openworkReconnectBusy ? "animate-spin" : ""} />
+                  {props.openworkReconnectBusy ? "Reconnecting..." : "Reconnect server"}
+                </Button>
                 <Show when={isLocalEngineRunning()}>
                   <Button variant="danger" onClick={props.stopHost} disabled={props.busy}>
                     Stop local server
@@ -628,6 +658,12 @@ export default function SettingsView(props: SettingsViewProps) {
                   </Button>
                 </Show>
               </div>
+              <Show when={openworkReconnectStatus()}>
+                {(value) => <div class="text-xs text-gray-9">{value()}</div>}
+              </Show>
+              <Show when={openworkReconnectError()}>
+                {(value) => <div class="text-xs text-red-11">{value()}</div>}
+              </Show>
             </div>
 
             <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">

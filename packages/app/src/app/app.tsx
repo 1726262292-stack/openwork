@@ -261,6 +261,7 @@ export default function App() {
   const [openworkServerWorkspaceId, setOpenworkServerWorkspaceId] = createSignal<string | null>(null);
   const [openworkServerHostInfo, setOpenworkServerHostInfo] = createSignal<OpenworkServerInfo | null>(null);
   const [openworkServerDiagnostics, setOpenworkServerDiagnostics] = createSignal<OpenworkServerDiagnostics | null>(null);
+  const [openworkReconnectBusy, setOpenworkReconnectBusy] = createSignal(false);
   const [owpenbotInfoState, setOwpenbotInfoState] = createSignal<OwpenbotInfo | null>(null);
   const [openwrkStatusState, setOpenwrkStatusState] = createSignal<OpenwrkStatus | null>(null);
   const [openworkAuditEntries, setOpenworkAuditEntries] = createSignal<OpenworkAuditEntry[]>([]);
@@ -2118,6 +2119,49 @@ export default function App() {
       }
     }
     return ok;
+  };
+
+  const reconnectOpenworkServer = async () => {
+    if (openworkReconnectBusy()) return false;
+    setOpenworkReconnectBusy(true);
+    try {
+      let hostInfo = openworkServerHostInfo();
+      if (isTauriRuntime()) {
+        try {
+          hostInfo = await openworkServerInfo();
+          setOpenworkServerHostInfo(hostInfo);
+        } catch {
+          hostInfo = null;
+          setOpenworkServerHostInfo(null);
+        }
+      }
+
+      // Repair stale local token state by syncing settings token from the live host.
+      if (hostInfo?.clientToken?.trim() && startupPreference() !== "server") {
+        const liveToken = hostInfo.clientToken.trim();
+        const settings = openworkServerSettings();
+        if ((settings.token?.trim() ?? "") !== liveToken) {
+          updateOpenworkServerSettings({ ...settings, token: liveToken });
+        }
+      }
+
+      const url = openworkServerBaseUrl().trim();
+      const auth = openworkServerAuth();
+      if (!url) {
+        setOpenworkServerStatus("disconnected");
+        setOpenworkServerCapabilities(null);
+        setOpenworkServerCheckedAt(Date.now());
+        return false;
+      }
+
+      const result = await checkOpenworkServer(url, auth.token, auth.hostToken);
+      setOpenworkServerStatus(result.status);
+      setOpenworkServerCapabilities(result.capabilities);
+      setOpenworkServerCheckedAt(Date.now());
+      return result.status === "connected" || result.status === "limited";
+    } finally {
+      setOpenworkReconnectBusy(false);
+    }
   };
 
   const openWorkspaceConnectionSettings = (workspaceId: string) => {
@@ -4475,6 +4519,9 @@ export default function App() {
       error: error(),
       openworkServerStatus: openworkStatus,
       openworkServerUrl: openworkServerUrl(),
+      openworkServerClient: openworkServerClient(),
+      openworkReconnectBusy: openworkReconnectBusy(),
+      reconnectOpenworkServer,
       openworkServerSettings: openworkServerSettings(),
       openworkServerHostInfo: openworkServerHostInfo(),
       openworkServerCapabilities: devtoolsCapabilities(),

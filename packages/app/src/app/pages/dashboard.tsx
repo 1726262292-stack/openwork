@@ -19,6 +19,7 @@ import { formatRelativeTime, isTauriRuntime, normalizeDirectoryPath } from "../u
 import { buildOpenworkWorkspaceBaseUrl, createOpenworkServerClient } from "../lib/openwork-server";
 import type {
   OpenworkAuditEntry,
+  OpenworkServerClient,
   OpenworkServerCapabilities,
   OpenworkServerDiagnostics,
   OpenworkServerSettings,
@@ -80,6 +81,9 @@ export type DashboardViewProps = {
   error: string | null;
   openworkServerStatus: OpenworkServerStatus;
   openworkServerUrl: string;
+  openworkServerClient: OpenworkServerClient | null;
+  openworkReconnectBusy: boolean;
+  reconnectOpenworkServer: () => Promise<boolean>;
   openworkServerSettings: OpenworkServerSettings;
   openworkServerHostInfo: OpenworkServerInfo | null;
   openworkServerCapabilities: OpenworkServerCapabilities | null;
@@ -1223,9 +1227,10 @@ export default function DashboardView(props: DashboardViewProps) {
                 busy={props.busy}
                 openworkServerStatus={props.openworkServerStatus}
                 openworkServerUrl={props.openworkServerUrl}
-                openworkServerSettings={props.openworkServerSettings}
+                openworkServerClient={props.openworkServerClient}
+                openworkReconnectBusy={props.openworkReconnectBusy}
+                reconnectOpenworkServer={props.reconnectOpenworkServer}
                 openworkServerWorkspaceId={props.openworkServerWorkspaceId}
-                openworkServerHostInfo={props.openworkServerHostInfo}
                 activeWorkspaceRoot={props.activeWorkspaceRoot}
                 developerMode={props.developerMode}
               />
@@ -1271,6 +1276,8 @@ export default function DashboardView(props: DashboardViewProps) {
                   openProviderAuthModal={props.openProviderAuthModal}
                   openworkServerStatus={props.openworkServerStatus}
                   openworkServerUrl={props.openworkServerUrl}
+                  openworkReconnectBusy={props.openworkReconnectBusy}
+                  reconnectOpenworkServer={props.reconnectOpenworkServer}
                   openworkServerHostInfo={props.openworkServerHostInfo}
                   openworkServerCapabilities={props.openworkServerCapabilities}
                   openworkServerDiagnostics={props.openworkServerDiagnostics}

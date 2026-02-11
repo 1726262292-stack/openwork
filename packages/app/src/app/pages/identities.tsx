@@ -11,27 +11,26 @@ import {
 import Button from "../components/button";
 import {
   buildOpenworkWorkspaceBaseUrl,
-  createOpenworkServerClient,
   OpenworkServerError,
   parseOpenworkWorkspaceIdFromUrl,
 } from "../lib/openwork-server";
 import type {
+  OpenworkServerClient,
   OpenworkOwpenbotHealthSnapshot,
   OpenworkOwpenbotIdentityItem,
   OpenworkOwpenbotSendResult,
-  OpenworkServerSettings,
   OpenworkServerStatus,
   OpenworkWorkspaceFileContent,
 } from "../lib/openwork-server";
-import type { OpenworkServerInfo } from "../lib/tauri";
 
 export type IdentitiesViewProps = {
   busy: boolean;
   openworkServerStatus: OpenworkServerStatus;
   openworkServerUrl: string;
-  openworkServerSettings: OpenworkServerSettings;
+  openworkServerClient: OpenworkServerClient | null;
+  openworkReconnectBusy: boolean;
+  reconnectOpenworkServer: () => Promise<boolean>;
   openworkServerWorkspaceId: string | null;
-  openworkServerHostInfo: OpenworkServerInfo | null;
   activeWorkspaceRoot: string;
   developerMode: boolean;
 };
@@ -158,6 +157,9 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
   const [sendError, setSendError] = createSignal<string | null>(null);
   const [sendResult, setSendResult] = createSignal<OpenworkOwpenbotSendResult | null>(null);
 
+  const [reconnectStatus, setReconnectStatus] = createSignal<string | null>(null);
+  const [reconnectError, setReconnectError] = createSignal<string | null>(null);
+
   const workspaceId = createMemo(() => {
     const explicitId = props.openworkServerWorkspaceId?.trim() ?? "";
     if (explicitId) return explicitId;
@@ -170,19 +172,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     return buildOpenworkWorkspaceBaseUrl(baseUrl, workspaceId()) ?? baseUrl;
   });
 
-  const openworkServerClient = createMemo(() => {
-    const baseUrl = scopedOpenworkBaseUrl().trim();
-    const localBaseUrl = props.openworkServerHostInfo?.baseUrl?.trim() ?? "";
-    const localScopedBaseUrl = buildOpenworkWorkspaceBaseUrl(localBaseUrl, workspaceId()) ?? localBaseUrl;
-    const hostToken = props.openworkServerHostInfo?.hostToken?.trim() ?? "";
-    const clientToken = props.openworkServerHostInfo?.clientToken?.trim() ?? "";
-    const settingsToken = props.openworkServerSettings.token?.trim() ?? "";
-
-    const isLocalServer = Boolean(localBaseUrl) && (baseUrl === localBaseUrl || baseUrl === localScopedBaseUrl);
-    const token = isLocalServer ? (clientToken || settingsToken) : (settingsToken || clientToken);
-    if (!baseUrl || !token) return null;
-    return createOpenworkServerClient({ baseUrl, token, hostToken: isLocalServer ? hostToken : undefined });
-  });
+  const openworkServerClient = createMemo(() => props.openworkServerClient);
 
   const serverReady = createMemo(() => props.openworkServerStatus === "connected" && Boolean(openworkServerClient()));
   const scopedWorkspaceReady = createMemo(() => Boolean(workspaceId()));
@@ -426,6 +416,22 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     }
   };
 
+  const repairAndReconnect = async () => {
+    if (props.openworkReconnectBusy) return;
+    setReconnectStatus(null);
+    setReconnectError(null);
+
+    const ok = await props.reconnectOpenworkServer();
+    if (!ok) {
+      setReconnectError("Reconnect failed. Check OpenWork URL/token and try again.");
+      return;
+    }
+
+    setReconnectStatus("Reconnected. Refreshing worker state...");
+    await refreshAll({ force: true });
+    setReconnectStatus("Reconnected.");
+  };
+
   const upsertTelegram = async () => {
     if (telegramSaving()) return;
     if (!serverReady()) return;
@@ -576,6 +582,8 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     setSendStatus(null);
     setSendError(null);
     setSendResult(null);
+    setReconnectStatus(null);
+    setReconnectError(null);
     setLastUpdatedAt(null);
   });
 
@@ -596,15 +604,26 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
       <div>
         <div class="flex items-center justify-between mb-1.5">
           <h1 class="text-lg font-bold text-gray-12 tracking-tight">Messaging channels</h1>
-          <Button
-            variant="outline"
-            class="h-8 px-3 text-xs"
-            onClick={() => refreshAll({ force: true })}
-            disabled={!serverReady() || refreshing()}
-          >
-            <RefreshCcw size={14} class={refreshing() ? "animate-spin" : ""} />
-            <span class="ml-1.5">Refresh</span>
-          </Button>
+          <div class="flex items-center gap-2">
+            <Button
+              variant="outline"
+              class="h-8 px-3 text-xs"
+              onClick={() => void repairAndReconnect()}
+              disabled={props.busy || props.openworkReconnectBusy}
+            >
+              <RefreshCcw size={14} class={props.openworkReconnectBusy ? "animate-spin" : ""} />
+              <span class="ml-1.5">Repair & reconnect</span>
+            </Button>
+            <Button
+              variant="outline"
+              class="h-8 px-3 text-xs"
+              onClick={() => refreshAll({ force: true })}
+              disabled={!serverReady() || refreshing()}
+            >
+              <RefreshCcw size={14} class={refreshing() ? "animate-spin" : ""} />
+              <span class="ml-1.5">Refresh</span>
+            </Button>
+          </div>
         </div>
         <p class="text-sm text-gray-9 leading-relaxed">
           Let people reach your worker through messaging apps. Connect a channel and
@@ -613,6 +632,12 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
         <div class="mt-1.5 text-[11px] text-gray-8 font-mono truncate">
           Workspace scope: {scopedOpenworkBaseUrl().trim() || props.openworkServerUrl.trim() || "Not set"}
         </div>
+        <Show when={reconnectStatus()}>
+          {(value) => <div class="mt-1 text-[11px] text-gray-9">{value()}</div>}
+        </Show>
+        <Show when={reconnectError()}>
+          {(value) => <div class="mt-1 text-[11px] text-red-12">{value()}</div>}
+        </Show>
       </div>
 
       {/* ---- Not connected to server ---- */}
