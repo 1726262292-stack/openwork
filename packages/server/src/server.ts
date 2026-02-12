@@ -2079,7 +2079,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
         { expected: workspaceIdentityId, received: requestedId },
       );
     }
-    const identityId = workspaceIdentityId;
+    const identityId = requestedId || undefined;
 
     if (channel !== "telegram" && channel !== "slack") {
       throw new ApiError(400, "invalid_channel", "channel must be 'telegram' or 'slack'");
