@@ -13,6 +13,8 @@ export type MessageListProps = {
   showThinking: boolean;
   expandedStepIds: Set<string>;
   setExpandedStepIds: (updater: (current: Set<string>) => Set<string>) => void;
+  searchMatchMessageIds?: ReadonlySet<string>;
+  activeSearchMessageId?: string | null;
   footer?: JSX.Element;
 };
 
@@ -406,6 +408,15 @@ export default function MessageList(props: MessageListProps) {
     <div class="space-y-6 pb-32">
       <For each={messageBlocks()}>
         {(block) => {
+          const blockMessageIds = block.kind === "steps-cluster" ? block.messageIds : [block.messageId];
+          const hasSearchMatch = blockMessageIds.some((id) => props.searchMatchMessageIds?.has(id));
+          const hasActiveSearchMatch = blockMessageIds.some((id) => id === props.activeSearchMessageId);
+          const searchOutlineClass = hasActiveSearchMatch
+            ? "outline outline-2 outline-amber-8/70 outline-offset-2 rounded-2xl"
+            : hasSearchMatch
+              ? "outline outline-1 outline-amber-7/50 outline-offset-1 rounded-2xl"
+              : "";
+
           if (block.kind === "steps-cluster") {
             return (
               <div
@@ -418,7 +429,7 @@ export default function MessageList(props: MessageListProps) {
                     block.isUser
                       ? "max-w-2xl px-6 py-4 rounded-[24px] bg-gray-3 text-gray-12 text-[15px] leading-relaxed"
                       : "max-w-[68ch] text-[15px] leading-7 text-gray-12 group pl-2"
-                  }`}
+                  } ${searchOutlineClass}`}
                 >
                   <StepsContainer
                     id={block.id}
@@ -443,7 +454,7 @@ export default function MessageList(props: MessageListProps) {
                   block.isUser
                     ? "max-w-2xl px-6 py-4 rounded-[24px] bg-gray-3 text-gray-12 text-[15px] leading-relaxed"
                     : "max-w-[68ch] text-[15px] leading-7 text-gray-12 group pl-2"
-                }`}
+                } ${searchOutlineClass}`}
               >
                 <Show when={attachmentsForMessage(block.message).length > 0}>
                   <div class={block.isUser ? "mb-3 flex flex-wrap gap-2" : "mb-4 flex flex-wrap gap-2"}>

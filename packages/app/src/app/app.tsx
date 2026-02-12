@@ -944,6 +944,102 @@ export default function App() {
     });
   }
 
+  const messageIdFromInfo = (message: MessageWithParts) => {
+    const id = (message.info as { id?: string | number }).id;
+    if (typeof id === "string") return id;
+    if (typeof id === "number") return String(id);
+    return "";
+  };
+
+  const restorePromptFromUserMessage = (message: MessageWithParts) => {
+    const text = message.parts
+      .filter((part) => part.type === "text")
+      .map((part) => String((part as { text?: string }).text ?? ""))
+      .join("");
+    setPrompt(text);
+  };
+
+  async function undoLastUserMessage() {
+    const c = client();
+    const sessionID = (selectedSessionId() ?? "").trim();
+    if (!c || !sessionID) return;
+
+    if (selectedSessionStatus() !== "idle") {
+      await (c.session as any).abort({ sessionID }).catch(() => undefined);
+    }
+
+    const revertMessageID = selectedSession()?.revert?.messageID ?? null;
+    const users = messages().filter((message) => {
+      const role = (message.info as { role?: string }).role;
+      return role === "user";
+    });
+
+    let target: MessageWithParts | null = null;
+    for (let idx = users.length - 1; idx >= 0; idx -= 1) {
+      const candidate = users[idx];
+      const id = messageIdFromInfo(candidate);
+      if (!id) continue;
+      if (!revertMessageID || id < revertMessageID) {
+        target = candidate;
+        break;
+      }
+    }
+
+    if (!target) return;
+    const messageID = messageIdFromInfo(target);
+    if (!messageID) return;
+
+    unwrap(await (c.session as any).revert({ sessionID, messageID }));
+    restorePromptFromUserMessage(target);
+  }
+
+  async function redoLastUserMessage() {
+    const c = client();
+    const sessionID = (selectedSessionId() ?? "").trim();
+    if (!c || !sessionID) return;
+
+    const revertMessageID = selectedSession()?.revert?.messageID ?? null;
+    if (!revertMessageID) return;
+
+    const users = messages().filter((message) => {
+      const role = (message.info as { role?: string }).role;
+      return role === "user";
+    });
+
+    const next = users.find((message) => {
+      const id = messageIdFromInfo(message);
+      return Boolean(id) && id > revertMessageID;
+    });
+
+    if (!next) {
+      unwrap(await (c.session as any).unrevert({ sessionID }));
+      setPrompt("");
+      return;
+    }
+
+    const messageID = messageIdFromInfo(next);
+    if (!messageID) return;
+
+    unwrap(await (c.session as any).revert({ sessionID, messageID }));
+
+    let prior: MessageWithParts | null = null;
+    for (let idx = users.length - 1; idx >= 0; idx -= 1) {
+      const candidate = users[idx];
+      const id = messageIdFromInfo(candidate);
+      if (id && id < messageID) {
+        prior = candidate;
+        break;
+      }
+    }
+
+    if (prior) {
+      restorePromptFromUserMessage(prior);
+      return;
+    }
+
+    setPrompt("");
+  }
+
   async function renameSessionTitle(sessionID: string, title: string) {
     const trimmed = title.trim();
     if (!trimmed) {
@@ -4798,6 +4894,9 @@ export default function App() {
     createSessionAndOpen: createSessionAndOpen,
     sendPromptAsync: sendPrompt,
     abortSession: abortSession,
+    sessionRevertMessageId: selectedSession()?.revert?.messageID ?? null,
+    undoLastUserMessage: undoLastUserMessage,
+    redoLastUserMessage: redoLastUserMessage,
     lastPromptSent: lastPromptSent(),
     retryLastPrompt: retryLastPrompt,
     newTaskDisabled: newTaskDisabled(),

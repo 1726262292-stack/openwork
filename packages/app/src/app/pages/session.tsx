@@ -39,10 +39,14 @@ import {
   MoreHorizontal,
   Plus,
   RotateCcw,
+  Redo2,
+  Search,
   Settings,
   Square,
   Shield,
   SlidersHorizontal,
+  Undo2,
+  X,
   Zap,
 } from "lucide-solid";
 
@@ -116,6 +120,9 @@ export type SessionViewProps = {
   createSessionAndOpen: () => void;
   sendPromptAsync: (draft: ComposerDraft) => Promise<void>;
   abortSession: (sessionId?: string) => Promise<void>;
+  sessionRevertMessageId: string | null;
+  undoLastUserMessage: () => Promise<void>;
+  redoLastUserMessage: () => Promise<void>;
   lastPromptSent: string;
   retryLastPrompt: () => void;
   newTaskDisabled: boolean;
@@ -209,6 +216,7 @@ export default function SessionView(props: SessionViewProps) {
   let chatContainerEl: HTMLDivElement | undefined;
   let agentPickerRef: HTMLDivElement | undefined;
   let sessionMenuRef: HTMLDivElement | undefined;
+  let searchInputEl: HTMLInputElement | undefined;
 
   const [toastMessage, setToastMessage] = createSignal<string | null>(null);
   const [providerAuthActionBusy, setProviderAuthActionBusy] = createSignal(false);
@@ -226,6 +234,10 @@ export default function SessionView(props: SessionViewProps) {
   const [agentOptions, setAgentOptions] = createSignal<Agent[]>([]);
   const [autoScrollEnabled, setAutoScrollEnabled] = createSignal(false);
   const [scrollOnNextUpdate, setScrollOnNextUpdate] = createSignal(false);
+  const [searchOpen, setSearchOpen] = createSignal(false);
+  const [searchQuery, setSearchQuery] = createSignal("");
+  const [activeSearchHitIndex, setActiveSearchHitIndex] = createSignal(0);
+  const [historyActionBusy, setHistoryActionBusy] = createSignal<"undo" | "redo" | null>(null);
 
   const [markdownEditorOpen, setMarkdownEditorOpen] = createSignal(false);
   const [markdownEditorPath, setMarkdownEditorPath] = createSignal<string | null>(null);
@@ -248,6 +260,107 @@ export default function SessionView(props: SessionViewProps) {
   const todoCompletedCount = createMemo(() =>
     todoList().filter((todo) => todo.status === "completed").length
   );
+
+  type SearchHit = {
+    messageId: string;
+  };
+
+  const messageIdFromInfo = (message: MessageWithParts) => {
+    const id = (message.info as { id?: string | number }).id;
+    if (typeof id === "string") return id;
+    if (typeof id === "number") return String(id);
+    return "";
+  };
+
+  const messageTextForSearch = (message: MessageWithParts) => {
+    const chunks: string[] = [];
+    for (const part of message.parts) {
+      if (part.type === "text") {
+        const text = (part as { text?: string }).text ?? "";
+        if (text) chunks.push(text);
+        continue;
+      }
+      if (part.type === "agent") {
+        const name = (part as { name?: string }).name ?? "";
+        if (name) chunks.push(`@${name}`);
+        continue;
+      }
+      if (part.type === "file") {
+        const file = part as { label?: string; path?: string; filename?: string };
+        const label = file.label ?? file.path ?? file.filename ?? "";
+        if (label) chunks.push(label);
+        continue;
+      }
+      if (part.type === "tool") {
+        const state = (part as { state?: { title?: string; output?: string; error?: string } }).state;
+        if (state?.title) chunks.push(state.title);
+        if (state?.output) chunks.push(state.output);
+        if (state?.error) chunks.push(state.error);
+      }
+    }
+    return chunks.join("\n");
+  };
+
+  const searchHits = createMemo<SearchHit[]>(() => {
+    const query = searchQuery().trim().toLowerCase();
+    if (!query) return [];
+
+    const hits: SearchHit[] = [];
+    for (const message of props.messages) {
+      const messageId = messageIdFromInfo(message);
+      if (!messageId) continue;
+      const haystack = messageTextForSearch(message).toLowerCase();
+      if (!haystack) continue;
+      let index = haystack.indexOf(query);
+      while (index !== -1) {
+        hits.push({ messageId });
+        index = haystack.indexOf(query, index + Math.max(1, query.length));
+      }
+    }
+    return hits;
+  });
+
+  const searchMatchMessageIds = createMemo(() => {
+    const out = new Set<string>();
+    for (const hit of searchHits()) out.add(hit.messageId);
+    return out;
+  });
+
+  const activeSearchHit = createMemo<SearchHit | null>(() => {
+    const hits = searchHits();
+    if (!hits.length) return null;
+    const size = hits.length;
+    const raw = activeSearchHitIndex();
+    const index = ((raw % size) + size) % size;
+    return hits[index] ?? null;
+  });
+
+  const activeSearchPositionLabel = createMemo(() => {
+    const hits = searchHits();
+    if (!hits.length) return "No matches";
+    const size = hits.length;
+    const raw = activeSearchHitIndex();
+    const index = ((raw % size) + size) % size;
+    return `${index + 1} of ${size}`;
+  });
+
+  const canUndoLastMessage = createMemo(() => {
+    if (!props.selectedSessionId) return false;
+    const revert = props.sessionRevertMessageId;
+    for (const message of props.messages) {
+      const role = (message.info as { role?: string }).role;
+      if (role !== "user") continue;
+      const id = messageIdFromInfo(message);
+      if (!id) continue;
+      if (!revert || id < revert) return true;
+    }
+    return false;
+  });
+
+  const canRedoLastMessage = createMemo(() => {
+    if (!props.selectedSessionId) return false;
+    return Boolean(props.sessionRevertMessageId);
+  });
 
   const touchedFiles = createMemo(() => {
     const out: string[] = [];
@@ -720,6 +833,64 @@ export default function SessionView(props: SessionViewProps) {
     onCleanup(() => container.removeEventListener("scroll", update));
   });
 
+  createEffect(
+    on(
+      () => props.selectedSessionId,
+      () => {
+        setSearchOpen(false);
+        setSearchQuery("");
+        setActiveSearchHitIndex(0);
+      },
+    ),
+  );
+
+  createEffect(() => {
+    const hits = searchHits();
+    if (!hits.length) {
+      setActiveSearchHitIndex(0);
+      return;
+    }
+    setActiveSearchHitIndex((current) => {
+      if (current < 0 || current >= hits.length) return 0;
+      return current;
+    });
+  });
+
+  createEffect(() => {
+    const active = activeSearchHit();
+    if (!active) return;
+    const container = chatContainerEl;
+    if (!container) return;
+    const escapedId = active.messageId.replace(/"/g, '\\"');
+    const target = container.querySelector(`[data-message-id="${escapedId}"]`) as HTMLElement | null;
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+
+  createEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const mod = event.metaKey || event.ctrlKey;
+      if (mod && !event.altKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        openSearch();
+        return;
+      }
+      if (!searchOpen()) return;
+      if (mod && !event.altKey && event.key.toLowerCase() === "g") {
+        event.preventDefault();
+        moveSearchHit(event.shiftKey ? -1 : 1);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSearch();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
+  });
+
   createEffect(() => {
     const status = props.sessionStatus;
     if (status === "running" || status === "retry") {
@@ -860,6 +1031,69 @@ export default function SessionView(props: SessionViewProps) {
     }
 
     props.retryLastPrompt();
+  };
+
+  const focusSearchInput = () => {
+    queueMicrotask(() => {
+      searchInputEl?.focus();
+      searchInputEl?.select();
+    });
+  };
+
+  const openSearch = () => {
+    setSearchOpen(true);
+    focusSearchInput();
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+  };
+
+  const moveSearchHit = (offset: number) => {
+    const total = searchHits().length;
+    if (!total) return;
+    setActiveSearchHitIndex((current) => {
+      const normalized = ((current % total) + total) % total;
+      return (normalized + offset + total) % total;
+    });
+  };
+
+  const undoLastMessage = async () => {
+    if (historyActionBusy()) return;
+    if (!canUndoLastMessage()) {
+      setToastMessage("Nothing to undo yet.");
+      return;
+    }
+
+    setHistoryActionBusy("undo");
+    try {
+      await props.undoLastUserMessage();
+      setToastMessage("Reverted the last user message.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : props.safeStringify(error);
+      setToastMessage(message || "Failed to undo");
+    } finally {
+      setHistoryActionBusy(null);
+    }
+  };
+
+  const redoLastMessage = async () => {
+    if (historyActionBusy()) return;
+    if (!canRedoLastMessage()) {
+      setToastMessage("Nothing to redo.");
+      return;
+    }
+
+    setHistoryActionBusy("redo");
+    try {
+      await props.redoLastUserMessage();
+      setToastMessage("Restored the reverted message.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : props.safeStringify(error);
+      setToastMessage(message || "Failed to redo");
+    } finally {
+      setHistoryActionBusy(null);
+    }
   };
 
 
@@ -1834,6 +2068,49 @@ export default function SessionView(props: SessionViewProps) {
           </div>
 
           <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class={`h-9 w-9 flex items-center justify-center rounded-lg transition-colors ${
+                searchOpen()
+                  ? "bg-dls-active text-dls-text"
+                  : "text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
+              }`}
+              onClick={() => {
+                if (searchOpen()) {
+                  closeSearch();
+                  return;
+                }
+                openSearch();
+              }}
+              title="Search conversation (Ctrl/Cmd+F)"
+              aria-label="Search conversation"
+            >
+              <Search size={16} />
+            </button>
+            <button
+              type="button"
+              class="h-9 w-9 flex items-center justify-center rounded-lg text-dls-secondary hover:text-dls-text hover:bg-dls-hover transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              onClick={undoLastMessage}
+              disabled={!canUndoLastMessage() || historyActionBusy() !== null}
+              title="Undo last message"
+              aria-label="Undo last message"
+            >
+              <Show when={historyActionBusy() === "undo"} fallback={<Undo2 size={16} />}>
+                <Loader2 size={16} class="animate-spin" />
+              </Show>
+            </button>
+            <button
+              type="button"
+              class="h-9 w-9 flex items-center justify-center rounded-lg text-dls-secondary hover:text-dls-text hover:bg-dls-hover transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              onClick={redoLastMessage}
+              disabled={!canRedoLastMessage() || historyActionBusy() !== null}
+              title="Redo last reverted message"
+              aria-label="Redo last reverted message"
+            >
+              <Show when={historyActionBusy() === "redo"} fallback={<Redo2 size={16} />}>
+                <Loader2 size={16} class="animate-spin" />
+              </Show>
+            </button>
             <div ref={(el) => (sessionMenuRef = el)} class="relative">
               <button
                 type="button"
@@ -1874,6 +2151,64 @@ export default function SessionView(props: SessionViewProps) {
             </div>
           </div>
         </header>
+
+        <Show when={searchOpen()}>
+          <div class="border-b border-dls-border bg-dls-hover/40 px-6 py-2">
+            <div class="mx-auto flex w-full max-w-5xl items-center gap-2 rounded-xl border border-dls-border bg-dls-surface px-3 py-2">
+              <Search size={14} class="text-dls-secondary" />
+              <input
+                ref={(el) => (searchInputEl = el)}
+                type="text"
+                value={searchQuery()}
+                onInput={(event) => {
+                  setSearchQuery(event.currentTarget.value);
+                  setActiveSearchHitIndex(0);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    moveSearchHit(event.shiftKey ? -1 : 1);
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    closeSearch();
+                  }
+                }}
+                class="min-w-0 flex-1 bg-transparent text-sm text-dls-text placeholder:text-dls-secondary focus:outline-none"
+                placeholder="Search in this chat"
+                aria-label="Search in this chat"
+              />
+              <span class="text-[11px] text-dls-secondary tabular-nums">{activeSearchPositionLabel()}</span>
+              <button
+                type="button"
+                class="rounded-md border border-dls-border px-2 py-1 text-[11px] text-dls-secondary hover:text-dls-text hover:bg-dls-hover transition-colors disabled:opacity-60"
+                disabled={searchHits().length === 0}
+                onClick={() => moveSearchHit(-1)}
+                aria-label="Previous match"
+              >
+                Prev
+              </button>
+              <button
+                type="button"
+                class="rounded-md border border-dls-border px-2 py-1 text-[11px] text-dls-secondary hover:text-dls-text hover:bg-dls-hover transition-colors disabled:opacity-60"
+                disabled={searchHits().length === 0}
+                onClick={() => moveSearchHit(1)}
+                aria-label="Next match"
+              >
+                Next
+              </button>
+              <button
+                type="button"
+                class="h-7 w-7 flex items-center justify-center rounded-md text-dls-secondary hover:text-dls-text hover:bg-dls-hover transition-colors"
+                onClick={closeSearch}
+                aria-label="Close search"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+        </Show>
 
       <Show when={props.error}>
         <div class="mx-auto max-w-5xl w-full px-6 md:px-10 pt-4">
@@ -1936,6 +2271,8 @@ export default function SessionView(props: SessionViewProps) {
             showThinking={props.showThinking}
             expandedStepIds={props.expandedStepIds}
             setExpandedStepIds={props.setExpandedStepIds}
+            searchMatchMessageIds={searchMatchMessageIds()}
+            activeSearchMessageId={activeSearchHit()?.messageId ?? null}
             footer={
               showRunIndicator() ? (
                 <div class="flex justify-start pl-2">
