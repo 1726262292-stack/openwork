@@ -471,8 +471,9 @@ export function classifyTool(toolName: string): "read" | "edit" | "write" | "sea
   const lower = toolName.toLowerCase();
   if (lower === "skill") return "skill";
   if (lower.includes("read") || lower.includes("cat") || lower.includes("fetch")) return "read";
-  if (lower.includes("edit") || lower.includes("patch") || lower.includes("replace") || lower.includes("update")) return "edit";
-  if (lower.includes("write") || lower.includes("create")) return "write";
+  if (lower === "apply_patch") return "write";
+  if (lower.includes("edit") || lower.includes("replace") || lower.includes("update")) return "edit";
+  if (lower.includes("write") || lower.includes("create") || lower.includes("patch")) return "write";
   if (lower.includes("grep") || lower.includes("search") || lower.includes("find")) return "search";
   if (lower.includes("bash") || lower.includes("shell") || lower.includes("exec") || lower.includes("command") || lower.includes("run")) return "terminal";
   if (lower.includes("glob") || lower.includes("list") || lower.includes("ls")) return "glob";

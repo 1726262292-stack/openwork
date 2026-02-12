@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
 import fuzzysort from "fuzzysort";
-import { ArrowUp, AtSign, Check, ChevronDown, File as FileIcon, Paperclip, Terminal, X, Zap } from "lucide-solid";
+import { ArrowUp, AtSign, Check, ChevronDown, File as FileIcon, Paperclip, Square, Terminal, X, Zap } from "lucide-solid";
 
 import type { ComposerAttachment, ComposerDraft, ComposerPart, PromptMode, SlashCommandOption } from "../../types";
 
@@ -22,7 +22,9 @@ type MentionGroup = {
 type ComposerProps = {
   prompt: string;
   busy: boolean;
+  isStreaming: boolean;
   onSend: (draft: ComposerDraft) => void;
+  onStop: () => void;
   onDraftChange: (draft: ComposerDraft) => void;
   selectedModelLabel: string;
   onModelClick: () => void;
@@ -1706,18 +1708,32 @@ export default function Composer(props: ComposerProps) {
                         </div>
                       </div>
                       <div class="flex items-center gap-3 text-dls-secondary">
-                        <button
-                          type="button"
-                          disabled={!props.prompt.trim() && !attachments().length}
-                          onClick={sendDraft}
-                          class={`p-1.5 rounded-full ${!props.prompt.trim() && !attachments().length
-                            ? "bg-dls-active text-dls-secondary"
-                            : "bg-dls-accent text-white"
-                            }`}
-                          title="Send"
+                        <Show
+                          when={props.isStreaming}
+                          fallback={
+                            <button
+                              type="button"
+                              disabled={!props.prompt.trim() && !attachments().length}
+                              onClick={sendDraft}
+                              class={`p-1.5 rounded-full transition-colors ${!props.prompt.trim() && !attachments().length
+                                ? "bg-dls-active text-dls-secondary"
+                                : "bg-dls-accent text-white"
+                                }`}
+                              title="Send"
+                            >
+                              <ArrowUp size={18} />
+                            </button>
+                          }
                         >
-                          <ArrowUp size={18} />
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => props.onStop()}
+                            class="p-1.5 rounded-full bg-gray-12 text-gray-1 hover:bg-gray-11 transition-colors"
+                            title="Stop"
+                          >
+                            <Square size={14} fill="currentColor" />
+                          </button>
+                        </Show>
                       </div>
                     </div>
                   </div>

@@ -27,7 +27,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  Clock3,
   Cpu,
   HardDrive,
   History,
@@ -38,11 +37,9 @@ import {
   Minimize2,
   MoreHorizontal,
   Plus,
-  RotateCcw,
   Redo2,
   Search,
   Settings,
-  Square,
   Shield,
   SlidersHorizontal,
   Undo2,
@@ -737,7 +734,8 @@ export default function SessionView(props: SessionViewProps) {
           return "Searching the web";
         case "edit":
         case "write":
-          return "Making edits";
+        case "apply_patch":
+          return "Writing file";
         case "bash":
           return "Running shell";
         default:
@@ -2276,146 +2274,21 @@ export default function SessionView(props: SessionViewProps) {
             footer={
               showRunIndicator() ? (
                 <div class="flex justify-start pl-2">
-                  <div class="w-full max-w-[68ch] space-y-2">
-                    <Show when={thinkingStatus()}>
-                      <div class="rounded-xl border border-gray-6/70 bg-gray-2/40 px-3 py-2 text-xs text-gray-11">
-                        <button
-                          type="button"
-                          class="w-full flex items-center justify-between gap-3 text-left"
-                          onClick={() => setThinkingExpanded((prev) => !prev)}
-                          aria-expanded={thinkingExpanded()}
-                        >
-                          <div class="flex items-center gap-2 min-w-0">
-                            <span class="text-[10px] uppercase tracking-wide text-gray-9">Thinking</span>
-                            <span class="truncate text-gray-12">{thinkingStatus()}</span>
-                          </div>
-                          <ChevronDown
-                            size={12}
-                            class={`text-gray-8 transition-transform ${thinkingExpanded() ? "rotate-180" : ""}`}
-                          />
-                        </button>
-                        <Show when={thinkingExpanded() && thinkingDetail()}>
-                          {(detail) => (
-                            <div class="mt-2 text-xs text-gray-11">
-                              <div class="text-gray-12">{detail().title}</div>
-                              <Show when={detail().detail}>
-                                <div class="mt-1 whitespace-pre-wrap text-gray-10">{detail().detail}</div>
-                              </Show>
-                            </div>
-                          )}
-                        </Show>
-                      </div>
-                    </Show>
-                    <Show when={stallStage() !== "none"}>
-                      <div
-                        class={`rounded-xl border px-3 py-2 text-xs ${
-                          stallStage() === "hard"
-                            ? "border-amber-7/30 bg-amber-2/30 text-amber-12"
-                            : "border-gray-6/70 bg-gray-2/40 text-gray-11"
-                        }`}
-                      >
-                        <div class="flex items-start justify-between gap-3">
-                          <div class="flex items-start gap-2 min-w-0">
-                            <Clock3 size={14} class={stallStage() === "hard" ? "text-amber-11" : "text-gray-9"} />
-                            <div class="min-w-0">
-                              <div class={stallStage() === "hard" ? "text-amber-12" : "text-gray-12"}>
-                                {stallStage() === "hard" ? "This is taking longer than usual." : "Still working..."}
-                              </div>
-                              <Show when={stallStage() === "hard"}>
-                                <div class="mt-1 text-[11px] leading-snug">
-                                  You can keep waiting, try again, or stop the run.
-                                </div>
-                              </Show>
-                              <Show when={props.developerMode && stallStage() === "hard"}>
-                                <div class="mt-1 text-[10px] font-mono opacity-80">
-                                  phase={runPhase()} stallMs={Math.round(runStallMs())}
-                                </div>
-                              </Show>
-                            </div>
-                          </div>
-                          <Show when={stallStage() === "hard"}>
-                            <div class="flex items-center gap-2 shrink-0">
-                              <button
-                                type="button"
-                                class="inline-flex items-center gap-1.5 rounded-lg border border-gray-7/60 bg-gray-1/60 px-2 py-1 text-[11px] text-gray-12 hover:bg-gray-2/60 transition-colors disabled:opacity-50"
-                                onClick={retryRun}
-                                disabled={abortBusy()}
-                                title="Try sending the last message again"
-                                aria-label="Try again"
-                              >
-                                <RotateCcw size={12} />
-                                Try again
-                              </button>
-                              <button
-                                type="button"
-                                class="inline-flex items-center gap-1.5 rounded-lg border border-gray-7/60 bg-gray-1/60 px-2 py-1 text-[11px] text-gray-12 hover:bg-gray-2/60 transition-colors disabled:opacity-50"
-                                onClick={cancelRun}
-                                disabled={abortBusy()}
-                                title="Stop the current run"
-                                aria-label="Stop"
-                              >
-                                <Square size={12} />
-                                Stop
-                              </button>
-                            </div>
-                          </Show>
-                        </div>
-                      </div>
-                    </Show>
-
+                  <div class="w-full max-w-[68ch]">
                     <div
-                      class={`w-full flex items-center justify-between gap-3 text-xs ${runPhase() === "error" ? "text-red-11" : "text-gray-9"
-                        }`}
+                      class={`flex items-center gap-2 text-xs py-1 ${runPhase() === "error" ? "text-red-11" : "text-gray-9"}`}
                       role="status"
                       aria-live="polite"
                     >
-                      <div class="flex items-center gap-2 min-w-0">
-                        <Show
-                          when={runPhase() === "responding"}
-                          fallback={
-                            <span
-                              class={`h-1.5 w-1.5 rounded-full ${runPhase() === "error" ? "bg-red-9/80" : "bg-gray-8/80"
-                                }`}
-                            />
-                          }
-                        >
-                          <span class="flex items-center gap-1">
-                            <span
-                              class={`h-1.5 w-1.5 rounded-full animate-pulse ${runPhase() === "error" ? "bg-red-9/80" : "bg-gray-8/80"
-                                }`}
-                            />
-                            <span
-                              class={`h-1.5 w-1.5 rounded-full animate-pulse ${runPhase() === "error" ? "bg-red-9/60" : "bg-gray-8/60"
-                                }`}
-                              style={{ "animation-delay": "120ms" }}
-                            />
-                            <span
-                              class={`h-1.5 w-1.5 rounded-full animate-pulse ${runPhase() === "error" ? "bg-red-9/40" : "bg-gray-8/40"
-                                }`}
-                              style={{ "animation-delay": "240ms" }}
-                            />
-                          </span>
-                        </Show>
-                        <span class="truncate">{runLabel()}</span>
-                      </div>
-                      <div class="shrink-0 flex items-center gap-2">
-                        <Show when={props.developerMode}>
-                          <span class="text-[10px] text-gray-8">{runElapsedLabel()}</span>
-                        </Show>
-                        <button
-                          type="button"
-                          class="inline-flex items-center gap-1.5 rounded-full border border-gray-7/60 bg-gray-1/60 px-2 py-1 text-[11px] text-gray-11 hover:bg-gray-2/60 hover:text-gray-12 transition-colors disabled:opacity-50"
-                          onClick={cancelRun}
-                          disabled={abortBusy()}
-                          title="Stop the current run"
-                          aria-label="Stop"
-                        >
-                          <Show when={abortBusy()} fallback={<Square size={12} />}>
-                            <Loader2 size={12} class="animate-spin" />
-                          </Show>
-                          Stop
-                        </button>
-                      </div>
+                      <span
+                        class={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                          runPhase() === "error" ? "bg-red-9" : "bg-gray-8 animate-pulse"
+                        }`}
+                      />
+                      <span class="truncate">{thinkingStatus() || runLabel()}</span>
+                      <Show when={props.developerMode}>
+                        <span class="text-[10px] text-gray-8 ml-auto shrink-0">{runElapsedLabel()}</span>
+                      </Show>
                     </div>
                   </div>
                 </div>
@@ -2507,7 +2380,9 @@ export default function SessionView(props: SessionViewProps) {
       <Composer
         prompt={props.prompt}
         busy={props.busy}
+        isStreaming={showRunIndicator()}
         onSend={handleSendPrompt}
+        onStop={cancelRun}
         onDraftChange={handleDraftChange}
         selectedModelLabel={props.selectedSessionModelLabel || "Model"}
         onModelClick={props.openSessionModelPicker}
