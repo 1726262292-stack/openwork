@@ -24,6 +24,7 @@ import {
   appBuildInfo,
   owpenbotRestart,
   owpenbotStop,
+  pickFile,
 } from "../lib/tauri";
 
 export type SettingsViewProps = {
@@ -55,8 +56,10 @@ export type SettingsViewProps = {
   developerMode: boolean;
   toggleDeveloperMode: () => void;
   stopHost: () => void;
-  engineSource: "path" | "sidecar";
-  setEngineSource: (value: "path" | "sidecar") => void;
+  engineSource: "path" | "sidecar" | "custom";
+  setEngineSource: (value: "path" | "sidecar" | "custom") => void;
+  engineCustomBinPath: string;
+  setEngineCustomBinPath: (value: string) => void;
   engineRuntime: "direct" | "openwrk";
   setEngineRuntime: (value: "direct" | "openwrk") => void;
   isWindows: boolean;
@@ -137,6 +140,21 @@ export function OwpenbotSettings(_props: {
 
 
 export default function SettingsView(props: SettingsViewProps) {
+  const engineCustomBinPathLabel = () => props.engineCustomBinPath.trim() || "No binary selected.";
+
+  const handlePickEngineBinary = async () => {
+    if (!isTauriRuntime()) return;
+    try {
+      const selected = await pickFile({ title: "Select OpenCode binary" });
+      const path = Array.isArray(selected) ? selected[0] : selected;
+      const trimmed = (path ?? "").trim();
+      if (!trimmed) return;
+      props.setEngineCustomBinPath(trimmed);
+      props.setEngineSource("custom");
+    } catch {
+      // ignore
+    }
+  };
   const [buildInfo, setBuildInfo] = createSignal<AppBuildInfo | null>(null);
   const updateState = () => props.updateStatus?.state ?? "idle";
   const updateNotes = () => props.updateStatus?.notes ?? null;
@@ -1004,7 +1022,7 @@ export default function SettingsView(props: SettingsViewProps) {
 
                 <div class="space-y-3">
                   <div class="text-xs text-gray-10">Engine source</div>
-                  <div class="grid grid-cols-2 gap-2">
+                  <div class={props.developerMode ? "grid grid-cols-3 gap-2" : "grid grid-cols-2 gap-2"}>
                     <Button
                       variant={props.engineSource === "sidecar" ? "secondary" : "outline"}
                       onClick={() => props.setEngineSource("sidecar")}
@@ -1019,11 +1037,54 @@ export default function SettingsView(props: SettingsViewProps) {
                     >
                       System install (PATH)
                     </Button>
+                    <Show when={props.developerMode}>
+                      <Button
+                        variant={props.engineSource === "custom" ? "secondary" : "outline"}
+                        onClick={() => props.setEngineSource("custom")}
+                        disabled={props.busy}
+                      >
+                        Custom binary
+                      </Button>
+                    </Show>
                   </div>
                   <div class="text-[11px] text-gray-7">
                     Bundled engine is the most reliable option. Use System install only if you manage OpenCode yourself.
                   </div>
                 </div>
+
+                <Show when={props.developerMode && props.engineSource === "custom"}>
+                  <div class="space-y-2">
+                    <div class="text-xs text-gray-10">Custom OpenCode binary</div>
+                    <div class="flex items-center gap-2">
+                      <div
+                        class="flex-1 min-w-0 text-[11px] text-gray-7 font-mono truncate bg-gray-1 p-3 rounded-xl border border-gray-6"
+                        title={engineCustomBinPathLabel()}
+                      >
+                        {engineCustomBinPathLabel()}
+                      </div>
+                      <Button
+                        variant="outline"
+                        class="text-xs h-10 px-3 shrink-0"
+                        onClick={handlePickEngineBinary}
+                        disabled={props.busy}
+                      >
+                        Choose
+                      </Button>
+                      <Button
+                        variant="outline"
+                        class="text-xs h-10 px-3 shrink-0"
+                        onClick={() => props.setEngineCustomBinPath("")}
+                        disabled={props.busy || !props.engineCustomBinPath.trim()}
+                        title={!props.engineCustomBinPath.trim() ? "No custom path set" : "Clear"}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                    <div class="text-[11px] text-gray-7">
+                      Use this to point OpenWork at a local OpenCode build (e.g. your fork). Applies next time the engine starts or reloads.
+                    </div>
+                  </div>
+                </Show>
 
                 <Show when={props.developerMode}>
                   <div class="space-y-3">

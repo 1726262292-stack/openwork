@@ -53,6 +53,12 @@ type LogEvent = {
   attributes?: LogAttributes;
 };
 
+type OpencodeHotReload = {
+  enabled: boolean;
+  debounceMs: number;
+  cooldownMs: number;
+};
+
 type OwpenbotHealthSnapshot = {
   ok: boolean;
   opencode: {
@@ -76,6 +82,8 @@ declare const __OPENWRK_VERSION__: string | undefined;
 const DEFAULT_OPENWORK_PORT = 8787;
 const DEFAULT_APPROVAL_TIMEOUT = 30000;
 const DEFAULT_OPENCODE_USERNAME = "opencode";
+const DEFAULT_OPENCODE_HOT_RELOAD_DEBOUNCE_MS = 700;
+const DEFAULT_OPENCODE_HOT_RELOAD_COOLDOWN_MS = 1500;
 
 const SANDBOX_INTERNAL_OPENCODE_PORT = 4096;
 const SANDBOX_INTERNAL_OPENWORK_PORT = DEFAULT_OPENWORK_PORT;
@@ -346,6 +354,43 @@ function readNumber(
     }
   }
   return fallback;
+}
+
+function readOpencodeHotReload(
+  flags: Map<string, string | boolean>,
+  defaults?: Partial<OpencodeHotReload>,
+  env?: {
+    enabled?: string;
+    debounceMs?: string;
+    cooldownMs?: string;
+  },
+): OpencodeHotReload {
+  const enabled = readBool(flags, "opencode-hot-reload", defaults?.enabled ?? true, env?.enabled);
+  const debounceRaw = readNumber(
+    flags,
+    "opencode-hot-reload-debounce-ms",
+    defaults?.debounceMs ?? DEFAULT_OPENCODE_HOT_RELOAD_DEBOUNCE_MS,
+    env?.debounceMs,
+  );
+  const cooldownRaw = readNumber(
+    flags,
+    "opencode-hot-reload-cooldown-ms",
+    defaults?.cooldownMs ?? DEFAULT_OPENCODE_HOT_RELOAD_COOLDOWN_MS,
+    env?.cooldownMs,
+  );
+  const debounceMs =
+    typeof debounceRaw === "number" && Number.isFinite(debounceRaw) && debounceRaw >= 50
+      ? Math.floor(debounceRaw)
+      : DEFAULT_OPENCODE_HOT_RELOAD_DEBOUNCE_MS;
+  const cooldownMs =
+    typeof cooldownRaw === "number" && Number.isFinite(cooldownRaw) && cooldownRaw >= 100
+      ? Math.floor(cooldownRaw)
+      : DEFAULT_OPENCODE_HOT_RELOAD_COOLDOWN_MS;
+  return {
+    enabled,
+    debounceMs,
+    cooldownMs,
+  };
 }
 
 function readBinarySource(
@@ -2084,6 +2129,9 @@ function printHelp(): void {
     "  --opencode-workdir <p>    Workdir for router-managed opencode serve",
     "  --opencode-auth           Enable OpenCode basic auth (default: true)",
     "  --no-opencode-auth        Disable OpenCode basic auth",
+    "  --opencode-hot-reload     Enable OpenCode hot reload (default: true)",
+    "  --opencode-hot-reload-debounce-ms <ms>  Debounce window for hot reload triggers (default: 700)",
+    "  --opencode-hot-reload-cooldown-ms <ms>  Minimum interval between hot reloads (default: 1500)",
     "  --opencode-username <u>   OpenCode basic auth username",
     "  --opencode-password <p>   OpenCode basic auth password",
     "  --openwork-host <host>    Bind host for openwork-server (default: 0.0.0.0)",
@@ -2154,6 +2202,7 @@ async function startOpencode(options: {
   bin: string;
   workspace: string;
   configDir?: string;
+  hotReload: OpencodeHotReload;
   bindHost: string;
   port: number;
   username?: string;
@@ -2188,6 +2237,9 @@ async function startOpencode(options: {
       ...(options.username ? { OPENCODE_SERVER_USERNAME: options.username } : {}),
       ...(options.password ? { OPENCODE_SERVER_PASSWORD: options.password } : {}),
       ...(options.configDir ? { OPENCODE_CONFIG_DIR: options.configDir } : {}),
+      OPENCODE_HOT_RELOAD: options.hotReload.enabled ? "1" : "0",
+      OPENCODE_HOT_RELOAD_DEBOUNCE_MS: String(options.hotReload.debounceMs),
+      OPENCODE_HOT_RELOAD_COOLDOWN_MS: String(options.hotReload.cooldownMs),
       ...(options.owpenbotHealthPort ? { OWPENBOT_HEALTH_PORT: String(options.owpenbotHealthPort) } : {}),
     },
   });
@@ -2497,6 +2549,7 @@ async function writeSandboxEntrypoint(options: {
     corsOrigins: string[];
     username?: string;
     password?: string;
+    hotReload: OpencodeHotReload;
   };
   openwork: {
     token: string;
@@ -2556,6 +2609,9 @@ async function writeSandboxEntrypoint(options: {
     `export OPENCODE_CONFIG_DIR=${shQuote(opencodeConfigDir)}`,
     `export OPENCODE_URL=${shQuote(`http://127.0.0.1:${SANDBOX_INTERNAL_OPENCODE_PORT}`)}`,
     `export OPENCODE_CLIENT=openwrk`,
+    `export OPENCODE_HOT_RELOAD=${shQuote(options.opencode.hotReload.enabled ? "1" : "0")}`,
+    `export OPENCODE_HOT_RELOAD_DEBOUNCE_MS=${shQuote(String(options.opencode.hotReload.debounceMs))}`,
+    `export OPENCODE_HOT_RELOAD_COOLDOWN_MS=${shQuote(String(options.opencode.hotReload.cooldownMs))}`,
     `export OPENWORK=1`,
     `export OPENWRK_RUN_ID=${shQuote(options.runId)}`,
     `export OPENWRK_LOG_FORMAT=${shQuote(options.logFormat)}`,
@@ -2605,6 +2661,7 @@ async function startDockerSandbox(options: {
     corsOrigins: string[];
     username?: string;
     password?: string;
+    hotReload: OpencodeHotReload;
   };
   openwork: {
     token: string;
@@ -2698,6 +2755,7 @@ async function startAppleContainerSandbox(options: {
     corsOrigins: string[];
     username?: string;
     password?: string;
+    hotReload: OpencodeHotReload;
   };
   openwork: {
     token: string;
@@ -3344,6 +3402,18 @@ async function spawnRouterDaemon(args: ParsedArgs, dataDir: string, host: string
   const opencodeHost = readFlag(args.flags, "opencode-host") ?? process.env.OPENWRK_OPENCODE_HOST;
   const opencodePort = readFlag(args.flags, "opencode-port") ?? process.env.OPENWRK_OPENCODE_PORT;
   const opencodeWorkdir = readFlag(args.flags, "opencode-workdir") ?? process.env.OPENWRK_OPENCODE_WORKDIR;
+  const opencodeHotReload =
+    readFlag(args.flags, "opencode-hot-reload") ??
+    process.env.OPENWRK_OPENCODE_HOT_RELOAD ??
+    process.env.OPENWORK_OPENCODE_HOT_RELOAD;
+  const opencodeHotReloadDebounceMs =
+    readFlag(args.flags, "opencode-hot-reload-debounce-ms") ??
+    process.env.OPENWRK_OPENCODE_HOT_RELOAD_DEBOUNCE_MS ??
+    process.env.OPENWORK_OPENCODE_HOT_RELOAD_DEBOUNCE_MS;
+  const opencodeHotReloadCooldownMs =
+    readFlag(args.flags, "opencode-hot-reload-cooldown-ms") ??
+    process.env.OPENWRK_OPENCODE_HOT_RELOAD_COOLDOWN_MS ??
+    process.env.OPENWORK_OPENCODE_HOT_RELOAD_COOLDOWN_MS;
   const opencodeUsername = readFlag(args.flags, "opencode-username") ?? process.env.OPENWORK_OPENCODE_USERNAME;
   const opencodePassword = readFlag(args.flags, "opencode-password") ?? process.env.OPENWORK_OPENCODE_PASSWORD;
   const corsValue = readFlag(args.flags, "cors") ?? process.env.OPENWRK_OPENCODE_CORS;
@@ -3358,6 +3428,9 @@ async function spawnRouterDaemon(args: ParsedArgs, dataDir: string, host: string
   if (opencodeHost) commandArgs.push("--opencode-host", opencodeHost);
   if (opencodePort) commandArgs.push("--opencode-port", String(opencodePort));
   if (opencodeWorkdir) commandArgs.push("--opencode-workdir", opencodeWorkdir);
+  if (opencodeHotReload) commandArgs.push("--opencode-hot-reload", opencodeHotReload);
+  if (opencodeHotReloadDebounceMs) commandArgs.push("--opencode-hot-reload-debounce-ms", String(opencodeHotReloadDebounceMs));
+  if (opencodeHotReloadCooldownMs) commandArgs.push("--opencode-hot-reload-cooldown-ms", String(opencodeHotReloadCooldownMs));
   if (opencodeUsername) commandArgs.push("--opencode-username", opencodeUsername);
   if (opencodePassword) commandArgs.push("--opencode-password", opencodePassword);
   if (corsValue) commandArgs.push("--cors", corsValue);
@@ -3584,6 +3657,19 @@ async function runRouterDaemon(args: ParsedArgs) {
     "127.0.0.1",
     state.opencode?.port,
   );
+  const opencodeHotReload = readOpencodeHotReload(
+    args.flags,
+    {
+      enabled: true,
+      debounceMs: DEFAULT_OPENCODE_HOT_RELOAD_DEBOUNCE_MS,
+      cooldownMs: DEFAULT_OPENCODE_HOT_RELOAD_COOLDOWN_MS,
+    },
+    {
+      enabled: "OPENWRK_OPENCODE_HOT_RELOAD",
+      debounceMs: "OPENWRK_OPENCODE_HOT_RELOAD_DEBOUNCE_MS",
+      cooldownMs: "OPENWRK_OPENCODE_HOT_RELOAD_COOLDOWN_MS",
+    },
+  );
   const corsValue = readFlag(args.flags, "cors") ?? process.env.OPENWRK_OPENCODE_CORS ?? "http://localhost:5173,tauri://localhost,http://tauri.localhost";
   const corsOrigins = parseList(corsValue);
   const opencodeWorkdirFlag = readFlag(args.flags, "opencode-workdir") ?? process.env.OPENWRK_OPENCODE_WORKDIR;
@@ -3608,6 +3694,9 @@ async function runRouterDaemon(args: ParsedArgs) {
   logVerbose(`sidecar manifest: ${sidecar.manifestUrl}`);
   logVerbose(`sidecar source: ${sidecarSource}`);
   logVerbose(`opencode source: ${opencodeSource}`);
+  logVerbose(
+    `opencode hot reload: ${opencodeHotReload.enabled ? "on" : "off"} (debounce=${opencodeHotReload.debounceMs}ms cooldown=${opencodeHotReload.cooldownMs}ms)`,
+  );
   logVerbose(`allow external: ${allowExternal ? "true" : "false"}`);
   const opencodeBinary = await resolveOpencodeBin({
     explicit: opencodeBin,
@@ -3671,6 +3760,7 @@ async function runRouterDaemon(args: ParsedArgs) {
       bin: opencodeBinary.bin,
       workspace: resolvedWorkdir,
       configDir: opencodeConfigDir,
+      hotReload: opencodeHotReload,
       bindHost: opencodeHost,
       port: opencodePort,
       username: opencodePassword ? opencodeUsername : undefined,
@@ -4170,6 +4260,19 @@ async function runStart(args: ParsedArgs) {
           readNumber(args.flags, "opencode-port", undefined, "OPENWORK_OPENCODE_PORT"),
           "127.0.0.1",
         );
+  const opencodeHotReload = readOpencodeHotReload(
+    args.flags,
+    {
+      enabled: true,
+      debounceMs: DEFAULT_OPENCODE_HOT_RELOAD_DEBOUNCE_MS,
+      cooldownMs: DEFAULT_OPENCODE_HOT_RELOAD_COOLDOWN_MS,
+    },
+    {
+      enabled: "OPENWORK_OPENCODE_HOT_RELOAD",
+      debounceMs: "OPENWORK_OPENCODE_HOT_RELOAD_DEBOUNCE_MS",
+      cooldownMs: "OPENWORK_OPENCODE_HOT_RELOAD_COOLDOWN_MS",
+    },
+  );
   const opencodeAuth = readBool(args.flags, "opencode-auth", true, "OPENWORK_OPENCODE_AUTH");
   const opencodeUsername = opencodeAuth
     ? readFlag(args.flags, "opencode-username") ?? process.env.OPENWORK_OPENCODE_USERNAME ?? DEFAULT_OPENCODE_USERNAME
@@ -4245,6 +4348,9 @@ async function runStart(args: ParsedArgs) {
   logVerbose(`sidecar manifest: ${sidecar.manifestUrl}`);
   logVerbose(`sidecar source: ${sidecarSource}`);
   logVerbose(`opencode source: ${opencodeSource}`);
+  logVerbose(
+    `opencode hot reload: ${opencodeHotReload.enabled ? "on" : "off"} (debounce=${opencodeHotReload.debounceMs}ms cooldown=${opencodeHotReload.cooldownMs}ms)`,
+  );
   logVerbose(`allow external: ${allowExternal ? "true" : "false"}`);
   const opencodeBinary = await resolveOpencodeBin({
     explicit: explicitOpencodeBin,
@@ -4559,6 +4665,7 @@ async function runStart(args: ParsedArgs) {
           corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
           username: opencodeUsername,
           password: opencodePassword,
+          hotReload: opencodeHotReload,
         },
         openwork: {
           token: openworkToken,
@@ -4639,6 +4746,7 @@ async function runStart(args: ParsedArgs) {
         bin: opencodeBinary.bin,
         workspace: resolvedWorkspace,
         configDir: opencodeConfigDir,
+        hotReload: opencodeHotReload,
         bindHost: opencodeBindHost,
         port: opencodePort,
         username: opencodeUsername,
@@ -4852,6 +4960,7 @@ async function runStart(args: ParsedArgs) {
         password: sandboxMode !== "none" ? undefined : opencodePassword,
         bindHost: opencodeBindHost,
         port: opencodePort,
+        hotReload: opencodeHotReload,
         version: opencodeActualVersion,
       },
       openwork: {

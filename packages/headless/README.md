@@ -38,6 +38,22 @@ locally installed `openwork-server` or `owpenbot` binaries.
 
 Add `--verbose` (or `OPENWRK_VERBOSE=1`) to print extra diagnostics about resolved binaries.
 
+OpenCode hot reload is enabled by default when launched via `openwrk`.
+Tune it with:
+
+- `--opencode-hot-reload` / `--no-opencode-hot-reload`
+- `--opencode-hot-reload-debounce-ms <ms>`
+- `--opencode-hot-reload-cooldown-ms <ms>`
+
+Equivalent env vars:
+
+- `OPENWRK_OPENCODE_HOT_RELOAD` (router mode)
+- `OPENWRK_OPENCODE_HOT_RELOAD_DEBOUNCE_MS`
+- `OPENWRK_OPENCODE_HOT_RELOAD_COOLDOWN_MS`
+- `OPENWORK_OPENCODE_HOT_RELOAD` (start/serve mode)
+- `OPENWORK_OPENCODE_HOT_RELOAD_DEBOUNCE_MS`
+- `OPENWORK_OPENCODE_HOT_RELOAD_COOLDOWN_MS`
+
 Or from source:
 
 ```bash

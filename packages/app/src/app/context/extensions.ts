@@ -46,7 +46,7 @@ export function createExtensionsStore(options: {
   setBusyLabel: (value: string | null) => void;
   setBusyStartedAt: (value: number | null) => void;
   setError: (value: string | null) => void;
-  markReloadRequired: (reason: ReloadReason, trigger?: ReloadTrigger) => void;
+  markReloadRequired?: (reason: ReloadReason, trigger?: ReloadTrigger) => void;
   onNotionSkillInstalled?: () => void;
 }) {
   // Translation helper that uses current language from i18n
@@ -601,7 +601,7 @@ export function createExtensionsStore(options: {
           plugin: [pluginName],
         };
         await writeOpencodeConfig(scope, targetDir, `${JSON.stringify(payload, null, 2)}\n`);
-        options.markReloadRequired("plugins", { type: "plugin", name: triggerName, action: "added" });
+        options.markReloadRequired?.("plugins", { type: "plugin", name: triggerName, action: "added" });
         if (isManualInput) {
           setPluginInput("");
         }
@@ -624,7 +624,7 @@ export function createExtensionsStore(options: {
       const updated = applyEdits(raw, edits);
 
       await writeOpencodeConfig(scope, targetDir, updated);
-      options.markReloadRequired("plugins", { type: "plugin", name: triggerName, action: "added" });
+      options.markReloadRequired?.("plugins", { type: "plugin", name: triggerName, action: "added" });
       if (isManualInput) {
         setPluginInput("");
       }
@@ -671,7 +671,7 @@ export function createExtensionsStore(options: {
         setSkillsStatus(result.stderr || result.stdout || translate("skills.import_failed").replace("{status}", String(result.status)));
       } else {
         setSkillsStatus(result.stdout || translate("skills.imported"));
-        options.markReloadRequired("skills", {
+        options.markReloadRequired?.("skills", {
           type: "skill",
           name: inferredName,
           action: "added",
@@ -712,7 +712,7 @@ export function createExtensionsStore(options: {
         });
         const message = translate("skills.skill_creator_installed");
         setSkillsStatus(message);
-        options.markReloadRequired("skills", { type: "skill", name: "skill-creator", action: "added" });
+        options.markReloadRequired?.("skills", { type: "skill", name: "skill-creator", action: "added" });
         await refreshSkills({ force: true });
         return { ok: true, message };
       } catch (e) {
@@ -774,7 +774,7 @@ export function createExtensionsStore(options: {
       } else {
         const message = result.stdout || translate("skills.skill_creator_installed");
         setSkillsStatus(message);
-        options.markReloadRequired("skills", { type: "skill", name: "skill-creator", action: "added" });
+        options.markReloadRequired?.("skills", { type: "skill", name: "skill-creator", action: "added" });
         await refreshSkills({ force: true });
         return { ok: true, message };
       }
@@ -861,7 +861,7 @@ export function createExtensionsStore(options: {
         setSkillsStatus(result.stderr || result.stdout || translate("skills.uninstall_failed"));
       } else {
         setSkillsStatus(result.stdout || translate("skills.uninstalled"));
-        options.markReloadRequired("skills", { type: "skill", name: trimmed, action: "removed" });
+        options.markReloadRequired?.("skills", { type: "skill", name: trimmed, action: "removed" });
       }
 
       await refreshSkills({ force: true });
@@ -970,7 +970,7 @@ export function createExtensionsStore(options: {
           content: input.content,
           description: input.description,
         });
-        options.markReloadRequired("skills", { type: "skill", name: trimmed, action: "updated" });
+        options.markReloadRequired?.("skills", { type: "skill", name: trimmed, action: "updated" });
         await refreshSkills({ force: true });
         setSkillsStatus("Saved.");
       } catch (e) {
@@ -1006,7 +1006,7 @@ export function createExtensionsStore(options: {
         setSkillsStatus(result.stderr || result.stdout || translate("skills.unknown_error"));
       } else {
         setSkillsStatus(result.stdout || "Saved.");
-        options.markReloadRequired("skills", { type: "skill", name: trimmed, action: "updated" });
+        options.markReloadRequired?.("skills", { type: "skill", name: trimmed, action: "updated" });
       }
       await refreshSkills({ force: true });
     } catch (e) {

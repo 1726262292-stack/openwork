@@ -127,8 +127,9 @@ export function createWorkspaceStore(options: {
   modelVariant: () => string | null;
   refreshSkills: (options?: { force?: boolean }) => Promise<void>;
   refreshPlugins: () => Promise<void>;
-  engineSource: () => "path" | "sidecar";
-  setEngineSource: (value: "path" | "sidecar") => void;
+  engineSource: () => "path" | "sidecar" | "custom";
+  engineCustomBinPath?: () => string;
+  setEngineSource: (value: "path" | "sidecar" | "custom") => void;
   setView: (value: any) => void;
   setTab: (value: any) => void;
   isWindowsPlatform: () => boolean;
@@ -598,7 +599,11 @@ export function createWorkspaceStore(options: {
     if (!isTauriRuntime()) return;
 
     try {
-      const result = await engineDoctor({ preferSidecar: options.engineSource() === "sidecar" });
+      const source = options.engineSource();
+      const result = await engineDoctor({
+        preferSidecar: source === "sidecar",
+        opencodeBinPath: source === "custom" ? options.engineCustomBinPath?.().trim() || null : null,
+      });
       setEngineDoctorResult(result);
       setEngineDoctorCheckedAt(Date.now());
     } catch (e) {
@@ -1033,6 +1038,8 @@ export function createWorkspaceStore(options: {
           // Start engine with new workspace directory
           const newInfo = await engineStart(next.path, {
             preferSidecar: options.engineSource() === "sidecar",
+            opencodeBinPath:
+              options.engineSource() === "custom" ? options.engineCustomBinPath?.().trim() || null : null,
             runtime,
             workspacePaths: resolveWorkspacePaths(),
           });
@@ -2033,10 +2040,14 @@ export function createWorkspaceStore(options: {
       return false;
     }
 
-    try {
-      const result = await engineDoctor({ preferSidecar: options.engineSource() === "sidecar" });
-      setEngineDoctorResult(result);
-      setEngineDoctorCheckedAt(Date.now());
+      try {
+        const source = options.engineSource();
+        const result = await engineDoctor({
+          preferSidecar: source === "sidecar",
+          opencodeBinPath: source === "custom" ? options.engineCustomBinPath?.().trim() || null : null,
+        });
+        setEngineDoctorResult(result);
+        setEngineDoctorCheckedAt(Date.now());
 
       if (!result.found) {
         options.setError(
@@ -2074,6 +2085,8 @@ export function createWorkspaceStore(options: {
 
       const info = await engineStart(dir, {
         preferSidecar: options.engineSource() === "sidecar",
+        opencodeBinPath:
+          options.engineSource() === "custom" ? options.engineCustomBinPath?.().trim() || null : null,
         runtime: resolveEngineRuntime(),
         workspacePaths: resolveWorkspacePaths(),
       });
@@ -2243,6 +2256,8 @@ export function createWorkspaceStore(options: {
 
       const nextInfo = await engineStart(root, {
         preferSidecar: options.engineSource() === "sidecar",
+        opencodeBinPath:
+          options.engineSource() === "custom" ? options.engineCustomBinPath?.().trim() || null : null,
         runtime,
         workspacePaths: resolveWorkspacePaths(),
       });

@@ -14,7 +14,6 @@ import { readJsoncFile, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
 import { recordAudit, readAuditEntries, readLastAudit } from "./audit.js";
 import { ReloadEventStore } from "./events.js";
 import { parseFrontmatter } from "./frontmatter.js";
-import { startReloadWatchers } from "./reload-watcher.js";
 import { opencodeConfigPath, openworkConfigPath, projectCommandsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId } from "./utils.js";
 import { workspaceIdForPath } from "./workspaces.js";
@@ -232,15 +231,6 @@ export function startServer(config: ServerConfig) {
   const routes = createRoutes(config, approvals, tokens);
   const logger = createServerLogger(config);
 
-  let reloadWatcher: { close: () => void } | null = null;
-  try {
-    reloadWatcher = startReloadWatchers({ config, reloadEvents, logger });
-  } catch (error) {
-    logger.log("warn", "Reload watcher failed to initialize", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-
   const serverOptions: {
     hostname: string;
     port: number;
@@ -428,10 +418,6 @@ export function startServer(config: ServerConfig) {
   (serverOptions as { idleTimeout?: number }).idleTimeout = 120;
 
   const server = Bun.serve(serverOptions);
-
-  if (reloadWatcher) {
-    (server as any).reloadWatcher = reloadWatcher;
-  }
 
   return server;
 }
@@ -1006,7 +992,10 @@ function emitReloadEvent(
   reason: ReloadReason,
   trigger?: ReloadTrigger,
 ) {
-  reloadEvents.recordDebounced(workspace.id, reason, trigger);
+  void reloadEvents;
+  void workspace;
+  void reason;
+  void trigger;
 }
 
 function buildConfigTrigger(path: string): ReloadTrigger {
@@ -2138,33 +2127,16 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
 
   addRoute(routes, "GET", "/workspace/:id/events", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const sinceParam = ctx.url.searchParams.get("since");
-    const parsedSince = sinceParam ? Number(sinceParam) : NaN;
-    const since = Number.isFinite(parsedSince) ? parsedSince : undefined;
-    const items = ctx.reloadEvents.list(workspace.id, since);
-    return jsonResponse({ items, cursor: ctx.reloadEvents.cursor() });
+    void ctx;
+    return jsonResponse({ items: [], cursor: 0, workspaceId: workspace.id, disabled: true });
   });
 
   addRoute(routes, "POST", "/workspace/:id/engine/reload", "client", async (ctx) => {
-    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    await requireApproval(ctx, {
+    throw new ApiError(410, "engine_reload_deprecated", "OpenWork-managed engine reload is disabled", {
       workspaceId: workspace.id,
-      action: "engine.reload",
-      summary: "Reload OpenCode engine",
-      paths: [opencodeConfigPath(workspace.path)],
+      guidance: "Use OpenCode hot reload instead",
     });
-    await reloadOpencodeEngine(workspace);
-    await recordAudit(workspace.path, {
-      id: shortId(),
-      workspaceId: workspace.id,
-      actor: ctx.actor ?? { type: "remote" },
-      action: "engine.reload",
-      target: "opencode.instance",
-      summary: "Reloaded OpenCode engine",
-      timestamp: Date.now(),
-    });
-    return jsonResponse({ ok: true, reloadedAt: Date.now() });
   });
 
   addRoute(routes, "POST", "/workspace/:id/inbox", "client", async (ctx) => {

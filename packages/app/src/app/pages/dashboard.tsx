@@ -232,8 +232,10 @@ export type DashboardViewProps = {
   downloadUpdate: () => void;
   installUpdateAndRestart: () => void;
   anyActiveRuns: boolean;
-  engineSource: "path" | "sidecar";
-  setEngineSource: (value: "path" | "sidecar") => void;
+  engineSource: "path" | "sidecar" | "custom";
+  setEngineSource: (value: "path" | "sidecar" | "custom") => void;
+  engineCustomBinPath: string;
+  setEngineCustomBinPath: (value: string) => void;
   engineRuntime: "direct" | "openwrk";
   setEngineRuntime: (value: "direct" | "openwrk") => void;
   isWindows: boolean;
@@ -1298,6 +1300,8 @@ export default function DashboardView(props: DashboardViewProps) {
                   stopHost={props.stopHost}
                   engineSource={props.engineSource}
                   setEngineSource={props.setEngineSource}
+                  engineCustomBinPath={props.engineCustomBinPath}
+                  setEngineCustomBinPath={props.setEngineCustomBinPath}
                   engineRuntime={props.engineRuntime}
                   setEngineRuntime={props.setEngineRuntime}
                   isWindows={props.isWindows}

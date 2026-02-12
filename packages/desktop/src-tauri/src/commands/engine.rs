@@ -18,6 +18,35 @@ use serde_json::json;
 use tauri_plugin_shell::process::CommandEvent;
 use uuid::Uuid;
 
+struct EnvVarGuard {
+    key: &'static str,
+    original: Option<std::ffi::OsString>,
+}
+
+impl EnvVarGuard {
+    fn apply(key: &'static str, value: Option<&str>) -> Self {
+        let original = std::env::var_os(key);
+        match value {
+            Some(next) if !next.trim().is_empty() => {
+                std::env::set_var(key, next.trim());
+            }
+            _ => {
+                std::env::remove_var(key);
+            }
+        }
+        Self { key, original }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        match &self.original {
+            Some(value) => std::env::set_var(self.key, value),
+            None => std::env::remove_var(self.key),
+        }
+    }
+}
+
 #[derive(Default)]
 struct OutputState {
     stdout: String,
@@ -110,13 +139,19 @@ pub fn engine_stop(
 }
 
 #[tauri::command]
-pub fn engine_doctor(app: AppHandle, prefer_sidecar: Option<bool>) -> EngineDoctorResult {
+pub fn engine_doctor(
+    app: AppHandle,
+    prefer_sidecar: Option<bool>,
+    opencode_bin_path: Option<String>,
+) -> EngineDoctorResult {
     let prefer_sidecar = prefer_sidecar.unwrap_or(false);
     let resource_dir = app.path().resource_dir().ok();
 
     let current_bin_dir = tauri::process::current_binary(&app.env())
         .ok()
         .and_then(|path| path.parent().map(|parent| parent.to_path_buf()));
+
+    let _guard = EnvVarGuard::apply("OPENCODE_BIN_PATH", opencode_bin_path.as_deref());
 
     let (resolved, in_path, notes) = resolve_engine_path(
         prefer_sidecar,
@@ -197,6 +232,7 @@ pub fn engine_start(
     owpenbot_manager: State<OwpenbotManager>,
     project_dir: String,
     prefer_sidecar: Option<bool>,
+    opencode_bin_path: Option<String>,
     runtime: Option<EngineRuntime>,
     workspace_paths: Option<Vec<String>>,
 ) -> Result<EngineInfo, String> {
@@ -262,6 +298,7 @@ pub fn engine_start(
         .ok()
         .and_then(|path| path.parent().map(|parent| parent.to_path_buf()));
     let prefer_sidecar = prefer_sidecar.unwrap_or(false);
+    let _guard = EnvVarGuard::apply("OPENCODE_BIN_PATH", opencode_bin_path.as_deref());
     let (program, _in_path, notes) =
         resolve_engine_path(prefer_sidecar, resource_dir.as_deref(), current_bin_dir.as_deref());
     let Some(program) = program else {

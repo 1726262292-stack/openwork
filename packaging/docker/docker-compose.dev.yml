@@ -59,12 +59,26 @@ services:
         export OWPENBOT_BIN="/tmp/openwork-bins/owpenbot"
         mkdir -p /tmp/openwork-bins
 
+        # --- Compile sidecars for the container architecture ---
+        case "$(uname -m)" in
+          x86_64|amd64)
+            BUN_TARGET="bun-linux-x64"
+            ;;
+          aarch64|arm64)
+            BUN_TARGET="bun-linux-arm64"
+            ;;
+          *)
+            echo "Unsupported container architecture: $(uname -m)" >&2
+            exit 1
+            ;;
+        esac
+
         echo "[headless] Building openwork-server binary (linux)..."
-        cd /app/packages/server && bun build --compile src/cli.ts --outfile "$$OPENWORK_SERVER_BIN"
+        cd /app/packages/server && bun build --compile --target "$$BUN_TARGET" src/cli.ts --outfile "$$OPENWORK_SERVER_BIN"
 
         echo "[headless] Building owpenbot binary (linux)..."
         OWPENBOT_VERSION=$$(node -p "require('/app/packages/owpenbot/package.json').version")
-        cd /app/packages/owpenbot && bun build --compile src/cli.ts \
+        cd /app/packages/owpenbot && bun build --compile --target "$$BUN_TARGET" src/cli.ts \
           --define "__OWPENBOT_VERSION__=\"$${OWPENBOT_VERSION}\"" --outfile "$$OWPENBOT_BIN"
 
         cd /app

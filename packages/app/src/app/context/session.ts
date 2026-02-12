@@ -117,6 +117,7 @@ export function createSessionStore(options: {
   setError: (message: string | null) => void;
   setSseConnected: (connected: boolean) => void;
   markReloadRequired?: (reason: ReloadReason, trigger?: ReloadTrigger) => void;
+  onHotReloadApplied?: () => void;
 }) {
 
   const sessionDebugEnabled = () => options.developerMode();
@@ -721,6 +722,10 @@ export function createSessionStore(options: {
           setStore("sessionStatus", sessionID, "idle");
         }
       }
+    }
+
+    if (event.type === "opencode.hotreload.applied") {
+      options.onHotReloadApplied?.();
     }
 
     if (event.type === "session.error") {

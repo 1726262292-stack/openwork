@@ -138,11 +138,17 @@ export type WorkspaceExportSummary = {
 
 export async function engineStart(
   projectDir: string,
-  options?: { preferSidecar?: boolean; runtime?: "direct" | "openwrk"; workspacePaths?: string[] },
+  options?: {
+    preferSidecar?: boolean;
+    runtime?: "direct" | "openwrk";
+    workspacePaths?: string[];
+    opencodeBinPath?: string | null;
+  },
 ): Promise<EngineInfo> {
   return invoke<EngineInfo>("engine_start", {
     projectDir,
     preferSidecar: options?.preferSidecar ?? false,
+    opencodeBinPath: options?.opencodeBinPath ?? null,
     runtime: options?.runtime ?? null,
     workspacePaths: options?.workspacePaths ?? null,
   });
@@ -433,9 +439,11 @@ export async function engineInfo(): Promise<EngineInfo> {
 
 export async function engineDoctor(options?: {
   preferSidecar?: boolean;
+  opencodeBinPath?: string | null;
 }): Promise<EngineDoctorResult> {
   return invoke<EngineDoctorResult>("engine_doctor", {
     preferSidecar: options?.preferSidecar ?? false,
+    opencodeBinPath: options?.opencodeBinPath ?? null,
   });
 }
 
