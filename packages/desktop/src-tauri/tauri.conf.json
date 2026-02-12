@@ -39,6 +39,7 @@
       "sidecars/openwork-server",
       "sidecars/owpenbot",
       "sidecars/openwrk",
+      "sidecars/chrome-devtools-mcp",
       "sidecars/versions.json"
     ]
   },

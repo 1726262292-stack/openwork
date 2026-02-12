@@ -87,6 +87,10 @@ const owpenbotVersion = (() => {
   }
   return null;
 })();
+const chromeDevtoolsMcpVersion =
+  process.env.CHROME_DEVTOOLS_MCP_VERSION?.trim() ||
+  process.env.OPENWORK_CHROME_DEVTOOLS_MCP_VERSION?.trim() ||
+  "0.17.0";
 
 // Target triple for native platform binaries
 const resolvedTargetTriple = (() => {
@@ -187,6 +191,21 @@ const openwrkTargetName = openwrkTargetTriple
   : null;
 const openwrkTargetPath = openwrkTargetName ? join(sidecarDir, openwrkTargetName) : null;
 const openwrkDir = resolve(__dirname, "..", "..", "headless");
+
+// chrome-devtools-mcp shim sidecar
+const chromeDevtoolsBaseName = "chrome-devtools-mcp";
+const chromeDevtoolsName = process.platform === "win32" ? `${chromeDevtoolsBaseName}.exe` : chromeDevtoolsBaseName;
+const chromeDevtoolsPath = join(sidecarDir, chromeDevtoolsName);
+const chromeDevtoolsBuildName = bunTarget
+  ? `${chromeDevtoolsBaseName}-${bunTarget}${bunTarget.includes("windows") ? ".exe" : ""}`
+  : chromeDevtoolsName;
+const chromeDevtoolsBuildPath = join(sidecarDir, chromeDevtoolsBuildName);
+const chromeDevtoolsTargetTriple = resolvedTargetTriple;
+const chromeDevtoolsTargetName = chromeDevtoolsTargetTriple
+  ? `${chromeDevtoolsBaseName}-${chromeDevtoolsTargetTriple}${chromeDevtoolsTargetTriple.includes("windows") ? ".exe" : ""}`
+  : null;
+const chromeDevtoolsTargetPath = chromeDevtoolsTargetName ? join(sidecarDir, chromeDevtoolsTargetName) : null;
+const chromeDevtoolsShimPath = resolve(__dirname, "chrome-devtools-mcp-shim.ts");
 
 const readHeader = (filePath, length = 256) => {
   const fd = openSync(filePath, "r");
@@ -622,6 +641,80 @@ if (existsSync(openwrkBuildPath)) {
   }
 }
 
+// Build chrome-devtools-mcp shim sidecar
+let didBuildChromeDevtools = false;
+const shouldBuildChromeDevtools =
+  forceBuild || !existsSync(chromeDevtoolsBuildPath) || isStubBinary(chromeDevtoolsBuildPath);
+if (shouldBuildChromeDevtools) {
+  mkdirSync(sidecarDir, { recursive: true });
+  if (existsSync(chromeDevtoolsBuildPath)) {
+    try {
+      unlinkSync(chromeDevtoolsBuildPath);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!existsSync(chromeDevtoolsShimPath)) {
+    console.error(`Chrome DevTools MCP shim source not found at ${chromeDevtoolsShimPath}`);
+    process.exit(1);
+  }
+
+  const chromeDevtoolsArgs = [
+    "build",
+    "--compile",
+    chromeDevtoolsShimPath,
+    "--outfile",
+    chromeDevtoolsBuildPath,
+  ];
+  if (bunTarget) {
+    chromeDevtoolsArgs.push("--target", bunTarget);
+  }
+
+  const result = spawnSync("bun", chromeDevtoolsArgs, {
+    cwd: __dirname,
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      BUN_ENV: "production",
+    },
+  });
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+
+  didBuildChromeDevtools = true;
+}
+
+if (existsSync(chromeDevtoolsBuildPath)) {
+  const shouldCopyCanonical =
+    didBuildChromeDevtools || !existsSync(chromeDevtoolsPath) || isStubBinary(chromeDevtoolsPath);
+  if (shouldCopyCanonical && chromeDevtoolsBuildPath !== chromeDevtoolsPath) {
+    try {
+      if (existsSync(chromeDevtoolsPath)) unlinkSync(chromeDevtoolsPath);
+    } catch {
+      // ignore
+    }
+    copyFileSync(chromeDevtoolsBuildPath, chromeDevtoolsPath);
+  }
+
+  if (chromeDevtoolsTargetPath) {
+    const shouldCopyTarget =
+      didBuildChromeDevtools ||
+      !existsSync(chromeDevtoolsTargetPath) ||
+      isStubBinary(chromeDevtoolsTargetPath);
+    if (shouldCopyTarget && chromeDevtoolsBuildPath !== chromeDevtoolsTargetPath) {
+      try {
+        if (existsSync(chromeDevtoolsTargetPath)) unlinkSync(chromeDevtoolsTargetPath);
+      } catch {
+        // ignore
+      }
+      copyFileSync(chromeDevtoolsBuildPath, chromeDevtoolsTargetPath);
+    }
+  }
+}
+
 const openworkServerVersion = (() => {
   try {
     const raw = readFileSync(resolve(openworkServerDir, "package.json"), "utf8");
@@ -656,6 +749,10 @@ const versions = {
   openwrk: {
     version: openwrkVersion,
     sha256: existsSync(openwrkPath) ? sha256File(openwrkPath) : null,
+  },
+  "chrome-devtools-mcp": {
+    version: chromeDevtoolsMcpVersion,
+    sha256: existsSync(chromeDevtoolsPath) ? sha256File(chromeDevtoolsPath) : null,
   },
 };
 
