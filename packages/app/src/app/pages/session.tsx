@@ -1980,7 +1980,7 @@ export default function SessionView(props: SessionViewProps) {
               onClick={() => setAddWorkspaceMenuOpen((prev) => !prev)}
             >
               <Plus size={14} />
-              Add a workspace
+              Add a worker
             </button>
             <Show when={addWorkspaceMenuOpen()}>
               <div class="absolute left-0 right-0 top-full mt-2 rounded-lg border border-dls-border bg-dls-surface shadow-xl overflow-hidden z-20">

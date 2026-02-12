@@ -8,6 +8,15 @@ import { currentLocale, t } from "../../i18n";
 
 type InstallResult = { ok: boolean; message: string };
 
+const OPENWORK_DEFAULT_SKILL_NAMES = new Set([
+  "workspace-guide",
+  "get-started",
+  "skill-creator",
+  "command-creator",
+  "agent-creator",
+  "plugin-creator",
+]);
+
 export type SkillsViewProps = {
   workspaceName: string;
   busy: boolean;
@@ -129,32 +138,46 @@ export default function SkillsView(props: SkillsViewProps) {
     }
   };
 
-  const recommendedSkills = createMemo(() => [
-    {
-      id: "skill-creator",
-      title: translate("skills.install_skill_creator"),
-      description: translate("skills.install_skill_creator_hint"),
-      icon: Sparkles,
-      onClick: installSkillCreator,
-      disabled: props.busy || installingSkillCreator() || skillCreatorInstalled() || !props.canInstallSkillCreator,
-    },
-    {
-      id: "import-local",
-      title: translate("skills.import_local"),
-      description: translate("skills.import_local_hint"),
-      icon: Upload,
-      onClick: props.importLocalSkill,
-      disabled: props.busy || !props.canUseDesktopTools,
-    },
-    {
-      id: "reveal-folder",
-      title: translate("skills.reveal_folder"),
-      description: translate("skills.reveal_folder_hint"),
-      icon: FolderOpen,
-      onClick: props.revealSkillsFolder,
-      disabled: props.busy || !props.canUseDesktopTools,
-    },
-  ]);
+  const recommendedSkills = createMemo(() => {
+    const items: Array<{
+      id: string;
+      title: string;
+      description: string;
+      icon: any;
+      onClick: () => void | Promise<void>;
+      disabled: boolean;
+    }> = [
+      {
+        id: "import-local",
+        title: translate("skills.import_local"),
+        description: translate("skills.import_local_hint"),
+        icon: Upload,
+        onClick: props.importLocalSkill,
+        disabled: props.busy || !props.canUseDesktopTools,
+      },
+      {
+        id: "reveal-folder",
+        title: translate("skills.reveal_folder"),
+        description: translate("skills.reveal_folder_hint"),
+        icon: FolderOpen,
+        onClick: props.revealSkillsFolder,
+        disabled: props.busy || !props.canUseDesktopTools,
+      },
+    ];
+
+    if (!skillCreatorInstalled()) {
+      items.unshift({
+        id: "skill-creator",
+        title: translate("skills.install_skill_creator"),
+        description: translate("skills.install_skill_creator_hint"),
+        icon: Sparkles,
+        onClick: installSkillCreator,
+        disabled: props.busy || installingSkillCreator() || !props.canInstallSkillCreator,
+      });
+    }
+
+    return items;
+  });
 
   const handleNewSkill = async () => {
     if (props.busy) return;
@@ -243,6 +266,14 @@ export default function SkillsView(props: SkillsViewProps) {
   const canCreateInChat = createMemo(
     () => !props.busy && (props.canInstallSkillCreator || props.canUseDesktopTools)
   );
+
+  const isOpenworkInjectedSkill = (skill: SkillCard) => {
+    const normalizedName = skill.name.trim().toLowerCase();
+    const normalizedPath = skill.path.replace(/\\/g, "/").toLowerCase();
+    const inProjectSkillPath = normalizedPath.includes("/.opencode/skills/");
+    if (!inProjectSkillPath) return false;
+    return OPENWORK_DEFAULT_SKILL_NAMES.has(normalizedName) || normalizedName.endsWith("-creator");
+  };
 
   return (
     <section class="space-y-8">
@@ -360,87 +391,6 @@ export default function SkillsView(props: SkillsViewProps) {
       </Show>
 
       <div class="space-y-4">
-        <h3 class="text-[11px] font-bold text-dls-secondary uppercase tracking-widest">Capability setup</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <For each={recommendedSkills()}>
-            {(item) => (
-              <div
-                role="button"
-                tabindex="0"
-                class={`bg-dls-surface border border-dls-border rounded-xl p-4 flex items-start justify-between group transition-all text-left ${
-                  item.disabled ? "opacity-80" : "hover:border-dls-border hover:bg-dls-hover"
-                }`}
-                onClick={() => {
-                  if (item.disabled) {
-                    const reason = recommendedDisabledReason(item.id);
-                    if (reason) setToast(reason);
-                    return;
-                  }
-                  void item.onClick();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter" && e.key !== " ") return;
-                  if (e.isComposing || e.keyCode === 229) return;
-                  e.preventDefault();
-                  if (item.disabled) {
-                    const reason = recommendedDisabledReason(item.id);
-                    if (reason) setToast(reason);
-                    return;
-                  }
-                  void item.onClick();
-                }}
-                title={item.disabled ? (recommendedDisabledReason(item.id) ?? item.title) : item.title}
-              >
-                <div class="flex gap-4 min-w-0">
-                  <div class="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm border border-dls-border bg-dls-hover">
-                    <item.icon size={20} class="text-dls-secondary" />
-                  </div>
-                  <div class="min-w-0">
-                    <div class="flex items-center gap-2 mb-0.5">
-                      <h4 class="text-sm font-semibold text-dls-text truncate">{item.title}</h4>
-                    </div>
-                    <p class="text-xs text-dls-secondary line-clamp-2">{item.description}</p>
-                    <Show when={item.id === "skill-creator" && !props.canInstallSkillCreator && !skillCreatorInstalled()}>
-                      <div class="mt-1 text-[11px] text-dls-secondary">
-                        {props.accessHint ?? translate("skills.host_only_error")}
-                      </div>
-                    </Show>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  class={`p-1.5 rounded-md transition-colors ${
-                    item.disabled
-                      ? "text-dls-secondary opacity-40"
-                      : "text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
-                  }`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (item.disabled) {
-                      const reason = recommendedDisabledReason(item.id);
-                      if (reason) setToast(reason);
-                      return;
-                    }
-                    void item.onClick();
-                  }}
-                  disabled={item.disabled}
-                  title={item.title}
-                >
-                  <Show
-                    when={item.id === "skill-creator" && installingSkillCreator()}
-                    fallback={<Plus size={16} />}
-                  >
-                    <Loader2 size={16} class="animate-spin" />
-                  </Show>
-                </button>
-              </div>
-            )}
-          </For>
-        </div>
-      </div>
-
-      <div class="space-y-4">
         <h3 class="text-[11px] font-bold text-dls-secondary uppercase tracking-widest">
           {translate("skills.installed")}
         </h3>
@@ -475,6 +425,11 @@ export default function SkillsView(props: SkillsViewProps) {
                     <div class="min-w-0">
                       <div class="flex items-center gap-2 mb-0.5">
                         <h4 class="text-sm font-semibold text-dls-text truncate">{skill.name}</h4>
+                        <Show when={isOpenworkInjectedSkill(skill)}>
+                          <span class="rounded-full border border-dls-border bg-dls-hover px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-dls-secondary">
+                            OpenWork
+                          </span>
+                        </Show>
                       </div>
                       <Show when={skill.description}>
                         <p class="text-xs text-dls-secondary line-clamp-1">
@@ -526,7 +481,7 @@ export default function SkillsView(props: SkillsViewProps) {
 
       <div class="space-y-4">
         <div class="flex items-center justify-between gap-3">
-          <h3 class="text-[11px] font-bold text-dls-secondary uppercase tracking-widest">Available (Hub)</h3>
+          <h3 class="text-[11px] font-bold text-dls-secondary uppercase tracking-widest">Install skills</h3>
           <button
             type="button"
             onClick={() => props.refreshHubSkills({ force: true })}
@@ -612,6 +567,87 @@ export default function SkillsView(props: SkillsViewProps) {
             </For>
           </div>
         </Show>
+      </div>
+
+      <div class="space-y-4">
+        <h3 class="text-[11px] font-bold text-dls-secondary uppercase tracking-widest">Capability setup</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <For each={recommendedSkills()}>
+            {(item) => (
+              <div
+                role="button"
+                tabindex="0"
+                class={`bg-dls-surface border border-dls-border rounded-xl p-4 flex items-start justify-between group transition-all text-left ${
+                  item.disabled ? "opacity-80" : "hover:border-dls-border hover:bg-dls-hover"
+                }`}
+                onClick={() => {
+                  if (item.disabled) {
+                    const reason = recommendedDisabledReason(item.id);
+                    if (reason) setToast(reason);
+                    return;
+                  }
+                  void item.onClick();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" && e.key !== " ") return;
+                  if (e.isComposing || e.keyCode === 229) return;
+                  e.preventDefault();
+                  if (item.disabled) {
+                    const reason = recommendedDisabledReason(item.id);
+                    if (reason) setToast(reason);
+                    return;
+                  }
+                  void item.onClick();
+                }}
+                title={item.disabled ? (recommendedDisabledReason(item.id) ?? item.title) : item.title}
+              >
+                <div class="flex gap-4 min-w-0">
+                  <div class="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm border border-dls-border bg-dls-hover">
+                    <item.icon size={20} class="text-dls-secondary" />
+                  </div>
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-2 mb-0.5">
+                      <h4 class="text-sm font-semibold text-dls-text truncate">{item.title}</h4>
+                    </div>
+                    <p class="text-xs text-dls-secondary line-clamp-2">{item.description}</p>
+                    <Show when={item.id === "skill-creator" && !props.canInstallSkillCreator && !skillCreatorInstalled()}>
+                      <div class="mt-1 text-[11px] text-dls-secondary">
+                        {props.accessHint ?? translate("skills.host_only_error")}
+                      </div>
+                    </Show>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class={`p-1.5 rounded-md transition-colors ${
+                    item.disabled
+                      ? "text-dls-secondary opacity-40"
+                      : "text-dls-secondary hover:text-dls-text hover:bg-dls-hover"
+                  }`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (item.disabled) {
+                      const reason = recommendedDisabledReason(item.id);
+                      if (reason) setToast(reason);
+                      return;
+                    }
+                    void item.onClick();
+                  }}
+                  disabled={item.disabled}
+                  title={item.title}
+                >
+                  <Show
+                    when={item.id === "skill-creator" && installingSkillCreator()}
+                    fallback={<Plus size={16} />}
+                  >
+                    <Loader2 size={16} class="animate-spin" />
+                  </Show>
+                </button>
+              </div>
+            )}
+          </For>
+        </div>
       </div>
 
       <Show when={selectedSkill()}>

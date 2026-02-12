@@ -70,6 +70,17 @@ function isOwpenbotIdentities(value: unknown): value is { ok: boolean; items: Op
   return typeof record.ok === "boolean" && Array.isArray(record.items);
 }
 
+function getTelegramUsernameFromResult(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const bot = record.bot;
+  if (!bot || typeof bot !== "object") return null;
+  const username = (bot as Record<string, unknown>).username;
+  if (typeof username !== "string") return null;
+  const normalized = username.trim().replace(/^@+/, "");
+  return normalized || null;
+}
+
 /* ---- Brand channel icons ---- */
 
 function TelegramIcon(props: { size?: number }) {
@@ -129,6 +140,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
   const [telegramSaving, setTelegramSaving] = createSignal(false);
   const [telegramStatus, setTelegramStatus] = createSignal<string | null>(null);
   const [telegramError, setTelegramError] = createSignal<string | null>(null);
+  const [telegramBotUsername, setTelegramBotUsername] = createSignal<string | null>(null);
 
   const [slackBotToken, setSlackBotToken] = createSignal("");
   const [slackAppToken, setSlackAppToken] = createSignal("");
@@ -203,6 +215,11 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
 
   const hasTelegramConnected = createMemo(() => telegramIdentities().some((i) => i.enabled));
   const hasSlackConnected = createMemo(() => slackIdentities().some((i) => i.enabled));
+  const telegramBotLink = createMemo(() => {
+    const username = telegramBotUsername();
+    if (!username) return null;
+    return `https://t.me/${username}`;
+  });
   const agentDirty = createMemo(() => agentDraft() !== agentContent());
 
   const messagesToday = createMemo(() => {
@@ -395,6 +412,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
       if (!id) {
         setHealth(null);
         setTelegramIdentities([]);
+        setTelegramBotUsername(null);
         setSlackIdentities([]);
         setHealthError("Worker scope unavailable. Reconnect using a worker URL or switch to a known worker.");
         setTelegramIdentitiesError("Worker scope unavailable.");
@@ -406,11 +424,14 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
         return;
       }
 
-      const [healthRes, tgRes, slackRes] = await Promise.all([
+      const [healthRes, tgRes, slackRes, telegramInfo] = await Promise.all([
         client.owpenbotHealth(),
         client.getOwpenbotTelegramIdentities(id),
         client.getOwpenbotSlackIdentities(id),
+        client.getOwpenbotTelegram(id).catch(() => null),
       ]);
+
+      setTelegramBotUsername(getTelegramUsernameFromResult(telegramInfo));
 
       if (isOwpenbotSnapshot(healthRes.json)) {
         setHealth(healthRes.json);
@@ -446,6 +467,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
       const message = formatRequestError(error);
       setHealth(null);
       setTelegramIdentities([]);
+      setTelegramBotUsername(null);
       setSlackIdentities([]);
       setHealthError(message);
       setTelegramIdentitiesError(message);
@@ -490,7 +512,9 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
       if (result.ok) {
         const username = (result.telegram as any)?.bot?.username;
         if (username) {
-          setTelegramStatus(`Saved (@${String(username)})`);
+          const normalized = String(username).trim().replace(/^@+/, "");
+          setTelegramBotUsername(normalized || null);
+          setTelegramStatus(`Saved (@${normalized || String(username)})`);
         } else {
           setTelegramStatus(result.applied === false ? "Saved (pending apply)." : "Saved.");
         }
@@ -524,6 +548,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     try {
       const result = await client.deleteOwpenbotTelegramIdentity(id, identityId);
       if (result.ok) {
+        setTelegramBotUsername(null);
         setTelegramStatus(result.applied === false ? "Deleted (pending apply)." : "Deleted.");
       } else {
         setTelegramError("Failed to delete.");
@@ -615,6 +640,7 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
     setHealthError(null);
     setTelegramIdentities([]);
     setTelegramIdentitiesError(null);
+    setTelegramBotUsername(null);
     setSlackIdentities([]);
     setSlackIdentitiesError(null);
     resetAgentState();
@@ -897,9 +923,25 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
                   {/* Add new identity form */}
                   <div class="space-y-2.5">
                     <Show when={telegramIdentities().length === 0}>
-                      <p class="text-[13px] text-gray-10 leading-relaxed">
-                        Create a Telegram bot via @BotFather and paste the bot token here. We'll handle the rest.
-                      </p>
+                      <div class="rounded-xl border border-gray-4 bg-gray-2/60 px-3.5 py-3 space-y-2.5">
+                        <div class="text-[12px] font-semibold text-gray-12">Quick setup</div>
+                        <ol class="space-y-2 text-[12px] text-gray-10 leading-relaxed">
+                          <li class="flex items-start gap-2">
+                            <span class="mt-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-gray-4 text-[10px] font-semibold text-gray-11">1</span>
+                            <span>
+                              Open <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" class="font-medium text-gray-12 underline">@BotFather</a> and run <code class="rounded bg-gray-3 px-1 py-0.5 font-mono text-[11px]">/newbot</code>.
+                            </span>
+                          </li>
+                          <li class="flex items-start gap-2">
+                            <span class="mt-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-gray-4 text-[10px] font-semibold text-gray-11">2</span>
+                            <span>Copy the bot token and paste it below.</span>
+                          </li>
+                          <li class="flex items-start gap-2">
+                            <span class="mt-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-gray-4 text-[10px] font-semibold text-gray-11">3</span>
+                            <span>Connect, then send <code class="rounded bg-gray-3 px-1 py-0.5 font-mono text-[11px]">/start</code> to your bot to activate the chat.</span>
+                          </li>
+                        </ol>
+                      </div>
                     </Show>
 
                     <div>
@@ -942,6 +984,20 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
                       </Show>
                       {telegramSaving() ? "Connecting..." : "Connect Telegram"}
                     </button>
+
+                    <Show when={telegramBotLink()}>
+                      {(value) => (
+                        <a
+                          href={value()}
+                          target="_blank"
+                          rel="noreferrer"
+                          class="inline-flex items-center gap-2 rounded-lg border border-gray-4 bg-gray-2/50 px-3 py-2 text-[12px] font-medium text-gray-11 hover:bg-gray-2"
+                        >
+                          <Link size={14} />
+                          Open @{telegramBotUsername()} in Telegram
+                        </a>
+                      )}
+                    </Show>
 
                     <Show when={telegramIdentities().length === 0}>
                       <Show when={telegramStatus()}>

@@ -169,39 +169,62 @@ const statusIconTone = (status?: string | null) => {
 const automationTemplates = [
   {
     icon: Calendar,
-    description: "Scan recent commits and flag riskier diffs.",
-    prompt: "Schedule a daily job at 9am to scan recent commits and flag riskier diffs.",
-    tone: "text-red-9",
+    name: "Daily planning brief",
+    description: "Build a focused plan from your tasks and calendar.",
+    prompt: "Review my pending tasks and calendar, then draft a practical plan for today with top priorities and one follow-up reminder.",
+    tone: "text-blue-9",
+    scheduleMode: "daily" as const,
+    scheduleTime: "08:30",
+    scheduleDays: ["mo", "tu", "we", "th", "fr"],
   },
   {
     icon: BookOpen,
-    description: "Draft weekly release notes from merged PRs.",
-    prompt: "Schedule a weekly job on Fridays at 4pm to draft release notes from merged PRs.",
-    tone: "text-blue-9",
+    name: "Inbox zero helper",
+    description: "Summarize unread messages and draft short replies.",
+    prompt: "Summarize unread inbox messages, suggest priority order, and draft concise reply options for the top conversations.",
+    tone: "text-teal-9",
+    scheduleMode: "daily" as const,
+    scheduleTime: "17:30",
+    scheduleDays: ["mo", "tu", "we", "th", "fr"],
   },
   {
     icon: MessageSquare,
-    description: "Summarize yesterday's git activity by repo.",
-    prompt: "Schedule a daily job at 6pm to summarize yesterday's git activity by repo.",
-    tone: "text-purple-9",
+    name: "Meeting prep notes",
+    description: "Generate prep bullets for tomorrow's meetings.",
+    prompt: "Prepare meeting briefs for tomorrow with context, talking points, and questions to unblock decisions.",
+    tone: "text-indigo-9",
+    scheduleMode: "daily" as const,
+    scheduleTime: "18:00",
+    scheduleDays: ["mo", "tu", "we", "th", "fr"],
   },
   {
     icon: TrendingUp,
-    description: "Watch CI failures and surface recurring flakes.",
-    prompt: "Schedule a job every 6 hours to summarize CI failures and surface recurring flakes.",
-    tone: "text-indigo-9",
+    name: "Weekly wins recap",
+    description: "Create a Friday recap of wins, blockers, and next steps.",
+    prompt: "Summarize the week into wins, blockers, and clear next steps I can share with the team.",
+    tone: "text-emerald-9",
+    scheduleMode: "daily" as const,
+    scheduleTime: "16:00",
+    scheduleDays: ["fr"],
   },
   {
     icon: Trophy,
-    description: "Build a tiny classic game for a team demo.",
-    prompt: "Schedule a weekly job on Mondays at 10am to build a tiny classic game for a team demo.",
+    name: "Learning digest",
+    description: "Turn saved links and notes into a weekly digest.",
+    prompt: "Collect my saved links and notes, then draft a weekly learning digest with key ideas and follow-up actions.",
     tone: "text-amber-9",
+    scheduleMode: "daily" as const,
+    scheduleTime: "10:00",
+    scheduleDays: ["su"],
   },
   {
     icon: Brain,
-    description: "Suggest the next skills to install for this worker.",
-    prompt: "Schedule a weekly job on Wednesdays at 2pm to suggest the next skills to install for this worker.",
+    name: "Habit check-in",
+    description: "Run a quick accountability check through the day.",
+    prompt: "Ask me for a quick progress check-in, capture blockers, and suggest one concrete next action.",
     tone: "text-pink-9",
+    scheduleMode: "interval" as const,
+    intervalHours: 6,
   },
 ];
 
@@ -504,12 +527,21 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
     setCreateModalOpen(true);
   };
 
-  const launchAutomationPrompt = (promptValue: string) => {
-    if (!promptValue) return;
+  const openCreateModalFromTemplate = (template: (typeof automationTemplates)[number]) => {
     const root = props.activeWorkspaceRoot.trim();
-    const decorated = root ? `${promptValue}\n\nRun from ${root}.` : promptValue;
-    props.setPrompt(decorated);
-    props.createSessionAndOpen();
+    if (root) {
+      setAutomationProject(root);
+    }
+    setAutomationName(template.name);
+    setAutomationPrompt(template.prompt);
+    setScheduleMode(template.scheduleMode);
+    if (template.scheduleMode === "interval") {
+      setIntervalHours(template.intervalHours ?? 6);
+    } else {
+      setScheduleTime(template.scheduleTime ?? "09:00");
+      setScheduleDays(template.scheduleDays ?? ["mo", "tu", "we", "th", "fr"]);
+    }
+    setCreateModalOpen(true);
   };
 
   const handleCreateAutomation = () => {
@@ -650,7 +682,7 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
                     icon={card.icon}
                     description={card.description}
                     tone={card.tone}
-                    onClick={() => launchAutomationPrompt(card.prompt)}
+                    onClick={() => openCreateModalFromTemplate(card)}
                     disabled={props.newTaskDisabled}
                   />
                 )}
