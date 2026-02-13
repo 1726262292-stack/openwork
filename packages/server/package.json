@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "bun src/cli.ts",
+    "test": "bun test",
     "build": "tsc -p tsconfig.json",
     "build:bin": "bun build --compile src/cli.ts --outfile dist/bin/openwork-server",
     "build:bin:all": "bun ./script/build.ts --outdir dist/bin --target bun-darwin-arm64 --target bun-darwin-x64 --target bun-linux-x64 --target bun-linux-arm64 --target bun-windows-x64",

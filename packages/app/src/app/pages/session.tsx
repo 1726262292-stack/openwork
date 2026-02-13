@@ -418,6 +418,11 @@ export default function SessionView(props: SessionViewProps) {
     if (/^workspace\//i.test(relative)) {
       relative = relative.replace(/^workspace\//i, "");
     }
+
+    // Other surfaces include an absolute-style "/workspace/<path>" prefix.
+    if (/^\/+workspace\//i.test(relative)) {
+      relative = relative.replace(/^\/+workspace\//i, "");
+    }
     if (relative.startsWith("/") || relative.startsWith("~") || /^[a-zA-Z]:\//.test(relative)) return "";
     if (relative.split("/").some((part) => part === "." || part === "..")) return "";
     return relative;

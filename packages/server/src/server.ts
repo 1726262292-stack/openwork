@@ -897,7 +897,7 @@ async function writeAgentLabAutomations(workspaceRoot: string, store: AgentLabAu
   await writeFile(path, JSON.stringify({ ...store, updatedAt: Date.now() }, null, 2) + "\n", "utf8");
 }
 
-function normalizeWorkspaceRelativePath(input: string, options: { allowSubdirs: boolean }): string {
+export function normalizeWorkspaceRelativePath(input: string, options: { allowSubdirs: boolean }): string {
   const raw = String(input ?? "").trim();
   if (!raw) {
     throw new ApiError(400, "invalid_path", "Path is required");
@@ -906,7 +906,15 @@ function normalizeWorkspaceRelativePath(input: string, options: { allowSubdirs: 
     throw new ApiError(400, "invalid_path", "Path contains null byte");
   }
 
-  const normalized = raw.replace(/\\/g, "/").replace(/^\/+/, "");
+  // A lot of user-facing surfaces (artifacts, tool logs) reference files as
+  // `workspace/<path>` or `/workspace/<path>`. The server API expects
+  // workspace-relative paths, so normalize those common prefixes here.
+  let normalized = raw.replace(/\\/g, "/");
+  normalized = normalized.replace(/^\/+/, "");
+  normalized = normalized.replace(/^\.\//, "");
+  normalized = normalized.replace(/^workspace\//, "");
+  normalized = normalized.replace(/^\/+/, "");
+
   const parts = normalized.split("/").filter(Boolean);
   if (!parts.length) {
     throw new ApiError(400, "invalid_path", "Path is required");
