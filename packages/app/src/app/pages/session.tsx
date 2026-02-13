@@ -1991,7 +1991,7 @@ export default function SessionView(props: SessionViewProps) {
                   }}
                 >
                   <Plus size={12} />
-                  New workspace
+                  New worker
                 </button>
                 <button
                   type="button"

@@ -557,7 +557,7 @@ export default function SessionSidebar(props: SidebarProps) {
                     }}
                   >
                     <Plus size={12} />
-                    New workspace
+                    New worker
                   </button>
                   <button
                     type="button"
