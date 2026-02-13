@@ -1,10 +1,11 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
-import { FileText } from "lucide-solid";
+import { Paperclip } from "lucide-solid";
 
-export type TouchedFilesPanelProps = {
+export type ArtifactsPanelProps = {
   files: string[];
   workspaceRoot?: string;
-  onFileClick?: (path: string) => void;
+  onOpenMarkdown?: (path: string) => void;
+  onOpenImage?: (path: string) => void;
   maxPreview?: number;
   id?: string;
 };
@@ -37,8 +38,17 @@ const getDirname = (value: string) => {
 };
 
 const isMarkdown = (value: string) => /\.(md|mdx|markdown)$/i.test(value);
+const isImage = (value: string) => /\.(png|jpe?g|gif|webp|svg)$/i.test(value);
 
-export default function TouchedFilesPanel(props: TouchedFilesPanelProps) {
+type ArtifactKind = "markdown" | "image";
+
+const artifactKind = (value: string): ArtifactKind | null => {
+  if (isMarkdown(value)) return "markdown";
+  if (isImage(value)) return "image";
+  return null;
+};
+
+export default function ArtifactsPanel(props: ArtifactsPanelProps) {
   const [showAll, setShowAll] = createSignal(false);
   const maxPreview = createMemo(() => {
     const raw = props.maxPreview ?? 6;
@@ -46,74 +56,89 @@ export default function TouchedFilesPanel(props: TouchedFilesPanelProps) {
     return Math.min(12, Math.max(3, Math.floor(raw)));
   });
 
-  const normalizedFiles = createMemo(() => {
-    const out: string[] = [];
+  const normalizedArtifacts = createMemo(() => {
+    const out: Array<{ path: string; kind: ArtifactKind }> = [];
     const seen = new Set<string>();
 
     for (const entry of props.files ?? []) {
       const normalized = normalizePath(String(entry ?? ""));
       if (!normalized) continue;
+      const base = getBasename(normalized);
+      const kind = artifactKind(base);
+      if (!kind) continue;
+
       const key = normalized.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push(normalized);
+      out.push({ path: normalized, kind });
       if (out.length >= 48) break;
     }
 
     return out;
   });
 
-  const visibleFiles = createMemo(() => {
-    const list = normalizedFiles();
+  const visibleArtifacts = createMemo(() => {
+    const list = normalizedArtifacts();
     return showAll() ? list : list.slice(0, maxPreview());
   });
 
   const hiddenCount = createMemo(() => {
-    const total = normalizedFiles().length;
-    const shown = visibleFiles().length;
+    const total = normalizedArtifacts().length;
+    const shown = visibleArtifacts().length;
     return Math.max(0, total - shown);
   });
 
-  const canOpen = createMemo(() => typeof props.onFileClick === "function");
+  const canOpenMarkdown = createMemo(() => typeof props.onOpenMarkdown === "function");
+  const canOpenImage = createMemo(() => typeof props.onOpenImage === "function");
   const prettyPath = (file: string) => toWorkspaceRelative(file, props.workspaceRoot);
 
   return (
     <div id={props.id} class="rounded-xl border border-dls-border bg-dls-hover px-3 py-2.5">
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 min-w-0">
-          <FileText size={14} class="text-dls-secondary" />
+          <Paperclip size={14} class="text-dls-secondary" />
           <div class="min-w-0">
             <div class="text-[11px] font-bold tracking-tight text-dls-secondary uppercase">
-              Touched files
+              Artifacts
             </div>
           </div>
         </div>
-        <Show when={normalizedFiles().length > 0}>
-          <div class="text-[11px] text-dls-secondary font-mono">{normalizedFiles().length}</div>
+        <Show when={normalizedArtifacts().length > 0}>
+          <div class="text-[11px] text-dls-secondary font-mono">{normalizedArtifacts().length}</div>
         </Show>
       </div>
 
       <div class="mt-2 space-y-1">
         <Show
-          when={visibleFiles().length > 0}
-          fallback={<div class="text-xs text-dls-secondary px-1 py-1">None yet.</div>}
+          when={visibleArtifacts().length > 0}
+          fallback={<div class="text-xs text-dls-secondary px-1 py-1">No artifacts yet.</div>}
         >
-          <For each={visibleFiles()}>
-            {(file) => {
-              const display = () => prettyPath(file);
+          <For each={visibleArtifacts()}>
+            {(artifact) => {
+              const display = () => prettyPath(artifact.path);
               const base = () => getBasename(display());
               const dir = () => getDirname(display());
-              const md = () => isMarkdown(base());
+              const md = () => artifact.kind === "markdown";
+              const img = () => artifact.kind === "image";
+              const openable = () => (md() ? canOpenMarkdown() : img() ? canOpenImage() : false);
+              const tooltip = () => {
+                if (md()) return display();
+                if (img() && !canOpenImage()) return `${display()} (image preview coming soon)`;
+                return display();
+              };
               return (
                 <button
                   type="button"
                   class={`w-full flex items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
-                    canOpen() ? "hover:bg-dls-active" : "cursor-default"
+                    openable() ? "hover:bg-dls-active" : "cursor-default"
                   }`}
-                  onClick={() => props.onFileClick?.(file)}
-                  disabled={!canOpen()}
-                  title={display()}
-                  aria-label={canOpen() ? `Open ${display()}` : display()}
+                  onClick={() => {
+                    if (md()) props.onOpenMarkdown?.(artifact.path);
+                    else if (img()) props.onOpenImage?.(artifact.path);
+                  }}
+                  disabled={!openable()}
+                  title={tooltip()}
+                  aria-label={openable() ? `Open ${display()}` : tooltip()}
                 >
                   <div class="mt-0.5 shrink-0">
                     <span class="h-1.5 w-1.5 rounded-full bg-dls-border inline-block" />
@@ -124,6 +149,11 @@ export default function TouchedFilesPanel(props: TouchedFilesPanelProps) {
                       <Show when={md()}>
                         <span class="shrink-0 rounded-md border border-dls-border bg-dls-surface px-1.5 py-0.5 text-[10px] font-mono text-dls-secondary">
                           MD
+                        </span>
+                      </Show>
+                      <Show when={img()}>
+                        <span class="shrink-0 rounded-md border border-dls-border bg-dls-surface px-1.5 py-0.5 text-[10px] font-mono text-dls-secondary">
+                          IMG
                         </span>
                       </Show>
                     </div>

@@ -66,7 +66,7 @@ import Composer from "../components/session/composer";
 import type { SidebarSectionState } from "../components/session/sidebar";
 import FlyoutItem from "../components/flyout-item";
 import QuestionModal from "../components/question-modal";
-import TouchedFilesPanel from "../components/session/touched-files-panel";
+import ArtifactsPanel from "../components/session/artifacts-panel";
 import MarkdownEditorSidebar from "../components/session/markdown-editor-sidebar";
 
 export type SessionViewProps = {
@@ -2433,13 +2433,6 @@ export default function SessionView(props: SessionViewProps) {
 
       <aside class="w-56 hidden md:flex flex-col bg-dls-sidebar border-l border-dls-border p-4">
         <div class="flex-1 overflow-y-auto space-y-3 pt-2">
-          <TouchedFilesPanel
-            id="sidebar-context"
-            files={touchedFiles()}
-            workspaceRoot={props.activeWorkspaceRoot}
-            onFileClick={openMarkdownEditor}
-          />
-
           <div class="space-y-1">
           <button
             type="button"
@@ -2529,6 +2522,13 @@ export default function SessionView(props: SessionViewProps) {
             Advanced
           </button>
           </div>
+
+          <ArtifactsPanel
+            id="sidebar-artifacts"
+            files={touchedFiles()}
+            workspaceRoot={props.activeWorkspaceRoot}
+            onOpenMarkdown={openMarkdownEditor}
+          />
         </div>
       </aside>
 
