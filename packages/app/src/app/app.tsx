@@ -952,6 +952,34 @@ export default function App() {
     return "";
   };
 
+  const upsertLocalSession = (next: Session | null | undefined) => {
+    const id = (next as { id?: string } | null)?.id ?? "";
+    if (!id) return;
+
+    const current = sessions();
+    const index = current.findIndex((session) => session.id === id);
+    if (index === -1) {
+      setSessions([...current, next as Session]);
+      return;
+    }
+    const copy = current.slice();
+    copy[index] = next as Session;
+    setSessions(copy);
+  };
+
+  // OpenCode keeps reverted messages in the log and uses `session.revert.messageID`
+  // as the visibility boundary. OpenWork mirrors that behavior by filtering the
+  // displayed transcript.
+  const visibleMessages = createMemo(() => {
+    const list = messages();
+    const revert = selectedSession()?.revert?.messageID ?? null;
+    if (!revert) return list;
+    return list.filter((message) => {
+      const id = messageIdFromInfo(message);
+      return Boolean(id) && id < revert;
+    });
+  });
+
   const restorePromptFromUserMessage = (message: MessageWithParts) => {
     const text = message.parts
       .filter((part) => part.type === "text")
@@ -965,9 +993,10 @@ export default function App() {
     const sessionID = (selectedSessionId() ?? "").trim();
     if (!c || !sessionID) return;
 
-    if (selectedSessionStatus() !== "idle") {
-      await (c.session as any).abort({ sessionID }).catch(() => undefined);
-    }
+    // Revert is rejected while the session is busy. We *usually* have an accurate
+    // session status via SSE, but to be resilient to transient desync we attempt
+    // an abort even when we think we're idle.
+    await (c.session as any).abort({ sessionID }).catch(() => undefined);
 
     const revertMessageID = selectedSession()?.revert?.messageID ?? null;
     const users = messages().filter((message) => {
@@ -990,7 +1019,8 @@ export default function App() {
     const messageID = messageIdFromInfo(target);
     if (!messageID) return;
 
-    unwrap(await (c.session as any).revert({ sessionID, messageID }));
+    const next = unwrap(await (c.session as any).revert({ sessionID, messageID }));
+    upsertLocalSession(next as Session);
     restorePromptFromUserMessage(target);
   }
 
@@ -998,6 +1028,8 @@ export default function App() {
     const c = client();
     const sessionID = (selectedSessionId() ?? "").trim();
     if (!c || !sessionID) return;
+
+    await (c.session as any).abort({ sessionID }).catch(() => undefined);
 
     const revertMessageID = selectedSession()?.revert?.messageID ?? null;
     if (!revertMessageID) return;
@@ -1013,7 +1045,8 @@ export default function App() {
     });
 
     if (!next) {
-      unwrap(await (c.session as any).unrevert({ sessionID }));
+      const session = unwrap(await (c.session as any).unrevert({ sessionID }));
+      upsertLocalSession(session as Session);
       setPrompt("");
       return;
     }
@@ -1021,7 +1054,8 @@ export default function App() {
     const messageID = messageIdFromInfo(next);
     if (!messageID) return;
 
-    unwrap(await (c.session as any).revert({ sessionID, messageID }));
+    const nextSession = unwrap(await (c.session as any).revert({ sessionID, messageID }));
+    upsertLocalSession(nextSession as Session);
 
     let prior: MessageWithParts | null = null;
     for (let idx = users.length - 1; idx >= 0; idx -= 1) {
@@ -4543,7 +4577,7 @@ export default function App() {
     workspaceSessionGroups: sidebarWorkspaceGroups(),
     openRenameWorkspace,
     selectSession: selectSession,
-    messages: activeMessages(),
+    messages: visibleMessages(),
     todos: activeTodos(),
     busyLabel: busyLabel(),
     developerMode: developerMode(),
