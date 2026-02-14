@@ -25,6 +25,7 @@ export default function ArtifactMarkdownEditor(props: ArtifactMarkdownEditorProp
   const [original, setOriginal] = createSignal("");
   const [draft, setDraft] = createSignal("");
   const [loadedPath, setLoadedPath] = createSignal<string | null>(null);
+  const [resolvedPath, setResolvedPath] = createSignal<string | null>(null);
   const [baseUpdatedAt, setBaseUpdatedAt] = createSignal<number | null>(null);
 
   const [confirmDiscardClose, setConfirmDiscardClose] = createSignal(false);
@@ -50,6 +51,7 @@ export default function ArtifactMarkdownEditor(props: ArtifactMarkdownEditorProp
     setOriginal("");
     setDraft("");
     setLoadedPath(null);
+    setResolvedPath(null);
     setBaseUpdatedAt(null);
     setConfirmDiscardClose(false);
     setConfirmOverwrite(false);
@@ -73,11 +75,41 @@ export default function ArtifactMarkdownEditor(props: ArtifactMarkdownEditorProp
 
     setLoading(true);
     setError(null);
+    setResolvedPath(null);
     try {
-      const result = (await client.readWorkspaceFile(workspaceId, target)) as OpenworkWorkspaceFileContent;
+      let result: OpenworkWorkspaceFileContent;
+      let actualPath = target;
+      try {
+        result = (await client.readWorkspaceFile(workspaceId, target)) as OpenworkWorkspaceFileContent;
+      } catch (err) {
+        // Artifacts are frequently referenced as workspace-relative paths (e.g. `learned/foo.md`),
+        // but on disk they may live under the OpenWork outbox dir: `.opencode/openwork/outbox/`.
+        // If the first lookup fails, retry there.
+        const candidateOutbox = `.opencode/openwork/outbox/${target}`.replace(/\/+/g, "/");
+        const shouldTryOutbox =
+          !(target.startsWith(".opencode/openwork/outbox/") || target.startsWith("./.opencode/openwork/outbox/")) &&
+          err instanceof OpenworkServerError &&
+          err.status === 404;
+
+        if (!shouldTryOutbox) {
+          throw err;
+        }
+
+        actualPath = candidateOutbox;
+        try {
+          result = (await client.readWorkspaceFile(workspaceId, actualPath)) as OpenworkWorkspaceFileContent;
+        } catch (second) {
+          if (second instanceof OpenworkServerError && second.status === 404) {
+            throw new OpenworkServerError(404, "file_not_found", "File not found (workspace root or outbox).");
+          }
+          throw second;
+        }
+      }
+
       setOriginal(result.content ?? "");
       setDraft(result.content ?? "");
       setLoadedPath(target);
+      setResolvedPath(actualPath);
       setBaseUpdatedAt(typeof result.updatedAt === "number" ? result.updatedAt : null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load file";
@@ -91,7 +123,7 @@ export default function ArtifactMarkdownEditor(props: ArtifactMarkdownEditorProp
   const save = async (options?: { force?: boolean }) => {
     const client = props.client;
     const workspaceId = props.workspaceId;
-    const target = path();
+    const target = resolvedPath() ?? path();
     if (!client || !workspaceId || !target) {
       props.onToast?.("Cannot save: OpenWork server not connected");
       return;
