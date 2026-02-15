@@ -134,8 +134,8 @@ pub fn run() {
             if let Ok(mut openwork_server) = app_handle.state::<OpenworkServerManager>().inner.lock() {
                 OpenworkServerManager::stop_locked(&mut openwork_server);
             }
-            if let Ok(mut opencodeRouter) = app_handle.state::<OpenCodeRouterManager>().inner.lock() {
-                OpenCodeRouterManager::stop_locked(&mut opencodeRouter);
+            if let Ok(mut opencode_router) = app_handle.state::<OpenCodeRouterManager>().inner.lock() {
+                OpenCodeRouterManager::stop_locked(&mut opencode_router);
             }
         }
     });

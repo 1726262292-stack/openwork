@@ -9,7 +9,7 @@ use tauri_plugin_shell::ShellExt;
 
 pub const DEFAULT_OPENCODE_ROUTER_HEALTH_PORT: u16 = 3005;
 
-pub fn resolve_opencodeRouter_health_port() -> Result<u16, String> {
+pub fn resolve_opencode_router_health_port() -> Result<u16, String> {
     if TcpListener::bind(("0.0.0.0", DEFAULT_OPENCODE_ROUTER_HEALTH_PORT)).is_ok() {
         return Ok(DEFAULT_OPENCODE_ROUTER_HEALTH_PORT);
     }
@@ -18,7 +18,7 @@ pub fn resolve_opencodeRouter_health_port() -> Result<u16, String> {
     Ok(port)
 }
 
-pub fn build_opencodeRouter_args(workspace_path: &str, opencode_url: Option<&str>) -> Vec<String> {
+pub fn build_opencode_router_args(workspace_path: &str, opencode_url: Option<&str>) -> Vec<String> {
     let mut args = vec!["serve".to_string(), workspace_path.to_string()];
 
     if let Some(url) = opencode_url {
@@ -32,7 +32,7 @@ pub fn build_opencodeRouter_args(workspace_path: &str, opencode_url: Option<&str
     args
 }
 
-pub fn spawn_opencodeRouter(
+pub fn spawn_opencode_router(
     app: &AppHandle,
     workspace_path: &str,
     opencode_url: Option<&str>,
@@ -45,7 +45,7 @@ pub fn spawn_opencodeRouter(
         Err(_) => app.shell().command("opencode-router"),
     };
 
-    let args = build_opencodeRouter_args(workspace_path, opencode_url);
+    let args = build_opencode_router_args(workspace_path, opencode_url);
 
     let mut command = command
         .args(args)

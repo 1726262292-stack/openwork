@@ -10,7 +10,7 @@ fn main() {
     emit_build_info();
     ensure_opencode_sidecar();
     ensure_openwork_server_sidecar();
-    ensure_opencodeRouter_sidecar();
+    ensure_opencode_router_sidecar();
     ensure_openwrk_sidecar();
     tauri_build::build();
 }
@@ -348,7 +348,7 @@ fn ensure_openwork_server_sidecar() {
     }
 }
 
-fn ensure_opencodeRouter_sidecar() {
+fn ensure_opencode_router_sidecar() {
     let target = env::var("CARGO_CFG_TARGET_TRIPLE")
         .or_else(|_| env::var("TARGET"))
         .or_else(|_| env::var("TAURI_ENV_TARGET_TRIPLE"))

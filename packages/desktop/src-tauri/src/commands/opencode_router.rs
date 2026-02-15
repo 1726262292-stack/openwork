@@ -1,9 +1,11 @@
+#![allow(non_snake_case)]
+
 use tauri::{AppHandle, State};
 use tauri_plugin_shell::process::CommandEvent;
 
 use crate::opencode_router::manager::OpenCodeRouterManager;
 use crate::opencode_router::spawn::{
-    resolve_opencodeRouter_health_port, spawn_opencodeRouter, DEFAULT_OPENCODE_ROUTER_HEALTH_PORT,
+    resolve_opencode_router_health_port, spawn_opencode_router, DEFAULT_OPENCODE_ROUTER_HEALTH_PORT,
 };
 use crate::types::OpenCodeRouterInfo;
 use crate::utils::truncate_output;
@@ -106,9 +108,9 @@ pub fn opencodeRouter_start(
 
     let resolved_health_port = match health_port {
         Some(port) => port,
-        None => resolve_opencodeRouter_health_port()?,
+        None => resolve_opencode_router_health_port()?,
     };
-    let (mut rx, child) = spawn_opencodeRouter(
+    let (mut rx, child) = spawn_opencode_router(
         &app,
         &workspace_path,
         opencode_url.as_deref(),
