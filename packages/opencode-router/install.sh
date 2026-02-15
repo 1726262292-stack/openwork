@@ -9,7 +9,7 @@ OPENCODE_ROUTER_INSTALL_METHOD="${OPENCODE_ROUTER_INSTALL_METHOD:-npm}"
 
 usage() {
   cat <<'EOF'
-OpenCode Router installer
+opencode-router installer
 
 Environment variables:
   OPENCODE_ROUTER_INSTALL_DIR  Install directory (default: ~/.openwork/opencode-router/openwork)
@@ -38,8 +38,8 @@ require_bin() {
 require_bin node
 
 if [[ "$OPENCODE_ROUTER_INSTALL_METHOD" == "npm" ]]; then
-  echo "Installing owpenwork via npm (provides opencode-router)..."
-  npm install -g owpenwork
+  echo "Installing opencode-router via npm..."
+  npm install -g opencode-router
 else
   require_bin git
   if ! command -v pnpm >/dev/null 2>&1; then
@@ -53,7 +53,7 @@ else
   fi
 
   if [[ -d "$OPENCODE_ROUTER_INSTALL_DIR/.git" ]]; then
-    echo "Updating OpenCode Router source in $OPENCODE_ROUTER_INSTALL_DIR"
+    echo "Updating opencode-router source in $OPENCODE_ROUTER_INSTALL_DIR"
     git -C "$OPENCODE_ROUTER_INSTALL_DIR" fetch origin --prune
     if git -C "$OPENCODE_ROUTER_INSTALL_DIR" show-ref --verify --quiet "refs/remotes/origin/$OPENCODE_ROUTER_REF"; then
       git -C "$OPENCODE_ROUTER_INSTALL_DIR" checkout -B "$OPENCODE_ROUTER_REF" "origin/$OPENCODE_ROUTER_REF"
@@ -63,7 +63,7 @@ else
       git -C "$OPENCODE_ROUTER_INSTALL_DIR" pull --ff-only
     fi
   else
-    echo "Cloning OpenCode Router source to $OPENCODE_ROUTER_INSTALL_DIR"
+    echo "Cloning opencode-router source to $OPENCODE_ROUTER_INSTALL_DIR"
     mkdir -p "$OPENCODE_ROUTER_INSTALL_DIR"
     git clone --depth 1 "$OPENCODE_ROUTER_REPO" "$OPENCODE_ROUTER_INSTALL_DIR"
     if git -C "$OPENCODE_ROUTER_INSTALL_DIR" show-ref --verify --quiet "refs/remotes/origin/$OPENCODE_ROUTER_REF"; then
@@ -139,7 +139,7 @@ fi
 
 cat <<EOF
 
-OpenCode Router installed.
+opencode-router installed.
 
 Next steps:
 1) Edit: $ENV_PATH

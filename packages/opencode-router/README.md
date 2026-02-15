@@ -1,6 +1,6 @@
-# OpenCode Router
+# opencode-router
 
-Simple Slack + Telegram bridge + directory router for a running OpenCode server.
+Simple Slack + Telegram bridge + directory router for a running `opencode` server.
 
 ## Install + Run
 
@@ -10,16 +10,16 @@ One-command install (recommended):
 curl -fsSL https://raw.githubusercontent.com/different-ai/openwork/dev/packages/opencode-router/install.sh | bash
 ```
 
-Or install from npm (package name is still `owpenwork`):
+Or install from npm:
 
 ```bash
-npm install -g owpenwork
+npm install -g opencode-router
 ```
 
 Quick run without install:
 
 ```bash
-npx owpenwork
+npx opencode-router
 ```
 
 Then follow the guided setup (choose what to configure, start).
