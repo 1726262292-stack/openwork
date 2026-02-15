@@ -1,6 +1,6 @@
 {
   "name": "owpenwork",
-  "version": "0.11.67",
+  "version": "0.11.68",
   "description": "OpenCode Router (formerly owpenbot): Slack + Telegram bridge + directory routing for a running OpenCode server",
   "private": false,
   "type": "module",
