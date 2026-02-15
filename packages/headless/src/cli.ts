@@ -1387,7 +1387,7 @@ async function resolveExpectedVersion(
   }
   if (name === "opencode-router") {
     try {
-      const pkgPath = require.resolve("owpenwork/package.json");
+      const pkgPath = require.resolve("opencode-router/package.json");
       const version = await readPackageVersion(pkgPath);
       if (version) return version;
     } catch {
@@ -1754,7 +1754,7 @@ async function resolveOpenCodeRouterBin(options: {
 
     const require = createRequire(import.meta.url);
     try {
-      const pkgPath = require.resolve("owpenwork/package.json");
+      const pkgPath = require.resolve("opencode-router/package.json");
       const pkgDir = dirname(pkgPath);
       const binaryPath = join(pkgDir, "dist", "bin", "opencode-router");
       if (await isExecutable(binaryPath)) {
@@ -1769,7 +1769,7 @@ async function resolveOpenCodeRouterBin(options: {
     }
 
     throw new Error(
-      "opencodeRouter binary not found. Install the owpenwork dependency or pass --opencode-router-bin with --allow-external.",
+      "opencode-router binary not found. Install the opencode-router dependency or pass --opencode-router-bin with --allow-external.",
     );
   };
 

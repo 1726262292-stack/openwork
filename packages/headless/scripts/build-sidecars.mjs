@@ -43,7 +43,7 @@ const run = (command, args, cwd) => {
 };
 
 run("pnpm", ["--filter", "openwork-server", "build:bin:all"], repoRoot);
-run("pnpm", ["--filter", "owpenwork", "build:bin:all"], repoRoot);
+run("pnpm", ["--filter", "opencode-router", "build:bin:all"], repoRoot);
 
 const targets = [
   { id: "darwin-arm64", bun: "bun-darwin-arm64" },

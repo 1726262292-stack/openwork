@@ -38,17 +38,17 @@ const env = {
   NPM_CONFIG_CACHE: tempCache,
 };
 
-const result = await run("npx", ["--yes", "owpenwork", "--help"], {
+const result = await run("npx", ["--yes", "opencode-router", "--help"], {
   env,
   timeoutMs: 60000,
 });
 
 if (result.code !== 0) {
-  throw new Error(result.stderr || "npx owpenwork failed");
+  throw new Error(result.stderr || "npx opencode-router failed");
 }
 
-if (!result.stdout.includes("OpenCode WhatsApp")) {
-  throw new Error("npx output missing expected header");
+if (!result.stdout.includes("opencode-router") && !result.stdout.includes("owpenbot")) {
+  throw new Error("npx output missing expected command name");
 }
 
-console.log("npx owpenwork ok");
+console.log("npx opencode-router ok");

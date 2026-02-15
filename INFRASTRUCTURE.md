@@ -1,6 +1,6 @@
 # OpenWork Infrastructure Principles
 
-OpenWork is an experience layer. OpenCode is the engine. This document defines how infrastructure is built so every component is usable on its own, composable as a sidecar, and easy to automate.
+OpenWork is an experience layer. `opencode` is the engine. This document defines how infrastructure is built so every component is usable on its own, composable as a sidecar, and easy to automate.
 
 ## Core Principles
 
@@ -63,7 +63,7 @@ But what you can do is:
 
 ## Applied to Current Components
 
-### OpenCode Engine
+### opencode Engine
 
 * Always usable via `opencode` CLI.
 * OpenWork never replaces the CLI; it only connects to the engine.
@@ -76,7 +76,7 @@ But what you can do is:
 
 ### OpenCode Router
 
-* Runs standalone via `owpenwork` CLI.
+* Runs standalone via `opencode-router` CLI.
 * Must be able to use OpenWork server for config and approvals.
 
 ## Non-goals

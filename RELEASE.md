@@ -34,7 +34,7 @@ OpenWork releases should be deterministic, easy to reproduce, and fully verifiab
 ## openwork-server + opencode-router (if version changed)
 
 - `pnpm --filter openwork-server publish --access public`
-- `pnpm --filter owpenwork publish --access public`
+- `pnpm --filter opencode-router publish --access public`
 
 ## Verification
 
@@ -55,7 +55,7 @@ Required repo config:
 
 ## npm publishing
 
-If you want `Release App` to publish `openwrk`, `openwork-server`, and `owpenwork` to npm, configure:
+If you want `Release App` to publish `openwrk`, `openwork-server`, and `opencode-router` to npm, configure:
 
 - GitHub Actions secret: `NPM_TOKEN` (npm automation token)
 

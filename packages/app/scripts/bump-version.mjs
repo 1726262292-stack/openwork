@@ -72,10 +72,10 @@ const updatePackageJson = async (nextVersion) => {
   tauriData.opencodeRouterVersion = nextVersion;
   headlessData.version = nextVersion;
 
-  // Ensure openwrk uses the same openwork-server/owpenwork versions.
+  // Ensure openwrk uses the same openwork-server/opencode-router versions.
   headlessData.dependencies = headlessData.dependencies ?? {};
   headlessData.dependencies["openwork-server"] = nextVersion;
-  headlessData.dependencies.owpenwork = nextVersion;
+  headlessData.dependencies["opencode-router"] = nextVersion;
 
   serverData.version = nextVersion;
   opencodeRouterData.version = nextVersion;

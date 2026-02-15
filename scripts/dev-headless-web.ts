@@ -139,15 +139,15 @@ const ensureOpencodeRouter = async () => {
     if (!autoBuildEnabled) {
       logLine(`[dev:headless-web] Missing opencode-router binary at ${opencodeRouterBin}`);
       logLine("[dev:headless-web] Auto-build disabled (OPENWORK_DEV_HEADLESS_WEB_AUTOBUILD=0)");
-      logLine("[dev:headless-web] Run: pnpm --filter owpenwork build:bin");
+      logLine("[dev:headless-web] Run: pnpm --filter opencode-router build:bin");
       logLine("[dev:headless-web] Or unset/enable OPENWORK_DEV_HEADLESS_WEB_AUTOBUILD to auto-build.");
       process.exit(1);
     }
 
     logLine(`[dev:headless-web] Missing opencode-router binary at ${opencodeRouterBin}`);
-    logLine("[dev:headless-web] Auto-building: pnpm --filter owpenwork build:bin");
+    logLine("[dev:headless-web] Auto-building: pnpm --filter opencode-router build:bin");
     try {
-      await runCommand("pnpm", ["--filter", "owpenwork", "build:bin"]);
+      await runCommand("pnpm", ["--filter", "opencode-router", "build:bin"]);
       await access(opencodeRouterBin);
     } catch (error) {
       logLine(`[dev:headless-web] Auto-build failed: ${error instanceof Error ? error.message : String(error)}`);

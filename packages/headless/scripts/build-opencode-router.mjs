@@ -31,9 +31,9 @@ run("pnpm", ["install"], repoRoot);
 const pkg = JSON.parse(readFileSync(resolve(routerRepo, "package.json"), "utf8"));
 const scripts = pkg?.scripts ?? {};
 if (scripts["build:bin"]) {
-  run("pnpm", ["--filter", "owpenwork", "build:bin"], repoRoot);
+  run("pnpm", ["--filter", "opencode-router", "build:bin"], repoRoot);
 } else if (scripts["build:binary"]) {
-  run("pnpm", ["--filter", "owpenwork", "build:binary"], repoRoot);
+  run("pnpm", ["--filter", "opencode-router", "build:binary"], repoRoot);
 } else {
   run("bun", ["build", "--compile", "src/cli.ts", "--outfile", "dist/bin/opencode-router"], routerRepo);
 }
