@@ -1,8 +1,10 @@
 use tauri::{AppHandle, State};
 use tauri_plugin_shell::process::CommandEvent;
 
-use crate::opencodeRouter::manager::OpenCodeRouterManager;
-use crate::opencodeRouter::spawn::{resolve_opencodeRouter_health_port, spawn_opencodeRouter, DEFAULT_OPENCODE_ROUTER_HEALTH_PORT};
+use crate::opencode_router::manager::OpenCodeRouterManager;
+use crate::opencode_router::spawn::{
+    resolve_opencodeRouter_health_port, spawn_opencodeRouter, DEFAULT_OPENCODE_ROUTER_HEALTH_PORT,
+};
 use crate::types::OpenCodeRouterInfo;
 use crate::utils::truncate_output;
 

@@ -5,7 +5,7 @@ mod fs;
 mod opkg;
 mod openwrk;
 mod openwork_server;
-mod opencodeRouter;
+mod opencode_router;
 mod paths;
 mod platform;
 mod types;
@@ -28,7 +28,7 @@ use commands::openwrk::{
 use commands::openwork_server::openwork_server_info;
 use commands::scheduler::{scheduler_delete_job, scheduler_list_jobs};
 use commands::opkg::{import_skill, opkg_install};
-use commands::opencodeRouter::{
+use commands::opencode_router::{
     opencodeRouter_config_set, opencodeRouter_info, opencodeRouter_start, opencodeRouter_status, opencodeRouter_stop,
 };
 use commands::skills::{
@@ -44,7 +44,7 @@ use commands::workspace::{
 use engine::manager::EngineManager;
 use openwrk::manager::OpenwrkManager;
 use openwork_server::manager::OpenworkServerManager;
-use opencodeRouter::manager::OpenCodeRouterManager;
+use opencode_router::manager::OpenCodeRouterManager;
 use tauri::Manager;
 use workspace::watch::WorkspaceWatchState;
 
