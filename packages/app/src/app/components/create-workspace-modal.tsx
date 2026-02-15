@@ -298,7 +298,7 @@ export default function CreateWorkspaceModal(props: {
             <div class="font-semibold text-amber-12">{translate("dashboard.sandbox_get_ready_title")}</div>
             <Show when={props.workerCtaDescription?.trim() || workerDisabledReason()}>
               <div class="mt-1 text-amber-11 leading-relaxed">
-                {props.workerCtaDescription?.trim() || workerDisabledReason()}
+                {workerDisabledReason() || props.workerCtaDescription?.trim()}
               </div>
             </Show>
             <div class="mt-3 flex flex-wrap items-center gap-2">

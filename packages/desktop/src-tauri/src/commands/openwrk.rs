@@ -1,7 +1,10 @@
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
+use std::collections::HashSet;
+use std::env;
 use std::net::TcpListener;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -59,6 +62,137 @@ fn run_local_command(program: &str, args: &[&str]) -> Result<(i32, String, Strin
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     Ok((status, stdout, stderr))
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(path) {
+            let mode = meta.permissions().mode();
+            return (mode & 0o111) != 0;
+        }
+    }
+    true
+}
+
+fn parse_path_export_value(output: &str) -> Option<String> {
+    // `path_helper -s` prints shell exports, e.g.:
+    //   PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"; export PATH;
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("PATH=") {
+            continue;
+        }
+        let after = trimmed.strip_prefix("PATH=")?;
+        let after = after.trim();
+        // Strip leading quote (single or double)
+        let quote = after.chars().next()?;
+        if quote != '"' && quote != '\'' {
+            continue;
+        }
+        let mut value = after[1..].to_string();
+        if let Some(end) = value.find(quote) {
+            value.truncate(end);
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn resolve_docker_candidates() -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+
+    // 1) Explicit override (most reliable in odd environments)
+    for key in ["OPENWORK_DOCKER_BIN", "OPENWRK_DOCKER_BIN", "DOCKER_BIN"] {
+        if let Some(value) = env::var_os(key) {
+            let raw = value.to_string_lossy().trim().to_string();
+            if !raw.is_empty() {
+                let path = PathBuf::from(raw);
+                if seen.insert(path.clone()) {
+                    out.push(path);
+                }
+            }
+        }
+    }
+
+    // 2) PATH from current process
+    if let Some(paths) = env::var_os("PATH") {
+        for dir in env::split_paths(&paths) {
+            let candidate = dir.join("docker");
+            if seen.insert(candidate.clone()) {
+                out.push(candidate);
+            }
+        }
+    }
+
+    // 3) macOS default login PATH via path_helper
+    if cfg!(target_os = "macos") {
+        if let Ok((status, stdout, _stderr)) =
+            run_local_command("/usr/libexec/path_helper", &["-s"])
+        {
+            if status == 0 {
+                if let Some(path_value) = parse_path_export_value(&stdout) {
+                    for dir in env::split_paths(&path_value) {
+                        let candidate = dir.join("docker");
+                        if seen.insert(candidate.clone()) {
+                            out.push(candidate);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 4) Well-known locations (Homebrew + Docker Desktop)
+    for raw in [
+        "/opt/homebrew/bin/docker",
+        "/usr/local/bin/docker",
+        "/Applications/Docker.app/Contents/Resources/bin/docker",
+    ] {
+        let path = PathBuf::from(raw);
+        if seen.insert(path.clone()) {
+            out.push(path);
+        }
+    }
+
+    // Keep only plausible executable files.
+    out.into_iter()
+        .filter(|path| is_executable_file(path))
+        .collect()
+}
+
+fn run_docker_command(args: &[&str]) -> Result<(i32, String, String), String> {
+    // On macOS, GUI apps may not inherit the user's shell PATH (e.g. missing /opt/homebrew/bin).
+    // We resolve candidates conservatively and prefer an explicit override when provided.
+    let candidates = resolve_docker_candidates();
+
+    // As a final fallback, try invoking `docker` by name (in case the OS resolves it differently).
+    // This keeps behavior consistent with CLI environments.
+    let mut tried: Vec<String> = candidates
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+    tried.push("docker".to_string());
+
+    let mut errors: Vec<String> = Vec::new();
+    for program in tried {
+        match run_local_command(&program, args) {
+            Ok(result) => return Ok(result),
+            Err(err) => errors.push(err),
+        }
+    }
+
+    let hint = "Set OPENWORK_DOCKER_BIN (or OPENWRK_DOCKER_BIN) to your docker binary, e.g. /opt/homebrew/bin/docker";
+    Err(format!(
+        "Failed to run docker: {} ({})",
+        errors.join("; "),
+        hint
+    ))
 }
 
 fn parse_docker_client_version(stdout: &str) -> Option<String> {
@@ -493,7 +627,7 @@ pub fn openwrk_start_detached(
 
 #[tauri::command]
 pub fn sandbox_doctor() -> SandboxDoctorResult {
-    let (status, stdout, stderr) = match run_local_command("docker", &["--version"]) {
+    let (status, stdout, stderr) = match run_docker_command(&["--version"]) {
         Ok(result) => result,
         Err(err) => {
             return SandboxDoctorResult {
@@ -526,7 +660,7 @@ pub fn sandbox_doctor() -> SandboxDoctorResult {
     let client_version = parse_docker_client_version(&stdout);
 
     // `docker info` is a good readiness check (installed + daemon reachable + perms).
-    let (info_status, info_stdout, info_stderr) = match run_local_command("docker", &["info"]) {
+    let (info_status, info_stdout, info_stderr) = match run_docker_command(&["info"]) {
         Ok(result) => result,
         Err(err) => {
             return SandboxDoctorResult {
@@ -564,7 +698,11 @@ pub fn sandbox_doctor() -> SandboxDoctorResult {
     let daemon_running = !lower.contains("cannot connect to the docker daemon")
         && !lower.contains("is the docker daemon running")
         && !lower.contains("error during connect")
-        && !lower.contains("connection refused");
+        && !lower.contains("connection refused")
+        && !lower.contains("failed to connect to the docker api")
+        && !lower.contains("dial unix")
+        && !lower.contains("connect: no such file or directory")
+        && !lower.contains("no such file or directory");
 
     SandboxDoctorResult {
         installed: true,
@@ -599,7 +737,7 @@ pub fn sandbox_stop(container_name: String) -> Result<ExecResult, String> {
         return Err("containerName contains invalid characters".to_string());
     }
 
-    let (status, stdout, stderr) = run_local_command("docker", &["stop", &name])?;
+    let (status, stdout, stderr) = run_docker_command(&["stop", &name])?;
     Ok(ExecResult {
         ok: status == 0,
         status,

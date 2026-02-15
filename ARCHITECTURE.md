@@ -1,5 +1,35 @@
 # OpenWork Architecture
 
+## Design principle: Predictable > Clever
+
+OpenWork optimizes for **predictability** over "clever" auto-detection. Users should be able to form a correct mental model of what will happen.
+
+Guidelines:
+
+- Prefer **explicit configuration** (a single setting or env var) over heuristics.
+- Auto-detection is acceptable as a convenience, but must be:
+  - explainable (we can tell the user what we tried)
+  - overrideable (one obvious escape hatch)
+  - safe (no surprising side effects)
+- When a prerequisite is missing, surface the **exact failing check** and a concrete next step.
+
+### Example: Docker-backed sandboxes (desktop)
+
+When enabling Docker-backed sandbox mode, prefer an explicit, single-path override for the Docker client binary:
+
+- `OPENWORK_DOCKER_BIN` (absolute path to `docker`)
+
+This keeps behavior predictable across environments where GUI apps do not inherit shell PATH (common on macOS).
+
+Auto-detection can exist as a convenience, but should be tiered and explainable:
+
+1. Honor `OPENWORK_DOCKER_BIN` if set.
+2. Try the process PATH.
+3. On macOS, try the login PATH from `/usr/libexec/path_helper`.
+4. Last-resort: try well-known locations (Homebrew, Docker Desktop bundle) and validate the binary exists.
+
+The readiness check should be a clear, single command (e.g. `docker info`) and the UI should show the exact error output when it fails.
+
 ## opencode primitives
 how to pick the right extension abstraction for 
 @opencode
