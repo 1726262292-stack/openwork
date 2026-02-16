@@ -33,6 +33,11 @@ on:
         required: false
         type: boolean
         default: false
+      build_tauri:
+        description: "Build desktop (Tauri) artifacts"
+        required: false
+        type: boolean
+        default: true
       publish_sidecars:
         description: "Build + upload openwork-orchestrator sidecar release assets"
         required: false
@@ -63,6 +68,7 @@ jobs:
       draft: ${{ steps.resolve.outputs.draft }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
       notarize: ${{ steps.resolve.outputs.notarize }}
+      build_tauri: ${{ steps.resolve.outputs.build_tauri }}
       publish_sidecars: ${{ steps.resolve.outputs.publish_sidecars }}
       publish_npm: ${{ steps.resolve.outputs.publish_npm }}
     steps:
@@ -76,11 +82,13 @@ jobs:
           INPUT_DRAFT: ${{ github.event.inputs.draft }}
           INPUT_PRERELEASE: ${{ github.event.inputs.prerelease }}
           INPUT_NOTARIZE: ${{ github.event.inputs.notarize }}
+          INPUT_BUILD_TAURI: ${{ github.event.inputs.build_tauri }}
           INPUT_PUBLISH_SIDECARS: ${{ github.event.inputs.publish_sidecars }}
           INPUT_PUBLISH_NPM: ${{ github.event.inputs.publish_npm }}
           DEFAULT_PUBLISH_SIDECARS: ${{ vars.RELEASE_PUBLISH_SIDECARS }}
           DEFAULT_PUBLISH_NPM: ${{ vars.RELEASE_PUBLISH_NPM }}
           DEFAULT_NOTARIZE: ${{ vars.MACOS_NOTARIZE }}
+          DEFAULT_BUILD_TAURI: ${{ vars.RELEASE_BUILD_TAURI }}
         run: |
           set -euo pipefail
 
@@ -121,6 +129,11 @@ jobs:
             notarize="${DEFAULT_NOTARIZE:-true}"
           fi
 
+          build_tauri="${INPUT_BUILD_TAURI:-}"
+          if [ -z "$build_tauri" ]; then
+            build_tauri="${DEFAULT_BUILD_TAURI:-true}"
+          fi
+
           publish_sidecars="${INPUT_PUBLISH_SIDECARS:-}"
           if [ -z "$publish_sidecars" ]; then
             publish_sidecars="${DEFAULT_PUBLISH_SIDECARS:-true}"
@@ -140,6 +153,7 @@ jobs:
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "notarize=$notarize" >> "$GITHUB_OUTPUT"
+          echo "build_tauri=$build_tauri" >> "$GITHUB_OUTPUT"
           echo "publish_sidecars=$publish_sidecars" >> "$GITHUB_OUTPUT"
           echo "publish_npm=$publish_npm" >> "$GITHUB_OUTPUT"
           {
@@ -205,6 +219,7 @@ jobs:
   publish-tauri:
     name: Build + Publish (${{ matrix.target }})
     needs: [resolve-release, verify-release]
+    if: needs.resolve-release.outputs.build_tauri == 'true'
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 360
     env:
@@ -752,7 +767,7 @@ jobs:
           # Treat missing packages as "not published" so release can publish them.
           orchestrator_current="$(npm view openwork-orchestrator version 2>/dev/null || true)"
           server_current="$(npm view openwork-server version 2>/dev/null || true)"
-          opencodeRouter_current="$(npm view owpenwork version 2>/dev/null || true)"
+          opencodeRouter_current="$(npm view opencode-router version 2>/dev/null || true)"
 
           if [ "$orchestrator_current" = "$ORCHESTRATOR_VERSION" ]; then
             echo "publish_orchestrator=false" >> "$GITHUB_OUTPUT"
@@ -805,9 +820,9 @@ jobs:
         if: steps.npm-auth.outputs.enabled == 'true' && steps.npm-versions.outputs.publish_server == 'true'
         run: pnpm --filter openwork-server publish --access public --no-git-checks
 
-      - name: Publish owpenwork
+      - name: Publish opencode-router
         if: steps.npm-auth.outputs.enabled == 'true' && steps.npm-versions.outputs.publish_opencodeRouter == 'true'
-        run: pnpm --filter owpenwork publish --access public --no-git-checks
+        run: pnpm --filter opencode-router publish --access public --no-git-checks
 
       - name: Publish openwork-orchestrator
         if: steps.npm-auth.outputs.enabled == 'true' && steps.npm-versions.outputs.publish_orchestrator == 'true'
