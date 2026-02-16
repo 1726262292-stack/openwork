@@ -136,8 +136,10 @@ const bunTarget = (() => {
       return "bun-linux-arm64";
     case "x86_64-unknown-linux-gnu":
       return "bun-linux-x64-baseline";
+    // Windows baseline artifacts intermittently fail to extract in CI
+    // with Bun 1.3.6. Use the stable x64 target here for now.
     case "x86_64-pc-windows-msvc":
-      return "bun-windows-x64-baseline";
+      return "bun-windows-x64";
     default:
       return null;
   }
