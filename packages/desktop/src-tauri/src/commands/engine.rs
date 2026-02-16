@@ -408,8 +408,25 @@ pub fn engine_start(
         });
 
         let daemon_base_url = format!("http://{}:{}", daemon_host, daemon_port);
-        let health = orchestrator::wait_for_orchestrator(&daemon_base_url, 10_000)
-            .map_err(|e| format!("Failed to start orchestrator: {e}"))?;
+
+        // openwork-orchestrator doesn't start its daemon HTTP server until it has ensured that
+        // OpenCode is available. On fresh installs (or after schema changes), OpenCode can run a
+        // one-time SQLite migration that takes longer than a few seconds.
+        //
+        // If we give up too early, the desktop app reports the engine as offline even though the
+        // orchestrator is still booting in the background.
+        let health_timeout_ms = std::env::var("OPENWORK_ORCHESTRATOR_START_TIMEOUT_MS")
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .filter(|value| *value >= 1_000)
+            .unwrap_or(180_000);
+
+        let health = orchestrator::wait_for_orchestrator(&daemon_base_url, health_timeout_ms)
+            .map_err(|e| {
+                format!(
+                    "Failed to start orchestrator (waited {health_timeout_ms}ms): {e}"
+                )
+            })?;
         let opencode = health
             .opencode
             .ok_or_else(|| "Orchestrator did not report OpenCode status".to_string())?;
