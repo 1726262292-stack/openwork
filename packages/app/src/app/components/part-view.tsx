@@ -151,6 +151,19 @@ const splitTextTokens = (text: string): TextSegment[] => {
   return tokens;
 };
 
+const escapeHtml = (value: string) =>
+  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+const renderInlineTextWithLinks = (text: string) => {
+  const tokens = splitTextTokens(text);
+  return tokens
+    .map((token) => {
+      if (token.kind === "text") return escapeHtml(token.value);
+      return `<a href="${escapeHtml(token.href)}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2 text-dls-accent hover:text-[var(--dls-accent-hover)]">${escapeHtml(token.value)}</a>`;
+    })
+    .join("");
+};
+
 const normalizeRelativePath = (relativePath: string, workspaceRoot: string) => {
   const root = workspaceRoot.trim().replace(/\\/g, "/").replace(/\/+$/g, "");
   if (!root) return null;
@@ -253,9 +266,6 @@ function createCustomRenderer(tone: "light" | "dark") {
       ? "bg-gray-12/15 text-gray-12"
       : "bg-gray-2/70 text-gray-12";
   
-  const escapeHtml = (s: string) =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
   const isSafeUrl = (url: string) => {
     const normalized = (url || "").trim().toLowerCase();
     if (normalized.startsWith("javascript:")) return false;
@@ -266,6 +276,8 @@ function createCustomRenderer(tone: "light" | "dark") {
   };
 
   renderer.html = ({ text }) => escapeHtml(text);
+
+  renderer.text = ({ text }) => renderInlineTextWithLinks(text);
 
   renderer.code = ({ text, lang }) => {
     const language = lang || "";
