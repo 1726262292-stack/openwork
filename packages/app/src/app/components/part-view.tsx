@@ -2,7 +2,8 @@ import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCle
 import { marked } from "marked";
 import type { Part } from "@opencode-ai/sdk/v2/client";
 import { File } from "lucide-solid";
-import { safeStringify } from "../utils";
+import { isTauriRuntime, safeStringify } from "../utils";
+import { usePlatform } from "../context/platform";
 
 type Props = {
   part: Part;
@@ -10,6 +11,128 @@ type Props = {
   showThinking?: boolean;
   tone?: "light" | "dark";
   renderMarkdown?: boolean;
+};
+
+type LinkType = "url" | "file";
+
+type TextSegment =
+  | { kind: "text"; value: string }
+  | { kind: "link"; value: string; href: string; type: LinkType };
+
+const WEB_LINK_RE = /^(?:https?:\/\/|www\.)/i;
+const FILE_URI_RE = /^file:\/\//i;
+const WINDOWS_PATH_RE = /^[A-Za-z]:[\\/][^\s"'`\)\]\}>]+$/;
+const POSIX_PATH_RE = /^\/(?!\/)(?:[^\s"'`\)\]\}>][^\s"'`\)\]\}>]*)?$/;
+const TILDE_PATH_RE = /^~\/(?:[^\s"'`\)\]\}>][^\s"'`\)\]\}>]*)?$/;
+
+const LEADING_PUNCTU = /[\"'`\(\[\{<]/;
+const TRAILING_PUNCTU = /[\"'`\)\]}>.,:;!?]/;
+
+const isLikelyWebLink = (value: string) => WEB_LINK_RE.test(value);
+
+const isLikelyFilePath = (value: string) => {
+  if (FILE_URI_RE.test(value)) return true;
+  if (WINDOWS_PATH_RE.test(value)) return true;
+  if (POSIX_PATH_RE.test(value)) return true;
+  if (TILDE_PATH_RE.test(value)) return true;
+
+  return false;
+};
+
+const parseLinkFromToken = (token: string): { href: string; type: LinkType; value: string } | null => {
+  let start = 0;
+  let end = token.length;
+
+  while (start < end && LEADING_PUNCTU.test(token[start] ?? "")) {
+    start += 1;
+  }
+
+  while (end > start && TRAILING_PUNCTU.test(token[end - 1] ?? "")) {
+    end -= 1;
+  }
+
+  const value = token.slice(start, end);
+  if (!value) return null;
+
+  if (isLikelyWebLink(value)) {
+    return {
+      value,
+      type: "url",
+      href: value.toLowerCase().startsWith("www.") ? `https://${value}` : value,
+    };
+  }
+
+  if (isLikelyFilePath(value)) {
+    return {
+      value,
+      type: "file",
+      href: value,
+    };
+  }
+
+  return null;
+};
+
+const splitTextTokens = (text: string): TextSegment[] => {
+  const tokens: TextSegment[] = [];
+  const matches = text.matchAll(/\S+/g);
+  let position = 0;
+
+  for (const match of matches) {
+    const token = match[0] ?? "";
+    const index = match.index ?? 0;
+
+    if (index > position) {
+      tokens.push({ kind: "text", value: text.slice(position, index) });
+    }
+
+    const link = parseLinkFromToken(token);
+    if (!link) {
+      tokens.push({ kind: "text", value: token });
+    } else {
+      const start = token.indexOf(link.value);
+      if (start > 0) {
+        tokens.push({ kind: "text", value: token.slice(0, start) });
+      }
+      tokens.push({ kind: "link", value: link.value, href: link.href, type: link.type });
+      const end = start + link.value.length;
+      if (end < token.length) {
+        tokens.push({ kind: "text", value: token.slice(end) });
+      }
+    }
+
+    position = index + token.length;
+  }
+
+  if (position < text.length) {
+    tokens.push({ kind: "text", value: text.slice(position) });
+  }
+
+  return tokens;
+};
+
+const normalizeFilePath = (href: string): string | null => {
+  if (FILE_URI_RE.test(href)) {
+    try {
+      const parsed = new URL(href);
+      if (parsed.protocol !== "file:") return null;
+      const raw = decodeURIComponent(parsed.pathname || "");
+      if (!raw) return null;
+      if (/^\/[A-Za-z]:\//.test(raw)) {
+        return raw.slice(1);
+      }
+      if (parsed.hostname && !parsed.pathname.startsWith(`/${parsed.hostname}`) && !raw.startsWith("/")) {
+        return `/${parsed.hostname}${raw}`;
+      }
+      return raw;
+    } catch {
+      const raw = decodeURIComponent(href.replace(/^file:\/\//, ""));
+      if (!raw) return null;
+      return raw;
+    }
+  }
+
+  return href;
 };
 
 function clampText(text: string, max = 800) {
@@ -121,6 +244,7 @@ function createCustomRenderer(tone: "light" | "dark") {
 }
 
 export default function PartView(props: Props) {
+  const platform = usePlatform();
   const p = () => props.part;
   const developerMode = () => props.developerMode ?? false;
   const tone = () => props.tone ?? "light";
@@ -195,6 +319,76 @@ export default function PartView(props: Props) {
       return null;
     }
   });
+
+  const openLink = async (href: string, type: LinkType) => {
+    if (type === "url") {
+      platform.openLink(href);
+      return;
+    }
+
+    const filePath = normalizeFilePath(href);
+    if (!filePath) return;
+
+    if (!isTauriRuntime()) {
+      platform.openLink(href.startsWith("file://") ? href : `file://${filePath}`);
+      return;
+    }
+
+    try {
+      const { openPath, revealItemInDir } = await import("@tauri-apps/plugin-opener");
+      await revealItemInDir(filePath).catch(() => openPath(filePath));
+    } catch {
+      platform.openLink(href.startsWith("file://") ? href : `file://${filePath}`);
+    }
+  };
+
+  const openMarkdownLink = async (event: MouseEvent) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const anchor = target.closest("a");
+    if (!(anchor instanceof HTMLAnchorElement)) return;
+
+    const href = anchor.getAttribute("href")?.trim();
+    if (!href) return;
+    const link = parseLinkFromToken(href);
+    if (!link) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    await openLink(link.href, link.type);
+  };
+
+  const renderTextWithLinks = () => {
+    const text = "text" in p() ? String((p() as { text: string }).text) : "";
+    if (!text) return <span>{""}</span>;
+
+    const tokens = splitTextTokens(text);
+    return (
+      <span>
+        <For each={tokens}>
+          {(token) =>
+            token.kind === "link" ? (
+              <a
+                href={token.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="underline underline-offset-2 text-dls-accent hover:text-[var(--dls-accent-hover)]"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void openLink(token.href, token.type);
+                }}
+              >
+                {token.value}
+              </a>
+            ) : (
+              token.value
+            )
+          }
+        </For>
+      </span>
+    );
+  };
 
   const toolData = () => {
     if (p().type !== "tool") return null;
@@ -320,7 +514,7 @@ export default function PartView(props: Props) {
           when={renderMarkdown()}
           fallback={
             <div class={`whitespace-pre-wrap break-words ${textClass()}`.trim()}>
-              {"text" in p() ? (p() as { text: string }).text : ""}
+              {renderTextWithLinks()}
             </div>
           }
         >
@@ -328,7 +522,7 @@ export default function PartView(props: Props) {
             when={renderedMarkdown()}
             fallback={
               <div class={`whitespace-pre-wrap break-words ${textClass()}`.trim()}>
-                {"text" in p() ? (p() as { text: string }).text : ""}
+                {renderTextWithLinks()}
               </div>
             }
           >
@@ -347,6 +541,7 @@ export default function PartView(props: Props) {
                 [&_td]:border [&_td]:border-dls-border [&_td]:p-2
               `.trim()}
               innerHTML={renderedMarkdown()!}
+              onClick={openMarkdownLink}
             />
           </Show>
         </Show>
