@@ -2389,6 +2389,7 @@ export default function SessionView(props: SessionViewProps) {
             messages={renderedMessages()}
             developerMode={props.developerMode}
             showThinking={props.showThinking}
+            workspaceRoot={props.activeWorkspaceRoot}
             expandedStepIds={props.expandedStepIds}
             setExpandedStepIds={props.setExpandedStepIds}
             searchMatchMessageIds={searchMatchMessageIds()}

@@ -15,6 +15,7 @@ export type MessageListProps = {
   setExpandedStepIds: (updater: (current: Set<string>) => Set<string>) => void;
   searchMatchMessageIds?: ReadonlySet<string>;
   activeSearchMessageId?: string | null;
+  workspaceRoot?: string;
   footer?: JSX.Element;
 };
 
@@ -302,6 +303,7 @@ export default function MessageList(props: MessageListProps) {
                   part={part}
                   developerMode={props.developerMode}
                   showThinking={props.showThinking}
+                  workspaceRoot={props.workspaceRoot}
                   tone={listProps.isUser ? "dark" : "light"}
                 />
               </div>
@@ -587,6 +589,7 @@ export default function MessageList(props: MessageListProps) {
                           part={(group as { kind: "text"; part: Part }).part}
                           developerMode={props.developerMode}
                           showThinking={props.showThinking}
+                          workspaceRoot={props.workspaceRoot}
                           tone={block.isUser ? "dark" : "light"}
                           renderMarkdown={!block.isUser}
                         />

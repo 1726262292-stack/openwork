@@ -10,6 +10,7 @@ type Props = {
   developerMode?: boolean;
   showThinking?: boolean;
   tone?: "light" | "dark";
+  workspaceRoot?: string;
   renderMarkdown?: boolean;
 };
 
@@ -22,8 +23,26 @@ type TextSegment =
 const WEB_LINK_RE = /^(?:https?:\/\/|www\.)/i;
 const FILE_URI_RE = /^file:\/\//i;
 const WINDOWS_PATH_RE = /^[A-Za-z]:[\\/][^\s"'`\)\]\}>]+$/;
-const POSIX_PATH_RE = /^\/(?!\/)(?:[^\s"'`\)\]\}>][^\s"'`\)\]\}>]*)?$/;
-const TILDE_PATH_RE = /^~\/(?:[^\s"'`\)\]\}>][^\s"'`\)\]\}>]*)?$/;
+const POSIX_PATH_RE = /^\/(?!\/)[^\s"'`\)\]\}>][^\s"'`\)\]\}>]*$/;
+const TILDE_PATH_RE = /^~\/[^\s"'`\)\]\}>][^\s"'`\)\]\}>]*$/;
+const SAFE_PATH_CHAR_RE = /[^\s"'`\)\]\}>]/;
+
+const isRelativeFilePath = (value: string) => {
+  if (value === "." || value === "..") return false;
+
+  const normalized = value.replace(/\\/g, "/");
+  const segments = normalized.split("/");
+  const hasNonTraversalSegment = segments.some((segment) => segment && segment !== "." && segment !== "..");
+
+  if (normalized.startsWith("./") || normalized.startsWith("../")) {
+    return hasNonTraversalSegment;
+  }
+
+  const [firstSegment, secondSegment] = normalized.split("/");
+  if (!secondSegment || firstSegment.length <= 1) return false;
+  if (secondSegment === "." || secondSegment === "..") return false;
+  return firstSegment.startsWith(".") && SAFE_PATH_CHAR_RE.test(secondSegment);
+};
 
 const LEADING_PUNCTU = /[\"'`\(\[\{<]/;
 const TRAILING_PUNCTU = /[\"'`\)\]}>.,:;!?]/;
@@ -35,6 +54,7 @@ const isLikelyFilePath = (value: string) => {
   if (WINDOWS_PATH_RE.test(value)) return true;
   if (POSIX_PATH_RE.test(value)) return true;
   if (TILDE_PATH_RE.test(value)) return true;
+  if (isRelativeFilePath(value)) return true;
 
   return false;
 };
@@ -111,7 +131,39 @@ const splitTextTokens = (text: string): TextSegment[] => {
   return tokens;
 };
 
-const normalizeFilePath = (href: string): string | null => {
+const normalizeRelativePath = (relativePath: string, workspaceRoot: string) => {
+  const root = workspaceRoot.trim().replace(/\\/g, "/").replace(/\/+$/g, "");
+  if (!root) return null;
+
+  const relative = relativePath.trim().replace(/\\/g, "/");
+  if (!relative) return null;
+
+  const isPosixRoot = root.startsWith("/");
+  const rootValue = isPosixRoot ? root.slice(1) : root;
+  const rootParts = rootValue.split("/").filter((value) => value.length > 0);
+  const isWindowsDrive = /^[A-Za-z]:$/.test(rootParts[0] ?? "");
+  const resolved: string[] = [...rootParts];
+  const segments = relative.split("/");
+
+  for (const segment of segments) {
+    if (!segment || segment === ".") continue;
+
+    if (segment === "..") {
+      if (!(isWindowsDrive && resolved.length === 1)) {
+        resolved.pop();
+      }
+      continue;
+    }
+
+    resolved.push(segment);
+  }
+
+  const normalized = resolved.join("/");
+  if (isPosixRoot) return `/${normalized || ""}` || "/";
+  return normalized;
+};
+
+const normalizeFilePath = (href: string, workspaceRoot: string): string | null => {
   if (FILE_URI_RE.test(href)) {
     try {
       const parsed = new URL(href);
@@ -130,6 +182,12 @@ const normalizeFilePath = (href: string): string | null => {
       if (!raw) return null;
       return raw;
     }
+  }
+
+  const trimmed = href.trim();
+  if (isRelativeFilePath(trimmed)) {
+    if (!workspaceRoot) return null;
+    return normalizeRelativePath(trimmed, workspaceRoot);
   }
 
   return href;
@@ -326,7 +384,7 @@ export default function PartView(props: Props) {
       return;
     }
 
-    const filePath = normalizeFilePath(href);
+    const filePath = normalizeFilePath(href, props.workspaceRoot ?? "");
     if (!filePath) return;
 
     if (!isTauriRuntime()) {
