@@ -102,6 +102,10 @@ jobs:
             os_type: linux
             target: x86_64-unknown-linux-gnu
             args: "--target x86_64-unknown-linux-gnu --bundles deb,rpm"
+          - platform: ubuntu-22.04-arm
+            os_type: linux
+            target: aarch64-unknown-linux-gnu
+            args: "--target aarch64-unknown-linux-gnu --bundles deb,rpm"
           - platform: windows-2022
             os_type: windows
             target: x86_64-pc-windows-msvc
@@ -242,6 +246,9 @@ jobs:
               ;;
             x86_64-unknown-linux-gnu)
               opencode_asset="opencode-linux-x64-baseline.tar.gz"
+              ;;
+            aarch64-unknown-linux-gnu)
+              opencode_asset="opencode-linux-arm64.tar.gz"
               ;;
             x86_64-pc-windows-msvc)
               opencode_asset="opencode-windows-x64-baseline.zip"
