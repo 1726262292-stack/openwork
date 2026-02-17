@@ -25,6 +25,7 @@ const FILE_URI_RE = /^file:\/\//i;
 const WINDOWS_PATH_RE = /^[A-Za-z]:[\\/][^\s"'`\)\]\}>]+$/;
 const POSIX_PATH_RE = /^\/(?!\/)[^\s"'`\)\]\}>][^\s"'`\)\]\}>]*$/;
 const TILDE_PATH_RE = /^~\/[^\s"'`\)\]\}>][^\s"'`\)\]\}>]*$/;
+const BARE_FILENAME_RE = /^(?!\.)(?!.*\.\.)(?:[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+)$/;
 const SAFE_PATH_CHAR_RE = /[^\s"'`\)\]\}>]/;
 
 const isRelativeFilePath = (value: string) => {
@@ -44,6 +45,24 @@ const isRelativeFilePath = (value: string) => {
   return firstSegment.startsWith(".") && SAFE_PATH_CHAR_RE.test(secondSegment);
 };
 
+const isBareRelativeFilePath = (value: string) => {
+  if (value.includes("/") || value.includes("\\") || value.includes(":")) return false;
+  if (!BARE_FILENAME_RE.test(value)) return false;
+
+  const extension = value.split(".").pop() ?? "";
+  if (!/[A-Za-z]/.test(extension)) return false;
+
+  const dotCount = (value.match(/\./g) ?? []).length;
+  if (dotCount === 1 && !value.includes("_") && !value.includes("-")) {
+    const [name, tld] = value.split(".");
+    if (/^[A-Za-z]{2,24}$/.test(name ?? "") && /^[A-Za-z]{2,10}$/.test(tld ?? "")) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 const LEADING_PUNCTU = /[\"'`\(\[\{<]/;
 const TRAILING_PUNCTU = /[\"'`\)\]}>.,:;!?]/;
 
@@ -55,6 +74,7 @@ const isLikelyFilePath = (value: string) => {
   if (POSIX_PATH_RE.test(value)) return true;
   if (TILDE_PATH_RE.test(value)) return true;
   if (isRelativeFilePath(value)) return true;
+  if (isBareRelativeFilePath(value)) return true;
 
   return false;
 };
@@ -185,7 +205,7 @@ const normalizeFilePath = (href: string, workspaceRoot: string): string | null =
   }
 
   const trimmed = href.trim();
-  if (isRelativeFilePath(trimmed)) {
+  if (isRelativeFilePath(trimmed) || isBareRelativeFilePath(trimmed)) {
     if (!workspaceRoot) return null;
     return normalizeRelativePath(trimmed, workspaceRoot);
   }
