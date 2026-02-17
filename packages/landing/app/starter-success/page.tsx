@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { SiteFooter } from "../../components/site-footer";
 import { SiteNav } from "../../components/site-nav";
+import { StarterSuccessRedirect } from "../../components/starter-success-redirect";
 import { getGithubData } from "../../lib/github";
 
 export const metadata = {
@@ -10,9 +10,23 @@ export const metadata = {
 
 export default async function StarterSuccessPage() {
   const github = await getGithubData();
+  const calBase = process.env.NEXT_PUBLIC_CAL_URL ?? "";
+  const calHref = (() => {
+    if (!calBase) return "/enterprise#book";
+    try {
+      const url = new URL(calBase);
+      url.searchParams.set("source", "starter-success");
+      url.searchParams.set("notes", "Paid customer: OpenWork Team Starter (12 months). Priority onboarding requested.");
+      url.searchParams.set("description", "Paid customer - Team Starter (12 months). Please prioritize onboarding.");
+      return url.toString();
+    } catch {
+      return calBase;
+    }
+  })();
 
   return (
     <div className="min-h-screen">
+      <StarterSuccessRedirect href={calHref} />
       <SiteNav stars={github.stars} />
 
       <main className="pb-24 pt-20">
@@ -48,9 +62,10 @@ export default async function StarterSuccessPage() {
                 If you want to move now, we can help you plan your first workers
                 and permissions model.
               </p>
-              <Link href="/enterprise#book" className="doc-button">
+              <a href={calHref} className="doc-button">
                 Book onboarding call
-              </Link>
+              </a>
+              <p className="mt-3 text-[12px] text-gray-500">Redirecting you now...</p>
             </div>
           </section>
 
