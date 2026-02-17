@@ -1,6 +1,5 @@
 import { SiteFooter } from "../../components/site-footer";
 import { SiteNav } from "../../components/site-nav";
-import { StarterSuccessRedirect } from "../../components/starter-success-redirect";
 import { getGithubData } from "../../lib/github";
 
 export const metadata = {
@@ -26,7 +25,6 @@ export default async function StarterSuccessPage() {
 
   return (
     <div className="min-h-screen">
-      <StarterSuccessRedirect href={calHref} />
       <SiteNav stars={github.stars} />
 
       <main className="pb-24 pt-20">
@@ -41,8 +39,7 @@ export default async function StarterSuccessPage() {
             </h1>
 
             <p className="max-w-2xl text-[16px] leading-relaxed text-gray-700">
-              We&apos;re launching the first hosted version in about one week. I
-              will reach out to you right away with next steps.
+              You&apos;re on track for getting access to OpenWork Hosted in 7 days.
             </p>
           </section>
 
@@ -57,15 +54,14 @@ export default async function StarterSuccessPage() {
             </div>
 
             <div className="feature-card bg-gradient-to-br from-blue-50 to-orange-50">
-              <h2 className="mb-2 text-[15px] font-bold">Need faster onboarding?</h2>
+              <h2 className="mb-2 text-[15px] font-bold">Want to accelerate?</h2>
               <p className="mb-4 text-[14px] leading-relaxed text-gray-600">
-                If you want to move now, we can help you plan your first workers
-                and permissions model.
+                Schedule a call with the founder to accelerate and share your
+                use case.
               </p>
               <a href={calHref} className="doc-button">
-                Book onboarding call
+                Schedule founder call
               </a>
-              <p className="mt-3 text-[12px] text-gray-500">Redirecting you now...</p>
             </div>
           </section>
 
