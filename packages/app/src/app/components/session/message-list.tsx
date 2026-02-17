@@ -79,11 +79,6 @@ function statusDotClass(status?: string): string {
   }
 }
 
-/** Count total steps in a parts group array */
-function countSteps(partsGroups: Part[][]): number {
-  return partsGroups.reduce((sum, parts) => sum + parts.length, 0);
-}
-
 function latestStepPart(partsGroups: Part[][]): Part | undefined {
   for (let groupIndex = partsGroups.length - 1; groupIndex >= 0; groupIndex -= 1) {
     const parts = partsGroups[groupIndex] ?? [];
@@ -327,8 +322,125 @@ export default function MessageList(props: MessageListProps) {
   }) => {
     const relatedIds = () => containerProps.relatedIds ?? [];
     const expanded = () => isStepsExpanded(containerProps.id, relatedIds());
-    const totalSteps = () => countSteps(containerProps.partsGroups);
     const latestStep = () => latestStepPart(containerProps.partsGroups);
+
+    const compactPathToken = (value: string) => {
+      const token = value
+        .trim()
+        .replace(/^[`'"([{]+|[`'"\])},.;:]+$/g, "");
+      const segments = token.split(/[\\/]/).filter(Boolean);
+      return segments.length > 0 ? segments[segments.length - 1] : token;
+    };
+
+    const compactText = (value: string, max = 42) => {
+      const singleLine = value.replace(/\s+/g, " ").trim();
+      if (!singleLine) return "";
+      return singleLine.length > max ? `${singleLine.slice(0, Math.max(0, max - 3))}...` : singleLine;
+    };
+
+    const isPathLike = (value: string) =>
+      /^(?:[A-Za-z]:[\\/]|~[\\/]|\/[\w_\-~]|\.\.?[\\/])/.test(value) ||
+      /[\\/](?:\.opencode|Users|Library|workspaces)[\\/]/.test(value);
+
+    const toolHeadline = (part: Part) => {
+      if (part.type !== "tool") return "";
+
+      const record = part as any;
+      const state = record.state ?? {};
+      const input = state.input && typeof state.input === "object" ? (state.input as Record<string, unknown>) : {};
+      const tool = typeof record.tool === "string" ? record.tool.toLowerCase() : "";
+
+      const pick = (...keys: string[]) => {
+        for (const key of keys) {
+          const value = input[key];
+          if (typeof value === "string" && value.trim()) return value.trim();
+        }
+        return "";
+      };
+
+      const target = (...keys: string[]) => {
+        const raw = pick(...keys);
+        if (!raw) return "";
+        return isPathLike(raw) ? compactPathToken(raw) : raw;
+      };
+
+      if (tool === "bash") {
+        const description = pick("description");
+        if (description) return compactText(description);
+        const command = pick("command", "cmd");
+        return command ? compactText(`Run ${command}`, 48) : "Run command";
+      }
+
+      if (tool === "read") {
+        const file = target("filePath", "path", "file");
+        return file ? `Read ${file}` : "Read file";
+      }
+
+      if (tool === "edit") {
+        const file = target("filePath", "path", "file");
+        return file ? `Edit ${file}` : "Edit file";
+      }
+
+      if (tool === "write" || tool === "apply_patch") {
+        const file = target("filePath", "path", "file");
+        return file ? `Update ${file}` : "Update file";
+      }
+
+      if (tool === "grep" || tool === "glob") {
+        const pattern = pick("pattern", "query");
+        return pattern ? `Search ${compactText(pattern, 36)}` : "Search code";
+      }
+
+      if (tool === "list") {
+        const path = target("path");
+        return path ? `List ${path}` : "List files";
+      }
+
+      if (tool === "task") {
+        const description = pick("description");
+        if (description) return compactText(description);
+        const agent = pick("subagent_type");
+        return agent ? `Delegate ${agent}` : "Delegate task";
+      }
+
+      if (tool === "webfetch") {
+        const url = pick("url");
+        return url ? `Fetch ${compactText(url, 36)}` : "Fetch web page";
+      }
+
+      if (tool === "skill") {
+        const name = pick("name");
+        return name ? `Load skill ${name}` : "Load skill";
+      }
+
+      return "";
+    };
+
+    const latestStepLabel = () => {
+      const step = latestStep();
+      if (!step) return "Last step";
+
+      const fromTool = toolHeadline(step);
+      if (fromTool) return compactText(fromTool);
+
+      if (step.type === "tool") {
+        const toolName = String((step as any).tool ?? "").trim();
+        if (toolName) {
+          const friendlyTool = toolName.replace(/[_-]+/g, " ");
+          return compactText(friendlyTool);
+        }
+      }
+
+      const summary = summarizeStep(step);
+      const title = compactText(summary.title);
+      const detail = compactText(summary.detail ?? "");
+      const generic = /^(application|tool|step|working|done|completed|success)$/i.test(title);
+
+      if (title && !generic) return title;
+      if (detail) return isPathLike(detail) ? compactPathToken(detail) : detail;
+      if (title) return title;
+      return "Last step";
+    };
     const hasRunning = () =>
       containerProps.partsGroups.some((parts) =>
         parts.some((part) => {
@@ -353,28 +465,13 @@ export default function MessageList(props: MessageListProps) {
             size={14}
             class={`transition-transform duration-200 ${expanded() ? "rotate-90" : ""}`}
           />
-          <span class="font-medium">
-            {expanded() ? "Hide steps" : `Show ${totalSteps()} step${totalSteps() === 1 ? "" : "s"}`}
-          </span>
-          <Show when={hasRunning()}>
-            <span class="flex items-center gap-1.5 text-[11px] text-blue-11">
-              <span class="w-1.5 h-1.5 rounded-full bg-blue-9 animate-pulse" />
-              running
-            </span>
-          </Show>
-        </button>
-
-        <Show when={!expanded()}>
-          <div
-            class={`mt-1 ml-1 pl-3 border-l-2 ${
-              containerProps.isUser ? "border-gray-6" : "border-gray-6/60"
-            }`}
-          >
-            <Show when={latestStep()}>
-              {(part) => <StepRow part={part()} isUser={containerProps.isUser} />}
+          <span class="font-medium inline-flex items-center gap-1.5 text-xs sm:text-[13px] text-gray-11">
+            <Show when={hasRunning()}>
+              <span class="inline-flex h-1 w-1 rounded-full bg-blue-10/70 animate-pulse" />
             </Show>
-          </div>
-        </Show>
+            <span class="truncate max-w-[58ch]">{latestStepLabel()}</span>
+          </span>
+        </button>
 
         {/* Expanded content */}
         <Show when={expanded()}>

@@ -2,7 +2,7 @@ import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCle
 import { marked } from "marked";
 import type { Part } from "@opencode-ai/sdk/v2/client";
 import { File } from "lucide-solid";
-import { isTauriRuntime, safeStringify } from "../utils";
+import { isTauriRuntime, safeStringify, summarizeStep } from "../utils";
 import { usePlatform } from "../context/platform";
 
 type Props = {
@@ -395,14 +395,23 @@ export default function PartView(props: Props) {
     return p() as any;
   };
 
+  const toolSummary = createMemo(() => (p().type === "tool" ? summarizeStep(p()) : null));
   const toolState = () => toolData()?.state ?? {};
   const toolName = () => (toolData()?.tool ? String(toolData()?.tool) : "tool");
-  const toolTitle = () => (toolState()?.title ? String(toolState().title) : toolName());
+  const toolTitle = () => {
+    const title = toolSummary()?.title;
+    if (title) return title;
+    return toolState()?.title ? String(toolState().title) : toolName();
+  };
   const toolStatus = () => (toolState()?.status ? String(toolState().status) : "unknown");
-  const toolSubtitle = () =>
-    toolState()?.subtitle || toolState()?.detail || toolState()?.summary
-      ? String(toolState().subtitle ?? toolState().detail ?? toolState().summary)
-      : "";
+  const toolSubtitle = () => {
+    const detail = toolSummary()?.detail;
+    if (detail) return detail;
+    if (toolState()?.subtitle || toolState()?.detail || toolState()?.summary) {
+      return String(toolState().subtitle ?? toolState().detail ?? toolState().summary);
+    }
+    return "";
+  };
 
   const extractDiff = () => {
     const state = toolState();
@@ -431,6 +440,11 @@ export default function PartView(props: Props) {
   };
 
   const toolOutput = () => normalizeToolText(toolState()?.output);
+  const hasReadXmlOutput = createMemo(() => {
+    if (toolName().toLowerCase() !== "read") return false;
+    const output = toolOutput().trimStart();
+    return output.startsWith("<path>") || output.startsWith("<type>") || output.startsWith("<content>");
+  });
 
   const toolError = () => {
     const error = toolState()?.error;
@@ -699,12 +713,21 @@ export default function PartView(props: Props) {
               </div>
             </Show>
 
-            <Show when={showToolOutput() && toolOutput() && toolOutput() !== diffTextNormalized()}>
+            <Show when={showToolOutput() && toolOutput() && toolOutput() !== diffTextNormalized() && !hasReadXmlOutput()}>
               <pre
                 class={`whitespace-pre-wrap break-words rounded-lg ${panelBgClass()} p-2 text-xs text-gray-12`.trim()}
               >
                 {outputPreview()}
               </pre>
+            </Show>
+
+            <Show when={showToolOutput() && hasReadXmlOutput()}>
+              <details class={`rounded-lg ${panelBgClass()} p-2`.trim()}>
+                <summary class={`cursor-pointer text-xs ${subtleTextClass()}`.trim()}>Raw read output</summary>
+                <pre class={`mt-2 whitespace-pre-wrap break-words text-xs text-gray-12`.trim()}>
+                  {outputPreview()}
+                </pre>
+              </details>
             </Show>
 
             <Show when={showToolOutput() && isLargeOutput()}>

@@ -487,8 +487,149 @@ function extractFilename(filePath: string): string {
   return parts[parts.length - 1] || filePath;
 }
 
+function normalizeStepText(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function truncateStepText(value: string, max = 80): string {
+  return value.length > max ? `${value.slice(0, Math.max(0, max - 3))}...` : value;
+}
+
+function isPathLike(value: string): boolean {
+  return /^(?:[A-Za-z]:[\\/]|~[\\/]|\/|\.\.?[\\/])/.test(value) || /[\\/]/.test(value);
+}
+
+function normalizePathToken(value: string): string {
+  const clean = value.trim().replace(/^[`'"([{]+|[`'"\])},.;:]+$/g, "");
+  if (!isPathLike(clean)) return clean;
+  return extractFilename(clean);
+}
+
+function getToolInput(state: any): Record<string, unknown> {
+  const input = state?.input;
+  if (input && typeof input === "object") return input as Record<string, unknown>;
+  return {};
+}
+
+function pickInputText(input: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = input[key];
+    const text = normalizeStepText(value);
+    if (text) return text;
+  }
+  return "";
+}
+
+function buildToolTitle(state: any, toolName: string): string {
+  const lower = toolName.toLowerCase();
+  const input = getToolInput(state);
+  const pick = (...keys: string[]) => pickInputText(input, keys);
+  const file = (...keys: string[]) => {
+    const value = pick(...keys);
+    if (!value) return "";
+    return normalizePathToken(value);
+  };
+
+  if (lower === "read") {
+    const target = file("filePath", "path", "file");
+    return target ? `Read ${target}` : "Read file";
+  }
+
+  if (lower === "edit") {
+    const target = file("filePath", "path", "file");
+    return target ? `Edit ${target}` : "Edit file";
+  }
+
+  if (lower === "write") {
+    const target = file("filePath", "path", "file");
+    return target ? `Write ${target}` : "Write file";
+  }
+
+  if (lower === "apply_patch") {
+    return "Apply patch";
+  }
+
+  if (lower === "list") {
+    const target = file("path");
+    return target ? `List ${target}` : "List files";
+  }
+
+  if (lower === "grep" || lower === "glob") {
+    const pattern = pick("pattern", "query");
+    return pattern ? `Search ${truncateStepText(pattern, 44)}` : "Search code";
+  }
+
+  if (lower === "bash") {
+    const description = pick("description");
+    if (description) return truncateStepText(description, 56);
+    const command = pick("command", "cmd");
+    if (command) return truncateStepText(`Run ${command}`, 56);
+    return "Run command";
+  }
+
+  if (lower === "task") {
+    const description = pick("description");
+    if (description) return truncateStepText(description, 56);
+    const agent = pick("subagent_type");
+    return agent ? `Delegate ${agent}` : "Delegate task";
+  }
+
+  if (lower === "webfetch") {
+    const url = pick("url");
+    return url ? `Fetch ${truncateStepText(url, 44)}` : "Fetch web page";
+  }
+
+  if (lower === "skill") {
+    const name = pick("name");
+    return name ? `Load skill ${name}` : "Load skill";
+  }
+
+  const stateTitle = normalizeStepText(state?.title);
+  if (stateTitle) {
+    return truncateStepText(isPathLike(stateTitle) ? normalizePathToken(stateTitle) : stateTitle, 56);
+  }
+
+  const fallback = normalizeStepText(toolName).replace(/[_-]+/g, " ");
+  return fallback || "Tool";
+}
+
 /** Build a concise detail line for a tool call — avoids dumping raw output */
 function buildToolDetail(state: any, toolName: string): string | undefined {
+  const lower = toolName.toLowerCase();
+  const input = getToolInput(state);
+  const pick = (...keys: string[]) => pickInputText(input, keys);
+
+  if (lower === "read") {
+    const chunks: string[] = [];
+    const offset = input.offset;
+    const limit = input.limit;
+    if (typeof offset === "number") chunks.push(`offset ${offset}`);
+    if (typeof limit === "number") chunks.push(`limit ${limit}`);
+    if (chunks.length > 0) return chunks.join(" - ");
+    return undefined;
+  }
+
+  if (lower === "bash") {
+    const command = pick("command", "cmd");
+    if (command) return truncateStepText(command, 80);
+  }
+
+  if (lower === "grep" || lower === "glob") {
+    const root = pick("path");
+    if (root) return `in ${normalizePathToken(root)}`;
+  }
+
+  if (lower === "task") {
+    const agent = pick("subagent_type");
+    if (agent) return `${agent} agent`;
+  }
+
+  if (lower === "webfetch") {
+    const url = pick("url");
+    if (url) return truncateStepText(url, 80);
+  }
+
   // For file operations, show the filename
   const filePath = state?.path ?? state?.file;
   if (typeof filePath === "string" && filePath.trim()) {
@@ -531,10 +672,21 @@ function buildToolDetail(state: any, toolName: string): string | undefined {
   // For completed tools with output, show a very short summary
   const output = typeof state?.output === "string" && state.output.trim() ? state.output.trim() : null;
   if (output) {
+    if (lower === "read") return undefined;
+
     // Extract just the first meaningful line (skip line numbers and raw file markers)
     const lines = output.split("\n").filter((l: string) => {
       const trimmed = l.trim();
-      return trimmed && !trimmed.startsWith("<file>") && !/^\d{5}\|/.test(trimmed);
+      return (
+        trimmed &&
+        !trimmed.startsWith("<file>") &&
+        !trimmed.startsWith("<path>") &&
+        !trimmed.startsWith("<type>") &&
+        !trimmed.startsWith("<content>") &&
+        !trimmed.startsWith("</content>") &&
+        !/^\d{5}\|/.test(trimmed) &&
+        !/^\d+:\s/.test(trimmed)
+      );
     });
     if (lines.length > 0) {
       const first = lines[0].trim();
@@ -556,19 +708,20 @@ export function summarizeStep(part: Part): { title: string; detail?: string; isS
     const record = part as any;
     const toolName = record.tool ? String(record.tool) : "Tool";
     const state = record.state ?? {};
-    const title = state.title ? String(state.title) : toolName;
+    const title = buildToolTitle(state, toolName);
     const category = classifyTool(toolName);
     const status = state.status ? String(state.status) : undefined;
+    const detail = buildToolDetail(state, toolName);
+    const normalizedTitle = normalizeStepText(title).toLowerCase();
+    const finalDetail = detail && normalizeStepText(detail).toLowerCase() !== normalizedTitle ? detail : undefined;
     
     // Detect skill trigger
     if (category === "skill") {
-      const skillName = state.metadata?.name || title.replace(/^Loaded skill:\s*/i, "");
-      const detail = buildToolDetail(state, toolName);
-      return { title, isSkill: true, skillName, detail, toolCategory: category, status };
+      const skillName = state.metadata?.name || title.replace(/^(Loaded skill:\s*|Load skill\s+)/i, "");
+      return { title, isSkill: true, skillName, detail: finalDetail, toolCategory: category, status };
     }
     
-    const detail = buildToolDetail(state, toolName);
-    return { title, detail, toolCategory: category, status };
+    return { title, detail: finalDetail, toolCategory: category, status };
   }
 
   if (part.type === "reasoning") {
