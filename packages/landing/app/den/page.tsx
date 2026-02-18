@@ -5,7 +5,8 @@ import { getGithubData } from "../../lib/github";
 
 export const metadata = {
   title: "OpenWork — Den",
-  description: "Hosted OpenWork for teams with priority onboarding.",
+  description:
+    "Hosted sandboxed workers for your team, available in desktop, Slack, and Telegram.",
 };
 
 export default async function Den() {
@@ -24,12 +25,12 @@ export default async function Den() {
             </div>
             <h1 className="mb-3 text-4xl font-bold tracking-tight">Den</h1>
             <h2 className="mb-8 text-[34px] font-bold leading-tight tracking-tight text-black">
-              Hosted OpenWork for teams
+              Hosted sandboxed workers for your team
             </h2>
             <p className="max-w-3xl text-[18px] leading-relaxed text-gray-600">
-              Den gives your team a managed OpenWork runtime with priority
-              onboarding and custom workflows, so you can ship automations
-              without running infrastructure yourself.
+              Den gives your team hosted sandboxed workers that you can access
+              from our desktop app, Slack, or Telegram. All your skills,
+              agents, and MCP integrations are directly available.
             </p>
           </div>
 
@@ -65,7 +66,7 @@ export default async function Den() {
           </div>
 
           <div className="mb-8 text-[20px] font-semibold text-black">
-            $1 first month, then $50/month for 1 seat. Cancel anytime.
+            $1 first month, then $50/month per worker. Cancel anytime.
           </div>
           <p className="mb-12 max-w-3xl text-[15px] leading-relaxed text-gray-600">
             Preorder includes priority onboarding, custom workflow setup, and
@@ -74,24 +75,30 @@ export default async function Den() {
 
           <div className="mb-14 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
             <div className="feature-card">
-              <h4 className="mb-2 text-[14px] font-bold">Priority onboarding</h4>
+              <h4 className="mb-2 text-[14px] font-bold">
+                Hosted sandboxed workers
+              </h4>
               <p className="text-[13px] leading-relaxed text-gray-500">
-                We set up your first workflows with your team and tighten the
-                operating setup together.
+                Every worker runs in an isolated environment so your team can
+                automate safely without managing infrastructure.
               </p>
             </div>
             <div className="feature-card">
-              <h4 className="mb-2 text-[14px] font-bold">Custom workflows</h4>
+              <h4 className="mb-2 text-[14px] font-bold">
+                Desktop, Slack, and Telegram access
+              </h4>
               <p className="text-[13px] leading-relaxed text-gray-500">
-                Bring your internal tasks and we package them into reusable,
-                permissioned OpenWork flows.
+                Run and monitor the same workers from the OpenWork desktop app
+                or directly inside your team chats.
               </p>
             </div>
             <div className="feature-card">
-              <h4 className="mb-2 text-[14px] font-bold">Hosted reliability</h4>
+              <h4 className="mb-2 text-[14px] font-bold">
+                Skills, agents, and MCP included
+              </h4>
               <p className="text-[13px] leading-relaxed text-gray-500">
-                Managed runtime with clearer guardrails and less infrastructure
-                burden on your side.
+                Bring your existing OpenWork setup and everything is available
+                immediately in each hosted worker.
               </p>
             </div>
           </div>
