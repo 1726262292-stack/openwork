@@ -2,6 +2,8 @@
 
 Simple Slack + Telegram bridge + directory router for a running `opencode` server.
 
+Runtime requirement: Bun 1.3+ (`bun --version`).
+
 ## Install + Run
 
 One-command install (recommended):
@@ -10,19 +12,19 @@ One-command install (recommended):
 curl -fsSL https://raw.githubusercontent.com/different-ai/openwork/dev/packages/opencode-router/install.sh | bash
 ```
 
-Or install from npm:
+Install from npm:
 
 ```bash
 npm install -g opencode-router
 ```
 
-Quick run without install:
+Quick run without global install:
 
 ```bash
-npx opencode-router
+npx --yes opencode-router --help
 ```
 
-Then follow the guided setup (choose what to configure, start).
+Then configure identities and start.
 
 1) One-command setup (installs deps, builds, creates `.env` if missing):
 
@@ -43,7 +45,7 @@ Recommended:
 3) Run the router:
 
 ```bash
-opencode-router
+opencode-router start
 ```
 
 ## Telegram
@@ -136,9 +138,17 @@ opencode-router bindings set --channel telegram --identity default --peer <chatI
 
 ## Tests
 
+`test:smoke` requires a running `opencode` server (default: `http://127.0.0.1:4096`).
+
+```bash
+opencode serve --port 4096 --hostname 127.0.0.1
+pnpm -C packages/opencode-router test:smoke
+```
+
+Other test suites:
+
 ```bash
 pnpm -C packages/opencode-router test:unit
-pnpm -C packages/opencode-router test:smoke
 pnpm -C packages/opencode-router test:cli
 pnpm -C packages/opencode-router test:npx
 ```
