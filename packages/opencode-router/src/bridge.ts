@@ -142,6 +142,7 @@ const DEFAULT_MESSAGING_AGENT_INSTRUCTIONS = [
   "Respond for non-technical users first.",
   "Do not tell users to run router commands; use tools on their behalf.",
   "Never expose raw peer IDs or Telegram chat IDs unless the user explicitly asks for debug details.",
+  "Do not ask end users for peer IDs or identity IDs.",
   "For Telegram send requests, try delivery immediately using existing bindings or direct tool calls.",
   "If Telegram returns 'chat not found', explain that the recipient must message the bot first (for example with /start), then ask the user to retry.",
   "Keep status updates concise and action-oriented.",
@@ -1421,7 +1422,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
       try {
         const effectiveModel = getUserModel(inbound.channel, inbound.identityId, peerKey, config.model);
         const messagingAgent = await loadMessagingAgentConfig();
-        const effectiveInstructions = [DEFAULT_MESSAGING_AGENT_INSTRUCTIONS, messagingAgent.instructions]
+        const effectiveInstructions = [messagingAgent.instructions, DEFAULT_MESSAGING_AGENT_INSTRUCTIONS]
           .map((value) => value.trim())
           .filter(Boolean)
           .join("\n\n");
