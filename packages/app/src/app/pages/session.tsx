@@ -1806,10 +1806,6 @@ export default function SessionView(props: SessionViewProps) {
               </Show>
             </button>
           </Show>
-          <div class="flex items-center text-[11px] font-bold text-dls-secondary uppercase px-3 mb-3 pt-2 tracking-tight">
-            <span>Tasks</span>
-          </div>
-
           <div class="space-y-3 mb-3">
             <For each={props.workspaceSessionGroups}>
               {(group) => {
@@ -2646,7 +2642,7 @@ export default function SessionView(props: SessionViewProps) {
             }}
           >
             <MessageCircle size={18} />
-            Identities
+            Messaging
           </button>
           <Show when={props.developerMode}>
             <button

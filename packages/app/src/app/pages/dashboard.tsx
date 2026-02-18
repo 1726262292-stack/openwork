@@ -278,7 +278,7 @@ export default function DashboardView(props: DashboardViewProps) {
       case "mcp":
         return "Extensions";
       case "identities":
-        return "Identities";
+        return "Messaging";
       case "config":
         return "Advanced";
       case "settings":
@@ -775,9 +775,6 @@ export default function DashboardView(props: DashboardViewProps) {
               </Show>
             </button>
           </Show>
-          <div class="flex items-center text-[11px] font-bold text-dls-secondary uppercase px-3 mb-3 pt-2 tracking-tight">
-            <span>Tasks</span>
-          </div>
 
           <div class="space-y-3 mb-3">
             <For each={props.workspaceSessionGroups}>
@@ -1514,7 +1511,7 @@ export default function DashboardView(props: DashboardViewProps) {
           {navItem("scheduled", "Automations", <History size={18} />)}
           {navItem("skills", "Skills", <Zap size={18} />)}
           {navItem("mcp", "Extensions", <Box size={18} />)}
-          {navItem("identities", "Identities", <MessageCircle size={18} />)}
+          {navItem("identities", "Messaging", <MessageCircle size={18} />)}
           <Show when={props.developerMode}>{navItem("config", "Advanced", <SlidersHorizontal size={18} />)}</Show>
         </div>
       </aside>
