@@ -36,6 +36,7 @@ export type OnboardingViewProps = {
   engineInstallLogs: string | null;
   error: string | null;
   canRepairMigration: boolean;
+  migrationRepairUnavailableReason: string | null;
   migrationRepairBusy: boolean;
   migrationRepairResult: { ok: boolean; message: string } | null;
   developerMode: boolean;
@@ -480,6 +481,9 @@ export default function OnboardingView(props: OnboardingViewProps) {
                     </Button>
                     <span class="text-xs text-red-12/80">{translate("onboarding.fix_migration_hint")}</span>
                   </div>
+                </Show>
+                <Show when={!props.canRepairMigration && props.migrationRepairUnavailableReason}>
+                  <div class="text-xs text-red-12/80">{props.migrationRepairUnavailableReason}</div>
                 </Show>
               </div>
             </Show>

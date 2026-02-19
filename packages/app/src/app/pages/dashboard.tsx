@@ -270,6 +270,7 @@ export type DashboardViewProps = {
   migrationRepairBusy: boolean;
   migrationRepairResult: { ok: boolean; message: string } | null;
   migrationRepairAvailable: boolean;
+  migrationRepairUnavailableReason: string | null;
   repairOpencodeCache: () => void;
   cacheRepairBusy: boolean;
   cacheRepairResult: string | null;
@@ -1481,6 +1482,7 @@ export default function DashboardView(props: DashboardViewProps) {
                   migrationRepairBusy={props.migrationRepairBusy}
                   migrationRepairResult={props.migrationRepairResult}
                   migrationRepairAvailable={props.migrationRepairAvailable}
+                  migrationRepairUnavailableReason={props.migrationRepairUnavailableReason}
                   repairOpencodeCache={props.repairOpencodeCache}
                   cacheRepairBusy={props.cacheRepairBusy}
                   cacheRepairResult={props.cacheRepairResult}

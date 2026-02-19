@@ -107,6 +107,7 @@ export type SettingsViewProps = {
   migrationRepairBusy: boolean;
   migrationRepairResult: { ok: boolean; message: string } | null;
   migrationRepairAvailable: boolean;
+  migrationRepairUnavailableReason: string | null;
   repairOpencodeCache: () => void;
   cacheRepairBusy: boolean;
   cacheRepairResult: string | null;
@@ -915,40 +916,44 @@ export default function SettingsView(props: SettingsViewProps) {
               </Show>
             </div>
 
-            <Show when={isTauriRuntime() && props.migrationRepairAvailable}>
-              <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-4">
-                <div>
-                  <div class="text-sm font-medium text-gray-12">{translate("settings.migration_recovery_label")}</div>
-                  <div class="text-xs text-gray-9">{translate("settings.migration_recovery_hint")}</div>
-                </div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="secondary"
-                    class="text-xs h-8 py-0 px-3"
-                    onClick={props.repairOpencodeMigration}
-                    disabled={props.busy || props.migrationRepairBusy}
-                    title={isTauriRuntime() ? "" : translate("settings.migration_repair_requires_desktop")}
-                  >
-                    {props.migrationRepairBusy
-                      ? translate("settings.fixing_migration")
-                      : translate("settings.fix_migration")}
-                  </Button>
-                </div>
-                <Show when={props.migrationRepairResult}>
-                  {(result) => (
-                    <div
-                      class={`rounded-xl border px-3 py-2 text-xs ${
-                        result().ok
-                          ? "border-green-7/30 bg-green-2/30 text-green-12"
-                          : "border-red-7/30 bg-red-2/30 text-red-12"
-                      }`}
-                    >
-                      {result().message}
-                    </div>
-                  )}
-                </Show>
+            <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-4">
+              <div>
+                <div class="text-sm font-medium text-gray-12">{translate("settings.migration_recovery_label")}</div>
+                <div class="text-xs text-gray-9">{translate("settings.migration_recovery_hint")}</div>
               </div>
-            </Show>
+              <div class="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="secondary"
+                  class="text-xs h-8 py-0 px-3"
+                  onClick={props.repairOpencodeMigration}
+                  disabled={props.busy || props.migrationRepairBusy || !props.migrationRepairAvailable}
+                  title={props.migrationRepairUnavailableReason ?? ""}
+                >
+                  {props.migrationRepairBusy
+                    ? translate("settings.fixing_migration")
+                    : translate("settings.fix_migration")}
+                </Button>
+              </div>
+              <Show when={props.migrationRepairUnavailableReason}>
+                {(reason) => <div class="text-xs text-amber-11">{reason()}</div>}
+              </Show>
+              <Show when={props.migrationRepairBusy}>
+                <div class="text-xs text-gray-10">{translate("status.repairing_migration")}</div>
+              </Show>
+              <Show when={props.migrationRepairResult}>
+                {(result) => (
+                  <div
+                    class={`rounded-xl border px-3 py-2 text-xs ${
+                      result().ok
+                        ? "border-green-7/30 bg-green-2/30 text-green-12"
+                        : "border-red-7/30 bg-red-2/30 text-red-12"
+                    }`}
+                  >
+                    {result().message}
+                  </div>
+                )}
+              </Show>
+            </div>
 
             <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
               <div class="flex items-start justify-between gap-4">
