@@ -381,6 +381,10 @@ export function createSessionStore(options: {
     }
   };
 
+  let selectRunCounter = 0;
+  let selectVersion = 0;
+  const selectInFlightBySession = new Map<string, Promise<void>>();
+
   const sessions = () => store.sessions;
   const sessionStatusById = () => store.sessionStatus;
   const pendingPermissions = () => store.pendingPermissions;
@@ -495,13 +499,20 @@ export function createSessionStore(options: {
     const c = options.client();
     if (!c) return;
 
-    const runId = (() => {
-      const key = "__openwork_select_session_run__";
-      const w = window as typeof window & { [key]?: number };
-      w[key] = (w[key] ?? 0) + 1;
-      return w[key];
-    })();
     const perfEnabled = options.developerMode();
+    options.setSelectedSessionId(sessionID);
+    options.setError(null);
+
+    const existing = selectInFlightBySession.get(sessionID);
+    if (existing) {
+      recordPerfLog(perfEnabled, "session.select", "dedupe join", {
+        sessionID,
+      });
+      return existing;
+    }
+
+    const runId = ++selectRunCounter;
+    const version = ++selectVersion;
     const startedAt = perfNow();
     const mark = (event: string, payload?: Record<string, unknown>) => {
       const elapsedMs = Math.round((perfNow() - startedAt) * 100) / 100;
@@ -512,86 +523,92 @@ export function createSessionStore(options: {
         ...(payload ?? {}),
       });
     };
+    const isStale = () => version !== selectVersion || options.selectedSessionId() !== sessionID;
+    const abortIfStale = (reason: string) => {
+      if (!isStale()) return false;
+      mark(`aborting: ${reason}`);
+      return true;
+    };
 
-    mark("start");
-    options.setSelectedSessionId(sessionID);
-    options.setError(null);
+    const run = (async () => {
+      mark("start");
 
-    mark("checking health");
-    try {
-      await withTimeout(c.global.health(), 3000, "health");
-      mark("health ok");
-    } catch (error) {
-      mark("health FAILED", {
-        error: error instanceof Error ? error.message : safeStringify(error),
-      });
-      throw new Error("Server connection lost. Please reload.");
-    }
-
-    mark("calling session.messages");
-    const msgs = unwrap(await withTimeout(c.session.messages({ sessionID }), 12000, "session.messages"));
-    mark("session.messages done");
-    if (options.selectedSessionId() !== sessionID) {
-      mark("aborting: selection changed before messages applied");
-      return;
-    }
-    setMessagesForSession(sessionID, msgs);
-
-    const model = options.lastUserModelFromMessages(msgs);
-    if (model) {
-      if (options.selectedSessionId() !== sessionID) {
-        mark("aborting: selection changed before model applied");
-        return;
+      mark("checking health");
+      try {
+        await withTimeout(c.global.health(), 3000, "health");
+        mark("health ok");
+      } catch (error) {
+        mark("health FAILED", {
+          error: error instanceof Error ? error.message : safeStringify(error),
+        });
+        throw new Error("Server connection lost. Please reload.");
       }
-      options.setSessionModelState((current) => ({
-        overrides: current.overrides,
-        resolved: { ...current.resolved, [sessionID]: model },
-      }));
+      if (abortIfStale("selection changed after health")) return;
 
-      options.setSessionModelState((current) => {
-        if (!current.overrides[sessionID]) return current;
-        const copy = { ...current.overrides };
-        delete copy[sessionID];
-        return { ...current, overrides: copy };
-      });
-    }
+      mark("calling session.messages");
+      const msgs = unwrap(await withTimeout(c.session.messages({ sessionID }), 12000, "session.messages"));
+      mark("session.messages done");
+      if (abortIfStale("selection changed before messages applied")) return;
+      setMessagesForSession(sessionID, msgs);
 
-    try {
-      mark("calling session.todo");
-      const list = unwrap(await withTimeout(c.session.todo({ sessionID }), 8000, "session.todo"));
-      mark("session.todo done");
-      if (options.selectedSessionId() !== sessionID) {
-        mark("aborting: selection changed before todos applied");
-        return;
+      const model = options.lastUserModelFromMessages(msgs);
+      if (model) {
+        if (abortIfStale("selection changed before model applied")) return;
+        options.setSessionModelState((current) => ({
+          overrides: current.overrides,
+          resolved: { ...current.resolved, [sessionID]: model },
+        }));
+
+        options.setSessionModelState((current) => {
+          if (!current.overrides[sessionID]) return current;
+          const copy = { ...current.overrides };
+          delete copy[sessionID];
+          return { ...current, overrides: copy };
+        });
       }
-      setStore("todos", sessionID, list);
-    } catch (error) {
-      mark("session.todo failed/timeout", {
-        error: error instanceof Error ? error.message : safeStringify(error),
-      });
-      setStore("todos", sessionID, []);
-    }
 
-    try {
-      mark("calling permission.list");
-      await withTimeout(refreshPendingPermissions(), 6000, "permission.list");
-      mark("permission.list done");
-      if (options.selectedSessionId() !== sessionID) {
-        mark("aborting: selection changed before permissions applied");
-        return;
+      try {
+        mark("calling session.todo");
+        const list = unwrap(await withTimeout(c.session.todo({ sessionID }), 8000, "session.todo"));
+        mark("session.todo done");
+        if (abortIfStale("selection changed before todos applied")) return;
+        setStore("todos", sessionID, list);
+      } catch (error) {
+        mark("session.todo failed/timeout", {
+          error: error instanceof Error ? error.message : safeStringify(error),
+        });
+        if (abortIfStale("selection changed before todo fallback")) return;
+        setStore("todos", sessionID, []);
       }
-    } catch (error) {
-      mark("permission.list failed/timeout", {
-        error: error instanceof Error ? error.message : safeStringify(error),
-      });
-    }
 
-    finishPerf(perfEnabled, "session.select", "complete", startedAt, {
-      runId,
-      sessionID,
-      messageCount: msgs.length,
-      todoCount: (store.todos[sessionID] ?? []).length,
-    });
+      try {
+        mark("calling permission.list");
+        await withTimeout(refreshPendingPermissions(), 6000, "permission.list");
+        mark("permission.list done");
+        if (abortIfStale("selection changed before permissions applied")) return;
+      } catch (error) {
+        mark("permission.list failed/timeout", {
+          error: error instanceof Error ? error.message : safeStringify(error),
+        });
+        if (abortIfStale("selection changed after permission failure")) return;
+      }
+
+      finishPerf(perfEnabled, "session.select", "complete", startedAt, {
+        runId,
+        sessionID,
+        messageCount: msgs.length,
+        todoCount: (store.todos[sessionID] ?? []).length,
+      });
+    })();
+
+    selectInFlightBySession.set(sessionID, run);
+    try {
+      await run;
+    } finally {
+      if (selectInFlightBySession.get(sessionID) === run) {
+        selectInFlightBySession.delete(sessionID);
+      }
+    }
   }
 
   async function respondPermission(requestID: string, reply: "once" | "always" | "reject") {

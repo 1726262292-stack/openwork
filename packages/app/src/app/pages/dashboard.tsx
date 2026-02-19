@@ -318,20 +318,16 @@ export default function DashboardView(props: DashboardViewProps) {
       : "Local";
 
   const openSessionFromList = (workspaceId: string, sessionId: string) => {
-    // For same-workspace clicks, just select the session without workspace activation
+    // Route-driven selection: navigate first and let the route effect own selectSession.
     if (workspaceId === props.activeWorkspaceId) {
-      void props.selectSession(sessionId);
       props.setView("session", sessionId);
       return;
     }
     // For different workspace, activate workspace first
-    window.setTimeout(() => {
-      void (async () => {
-        await Promise.resolve(props.activateWorkspace(workspaceId));
-        void props.selectSession(sessionId);
-        props.setView("session", sessionId);
-      })();
-    }, 0);
+    void (async () => {
+      await Promise.resolve(props.activateWorkspace(workspaceId));
+      props.setView("session", sessionId);
+    })();
   };
 
   const createTaskInWorkspace = (workspaceId: string) => {

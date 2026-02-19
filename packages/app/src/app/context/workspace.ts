@@ -175,6 +175,33 @@ export function createWorkspaceStore(options: {
     }
   };
 
+  const connectInFlightByKey = new Map<string, Promise<boolean>>();
+  let createRemoteInFlight: Promise<boolean> | null = null;
+
+  const connectRequestKey = (
+    nextBaseUrl: string,
+    directory?: string,
+    context?: {
+      workspaceId?: string;
+      workspaceType?: WorkspaceInfo["workspaceType"];
+      targetRoot?: string;
+      reason?: string;
+    },
+    auth?: OpencodeAuth,
+    connectOptions?: { quiet?: boolean; navigate?: boolean },
+  ) =>
+    [
+      nextBaseUrl.trim(),
+      (directory ?? "").trim(),
+      context?.workspaceId?.trim() ?? "",
+      context?.workspaceType ?? "",
+      context?.targetRoot?.trim() ?? "",
+      context?.reason ?? "",
+      auth?.mode ?? (auth ? "basic" : "none"),
+      String(connectOptions?.quiet ?? false),
+      String(connectOptions?.navigate ?? true),
+    ].join("::");
+
   const [engine, setEngine] = createSignal<EngineInfo | null>(null);
   const [engineAuth, setEngineAuth] = createSignal<OpencodeAuth | null>(null);
   const [engineDoctorResult, setEngineDoctorResult] = createSignal<EngineDoctorResult | null>(null);
@@ -1101,183 +1128,206 @@ export function createWorkspaceStore(options: {
     auth?: OpencodeAuth,
     connectOptions?: { quiet?: boolean; navigate?: boolean },
   ) {
-    console.log("[workspace] connect", {
-      baseUrl: nextBaseUrl,
-      directory: directory ?? null,
-      workspaceType: context?.workspaceType ?? null,
-    });
-    const connectStart = Date.now();
-    wsDebug("connect:start", {
-      baseUrl: nextBaseUrl,
-      directory: directory ?? null,
-      reason: context?.reason ?? null,
-      workspaceType: context?.workspaceType ?? null,
-      targetRoot: context?.targetRoot ?? null,
-      quiet: connectOptions?.quiet ?? false,
-      navigate: connectOptions?.navigate ?? true,
-      authMode: auth && "mode" in auth ? (auth as any).mode : auth ? "basic" : "none",
-    });
-    const quiet = connectOptions?.quiet ?? false;
-    const navigate = connectOptions?.navigate ?? true;
-    options.setError(null);
-    if (!quiet) {
-      options.setBusy(true);
-      options.setBusyLabel("status.connecting");
-      options.setBusyStartedAt(Date.now());
+    const requestKey = connectRequestKey(nextBaseUrl, directory, context, auth, connectOptions);
+    const existing = connectInFlightByKey.get(requestKey);
+    if (existing) {
+      wsDebug("connect:dedupe", {
+        baseUrl: nextBaseUrl,
+        directory: directory ?? null,
+        reason: context?.reason ?? null,
+        workspaceType: context?.workspaceType ?? null,
+      });
+      return existing;
     }
-    options.setSseConnected(false);
 
-    const connectMeta: OpencodeConnectStatus = {
-      at: Date.now(),
-      baseUrl: nextBaseUrl,
-      directory: directory ?? null,
-      reason: context?.reason ?? null,
-      status: "connecting",
-      error: null,
-    };
-    options.setOpencodeConnectStatus?.(connectMeta);
-
-    const connectMetrics: NonNullable<OpencodeConnectStatus["metrics"]> = {};
-
-    try {
-      let resolvedDirectory = directory?.trim() ?? "";
-      let nextClient = createClient(nextBaseUrl, resolvedDirectory || undefined, auth);
-      const health = await waitForHealthy(nextClient, { timeoutMs: 12_000 });
-      connectMetrics.healthyMs = Date.now() - connectStart;
-      wsDebug("connect:healthy", { ms: Date.now() - connectStart, version: health.version });
-
-      if (context?.workspaceType === "remote" && !resolvedDirectory) {
-        try {
-          const pathInfo = unwrap(await nextClient.path.get());
-          const discovered = pathInfo.directory?.trim() ?? "";
-          if (discovered) {
-            resolvedDirectory = discovered;
-            console.log("[workspace] remote directory resolved", resolvedDirectory);
-            if (isTauriRuntime() && context.workspaceId) {
-              const updated = await workspaceUpdateRemote({
-                workspaceId: context.workspaceId,
-                directory: resolvedDirectory,
-              });
-              setWorkspaces(updated.workspaces);
-              syncActiveWorkspaceId(updated.activeId);
-            }
-            setProjectDir(resolvedDirectory);
-            nextClient = createClient(nextBaseUrl, resolvedDirectory, auth);
-          }
-        } catch (error) {
-          console.log("[workspace] remote directory lookup failed", error);
-        }
+    const run = (async () => {
+      console.log("[workspace] connect", {
+        baseUrl: nextBaseUrl,
+        directory: directory ?? null,
+        workspaceType: context?.workspaceType ?? null,
+      });
+      const connectStart = Date.now();
+      wsDebug("connect:start", {
+        baseUrl: nextBaseUrl,
+        directory: directory ?? null,
+        reason: context?.reason ?? null,
+        workspaceType: context?.workspaceType ?? null,
+        targetRoot: context?.targetRoot ?? null,
+        quiet: connectOptions?.quiet ?? false,
+        navigate: connectOptions?.navigate ?? true,
+        authMode: auth && "mode" in auth ? (auth as any).mode : auth ? "basic" : "none",
+      });
+      const quiet = connectOptions?.quiet ?? false;
+      const navigate = connectOptions?.navigate ?? true;
+      options.setError(null);
+      if (!quiet) {
+        options.setBusy(true);
+        options.setBusyLabel("status.connecting");
+        options.setBusyStartedAt(Date.now());
       }
+      options.setSseConnected(false);
 
-      options.setClient(nextClient);
-      options.setConnectedVersion(health.version);
-      options.setBaseUrl(nextBaseUrl);
-      options.setClientDirectory(resolvedDirectory);
+      const connectMeta: OpencodeConnectStatus = {
+        at: Date.now(),
+        baseUrl: nextBaseUrl,
+        directory: directory ?? null,
+        reason: context?.reason ?? null,
+        status: "connecting",
+        error: null,
+      };
+      options.setOpencodeConnectStatus?.(connectMeta);
 
-      const providersPromise = (async () => {
-        const providersAt = Date.now();
-        wsDebug("connect:providers:start", { baseUrl: nextBaseUrl });
-        try {
-          const providerList = unwrap(await nextClient.provider.list());
-          wsDebug("connect:providers:done", {
-            ms: Date.now() - providersAt,
-            source: "provider.list",
-            available: providerList.all?.length ?? 0,
-            connected: providerList.connected?.length ?? 0,
-          });
-          return {
-            providers: providerList.all,
-            defaults: providerList.default,
-            connectedIds: providerList.connected,
-          };
-        } catch (error) {
-          const message = error instanceof Error ? error.message : safeStringify(error);
-          wsDebug("connect:providers:fallback", { ms: Date.now() - providersAt, message });
+      const connectMetrics: NonNullable<OpencodeConnectStatus["metrics"]> = {};
+
+      try {
+        let resolvedDirectory = directory?.trim() ?? "";
+        let nextClient = createClient(nextBaseUrl, resolvedDirectory || undefined, auth);
+        const health = await waitForHealthy(nextClient, { timeoutMs: 12_000 });
+        connectMetrics.healthyMs = Date.now() - connectStart;
+        wsDebug("connect:healthy", { ms: Date.now() - connectStart, version: health.version });
+
+        if (context?.workspaceType === "remote" && !resolvedDirectory) {
           try {
-            const cfg = unwrap(await nextClient.config.providers());
-            const mapped = mapConfigProvidersToList(cfg.providers);
+            const pathInfo = unwrap(await nextClient.path.get());
+            const discovered = pathInfo.directory?.trim() ?? "";
+            if (discovered) {
+              resolvedDirectory = discovered;
+              console.log("[workspace] remote directory resolved", resolvedDirectory);
+              if (isTauriRuntime() && context.workspaceId) {
+                const updated = await workspaceUpdateRemote({
+                  workspaceId: context.workspaceId,
+                  directory: resolvedDirectory,
+                });
+                setWorkspaces(updated.workspaces);
+                syncActiveWorkspaceId(updated.activeId);
+              }
+              setProjectDir(resolvedDirectory);
+              nextClient = createClient(nextBaseUrl, resolvedDirectory, auth);
+            }
+          } catch (error) {
+            console.log("[workspace] remote directory lookup failed", error);
+          }
+        }
+
+        options.setClient(nextClient);
+        options.setConnectedVersion(health.version);
+        options.setBaseUrl(nextBaseUrl);
+        options.setClientDirectory(resolvedDirectory);
+
+        const providersPromise = (async () => {
+          const providersAt = Date.now();
+          wsDebug("connect:providers:start", { baseUrl: nextBaseUrl });
+          try {
+            const providerList = unwrap(await nextClient.provider.list());
             wsDebug("connect:providers:done", {
               ms: Date.now() - providersAt,
-              source: "config.providers",
-              available: mapped.length,
-              connected: 0,
+              source: "provider.list",
+              available: providerList.all?.length ?? 0,
+              connected: providerList.connected?.length ?? 0,
             });
             return {
-              providers: mapped,
-              defaults: cfg.default,
-              connectedIds: [],
+              providers: providerList.all,
+              defaults: providerList.default,
+              connectedIds: providerList.connected,
             };
-          } catch (fallbackError) {
-            const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : safeStringify(fallbackError);
-            wsDebug("connect:providers:error", { ms: Date.now() - providersAt, message: fallbackMessage });
-            return {
-              providers: [],
-              defaults: {},
-              connectedIds: [],
-            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : safeStringify(error);
+            wsDebug("connect:providers:fallback", { ms: Date.now() - providersAt, message });
+            try {
+              const cfg = unwrap(await nextClient.config.providers());
+              const mapped = mapConfigProvidersToList(cfg.providers);
+              wsDebug("connect:providers:done", {
+                ms: Date.now() - providersAt,
+                source: "config.providers",
+                available: mapped.length,
+                connected: 0,
+              });
+              return {
+                providers: mapped,
+                defaults: cfg.default,
+                connectedIds: [],
+              };
+            } catch (fallbackError) {
+              const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : safeStringify(fallbackError);
+              wsDebug("connect:providers:error", { ms: Date.now() - providersAt, message: fallbackMessage });
+              return {
+                providers: [],
+                defaults: {},
+                connectedIds: [],
+              };
+            }
+          } finally {
+            connectMetrics.providersMs = Date.now() - providersAt;
           }
-        } finally {
-          connectMetrics.providersMs = Date.now() - providersAt;
+        })();
+
+        const targetRoot = context?.targetRoot ?? (resolvedDirectory || activeWorkspaceRoot().trim());
+        wsDebug("connect:loadSessions", { targetRoot, resolvedDirectory });
+        const sessionsAt = Date.now();
+        await options.loadSessions(targetRoot);
+        connectMetrics.loadSessionsMs = Date.now() - sessionsAt;
+        wsDebug("connect:loadSessions:done", { ms: Date.now() - sessionsAt });
+        const pendingPermissionsAt = Date.now();
+        await options.refreshPendingPermissions();
+        connectMetrics.pendingPermissionsMs = Date.now() - pendingPermissionsAt;
+
+        const providerState = await providersPromise;
+        options.setProviders(providerState.providers);
+        options.setProviderDefaults(providerState.defaults);
+        options.setProviderConnectedIds(providerState.connectedIds);
+
+        options.setSelectedSessionId(null);
+        options.setMessages([]);
+        options.setTodos([]);
+        options.setPendingPermissions([]);
+        options.setSessionStatusById({});
+
+        options.refreshSkills({ force: true }).catch(() => undefined);
+        options.refreshPlugins().catch(() => undefined);
+        if (navigate && !options.selectedSessionId()) {
+          options.setTab("scheduled");
+          options.setView("session");
         }
-      })();
 
-      const targetRoot = context?.targetRoot ?? (resolvedDirectory || activeWorkspaceRoot().trim());
-      wsDebug("connect:loadSessions", { targetRoot, resolvedDirectory });
-      const sessionsAt = Date.now();
-      await options.loadSessions(targetRoot);
-      connectMetrics.loadSessionsMs = Date.now() - sessionsAt;
-      wsDebug("connect:loadSessions:done", { ms: Date.now() - sessionsAt });
-      const pendingPermissionsAt = Date.now();
-      await options.refreshPendingPermissions();
-      connectMetrics.pendingPermissionsMs = Date.now() - pendingPermissionsAt;
-
-      const providerState = await providersPromise;
-      options.setProviders(providerState.providers);
-      options.setProviderDefaults(providerState.defaults);
-      options.setProviderConnectedIds(providerState.connectedIds);
-
-      options.setSelectedSessionId(null);
-      options.setMessages([]);
-      options.setTodos([]);
-      options.setPendingPermissions([]);
-      options.setSessionStatusById({});
-
-      options.refreshSkills({ force: true }).catch(() => undefined);
-      options.refreshPlugins().catch(() => undefined);
-      if (navigate && !options.selectedSessionId()) {
-        options.setTab("scheduled");
-        options.setView("session");
+        // If the user successfully connected, treat onboarding as complete so we
+        // don't force the onboarding flow on subsequent launches.
+        markOnboardingComplete();
+        options.onEngineStable?.();
+        connectMetrics.totalMs = Date.now() - connectStart;
+        options.setOpencodeConnectStatus?.({ ...connectMeta, status: "connected", metrics: connectMetrics });
+        wsDebug("connect:done", { ok: true, ms: Date.now() - connectStart });
+        return true;
+      } catch (e) {
+        options.setClient(null);
+        options.setConnectedVersion(null);
+        const message = e instanceof Error ? e.message : safeStringify(e);
+        wsDebug("connect:error", { ms: Date.now() - connectStart, message });
+        connectMetrics.totalMs = Date.now() - connectStart;
+        options.setOpencodeConnectStatus?.({
+          ...connectMeta,
+          status: "error",
+          error: addOpencodeCacheHint(message),
+          metrics: connectMetrics,
+        });
+        if (!quiet) {
+          options.setError(addOpencodeCacheHint(message));
+        }
+        return false;
+      } finally {
+        if (!quiet) {
+          options.setBusy(false);
+          options.setBusyLabel(null);
+          options.setBusyStartedAt(null);
+        }
       }
+    })();
 
-      // If the user successfully connected, treat onboarding as complete so we
-      // don't force the onboarding flow on subsequent launches.
-      markOnboardingComplete();
-      options.onEngineStable?.();
-      connectMetrics.totalMs = Date.now() - connectStart;
-      options.setOpencodeConnectStatus?.({ ...connectMeta, status: "connected", metrics: connectMetrics });
-      wsDebug("connect:done", { ok: true, ms: Date.now() - connectStart });
-      return true;
-    } catch (e) {
-      options.setClient(null);
-      options.setConnectedVersion(null);
-      const message = e instanceof Error ? e.message : safeStringify(e);
-      wsDebug("connect:error", { ms: Date.now() - connectStart, message });
-      connectMetrics.totalMs = Date.now() - connectStart;
-      options.setOpencodeConnectStatus?.({
-        ...connectMeta,
-        status: "error",
-        error: addOpencodeCacheHint(message),
-        metrics: connectMetrics,
-      });
-      if (!quiet) {
-        options.setError(addOpencodeCacheHint(message));
-      }
-      return false;
+    connectInFlightByKey.set(requestKey, run);
+    try {
+      return await run;
     } finally {
-      if (!quiet) {
-        options.setBusy(false);
-        options.setBusyLabel(null);
-        options.setBusyStartedAt(null);
+      if (connectInFlightByKey.get(requestKey) === run) {
+        connectInFlightByKey.delete(requestKey);
       }
     }
   }
@@ -1589,6 +1639,15 @@ export function createWorkspaceStore(options: {
     sandboxRunId?: string | null;
     sandboxContainerName?: string | null;
   }) {
+    if (createRemoteInFlight) {
+      wsDebug("create-remote:dedupe", {
+        hostUrl: input.openworkHostUrl ?? null,
+        directory: input.directory ?? null,
+      });
+      return createRemoteInFlight;
+    }
+
+    const run = (async () => {
     const hostUrl = normalizeOpenworkServerUrl(input.openworkHostUrl ?? "") ?? "";
     const token = input.openworkToken?.trim() ?? "";
     const directory = input.directory?.trim() ?? "";
@@ -1768,6 +1827,16 @@ export function createWorkspaceStore(options: {
         options.setBusy(false);
         options.setBusyLabel(null);
         options.setBusyStartedAt(null);
+      }
+    }
+    })();
+
+    createRemoteInFlight = run;
+    try {
+      return await run;
+    } finally {
+      if (createRemoteInFlight === run) {
+        createRemoteInFlight = null;
       }
     }
   }

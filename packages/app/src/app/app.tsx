@@ -2065,9 +2065,11 @@ export default function App() {
   });
 
   createEffect(() => {
-    // Only auto-select a session when the user is on the session route.
-    // Switching workspaces while on the dashboard should not force navigation.
+    // Only auto-select on bare /session. If the URL already includes /session/:id,
+    // let the route-driven selector own the fetch to avoid duplicate selection runs.
     if (currentView() !== "session") return;
+    const normalizedPath = location.pathname.toLowerCase().replace(/\/+$/, "");
+    if (normalizedPath !== "/session") return;
     if (!client()) return;
     if (!sessionsLoaded()) return;
     if (creatingSession()) return;
