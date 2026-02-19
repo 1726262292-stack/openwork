@@ -909,11 +909,6 @@ export default function App() {
     return fallback;
   };
 
-  const isOauthLocalServerPortError = (error: unknown) => {
-    const message = describeProviderError(error, "").toLowerCase();
-    return message.includes("failed to start server") || message.includes("port 1455") || message.includes("eaddrinuse");
-  };
-
   async function sendPrompt(draft?: ComposerDraft) {
     const hasExplicitDraft = Boolean(draft);
     const fallbackText = prompt().trim();
@@ -1406,44 +1401,22 @@ export default function App() {
         throw new Error(`Unknown provider: ${resolved}`);
       }
 
-      const oauthIndices = methods
-        .map((method, index) => ({ method, index }))
-        .filter((entry) => entry.method.type === "oauth")
-        .map((entry) => entry.index);
-      if (!oauthIndices.length) {
+      const oauthIndex = methods.findIndex((method) => method.type === "oauth");
+      if (oauthIndex === -1) {
         throw new Error(`No OAuth flow available for ${resolved}. Use an API key instead.`);
       }
 
-      let lastOauthError: unknown = null;
-      for (const oauthIndex of oauthIndices) {
-        try {
-          const auth = unwrap(await c.provider.oauth.authorize({ providerID: resolved, method: oauthIndex }));
-          if (isTauriRuntime()) {
-            const { openUrl } = await import("@tauri-apps/plugin-opener");
-            await openUrl(auth.url);
-          } else {
-            window.open(auth.url, "_blank", "noopener,noreferrer");
-          }
-
-          return auth.instructions || `Opened ${resolved} auth in browser`;
-        } catch (error) {
-          lastOauthError = error;
-          if (oauthIndex !== oauthIndices[oauthIndices.length - 1] && isOauthLocalServerPortError(error)) {
-            continue;
-          }
-          throw error;
-        }
+      const auth = unwrap(await c.provider.oauth.authorize({ providerID: resolved, method: oauthIndex }));
+      if (isTauriRuntime()) {
+        const { openUrl } = await import("@tauri-apps/plugin-opener");
+        await openUrl(auth.url);
+      } else {
+        window.open(auth.url, "_blank", "noopener,noreferrer");
       }
 
-      if (lastOauthError) {
-        throw lastOauthError;
-      }
-      throw new Error(`Failed to start OAuth flow for ${resolved}`);
+      return auth.instructions || `Opened ${resolved} auth in browser`;
     } catch (error) {
-      const portHint = isOauthLocalServerPortError(error)
-        ? "\n\nAnother process is already using local OAuth port 1455. Stop stale opencode/openwork processes on this machine, then retry."
-        : "";
-      const message = `${describeProviderError(error, "Failed to connect provider")}${portHint}`;
+      const message = describeProviderError(error, "Failed to connect provider");
       setProviderAuthError(message);
       throw error instanceof Error ? error : new Error(message);
     }
