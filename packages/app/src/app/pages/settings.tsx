@@ -648,6 +648,11 @@ export default function SettingsView(props: SettingsViewProps) {
     return formatRelativeTime(Date.now() - uptimeMs);
   };
 
+  const compactOutlineActionClass =
+    "inline-flex items-center gap-1.5 rounded-md border border-dls-border bg-dls-surface px-3 py-1.5 text-xs font-medium text-dls-secondary shadow-sm transition-colors duration-150 hover:bg-dls-hover hover:text-dls-text focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.25)] disabled:cursor-not-allowed disabled:opacity-60";
+  const compactDangerActionClass =
+    "inline-flex items-center gap-1.5 rounded-md border border-red-7/35 bg-red-3/25 px-3 py-1.5 text-xs font-medium text-red-11 transition-colors duration-150 hover:border-red-7/50 hover:bg-red-3/45 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-7/35 disabled:cursor-not-allowed disabled:opacity-60";
+
   return (
     <section class="space-y-6">
       <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-2xl border border-gray-6/40 bg-gray-1/40 px-3 py-2">
@@ -850,10 +855,14 @@ export default function SettingsView(props: SettingsViewProps) {
               <div class="pt-1 flex flex-wrap items-center gap-3">
                 <button
                   type="button"
-                  class="bg-white hover:bg-gray-50 text-gray-7 border border-gray-6 rounded-md px-3 py-1.5 flex items-center gap-1.5 shadow-sm transition-all duration-200 active:bg-gray-3 text-xs font-medium"
+                  class={`${compactOutlineActionClass} ${
+                    props.developerMode
+                      ? "border-blue-7/35 bg-blue-3/20 text-blue-11 hover:bg-blue-3/35 hover:text-blue-11"
+                      : ""
+                  }`}
                   onClick={props.toggleDeveloperMode}
                 >
-                  <Zap size={14} class="text-gray-9" />
+                  <Zap size={14} class={props.developerMode ? "text-blue-10" : "text-dls-secondary"} />
                   {props.developerMode ? "Disable Developer Mode" : "Enable Developer Mode"}
                 </button>
                 <div class="text-xs text-gray-10">
@@ -869,17 +878,17 @@ export default function SettingsView(props: SettingsViewProps) {
               <div class="pt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  class="bg-white hover:bg-gray-50 text-gray-7 border border-gray-6 rounded-md px-3 py-1.5 flex items-center gap-1.5 shadow-sm transition-all duration-200 active:bg-gray-3 text-xs font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+                  class={compactOutlineActionClass}
                   onClick={handleReconnectOpenworkServer}
                   disabled={props.busy || props.openworkReconnectBusy || !props.openworkServerUrl.trim()}
                 >
-                  <RefreshCcw size={14} class={`text-gray-9 ${props.openworkReconnectBusy ? "animate-spin" : ""}`} />
+                  <RefreshCcw size={14} class={`text-dls-secondary ${props.openworkReconnectBusy ? "animate-spin" : ""}`} />
                   {props.openworkReconnectBusy ? "Reconnecting..." : "Reconnect server"}
                 </button>
                 <Show when={isLocalEngineRunning()}>
                   <button
                     type="button"
-                    class="bg-red-3 hover:bg-red-4 text-red-11 rounded-md px-3 py-1.5 flex items-center gap-1.5 transition-all duration-200 active:scale-[0.98] text-xs font-medium border border-transparent hover:border-red-7/30 disabled:opacity-60 disabled:cursor-not-allowed"
+                    class={compactDangerActionClass}
                     onClick={props.stopHost}
                     disabled={props.busy}
                   >
@@ -890,7 +899,7 @@ export default function SettingsView(props: SettingsViewProps) {
                 <Show when={!isLocalEngineRunning() && props.openworkServerStatus === "connected"}>
                   <button
                     type="button"
-                    class="bg-white hover:bg-gray-50 text-gray-7 border border-gray-6 rounded-md px-3 py-1.5 flex items-center gap-1.5 shadow-sm transition-all duration-200 active:bg-gray-3 text-xs font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+                    class={compactOutlineActionClass}
                     onClick={props.stopHost}
                     disabled={props.busy}
                   >

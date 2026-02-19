@@ -2126,13 +2126,13 @@ export default function SessionView(props: SessionViewProps) {
     const state = props.updateStatus?.state;
     if (state === "ready") {
       return props.anyActiveRuns
-        ? "text-amber-11 hover:text-amber-11 hover:bg-amber-3/35"
-        : "text-green-11 hover:text-green-11 hover:bg-green-3/35";
+        ? "text-amber-11 hover:text-amber-11 hover:bg-amber-3/30"
+        : "text-green-11 hover:text-green-11 hover:bg-green-3/30";
     }
     if (state === "downloading") {
-      return "text-blue-11 hover:text-blue-11 hover:bg-blue-3/35";
+      return "text-blue-11 hover:text-blue-11 hover:bg-blue-3/30";
     }
-    return "text-emerald-11 hover:text-emerald-11 hover:bg-emerald-3/35";
+    return "text-dls-secondary hover:text-emerald-11 hover:bg-emerald-3/25";
   });
 
   const updatePillBorderTone = createMemo(() => {
@@ -2143,7 +2143,7 @@ export default function SessionView(props: SessionViewProps) {
     if (state === "downloading") {
       return "border-blue-7/35";
     }
-    return "border-emerald-7/35";
+    return "border-dls-border";
   });
 
   const updatePillDotTone = createMemo(() => {
@@ -2165,7 +2165,7 @@ export default function SessionView(props: SessionViewProps) {
     if (state === "downloading") {
       return "text-blue-11/75";
     }
-    return "text-emerald-11/75";
+    return "text-dls-secondary";
   });
 
   const updatePillTitle = createMemo(() => {
@@ -2226,7 +2226,7 @@ export default function SessionView(props: SessionViewProps) {
           <Show when={showUpdatePill()}>
             <button
               type="button"
-              class={`group mb-3 w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${updatePillButtonTone()}`}
+              class={`group mb-3 w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.2)] ${updatePillButtonTone()}`}
               onClick={handleUpdatePillClick}
               title={updatePillTitle()}
               aria-label={updatePillTitle()}
@@ -2614,7 +2614,7 @@ export default function SessionView(props: SessionViewProps) {
             <Show when={showUpdatePill()}>
               <button
                 type="button"
-                class={`md:hidden flex items-center gap-1.5 rounded-full border bg-white px-2.5 py-1 text-xs font-medium shadow-sm transition-colors active:scale-[0.99] ${updatePillBorderTone()} ${updatePillButtonTone()}`}
+                class={`md:hidden flex items-center gap-1.5 rounded-full border bg-dls-surface px-2.5 py-1 text-xs font-medium shadow-sm transition-colors active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.2)] ${updatePillBorderTone()} ${updatePillButtonTone()}`}
                 onClick={handleUpdatePillClick}
                 title={updatePillTitle()}
                 aria-label={updatePillTitle()}
