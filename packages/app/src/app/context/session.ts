@@ -367,6 +367,44 @@ export function createSessionStore(options: {
     options.setError(addOpencodeCacheHint(message));
   };
 
+  const truncateErrorField = (value: unknown, max = 500) => {
+    if (typeof value !== "string") return null;
+    const text = value.trim();
+    if (!text) return null;
+    if (text.length <= max) return text;
+    return `${text.slice(0, Math.max(0, max - 3))}...`;
+  };
+
+  const formatSessionError = (errorObj: Record<string, unknown>) => {
+    const errorName = typeof errorObj.name === "string" ? errorObj.name : "UnknownError";
+    const statusCode = typeof errorObj.statusCode === "number" ? errorObj.statusCode : null;
+    const providerID = typeof errorObj.providerID === "string" ? errorObj.providerID : null;
+    const isRetryable = typeof errorObj.isRetryable === "boolean" ? errorObj.isRetryable : null;
+    const code = truncateErrorField(errorObj.code, 120);
+    const responseBody = truncateErrorField(errorObj.responseBody, 800);
+    const rawMessage = truncateErrorField(errorObj.message, 700);
+
+    const heading = (() => {
+      if (errorName === "ProviderAuthError") return `Provider auth error${providerID ? ` (${providerID})` : ""}`;
+      if (errorName === "APIError") {
+        if (statusCode === 401 || statusCode === 403) return "Authentication failed";
+        if (statusCode === 429) return "Rate limit exceeded";
+        return `API error${statusCode ? ` (${statusCode})` : ""}`;
+      }
+      if (errorName === "MessageOutputLengthError") return "Output length limit exceeded";
+      return errorName.replace(/([a-z])([A-Z])/g, "$1 $2");
+    })();
+
+    const lines = [heading];
+    if (rawMessage && rawMessage !== heading) lines.push(rawMessage);
+    if (providerID && errorName !== "ProviderAuthError") lines.push(`Provider: ${providerID}`);
+    if (statusCode && errorName !== "APIError") lines.push(`Status: ${statusCode}`);
+    if (code) lines.push(`Code: ${code}`);
+    if (isRetryable !== null) lines.push(`Retryable: ${isRetryable ? "yes" : "no"}`);
+    if (responseBody) lines.push(`Response: ${responseBody}`);
+    return lines.join("\n");
+  };
+
   const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string) => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -804,7 +842,11 @@ export function createSessionStore(options: {
         const record = event.properties as Record<string, unknown>;
         const sessionID = typeof record.sessionID === "string" ? record.sessionID : null;
         if (sessionID) {
-          setStore("sessionStatus", sessionID, normalizeSessionStatus(record.status));
+          const normalized = normalizeSessionStatus(record.status);
+          setStore("sessionStatus", sessionID, normalized);
+          if (sessionID === options.selectedSessionId() && normalized !== "idle") {
+            options.setError(null);
+          }
         }
       }
     }
@@ -826,43 +868,28 @@ export function createSessionStore(options: {
     if (event.type === "session.error") {
       if (event.properties && typeof event.properties === "object") {
         const record = event.properties as Record<string, unknown>;
+        const sessionID = typeof record.sessionID === "string" ? record.sessionID : null;
+        if (sessionID) {
+          setStore("sessionStatus", sessionID, "idle");
+        }
         const errorObj = record.error as Record<string, unknown> | undefined;
+        if (sessionID && sessionID !== options.selectedSessionId()) {
+          return;
+        }
         if (errorObj) {
-          // Handle different error types from OpenCode
-          const errorName = typeof errorObj.name === "string" ? errorObj.name : "Unknown";
-          let message = "An error occurred";
-
-          if (errorName === "ProviderAuthError") {
-            // Provider auth error - likely 401/403 from the API
-            const providerID = typeof errorObj.providerID === "string" ? errorObj.providerID : "provider";
-            const errorMessage = typeof errorObj.message === "string" ? errorObj.message : "";
-            message = errorMessage || `Authentication failed for ${providerID}. Please reconnect or check your API key.`;
-          } else if (errorName === "APIError") {
-            // API error - includes status code
-            const statusCode = typeof errorObj.statusCode === "number" ? errorObj.statusCode : undefined;
-            const errorMessage = typeof errorObj.message === "string" ? errorObj.message : "";
-            if (statusCode === 401 || statusCode === 403) {
-              message = errorMessage || "Authentication failed. Please check your API key or reconnect the provider.";
-            } else if (statusCode === 429) {
-              message = errorMessage || "Rate limit exceeded. Please wait and try again.";
-            } else {
-              message = errorMessage || `API error${statusCode ? ` (${statusCode})` : ""}`;
-            }
-          } else if (errorName === "MessageAbortedError") {
+          const errorName = typeof errorObj.name === "string" ? errorObj.name : "UnknownError";
+          if (errorName === "MessageAbortedError") {
             // Cancellation is a user-driven control flow. Don't treat it as a
             // fatal error banner; the session UI already provides local UX.
             options.setError(null);
             return;
-          } else if (errorName === "MessageOutputLengthError") {
-            message = "Output length limit exceeded";
-          } else {
-            // Unknown or other error
-            const errorMessage = typeof errorObj.message === "string" ? errorObj.message : "";
-            message = errorMessage || "An unexpected error occurred";
           }
-
-          options.setError(addOpencodeCacheHint(message));
+          options.setError(addOpencodeCacheHint(formatSessionError(errorObj)));
+          return;
         }
+
+        const fallback = truncateErrorField(record.error, 700) ?? "An unexpected error occurred";
+        options.setError(addOpencodeCacheHint(fallback));
       }
     }
 

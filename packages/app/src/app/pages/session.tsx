@@ -1028,7 +1028,7 @@ export default function SessionView(props: SessionViewProps) {
   });
 
   const runPhase = createMemo(() => {
-    if (props.error) return "error";
+    if (props.error && (runStartedAt() !== null || runHasBegun())) return "error";
     const status = props.sessionStatus;
     const started = runStartedAt() !== null;
     if (status === "idle") {
@@ -1141,6 +1141,17 @@ export default function SessionView(props: SessionViewProps) {
     return `${trimmed.slice(0, max)}...`;
   };
 
+  const formatRunErrorDetail = (message: string) => {
+    const lines = message
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (!lines.length) return "Run failed";
+    const compact = lines.slice(0, 4).join("\n");
+    if (lines.length <= 4) return compact;
+    return `${compact}\n...`;
+  };
+
   const thinkingStatus = createMemo(() => {
     const status = computeStatusFromPart(latestRunPart());
     if (status) return status;
@@ -1149,6 +1160,12 @@ export default function SessionView(props: SessionViewProps) {
   });
 
   const thinkingDetail = createMemo<null | { title: string; detail?: string }>(() => {
+    if (runPhase() === "error") {
+      if (!props.error) return { title: "Error" };
+      const detail = truncateDetail(formatRunErrorDetail(props.error), 420);
+      return detail ? { title: "Error", detail } : { title: "Error" };
+    }
+
     const reasoning = latestRunReasoning();
     if (reasoning) {
       const detail = truncateDetail(reasoning);
@@ -1225,6 +1242,9 @@ export default function SessionView(props: SessionViewProps) {
         setSearchQuery("");
         setSearchQueryDebounced("");
         setActiveSearchHitIndex(0);
+        setAutoScrollEnabled(true);
+        setScrollOnNextUpdate(true);
+        queueMicrotask(() => scheduleScrollToLatest("auto"));
       },
     ),
   );
@@ -1292,7 +1312,7 @@ export default function SessionView(props: SessionViewProps) {
 
   createEffect(() => {
     if (!runStartedAt()) return;
-    if (props.sessionStatus === "idle" && runHasBegun() && !props.error) {
+    if (props.sessionStatus === "idle" && runHasBegun()) {
       setRunStartedAt(null);
       setRunHasBegun(false);
       setRunLastProgressAt(null);
@@ -2748,14 +2768,6 @@ export default function SessionView(props: SessionViewProps) {
             </div>
           </div>
         </Show>
-
-      <Show when={props.error}>
-        <div class="mx-auto max-w-5xl w-full px-6 md:px-10 pt-4">
-          <div class="rounded-2xl bg-red-1/40 px-5 py-4 text-sm text-red-12 border border-red-7/20">
-            {props.error}
-          </div>
-        </div>
-      </Show>
 
        <div class="flex-1 flex overflow-hidden">
          <div class="flex-1 min-w-0 relative overflow-hidden">
