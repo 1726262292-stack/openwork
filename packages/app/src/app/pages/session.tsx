@@ -229,6 +229,10 @@ const INITIAL_PART_WINDOW = 700;
 const MESSAGE_WINDOW_LOAD_CHUNK = 120;
 const MAX_SEARCH_MESSAGE_CHARS = 4_000;
 const MAX_SEARCH_HITS = 2_000;
+const STREAM_SCROLL_MIN_INTERVAL_MS = 90;
+const STREAM_RENDER_BATCH_MS = 220;
+const MAIN_THREAD_LAG_INTERVAL_MS = 200;
+const MAIN_THREAD_LAG_WARN_MS = 180;
 
 export default function SessionView(props: SessionViewProps) {
   let messagesEndEl: HTMLDivElement | undefined;
@@ -236,6 +240,12 @@ export default function SessionView(props: SessionViewProps) {
   let agentPickerRef: HTMLDivElement | undefined;
   let sessionMenuRef: HTMLDivElement | undefined;
   let searchInputEl: HTMLInputElement | undefined;
+  let scrollFrame: number | undefined;
+  let pendingScrollBehavior: ScrollBehavior = "auto";
+  let lastAutoScrollAt = 0;
+  let streamRenderBatchTimer: number | undefined;
+  let streamRenderBatchQueuedAt = 0;
+  let streamRenderBatchReschedules = 0;
 
   const [toastMessage, setToastMessage] = createSignal<string | null>(null);
   const [providerAuthActionBusy, setProviderAuthActionBusy] = createSignal(false);
@@ -448,6 +458,91 @@ export default function SessionView(props: SessionViewProps) {
     if (start <= 0) return props.messages;
     if (start >= props.messages.length) return [];
     return props.messages.slice(start);
+  });
+
+  const [batchedRenderedMessages, setBatchedRenderedMessages] = createSignal<MessageWithParts[]>(renderedMessages());
+
+  createEffect(() => {
+    const next = renderedMessages();
+    const sourceMessageCount = props.messages.length;
+    const sourcePartCount = totalPartCount();
+    if (props.sessionStatus === "idle") {
+      if (streamRenderBatchTimer !== undefined) {
+        window.clearTimeout(streamRenderBatchTimer);
+        streamRenderBatchTimer = undefined;
+      }
+      setBatchedRenderedMessages(next);
+      streamRenderBatchQueuedAt = 0;
+      streamRenderBatchReschedules = 0;
+      return;
+    }
+
+    if (streamRenderBatchQueuedAt <= 0) {
+      streamRenderBatchQueuedAt = perfNow();
+    } else {
+      streamRenderBatchReschedules += 1;
+    }
+
+    if (streamRenderBatchTimer !== undefined) {
+      window.clearTimeout(streamRenderBatchTimer);
+      streamRenderBatchTimer = undefined;
+    }
+
+    streamRenderBatchTimer = window.setTimeout(() => {
+      const applyStartedAt = perfNow();
+      setBatchedRenderedMessages(next);
+      streamRenderBatchTimer = undefined;
+      const applyMs = Math.round((perfNow() - applyStartedAt) * 100) / 100;
+      const queuedMs = streamRenderBatchQueuedAt > 0 ? Math.round((perfNow() - streamRenderBatchQueuedAt) * 100) / 100 : 0;
+      const reschedules = streamRenderBatchReschedules;
+      streamRenderBatchQueuedAt = 0;
+      streamRenderBatchReschedules = 0;
+
+      if (props.developerMode) {
+        window.requestAnimationFrame(() => {
+          const paintMs = Math.round((perfNow() - applyStartedAt) * 100) / 100;
+          if (queuedMs >= 180 || applyMs >= 8 || paintMs >= 24 || reschedules >= 3) {
+            recordPerfLog(true, "session.render", "batch-commit", {
+              queuedMs,
+              applyMs,
+              paintMs,
+              reschedules,
+              sessionID: props.selectedSessionId,
+              status: props.sessionStatus,
+              sourceMessageCount,
+              sourcePartCount,
+              renderedMessageCount: next.length,
+            });
+          }
+        });
+      }
+    }, STREAM_RENDER_BATCH_MS);
+  });
+
+  createEffect(() => {
+    if (!props.developerMode) return;
+    if (typeof window === "undefined") return;
+
+    let expectedAt = perfNow() + MAIN_THREAD_LAG_INTERVAL_MS;
+    const interval = window.setInterval(() => {
+      const now = perfNow();
+      const lagMs = Math.round((now - expectedAt) * 100) / 100;
+      expectedAt = now + MAIN_THREAD_LAG_INTERVAL_MS;
+      if (lagMs < MAIN_THREAD_LAG_WARN_MS) return;
+
+      recordPerfLog(true, "session.main-thread", "lag", {
+        lagMs,
+        sessionID: props.selectedSessionId,
+        status: props.sessionStatus,
+        messageCount: props.messages.length,
+        partCount: totalPartCount(),
+        renderedMessageCount: batchedRenderedMessages().length,
+      });
+    }, MAIN_THREAD_LAG_INTERVAL_MS);
+
+    onCleanup(() => {
+      window.clearInterval(interval);
+    });
   });
 
   const hiddenMessageCount = createMemo(() => {
@@ -747,6 +842,37 @@ export default function SessionView(props: SessionViewProps) {
   const scrollToLatest = (behavior: ScrollBehavior = "auto") => {
     messagesEndEl?.scrollIntoView({ behavior, block: "end" });
   };
+
+  const scheduleScrollToLatest = (behavior: ScrollBehavior = "auto") => {
+    if (behavior === "smooth") {
+      pendingScrollBehavior = "smooth";
+    }
+    if (scrollFrame !== undefined) return;
+    scrollFrame = window.requestAnimationFrame(() => {
+      scrollFrame = undefined;
+      const nextBehavior = pendingScrollBehavior;
+      pendingScrollBehavior = "auto";
+      const now = Date.now();
+      if (nextBehavior === "auto" && now - lastAutoScrollAt < STREAM_SCROLL_MIN_INTERVAL_MS) {
+        return;
+      }
+      lastAutoScrollAt = now;
+      scrollToLatest(nextBehavior);
+    });
+  };
+
+  onCleanup(() => {
+    if (scrollFrame !== undefined) {
+      window.cancelAnimationFrame(scrollFrame);
+      scrollFrame = undefined;
+    }
+    if (streamRenderBatchTimer !== undefined) {
+      window.clearTimeout(streamRenderBatchTimer);
+      streamRenderBatchTimer = undefined;
+    }
+    streamRenderBatchQueuedAt = 0;
+    streamRenderBatchReschedules = 0;
+  });
 
   createEffect(
     on(
@@ -1198,7 +1324,7 @@ export default function SessionView(props: SessionViewProps) {
           }
           const shouldScroll = scrollOnNextUpdate() || autoScrollEnabled();
           if (shouldScroll) {
-            scrollToLatest(scrollOnNextUpdate() ? "smooth" : "auto");
+            scheduleScrollToLatest(scrollOnNextUpdate() ? "smooth" : "auto");
           }
           if (scrollOnNextUpdate()) {
             setScrollOnNextUpdate(false);
@@ -1241,6 +1367,45 @@ export default function SessionView(props: SessionViewProps) {
     if (ms >= hardMs) return "hard";
     if (ms >= softMs) return "soft";
     return "none";
+  });
+
+  let lastStallPerfStage: "none" | "soft" | "hard" = "none";
+  createEffect(() => {
+    if (!props.developerMode) {
+      lastStallPerfStage = "none";
+      return;
+    }
+
+    const stage = stallStage();
+    if (stage === lastStallPerfStage) return;
+
+    const previous = lastStallPerfStage;
+    lastStallPerfStage = stage;
+
+    if (stage === "none") {
+      if (previous !== "none") {
+        recordPerfLog(true, "session.run", "stall-recovered", {
+          sessionID: props.selectedSessionId,
+          phase: runPhase(),
+          elapsedMs: runElapsedMs(),
+          messageCount: props.messages.length,
+          partCount: totalPartCount(),
+        });
+      }
+      return;
+    }
+
+    recordPerfLog(true, "session.run", stage === "soft" ? "stall-soft" : "stall-hard", {
+      sessionID: props.selectedSessionId,
+      phase: runPhase(),
+      stallMs: runStallMs(),
+      elapsedMs: runElapsedMs(),
+      messageCount: props.messages.length,
+      renderedMessageCount: renderedMessages().length,
+      hiddenMessageCount: hiddenMessageCount(),
+      partCount: totalPartCount(),
+      autoScroll: autoScrollEnabled(),
+    });
   });
 
   const cancelRun = async () => {
@@ -1869,9 +2034,7 @@ export default function SessionView(props: SessionViewProps) {
     }
   };
 
-  const handleDraftChange = (draft: ComposerDraft) => {
-    props.setPrompt(draft.text);
-  };
+  const handleDraftChange = (_draft: ComposerDraft) => {};
 
   const openSessionFromList = (workspaceId: string, sessionId: string) => {
     if (!sessionId) return;
@@ -2656,7 +2819,8 @@ export default function SessionView(props: SessionViewProps) {
           </Show>
 
           <MessageList
-            messages={renderedMessages()}
+            messages={batchedRenderedMessages()}
+            isStreaming={showRunIndicator()}
             developerMode={props.developerMode}
             showThinking={props.showThinking}
             workspaceRoot={props.activeWorkspaceRoot}
@@ -2793,6 +2957,7 @@ export default function SessionView(props: SessionViewProps) {
 
       <Composer
         prompt={props.prompt}
+        developerMode={props.developerMode}
         busy={props.busy}
         isStreaming={showRunIndicator()}
         onSend={handleSendPrompt}

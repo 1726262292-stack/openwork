@@ -10,6 +10,7 @@ import { perfNow, recordPerfLog } from "../../lib/perf-log";
 
 export type MessageListProps = {
   messages: MessageWithParts[];
+  isStreaming?: boolean;
   developerMode: boolean;
   showThinking: boolean;
   expandedStepIds: Set<string>;
@@ -101,6 +102,7 @@ function latestStepPart(partsGroups: Part[][]): Part | undefined {
 
 export default function MessageList(props: MessageListProps) {
   const [copyingId, setCopyingId] = createSignal<string | null>(null);
+  let previousMessagePartCountById = new Map<string, number>();
   let copyTimeout: number | undefined;
   const isAttachmentPart = (part: Part) => {
     if (part.type !== "file") return false;
@@ -198,16 +200,33 @@ export default function MessageList(props: MessageListProps) {
   const messageBlocks = createMemo<MessageBlockItem[]>(() => {
     const startedAt = perfNow();
     const blocks: MessageBlockItem[] = [];
+    const nextMessagePartCountById = new Map<string, number>();
+    let changedMessageCount = 0;
+    let addedMessageCount = 0;
+    let toolPartCount = 0;
+    let stepGroupCount = 0;
 
-    for (const message of props.messages) {
+    props.messages.forEach((message, index) => {
       const renderableParts = renderablePartsForMessage(message);
-      if (!renderableParts.length) continue;
+      if (!renderableParts.length) return;
 
       const messageId = String((message.info as any).id ?? "");
+      const idKey = messageId || `idx:${index}`;
+      const totalParts = message.parts.length;
+      nextMessagePartCountById.set(idKey, totalParts);
+      const previousPartCount = previousMessagePartCountById.get(idKey);
+      if (previousPartCount === undefined) {
+        addedMessageCount += 1;
+      } else if (previousPartCount !== totalParts) {
+        changedMessageCount += 1;
+      }
+
+      toolPartCount += renderableParts.reduce((count, part) => (part.type === "tool" ? count + 1 : count), 0);
       const groupId = String((message.info as any).id ?? "message");
       const groups = groupMessageParts(renderableParts, groupId);
       const isUser = (message.info as any).role === "user";
       const isStepsOnly = groups.length === 1 && groups[0].kind === "steps";
+      stepGroupCount += groups.reduce((count, group) => (group.kind === "steps" ? count + 1 : count), 0);
 
       if (isStepsOnly) {
         const stepGroup = groups[0] as { kind: "steps"; id: string; parts: Part[] };
@@ -226,7 +245,7 @@ export default function MessageList(props: MessageListProps) {
             isUser,
           });
         }
-        continue;
+        return;
       }
 
       blocks.push({
@@ -237,18 +256,49 @@ export default function MessageList(props: MessageListProps) {
         isUser,
         messageId,
       });
-    }
+    });
+
+    let removedMessageCount = 0;
+    previousMessagePartCountById.forEach((_partCount, id) => {
+      if (!nextMessagePartCountById.has(id)) {
+        removedMessageCount += 1;
+      }
+    });
+    previousMessagePartCountById = nextMessagePartCountById;
 
     const elapsedMs = Math.round((perfNow() - startedAt) * 100) / 100;
-    if (props.developerMode && (elapsedMs >= 8 || props.messages.length >= 120)) {
+    if (
+      props.developerMode &&
+      (
+        elapsedMs >= 6 ||
+        (Boolean(props.isStreaming) && props.messages.length >= 16 && changedMessageCount <= 2 && addedMessageCount <= 1 && removedMessageCount === 0) ||
+        (Boolean(props.isStreaming) && toolPartCount >= 10)
+      )
+    ) {
       recordPerfLog(true, "session.render", "message-blocks", {
         messageCount: props.messages.length,
         blockCount: blocks.length,
+        changedMessageCount,
+        addedMessageCount,
+        removedMessageCount,
+        toolPartCount,
+        stepGroupCount,
+        streaming: Boolean(props.isStreaming),
         ms: elapsedMs,
       });
     }
 
     return blocks;
+  });
+
+  const latestAssistantMessageId = createMemo(() => {
+    for (let index = props.messages.length - 1; index >= 0; index -= 1) {
+      const message = props.messages[index];
+      if ((message.info as any).role === "assistant") {
+        return String((message.info as any).id ?? "");
+      }
+    }
+    return "";
   });
 
   /** Compact single-line step row */
@@ -584,14 +634,22 @@ export default function MessageList(props: MessageListProps) {
                   {(group, idx) => (
                     <div class={idx() === block.groups.length - 1 ? "" : groupSpacing}>
                       <Show when={group.kind === "text"}>
-                        <PartView
-                          part={(group as { kind: "text"; part: Part }).part}
-                          developerMode={props.developerMode}
-                          showThinking={props.showThinking}
-                          workspaceRoot={props.workspaceRoot}
-                          tone={block.isUser ? "dark" : "light"}
-                          renderMarkdown={!block.isUser}
-                        />
+                        {(() => {
+                          const isStreamingLatestAssistant =
+                            !block.isUser && props.isStreaming && block.messageId === latestAssistantMessageId();
+                          const markdownThrottleMs = isStreamingLatestAssistant ? 550 : 100;
+                          return (
+                            <PartView
+                              part={(group as { kind: "text"; part: Part }).part}
+                              developerMode={props.developerMode}
+                              showThinking={props.showThinking}
+                              workspaceRoot={props.workspaceRoot}
+                              tone={block.isUser ? "dark" : "light"}
+                              renderMarkdown={!block.isUser}
+                              markdownThrottleMs={markdownThrottleMs}
+                            />
+                          );
+                        })()}
                       </Show>
                       {group.kind === "steps" &&
                         (() => {

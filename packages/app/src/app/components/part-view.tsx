@@ -4,6 +4,7 @@ import type { Part } from "@opencode-ai/sdk/v2/client";
 import { File } from "lucide-solid";
 import { isTauriRuntime, safeStringify, summarizeStep } from "../utils";
 import { usePlatform } from "../context/platform";
+import { perfNow, recordPerfLog } from "../lib/perf-log";
 
 type Props = {
   part: Part;
@@ -12,6 +13,7 @@ type Props = {
   tone?: "light" | "dark";
   workspaceRoot?: string;
   renderMarkdown?: boolean;
+  markdownThrottleMs?: number;
 };
 
 type LinkType = "url" | "file";
@@ -231,13 +233,14 @@ function clampText(text: string, max = 800) {
   return `${text.slice(0, max)}\n\n… (truncated)`;
 }
 
-function useThrottledValue<T>(value: () => T, delayMs = 80) {
+function useThrottledValue<T>(value: () => T, delayMs: number | (() => number) = 80) {
   const [state, setState] = createSignal<T>(value());
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   createEffect(() => {
     const next = value();
-    if (!delayMs) {
+    const delay = typeof delayMs === "function" ? delayMs() : delayMs;
+    if (!delay) {
       setState(() => next);
       return;
     }
@@ -245,7 +248,7 @@ function useThrottledValue<T>(value: () => T, delayMs = 80) {
     timer = setTimeout(() => {
       setState(() => next);
       timer = undefined;
-    }, delayMs);
+    }, delay);
   });
 
   onCleanup(() => {
@@ -340,6 +343,7 @@ export default function PartView(props: Props) {
   const tone = () => props.tone ?? "light";
   const showThinking = () => props.showThinking ?? true;
   const renderMarkdown = () => props.renderMarkdown ?? false;
+  const markdownThrottleMs = () => Math.max(0, props.markdownThrottleMs ?? 100);
   const fileInfo = () => {
     if (p().type !== "file") return null;
     const part = p() as {
@@ -388,13 +392,14 @@ export default function PartView(props: Props) {
     if (!renderMarkdown() || p().type !== "text") return "";
     return "text" in p() ? String((p() as { text: string }).text ?? "") : "";
   });
-  const throttledMarkdownSource = useThrottledValue(markdownSource, 100);
+  const throttledMarkdownSource = useThrottledValue(markdownSource, markdownThrottleMs);
   const renderedMarkdown = createMemo(() => {
     if (!renderMarkdown() || p().type !== "text") return null;
     const text = throttledMarkdownSource();
     if (!text.trim()) return "";
     
     try {
+      const startedAt = perfNow();
       const renderer = createCustomRenderer(tone());
       const result = marked.parse(text, { 
         breaks: true, 
@@ -402,6 +407,16 @@ export default function PartView(props: Props) {
         renderer,
         async: false
       });
+      const parseMs = Math.round((perfNow() - startedAt) * 100) / 100;
+      if (developerMode() && (parseMs >= 12 || text.length >= 6_000)) {
+        const record = p() as { id?: string; messageID?: string };
+        recordPerfLog(true, "session.render", "markdown-parse", {
+          partID: record.id ?? null,
+          messageID: record.messageID ?? null,
+          chars: text.length,
+          ms: parseMs,
+        });
+      }
       
       return typeof result === 'string' ? result : '';
     } catch (error) {
@@ -485,7 +500,31 @@ export default function PartView(props: Props) {
     return p() as any;
   };
 
-  const toolSummary = createMemo(() => (p().type === "tool" ? summarizeStep(p()) : null));
+  let toolSummaryRuns = 0;
+  let lastToolSummaryAt = 0;
+  const toolSummary = createMemo(() => {
+    if (p().type !== "tool") return null;
+    const startedAt = perfNow();
+    const summary = summarizeStep(p());
+    const elapsedMs = Math.round((perfNow() - startedAt) * 100) / 100;
+    toolSummaryRuns += 1;
+    const now = Date.now();
+    const sinceLastMs = lastToolSummaryAt > 0 ? now - lastToolSummaryAt : null;
+    lastToolSummaryAt = now;
+
+    if (developerMode() && (elapsedMs >= 4 || (toolSummaryRuns >= 6 && (sinceLastMs ?? 0) < 300))) {
+      const record = p() as { id?: string; messageID?: string };
+      recordPerfLog(true, "session.render", "tool-summary", {
+        partID: record.id ?? null,
+        messageID: record.messageID ?? null,
+        runs: toolSummaryRuns,
+        sinceLastMs,
+        ms: elapsedMs,
+      });
+    }
+
+    return summary;
+  });
   const toolState = () => toolData()?.state ?? {};
   const toolName = () => (toolData()?.tool ? String(toolData()?.tool) : "tool");
   const toolTitle = () => {

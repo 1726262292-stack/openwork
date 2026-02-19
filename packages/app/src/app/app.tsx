@@ -842,6 +842,7 @@ export default function App() {
   };
 
   async function sendPrompt(draft?: ComposerDraft) {
+    const hasExplicitDraft = Boolean(draft);
     const fallbackText = prompt().trim();
     const resolvedDraft: ComposerDraft = draft ?? {
       mode: "prompt",
@@ -893,7 +894,9 @@ export default function App() {
       if (!compactCommand) {
         setLastPromptSent(content);
       }
-      setPrompt("");
+      if (!hasExplicitDraft) {
+        setPrompt("");
+      }
 
       const model = selectedSessionModel();
       const agent = selectedSessionAgent();
