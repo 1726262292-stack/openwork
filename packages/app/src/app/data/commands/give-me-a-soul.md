@@ -15,6 +15,7 @@ Requirements:
 2) Keep it simple, safe, and reversible.
 3) Persist in workspace-local files under `.opencode/`.
 4) Scheduled runs must be non-interactive (no waiting for permission prompts).
+5) Keep user-facing explanations focused on outcomes and controls; keep session/sql internals in agent logic unless I ask for debugging details.
 
 After I confirm, implement Soul Mode by doing ALL of the following in THIS workspace:
 
