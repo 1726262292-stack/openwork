@@ -204,6 +204,8 @@ const compressImageFile = async (file: File): Promise<File> => {
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const normalizeText = (value: string) => value.replace(/\u00a0/g, " ");
+const RECENT_EMIT_TTL_MS = 30_000;
+const MAX_RECENT_EMITS = 400;
 
 const MODEL_VARIANT_OPTIONS = [
   { value: "none", label: "None" },
@@ -593,9 +595,34 @@ export default function Composer(props: ComposerProps) {
     setMentionIndex(0);
   });
 
-  // Track recent emits to distinguish echoes from external updates
-  const recentEmits = new Set<string>();
-  recentEmits.add(props.prompt); // Initialize with current prop
+  // Track recent emits to distinguish echoes from external updates.
+  // Keep a bounded, time-windowed set so stale echoes cannot win races.
+  const recentEmits = new Map<string, number>();
+  const rememberRecentEmit = (value: string) => {
+    const now = Date.now();
+    if (recentEmits.has(value)) {
+      recentEmits.delete(value);
+    }
+    recentEmits.set(value, now);
+
+    for (const [key, timestamp] of recentEmits) {
+      if (now - timestamp <= RECENT_EMIT_TTL_MS) break;
+      recentEmits.delete(key);
+    }
+
+    while (recentEmits.size > MAX_RECENT_EMITS) {
+      const oldest = recentEmits.keys().next();
+      if (oldest.done) break;
+      recentEmits.delete(oldest.value);
+    }
+  };
+
+  const resetRecentEmits = (value: string) => {
+    recentEmits.clear();
+    rememberRecentEmit(value);
+  };
+
+  rememberRecentEmit(props.prompt);
 
   // Sync from props: ignore echoes of what we just sent
   createEffect(() => {
@@ -610,8 +637,7 @@ export default function Composer(props: ComposerProps) {
       // If we've converged (parent matches local), we can clean up the set to save memory,
       // but keeping a few items is cheap and safer for race conditions.
       if (value === current) {
-        recentEmits.clear();
-        recentEmits.add(value);
+        resetRecentEmits(value);
         setDraftText(value);
       }
       return;
@@ -632,7 +658,7 @@ export default function Composer(props: ComposerProps) {
     }
     if (value === current) {
       // Even if it matches current, make sure it's tracked as a valid base state
-      recentEmits.add(value);
+      rememberRecentEmit(value);
       setDraftText(value);
       return;
     }
@@ -641,13 +667,13 @@ export default function Composer(props: ComposerProps) {
     if (value.startsWith("!") && mode() === "prompt") {
       setMode("shell");
       setEditorText(value.slice(1).trimStart());
-      recentEmits.add(value);
+      rememberRecentEmit(value);
       emitDraftChange();
       queueMicrotask(() => focusEditorEnd());
       return;
     }
 
-    recentEmits.add(value); // It's now the new baseline
+    rememberRecentEmit(value); // It's now the new baseline
     setEditorText(value);
     if (!value) {
       setAttachments([]);
@@ -701,16 +727,7 @@ export default function Composer(props: ComposerProps) {
     const serializeMs = Math.round((perfNow() - serializeStartedAt) * 100) / 100;
     setDraftText(text);
 
-    recentEmits.add(text); // Track that we sent this, expect an echo later
-
-    // Limit Set size to prevent memory leak (though unlikely to grow huge)
-    if (recentEmits.size > 20) {
-      const it = recentEmits.values();
-      const first = it.next();
-      if (!first.done) {
-        recentEmits.delete(first.value);
-      }
-    }
+    rememberRecentEmit(text); // Track that we sent this, expect an echo later
 
     suppressPromptSync = true;
     const draftChangeStartedAt = perfNow();
