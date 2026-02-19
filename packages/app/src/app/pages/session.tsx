@@ -1196,6 +1196,25 @@ export default function SessionView(props: SessionViewProps) {
     return null;
   });
 
+  const footerShowsError = createMemo(() => runPhase() === "error" || (!showRunIndicator() && Boolean(props.error)));
+  const footerLabel = createMemo(() => {
+    if (footerShowsError()) {
+      return runPhase() === "error" ? runLabel() : "Error";
+    }
+    return thinkingStatus() || runLabel();
+  });
+  const footerDetail = createMemo(() => {
+    if (footerShowsError()) {
+      if (!props.error) return null;
+      return truncateDetail(formatRunErrorDetail(props.error), 420);
+    }
+    return thinkingDetail()?.detail ?? null;
+  });
+  const footerDetailPrefix = createMemo(() => {
+    if (footerShowsError()) return "Error";
+    return thinkingDetail()?.title ?? "";
+  });
+
   const runLabel = createMemo(() => {
     switch (runPhase()) {
       case "sending":
@@ -2841,28 +2860,28 @@ export default function SessionView(props: SessionViewProps) {
             searchMatchMessageIds={searchMatchMessageIds()}
             activeSearchMessageId={activeSearchHit()?.messageId ?? null}
             footer={
-              showRunIndicator() ? (
+              (showRunIndicator() || props.error) ? (
                 <div class="flex justify-start pl-2">
                   <div class="w-full max-w-[68ch]">
                     <div
-                      class={`flex items-center gap-2 text-xs py-1 ${runPhase() === "error" ? "text-red-11" : "text-gray-9"}`}
+                      class={`flex items-center gap-2 text-xs py-1 ${footerShowsError() ? "text-red-11" : "text-gray-9"}`}
                       role="status"
                       aria-live="polite"
                     >
                       <span
                         class={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                          runPhase() === "error" ? "bg-red-9" : "bg-gray-8 animate-pulse"
+                          footerShowsError() ? "bg-red-9" : "bg-gray-8 animate-pulse"
                         }`}
                       />
-                      <span class="truncate">{thinkingStatus() || runLabel()}</span>
+                      <span class="truncate">{footerLabel()}</span>
                       <Show when={props.developerMode}>
                         <span class="text-[10px] text-gray-8 ml-auto shrink-0">{runElapsedLabel()}</span>
                       </Show>
                     </div>
-                    <Show when={thinkingDetail()?.detail}>
+                    <Show when={footerDetail()}>
                       {(detail) => (
                         <div class="pl-3 pr-2 pt-0.5 text-[11px] leading-relaxed text-gray-10 whitespace-pre-wrap break-words">
-                          {thinkingDetail()?.title === "Reasoning" ? detail() : `${thinkingDetail()?.title}: ${detail()}`}
+                          {footerDetailPrefix() === "Reasoning" ? detail() : `${footerDetailPrefix()}: ${detail()}`}
                         </div>
                       )}
                     </Show>
