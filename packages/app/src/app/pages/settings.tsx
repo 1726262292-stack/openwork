@@ -1145,12 +1145,19 @@ export default function SettingsView(props: SettingsViewProps) {
                   </p>
                 </div>
 
-                <Show when={isTauriRuntime() && isLocalPreference()}>
+                <Show when={isTauriRuntime() && (isLocalPreference() || props.developerMode)}>
                   <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
                     <div>
                       <div class="text-sm font-medium text-gray-12">Engine</div>
                       <div class="text-xs text-gray-10">Choose how OpenCode runs locally.</div>
                     </div>
+
+                    <Show when={!isLocalPreference()}>
+                      <div class="text-[11px] text-amber-11 bg-amber-3/40 border border-amber-7/40 rounded-lg px-3 py-2">
+                        Startup preference is currently remote. Engine settings are saved now and apply the next time you
+                        run locally.
+                      </div>
+                    </Show>
 
                     <div class="space-y-3">
                       <div class="text-xs text-gray-10">Engine source</div>
