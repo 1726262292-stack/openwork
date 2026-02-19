@@ -6,6 +6,7 @@ import { Check, ChevronDown, ChevronRight, Copy, Eye, File, FileEdit, FolderSear
 import type { MessageGroup, MessageWithParts } from "../../types";
 import { groupMessageParts, summarizeStep } from "../../utils";
 import PartView from "../part-view";
+import { perfNow, recordPerfLog } from "../../lib/perf-log";
 
 export type MessageListProps = {
   messages: MessageWithParts[];
@@ -195,6 +196,7 @@ export default function MessageList(props: MessageListProps) {
     });
 
   const messageBlocks = createMemo<MessageBlockItem[]>(() => {
+    const startedAt = perfNow();
     const blocks: MessageBlockItem[] = [];
 
     for (const message of props.messages) {
@@ -234,6 +236,15 @@ export default function MessageList(props: MessageListProps) {
         groups,
         isUser,
         messageId,
+      });
+    }
+
+    const elapsedMs = Math.round((perfNow() - startedAt) * 100) / 100;
+    if (props.developerMode && (elapsedMs >= 8 || props.messages.length >= 120)) {
+      recordPerfLog(true, "session.render", "message-blocks", {
+        messageCount: props.messages.length,
+        blockCount: blocks.length,
+        ms: elapsedMs,
       });
     }
 

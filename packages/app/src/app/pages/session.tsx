@@ -69,6 +69,7 @@ import {
   normalizeDirectoryPath,
   parseTemplateFrontmatter,
 } from "../utils";
+import { finishPerf, perfNow, recordPerfLog } from "../lib/perf-log";
 
 import browserSetupTemplate from "../data/commands/browser-setup.md?raw";
 import soulSetupTemplate from "../data/commands/give-me-a-soul.md?raw";
@@ -134,6 +135,7 @@ export type SessionViewProps = {
   sessionRevertMessageId: string | null;
   undoLastUserMessage: () => Promise<void>;
   redoLastUserMessage: () => Promise<void>;
+  compactSession: () => Promise<void>;
   lastPromptSent: string;
   retryLastPrompt: () => void;
   newTaskDisabled: boolean;
@@ -223,7 +225,10 @@ const SOUL_SETUP_TEMPLATE = (() => {
 })();
 
 const INITIAL_MESSAGE_WINDOW = 140;
+const INITIAL_PART_WINDOW = 700;
 const MESSAGE_WINDOW_LOAD_CHUNK = 120;
+const MAX_SEARCH_MESSAGE_CHARS = 4_000;
+const MAX_SEARCH_HITS = 2_000;
 
 export default function SessionView(props: SessionViewProps) {
   let messagesEndEl: HTMLDivElement | undefined;
@@ -250,8 +255,9 @@ export default function SessionView(props: SessionViewProps) {
   const [scrollOnNextUpdate, setScrollOnNextUpdate] = createSignal(false);
   const [searchOpen, setSearchOpen] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal("");
+  const [searchQueryDebounced, setSearchQueryDebounced] = createSignal("");
   const [activeSearchHitIndex, setActiveSearchHitIndex] = createSignal(0);
-  const [historyActionBusy, setHistoryActionBusy] = createSignal<"undo" | "redo" | null>(null);
+  const [historyActionBusy, setHistoryActionBusy] = createSignal<"undo" | "redo" | "compact" | null>(null);
   const [messageWindowStart, setMessageWindowStart] = createSignal(0);
   const [messageWindowSessionId, setMessageWindowSessionId] = createSignal<string | null>(null);
   const [messageWindowExpanded, setMessageWindowExpanded] = createSignal(false);
@@ -297,39 +303,68 @@ export default function SessionView(props: SessionViewProps) {
 
   const messageTextForSearch = (message: MessageWithParts) => {
     const chunks: string[] = [];
+    let used = 0;
+    const push = (value: string) => {
+      const next = value.trim();
+      if (!next) return;
+      if (used >= MAX_SEARCH_MESSAGE_CHARS) return;
+      const remaining = MAX_SEARCH_MESSAGE_CHARS - used;
+      if (next.length > remaining) {
+        chunks.push(next.slice(0, Math.max(0, remaining)));
+        used = MAX_SEARCH_MESSAGE_CHARS;
+        return;
+      }
+      chunks.push(next);
+      used += next.length;
+    };
+
     for (const part of message.parts) {
       if (part.type === "text") {
         const text = (part as { text?: string }).text ?? "";
-        if (text) chunks.push(text);
+        push(text);
         continue;
       }
       if (part.type === "agent") {
         const name = (part as { name?: string }).name ?? "";
-        if (name) chunks.push(`@${name}`);
+        push(name ? `@${name}` : "");
         continue;
       }
       if (part.type === "file") {
         const file = part as { label?: string; path?: string; filename?: string };
         const label = file.label ?? file.path ?? file.filename ?? "";
-        if (label) chunks.push(label);
+        push(label);
         continue;
       }
       if (part.type === "tool") {
         const state = (part as { state?: { title?: string; output?: string; error?: string } }).state;
-        if (state?.title) chunks.push(state.title);
-        if (state?.output) chunks.push(state.output);
-        if (state?.error) chunks.push(state.error);
+        push(state?.title ?? "");
+        push(state?.output ?? "");
+        push(state?.error ?? "");
       }
     }
     return chunks.join("\n");
   };
 
+  createEffect(() => {
+    const value = searchQuery();
+    if (typeof window === "undefined") {
+      setSearchQueryDebounced(value);
+      return;
+    }
+    const id = window.setTimeout(() => setSearchQueryDebounced(value), 90);
+    onCleanup(() => window.clearTimeout(id));
+  });
+
   const searchHits = createMemo<SearchHit[]>(() => {
-    const query = searchQuery().trim().toLowerCase();
+    if (!searchOpen()) return [];
+    const query = searchQueryDebounced().trim().toLowerCase();
     if (!query) return [];
 
+    const startedAt = perfNow();
     const hits: SearchHit[] = [];
-    for (const message of props.messages) {
+    let capped = false;
+
+    outer: for (const message of props.messages) {
       const messageId = messageIdFromInfo(message);
       if (!messageId) continue;
       const haystack = messageTextForSearch(message).toLowerCase();
@@ -337,9 +372,25 @@ export default function SessionView(props: SessionViewProps) {
       let index = haystack.indexOf(query);
       while (index !== -1) {
         hits.push({ messageId });
+        if (hits.length >= MAX_SEARCH_HITS) {
+          capped = true;
+          break outer;
+        }
         index = haystack.indexOf(query, index + Math.max(1, query.length));
       }
     }
+
+    const elapsedMs = Math.round((perfNow() - startedAt) * 100) / 100;
+    if (props.developerMode && (elapsedMs >= 8 || capped)) {
+      recordPerfLog(true, "session.search", "scan", {
+        queryLength: query.length,
+        messageCount: props.messages.length,
+        hitCount: hits.length,
+        capped,
+        ms: elapsedMs,
+      });
+    }
+
     return hits;
   });
 
@@ -368,6 +419,28 @@ export default function SessionView(props: SessionViewProps) {
   });
 
   const searchActive = createMemo(() => searchOpen() && searchQuery().trim().length > 0);
+  const totalPartCount = createMemo(() => props.messages.reduce((total, message) => total + message.parts.length, 0));
+
+  const computeWindowStart = (messages: MessageWithParts[]) => {
+    const total = messages.length;
+    if (!total) return 0;
+
+    let count = 0;
+    let parts = 0;
+
+    for (let index = total - 1; index >= 0; index -= 1) {
+      const nextCount = count + 1;
+      const nextParts = parts + (messages[index]?.parts.length ?? 0);
+      if (nextCount > INITIAL_MESSAGE_WINDOW || nextParts > INITIAL_PART_WINDOW) {
+        return Math.min(total - 1, index + 1);
+      }
+      count = nextCount;
+      parts = nextParts;
+    }
+
+    return 0;
+  };
+
   const renderedMessages = createMemo(() => {
     if (messageWindowExpanded() || searchActive()) return props.messages;
 
@@ -393,11 +466,49 @@ export default function SessionView(props: SessionViewProps) {
     const hidden = hiddenMessageCount();
     if (hidden <= 0) return;
     const nextStart = Math.max(0, messageWindowStart() - MESSAGE_WINDOW_LOAD_CHUNK);
+    if (props.developerMode) {
+      recordPerfLog(true, "session.window", "reveal", {
+        sessionID: props.selectedSessionId,
+        hiddenBefore: hidden,
+        nextStart,
+      });
+    }
     setMessageWindowStart(nextStart);
     if (nextStart === 0) {
       setMessageWindowExpanded(true);
     }
   };
+
+  let lastWindowPerfSignature = "";
+  createEffect(() => {
+    if (!props.developerMode) {
+      lastWindowPerfSignature = "";
+      return;
+    }
+
+    const signature = [
+      props.selectedSessionId ?? "",
+      props.messages.length,
+      totalPartCount(),
+      renderedMessages().length,
+      hiddenMessageCount(),
+      messageWindowExpanded() ? "1" : "0",
+      searchActive() ? "1" : "0",
+    ].join("|");
+
+    if (signature === lastWindowPerfSignature) return;
+    lastWindowPerfSignature = signature;
+
+    recordPerfLog(true, "session.window", "state", {
+      sessionID: props.selectedSessionId,
+      messageCount: props.messages.length,
+      renderedMessageCount: renderedMessages().length,
+      hiddenMessageCount: hiddenMessageCount(),
+      partCount: totalPartCount(),
+      expanded: messageWindowExpanded(),
+      searchActive: searchActive(),
+    });
+  });
 
   const canUndoLastMessage = createMemo(() => {
     if (!props.selectedSessionId) return false;
@@ -412,10 +523,16 @@ export default function SessionView(props: SessionViewProps) {
     return false;
   });
 
+  const hasUserMessages = createMemo(() =>
+    props.messages.some((message) => (message.info as { role?: string }).role === "user"),
+  );
+
   const canRedoLastMessage = createMemo(() => {
     if (!props.selectedSessionId) return false;
     return Boolean(props.sessionRevertMessageId);
   });
+
+  const canCompactSession = createMemo(() => Boolean(props.selectedSessionId) && hasUserMessages());
 
   const touchedFiles = createMemo(() => {
     const out: string[] = [];
@@ -633,7 +750,7 @@ export default function SessionView(props: SessionViewProps) {
 
   createEffect(
     on(
-      () => [props.selectedSessionId, props.messages.length] as const,
+      () => [props.selectedSessionId, props.messages.length, totalPartCount()] as const,
       ([sessionId, count], previous) => {
         const previousSessionId = previous?.[0] ?? null;
         if (sessionId !== previousSessionId) {
@@ -646,7 +763,7 @@ export default function SessionView(props: SessionViewProps) {
         if (messageWindowExpanded()) return;
         if (count === 0) return;
 
-        const targetStart = count > INITIAL_MESSAGE_WINDOW ? count - INITIAL_MESSAGE_WINDOW : 0;
+        const targetStart = computeWindowStart(props.messages);
         if (messageWindowSessionId() !== sessionId) {
           setMessageWindowStart(targetStart);
           setMessageWindowSessionId(sessionId);
@@ -980,6 +1097,7 @@ export default function SessionView(props: SessionViewProps) {
       () => {
         setSearchOpen(false);
         setSearchQuery("");
+        setSearchQueryDebounced("");
         setActiveSearchHitIndex(0);
       },
     ),
@@ -1068,7 +1186,7 @@ export default function SessionView(props: SessionViewProps) {
       () => [
         props.messages.length,
         props.todos.length,
-        props.messages.reduce((acc, m) => acc + m.parts.length, 0),
+        totalPartCount(),
       ],
       (current, previous) => {
         if (!previous) return;
@@ -1182,6 +1300,7 @@ export default function SessionView(props: SessionViewProps) {
 
   const closeSearch = () => {
     setSearchOpen(false);
+    setSearchQueryDebounced("");
   };
 
   const moveSearchHit = (offset: number) => {
@@ -1226,6 +1345,35 @@ export default function SessionView(props: SessionViewProps) {
     } catch (error) {
       const message = error instanceof Error ? error.message : props.safeStringify(error);
       setToastMessage(message || "Failed to redo");
+    } finally {
+      setHistoryActionBusy(null);
+    }
+  };
+
+  const compactSessionHistory = async () => {
+    if (historyActionBusy()) return;
+    if (!canCompactSession()) {
+      setToastMessage("Nothing to compact yet.");
+      return;
+    }
+
+    const sessionID = props.selectedSessionId;
+    const startedAt = perfNow();
+    setHistoryActionBusy("compact");
+    setToastMessage("Compacting session context...");
+    try {
+      await props.compactSession();
+      setToastMessage("Session compacted.");
+      finishPerf(props.developerMode, "session.compact", "ui-done", startedAt, {
+        sessionID,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : props.safeStringify(error);
+      setToastMessage(message || "Failed to compact session");
+      finishPerf(props.developerMode, "session.compact", "ui-error", startedAt, {
+        sessionID,
+        error: message,
+      });
     } finally {
       setHistoryActionBusy(null);
     }
@@ -2318,6 +2466,18 @@ export default function SessionView(props: SessionViewProps) {
                 <Loader2 size={16} class="animate-spin" />
               </Show>
             </button>
+            <button
+              type="button"
+              class="h-9 w-9 flex items-center justify-center rounded-lg text-dls-secondary hover:text-dls-text hover:bg-dls-hover transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              onClick={compactSessionHistory}
+              disabled={!canCompactSession() || historyActionBusy() !== null}
+              title="Compact session context"
+              aria-label="Compact session context"
+            >
+              <Show when={historyActionBusy() === "compact"} fallback={<Maximize2 size={16} />}>
+                <Loader2 size={16} class="animate-spin" />
+              </Show>
+            </button>
             <div ref={(el) => (sessionMenuRef = el)} class="relative">
               <button
                 type="button"
@@ -2336,9 +2496,20 @@ export default function SessionView(props: SessionViewProps) {
 
               <Show when={sessionMenuOpen() && props.selectedSessionId}>
                 <div
-                  class="absolute right-0 top-[calc(100%+4px)] z-20 w-44 rounded-lg border border-dls-border bg-dls-surface shadow-lg p-1"
+                  class="absolute right-0 top-[calc(100%+4px)] z-20 w-52 rounded-lg border border-dls-border bg-dls-surface shadow-lg p-1"
                   onClick={(event) => event.stopPropagation()}
                 >
+                  <button
+                    type="button"
+                    class="w-full text-left px-2 py-1.5 text-sm rounded-md hover:bg-dls-hover disabled:opacity-60"
+                    onClick={() => {
+                      setSessionMenuOpen(false);
+                      void compactSessionHistory();
+                    }}
+                    disabled={!canCompactSession() || historyActionBusy() !== null}
+                  >
+                    Compact session context
+                  </button>
                   <button
                     type="button"
                     class="w-full text-left px-2 py-1.5 text-sm rounded-md hover:bg-dls-hover"

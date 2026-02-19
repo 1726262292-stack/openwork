@@ -25,6 +25,7 @@ import {
   safeStringify,
 } from "../utils";
 import { unwrap } from "../lib/opencode";
+import { finishPerf, perfNow, recordPerfLog } from "../lib/perf-log";
 
 export type SessionModelState = {
   overrides: Record<string, ModelRef>;
@@ -500,10 +501,17 @@ export function createSessionStore(options: {
       w[key] = (w[key] ?? 0) + 1;
       return w[key];
     })();
-    const mark = (() => {
-      const start = Date.now();
-      return (label: string) => console.log(`[selectSession run ${runId}] ${label} (+${Date.now() - start}ms)`);
-    })();
+    const perfEnabled = options.developerMode();
+    const startedAt = perfNow();
+    const mark = (event: string, payload?: Record<string, unknown>) => {
+      const elapsedMs = Math.round((perfNow() - startedAt) * 100) / 100;
+      recordPerfLog(perfEnabled, "session.select", event, {
+        runId,
+        sessionID,
+        elapsedMs,
+        ...(payload ?? {}),
+      });
+    };
 
     mark("start");
     options.setSelectedSessionId(sessionID);
@@ -513,8 +521,10 @@ export function createSessionStore(options: {
     try {
       await withTimeout(c.global.health(), 3000, "health");
       mark("health ok");
-    } catch {
-      mark("health FAILED");
+    } catch (error) {
+      mark("health FAILED", {
+        error: error instanceof Error ? error.message : safeStringify(error),
+      });
       throw new Error("Server connection lost. Please reload.");
     }
 
@@ -555,8 +565,10 @@ export function createSessionStore(options: {
         return;
       }
       setStore("todos", sessionID, list);
-    } catch {
-      mark("session.todo failed/timeout");
+    } catch (error) {
+      mark("session.todo failed/timeout", {
+        error: error instanceof Error ? error.message : safeStringify(error),
+      });
       setStore("todos", sessionID, []);
     }
 
@@ -568,11 +580,18 @@ export function createSessionStore(options: {
         mark("aborting: selection changed before permissions applied");
         return;
       }
-    } catch {
-      mark("permission.list failed/timeout");
+    } catch (error) {
+      mark("permission.list failed/timeout", {
+        error: error instanceof Error ? error.message : safeStringify(error),
+      });
     }
 
-    mark("selectSession complete");
+    finishPerf(perfEnabled, "session.select", "complete", startedAt, {
+      runId,
+      sessionID,
+      messageCount: msgs.length,
+      todoCount: (store.todos[sessionID] ?? []).length,
+    });
   }
 
   async function respondPermission(requestID: string, reply: "once" | "always" | "reject") {
@@ -930,12 +949,26 @@ export function createSessionStore(options: {
       if (eventsToApply.length === 0) return;
 
       last = Date.now();
+      const startedAt = perfNow();
+      let applied = 0;
       batch(() => {
         for (const event of eventsToApply) {
           if (!event) continue;
+          applied += 1;
           void applyEvent(event);
         }
       });
+
+      const elapsedMs = Math.round((perfNow() - startedAt) * 100) / 100;
+      const dropped = eventsToApply.length - applied;
+      if (sessionDebugEnabled() && (elapsedMs >= 12 || applied >= 40 || dropped >= 20)) {
+        recordPerfLog(true, "session.sse", "flush", {
+          queued: eventsToApply.length,
+          applied,
+          dropped,
+          ms: elapsedMs,
+        });
+      }
     };
 
     const schedule = () => {
@@ -951,6 +984,7 @@ export function createSessionStore(options: {
 
         // Reset reconnect counter on successful connection
         reconnectAttempt = 0;
+        recordPerfLog(sessionDebugEnabled(), "session.sse", "connected");
 
         for await (const raw of sub.stream) {
           if (cancelled) break;
@@ -978,6 +1012,7 @@ export function createSessionStore(options: {
         // Stream ended normally - attempt reconnect unless cancelled
         if (!cancelled) {
           options.setSseConnected(false);
+          recordPerfLog(sessionDebugEnabled(), "session.sse", "stream-ended");
           scheduleReconnect(controller);
         }
       } catch (e) {
@@ -988,6 +1023,9 @@ export function createSessionStore(options: {
 
         // Mark SSE as disconnected and schedule reconnect
         options.setSseConnected(false);
+        recordPerfLog(sessionDebugEnabled(), "session.sse", "stream-error", {
+          error: message,
+        });
         scheduleReconnect(controller);
       }
     };
@@ -999,6 +1037,10 @@ export function createSessionStore(options: {
       // Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s
       reconnectAttempt++;
       const delay = Math.min(1000 * Math.pow(2, reconnectAttempt - 1), 30000);
+      recordPerfLog(sessionDebugEnabled(), "session.sse", "reconnect-scheduled", {
+        attempt: reconnectAttempt,
+        delayMs: delay,
+      });
 
       reconnectTimer = setTimeout(() => {
         if (cancelled) return;
