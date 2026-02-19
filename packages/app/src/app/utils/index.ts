@@ -508,37 +508,19 @@ export function groupMessageParts(parts: Part[], messageId: string): MessageGrou
     textBuffer = "";
   };
 
-  const flushSteps = () => {
-    if (!steps.length) return;
-    groups.push({ kind: "steps", id: `steps-${messageId}-${groups.length}`, parts: steps.slice() });
-    steps.length = 0;
-  };
-
   parts.forEach((part) => {
     if (part.type === "text") {
-      const chunk = (part as { text?: string }).text ?? "";
-      if (!chunk) return;
-
-      const hasVisibleText = chunk.trim().length > 0;
-      if (hasVisibleText) {
-        flushSteps();
-      }
-
-      if (textBuffer || hasVisibleText) {
-        textBuffer += chunk;
-      }
+      textBuffer += (part as { text?: string }).text ?? "";
       return;
     }
 
     if (part.type === "agent") {
-      flushSteps();
       const name = (part as { name?: string }).name ?? "";
       textBuffer += name ? `@${name}` : "@agent";
       return;
     }
 
     if (part.type === "file") {
-      flushSteps();
       flushText();
       groups.push({ kind: "text", part });
       return;
@@ -549,7 +531,10 @@ export function groupMessageParts(parts: Part[], messageId: string): MessageGrou
   });
 
   flushText();
-  flushSteps();
+
+  if (steps.length) {
+    groups.push({ kind: "steps", id: `steps-${messageId}`, parts: steps });
+  }
 
   return groups;
 }
@@ -619,11 +604,6 @@ function buildToolTitle(state: any, toolName: string): string {
     return normalizePathToken(value);
   };
 
-  const stateTitle = normalizeStepText(state?.title);
-  if (stateTitle) {
-    return truncateStepText(isPathLike(stateTitle) ? normalizePathToken(stateTitle) : stateTitle, 56);
-  }
-
   if (lower === "read") {
     const target = file("filePath", "path", "file");
     return target ? `Read ${target}` : "Read file";
@@ -676,6 +656,11 @@ function buildToolTitle(state: any, toolName: string): string {
   if (lower === "skill") {
     const name = pick("name");
     return name ? `Load skill ${name}` : "Load skill";
+  }
+
+  const stateTitle = normalizeStepText(state?.title);
+  if (stateTitle) {
+    return truncateStepText(isPathLike(stateTitle) ? normalizePathToken(stateTitle) : stateTitle, 56);
   }
 
   const fallback = normalizeStepText(toolName).replace(/[_-]+/g, " ");
