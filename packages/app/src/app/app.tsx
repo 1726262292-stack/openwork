@@ -2089,12 +2089,22 @@ export default function App() {
 
   createEffect(() => {
     const allSessions = sessions(); // reactive dependency on session store
-    const wsId = workspaceStore.activeWorkspaceId();
+    const wsId = workspaceStore.activeWorkspaceId().trim();
+    if (!wsId) return;
     const status = sidebarSessionStatusByWorkspaceId()[wsId];
 
     // Only sync if sidebar is already in 'ready' state (not during initial load)
     if (status === "ready") {
-      const sorted = sortSessionsByActivity(allSessions);
+      const activeWorkspace = workspaceStore.workspaces().find((workspace) => workspace.id === wsId) ?? null;
+      const activeWorkspaceRoot = normalizeDirectoryPath(
+        activeWorkspace?.workspaceType === "local"
+          ? activeWorkspace.path
+          : activeWorkspace?.directory ?? activeWorkspace?.path,
+      );
+      const scopedSessions = activeWorkspaceRoot
+        ? allSessions.filter((session) => normalizeDirectoryPath(session.directory) === activeWorkspaceRoot)
+        : allSessions;
+      const sorted = sortSessionsByActivity(scopedSessions);
       setSidebarSessionsByWorkspaceId((prev) => ({
         ...prev,
         [wsId]: sorted.map((s) => ({
