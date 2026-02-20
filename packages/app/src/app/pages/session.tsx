@@ -1984,25 +1984,26 @@ export default function SessionView(props: SessionViewProps) {
 
   const handleSoulQuickstart = async () => {
     const name = SOUL_SETUP_TEMPLATE.name;
+    const slashCommand = `/${name}`;
     try {
       const commands = await props.listCommands();
       const hasCommand = commands.some((cmd) => cmd.name === name);
       if (hasCommand) {
         handleSendPrompt({
           mode: "prompt",
-          text: `/${name}`,
-          resolvedText: `/${name}`,
-          parts: [{ type: "text", text: `/${name}` }],
+          text: slashCommand,
+          resolvedText: slashCommand,
+          parts: [{ type: "text", text: slashCommand }],
           attachments: [],
           command: { name, arguments: "" },
         });
         return;
       }
     } catch {
-      // Fall back to prompt-based setup below.
+      // Fall back to slash-command setup below.
     }
 
-    const text = SOUL_SETUP_TEMPLATE.body || "Give me a soul.";
+    const text = slashCommand;
     handleSendPrompt({
       mode: "prompt",
       text,

@@ -26,8 +26,8 @@ const cadenceOptions = [
 
 const SOUL_SETUP_TEMPLATE = (() => {
   const parsed = parseTemplateFrontmatter(soulSetupTemplate);
-  const body = (parsed?.body ?? soulSetupTemplate).trim();
-  return { body };
+  const name = parsed?.data?.name?.trim() || "give-me-a-soul";
+  return { name };
 })();
 
 const relativeTime = (value?: string | null) => {
@@ -231,7 +231,7 @@ export default function SoulView(props: SoulViewProps) {
                 : "bg-dls-text text-dls-surface hover:bg-dls-text/90"
             }`}
             disabled={props.newTaskDisabled}
-            onClick={() => runPrompt(SOUL_SETUP_TEMPLATE.body || "Give me a soul.")}
+            onClick={() => runPrompt(`/${SOUL_SETUP_TEMPLATE.name}`)}
           >
             <Sparkles size={14} />
             Enable soul mode
