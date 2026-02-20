@@ -225,8 +225,6 @@ const SOUL_SETUP_TEMPLATE = (() => {
   return { name, description, body };
 })();
 
-const INITIAL_MESSAGE_WINDOW = 140;
-const INITIAL_PART_WINDOW = 700;
 const MESSAGE_WINDOW_LOAD_CHUNK = 120;
 const MAX_SEARCH_MESSAGE_CHARS = 4_000;
 const MAX_SEARCH_HITS = 2_000;
@@ -262,9 +260,7 @@ export default function SessionView(props: SessionViewProps) {
   const [agentPickerReady, setAgentPickerReady] = createSignal(false);
   const [agentPickerError, setAgentPickerError] = createSignal<string | null>(null);
   const [agentOptions, setAgentOptions] = createSignal<Agent[]>([]);
-  const [autoScrollEnabled, setAutoScrollEnabled] = createSignal(true);
   const [nearBottom, setNearBottom] = createSignal(true);
-  const [scrollOnNextUpdate, setScrollOnNextUpdate] = createSignal(false);
   const [searchOpen, setSearchOpen] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal("");
   const [searchQueryDebounced, setSearchQueryDebounced] = createSignal("");
@@ -432,26 +428,6 @@ export default function SessionView(props: SessionViewProps) {
 
   const searchActive = createMemo(() => searchOpen() && searchQuery().trim().length > 0);
   const totalPartCount = createMemo(() => props.messages.reduce((total, message) => total + message.parts.length, 0));
-
-  const computeWindowStart = (messages: MessageWithParts[]) => {
-    const total = messages.length;
-    if (!total) return 0;
-
-    let count = 0;
-    let parts = 0;
-
-    for (let index = total - 1; index >= 0; index -= 1) {
-      const nextCount = count + 1;
-      const nextParts = parts + (messages[index]?.parts.length ?? 0);
-      if (nextCount > INITIAL_MESSAGE_WINDOW || nextParts > INITIAL_PART_WINDOW) {
-        return Math.min(total - 1, index + 1);
-      }
-      count = nextCount;
-      parts = nextParts;
-    }
-
-    return 0;
-  };
 
   const renderedMessages = createMemo(() => {
     if (messageWindowExpanded() || searchActive()) return props.messages;
@@ -878,34 +854,12 @@ export default function SessionView(props: SessionViewProps) {
 
   createEffect(
     on(
-      () => [props.selectedSessionId, props.messages.length, totalPartCount()] as const,
-      ([sessionId, count], previous) => {
-        const previousSessionId = previous?.[0] ?? null;
+      () => props.selectedSessionId,
+      (sessionId, previousSessionId) => {
         if (sessionId !== previousSessionId) {
-          setMessageWindowSessionId(null);
+          setMessageWindowSessionId(sessionId ?? null);
           setMessageWindowExpanded(false);
           setMessageWindowStart(0);
-        }
-
-        if (!sessionId) return;
-        if (messageWindowExpanded()) return;
-        if (count === 0) return;
-
-        const targetStart = computeWindowStart(props.messages);
-        if (messageWindowSessionId() !== sessionId) {
-          setMessageWindowStart(targetStart);
-          setMessageWindowSessionId(sessionId);
-          return;
-        }
-
-        const currentStart = messageWindowStart();
-        if (currentStart <= 0 && targetStart > 0) {
-          setMessageWindowStart(targetStart);
-          return;
-        }
-
-        if (autoScrollEnabled() && targetStart > currentStart) {
-          setMessageWindowStart(targetStart);
         }
       },
       { defer: true },
@@ -1231,22 +1185,10 @@ export default function SessionView(props: SessionViewProps) {
     scheduleScrollToLatest(behavior);
   };
 
-  const setFollowLatest = (enabled: boolean, behavior: ScrollBehavior = "smooth") => {
-    setAutoScrollEnabled(enabled);
-    if (!enabled) return;
-    jumpToLatest(behavior);
-  };
-
   onMount(() => {
     const container = chatContainerEl;
     if (!container) return;
-    const update = () => {
-      const atBottom = isNearBottom(container);
-      setNearBottom(atBottom);
-      if (!atBottom && autoScrollEnabled()) {
-        setAutoScrollEnabled(false);
-      }
-    };
+    const update = () => setNearBottom(isNearBottom(container));
     update();
     container.addEventListener("scroll", update, { passive: true });
     onCleanup(() => container.removeEventListener("scroll", update));
@@ -1260,10 +1202,12 @@ export default function SessionView(props: SessionViewProps) {
         setSearchQuery("");
         setSearchQueryDebounced("");
         setActiveSearchHitIndex(0);
-        setAutoScrollEnabled(true);
-        setNearBottom(true);
-        setScrollOnNextUpdate(true);
-        queueMicrotask(() => scheduleScrollToLatest("auto"));
+        queueMicrotask(() => {
+          const container = chatContainerEl;
+          if (!container) return;
+          container.scrollTop = 0;
+          setNearBottom(isNearBottom(container));
+        });
       },
     ),
   );
@@ -1361,13 +1305,6 @@ export default function SessionView(props: SessionViewProps) {
           if (showRunIndicator()) {
             setRunLastProgressAt(Date.now());
           }
-          const shouldScroll = scrollOnNextUpdate() || autoScrollEnabled();
-          if (shouldScroll) {
-            scheduleScrollToLatest(scrollOnNextUpdate() ? "smooth" : "auto");
-          }
-          if (scrollOnNextUpdate()) {
-            setScrollOnNextUpdate(false);
-          }
         }
       },
     ),
@@ -1443,7 +1380,6 @@ export default function SessionView(props: SessionViewProps) {
       renderedMessageCount: renderedMessages().length,
       hiddenMessageCount: hiddenMessageCount(),
       partCount: totalPartCount(),
-      autoScroll: autoScrollEnabled(),
     });
   });
 
@@ -1964,8 +1900,6 @@ export default function SessionView(props: SessionViewProps) {
   });
 
   const handleSendPrompt = (draft: ComposerDraft) => {
-    setScrollOnNextUpdate(true);
-    scrollToLatest("auto");
     startRun();
     props.sendPromptAsync(draft).catch(() => undefined);
   };
@@ -2942,29 +2876,16 @@ export default function SessionView(props: SessionViewProps) {
            </div>
            </div>
 
-            <Show when={props.messages.length > 0}>
+            <Show when={props.messages.length > 0 && !nearBottom()}>
               <div class="absolute bottom-4 left-0 right-0 z-20 flex justify-center pointer-events-none">
                 <div class="pointer-events-auto flex items-center gap-2 rounded-full border border-gray-6 bg-gray-1/90 p-1 shadow-lg shadow-gray-12/5 backdrop-blur-md">
                   <button
                     type="button"
-                    class={`rounded-full px-3 py-1.5 text-xs transition-colors ${
-                      autoScrollEnabled()
-                        ? "bg-dls-active text-dls-text"
-                        : "text-gray-11 hover:bg-gray-2"
-                    }`}
-                    onClick={() => setFollowLatest(!autoScrollEnabled(), "smooth")}
+                    class="rounded-full px-3 py-1.5 text-xs text-gray-11 hover:bg-gray-2 transition-colors"
+                    onClick={() => jumpToLatest("smooth")}
                   >
-                    {autoScrollEnabled() ? "Following latest" : "Follow latest"}
+                    Jump to latest
                   </button>
-                  <Show when={!nearBottom() || !autoScrollEnabled()}>
-                    <button
-                      type="button"
-                      class="rounded-full px-3 py-1.5 text-xs text-gray-11 hover:bg-gray-2 transition-colors"
-                      onClick={() => jumpToLatest("smooth")}
-                    >
-                      Jump to latest
-                    </button>
-                  </Show>
                 </div>
               </div>
             </Show>
