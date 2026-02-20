@@ -262,7 +262,8 @@ export default function SessionView(props: SessionViewProps) {
   const [agentPickerReady, setAgentPickerReady] = createSignal(false);
   const [agentPickerError, setAgentPickerError] = createSignal<string | null>(null);
   const [agentOptions, setAgentOptions] = createSignal<Agent[]>([]);
-  const [autoScrollEnabled, setAutoScrollEnabled] = createSignal(false);
+  const [autoScrollEnabled, setAutoScrollEnabled] = createSignal(true);
+  const [nearBottom, setNearBottom] = createSignal(true);
   const [scrollOnNextUpdate, setScrollOnNextUpdate] = createSignal(false);
   const [searchOpen, setSearchOpen] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal("");
@@ -1226,10 +1227,26 @@ export default function SessionView(props: SessionViewProps) {
     setTimeout(() => setIsInitialLoad(false), 2000);
   });
 
+  const jumpToLatest = (behavior: ScrollBehavior = "smooth") => {
+    scheduleScrollToLatest(behavior);
+  };
+
+  const setFollowLatest = (enabled: boolean, behavior: ScrollBehavior = "smooth") => {
+    setAutoScrollEnabled(enabled);
+    if (!enabled) return;
+    jumpToLatest(behavior);
+  };
+
   onMount(() => {
     const container = chatContainerEl;
     if (!container) return;
-    const update = () => setAutoScrollEnabled(isNearBottom(container));
+    const update = () => {
+      const atBottom = isNearBottom(container);
+      setNearBottom(atBottom);
+      if (!atBottom && autoScrollEnabled()) {
+        setAutoScrollEnabled(false);
+      }
+    };
     update();
     container.addEventListener("scroll", update, { passive: true });
     onCleanup(() => container.removeEventListener("scroll", update));
@@ -1244,6 +1261,7 @@ export default function SessionView(props: SessionViewProps) {
         setSearchQueryDebounced("");
         setActiveSearchHitIndex(0);
         setAutoScrollEnabled(true);
+        setNearBottom(true);
         setScrollOnNextUpdate(true);
         queueMicrotask(() => scheduleScrollToLatest("auto"));
       },
@@ -2056,7 +2074,9 @@ export default function SessionView(props: SessionViewProps) {
     }
   };
 
-  const handleDraftChange = (_draft: ComposerDraft) => {};
+  const handleDraftChange = (draft: ComposerDraft) => {
+    props.setPrompt(draft.text);
+  };
 
   const openSessionFromList = (workspaceId: string, sessionId: string) => {
     if (!sessionId) return;
@@ -2922,17 +2942,32 @@ export default function SessionView(props: SessionViewProps) {
            </div>
            </div>
 
-           <Show when={!autoScrollEnabled() && props.messages.length > 0}>
-             <div class="absolute bottom-4 left-0 right-0 z-20 flex justify-center pointer-events-none">
-               <button
-                 type="button"
-                 class="pointer-events-auto rounded-full border border-gray-6 bg-gray-1/90 px-4 py-2 text-xs text-gray-11 shadow-lg shadow-gray-12/5 backdrop-blur-md hover:bg-gray-2 transition-colors"
-                 onClick={() => scrollToLatest("smooth")}
-               >
-                 Jump to latest
-               </button>
-             </div>
-           </Show>
+            <Show when={props.messages.length > 0}>
+              <div class="absolute bottom-4 left-0 right-0 z-20 flex justify-center pointer-events-none">
+                <div class="pointer-events-auto flex items-center gap-2 rounded-full border border-gray-6 bg-gray-1/90 p-1 shadow-lg shadow-gray-12/5 backdrop-blur-md">
+                  <button
+                    type="button"
+                    class={`rounded-full px-3 py-1.5 text-xs transition-colors ${
+                      autoScrollEnabled()
+                        ? "bg-dls-active text-dls-text"
+                        : "text-gray-11 hover:bg-gray-2"
+                    }`}
+                    onClick={() => setFollowLatest(!autoScrollEnabled(), "smooth")}
+                  >
+                    {autoScrollEnabled() ? "Following latest" : "Follow latest"}
+                  </button>
+                  <Show when={!nearBottom() || !autoScrollEnabled()}>
+                    <button
+                      type="button"
+                      class="rounded-full px-3 py-1.5 text-xs text-gray-11 hover:bg-gray-2 transition-colors"
+                      onClick={() => jumpToLatest("smooth")}
+                    >
+                      Jump to latest
+                    </button>
+                  </Show>
+                </div>
+              </div>
+            </Show>
          </div>
 
           <Show when={markdownEditorOpen()}>
