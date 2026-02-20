@@ -622,8 +622,6 @@ export default function Composer(props: ComposerProps) {
     rememberRecentEmit(value);
   };
 
-  rememberRecentEmit(props.prompt);
-
   // Sync from props: ignore echoes of what we just sent
   createEffect(() => {
     if (!editorRef) return;
