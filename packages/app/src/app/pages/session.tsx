@@ -245,6 +245,7 @@ export default function SessionView(props: SessionViewProps) {
   let streamRenderBatchTimer: number | undefined;
   let streamRenderBatchQueuedAt = 0;
   let streamRenderBatchReschedules = 0;
+  const topInitializedSessionIds = new Set<string>();
 
   const [toastMessage, setToastMessage] = createSignal<string | null>(null);
   const [providerAuthActionBusy, setProviderAuthActionBusy] = createSignal(false);
@@ -1197,11 +1198,25 @@ export default function SessionView(props: SessionViewProps) {
   createEffect(
     on(
       () => props.selectedSessionId,
-      () => {
+      (sessionId) => {
         setSearchOpen(false);
         setSearchQuery("");
         setSearchQueryDebounced("");
         setActiveSearchHitIndex(0);
+
+        if (!sessionId) return;
+        const firstVisit = !topInitializedSessionIds.has(sessionId);
+        topInitializedSessionIds.add(sessionId);
+
+        if (!firstVisit) {
+          queueMicrotask(() => {
+            const container = chatContainerEl;
+            if (!container) return;
+            setNearBottom(isNearBottom(container));
+          });
+          return;
+        }
+
         queueMicrotask(() => {
           const container = chatContainerEl;
           if (!container) return;
