@@ -120,8 +120,43 @@ async function fetchJson(url) {
   return response.json();
 }
 
-async function fetchText(url) {
-  const response = await fetch(url, { headers: authHeaders() });
+async function fetchReleaseByTag(repo, tag) {
+  const encodedTag = encodeURIComponent(tag);
+  const releaseByTagUrl = `https://api.github.com/repos/${repo}/releases/tags/${encodedTag}`;
+
+  const byTagResponse = await fetch(releaseByTagUrl, { headers: authHeaders() });
+  if (byTagResponse.ok) {
+    return byTagResponse.json();
+  }
+
+  if (byTagResponse.status !== 404) {
+    throw new Error(`GitHub API request failed (${byTagResponse.status}): ${releaseByTagUrl}`);
+  }
+
+  // Draft releases are not returned by /releases/tags/{tag}; fall back to paginated releases list.
+  for (let page = 1; page <= 10; page += 1) {
+    const listUrl = `https://api.github.com/repos/${repo}/releases?per_page=100&page=${page}`;
+    const releases = await fetchJson(listUrl);
+    if (!Array.isArray(releases) || releases.length === 0) break;
+
+    const match = releases.find((release) => {
+      const candidate = String(release?.tag_name || "");
+      return candidate === tag;
+    });
+    if (match) return match;
+  }
+
+  throw new Error(`Release ${repo}@${tag} not found (including drafts).`);
+}
+
+function releaseAssetUrl(repo, tag, assetName) {
+  return `https://github.com/${repo}/releases/download/${encodeURIComponent(tag)}/${assetName}`;
+}
+
+async function fetchText(url, accept = "text/plain") {
+  const headers = authHeaders();
+  headers.Accept = accept;
+  const response = await fetch(url, { headers });
   if (!response.ok) {
     throw new Error(`Failed to download signature (${response.status}): ${url}`);
   }
@@ -138,8 +173,7 @@ function sortObjectEntries(input) {
 
 async function main() {
   const { tag, repo, output } = parseArgs(process.argv);
-  const releaseUrl = `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`;
-  const release = await fetchJson(releaseUrl);
+  const release = await fetchReleaseByTag(repo, tag);
 
   const assets = Array.isArray(release.assets) ? release.assets : [];
   const assetsByName = new Map();
@@ -156,18 +190,22 @@ async function main() {
 
     const targetName = asset.name.slice(0, -4);
     const targetAsset = assetsByName.get(targetName);
-    if (!targetAsset || typeof targetAsset.browser_download_url !== "string") continue;
+    if (!targetAsset) continue;
 
     const keys = updaterPlatformKeys(targetName);
     if (!keys.length) continue;
 
-    const signature = (await fetchText(asset.browser_download_url)).trim();
+    if (typeof asset.url !== "string") continue;
+
+    const signature = (await fetchText(asset.url, "application/octet-stream")).trim();
     if (!signature) continue;
+
+    const url = releaseAssetUrl(repo, tag, targetName);
 
     for (const key of keys) {
       platforms[key] = {
         signature,
-        url: targetAsset.browser_download_url,
+        url,
       };
     }
   }

@@ -889,7 +889,12 @@ jobs:
 
   aur-publish:
     name: Publish AUR
-    needs: [resolve-release, publish-tauri]
+    needs: [resolve-release, publish-tauri, publish-release]
+    if: |
+      always() &&
+      needs.resolve-release.result == 'success' &&
+      (needs.publish-tauri.result == 'success' || needs.publish-tauri.result == 'skipped') &&
+      (needs.publish-release.result == 'success' || needs.publish-release.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -944,7 +949,6 @@ jobs:
       - publish-updater-json
       - release-orchestrator-sidecars
       - publish-npm
-      - aur-publish
     if: |
       always() &&
       needs.resolve-release.outputs.draft == 'true' &&
@@ -953,8 +957,7 @@ jobs:
       (needs.publish-tauri.result == 'success' || needs.publish-tauri.result == 'skipped') &&
       (needs.publish-updater-json.result == 'success' || needs.publish-updater-json.result == 'skipped') &&
       (needs.release-orchestrator-sidecars.result == 'success' || needs.release-orchestrator-sidecars.result == 'skipped') &&
-      (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') &&
-      (needs.aur-publish.result == 'success' || needs.aur-publish.result == 'skipped')
+      (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped')
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
