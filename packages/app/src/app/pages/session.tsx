@@ -722,6 +722,17 @@ export default function SessionView(props: SessionViewProps) {
       return "";
     }
 
+    if (root) {
+      const rootSegments = root.split("/").filter(Boolean);
+      const workspaceFolderName = rootSegments[rootSegments.length - 1]?.toLowerCase();
+      if (workspaceFolderName) {
+        const workspaceMarker = `workspaces/${workspaceFolderName}/`;
+        const markerIndex = fileKey.indexOf(workspaceMarker);
+        if (markerIndex >= 0) return normalized.slice(markerIndex + workspaceMarker.length);
+        if (fileKey.endsWith(`workspaces/${workspaceFolderName}`)) return "";
+      }
+    }
+
     let relative = normalized.replace(/^\.\/+/, "");
     if (!relative) return "";
 
@@ -739,15 +750,28 @@ export default function SessionView(props: SessionViewProps) {
     if (/^\/+workspace\//i.test(relative)) {
       relative = relative.replace(/^\/+workspace\//i, "");
     }
+
     if (relative.startsWith("/") || relative.startsWith("~") || /^[a-zA-Z]:\//.test(relative)) return "";
     if (relative.split("/").some((part) => part === "." || part === "..")) return "";
+
+    if (/com\.[^/]+\.(openwork|opencode)/i.test(relative)) return "";
+
     return relative;
   };
 
   const openMarkdownEditor = (file: string) => {
+    if (!props.openworkServerClient) {
+      setToastMessage("Cannot open file: not connected to OpenWork server.");
+      return;
+    }
+    if (!props.openworkServerWorkspaceId) {
+      setToastMessage("Cannot open file: no workspace selected.");
+      return;
+    }
+
     const relative = toWorkspaceRelativeForApi(file);
     if (!relative) {
-      setToastMessage("Only worker-relative files can be opened here.");
+      setToastMessage(`Cannot open file: path "${file}" is not within the workspace.`);
       return;
     }
     if (!/\.(md|mdx|markdown)$/i.test(relative)) {
