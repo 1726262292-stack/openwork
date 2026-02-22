@@ -7,7 +7,7 @@ const authOrigin = (process.env.DEN_AUTH_ORIGIN ?? DEFAULT_AUTH_ORIGIN).replace(
 
 export const dynamic = "force-dynamic";
 
-function buildTargetUrl(request: NextRequest, segments: string[]): string {
+function getTargetPath(request: NextRequest, segments: string[]): string {
   const incoming = new URL(request.url);
   let targetPath = segments.join("/");
 
@@ -20,14 +20,45 @@ function buildTargetUrl(request: NextRequest, segments: string[]): string {
     }
   }
 
-  const upstream = new URL(`${apiBase}/${targetPath}`);
+  return targetPath;
+}
+
+function buildTargetUrl(base: string, request: NextRequest, targetPath: string): string {
+  const incoming = new URL(request.url);
+  const upstream = new URL(`${base}/${targetPath}`);
   upstream.search = incoming.search;
   return upstream.toString();
 }
 
+function isAuthRequest(targetPath: string): boolean {
+  return targetPath === "api/auth" || targetPath.startsWith("api/auth/");
+}
+
+function shouldFallbackToAuthOrigin(response: Response, body: ArrayBuffer): boolean {
+  if (response.status === 502 || response.status === 503 || response.status === 504) {
+    return true;
+  }
+
+  if (response.status < 500) {
+    return false;
+  }
+
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (contentType.includes("text/html")) {
+    return true;
+  }
+
+  if (body.byteLength === 0) {
+    return false;
+  }
+
+  const preview = new TextDecoder().decode(body.slice(0, 256)).trim().toLowerCase();
+  return preview.startsWith("<!doctype") || preview.startsWith("<html") || preview.includes("<body");
+}
+
 function buildHeaders(request: NextRequest, contentType: string | null): Headers {
   const headers = new Headers();
-  const copyHeaders = ["accept", "authorization", "cookie", "user-agent", "x-requested-with"];
+  const copyHeaders = ["accept", "authorization", "cookie", "user-agent", "x-requested-with", "origin"];
 
   for (const key of copyHeaders) {
     const value = request.headers.get(key);
@@ -44,30 +75,53 @@ function buildHeaders(request: NextRequest, contentType: string | null): Headers
     headers.set("accept", "application/json");
   }
 
-  headers.set("origin", authOrigin);
+  if (!headers.has("origin")) {
+    headers.set("origin", authOrigin);
+  }
 
   return headers;
 }
 
-async function proxy(request: NextRequest, segments: string[] = []) {
-  const targetUrl = buildTargetUrl(request, segments);
-  const contentType = request.headers.get("content-type");
-
+async function fetchUpstream(
+  request: NextRequest,
+  targetUrl: string,
+  contentType: string | null,
+  body: Uint8Array | null,
+): Promise<{ response: Response; body: ArrayBuffer }> {
   const init: RequestInit = {
     method: request.method,
     headers: buildHeaders(request, contentType),
-    redirect: "manual"
+    redirect: "manual",
   };
 
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    init.body = await request.arrayBuffer();
+  if (body && request.method !== "GET" && request.method !== "HEAD") {
+    init.body = body;
   }
 
-  const upstream = await fetch(targetUrl, init);
-  const body = await upstream.arrayBuffer();
+  const response = await fetch(targetUrl, init);
+  const responseBody = await response.arrayBuffer();
+  return { response, body: responseBody };
+}
+
+async function proxy(request: NextRequest, segments: string[] = []) {
+  const targetPath = getTargetPath(request, segments);
+  const primaryTargetUrl = buildTargetUrl(apiBase, request, targetPath);
+  const contentType = request.headers.get("content-type");
+  const requestBody = request.method !== "GET" && request.method !== "HEAD" ? new Uint8Array(await request.arrayBuffer()) : null;
+
+  let { response: upstream, body } = await fetchUpstream(request, primaryTargetUrl, contentType, requestBody);
+
+  if (isAuthRequest(targetPath) && apiBase !== authOrigin && shouldFallbackToAuthOrigin(upstream, body)) {
+    const authTargetUrl = buildTargetUrl(authOrigin, request, targetPath);
+    try {
+      const fallback = await fetchUpstream(request, authTargetUrl, contentType, requestBody);
+      upstream = fallback.response;
+      body = fallback.body;
+    } catch {}
+  }
 
   const responseHeaders = new Headers();
-  const passThroughHeaders = ["content-type", "set-cookie", "location"];
+  const passThroughHeaders = ["content-type", "set-cookie", "location", "cache-control"];
 
   for (const key of passThroughHeaders) {
     const value = upstream.headers.get(key);
