@@ -519,6 +519,7 @@ export function CloudControlPanel() {
   const [events, setEvents] = useState<LaunchEvent[]>([]);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [tokenFetchedForWorkerId, setTokenFetchedForWorkerId] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const selectedWorker = workers.find((item) => item.workerId === workerLookupId) ?? null;
 
@@ -1365,26 +1366,34 @@ export function CloudControlPanel() {
                 >
                   Refresh list
                 </button>
-                <button
-                  type="button"
-                  className="ow-btn-secondary"
-                  onClick={() => void handleCheckStatus()}
-                  disabled={actionBusy !== null || !selectedWorker}
-                >
-                  {actionBusy === "status" ? "Checking..." : "Check status"}
-                </button>
-                <button
-                  type="button"
-                  className="ow-btn-secondary"
-                  onClick={handleGenerateKey}
-                  disabled={actionBusy !== null || !selectedWorker}
-                >
-                  {actionBusy === "token" ? "Fetching..." : "Get access token"}
+                <button type="button" className="ow-link" onClick={() => setShowAdvanced((current) => !current)}>
+                  {showAdvanced ? "Hide advanced" : "Show advanced"}
                 </button>
               </div>
+
+              {showAdvanced ? (
+                <div className="ow-inline-actions">
+                  <button
+                    type="button"
+                    className="ow-btn-secondary"
+                    onClick={() => void handleCheckStatus()}
+                    disabled={actionBusy !== null || !selectedWorker}
+                  >
+                    {actionBusy === "status" ? "Checking..." : "Check status"}
+                  </button>
+                  <button
+                    type="button"
+                    className="ow-btn-secondary"
+                    onClick={handleGenerateKey}
+                    disabled={actionBusy !== null || !selectedWorker}
+                  >
+                    {actionBusy === "token" ? "Fetching..." : "Get access token"}
+                  </button>
+                </div>
+              ) : null}
             </div>
 
-            {events.length > 0 ? (
+            {showAdvanced && events.length > 0 ? (
               <div className="ow-log-box">
                 <p className="ow-section-title">Launch log</p>
                 <ul className="ow-log-list">
@@ -1429,42 +1438,7 @@ export function CloudControlPanel() {
               onCopy={() => void copyToClipboard("access-token", worker?.clientToken ?? null)}
             />
 
-            <CredentialRow
-              label="Worker host URL"
-              value={worker?.instanceUrl ?? null}
-              placeholder="Host URL"
-              canCopy={Boolean(worker?.instanceUrl)}
-              copied={copiedField === "worker-host-url"}
-              onCopy={() => void copyToClipboard("worker-host-url", worker?.instanceUrl ?? null)}
-            />
-
-            <CredentialRow
-              label="Worker ID"
-              value={(worker?.workerId ?? workerLookupId) || null}
-              placeholder="Worker ID"
-              canCopy={Boolean(worker?.workerId || workerLookupId)}
-              copied={copiedField === "worker-id"}
-              onCopy={() => void copyToClipboard("worker-id", (worker?.workerId ?? workerLookupId) || null)}
-            />
-
-            {authToken ? (
-              <CredentialRow
-                label="Session API Key"
-                value={authToken}
-                placeholder="Session API key"
-                canCopy={true}
-                copied={copiedField === "session-key"}
-                onCopy={() => void copyToClipboard("session-key", authToken)}
-              />
-            ) : null}
-
             <div className="ow-inline-actions">
-              <button type="button" className="ow-btn-secondary" onClick={() => void handleCheckStatus()} disabled={actionBusy !== null}>
-                {actionBusy === "status" ? "Checking..." : "Check status"}
-              </button>
-              <button type="button" className="ow-btn-secondary" onClick={handleGenerateKey} disabled={actionBusy !== null}>
-                {actionBusy === "token" ? "Fetching..." : "Get access token"}
-              </button>
               <button
                 type="button"
                 className="ow-btn-secondary"
@@ -1478,39 +1452,83 @@ export function CloudControlPanel() {
               >
                 Launch another
               </button>
+              <button type="button" className="ow-link" onClick={() => setShowAdvanced((current) => !current)}>
+                {showAdvanced ? "Hide advanced" : "Show advanced"}
+              </button>
             </div>
 
             <div className="ow-note-box">
-              <p>In OpenWork desktop:</p>
-              <ol className="ow-connect-steps">
-                <li>Click <span className="ow-mono">+ Add a worker</span>.</li>
-                <li>Select <span className="ow-mono">Connect remote</span>.</li>
-                <li>Paste <span className="ow-mono">OpenWork worker URL</span> and <span className="ow-mono">Access token</span>, then add worker.</li>
-              </ol>
-              <figure className="ow-connect-shot">
-                <img src="/connect-remote-menu.png" alt="OpenWork Add a worker menu with Connect remote option" />
-              </figure>
+              <p>OpenWork: Add a worker &gt; Connect remote &gt; paste OpenWork worker URL + Access token.</p>
+              <details className="ow-howto">
+                <summary>Show how in OpenWork</summary>
+                <figure className="ow-connect-shot">
+                  <img src="/connect-remote-menu.png" alt="OpenWork Add a worker menu with Connect remote option" />
+                </figure>
+              </details>
+              {!openworkConnectUrl ? <p className="ow-caption">Waiting for worker URL. Keep this tab open.</p> : null}
               {!hasWorkspaceScopedUrl && openworkConnectUrl ? (
-                <p className="ow-caption">Tip: URL should include /w/ws_... . Click Check status to resolve the mounted workspace URL.</p>
+                <p className="ow-caption">Connection URL is still preparing. It updates automatically when ready.</p>
               ) : null}
               {launchError ? <p className="ow-error-text">{launchError}</p> : null}
             </div>
 
-            {events.length > 0 ? (
-              <div className="ow-log-box">
-                <p className="ow-section-title">Launch log</p>
-                <ul className="ow-log-list">
-                  {events.map((entry) => (
-                    <li key={entry.id} className={`ow-log-item level-${entry.level}`}>
-                      <div className="ow-log-head">
-                        <span>{entry.label}</span>
-                        <span className="ow-mono">{new Date(entry.at).toLocaleTimeString()}</span>
-                      </div>
-                      <p>{entry.detail}</p>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+            {showAdvanced ? (
+              <>
+                <CredentialRow
+                  label="Worker host URL"
+                  value={worker?.instanceUrl ?? null}
+                  placeholder="Host URL"
+                  canCopy={Boolean(worker?.instanceUrl)}
+                  copied={copiedField === "worker-host-url"}
+                  onCopy={() => void copyToClipboard("worker-host-url", worker?.instanceUrl ?? null)}
+                />
+
+                <CredentialRow
+                  label="Worker ID"
+                  value={(worker?.workerId ?? workerLookupId) || null}
+                  placeholder="Worker ID"
+                  canCopy={Boolean(worker?.workerId || workerLookupId)}
+                  copied={copiedField === "worker-id"}
+                  onCopy={() => void copyToClipboard("worker-id", (worker?.workerId ?? workerLookupId) || null)}
+                />
+
+                {authToken ? (
+                  <CredentialRow
+                    label="Session API Key"
+                    value={authToken}
+                    placeholder="Session API key"
+                    canCopy={true}
+                    copied={copiedField === "session-key"}
+                    onCopy={() => void copyToClipboard("session-key", authToken)}
+                  />
+                ) : null}
+
+                <div className="ow-inline-actions">
+                  <button type="button" className="ow-btn-secondary" onClick={() => void handleCheckStatus()} disabled={actionBusy !== null}>
+                    {actionBusy === "status" ? "Checking..." : "Check status"}
+                  </button>
+                  <button type="button" className="ow-btn-secondary" onClick={handleGenerateKey} disabled={actionBusy !== null}>
+                    {actionBusy === "token" ? "Fetching..." : "Get access token"}
+                  </button>
+                </div>
+
+                {events.length > 0 ? (
+                  <div className="ow-log-box">
+                    <p className="ow-section-title">Launch log</p>
+                    <ul className="ow-log-list">
+                      {events.map((entry) => (
+                        <li key={entry.id} className={`ow-log-item level-${entry.level}`}>
+                          <div className="ow-log-head">
+                            <span>{entry.label}</span>
+                            <span className="ow-mono">{new Date(entry.at).toLocaleTimeString()}</span>
+                          </div>
+                          <p>{entry.detail}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </>
             ) : null}
           </div>
         ) : null}

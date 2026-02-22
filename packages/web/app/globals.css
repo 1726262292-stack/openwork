@@ -359,6 +359,29 @@ body {
   height: auto;
 }
 
+.ow-howto {
+  border: 1px solid #dbe3f4;
+  border-radius: 0.75rem;
+  background: #fff;
+  padding: 0.5rem;
+}
+
+.ow-howto summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #1e3a8a;
+}
+
+.ow-howto[open] {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.ow-inline-actions .ow-link {
+  align-self: center;
+}
+
 .ow-error-text {
   color: var(--ow-danger);
   font-weight: 600;
