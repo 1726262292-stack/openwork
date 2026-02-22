@@ -280,6 +280,18 @@ function getWorkerStatusCopy(status: string): string {
   }
 }
 
+function getWorkerAddressLabel(item: WorkerListItem): string {
+  if (!item.instanceUrl) {
+    return shortValue(item.workerId);
+  }
+
+  try {
+    return new URL(item.instanceUrl).host;
+  } catch {
+    return shortValue(item.instanceUrl);
+  }
+}
+
 function isWorkerLaunch(value: unknown): value is WorkerLaunch {
   if (!isRecord(value)) {
     return false;
@@ -530,11 +542,21 @@ function CredentialRow({
   onCopy: () => void;
 }) {
   return (
-    <label className="ow-field-block">
-      <span className="ow-field-label">{label}</span>
-      <div className="ow-copy-row">
-        <input readOnly value={value ?? placeholder} className="ow-input ow-mono" onClick={(event) => event.currentTarget.select()} />
-        <button type="button" className="ow-btn-icon" disabled={!canCopy} onClick={onCopy}>
+    <label className="grid gap-2">
+      <span className="px-0.5 text-[0.67rem] font-bold uppercase tracking-[0.11em] text-slate-500">{label}</span>
+      <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1.5">
+        <input
+          readOnly
+          value={value ?? placeholder}
+          className="min-w-0 flex-1 border-none bg-transparent px-2 py-1.5 font-mono text-xs text-slate-700 outline-none"
+          onClick={(event) => event.currentTarget.select()}
+        />
+        <button
+          type="button"
+          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-[#1B29FF] hover:text-[#1B29FF] disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={!canCopy}
+          onClick={onCopy}
+        >
           {copied ? "Copied" : canCopy ? "Copy" : "N/A"}
         </button>
       </div>
@@ -1375,7 +1397,7 @@ export function CloudControlPanel() {
         ) : null}
 
         {step === 2 ? (
-          <div className="ow-app-shell">
+          <div className="ow-app-shell bg-[#F4F5F7] p-3 md:p-4 rounded-[32px]">
             <aside className="ow-app-nav">
               <div className="ow-nav-group">
                 <p className="ow-nav-label">Workspace</p>
@@ -1412,8 +1434,12 @@ export function CloudControlPanel() {
                       <p className="ow-section-title">Workers</p>
                       <p className="ow-caption">Pick a worker to see details.</p>
                     </div>
-                    <button type="button" className="ow-btn-secondary ow-btn-compact" onClick={() => setShowLaunchForm((current) => !current)}>
-                      {showLaunchForm ? "Hide launch" : "Launch worker"}
+                    <button
+                      type="button"
+                      className="ow-btn-primary ow-btn-compact ow-btn-primary-inline"
+                      onClick={() => setShowLaunchForm((current) => !current)}
+                    >
+                      {showLaunchForm ? "Close" : "+ New Worker"}
                     </button>
                   </div>
 
@@ -1501,9 +1527,12 @@ export function CloudControlPanel() {
                               <div className="ow-worker-head">
                                 <div>
                                   <p className="ow-step-title">{item.workerName}</p>
-                                  <p className="ow-step-detail">{meta.label}</p>
+                                  <p className="ow-worker-meta">{getWorkerAddressLabel(item)}</p>
                                 </div>
-                                {item.isMine ? <span className="ow-badge">Yours</span> : null}
+                                <div className="ow-worker-badges">
+                                  <span className={`ow-status-pill is-${meta.bucket}`}>{meta.label}</span>
+                                  {item.isMine ? <span className="ow-badge">Yours</span> : null}
+                                </div>
                               </div>
                             </button>
                           </li>
@@ -1550,7 +1579,7 @@ export function CloudControlPanel() {
                       <div className="ow-inline-actions">
                         <button
                           type="button"
-                          className="ow-btn-primary ow-btn-primary-inline"
+                          className="ow-btn-primary ow-btn-primary-inline ow-open-btn"
                           onClick={() => {
                             if (!openworkDeepLink) {
                               return;
@@ -1563,6 +1592,26 @@ export function CloudControlPanel() {
                         </button>
                       </div>
 
+                      <div className="ow-connection-block">
+                        <p className="ow-field-label">Connection URL</p>
+                        <div className="ow-copy-row">
+                          <input
+                            readOnly
+                            value={openworkConnectUrl ?? "Connection URL is still preparing..."}
+                            className="ow-input ow-mono"
+                            onClick={(event) => event.currentTarget.select()}
+                          />
+                          <button
+                            type="button"
+                            className="ow-btn-icon"
+                            disabled={!openworkConnectUrl}
+                            onClick={() => void copyToClipboard("openwork-url", openworkConnectUrl)}
+                          >
+                            {copiedField === "openwork-url" ? "Copied" : "Copy"}
+                          </button>
+                        </div>
+                      </div>
+
                       {!openworkDeepLink || !openworkConnectUrl || (!hasWorkspaceScopedUrl && openworkConnectUrl) ? (
                         <div className="ow-note-box">
                           {!openworkDeepLink ? <p className="ow-caption">Getting connection details ready...</p> : null}
@@ -1572,7 +1621,7 @@ export function CloudControlPanel() {
                       ) : null}
 
                       <details className="ow-howto">
-                        <summary>Copy details manually</summary>
+                        <summary>Manual connect details</summary>
                         <p className="ow-howto-copy">
                           If one-click open doesn't work, copy these into OpenWork: Add a worker &gt; Connect remote.
                         </p>
@@ -1581,26 +1630,22 @@ export function CloudControlPanel() {
                           value={openworkConnectUrl}
                           placeholder="URL appears once ready"
                           canCopy={Boolean(openworkConnectUrl)}
-                          copied={copiedField === "openwork-url"}
-                          onCopy={() => void copyToClipboard("openwork-url", openworkConnectUrl)}
+                          copied={copiedField === "manual-openwork-url"}
+                          onCopy={() => void copyToClipboard("manual-openwork-url", openworkConnectUrl)}
                         />
 
                         <CredentialRow
                           label="Access token"
                           value={activeWorker?.clientToken ?? null}
-                          placeholder="Use more options to refresh"
+                          placeholder="Use Worker actions to refresh"
                           canCopy={Boolean(activeWorker?.clientToken)}
                           copied={copiedField === "access-token"}
                           onCopy={() => void copyToClipboard("access-token", activeWorker?.clientToken ?? null)}
                         />
-
-                        <figure className="ow-connect-shot">
-                          <img src="/connect-remote-menu.png" alt="OpenWork Add a worker menu with Connect remote option" />
-                        </figure>
                       </details>
 
                       <details className="ow-howto">
-                        <summary>More options</summary>
+                        <summary>Worker actions</summary>
                         <div className="ow-inline-actions">
                           <button
                             type="button"
@@ -1630,7 +1675,7 @@ export function CloudControlPanel() {
                       </details>
 
                       <details className="ow-howto">
-                        <summary>Technical details</summary>
+                        <summary>Advanced details</summary>
                         <CredentialRow
                           label="Worker host URL"
                           value={activeWorker?.instanceUrl ?? null}
