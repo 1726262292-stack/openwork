@@ -38,10 +38,11 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 1.2rem;
-  padding: 1.5rem;
-  overflow: hidden;
+  padding: 5rem 1.5rem 1.5rem;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .ow-ambient {
@@ -127,6 +128,22 @@ body {
   position: relative;
   z-index: 4;
   overflow: hidden;
+}
+
+.ow-card-shell {
+  width: calc(100vw - 3rem);
+  max-width: none;
+  min-height: calc(100vh - 8rem);
+  border-radius: 1.15rem;
+}
+
+.ow-card-shell .ow-card-body {
+  min-height: calc(100vh - 8rem);
+  padding: 1rem;
+}
+
+.ow-card-shell .ow-app-shell {
+  min-height: calc(100vh - 10rem);
 }
 
 .ow-progress-track {
@@ -752,8 +769,7 @@ body {
 
 @media (max-width: 640px) {
   .ow-shell {
-    justify-content: flex-start;
-    padding-top: 5rem;
+    padding-top: 4.4rem;
     padding-bottom: 2.2rem;
   }
 
@@ -764,6 +780,21 @@ body {
 
   .ow-card {
     border-radius: 1.45rem;
+  }
+
+  .ow-card-shell {
+    width: calc(100vw - 1rem);
+    min-height: calc(100vh - 5.2rem);
+    border-radius: 0.95rem;
+  }
+
+  .ow-card-shell .ow-card-body {
+    min-height: calc(100vh - 5.2rem);
+    padding: 0.72rem;
+  }
+
+  .ow-card-shell .ow-app-shell {
+    min-height: calc(100vh - 6.7rem);
   }
 
   .ow-card-body {

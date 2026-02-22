@@ -558,6 +558,7 @@ export function CloudControlPanel() {
         : worker;
 
   const progressWidth = step === 1 ? "45%" : "100%";
+  const isShellStep = step === 2;
   const openworkConnectUrl = activeWorker?.openworkUrl ?? activeWorker?.instanceUrl ?? null;
   const hasWorkspaceScopedUrl = Boolean(openworkConnectUrl && /\/w\/[^/?#]+/.test(openworkConnectUrl));
   const openworkDeepLink = buildOpenworkDeepLink(
@@ -1233,10 +1234,12 @@ export function CloudControlPanel() {
   }
 
   return (
-    <section className="ow-card">
-      <div className="ow-progress-track">
-        <span className="ow-progress-fill" style={{ width: progressWidth }} />
-      </div>
+    <section className={`ow-card${isShellStep ? " ow-card-shell" : ""}`}>
+      {!isShellStep ? (
+        <div className="ow-progress-track">
+          <span className="ow-progress-fill" style={{ width: progressWidth }} />
+        </div>
+      ) : null}
 
       <div className="ow-card-body">
 
