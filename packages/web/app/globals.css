@@ -118,7 +118,7 @@ body {
 }
 
 .ow-card {
-  width: min(100%, 54rem);
+  width: min(100%, 68rem);
   background: var(--ow-card);
   border: 1px solid rgba(220, 226, 244, 0.95);
   border-radius: 1.8rem;
@@ -287,17 +287,104 @@ body {
   gap: 0.8rem;
 }
 
-.ow-session-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
+.ow-app-shell {
+  display: grid;
+  gap: 0.7rem;
 }
 
-.ow-session-row .ow-caption {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+@media (min-width: 980px) {
+  .ow-app-shell {
+    grid-template-columns: 7.4rem minmax(0, 0.95fr) minmax(0, 1.05fr);
+    align-items: start;
+  }
+
+  .ow-pane-span-2 {
+    grid-column: 2 / span 2;
+  }
+}
+
+.ow-app-nav {
+  border: 1px solid #dbe3f4;
+  border-radius: 0.9rem;
+  background: #f9fbff;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.34rem;
+}
+
+.ow-nav-item {
+  border: 1px solid #dbe3f4;
+  border-radius: 0.72rem;
+  background: #fff;
+  color: #334155;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 0.54rem 0.48rem;
+  text-align: left;
+}
+
+.ow-nav-item.is-active {
+  border-color: #9fb2eb;
+  color: #1e3a8a;
+  background: #edf3ff;
+}
+
+.ow-app-nav-footer {
+  margin-top: auto;
+  border-top: 1px solid #dbe3f4;
+  padding-top: 0.46rem;
+  display: grid;
+  gap: 0.34rem;
+}
+
+.ow-nav-email {
+  overflow-wrap: anywhere;
+}
+
+.ow-pane {
+  border: 1px solid #dbe3f4;
+  border-radius: 0.92rem;
+  background: #fff;
+  padding: 0.72rem;
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+}
+
+.ow-pane-head {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.ow-empty-detail {
+  border: 1px dashed #d1ddef;
+  border-radius: 0.82rem;
+  background: #f9fbff;
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+@media (max-width: 979px) {
+  .ow-app-nav {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .ow-app-nav-footer {
+    margin-top: 0;
+    margin-left: auto;
+    border-top: 0;
+    padding-top: 0;
+    align-items: end;
+  }
+
+  .ow-nav-email {
+    max-width: 11rem;
+    text-align: right;
+  }
 }
 
 .ow-caption {

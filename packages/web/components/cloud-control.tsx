@@ -2,8 +2,9 @@
 
 import { FormEvent, useEffect, useState } from "react";
 
-type Step = 1 | 2 | 3;
+type Step = 1 | 2;
 type AuthMode = "sign-in" | "sign-up";
+type ShellView = "workers" | "billing";
 
 type AuthUser = {
   id: string;
@@ -519,6 +520,7 @@ function CredentialRow({
 
 export function CloudControlPanel() {
   const [step, setStep] = useState<Step>(1);
+  const [shellView, setShellView] = useState<ShellView>("workers");
 
   const [authMode, setAuthMode] = useState<AuthMode>("sign-in");
   const [name, setName] = useState("OpenWork Builder");
@@ -555,7 +557,7 @@ export function CloudControlPanel() {
         ? listItemToWorker(selectedWorker, worker)
         : worker;
 
-  const progressWidth = step === 1 ? "33.333%" : step === 2 ? "66.666%" : "100%";
+  const progressWidth = step === 1 ? "45%" : "100%";
   const openworkConnectUrl = activeWorker?.openworkUrl ?? activeWorker?.instanceUrl ?? null;
   const hasWorkspaceScopedUrl = Boolean(openworkConnectUrl && /\/w\/[^/?#]+/.test(openworkConnectUrl));
   const openworkDeepLink = buildOpenworkDeepLink(
@@ -806,11 +808,6 @@ export function CloudControlPanel() {
   }, [worker]);
 
   useEffect(() => {
-    if (worker && worker.status === "healthy") {
-      setStep(3);
-      return;
-    }
-
     if (user || checkoutUrl || paymentReturned || worker) {
       setStep(2);
       return;
@@ -956,6 +953,7 @@ export function CloudControlPanel() {
     setActionBusy(null);
     setLaunchBusy(false);
     setStep(1);
+    setShellView("workers");
     setAuthMode("sign-in");
     setPassword("");
     setAuthInfo("Sign in to launch and manage cloud workers.");
@@ -1241,14 +1239,6 @@ export function CloudControlPanel() {
       </div>
 
       <div className="ow-card-body">
-        {user ? (
-          <div className="ow-session-row">
-            <p className="ow-caption">Signed in as {user.email}</p>
-            <button type="button" className="ow-link" onClick={() => void handleSignOut()} disabled={authBusy}>
-              {authBusy ? "Signing out..." : "Log out"}
-            </button>
-          </div>
-        ) : null}
 
         {step === 1 ? (
           <div className="ow-stack">
@@ -1320,333 +1310,282 @@ export function CloudControlPanel() {
         ) : null}
 
         {step === 2 ? (
-          <div className="ow-stack">
-            <div className="ow-heading-block">
-              <span className="ow-icon-chip">02</span>
-              <h1 className="ow-title">Launch a Worker</h1>
-              <p className="ow-subtitle">Launch a worker, or select one from the list to connect.</p>
-            </div>
+          <div className="ow-app-shell">
+            <aside className="ow-app-nav">
+              <button
+                type="button"
+                className={`ow-nav-item ${shellView === "workers" ? "is-active" : ""}`}
+                onClick={() => setShellView("workers")}
+              >
+                workers
+              </button>
+              <button
+                type="button"
+                className={`ow-nav-item ${shellView === "billing" ? "is-active" : ""}`}
+                onClick={() => setShellView("billing")}
+              >
+                billing
+              </button>
 
-            <label className="ow-field-block">
-              <span className="ow-field-label">Worker Name</span>
-              <input
-                className="ow-input"
-                value={workerName}
-                onChange={(event) => setWorkerName(event.target.value)}
-                maxLength={80}
-              />
-            </label>
-
-            <button
-              type="button"
-              className="ow-btn-primary"
-              onClick={handleLaunchWorker}
-              disabled={!user || launchBusy || worker?.status === "provisioning"}
-            >
-              {launchBusy
-                ? "Requesting launch..."
-                : worker?.status === "provisioning"
-                  ? "Provisioning in progress..."
-                  : `Launch "${workerName || "Cloud Worker"}"`}
-            </button>
-
-            <div className="ow-note-box">
-              <p>{launchStatus}</p>
-              {launchError ? <p className="ow-error-text">{launchError}</p> : null}
-            </div>
-
-            {checkoutUrl ? (
-              <div className="ow-paywall-box">
-                <p className="ow-paywall-title">Payment required</p>
-                <a href={checkoutUrl} rel="noreferrer" className="ow-btn-secondary ow-full">
-                  Continue to Polar checkout
-                </a>
-                <p className="ow-caption">After checkout, return to this screen and click launch again.</p>
+              <div className="ow-app-nav-footer">
+                <p className="ow-caption ow-nav-email">{(user?.email ?? email) || "account"}</p>
+                <button type="button" className="ow-link" onClick={() => void handleSignOut()} disabled={authBusy}>
+                  {authBusy ? "Signing out..." : "Log out"}
+                </button>
               </div>
-            ) : null}
+            </aside>
 
-            <div className="ow-lookup-box">
-              <div className="ow-worker-section-head">
-                <div>
-                  <p className="ow-section-title">Your workers</p>
-                  <p className="ow-caption">Classic flow: list on the left, details on the right.</p>
-                </div>
-              </div>
+            {shellView === "workers" ? (
+              <>
+                <section className="ow-pane ow-workers-pane">
+                  <div className="ow-pane-head">
+                    <p className="ow-section-title">workers</p>
+                    <p className="ow-caption">Launch and browse cloud workers.</p>
+                  </div>
 
-              {workersBusy ? <p className="ow-caption">Loading workers...</p> : null}
-              {workersError ? <p className="ow-error-text">{workersError}</p> : null}
+                  <label className="ow-field-block">
+                    <span className="ow-field-label">Worker Name</span>
+                    <input
+                      className="ow-input"
+                      value={workerName}
+                      onChange={(event) => setWorkerName(event.target.value)}
+                      maxLength={80}
+                    />
+                  </label>
 
-              {workers.length > 0 ? (
-                <div className="ow-worker-layout">
-                  <ul className="ow-worker-list ow-worker-list-panel">
-                    {workers.map((item) => (
-                      <li key={item.workerId}>
+                  <button
+                    type="button"
+                    className="ow-btn-primary"
+                    onClick={handleLaunchWorker}
+                    disabled={!user || launchBusy || worker?.status === "provisioning"}
+                  >
+                    {launchBusy
+                      ? "Requesting launch..."
+                      : worker?.status === "provisioning"
+                        ? "Provisioning in progress..."
+                        : `Launch "${workerName || "Cloud Worker"}"`}
+                  </button>
+
+                  <div className="ow-note-box">
+                    <p>{launchStatus}</p>
+                    {launchError ? <p className="ow-error-text">{launchError}</p> : null}
+                  </div>
+
+                  {checkoutUrl ? (
+                    <div className="ow-paywall-box">
+                      <p className="ow-paywall-title">Payment required</p>
+                      <a href={checkoutUrl} rel="noreferrer" className="ow-btn-secondary ow-full">
+                        Continue to Polar checkout
+                      </a>
+                      <p className="ow-caption">After checkout, return and click launch again.</p>
+                    </div>
+                  ) : null}
+
+                  <div className="ow-pane-head">
+                    <p className="ow-section-title">Worker list</p>
+                    <p className="ow-caption">Select a worker to view details.</p>
+                  </div>
+
+                  {workersBusy ? <p className="ow-caption">Loading workers...</p> : null}
+                  {workersError ? <p className="ow-error-text">{workersError}</p> : null}
+
+                  {workers.length > 0 ? (
+                    <ul className="ow-worker-list ow-worker-list-panel">
+                      {workers.map((item) => (
+                        <li key={item.workerId}>
+                          <button
+                            type="button"
+                            className={`ow-worker-select ${workerLookupId === item.workerId ? "is-active" : ""}`}
+                            onClick={() => {
+                              setWorkerLookupId(item.workerId);
+                              setWorker((current) => listItemToWorker(item, current));
+                            }}
+                          >
+                            <div className="ow-worker-head">
+                              <div>
+                                <p className="ow-step-title">{item.workerName}</p>
+                                <p className="ow-step-detail">{item.status}</p>
+                              </div>
+                              {item.isMine ? <span className="ow-badge">Yours</span> : null}
+                            </div>
+                            <p className="ow-worker-meta ow-mono">{item.instanceUrl ?? "URL pending provisioning"}</p>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+
+                  {workers.length === 0 && !workersBusy ? (
+                    <p className="ow-caption">No workers yet. Launch one and it will appear here automatically.</p>
+                  ) : null}
+                </section>
+
+                <section className="ow-pane ow-detail-pane">
+                  {selectedWorker ? (
+                    <>
+                      <div className="ow-worker-head">
+                        <div>
+                          <p className="ow-section-title">{activeWorker?.workerName ?? selectedWorker.workerName}</p>
+                          <p className="ow-step-detail">{activeWorker?.status ?? selectedWorker.status}</p>
+                        </div>
+                        {selectedWorker.isMine ? <span className="ow-badge">Yours</span> : null}
+                      </div>
+
+                      <p className="ow-caption">{getWorkerStatusCopy(activeWorker?.status ?? selectedWorker.status)}</p>
+                      <p className="ow-worker-meta ow-mono">{activeWorker?.instanceUrl ?? "URL pending provisioning"}</p>
+
+                      <div className="ow-inline-actions">
                         <button
                           type="button"
-                          className={`ow-worker-select ${workerLookupId === item.workerId ? "is-active" : ""}`}
+                          className="ow-btn-primary ow-btn-primary-inline"
                           onClick={() => {
-                            setWorkerLookupId(item.workerId);
-                            setWorker((current) => listItemToWorker(item, current));
+                            if (!openworkDeepLink) {
+                              return;
+                            }
+                            window.location.href = openworkDeepLink;
                           }}
+                          disabled={!openworkDeepLink || (activeWorker?.status ?? selectedWorker.status) !== "healthy"}
                         >
-                          <div className="ow-worker-head">
-                            <div>
-                              <p className="ow-step-title">{item.workerName}</p>
-                              <p className="ow-step-detail">{item.status}</p>
-                            </div>
-                            {item.isMine ? <span className="ow-badge">Yours</span> : null}
-                          </div>
-                          <p className="ow-worker-meta ow-mono">{item.instanceUrl ?? "URL pending provisioning"}</p>
+                          {openworkDeepLink ? "Open in OpenWork" : "Preparing connection..."}
                         </button>
-                      </li>
-                    ))}
-                  </ul>
+                      </div>
 
-                  <div className="ow-worker-detail">
-                    {selectedWorker ? (
-                      <>
-                        <div className="ow-worker-head">
-                          <div>
-                            <p className="ow-step-title">{activeWorker?.workerName ?? selectedWorker.workerName}</p>
-                            <p className="ow-step-detail">{activeWorker?.status ?? selectedWorker.status}</p>
-                          </div>
-                          {selectedWorker.isMine ? <span className="ow-badge">Yours</span> : null}
-                        </div>
+                      <div className="ow-note-box">
+                        <p>OpenWork: Add a worker &gt; Connect remote.</p>
+                        <p className="ow-caption">One-click open needs the OpenWork desktop app installed.</p>
+                        {!openworkDeepLink ? <p className="ow-caption">Waiting for both worker URL and access token before one-click open is ready.</p> : null}
+                        {!openworkConnectUrl ? <p className="ow-caption">Waiting for worker URL. Keep this tab open.</p> : null}
+                        {!hasWorkspaceScopedUrl && openworkConnectUrl ? (
+                          <p className="ow-caption">Connection URL is still preparing. It updates automatically when ready.</p>
+                        ) : null}
+                      </div>
 
-                        <p className="ow-caption">{getWorkerStatusCopy(activeWorker?.status ?? selectedWorker.status)}</p>
-                        <p className="ow-worker-meta ow-mono">{activeWorker?.instanceUrl ?? "URL pending provisioning"}</p>
+                      <details className="ow-howto">
+                        <summary>Manual connect details</summary>
+                        <CredentialRow
+                          label="OpenWork worker URL"
+                          value={openworkConnectUrl}
+                          placeholder="URL becomes available after provisioning."
+                          canCopy={Boolean(openworkConnectUrl)}
+                          copied={copiedField === "openwork-url"}
+                          onCopy={() => void copyToClipboard("openwork-url", openworkConnectUrl)}
+                        />
 
+                        <CredentialRow
+                          label="Access token"
+                          value={activeWorker?.clientToken ?? null}
+                          placeholder="Use manual refresh to get access token."
+                          canCopy={Boolean(activeWorker?.clientToken)}
+                          copied={copiedField === "access-token"}
+                          onCopy={() => void copyToClipboard("access-token", activeWorker?.clientToken ?? null)}
+                        />
+
+                        <figure className="ow-connect-shot">
+                          <img src="/connect-remote-menu.png" alt="OpenWork Add a worker menu with Connect remote option" />
+                        </figure>
+                      </details>
+
+                      <details className="ow-howto">
+                        <summary>Manual refresh and diagnostics</summary>
                         <div className="ow-inline-actions">
                           <button
                             type="button"
                             className="ow-btn-secondary"
-                            onClick={() => setStep(3)}
-                            disabled={(activeWorker?.status ?? selectedWorker.status) !== "healthy"}
+                            onClick={() => void refreshWorkers({ keepSelection: true })}
+                            disabled={workersBusy || actionBusy !== null}
                           >
-                            Connect in OpenWork
+                            {workersBusy ? "Refreshing..." : "Refresh list"}
+                          </button>
+                          <button
+                            type="button"
+                            className="ow-btn-secondary"
+                            onClick={() => void handleCheckStatus({ workerId: selectedWorker.workerId })}
+                            disabled={actionBusy !== null}
+                          >
+                            {actionBusy === "status" ? "Checking..." : "Check status"}
+                          </button>
+                          <button
+                            type="button"
+                            className="ow-btn-secondary"
+                            onClick={handleGenerateKey}
+                            disabled={actionBusy !== null}
+                          >
+                            {actionBusy === "token" ? "Fetching..." : "Get access token"}
                           </button>
                         </div>
+                      </details>
 
-                        <details className="ow-howto">
-                          <summary>Manual refresh and diagnostics</summary>
-                          <div className="ow-inline-actions">
-                            <button
-                              type="button"
-                              className="ow-btn-secondary"
-                              onClick={() => void refreshWorkers({ keepSelection: true })}
-                              disabled={workersBusy || actionBusy !== null}
-                            >
-                              {workersBusy ? "Refreshing..." : "Refresh list"}
-                            </button>
-                            <button
-                              type="button"
-                              className="ow-btn-secondary"
-                              onClick={() => void handleCheckStatus({ workerId: selectedWorker.workerId })}
-                              disabled={actionBusy !== null}
-                            >
-                              {actionBusy === "status" ? "Checking..." : "Check status"}
-                            </button>
-                            <button
-                              type="button"
-                              className="ow-btn-secondary"
-                              onClick={handleGenerateKey}
-                              disabled={actionBusy !== null}
-                            >
-                              {actionBusy === "token" ? "Fetching..." : "Get access token"}
-                            </button>
+                      <details className="ow-howto">
+                        <summary>Advanced</summary>
+                        <CredentialRow
+                          label="Worker host URL"
+                          value={activeWorker?.instanceUrl ?? null}
+                          placeholder="Host URL"
+                          canCopy={Boolean(activeWorker?.instanceUrl)}
+                          copied={copiedField === "worker-host-url"}
+                          onCopy={() => void copyToClipboard("worker-host-url", activeWorker?.instanceUrl ?? null)}
+                        />
+
+                        <CredentialRow
+                          label="Worker ID"
+                          value={(activeWorker?.workerId ?? workerLookupId) || null}
+                          placeholder="Worker ID"
+                          canCopy={Boolean(activeWorker?.workerId || workerLookupId)}
+                          copied={copiedField === "worker-id"}
+                          onCopy={() => void copyToClipboard("worker-id", (activeWorker?.workerId ?? workerLookupId) || null)}
+                        />
+
+                        {events.length > 0 ? (
+                          <div className="ow-log-box">
+                            <p className="ow-section-title">Launch log</p>
+                            <ul className="ow-log-list">
+                              {events.map((entry) => (
+                                <li key={entry.id} className={`ow-log-item level-${entry.level}`}>
+                                  <div className="ow-log-head">
+                                    <span>{entry.label}</span>
+                                    <span className="ow-mono">{new Date(entry.at).toLocaleTimeString()}</span>
+                                  </div>
+                                  <p>{entry.detail}</p>
+                                </li>
+                              ))}
+                            </ul>
                           </div>
-                        </details>
-
-                        <details className="ow-howto">
-                          <summary>Advanced</summary>
-                          <CredentialRow
-                            label="Worker host URL"
-                            value={activeWorker?.instanceUrl ?? null}
-                            placeholder="Host URL"
-                            canCopy={Boolean(activeWorker?.instanceUrl)}
-                            copied={copiedField === "worker-host-url"}
-                            onCopy={() => void copyToClipboard("worker-host-url", activeWorker?.instanceUrl ?? null)}
-                          />
-
-                          <CredentialRow
-                            label="Worker ID"
-                            value={(activeWorker?.workerId ?? workerLookupId) || null}
-                            placeholder="Worker ID"
-                            canCopy={Boolean(activeWorker?.workerId || workerLookupId)}
-                            copied={copiedField === "worker-id"}
-                            onCopy={() => void copyToClipboard("worker-id", (activeWorker?.workerId ?? workerLookupId) || null)}
-                          />
-
-                          {events.length > 0 ? (
-                            <div className="ow-log-box">
-                              <p className="ow-section-title">Launch log</p>
-                              <ul className="ow-log-list">
-                                {events.map((entry) => (
-                                  <li key={entry.id} className={`ow-log-item level-${entry.level}`}>
-                                    <div className="ow-log-head">
-                                      <span>{entry.label}</span>
-                                      <span className="ow-mono">{new Date(entry.at).toLocaleTimeString()}</span>
-                                    </div>
-                                    <p>{entry.detail}</p>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          ) : null}
-                        </details>
-                      </>
-                    ) : (
-                      <p className="ow-caption">Select a worker to view details.</p>
-                    )}
-                  </div>
+                        ) : null}
+                      </details>
+                    </>
+                  ) : (
+                    <div className="ow-empty-detail">
+                      <p className="ow-section-title">Launch your first worker</p>
+                      <p className="ow-caption">Use the launch form in the list panel, then select the worker here.</p>
+                    </div>
+                  )}
+                </section>
+              </>
+            ) : (
+              <section className="ow-pane ow-billing-pane ow-pane-span-2">
+                <div className="ow-pane-head">
+                  <p className="ow-section-title">billing</p>
+                  <p className="ow-caption">Manage plan and checkout details.</p>
                 </div>
-              ) : null}
 
-              {workers.length === 0 && !workersBusy ? (
-                <p className="ow-caption">No workers yet. Launch one and it will appear here automatically.</p>
-              ) : null}
-
-            </div>
-          </div>
-        ) : null}
-
-        {step === 3 ? (
-          <div className="ow-stack">
-            <div className="ow-heading-block">
-              <span className="ow-icon-chip">03</span>
-              <h1 className="ow-title">Connect in OpenWork</h1>
-              <p className="ow-subtitle">Use one click if available, or open manual details below.</p>
-            </div>
-
-            <div className="ow-inline-actions">
-              <button
-                type="button"
-                className="ow-btn-primary ow-btn-primary-inline"
-                onClick={() => {
-                  if (!openworkDeepLink) {
-                    return;
-                  }
-                  window.location.href = openworkDeepLink;
-                }}
-                disabled={!openworkDeepLink}
-              >
-                Open in OpenWork
-              </button>
-              <button
-                type="button"
-                className="ow-btn-secondary"
-                onClick={() => {
-                  setWorker(null);
-                  setLaunchError(null);
-                  setCheckoutUrl(null);
-                  setLaunchStatus("Ready to launch another worker.");
-                  appendEvent("info", "Starting a new launch", "Worker form reset");
-                }}
-              >
-                Launch another
-              </button>
-              <button type="button" className="ow-link" onClick={() => setStep(2)}>
-                Back to worker list
-              </button>
-            </div>
-
-            <details className="ow-howto">
-              <summary>Manual refresh and diagnostics</summary>
-              <div className="ow-inline-actions">
-                <button type="button" className="ow-btn-secondary" onClick={handleGenerateKey} disabled={actionBusy !== null}>
-                  {actionBusy === "token" ? "Fetching..." : "Refresh access token"}
-                </button>
-                <button type="button" className="ow-btn-secondary" onClick={() => void handleCheckStatus()} disabled={actionBusy !== null}>
-                  {actionBusy === "status" ? "Checking..." : "Refresh status"}
-                </button>
-              </div>
-            </details>
-
-            <div className="ow-note-box">
-              <p>OpenWork: Add a worker &gt; Connect remote.</p>
-              <p className="ow-caption">One-click open needs the OpenWork desktop app installed.</p>
-              {!openworkDeepLink ? <p className="ow-caption">Waiting for both worker URL and access token before one-click open is ready.</p> : null}
-              <details className="ow-howto">
-                <summary>Manual connect details</summary>
-                <CredentialRow
-                  label="OpenWork worker URL"
-                  value={openworkConnectUrl}
-                  placeholder="URL becomes available after provisioning."
-                  canCopy={Boolean(openworkConnectUrl)}
-                  copied={copiedField === "openwork-url"}
-                  onCopy={() => void copyToClipboard("openwork-url", openworkConnectUrl)}
-                />
-
-                <CredentialRow
-                  label="Access token"
-                  value={activeWorker?.clientToken ?? null}
-                  placeholder="Click Refresh access token to retrieve credentials."
-                  canCopy={Boolean(activeWorker?.clientToken)}
-                  copied={copiedField === "access-token"}
-                  onCopy={() => void copyToClipboard("access-token", activeWorker?.clientToken ?? null)}
-                />
-
-                <figure className="ow-connect-shot">
-                  <img src="/connect-remote-menu.png" alt="OpenWork Add a worker menu with Connect remote option" />
-                </figure>
-              </details>
-              {!openworkConnectUrl ? <p className="ow-caption">Waiting for worker URL. Keep this tab open.</p> : null}
-              {!hasWorkspaceScopedUrl && openworkConnectUrl ? (
-                <p className="ow-caption">Connection URL is still preparing. It updates automatically when ready.</p>
-              ) : null}
-              {launchError ? <p className="ow-error-text">{launchError}</p> : null}
-            </div>
-
-            <details className="ow-howto">
-              <summary>Advanced</summary>
-                <CredentialRow
-                  label="Worker host URL"
-                  value={activeWorker?.instanceUrl ?? null}
-                  placeholder="Host URL"
-                  canCopy={Boolean(activeWorker?.instanceUrl)}
-                  copied={copiedField === "worker-host-url"}
-                  onCopy={() => void copyToClipboard("worker-host-url", activeWorker?.instanceUrl ?? null)}
-                />
-
-                <CredentialRow
-                  label="Worker ID"
-                  value={(activeWorker?.workerId ?? workerLookupId) || null}
-                  placeholder="Worker ID"
-                  canCopy={Boolean(activeWorker?.workerId || workerLookupId)}
-                  copied={copiedField === "worker-id"}
-                  onCopy={() => void copyToClipboard("worker-id", (activeWorker?.workerId ?? workerLookupId) || null)}
-                />
-
-                {authToken ? (
-                  <CredentialRow
-                    label="Session API Key"
-                    value={authToken}
-                    placeholder="Session API key"
-                    canCopy={true}
-                    copied={copiedField === "session-key"}
-                    onCopy={() => void copyToClipboard("session-key", authToken)}
-                  />
-                ) : null}
-
-                {events.length > 0 ? (
-                  <div className="ow-log-box">
-                    <p className="ow-section-title">Launch log</p>
-                    <ul className="ow-log-list">
-                      {events.map((entry) => (
-                        <li key={entry.id} className={`ow-log-item level-${entry.level}`}>
-                          <div className="ow-log-head">
-                            <span>{entry.label}</span>
-                            <span className="ow-mono">{new Date(entry.at).toLocaleTimeString()}</span>
-                          </div>
-                          <p>{entry.detail}</p>
-                        </li>
-                      ))}
-                    </ul>
+                {checkoutUrl ? (
+                  <div className="ow-paywall-box">
+                    <p className="ow-paywall-title">Pending checkout</p>
+                    <a href={checkoutUrl} rel="noreferrer" className="ow-btn-secondary ow-full">
+                      Continue to Polar checkout
+                    </a>
                   </div>
-                ) : null}
-            </details>
+                ) : (
+                  <div className="ow-note-box">
+                    <p>Billing appears automatically during worker launch if payment is required.</p>
+                    <p className="ow-caption">Switch back to workers and click launch to continue onboarding.</p>
+                  </div>
+                )}
+              </section>
+            )}
           </div>
         ) : null}
+
       </div>
     </section>
   );
