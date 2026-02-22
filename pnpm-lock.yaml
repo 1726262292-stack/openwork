@@ -240,6 +240,40 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  packages/web:
+    dependencies:
+      next:
+        specifier: 14.2.5
+        version: 14.2.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      react:
+        specifier: 18.2.0
+        version: 18.2.0
+      react-dom:
+        specifier: 18.2.0
+        version: 18.2.0(react@18.2.0)
+    devDependencies:
+      '@types/node':
+        specifier: 20.12.12
+        version: 20.12.12
+      '@types/react':
+        specifier: 18.2.79
+        version: 18.2.79
+      '@types/react-dom':
+        specifier: 18.2.25
+        version: 18.2.25
+      autoprefixer:
+        specifier: 10.4.19
+        version: 10.4.19(postcss@8.4.38)
+      postcss:
+        specifier: 8.4.38
+        version: 8.4.38
+      tailwindcss:
+        specifier: 3.4.7
+        version: 3.4.7
+      typescript:
+        specifier: 5.4.5
+        version: 5.4.5
+
   services/den-control-plane:
     dependencies:
       better-auth:
