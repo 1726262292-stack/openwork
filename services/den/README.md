@@ -62,6 +62,7 @@ pnpm db:migrate
 - `GET /v1/me`
 - `GET /v1/workers` (list recent workers for signed-in user/org)
 - `POST /v1/workers`
+  - Cloud launches return `202` quickly with worker `status=provisioning` and continue provisioning asynchronously.
   - Returns `402 payment_required` with Polar checkout URL when paywall is enabled and entitlement is missing.
 - `GET /v1/workers/:id`
   - Includes latest instance metadata when available.

@@ -60,6 +60,7 @@ type LaunchEvent = {
 };
 
 const LAST_WORKER_STORAGE_KEY = "openwork:web:last-worker";
+const WORKER_STATUS_POLL_MS = 5000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -239,6 +240,19 @@ function getWorkersList(payload: unknown): WorkerListItem[] {
   }
 
   return rows;
+}
+
+function getWorkerStatusCopy(status: string): string {
+  if (status === "provisioning") {
+    return "Provisioning is in progress. We auto-check every 5 seconds.";
+  }
+  if (status === "healthy") {
+    return "Worker is healthy and ready for remote connect.";
+  }
+  if (status === "failed") {
+    return "Provisioning failed. Launch a new worker or retry status.";
+  }
+  return `Worker status: ${status}.`;
 }
 
 function isWorkerLaunch(value: unknown): value is WorkerLaunch {
@@ -731,7 +745,7 @@ export function CloudControlPanel() {
 
       setWorker(restored);
       setWorkerLookupId(restored.workerId);
-      setLaunchStatus(`Recovered worker ${restored.workerName}. Get an access token if needed.`);
+      setLaunchStatus(`Recovered worker ${restored.workerName}. ${getWorkerStatusCopy(restored.status)}`);
       appendEvent("info", "Recovered worker context", `Worker ID ${restored.workerId}`);
     } catch {
       return;
@@ -753,12 +767,12 @@ export function CloudControlPanel() {
   }, [worker]);
 
   useEffect(() => {
-    if (worker) {
+    if (worker && worker.status === "healthy") {
       setStep(3);
       return;
     }
 
-    if (user || checkoutUrl || paymentReturned) {
+    if (user || checkoutUrl || paymentReturned || worker) {
       setStep(2);
       return;
     }
@@ -783,6 +797,34 @@ export function CloudControlPanel() {
     setTokenFetchedForWorkerId(worker.workerId);
     void handleGenerateKey();
   }, [actionBusy, launchBusy, tokenFetchedForWorkerId, user, worker]);
+
+  useEffect(() => {
+    if (!user || !worker || worker.status !== "provisioning") {
+      return;
+    }
+    if (actionBusy !== null || launchBusy) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const poll = async () => {
+      if (cancelled) {
+        return;
+      }
+      await handleCheckStatus({ workerId: worker.workerId, quiet: true, background: true });
+    };
+
+    void poll();
+    const interval = window.setInterval(() => {
+      void poll();
+    }, WORKER_STATUS_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [actionBusy, authToken, launchBusy, user?.id, worker?.workerId, worker?.status]);
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -865,7 +907,7 @@ export function CloudControlPanel() {
             destination: "cloud"
           })
         },
-        45000
+        12000
       );
 
       if (response.status === 402) {
@@ -898,12 +940,18 @@ export function CloudControlPanel() {
       setWorkerLookupId(parsedWorker.workerId);
       setPaymentReturned(false);
       setCheckoutUrl(null);
-      setLaunchStatus(`Worker ${resolvedWorker.workerName} is ${resolvedWorker.status}.`);
-      appendEvent("success", "Worker launched", `Worker ID ${parsedWorker.workerId}`);
+
+      if (resolvedWorker.status === "provisioning") {
+        setLaunchStatus("Provisioning started. This can take a few minutes, and we will keep checking automatically.");
+        appendEvent("info", "Provisioning started", `Worker ID ${parsedWorker.workerId}`);
+      } else {
+        setLaunchStatus(getWorkerStatusCopy(resolvedWorker.status));
+        appendEvent("success", "Worker launched", `Worker ID ${parsedWorker.workerId}`);
+      }
     } catch (error) {
       const message =
         error instanceof DOMException && error.name === "AbortError"
-          ? "Launch request timed out after 45s. Refresh the worker list below to continue without manual IDs."
+          ? "Launch request took longer than expected. Provisioning can continue in the background. Refresh worker status below."
           : error instanceof Error
             ? error.message
             : "Unknown network error";
@@ -917,22 +965,34 @@ export function CloudControlPanel() {
     }
   }
 
-  async function handleCheckStatus() {
+  async function handleCheckStatus(options: { workerId?: string; quiet?: boolean; background?: boolean } = {}) {
+    const quiet = options.quiet === true;
+    const background = options.background === true;
+
     if (!user) {
-      setLaunchError("Sign in before checking worker status.");
+      if (!quiet) {
+        setLaunchError("Sign in before checking worker status.");
+      }
       return;
     }
 
-    const id = workerLookupId.trim() || worker?.workerId || workers[0]?.workerId || "";
+    const fallbackId = workerLookupId.trim() || worker?.workerId || workers[0]?.workerId || "";
+    const id = options.workerId ?? fallbackId;
     if (!id) {
-      setLaunchError("No worker selected yet. Launch one first, then use this panel.");
+      if (!quiet) {
+        setLaunchError("No worker selected yet. Launch one first, then use this panel.");
+      }
       return;
     }
 
     setWorkerLookupId(id);
 
-    setActionBusy("status");
-    setLaunchError(null);
+    if (!background) {
+      setActionBusy("status");
+    }
+    if (!quiet) {
+      setLaunchError(null);
+    }
 
     try {
       const { response, payload } = await requestJson(`/v1/workers/${encodeURIComponent(id)}`, {
@@ -942,17 +1002,23 @@ export function CloudControlPanel() {
 
       if (!response.ok) {
         const message = getErrorMessage(payload, `Status check failed with ${response.status}.`);
-        setLaunchError(message);
-        appendEvent("error", "Status check failed", message);
+        if (!quiet) {
+          setLaunchError(message);
+          appendEvent("error", "Status check failed", message);
+        }
         return;
       }
 
       const summary = getWorkerSummary(payload);
       if (!summary) {
-        setLaunchError("Status response was missing worker details.");
-        appendEvent("error", "Status check failed", "Worker summary missing");
+        if (!quiet) {
+          setLaunchError("Status response was missing worker details.");
+          appendEvent("error", "Status check failed", "Worker summary missing");
+        }
         return;
       }
+
+      const previousStatus = worker?.workerId === summary.workerId ? worker.status : null;
 
       const nextWorker: WorkerLaunch =
         worker && worker.workerId === summary.workerId
@@ -979,15 +1045,35 @@ export function CloudControlPanel() {
       setWorker(resolvedWorker);
 
       setWorkerLookupId(summary.workerId);
-      setLaunchStatus(`Worker ${summary.workerName} is currently ${summary.status}.`);
-      appendEvent("info", "Status refreshed", `${summary.workerName}: ${summary.status}`);
-      void refreshWorkers({ keepSelection: true });
+
+      if (!quiet) {
+        setLaunchStatus(`Worker ${summary.workerName} is currently ${summary.status}.`);
+        appendEvent("info", "Status refreshed", `${summary.workerName}: ${summary.status}`);
+      } else if (previousStatus && previousStatus !== summary.status) {
+        setLaunchStatus(getWorkerStatusCopy(summary.status));
+
+        if (summary.status === "healthy") {
+          appendEvent("success", "Provisioning complete", `${summary.workerName} is ready`);
+        } else if (summary.status === "failed") {
+          appendEvent("error", "Provisioning failed", `${summary.workerName} failed to provision`);
+        } else {
+          appendEvent("info", "Provisioning update", `${summary.workerName}: ${summary.status}`);
+        }
+      }
+
+      if (!background) {
+        void refreshWorkers({ keepSelection: true });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown network error";
-      setLaunchError(message);
-      appendEvent("error", "Status check failed", message);
+      if (!quiet) {
+        setLaunchError(message);
+        appendEvent("error", "Status check failed", message);
+      }
     } finally {
-      setActionBusy(null);
+      if (!background) {
+        setActionBusy(null);
+      }
     }
   }
 
@@ -1077,6 +1163,8 @@ export function CloudControlPanel() {
         title: "Launch",
         detail: checkoutUrl
           ? "Complete checkout, return, and relaunch"
+          : worker?.status === "provisioning"
+            ? "Provisioning in background. Auto-checking every 5 seconds."
           : launchBusy
             ? launchStatus
             : "Launch a cloud worker from this card"
@@ -1084,7 +1172,10 @@ export function CloudControlPanel() {
       {
         id: 3,
         title: "Connect",
-        detail: worker ? "Copy OpenWork URL + access token into OpenWork" : "Credentials appear when launch succeeds"
+        detail:
+          worker?.status === "healthy"
+            ? "Copy OpenWork URL + access token into OpenWork"
+            : "Credentials appear after provisioning is healthy"
       }
     ],
     [checkoutUrl, launchBusy, launchStatus, user, worker]
@@ -1196,8 +1287,17 @@ export function CloudControlPanel() {
               />
             </label>
 
-            <button type="button" className="ow-btn-primary" onClick={handleLaunchWorker} disabled={!user || launchBusy}>
-              {launchBusy ? "Launching..." : `Launch "${workerName || "Cloud Worker"}"`}
+            <button
+              type="button"
+              className="ow-btn-primary"
+              onClick={handleLaunchWorker}
+              disabled={!user || launchBusy || worker?.status === "provisioning"}
+            >
+              {launchBusy
+                ? "Requesting launch..."
+                : worker?.status === "provisioning"
+                  ? "Provisioning in progress..."
+                  : `Launch "${workerName || "Cloud Worker"}"`}
             </button>
 
             <div className="ow-note-box">
@@ -1268,7 +1368,7 @@ export function CloudControlPanel() {
                 <button
                   type="button"
                   className="ow-btn-secondary"
-                  onClick={handleCheckStatus}
+                  onClick={() => void handleCheckStatus()}
                   disabled={actionBusy !== null || !selectedWorker}
                 >
                   {actionBusy === "status" ? "Checking..." : "Check status"}
@@ -1359,7 +1459,7 @@ export function CloudControlPanel() {
             ) : null}
 
             <div className="ow-inline-actions">
-              <button type="button" className="ow-btn-secondary" onClick={handleCheckStatus} disabled={actionBusy !== null}>
+              <button type="button" className="ow-btn-secondary" onClick={() => void handleCheckStatus()} disabled={actionBusy !== null}>
                 {actionBusy === "status" ? "Checking..." : "Check status"}
               </button>
               <button type="button" className="ow-btn-secondary" onClick={handleGenerateKey} disabled={actionBusy !== null}>
@@ -1381,7 +1481,12 @@ export function CloudControlPanel() {
             </div>
 
             <div className="ow-note-box">
-              <p>Open OpenWork and paste OpenWork worker URL plus Access token into the remote connect flow.</p>
+              <p>In OpenWork desktop:</p>
+              <ol className="ow-connect-steps">
+                <li>Click <span className="ow-mono">+ Add a worker</span>.</li>
+                <li>Select <span className="ow-mono">Connect remote</span>.</li>
+                <li>Paste <span className="ow-mono">OpenWork worker URL</span> and <span className="ow-mono">Access token</span>, then add worker.</li>
+              </ol>
               {!hasWorkspaceScopedUrl && openworkConnectUrl ? (
                 <p className="ow-caption">Tip: URL should include /w/ws_... . Click Check status to resolve the mounted workspace URL.</p>
               ) : null}

@@ -162,6 +162,39 @@ function toWorkerResponse(row: WorkerRow, userId: string) {
   }
 }
 
+async function continueCloudProvisioning(input: { workerId: string; name: string; hostToken: string; clientToken: string }) {
+  try {
+    const provisioned = await provisionWorker({
+      workerId: input.workerId,
+      name: input.name,
+      hostToken: input.hostToken,
+      clientToken: input.clientToken,
+    })
+
+    await db
+      .update(WorkerTable)
+      .set({ status: provisioned.status })
+      .where(eq(WorkerTable.id, input.workerId))
+
+    await db.insert(WorkerInstanceTable).values({
+      id: randomUUID(),
+      worker_id: input.workerId,
+      provider: provisioned.provider,
+      region: provisioned.region,
+      url: provisioned.url,
+      status: provisioned.status,
+    })
+  } catch (error) {
+    await db
+      .update(WorkerTable)
+      .set({ status: "failed" })
+      .where(eq(WorkerTable.id, input.workerId))
+
+    const message = error instanceof Error ? error.message : "provisioning_failed"
+    console.error(`[workers] provisioning failed for ${input.workerId}: ${message}`)
+  }
+}
+
 export const workersRouter = express.Router()
 
 workersRouter.get("/", async (req, res) => {
@@ -271,44 +304,16 @@ workersRouter.post("/", async (req, res) => {
     },
   ])
 
-  let instance = null
   if (parsed.data.destination === "cloud") {
-    try {
-      const provisioned = await provisionWorker({
-        workerId,
-        name: parsed.data.name,
-        hostToken,
-        clientToken,
-      })
-      workerStatus = provisioned.status
-
-      await db
-        .update(WorkerTable)
-        .set({ status: workerStatus })
-        .where(eq(WorkerTable.id, workerId))
-
-      await db.insert(WorkerInstanceTable).values({
-        id: randomUUID(),
-        worker_id: workerId,
-        provider: provisioned.provider,
-        region: provisioned.region,
-        url: provisioned.url,
-        status: provisioned.status,
-      })
-      instance = provisioned
-    } catch (error) {
-      await db
-        .update(WorkerTable)
-        .set({ status: "failed" })
-        .where(eq(WorkerTable.id, workerId))
-
-      const message = error instanceof Error ? error.message : "provisioning_failed"
-      res.status(502).json({ error: "provisioning_failed", message })
-      return
-    }
+    void continueCloudProvisioning({
+      workerId,
+      name: parsed.data.name,
+      hostToken,
+      clientToken,
+    })
   }
 
-  res.status(201).json({
+  res.status(parsed.data.destination === "cloud" ? 202 : 201).json({
     worker: toWorkerResponse(
       {
         id: workerId,
@@ -330,7 +335,8 @@ workersRouter.post("/", async (req, res) => {
       host: hostToken,
       client: clientToken,
     },
-    instance,
+    instance: null,
+    launch: parsed.data.destination === "cloud" ? { mode: "async", pollAfterMs: 5000 } : { mode: "instant", pollAfterMs: 0 },
   })
 })
 
