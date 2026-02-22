@@ -597,6 +597,7 @@ export function CloudControlPanel() {
   const [workerQuery, setWorkerQuery] = useState("");
   const [workerStatusFilter, setWorkerStatusFilter] = useState<WorkerStatusBucket | "all">("all");
   const [showLaunchForm, setShowLaunchForm] = useState(false);
+  const [openAccordion, setOpenAccordion] = useState<"connect" | "actions" | "advanced" | null>("connect");
 
   const selectedWorker = workers.find((item) => item.workerId === workerLookupId) ?? null;
   const activeWorker: WorkerLaunch | null =
@@ -1397,58 +1398,104 @@ export function CloudControlPanel() {
         ) : null}
 
         {step === 2 ? (
-          <div className="ow-app-shell bg-[#F4F5F7] p-3 md:p-4 rounded-[32px]">
-            <aside className="ow-app-nav">
-              <div className="ow-nav-group">
-                <p className="ow-nav-label">Workspace</p>
+          <div className="min-h-[calc(100vh-10rem)] rounded-[36px] bg-[#F4F5F7] p-3 md:p-6">
+            <div className="mb-3 flex items-center justify-between rounded-[18px] border border-slate-200 bg-white p-2 lg:hidden">
+              <div className="flex gap-2">
                 <button
                   type="button"
-                  className={`ow-nav-item ${shellView === "workers" ? "is-active" : ""}`}
                   onClick={() => setShellView("workers")}
+                  className={`rounded-[12px] px-3 py-1.5 text-sm font-medium transition ${
+                    shellView === "workers" ? "bg-[#1B29FF]/10 text-[#1B29FF]" : "text-slate-600 hover:bg-slate-100"
+                  }`}
                 >
                   Workers
                 </button>
                 <button
                   type="button"
-                  className={`ow-nav-item ${shellView === "billing" ? "is-active" : ""}`}
                   onClick={() => setShellView("billing")}
+                  className={`rounded-[12px] px-3 py-1.5 text-sm font-medium transition ${
+                    shellView === "billing" ? "bg-[#1B29FF]/10 text-[#1B29FF]" : "text-slate-600 hover:bg-slate-100"
+                  }`}
                 >
                   Billing
                 </button>
               </div>
-
-              <div className="ow-app-nav-footer">
-                <p className="ow-nav-label">Account</p>
-                <p className="ow-caption ow-nav-email">{(user?.email ?? email) || "account"}</p>
-                <button type="button" className="ow-link" onClick={() => void handleSignOut()} disabled={authBusy}>
-                  {authBusy ? "Signing out..." : "Log out"}
-                </button>
-              </div>
-            </aside>
+              <button
+                type="button"
+                className="rounded-[12px] border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void handleSignOut()}
+                disabled={authBusy}
+              >
+                {authBusy ? "Signing out..." : "Log out"}
+              </button>
+            </div>
 
             {shellView === "workers" ? (
-              <>
-                <section className="ow-pane ow-workers-pane">
-                  <div className="ow-pane-head ow-pane-head-row">
-                    <div>
-                      <p className="ow-section-title">Workers</p>
-                      <p className="ow-caption">Pick a worker to see details.</p>
+              <div className="flex h-full flex-col gap-4 lg:flex-row">
+                <aside className="hidden w-[260px] shrink-0 flex-col justify-between rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm lg:flex">
+                  <div>
+                    <div className="mb-8 mt-2 flex items-center gap-2 px-2">
+                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[#1B29FF]/10 text-sm font-bold text-[#1B29FF]">*</span>
+                      <span className="text-xl font-bold tracking-tight text-slate-900">OpenWork</span>
                     </div>
+
+                    <div className="mb-6">
+                      <div className="mb-3 flex items-center gap-2 px-2 text-xs font-medium uppercase tracking-[0.08em] text-slate-400">
+                        <span>Menu</span>
+                      </div>
+                      <nav className="space-y-1">
+                        <button
+                          type="button"
+                          className="w-full rounded-[14px] bg-[#1B29FF]/10 px-3 py-2.5 text-left text-sm font-medium text-[#1B29FF] transition"
+                          onClick={() => setShellView("workers")}
+                        >
+                          Workers
+                        </button>
+                        <button
+                          type="button"
+                          className="w-full rounded-[14px] px-3 py-2.5 text-left text-sm font-medium text-slate-500 transition hover:bg-slate-50"
+                          onClick={() => setShellView("billing")}
+                        >
+                          Billing
+                        </button>
+                        <span className="block rounded-[14px] px-3 py-2.5 text-sm font-medium text-slate-400">Settings</span>
+                        <span className="block rounded-[14px] px-3 py-2.5 text-sm font-medium text-slate-400">Help Center</span>
+                      </nav>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[22px] border border-slate-200 bg-[#F8F9FA] p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">Signed in</p>
+                    <p className="mt-1 break-all text-sm font-medium text-slate-700">{(user?.email ?? email) || "account"}</p>
                     <button
                       type="button"
-                      className="ow-btn-primary ow-btn-compact ow-btn-primary-inline"
+                      className="mt-4 w-full rounded-[12px] bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={() => void handleSignOut()}
+                      disabled={authBusy}
+                    >
+                      {authBusy ? "Signing out..." : "Log out"}
+                    </button>
+                  </div>
+                </aside>
+
+                <section className="w-full shrink-0 rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:w-[340px]">
+                  <div className="mb-6 flex items-center justify-between">
+                    <h2 className="text-xl font-semibold tracking-tight text-slate-900">Workers</h2>
+                    <button
+                      type="button"
+                      className="rounded-full bg-[#1B29FF] p-2.5 text-white transition hover:bg-[#151FDA]"
                       onClick={() => setShowLaunchForm((current) => !current)}
                     >
-                      {showLaunchForm ? "Close" : "+ New Worker"}
+                      {showLaunchForm ? "-" : "+"}
                     </button>
                   </div>
 
                   {showLaunchForm ? (
-                    <div className="ow-pane-block">
-                      <label className="ow-field-block">
-                        <span className="ow-field-label">Worker Name</span>
+                    <div className="mb-5 rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                      <label className="mb-3 block">
+                        <span className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Worker Name</span>
                         <input
-                          className="ow-input"
+                          className="w-full rounded-[12px] border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-[#1B29FF] focus:ring-2 focus:ring-[#1B29FF]/15"
                           value={workerName}
                           onChange={(event) => setWorkerName(event.target.value)}
                           maxLength={80}
@@ -1457,288 +1504,358 @@ export function CloudControlPanel() {
 
                       <button
                         type="button"
-                        className="ow-btn-primary"
+                        className="w-full rounded-[12px] bg-[#1B29FF] px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-[#151FDA] disabled:cursor-not-allowed disabled:opacity-60"
                         onClick={handleLaunchWorker}
                         disabled={!user || launchBusy || worker?.status === "provisioning"}
                       >
-                      {launchBusy
-                        ? "Starting worker..."
-                        : worker?.status === "provisioning"
-                          ? "Worker is starting..."
-                          : `Launch "${workerName || "Cloud Worker"}"`}
-                    </button>
+                        {launchBusy
+                          ? "Starting worker..."
+                          : worker?.status === "provisioning"
+                            ? "Worker is starting..."
+                            : `Launch "${workerName || "Cloud Worker"}"`}
+                      </button>
 
                       {(launchStatus || launchError) && showLaunchForm ? (
-                        <div className="ow-note-box">
-                          <p>{launchStatus}</p>
-                          {launchError ? <p className="ow-error-text">{launchError}</p> : null}
+                        <div className="mt-3 rounded-[12px] border border-slate-200 bg-white px-3 py-2">
+                          <p className="text-xs text-slate-600">{launchStatus}</p>
+                          {launchError ? <p className="mt-1 text-xs font-medium text-rose-600">{launchError}</p> : null}
                         </div>
                       ) : null}
 
                       {checkoutUrl ? (
-                        <div className="ow-paywall-box">
-                          <p className="ow-paywall-title">Payment needed before launch</p>
-                          <a href={checkoutUrl} rel="noreferrer" className="ow-btn-secondary ow-full">
+                        <div className="mt-3 rounded-[12px] border border-amber-200 bg-amber-50 px-3 py-2.5">
+                          <p className="text-sm font-semibold text-amber-800">Payment needed before launch</p>
+                          <a
+                            href={checkoutUrl}
+                            rel="noreferrer"
+                            className="mt-2 inline-flex rounded-[10px] border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+                          >
                             Continue to checkout
                           </a>
-                          <p className="ow-caption">After payment, come back and click launch again.</p>
                         </div>
                       ) : null}
                     </div>
                   ) : null}
 
-                  <div className="ow-filter-row">
+                  <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
                     <input
-                      className="ow-input"
+                      className="min-w-[170px] rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-700 outline-none focus:border-[#1B29FF]"
                       value={workerQuery}
                       onChange={(event) => setWorkerQuery(event.target.value)}
-                      placeholder="Search workers"
+                      placeholder="Search..."
                       aria-label="Search workers"
                     />
                     <select
-                      className="ow-select"
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 outline-none"
                       value={workerStatusFilter}
                       onChange={(event) => setWorkerStatusFilter(event.target.value as WorkerStatusBucket | "all")}
                     >
-                      <option value="all">All statuses</option>
+                      <option value="all">All</option>
                       <option value="ready">Ready</option>
                       <option value="starting">Starting</option>
-                      <option value="attention">Needs attention</option>
+                      <option value="attention">Attention</option>
                     </select>
                   </div>
 
-                  {workersBusy ? <p className="ow-caption">Loading workers...</p> : null}
-                  {workersError ? <p className="ow-error-text">{workersError}</p> : null}
+                  {workersBusy ? <p className="mb-2 text-xs text-slate-500">Loading workers...</p> : null}
+                  {workersError ? <p className="mb-2 text-xs font-medium text-rose-600">{workersError}</p> : null}
 
-                  {filteredWorkers.length > 0 ? (
-                    <ul className="ow-worker-list ow-worker-list-panel">
-                      {filteredWorkers.map((item) => {
-                        const meta = getWorkerStatusMeta(item.status);
-                        return (
-                          <li key={item.workerId}>
-                            <button
-                              type="button"
-                              className={`ow-worker-select ${workerLookupId === item.workerId ? "is-active" : ""}`}
-                              onClick={() => {
-                                setWorkerLookupId(item.workerId);
-                                setWorker((current) => listItemToWorker(item, current));
-                              }}
-                            >
-                              <div className="ow-worker-head">
-                                <div>
-                                  <p className="ow-step-title">{item.workerName}</p>
-                                  <p className="ow-worker-meta">{getWorkerAddressLabel(item)}</p>
-                                </div>
-                                <div className="ow-worker-badges">
-                                  <span className={`ow-status-pill is-${meta.bucket}`}>{meta.label}</span>
-                                  {item.isMine ? <span className="ow-badge">Yours</span> : null}
-                                </div>
-                              </div>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : null}
+                  <div className="space-y-3 overflow-y-auto pr-1">
+                    {filteredWorkers.map((item) => {
+                      const meta = getWorkerStatusMeta(item.status);
+                      const isActive = workerLookupId === item.workerId;
+                      const statusPill =
+                        meta.bucket === "ready"
+                          ? "bg-[#E8F5E9] text-[#2E7D32]"
+                          : meta.bucket === "starting"
+                            ? "bg-amber-100 text-amber-700"
+                            : meta.bucket === "attention"
+                              ? "bg-rose-100 text-rose-700"
+                              : "bg-slate-100 text-slate-500";
+
+                      const statusDot =
+                        meta.bucket === "ready"
+                          ? "bg-[#2E7D32]"
+                          : meta.bucket === "starting"
+                            ? "bg-amber-500"
+                            : meta.bucket === "attention"
+                              ? "bg-rose-500"
+                              : "bg-slate-400";
+
+                      return (
+                        <button
+                          key={item.workerId}
+                          type="button"
+                          onClick={() => {
+                            setWorkerLookupId(item.workerId);
+                            setWorker((current) => listItemToWorker(item, current));
+                          }}
+                          className={`w-full rounded-[20px] border p-4 text-left transition-all ${
+                            isActive
+                              ? "border-[#1B29FF] bg-[#1B29FF]/[0.03] ring-1 ring-[#1B29FF]/30"
+                              : "border-slate-100 bg-white hover:border-slate-300"
+                          }`}
+                        >
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <span className={`truncate pr-2 text-sm font-semibold ${isActive ? "text-[#1B29FF]" : "text-slate-700"}`}>
+                              {item.workerName}
+                            </span>
+                            {item.isMine ? (
+                              <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                Yours
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-3 flex items-center justify-between">
+                            <span className="font-mono text-xs font-medium text-slate-400">{getWorkerAddressLabel(item)}</span>
+                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${statusPill}`}>
+                              <span className={`h-1.5 w-1.5 rounded-full ${statusDot}`} />
+                              {meta.label}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
 
                   {workers.length > 0 && filteredWorkers.length === 0 ? (
-                    <p className="ow-caption">No workers match this filter.</p>
+                    <p className="mt-3 text-xs text-slate-500">No workers match this filter.</p>
                   ) : null}
 
                   {workers.length === 0 && !workersBusy ? (
-                    <p className="ow-caption">No workers yet. Launch one to get started.</p>
+                    <p className="mt-3 text-xs text-slate-500">No workers yet. Create one to get started.</p>
                   ) : null}
                 </section>
 
-                <section className="ow-pane ow-detail-pane">
+                <section className="min-w-0 flex-1 rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
                   {selectedWorker ? (
                     <>
-                      <div className="ow-pane-head">
-                        <p className="ow-section-title">Overview</p>
-                        <div className="ow-worker-head">
-                          <div>
-                            <p className="ow-step-title">{activeWorker?.workerName ?? selectedWorker.workerName}</p>
-                            <p className="ow-step-detail">{selectedStatusMeta.label}</p>
+                      <div className="mb-2 px-1">
+                        <h1 className="mb-1 text-2xl font-bold tracking-tight text-slate-900">Overview</h1>
+                      </div>
+
+                      <div className="space-y-6 overflow-y-auto pb-2">
+                        <div className="rounded-[28px] border border-slate-100 bg-white p-6">
+                          <h2 className="mb-2 text-3xl font-bold tracking-tight text-slate-900">
+                            {activeWorker?.workerName ?? selectedWorker.workerName}
+                          </h2>
+                          <p className="mb-6 text-sm text-slate-500">{getWorkerStatusCopy(selectedWorkerStatus)}</p>
+
+                          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                            <div className="rounded-[20px] border border-slate-100 bg-white p-4">
+                              <p className="text-sm font-medium text-slate-500">Status</p>
+                              <p className="mt-2 text-2xl font-bold text-slate-900">{selectedStatusMeta.label}</p>
+                            </div>
+                            <div className="rounded-[20px] border border-slate-100 bg-white p-4">
+                              <p className="text-sm font-medium text-slate-500">Connection</p>
+                              <p className="mt-2 text-2xl font-bold text-slate-900">{openworkDeepLink ? "Ready" : "Preparing"}</p>
+                            </div>
                           </div>
-                          {selectedWorker.isMine ? <span className="ow-badge">Yours</span> : null}
                         </div>
-                        <p className="ow-caption">{getWorkerStatusCopy(selectedWorkerStatus)}</p>
-                      </div>
 
-                      <div className="ow-overview-grid">
-                        <div className="ow-overview-card">
-                          <p className="ow-overview-label">Status</p>
-                          <p className={`ow-overview-value is-${selectedStatusMeta.bucket}`}>{selectedStatusMeta.label}</p>
-                        </div>
-                        <div className="ow-overview-card">
-                          <p className="ow-overview-label">Connect</p>
-                          <p className="ow-overview-value">{openworkDeepLink ? "One-click ready" : "Preparing"}</p>
-                        </div>
-                      </div>
+                        <div className="rounded-[28px] border border-slate-100 bg-white p-6">
+                          <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <h3 className="text-lg font-bold tracking-tight text-slate-900">Connection Details</h3>
+                              <p className="text-sm text-slate-500">Access and manage your worker instance.</p>
+                            </div>
 
-                      <div className="ow-inline-actions">
-                        <button
-                          type="button"
-                          className="ow-btn-primary ow-btn-primary-inline ow-open-btn"
-                          onClick={() => {
-                            if (!openworkDeepLink) {
-                              return;
-                            }
-                            window.location.href = openworkDeepLink;
-                          }}
-                          disabled={!openworkDeepLink || selectedStatusMeta.bucket !== "ready"}
-                        >
-                          {openworkDeepLink ? "Open in OpenWork" : "Preparing connection..."}
-                        </button>
-                      </div>
-
-                      <div className="ow-connection-block">
-                        <p className="ow-field-label">Connection URL</p>
-                        <div className="ow-copy-row">
-                          <input
-                            readOnly
-                            value={openworkConnectUrl ?? "Connection URL is still preparing..."}
-                            className="ow-input ow-mono"
-                            onClick={(event) => event.currentTarget.select()}
-                          />
-                          <button
-                            type="button"
-                            className="ow-btn-icon"
-                            disabled={!openworkConnectUrl}
-                            onClick={() => void copyToClipboard("openwork-url", openworkConnectUrl)}
-                          >
-                            {copiedField === "openwork-url" ? "Copied" : "Copy"}
-                          </button>
-                        </div>
-                      </div>
-
-                      {!openworkDeepLink || !openworkConnectUrl || (!hasWorkspaceScopedUrl && openworkConnectUrl) ? (
-                        <div className="ow-note-box">
-                          {!openworkDeepLink ? <p className="ow-caption">Getting connection details ready...</p> : null}
-                          {!openworkConnectUrl ? <p className="ow-caption">Keep this page open for a moment.</p> : null}
-                          {!hasWorkspaceScopedUrl && openworkConnectUrl ? <p className="ow-caption">Finishing your workspace URL...</p> : null}
-                        </div>
-                      ) : null}
-
-                      <details className="ow-howto">
-                        <summary>Manual connect details</summary>
-                        <p className="ow-howto-copy">
-                          If one-click open doesn't work, copy these into OpenWork: Add a worker &gt; Connect remote.
-                        </p>
-                        <CredentialRow
-                          label="OpenWork worker URL"
-                          value={openworkConnectUrl}
-                          placeholder="URL appears once ready"
-                          canCopy={Boolean(openworkConnectUrl)}
-                          copied={copiedField === "manual-openwork-url"}
-                          onCopy={() => void copyToClipboard("manual-openwork-url", openworkConnectUrl)}
-                        />
-
-                        <CredentialRow
-                          label="Access token"
-                          value={activeWorker?.clientToken ?? null}
-                          placeholder="Use Worker actions to refresh"
-                          canCopy={Boolean(activeWorker?.clientToken)}
-                          copied={copiedField === "access-token"}
-                          onCopy={() => void copyToClipboard("access-token", activeWorker?.clientToken ?? null)}
-                        />
-                      </details>
-
-                      <details className="ow-howto">
-                        <summary>Worker actions</summary>
-                        <div className="ow-inline-actions">
-                          <button
-                            type="button"
-                            className="ow-btn-secondary"
-                            onClick={() => void refreshWorkers({ keepSelection: true })}
-                            disabled={workersBusy || actionBusy !== null}
-                          >
-                            {workersBusy ? "Refreshing..." : "Refresh list"}
-                          </button>
-                          <button
-                            type="button"
-                            className="ow-btn-secondary"
-                            onClick={() => void handleCheckStatus({ workerId: selectedWorker.workerId })}
-                            disabled={actionBusy !== null}
-                          >
-                            {actionBusy === "status" ? "Checking..." : "Check status"}
-                          </button>
-                          <button
-                            type="button"
-                            className="ow-btn-secondary"
-                            onClick={handleGenerateKey}
-                            disabled={actionBusy !== null}
-                          >
-                            {actionBusy === "token" ? "Fetching..." : "Refresh token"}
-                          </button>
-                        </div>
-                      </details>
-
-                      <details className="ow-howto">
-                        <summary>Advanced details</summary>
-                        <CredentialRow
-                          label="Worker host URL"
-                          value={activeWorker?.instanceUrl ?? null}
-                          placeholder="Host URL"
-                          canCopy={Boolean(activeWorker?.instanceUrl)}
-                          copied={copiedField === "worker-host-url"}
-                          onCopy={() => void copyToClipboard("worker-host-url", activeWorker?.instanceUrl ?? null)}
-                        />
-
-                        <CredentialRow
-                          label="Worker ID"
-                          value={(activeWorker?.workerId ?? workerLookupId) || null}
-                          placeholder="Worker ID"
-                          canCopy={Boolean(activeWorker?.workerId || workerLookupId)}
-                          copied={copiedField === "worker-id"}
-                          onCopy={() => void copyToClipboard("worker-id", (activeWorker?.workerId ?? workerLookupId) || null)}
-                        />
-
-                        {events.length > 0 ? (
-                          <div className="ow-log-box">
-                            <p className="ow-section-title">Recent activity</p>
-                            <ul className="ow-log-list">
-                              {events.map((entry) => (
-                                <li key={entry.id} className={`ow-log-item level-${entry.level}`}>
-                                  <div className="ow-log-head">
-                                    <span>{entry.label}</span>
-                                    <span className="ow-mono">{new Date(entry.at).toLocaleTimeString()}</span>
-                                  </div>
-                                  <p>{entry.detail}</p>
-                                </li>
-                              ))}
-                            </ul>
+                            <button
+                              type="button"
+                              className="rounded-[14px] bg-[#1B29FF] px-6 py-3 text-sm font-semibold text-white shadow-md shadow-[#1B29FF]/25 transition hover:bg-[#151FDA] disabled:cursor-not-allowed disabled:opacity-60"
+                              onClick={() => {
+                                if (!openworkDeepLink) {
+                                  return;
+                                }
+                                window.location.href = openworkDeepLink;
+                              }}
+                              disabled={!openworkDeepLink || selectedStatusMeta.bucket !== "ready"}
+                            >
+                              {openworkDeepLink ? "Open in OpenWork" : "Preparing connection..."}
+                            </button>
                           </div>
-                        ) : null}
-                      </details>
+
+                          <div className="mb-6">
+                            <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Connection URL</label>
+                            <div className="flex items-center gap-2 rounded-[14px] border border-slate-200 bg-[#F8F9FA] p-1.5">
+                              <input
+                                type="text"
+                                readOnly
+                                value={openworkConnectUrl ?? "Connection URL is still preparing..."}
+                                className="w-full flex-1 bg-transparent px-3 py-2 font-mono text-xs text-slate-600 outline-none"
+                                onClick={(event) => event.currentTarget.select()}
+                              />
+                              <button
+                                type="button"
+                                className="rounded-xl border border-transparent bg-white px-3 py-2 text-xs font-medium text-slate-500 transition hover:border-slate-200 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                                disabled={!openworkConnectUrl}
+                                onClick={() => void copyToClipboard("openwork-url", openworkConnectUrl)}
+                              >
+                                {copiedField === "openwork-url" ? "Copied" : "Copy"}
+                              </button>
+                            </div>
+                            {!openworkDeepLink || !openworkConnectUrl || (!hasWorkspaceScopedUrl && openworkConnectUrl) ? (
+                              <p className="mt-2 text-xs text-slate-500">
+                                {!openworkDeepLink
+                                  ? "Getting connection details ready..."
+                                  : !openworkConnectUrl
+                                    ? "Keep this page open for a moment."
+                                    : "Finishing your workspace URL..."}
+                              </p>
+                            ) : null}
+                          </div>
+
+                          <div className="overflow-hidden rounded-[20px] border border-slate-100">
+                            <div className="border-b border-slate-100">
+                              <button
+                                type="button"
+                                onClick={() => setOpenAccordion((current) => (current === "connect" ? null : "connect"))}
+                                className="flex w-full items-center justify-between p-4 text-left transition hover:bg-slate-50"
+                              >
+                                <span className="text-sm font-semibold text-slate-800">Manual connect details</span>
+                                <span className="text-sm text-slate-400">{openAccordion === "connect" ? "v" : ">"}</span>
+                              </button>
+                              {openAccordion === "connect" ? (
+                                <div className="space-y-3 px-4 pb-4">
+                                  <CredentialRow
+                                    label="OpenWork worker URL"
+                                    value={openworkConnectUrl}
+                                    placeholder="URL appears once ready"
+                                    canCopy={Boolean(openworkConnectUrl)}
+                                    copied={copiedField === "manual-openwork-url"}
+                                    onCopy={() => void copyToClipboard("manual-openwork-url", openworkConnectUrl)}
+                                  />
+
+                                  <CredentialRow
+                                    label="Access token"
+                                    value={activeWorker?.clientToken ?? null}
+                                    placeholder="Use Worker actions to refresh"
+                                    canCopy={Boolean(activeWorker?.clientToken)}
+                                    copied={copiedField === "access-token"}
+                                    onCopy={() => void copyToClipboard("access-token", activeWorker?.clientToken ?? null)}
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
+
+                            <div className="border-b border-slate-100">
+                              <button
+                                type="button"
+                                onClick={() => setOpenAccordion((current) => (current === "actions" ? null : "actions"))}
+                                className="flex w-full items-center justify-between p-4 text-left transition hover:bg-slate-50"
+                              >
+                                <span className="text-sm font-semibold text-slate-800">Worker actions</span>
+                                <span className="text-sm text-slate-400">{openAccordion === "actions" ? "v" : ">"}</span>
+                              </button>
+                              {openAccordion === "actions" ? (
+                                <div className="flex flex-wrap gap-2 px-4 pb-4">
+                                  <button
+                                    type="button"
+                                    className="rounded-[10px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                    onClick={() => void refreshWorkers({ keepSelection: true })}
+                                    disabled={workersBusy || actionBusy !== null}
+                                  >
+                                    {workersBusy ? "Refreshing..." : "Refresh list"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-[10px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                    onClick={() => void handleCheckStatus({ workerId: selectedWorker.workerId })}
+                                    disabled={actionBusy !== null}
+                                  >
+                                    {actionBusy === "status" ? "Checking..." : "Check status"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-[10px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                    onClick={handleGenerateKey}
+                                    disabled={actionBusy !== null}
+                                  >
+                                    {actionBusy === "token" ? "Fetching..." : "Refresh token"}
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+
+                            <div>
+                              <button
+                                type="button"
+                                onClick={() => setOpenAccordion((current) => (current === "advanced" ? null : "advanced"))}
+                                className="flex w-full items-center justify-between p-4 text-left transition hover:bg-slate-50"
+                              >
+                                <span className="text-sm font-semibold text-slate-800">Advanced details</span>
+                                <span className="text-sm text-slate-400">{openAccordion === "advanced" ? "v" : ">"}</span>
+                              </button>
+                              {openAccordion === "advanced" ? (
+                                <div className="space-y-3 px-4 pb-4">
+                                  <CredentialRow
+                                    label="Worker host URL"
+                                    value={activeWorker?.instanceUrl ?? null}
+                                    placeholder="Host URL"
+                                    canCopy={Boolean(activeWorker?.instanceUrl)}
+                                    copied={copiedField === "worker-host-url"}
+                                    onCopy={() => void copyToClipboard("worker-host-url", activeWorker?.instanceUrl ?? null)}
+                                  />
+
+                                  <CredentialRow
+                                    label="Worker ID"
+                                    value={(activeWorker?.workerId ?? workerLookupId) || null}
+                                    placeholder="Worker ID"
+                                    canCopy={Boolean(activeWorker?.workerId || workerLookupId)}
+                                    copied={copiedField === "worker-id"}
+                                    onCopy={() => void copyToClipboard("worker-id", (activeWorker?.workerId ?? workerLookupId) || null)}
+                                  />
+
+                                  {events.length > 0 ? (
+                                    <div className="rounded-[12px] border border-slate-200 bg-slate-50 p-3">
+                                      <p className="mb-2 text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Recent activity</p>
+                                      <ul className="space-y-2">
+                                        {events.map((entry) => (
+                                          <li key={entry.id} className="rounded-[10px] border border-slate-100 bg-white px-3 py-2">
+                                            <div className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-700">
+                                              <span>{entry.label}</span>
+                                              <span className="font-mono text-[10px] text-slate-500">{new Date(entry.at).toLocaleTimeString()}</span>
+                                            </div>
+                                            <p className="mt-1 text-xs text-slate-600">{entry.detail}</p>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </>
                   ) : (
-                    <div className="ow-empty-detail">
-                      <p className="ow-section-title">Select a worker</p>
-                      <p className="ow-caption">Pick a worker from the list to see details and connect.</p>
+                    <div className="flex min-h-[360px] items-center justify-center rounded-[24px] border border-dashed border-slate-300 bg-slate-50">
+                      <div className="px-6 text-center">
+                        <p className="text-lg font-semibold text-slate-900">Select a worker</p>
+                        <p className="mt-1 text-sm text-slate-500">Pick a worker from the list to see details and connect.</p>
+                      </div>
                     </div>
                   )}
                 </section>
-              </>
+              </div>
             ) : (
-              <section className="ow-pane ow-billing-pane ow-pane-span-2">
-                <div className="ow-pane-head">
-                  <p className="ow-section-title">Billing</p>
-                  <p className="ow-caption">Handle checkout when launching a new worker.</p>
-                </div>
-
+              <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
+                <h2 className="text-2xl font-bold tracking-tight text-slate-900">Billing</h2>
+                <p className="mt-1 text-sm text-slate-500">Handle checkout when launching a new worker.</p>
                 {checkoutUrl ? (
-                  <div className="ow-paywall-box">
-                    <p className="ow-paywall-title">Checkout in progress</p>
-                    <a href={checkoutUrl} rel="noreferrer" className="ow-btn-secondary ow-full">
+                  <div className="mt-5 rounded-[16px] border border-amber-200 bg-amber-50 p-4">
+                    <p className="text-sm font-semibold text-amber-800">Checkout in progress</p>
+                    <a
+                      href={checkoutUrl}
+                      rel="noreferrer"
+                      className="mt-2 inline-flex rounded-[10px] border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+                    >
                       Continue to checkout
                     </a>
                   </div>
                 ) : (
-                  <div className="ow-note-box">
-                    <p>No payment action right now.</p>
-                    <p className="ow-caption">Go to Workers and launch a worker when you're ready.</p>
-                  </div>
+                  <p className="mt-4 text-sm text-slate-600">No payment action right now.</p>
                 )}
               </section>
             )}
