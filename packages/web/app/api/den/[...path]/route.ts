@@ -30,8 +30,13 @@ function buildTargetUrl(base: string, request: NextRequest, targetPath: string):
   return upstream.toString();
 }
 
-function isAuthRequest(targetPath: string): boolean {
-  return targetPath === "api/auth" || targetPath.startsWith("api/auth/");
+function isLikelyHtmlBody(body: ArrayBuffer): boolean {
+  if (body.byteLength === 0) {
+    return false;
+  }
+
+  const preview = new TextDecoder().decode(body.slice(0, 256)).trim().toLowerCase();
+  return preview.startsWith("<!doctype") || preview.startsWith("<html") || preview.includes("<body");
 }
 
 function shouldFallbackToAuthOrigin(response: Response, body: ArrayBuffer): boolean {
@@ -48,12 +53,16 @@ function shouldFallbackToAuthOrigin(response: Response, body: ArrayBuffer): bool
     return true;
   }
 
-  if (body.byteLength === 0) {
-    return false;
-  }
+  return isLikelyHtmlBody(body);
+}
 
-  const preview = new TextDecoder().decode(body.slice(0, 256)).trim().toLowerCase();
-  return preview.startsWith("<!doctype") || preview.startsWith("<html") || preview.includes("<body");
+function buildUpstreamErrorResponse(status: number, error: string): Response {
+  return new Response(JSON.stringify({ error }), {
+    status,
+    headers: {
+      "content-type": "application/json"
+    }
+  });
 }
 
 function buildHeaders(request: NextRequest, contentType: string | null): Headers {
@@ -106,18 +115,42 @@ async function fetchUpstream(
 async function proxy(request: NextRequest, segments: string[] = []) {
   const targetPath = getTargetPath(request, segments);
   const primaryTargetUrl = buildTargetUrl(apiBase, request, targetPath);
+  const fallbackTargetUrl = buildTargetUrl(authOrigin, request, targetPath);
   const contentType = request.headers.get("content-type");
   const requestBody = request.method !== "GET" && request.method !== "HEAD" ? new Uint8Array(await request.arrayBuffer()) : null;
 
-  let { response: upstream, body } = await fetchUpstream(request, primaryTargetUrl, contentType, requestBody);
+  let upstream: Response | null = null;
+  let body: ArrayBuffer | null = null;
 
-  if (isAuthRequest(targetPath) && apiBase !== authOrigin && shouldFallbackToAuthOrigin(upstream, body)) {
-    const authTargetUrl = buildTargetUrl(authOrigin, request, targetPath);
+  try {
+    const primary = await fetchUpstream(request, primaryTargetUrl, contentType, requestBody);
+    upstream = primary.response;
+    body = primary.body;
+  } catch {
+    if (apiBase !== authOrigin) {
+      try {
+        const fallback = await fetchUpstream(request, fallbackTargetUrl, contentType, requestBody);
+        upstream = fallback.response;
+        body = fallback.body;
+      } catch {}
+    }
+  }
+
+  if (!upstream || !body) {
+    return buildUpstreamErrorResponse(502, "Upstream request failed.");
+  }
+
+  if (apiBase !== authOrigin && shouldFallbackToAuthOrigin(upstream, body)) {
     try {
-      const fallback = await fetchUpstream(request, authTargetUrl, contentType, requestBody);
+      const fallback = await fetchUpstream(request, fallbackTargetUrl, contentType, requestBody);
       upstream = fallback.response;
       body = fallback.body;
     } catch {}
+  }
+
+  const responseContentType = upstream.headers.get("content-type")?.toLowerCase() ?? "";
+  if (upstream.status >= 500 && (responseContentType.includes("text/html") || isLikelyHtmlBody(body))) {
+    return buildUpstreamErrorResponse(upstream.status, "Upstream service unavailable.");
   }
 
   const responseHeaders = new Headers();

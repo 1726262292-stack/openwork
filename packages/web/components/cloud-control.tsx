@@ -923,6 +923,50 @@ export function CloudControlPanel() {
     }
   }
 
+  async function handleSignOut() {
+    if (authBusy) {
+      return;
+    }
+
+    setAuthBusy(true);
+    setAuthError(null);
+
+    try {
+      await requestJson("/api/auth/sign-out", {
+        method: "POST",
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+        body: JSON.stringify({})
+      });
+    } catch {
+      // Ignore sign-out transport issues and clear local session state anyway.
+    } finally {
+      setAuthBusy(false);
+    }
+
+    setUser(null);
+    setAuthToken(null);
+    setWorker(null);
+    setWorkers([]);
+    setWorkerLookupId("");
+    setWorkersError(null);
+    setLaunchError(null);
+    setCheckoutUrl(null);
+    setPaymentReturned(false);
+    setTokenFetchedForWorkerId(null);
+    setActionBusy(null);
+    setLaunchBusy(false);
+    setStep(1);
+    setAuthMode("sign-in");
+    setPassword("");
+    setAuthInfo("Sign in to launch and manage cloud workers.");
+    setLaunchStatus("Name your worker and click launch.");
+    setEvents([]);
+
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(LAST_WORKER_STORAGE_KEY);
+    }
+  }
+
   async function handleLaunchWorker() {
     if (!user) {
       setAuthError("Sign in before launching a worker.");
@@ -1197,6 +1241,15 @@ export function CloudControlPanel() {
       </div>
 
       <div className="ow-card-body">
+        {user ? (
+          <div className="ow-session-row">
+            <p className="ow-caption">Signed in as {user.email}</p>
+            <button type="button" className="ow-link" onClick={() => void handleSignOut()} disabled={authBusy}>
+              {authBusy ? "Signing out..." : "Log out"}
+            </button>
+          </div>
+        ) : null}
+
         {step === 1 ? (
           <div className="ow-stack">
             <div className="ow-heading-block">
@@ -1271,7 +1324,7 @@ export function CloudControlPanel() {
             <div className="ow-heading-block">
               <span className="ow-icon-chip">02</span>
               <h1 className="ow-title">Launch a Worker</h1>
-              <p className="ow-subtitle">Signed in as {(user?.email ?? email) || "your account"}.</p>
+              <p className="ow-subtitle">Launch a worker, or select one from the list to connect.</p>
             </div>
 
             <label className="ow-field-block">
@@ -1318,14 +1371,6 @@ export function CloudControlPanel() {
                   <p className="ow-section-title">Your workers</p>
                   <p className="ow-caption">Classic flow: list on the left, details on the right.</p>
                 </div>
-                <button
-                  type="button"
-                  className="ow-btn-secondary"
-                  onClick={() => void refreshWorkers({ keepSelection: true })}
-                  disabled={workersBusy}
-                >
-                  Refresh list
-                </button>
               </div>
 
               {workersBusy ? <p className="ow-caption">Loading workers...</p> : null}
@@ -1375,28 +1420,42 @@ export function CloudControlPanel() {
                           <button
                             type="button"
                             className="ow-btn-secondary"
-                            onClick={() => void handleCheckStatus({ workerId: selectedWorker.workerId })}
-                            disabled={actionBusy !== null}
-                          >
-                            {actionBusy === "status" ? "Checking..." : "Check status"}
-                          </button>
-                          <button
-                            type="button"
-                            className="ow-btn-secondary"
-                            onClick={handleGenerateKey}
-                            disabled={actionBusy !== null}
-                          >
-                            {actionBusy === "token" ? "Fetching..." : "Get access token"}
-                          </button>
-                          <button
-                            type="button"
-                            className="ow-btn-secondary"
                             onClick={() => setStep(3)}
                             disabled={(activeWorker?.status ?? selectedWorker.status) !== "healthy"}
                           >
                             Connect in OpenWork
                           </button>
                         </div>
+
+                        <details className="ow-howto">
+                          <summary>Manual refresh and diagnostics</summary>
+                          <div className="ow-inline-actions">
+                            <button
+                              type="button"
+                              className="ow-btn-secondary"
+                              onClick={() => void refreshWorkers({ keepSelection: true })}
+                              disabled={workersBusy || actionBusy !== null}
+                            >
+                              {workersBusy ? "Refreshing..." : "Refresh list"}
+                            </button>
+                            <button
+                              type="button"
+                              className="ow-btn-secondary"
+                              onClick={() => void handleCheckStatus({ workerId: selectedWorker.workerId })}
+                              disabled={actionBusy !== null}
+                            >
+                              {actionBusy === "status" ? "Checking..." : "Check status"}
+                            </button>
+                            <button
+                              type="button"
+                              className="ow-btn-secondary"
+                              onClick={handleGenerateKey}
+                              disabled={actionBusy !== null}
+                            >
+                              {actionBusy === "token" ? "Fetching..." : "Get access token"}
+                            </button>
+                          </div>
+                        </details>
 
                         <details className="ow-howto">
                           <summary>Advanced</summary>
@@ -1473,12 +1532,6 @@ export function CloudControlPanel() {
               >
                 Open in OpenWork
               </button>
-              <button type="button" className="ow-btn-secondary" onClick={handleGenerateKey} disabled={actionBusy !== null}>
-                {actionBusy === "token" ? "Fetching..." : "Refresh access token"}
-              </button>
-              <button type="button" className="ow-btn-secondary" onClick={() => void handleCheckStatus()} disabled={actionBusy !== null}>
-                {actionBusy === "status" ? "Checking..." : "Refresh status"}
-              </button>
               <button
                 type="button"
                 className="ow-btn-secondary"
@@ -1496,6 +1549,18 @@ export function CloudControlPanel() {
                 Back to worker list
               </button>
             </div>
+
+            <details className="ow-howto">
+              <summary>Manual refresh and diagnostics</summary>
+              <div className="ow-inline-actions">
+                <button type="button" className="ow-btn-secondary" onClick={handleGenerateKey} disabled={actionBusy !== null}>
+                  {actionBusy === "token" ? "Fetching..." : "Refresh access token"}
+                </button>
+                <button type="button" className="ow-btn-secondary" onClick={() => void handleCheckStatus()} disabled={actionBusy !== null}>
+                  {actionBusy === "status" ? "Checking..." : "Refresh status"}
+                </button>
+              </div>
+            </details>
 
             <div className="ow-note-box">
               <p>OpenWork: Add a worker &gt; Connect remote.</p>
