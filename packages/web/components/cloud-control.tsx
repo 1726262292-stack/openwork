@@ -1487,6 +1487,9 @@ export function CloudControlPanel() {
                 <li>Select <span className="ow-mono">Connect remote</span>.</li>
                 <li>Paste <span className="ow-mono">OpenWork worker URL</span> and <span className="ow-mono">Access token</span>, then add worker.</li>
               </ol>
+              <figure className="ow-connect-shot">
+                <img src="/connect-remote-menu.png" alt="OpenWork Add a worker menu with Connect remote option" />
+              </figure>
               {!hasWorkspaceScopedUrl && openworkConnectUrl ? (
                 <p className="ow-caption">Tip: URL should include /w/ws_... . Click Check status to resolve the mounted workspace URL.</p>
               ) : null}

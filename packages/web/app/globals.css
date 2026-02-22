@@ -345,6 +345,20 @@ body {
   line-height: 1.35;
 }
 
+.ow-connect-shot {
+  margin: 0;
+  border-radius: 0.75rem;
+  border: 1px solid #dbe3f4;
+  overflow: hidden;
+  background: #fff;
+}
+
+.ow-connect-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .ow-error-text {
   color: var(--ow-danger);
   font-weight: 600;
