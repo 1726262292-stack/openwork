@@ -74,7 +74,16 @@ These are all opencode primitives you can read the docs to find out exactly how 
 
 ## Core Architecture
 
-OpenWork is a Tauri application with two runtime modes:
+OpenWork is a client experience that consumes OpenWork server surfaces.
+
+Historically, users reached OpenWork server capabilities in two ways:
+
+- a running desktop OpenWork app acting as host
+- a running `openwork-orchestrator` (CLI host)
+
+Now there is a third, first-class path: hosted OpenWork Cloud workers.
+
+OpenWork therefore has three runtime connection modes:
 
 ### Mode A - Host (Desktop/Server)
 
@@ -88,7 +97,27 @@ OpenWork is a Tauri application with two runtime modes:
 - It connects to an already-running OpenCode server hosted by a trusted device.
 - Pairing uses a QR code / one-time token and a secure transport (LAN or tunneled).
 
-This split makes mobile "first-class" without requiring the full engine to run on-device.
+### Mode C - Hosted OpenWork Cloud
+
+- User signs in to hosted OpenWork web/app surfaces.
+- User launches a cloud worker from hosted control plane.
+- OpenWork returns remote connect credentials (`/w/ws_*` URL + access token).
+- User connects from OpenWork app using `Add a worker` -> `Connect remote`.
+
+This model keeps the user experience consistent across self-hosted and hosted paths while preserving OpenCode parity.
+
+## Cloud Worker Connect Flow (Canonical)
+
+1. Authenticate in OpenWork Cloud control surface.
+2. Launch worker (with checkout/paywall when needed).
+3. Wait for provisioning and health.
+4. Generate/retrieve connect credentials.
+5. Connect in OpenWork app via deep link or manual URL + token.
+
+Technical note:
+
+- Default connect URL should be workspace-scoped (`/w/ws_*`) when available.
+- Technical diagnostics (host URL, worker ID, raw logs) should be progressive disclosure, not default UI.
 
 ## Web Parity + Filesystem Actions
 

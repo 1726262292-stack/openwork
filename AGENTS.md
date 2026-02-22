@@ -9,13 +9,34 @@ OpenWork is a practical control surface for agentic work:
 * Run local and remote agent workflows from one place.
 * Use OpenCode capabilities directly through OpenWork.
 * Compose desktop app, server, and messaging connectors without lock-in.
+* Treat the OpenWork app as a client of the OpenWork server API surface.
+* Connect to hosted workers through a simple user flow: `Add a worker` -> `Connect remote`.
 
 ## Core Philosophy
 
 * **Local-first, cloud-ready**: OpenWork runs on your machine in one click and can connect to cloud workflows when needed.
+* **Server-consumption first**: the app should consume OpenWork server surfaces (self-hosted or hosted), not invent parallel behavior.
 * **Composable**: use the desktop app, WhatsApp/Slack/Telegram connectors, or server mode based on the task.
 * **Ejectable**: OpenWork is powered by OpenCode, so anything OpenCode can do is available in OpenWork, even before a dedicated UI exists.
 * **Sharing is caring**: start solo, then share quickly; one CLI or desktop command can spin up an instantly shareable instance.
+
+## Core Runtime Model (Updated)
+
+OpenWork now has three production-grade ways to run the same product surface:
+
+1. **Desktop-hosted app/server**
+   - OpenWork app runs locally and can host server functionality on-device.
+2. **CLI-hosted server (openwork-orchestrator)**
+   - OpenWork server surfaces can be provided by the orchestrator/CLI on a trusted machine.
+3. **Hosted OpenWork Cloud server**
+   - OpenWork-hosted infrastructure provisions workers and exposes the same remote-connect semantics.
+
+User mental model:
+
+* The app is the UI and control layer.
+* The server is the execution/control API layer.
+* A worker is a remote runtime destination.
+* Connecting to a worker happens through `Add worker` -> `Connect remote` using URL + token (or deep link).
 
 Read INFRASTRUCTURE.md
 
