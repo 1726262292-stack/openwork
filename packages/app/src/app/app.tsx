@@ -159,6 +159,51 @@ import {
   OpenworkServerError,
 } from "./lib/openwork-server";
 
+type RemoteWorkspaceDefaults = {
+  openworkHostUrl?: string | null;
+  openworkToken?: string | null;
+  directory?: string | null;
+  displayName?: string | null;
+};
+
+function parseRemoteConnectDeepLink(rawUrl: string): RemoteWorkspaceDefaults | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  if (url.protocol.toLowerCase() !== "openwork:") {
+    return null;
+  }
+
+  const routeHost = url.hostname.toLowerCase();
+  const routePath = url.pathname.replace(/^\/+/, "").toLowerCase();
+  if (routeHost !== "connect-remote" && routePath !== "connect-remote") {
+    return null;
+  }
+
+  const hostUrlRaw = url.searchParams.get("openworkHostUrl") ?? url.searchParams.get("openworkUrl") ?? "";
+  const tokenRaw = url.searchParams.get("openworkToken") ?? url.searchParams.get("accessToken") ?? "";
+  const normalizedHostUrl = normalizeOpenworkServerUrl(hostUrlRaw);
+  const token = tokenRaw.trim();
+  if (!normalizedHostUrl || !token) {
+    return null;
+  }
+
+  const workerName = url.searchParams.get("workerName")?.trim() ?? "";
+  const workerId = url.searchParams.get("workerId")?.trim() ?? "";
+  const displayName = workerName || (workerId ? `Worker ${workerId.slice(0, 8)}` : "");
+
+  return {
+    openworkHostUrl: normalizedHostUrl,
+    openworkToken: token,
+    directory: null,
+    displayName: displayName || null,
+  };
+}
+
 export default function App() {
   const envOpenworkWorkspaceId =
     typeof import.meta.env?.VITE_OPENWORK_WORKSPACE_ID === "string"
@@ -2416,10 +2461,44 @@ export default function App() {
   const [editRemoteWorkspaceOpen, setEditRemoteWorkspaceOpen] = createSignal(false);
   const [editRemoteWorkspaceId, setEditRemoteWorkspaceId] = createSignal<string | null>(null);
   const [editRemoteWorkspaceError, setEditRemoteWorkspaceError] = createSignal<string | null>(null);
+  const [deepLinkRemoteWorkspaceDefaults, setDeepLinkRemoteWorkspaceDefaults] = createSignal<RemoteWorkspaceDefaults | null>(null);
+  const [pendingRemoteConnectDeepLink, setPendingRemoteConnectDeepLink] = createSignal<RemoteWorkspaceDefaults | null>(null);
   const [renameWorkspaceOpen, setRenameWorkspaceOpen] = createSignal(false);
   const [renameWorkspaceId, setRenameWorkspaceId] = createSignal<string | null>(null);
   const [renameWorkspaceName, setRenameWorkspaceName] = createSignal("");
   const [renameWorkspaceBusy, setRenameWorkspaceBusy] = createSignal(false);
+
+  const queueRemoteConnectDeepLink = (rawUrl: string): boolean => {
+    const parsed = parseRemoteConnectDeepLink(rawUrl);
+    if (!parsed) {
+      return false;
+    }
+    setPendingRemoteConnectDeepLink(parsed);
+    return true;
+  };
+
+  createEffect(() => {
+    const pending = pendingRemoteConnectDeepLink();
+    if (!pending || booting()) {
+      return;
+    }
+
+    setView("dashboard");
+    setTab("scheduled");
+    setDeepLinkRemoteWorkspaceDefaults(pending);
+    workspaceStore.setCreateRemoteWorkspaceOpen(true);
+    setPendingRemoteConnectDeepLink(null);
+  });
+
+  createEffect(() => {
+    if (workspaceStore.createRemoteWorkspaceOpen()) {
+      return;
+    }
+    if (!deepLinkRemoteWorkspaceDefaults()) {
+      return;
+    }
+    setDeepLinkRemoteWorkspaceDefaults(null);
+  });
 
   const editRemoteWorkspaceDefaults = createMemo(() => {
     const workspaceId = editRemoteWorkspaceId();
@@ -4174,6 +4253,30 @@ export default function App() {
         setLaunchUpdateCheckTriggered(true);
         checkForUpdates({ quiet: true }).catch(() => undefined);
       }
+
+      try {
+        const { getCurrent, onOpenUrl } = await import("@tauri-apps/plugin-deep-link");
+        const consumeUrls = (urls: string[] | null | undefined) => {
+          if (!Array.isArray(urls)) {
+            return;
+          }
+          for (const url of urls) {
+            if (queueRemoteConnectDeepLink(url)) {
+              break;
+            }
+          }
+        };
+
+        consumeUrls(await getCurrent());
+        const unlisten = await onOpenUrl((urls) => {
+          consumeUrls(urls);
+        });
+        onCleanup(() => {
+          unlisten();
+        });
+      } catch {
+        // ignore
+      }
     }
 
     void workspaceStore.bootstrapOnboarding().finally(() => setBooting(false));
@@ -5400,8 +5503,12 @@ export default function App() {
 
       <CreateRemoteWorkspaceModal
         open={workspaceStore.createRemoteWorkspaceOpen()}
-        onClose={() => workspaceStore.setCreateRemoteWorkspaceOpen(false)}
+        onClose={() => {
+          workspaceStore.setCreateRemoteWorkspaceOpen(false);
+          setDeepLinkRemoteWorkspaceDefaults(null);
+        }}
         onConfirm={(input) => workspaceStore.createRemoteWorkspaceFlow(input)}
+        initialValues={deepLinkRemoteWorkspaceDefaults() ?? undefined}
         submitting={
           busy() &&
           (busyLabel() === "status.creating_workspace" || busyLabel() === "status.connecting")

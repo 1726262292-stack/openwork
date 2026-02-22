@@ -323,19 +323,28 @@ function buildWorkspaceUrl(instanceUrl: string, workspaceId: string): string {
   return `${normalizeUrl(instanceUrl)}/w/${encodeURIComponent(workspaceId)}`;
 }
 
-function buildOpenworkDeepLink(openworkUrl: string | null, accessToken: string | null, workerId: string | null): string | null {
+function buildOpenworkDeepLink(
+  openworkUrl: string | null,
+  accessToken: string | null,
+  workerId: string | null,
+  workerName: string | null,
+): string | null {
   if (!openworkUrl || !accessToken) {
     return null;
   }
 
   const params = new URLSearchParams({
-    openworkUrl,
-    accessToken,
+    openworkHostUrl: openworkUrl,
+    openworkToken: accessToken,
     source: "openwork-web"
   });
 
   if (workerId) {
     params.set("workerId", workerId);
+  }
+
+  if (workerName) {
+    params.set("workerName", workerName);
   }
 
   return `openwork://connect-remote?${params.toString()}`;
@@ -549,7 +558,12 @@ export function CloudControlPanel() {
   const progressWidth = step === 1 ? "33.333%" : step === 2 ? "66.666%" : "100%";
   const openworkConnectUrl = activeWorker?.openworkUrl ?? activeWorker?.instanceUrl ?? null;
   const hasWorkspaceScopedUrl = Boolean(openworkConnectUrl && /\/w\/[^/?#]+/.test(openworkConnectUrl));
-  const openworkDeepLink = buildOpenworkDeepLink(openworkConnectUrl, activeWorker?.clientToken ?? null, activeWorker?.workerId ?? null);
+  const openworkDeepLink = buildOpenworkDeepLink(
+    openworkConnectUrl,
+    activeWorker?.clientToken ?? null,
+    activeWorker?.workerId ?? null,
+    activeWorker?.workerName ?? null,
+  );
 
   function appendEvent(level: EventLevel, label: string, detail: string) {
     setEvents((current) => {
@@ -1485,6 +1499,7 @@ export function CloudControlPanel() {
 
             <div className="ow-note-box">
               <p>OpenWork: Add a worker &gt; Connect remote.</p>
+              <p className="ow-caption">One-click open needs the OpenWork desktop app installed.</p>
               {!openworkDeepLink ? <p className="ow-caption">Waiting for both worker URL and access token before one-click open is ready.</p> : null}
               <details className="ow-howto">
                 <summary>Manual connect details</summary>
