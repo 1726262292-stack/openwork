@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { fromNodeHeaders, toNodeHandler } from "better-auth/node"
 import { auth } from "./auth.js"
 import { env } from "./env.js"
+import { asyncRoute, errorMiddleware } from "./http/errors.js"
 import { workersRouter } from "./http/workers.js"
 
 const app = express()
@@ -30,7 +31,7 @@ app.get("/health", (_, res) => {
   res.json({ ok: true })
 })
 
-app.get("/v1/me", async (req, res) => {
+app.get("/v1/me", asyncRoute(async (req, res) => {
   const session = await auth.api.getSession({
     headers: fromNodeHeaders(req.headers),
   })
@@ -39,9 +40,10 @@ app.get("/v1/me", async (req, res) => {
     return
   }
   res.json(session)
-})
+}))
 
 app.use("/v1/workers", workersRouter)
+app.use(errorMiddleware)
 
 app.listen(env.port, () => {
   console.log(`den listening on ${env.port} (provisioner=${env.provisionerMode})`)

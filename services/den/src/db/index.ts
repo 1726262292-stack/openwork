@@ -5,6 +5,11 @@ import * as schema from "./schema.js"
 
 const client = mysql.createPool({
   uri: env.databaseUrl,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 0,
 })
 
 export const db = drizzle(client, { schema, mode: "default" })

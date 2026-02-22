@@ -8,6 +8,7 @@ import { requireCloudWorkerAccess } from "../billing/polar.js"
 import { db } from "../db/index.js"
 import { OrgMembershipTable, WorkerInstanceTable, WorkerTable, WorkerTokenTable } from "../db/schema.js"
 import { env } from "../env.js"
+import { asyncRoute, isTransientDbConnectionError } from "./errors.js"
 import { ensureDefaultOrg } from "../orgs.js"
 import { provisionWorker } from "../workers/provisioner.js"
 
@@ -119,14 +120,32 @@ async function getOrgId(userId: string) {
 }
 
 async function getLatestWorkerInstance(workerId: string) {
-  const rows = await db
-    .select()
-    .from(WorkerInstanceTable)
-    .where(eq(WorkerInstanceTable.worker_id, workerId))
-    .orderBy(desc(WorkerInstanceTable.created_at))
-    .limit(1)
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const rows = await db
+        .select()
+        .from(WorkerInstanceTable)
+        .where(eq(WorkerInstanceTable.worker_id, workerId))
+        .orderBy(desc(WorkerInstanceTable.created_at))
+        .limit(1)
 
-  return rows[0] ?? null
+      return rows[0] ?? null
+    } catch (error) {
+      if (!isTransientDbConnectionError(error)) {
+        throw error
+      }
+
+      if (attempt === 0) {
+        console.warn(`[workers] transient db error reading instance for ${workerId}; retrying`)
+        continue
+      }
+
+      console.warn(`[workers] transient db error reading instance for ${workerId}; returning null instance`)
+      return null
+    }
+  }
+
+  return null
 }
 
 function toInstanceResponse(instance: WorkerInstanceRow | null) {
@@ -197,7 +216,7 @@ async function continueCloudProvisioning(input: { workerId: string; name: string
 
 export const workersRouter = express.Router()
 
-workersRouter.get("/", async (req, res) => {
+workersRouter.get("/", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
@@ -231,9 +250,9 @@ workersRouter.get("/", async (req, res) => {
   )
 
   res.json({ workers })
-})
+}))
 
-workersRouter.post("/", async (req, res) => {
+workersRouter.post("/", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
@@ -338,9 +357,9 @@ workersRouter.post("/", async (req, res) => {
     instance: null,
     launch: parsed.data.destination === "cloud" ? { mode: "async", pollAfterMs: 5000 } : { mode: "instant", pollAfterMs: 0 },
   })
-})
+}))
 
-workersRouter.get("/:id", async (req, res) => {
+workersRouter.get("/:id", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
@@ -367,9 +386,9 @@ workersRouter.get("/:id", async (req, res) => {
     worker: toWorkerResponse(rows[0], session.user.id),
     instance: toInstanceResponse(instance),
   })
-})
+}))
 
-workersRouter.post("/:id/tokens", async (req, res) => {
+workersRouter.post("/:id/tokens", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
@@ -417,4 +436,4 @@ workersRouter.post("/:id/tokens", async (req, res) => {
     },
     connect: connect ?? (instance?.url ? { openworkUrl: instance.url, workspaceId: null } : null),
   })
-})
+}))
