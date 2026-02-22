@@ -17,8 +17,6 @@ export default function HomePage() {
       </header>
 
       <CloudControlPanel />
-
-      <p className="ow-footer">Secured by OpenWork Software. Proxied to api.openwork.software.</p>
     </main>
   );
 }

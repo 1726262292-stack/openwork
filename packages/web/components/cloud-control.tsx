@@ -244,16 +244,18 @@ function getWorkersList(payload: unknown): WorkerListItem[] {
 }
 
 function getWorkerStatusCopy(status: string): string {
-  if (status === "provisioning") {
-    return "Provisioning is in progress. We auto-check every 5 seconds.";
+  switch (status) {
+    case "provisioning":
+      return "Starting... This may take a minute.";
+    case "healthy":
+      return "Ready to connect.";
+    case "failed":
+      return "Worker failed to start.";
+    case "suspended":
+      return "Worker is suspended.";
+    default:
+      return "Worker status unknown.";
   }
-  if (status === "healthy") {
-    return "Worker is healthy and ready for remote connect.";
-  }
-  if (status === "failed") {
-    return "Provisioning failed. Launch a new worker or retry status.";
-  }
-  return `Worker status: ${status}.`;
 }
 
 function isWorkerLaunch(value: unknown): value is WorkerLaunch {
@@ -1221,7 +1223,7 @@ export function CloudControlPanel() {
       const resolvedWorker = await withResolvedOpenworkCredentials(nextWorker, { quiet: true });
       setWorker(resolvedWorker);
 
-      setLaunchStatus("Access token is ready for this worker.");
+      setLaunchStatus("Worker is ready to connect.");
       appendEvent("success", "Access token ready", `Worker ID ${id}`);
       void refreshWorkers({ keepSelection: true });
     } catch (error) {
@@ -1407,11 +1409,12 @@ export function CloudControlPanel() {
                             <div className="ow-worker-head">
                               <div>
                                 <p className="ow-step-title">{item.workerName}</p>
-                                <p className="ow-step-detail">{item.status}</p>
+                                <p className="ow-step-detail">
+                                  {item.status === "healthy" ? "Ready" : item.status === "provisioning" ? "Starting..." : item.status}
+                                </p>
                               </div>
                               {item.isMine ? <span className="ow-badge">Yours</span> : null}
                             </div>
-                            <p className="ow-worker-meta ow-mono">{item.instanceUrl ?? "URL pending provisioning"}</p>
                           </button>
                         </li>
                       ))}
@@ -1429,13 +1432,18 @@ export function CloudControlPanel() {
                       <div className="ow-worker-head">
                         <div>
                           <p className="ow-section-title">{activeWorker?.workerName ?? selectedWorker.workerName}</p>
-                          <p className="ow-step-detail">{activeWorker?.status ?? selectedWorker.status}</p>
+                          <p className="ow-step-detail">
+                            {(activeWorker?.status ?? selectedWorker.status) === "healthy"
+                              ? "Ready"
+                              : (activeWorker?.status ?? selectedWorker.status) === "provisioning"
+                                ? "Starting..."
+                                : (activeWorker?.status ?? selectedWorker.status)}
+                          </p>
                         </div>
                         {selectedWorker.isMine ? <span className="ow-badge">Yours</span> : null}
                       </div>
 
                       <p className="ow-caption">{getWorkerStatusCopy(activeWorker?.status ?? selectedWorker.status)}</p>
-                      <p className="ow-worker-meta ow-mono">{activeWorker?.instanceUrl ?? "URL pending provisioning"}</p>
 
                       <div className="ow-inline-actions">
                         <button
@@ -1453,18 +1461,21 @@ export function CloudControlPanel() {
                         </button>
                       </div>
 
-                      <div className="ow-note-box">
-                        <p>OpenWork: Add a worker &gt; Connect remote.</p>
-                        <p className="ow-caption">One-click open needs the OpenWork desktop app installed.</p>
-                        {!openworkDeepLink ? <p className="ow-caption">Waiting for both worker URL and access token before one-click open is ready.</p> : null}
-                        {!openworkConnectUrl ? <p className="ow-caption">Waiting for worker URL. Keep this tab open.</p> : null}
-                        {!hasWorkspaceScopedUrl && openworkConnectUrl ? (
-                          <p className="ow-caption">Connection URL is still preparing. It updates automatically when ready.</p>
-                        ) : null}
-                      </div>
+                      {!openworkDeepLink || !openworkConnectUrl || (!hasWorkspaceScopedUrl && openworkConnectUrl) ? (
+                        <div className="ow-note-box">
+                          {!openworkDeepLink ? <p className="ow-caption">Waiting for worker URL and token.</p> : null}
+                          {!openworkConnectUrl ? <p className="ow-caption">Keep this tab open.</p> : null}
+                          {!hasWorkspaceScopedUrl && openworkConnectUrl ? (
+                            <p className="ow-caption">Connection URL is still preparing...</p>
+                          ) : null}
+                        </div>
+                      ) : null}
 
                       <details className="ow-howto">
                         <summary>Manual connect details</summary>
+                        <p className="ow-caption" style={{ marginBottom: "0.5rem" }}>
+                          If the "Open in OpenWork" button doesn't work, copy these details into the OpenWork app manually (Add a worker &gt; Connect remote).
+                        </p>
                         <CredentialRow
                           label="OpenWork worker URL"
                           value={openworkConnectUrl}

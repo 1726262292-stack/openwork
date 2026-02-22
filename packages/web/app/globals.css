@@ -27,7 +27,7 @@ body {
 
 body {
   margin: 0;
-  font-family: var(--font-space-grotesk), "Avenir Next", "Segoe UI", sans-serif;
+  font-family: var(--font-inter), "Inter", "Avenir Next", "Segoe UI", sans-serif;
   color: var(--ow-ink);
   background: #fafafa;
 }
