@@ -67,6 +67,8 @@ jobs:
           DEN_RENDER_WORKER_OPENWORK_VERSION: ${{ vars.DEN_RENDER_WORKER_OPENWORK_VERSION }}
           DEN_POLAR_FEATURE_GATE_ENABLED: ${{ vars.DEN_POLAR_FEATURE_GATE_ENABLED }}
           DEN_POLAR_API_BASE: ${{ vars.DEN_POLAR_API_BASE }}
+          DEN_POLAR_SUCCESS_URL: ${{ vars.DEN_POLAR_SUCCESS_URL }}
+          DEN_POLAR_RETURN_URL: ${{ vars.DEN_POLAR_RETURN_URL }}
           POLAR_ACCESS_TOKEN: ${{ secrets.POLAR_ACCESS_TOKEN }}
           POLAR_PRODUCT_ID: ${{ secrets.POLAR_PRODUCT_ID }}
           POLAR_BENEFIT_ID: ${{ secrets.POLAR_BENEFIT_ID }}
@@ -76,6 +78,7 @@ jobs:
           import os
           import time
           import urllib.error
+          import urllib.parse
           import urllib.request
 
           api_key = os.environ["RENDER_API_KEY"]
@@ -84,9 +87,19 @@ jobs:
           openwork_version = os.environ.get("DEN_RENDER_WORKER_OPENWORK_VERSION") or "0.11.113"
           paywall_enabled = (os.environ.get("DEN_POLAR_FEATURE_GATE_ENABLED") or "false").lower() == "true"
           polar_api_base = os.environ.get("DEN_POLAR_API_BASE") or "https://api.polar.sh"
+          polar_success_url = os.environ.get("DEN_POLAR_SUCCESS_URL") or "https://app.openwork.software"
+          polar_return_url = os.environ.get("DEN_POLAR_RETURN_URL") or polar_success_url
           polar_access_token = os.environ.get("POLAR_ACCESS_TOKEN") or ""
           polar_product_id = os.environ.get("POLAR_PRODUCT_ID") or ""
           polar_benefit_id = os.environ.get("POLAR_BENEFIT_ID") or ""
+
+          def validate_redirect_url(name: str, value: str):
+              parsed = urllib.parse.urlparse(value)
+              if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                  raise RuntimeError(f"{name} must be an absolute http(s) URL, got: {value}")
+
+          validate_redirect_url("DEN_POLAR_SUCCESS_URL", polar_success_url)
+          validate_redirect_url("DEN_POLAR_RETURN_URL", polar_return_url)
 
           if paywall_enabled and (not polar_access_token or not polar_product_id or not polar_benefit_id):
               raise RuntimeError(
@@ -141,8 +154,8 @@ jobs:
               {"key": "POLAR_ACCESS_TOKEN", "value": polar_access_token},
               {"key": "POLAR_PRODUCT_ID", "value": polar_product_id},
               {"key": "POLAR_BENEFIT_ID", "value": polar_benefit_id},
-              {"key": "POLAR_SUCCESS_URL", "value": service_url},
-              {"key": "POLAR_RETURN_URL", "value": service_url},
+              {"key": "POLAR_SUCCESS_URL", "value": polar_success_url},
+              {"key": "POLAR_RETURN_URL", "value": polar_return_url},
           ]
 
           request("PUT", f"/services/{service_id}/env-vars", env_vars)

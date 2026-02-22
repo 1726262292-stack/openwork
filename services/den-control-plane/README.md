@@ -80,3 +80,7 @@ Required GitHub Actions secrets:
 Optional GitHub Actions variable:
 
 - `DEN_RENDER_WORKER_OPENWORK_VERSION` (defaults to `0.11.113`)
+- `DEN_POLAR_FEATURE_GATE_ENABLED` (`true`/`false`, defaults to `false`)
+- `DEN_POLAR_API_BASE` (defaults to `https://api.polar.sh`)
+- `DEN_POLAR_SUCCESS_URL` (defaults to `https://app.openwork.software`)
+- `DEN_POLAR_RETURN_URL` (defaults to `DEN_POLAR_SUCCESS_URL`)
