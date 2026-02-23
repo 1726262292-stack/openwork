@@ -67,6 +67,24 @@ function buildUpstreamErrorResponse(status: number, error: string): Response {
   });
 }
 
+function copySetCookieHeaders(upstreamHeaders: Headers, responseHeaders: Headers): void {
+  const getSetCookie = (upstreamHeaders as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+  if (typeof getSetCookie === "function") {
+    const cookies = getSetCookie.call(upstreamHeaders);
+    for (const cookie of cookies) {
+      if (cookie) {
+        responseHeaders.append("set-cookie", cookie);
+      }
+    }
+    return;
+  }
+
+  const cookie = upstreamHeaders.get("set-cookie");
+  if (cookie) {
+    responseHeaders.append("set-cookie", cookie);
+  }
+}
+
 function buildHeaders(request: NextRequest, contentType: string | null): Headers {
   const headers = new Headers();
   const copyHeaders = ["accept", "authorization", "cookie", "user-agent", "x-requested-with", "origin"];
@@ -156,7 +174,7 @@ async function proxy(request: NextRequest, segments: string[] = []) {
   }
 
   const responseHeaders = new Headers();
-  const passThroughHeaders = ["content-type", "set-cookie", "location", "cache-control"];
+  const passThroughHeaders = ["content-type", "location", "cache-control"];
 
   for (const key of passThroughHeaders) {
     const value = upstream.headers.get(key);
@@ -164,6 +182,8 @@ async function proxy(request: NextRequest, segments: string[] = []) {
       responseHeaders.set(key, value);
     }
   }
+
+  copySetCookieHeaders(upstream.headers, responseHeaders);
 
   const shouldDropBody = request.method === "HEAD" || NO_BODY_STATUS.has(upstream.status);
 
