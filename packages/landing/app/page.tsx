@@ -182,8 +182,8 @@ export default async function Home() {
                   </p>
 
                   <div className="grid grid-cols-1 gap-4 pt-4 sm:grid-cols-3">
-                    <div className="flex flex-col gap-3 rounded-lg border border-gray-100 bg-gray-50 p-4">
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white text-gray-600 shadow-sm">
+                    <div className="flex flex-col gap-3 rounded-xl border border-sky-100 bg-white/90 p-4 shadow-sm ring-1 ring-sky-100/50">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-sky-50 text-sky-700 shadow-sm">
                         <svg
                           viewBox="0 0 64 64"
                           className="h-4 w-4"
@@ -199,13 +199,16 @@ export default async function Home() {
                           <path d="M48 44v6" />
                         </svg>
                       </span>
-                      <p className="text-[13px] font-medium leading-relaxed text-gray-800">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-sky-700">
+                        Browser task
+                      </span>
+                      <p className="text-[14px] font-medium leading-relaxed text-gray-900">
                         "Open Chrome and find me a green couch on Facebook
                         Marketplace."
                       </p>
                     </div>
-                    <div className="flex flex-col gap-3 rounded-lg border border-gray-100 bg-gray-50 p-4">
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white text-gray-600 shadow-sm">
+                    <div className="flex flex-col gap-3 rounded-xl border border-violet-100 bg-white/90 p-4 shadow-sm ring-1 ring-violet-100/50">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 text-violet-700 shadow-sm">
                         <svg
                           viewBox="0 0 64 64"
                           className="h-4 w-4"
@@ -220,12 +223,15 @@ export default async function Home() {
                           <circle cx="38" cy="34" r="3" />
                         </svg>
                       </span>
-                      <p className="text-[13px] font-medium leading-relaxed text-gray-800">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+                        Notion update
+                      </span>
+                      <p className="text-[14px] font-medium leading-relaxed text-gray-900">
                         "Go on Notion and update this CRM entry for me."
                       </p>
                     </div>
-                    <div className="flex flex-col gap-3 rounded-lg border border-gray-100 bg-gray-50 p-4">
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white text-gray-600 shadow-sm">
+                    <div className="flex flex-col gap-3 rounded-xl border border-emerald-100 bg-white/90 p-4 shadow-sm ring-1 ring-emerald-100/50">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 shadow-sm">
                         <svg
                           viewBox="0 0 64 64"
                           className="h-4 w-4"
@@ -240,7 +246,10 @@ export default async function Home() {
                           <path d="M22 40h14" />
                         </svg>
                       </span>
-                      <p className="text-[13px] font-medium leading-relaxed text-gray-800">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                        CRM action
+                      </span>
+                      <p className="text-[14px] font-medium leading-relaxed text-gray-900">
                         "Update the CRM with this information."
                       </p>
                     </div>
@@ -256,7 +265,10 @@ export default async function Home() {
             <h2 className="mb-10 text-2xl font-bold md:text-3xl">Work with the OpenWork app</h2>
 
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
-              <div className="feature-card">
+              <div className="feature-card border-sky-100 bg-white/90 ring-1 ring-sky-100/60">
+                <span className="mb-3 inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-sky-700">
+                  Productivity
+                </span>
                 <h4 className="mb-2 text-[15px] font-bold">
                   Multitask across projects
                 </h4>
@@ -265,21 +277,30 @@ export default async function Home() {
                   context instantly between browser tasks and local file work.
                 </p>
               </div>
-              <div className="feature-card">
+              <div className="feature-card border-violet-100 bg-white/90 ring-1 ring-violet-100/60">
+                <span className="mb-3 inline-flex rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+                  Automation
+                </span>
                 <h4 className="mb-2 text-[15px] font-bold">Automations</h4>
                 <p className="text-[15px] leading-relaxed text-gray-700">
                   Run any prompt on a schedule or trigger it automatically. Set
                   it once and let it handle itself.
                 </p>
               </div>
-              <div className="feature-card">
+              <div className="feature-card border-emerald-100 bg-white/90 ring-1 ring-emerald-100/60">
+                <span className="mb-3 inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                  Reuse
+                </span>
                 <h4 className="mb-2 text-[15px] font-bold">Skills support</h4>
                 <p className="text-[15px] leading-relaxed text-gray-700">
                   Turn any complex workflow into a reusable skill. Share them
                   with your team so they can run automations with one click.
                 </p>
               </div>
-              <div className="feature-card">
+              <div className="feature-card border-amber-100 bg-white/90 ring-1 ring-amber-100/60">
+                <span className="mb-3 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                  Collaboration
+                </span>
                 <h4 className="mb-2 text-[15px] font-bold">Slack-native agents</h4>
                 <p className="text-[15px] leading-relaxed text-gray-700">
                   Bring OpenWork into Slack threads. Mention the agent, watch
@@ -341,20 +362,9 @@ export default async function Home() {
               </div>
             </div>
 
-            <div className="mb-8 rounded-2xl border border-white/70 bg-white/70 p-6 shadow-lg backdrop-blur-sm">
-              <h3 className="mb-2 text-xl font-semibold tracking-tight text-gray-900">
-                Keep me in the loop
-              </h3>
-              <p className="mb-4 max-w-2xl text-[15px] leading-relaxed text-gray-700">
-                Get occasional product updates and practical automation guides.
-                No spam, just useful drops.
-              </p>
-              <WaitlistForm />
-            </div>
-
             <div className="mb-6">
               <a href="/den" className="doc-button">
-                Explore Den preorder
+                Explore den
                 <svg
                   className="h-4 w-4"
                   fill="none"
@@ -465,6 +475,19 @@ export default async function Home() {
                   Partial compatibility
                 </span>
               </div>
+            </div>
+          </section>
+
+          <section id="updates" className="pb-8 pt-6">
+            <div className="rounded-2xl border border-white/70 bg-white/70 p-6 shadow-lg backdrop-blur-sm">
+              <h3 className="mb-2 text-xl font-semibold tracking-tight text-gray-900">
+                Keep me in the loop
+              </h3>
+              <p className="mb-4 max-w-2xl text-[15px] leading-relaxed text-gray-700">
+                Get occasional product updates and practical automation guides.
+                No spam, just useful drops.
+              </p>
+              <WaitlistForm />
             </div>
           </section>
 
