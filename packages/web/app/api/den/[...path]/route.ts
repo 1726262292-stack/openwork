@@ -7,6 +7,8 @@ const authOrigin = (process.env.DEN_AUTH_ORIGIN ?? DEFAULT_AUTH_ORIGIN).replace(
 
 export const dynamic = "force-dynamic";
 
+const NO_BODY_STATUS = new Set([204, 205, 304]);
+
 function getTargetPath(request: NextRequest, segments: string[]): string {
   const incoming = new URL(request.url);
   let targetPath = segments.join("/");
@@ -163,7 +165,9 @@ async function proxy(request: NextRequest, segments: string[] = []) {
     }
   }
 
-  return new Response(body, {
+  const shouldDropBody = request.method === "HEAD" || NO_BODY_STATUS.has(upstream.status);
+
+  return new Response(shouldDropBody ? null : body, {
     status: upstream.status,
     headers: responseHeaders
   });
