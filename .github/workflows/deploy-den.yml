@@ -163,8 +163,7 @@ jobs:
               candidates: list[str] = []
               if raw.strip():
                   candidates.extend(raw.split(","))
-              else:
-                  candidates.extend(defaults)
+              candidates.extend(defaults)
 
               seen = set()
               normalized = []
