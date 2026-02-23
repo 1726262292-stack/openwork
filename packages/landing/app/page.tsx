@@ -32,9 +32,9 @@ export default async function Home() {
             <h1 className="mb-2 text-4xl font-bold tracking-tight">
               Not just suggestions. Automate your work.
             </h1>
-            <p className="mb-8 flex flex-wrap items-center gap-1.5 text-lg font-normal text-gray-500">
+            <p className="mb-8 flex flex-wrap items-center gap-1.5 text-lg font-medium text-gray-900/80">
               OpenWork is your open-source
-              <span className="word-cycle">
+              <span className="word-cycle text-gray-900">
                 <span>Cowork</span>
                 <span>Codex</span>
               </span>
@@ -45,7 +45,7 @@ export default async function Home() {
             </p>
           </div>
 
-          <div className="mb-10 space-y-4 text-[15px] leading-relaxed text-gray-700">
+          <div className="mb-10 space-y-4 text-[15px] leading-relaxed text-gray-900/80 font-medium">
             <p>
               OpenWork is a desktop app for working on automation threads in
               parallel, with built-in support for your local tools, files, and
@@ -58,7 +58,7 @@ export default async function Home() {
                 href="https://opencode.ai/docs/providers/"
                 target="_blank"
                 rel="noreferrer"
-                className="text-black underline underline-offset-4"
+                className="text-gray-900 underline underline-offset-4 decoration-gray-900/30 hover:decoration-gray-900 transition-colors"
               >
                 providers
               </a>
@@ -92,19 +92,19 @@ export default async function Home() {
             <div className="ml-2 flex gap-4">
               <a
                 href={github.downloads.windows}
-                className="text-[13px] text-gray-400 transition hover:text-black"
+                className="text-[13px] font-medium text-gray-900/60 transition hover:text-gray-900"
                 rel="noreferrer"
                 target="_blank"
               >
-                Windows <span className="alpha-tag ml-1">Alpha</span>
+                Windows <span className="alpha-tag ml-1 border-gray-900/10 text-gray-900/60">Alpha</span>
               </a>
               <a
                 href={github.downloads.linux}
-                className="text-[13px] text-gray-400 transition hover:text-black"
+                className="text-[13px] font-medium text-gray-900/60 transition hover:text-gray-900"
                 rel="noreferrer"
                 target="_blank"
               >
-                Linux <span className="alpha-tag ml-1">Alpha</span>
+                Linux <span className="alpha-tag ml-1 border-gray-900/10 text-gray-900/60">Alpha</span>
               </a>
             </div>
           </div>
