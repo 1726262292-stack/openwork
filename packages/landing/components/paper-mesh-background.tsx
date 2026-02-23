@@ -21,7 +21,7 @@ export function PaperMeshBackground({
       }}
     >
       <Dithering
-        speed={1}
+        speed={0.15}
         shape="warp"
         type="4x4"
         size={2.5}
@@ -31,7 +31,7 @@ export function PaperMeshBackground({
         style={{ backgroundColor: 'transparent', width: "100%", height: "100%" }}
       >
         <MeshGradient
-          speed={1}
+          speed={0.015}
           distortion={0.8}
           swirl={0.1}
           grainMixer={0}
