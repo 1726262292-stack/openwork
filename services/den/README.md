@@ -100,6 +100,7 @@ Optional GitHub Actions variable:
 
 - `DEN_RENDER_WORKER_PLAN` (defaults to `standard`)
 - `DEN_RENDER_WORKER_OPENWORK_VERSION` (defaults to `0.11.113`)
+- `DEN_BETTER_AUTH_URL` (defaults to `https://app.openwork.software/api/den`)
 - `DEN_CORS_ORIGINS` (defaults to `https://app.openwork.software,https://api.openwork.software,<render-service-url>`)
 - `DEN_RENDER_WORKER_PUBLIC_DOMAIN_SUFFIX` (defaults to `openwork.studio`)
 - `DEN_RENDER_CUSTOM_DOMAIN_READY_TIMEOUT_MS` (defaults to `240000`)

@@ -31,6 +31,7 @@ jobs:
           DEN_BETTER_AUTH_SECRET: ${{ secrets.DEN_BETTER_AUTH_SECRET }}
           DEN_GITHUB_CLIENT_ID: ${{ secrets.DEN_GITHUB_CLIENT_ID }}
           DEN_GITHUB_CLIENT_SECRET: ${{ secrets.DEN_GITHUB_CLIENT_SECRET }}
+          DEN_BETTER_AUTH_URL: ${{ vars.DEN_BETTER_AUTH_URL }}
           POLAR_ACCESS_TOKEN: ${{ secrets.POLAR_ACCESS_TOKEN }}
           POLAR_PRODUCT_ID: ${{ secrets.POLAR_PRODUCT_ID }}
           POLAR_BENEFIT_ID: ${{ secrets.POLAR_BENEFIT_ID }}
@@ -86,6 +87,7 @@ jobs:
           DEN_BETTER_AUTH_SECRET: ${{ secrets.DEN_BETTER_AUTH_SECRET }}
           DEN_GITHUB_CLIENT_ID: ${{ secrets.DEN_GITHUB_CLIENT_ID }}
           DEN_GITHUB_CLIENT_SECRET: ${{ secrets.DEN_GITHUB_CLIENT_SECRET }}
+          DEN_BETTER_AUTH_URL: ${{ vars.DEN_BETTER_AUTH_URL }}
           DEN_RENDER_WORKER_PLAN: ${{ vars.DEN_RENDER_WORKER_PLAN }}
           DEN_RENDER_WORKER_OPENWORK_VERSION: ${{ vars.DEN_RENDER_WORKER_OPENWORK_VERSION }}
           DEN_CORS_ORIGINS: ${{ vars.DEN_CORS_ORIGINS }}
@@ -115,6 +117,7 @@ jobs:
           api_key = os.environ["RENDER_API_KEY"]
           service_id = os.environ["RENDER_DEN_CONTROL_PLANE_SERVICE_ID"]
           owner_id = os.environ["RENDER_OWNER_ID"]
+          better_auth_url = os.environ.get("DEN_BETTER_AUTH_URL") or "https://app.openwork.software/api/den"
           openwork_version = os.environ.get("DEN_RENDER_WORKER_OPENWORK_VERSION") or "0.11.113"
           worker_plan = os.environ.get("DEN_RENDER_WORKER_PLAN") or "standard"
           configured_cors_origins = os.environ.get("DEN_CORS_ORIGINS") or ""
@@ -147,6 +150,7 @@ jobs:
 
           validate_redirect_url("DEN_POLAR_SUCCESS_URL", polar_success_url)
           validate_redirect_url("DEN_POLAR_RETURN_URL", polar_return_url)
+          validate_redirect_url("DEN_BETTER_AUTH_URL", better_auth_url)
 
           if paywall_enabled and (not polar_access_token or not polar_product_id or not polar_benefit_id):
               raise RuntimeError(
@@ -217,7 +221,7 @@ jobs:
           env_vars = [
               {"key": "DATABASE_URL", "value": os.environ["DEN_DATABASE_URL"]},
               {"key": "BETTER_AUTH_SECRET", "value": os.environ["DEN_BETTER_AUTH_SECRET"]},
-              {"key": "BETTER_AUTH_URL", "value": service_url},
+              {"key": "BETTER_AUTH_URL", "value": better_auth_url},
               {"key": "GITHUB_CLIENT_ID", "value": github_client_id},
               {"key": "GITHUB_CLIENT_SECRET", "value": github_client_secret},
               {"key": "CORS_ORIGINS", "value": cors_origins},
