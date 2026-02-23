@@ -15,12 +15,12 @@ export default async function Home() {
         aria-hidden
         style={{
           WebkitMaskImage:
-            "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%)",
+            "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 40%, rgba(0,0,0,0) 100%)",
           maskImage:
-            "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%)"
+            "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 40%, rgba(0,0,0,0) 100%)"
         }}
       >
-        <PaperMeshBackground opacity={0.24} />
+        <PaperMeshBackground opacity={0.4} />
       </div>
 
       <div className="relative z-10">
@@ -109,14 +109,14 @@ export default async function Home() {
             </div>
           </div>
 
-          <div className="group relative mb-6 rounded-2xl border border-gray-100 bg-gradient-to-br from-blue-50 to-orange-50 p-10 shadow-sm">
-            <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-2xl transition-transform duration-500 group-hover:scale-[1.01]">
+          <div className="group relative mb-16 mt-8">
+            <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl transition-transform duration-500 group-hover:scale-[1.01] ring-1 ring-black/5">
               <video
                 autoPlay
                 loop
                 muted
                 playsInline
-                className="w-full"
+                className="w-full block"
               >
                 <source src="/app-demo.mp4" type="video/mp4" />
               </video>
