@@ -686,6 +686,7 @@ export default function Composer(props: ComposerProps) {
     queueMicrotask(() => focusEditorEnd());
   });
 
+  let heightRaf: number | null = null;
   const syncHeight = () => {
     if (!editorRef) return;
     editorRef.style.height = "auto";
@@ -693,13 +694,21 @@ export default function Composer(props: ComposerProps) {
     const scrollHeight = editorRef.scrollHeight || baseHeight;
     const nextHeight = Math.min(Math.max(scrollHeight, baseHeight), 160);
     editorRef.style.height = `${nextHeight}px`;
-    editorRef.style.overflowY = editorRef.scrollHeight > 160 ? "auto" : "hidden";
+    editorRef.style.overflowY = scrollHeight > 160 ? "auto" : "hidden";
+  };
+
+  const scheduleSyncHeight = () => {
+    if (heightRaf !== null) return;
+    heightRaf = window.requestAnimationFrame(() => {
+      heightRaf = null;
+      syncHeight();
+    });
   };
 
   let emitTimer: number | null = null;
   const emitDraftChange = () => {
     if (!editorRef) return;
-    syncHeight();
+    scheduleSyncHeight();
     draftScheduledAt = perfNow();
 
     if (emitTimer) window.clearTimeout(emitTimer);
@@ -844,7 +853,7 @@ export default function Composer(props: ComposerProps) {
       setMentionQuery("");
       return;
     }
-    const text = normalizeText(partsToText(buildPartsFromEditor(editorRef, pasteTextById)));
+    const text = normalizeText(editorRef.innerText);
     const before = text.slice(0, offsets.start);
     const match = before.match(/@(\S*)$/);
     if (!match) {
@@ -863,7 +872,7 @@ export default function Composer(props: ComposerProps) {
       setSlashQuery("");
       return;
     }
-    const text = normalizeText(partsToText(buildPartsFromEditor(editorRef, pasteTextById)));
+    const text = normalizeText(editorRef.innerText);
     // Only trigger when the entire input matches /command (no spaces, starts with /)
     const slashMatch = text.match(/^\/(\S*)$/);
     if (!slashMatch) {
@@ -1525,8 +1534,19 @@ export default function Composer(props: ComposerProps) {
     onCleanup(() => window.removeEventListener("openwork:focusPrompt", handler));
   });
 
+  onCleanup(() => {
+    if (emitTimer !== null) {
+      window.clearTimeout(emitTimer);
+      emitTimer = null;
+    }
+    if (heightRaf !== null) {
+      window.cancelAnimationFrame(heightRaf);
+      heightRaf = null;
+    }
+  });
+
   return (
-    <div class="px-4 pb-4 pt-0 bg-dls-surface sticky bottom-0 z-20">
+    <div class="px-4 pb-4 pt-0 bg-dls-surface sticky bottom-0 z-20" style={{ contain: "layout style paint" }}>
       <div class="max-w-3xl mx-auto">
         <div
           class={`bg-dls-surface border border-dls-border rounded-2xl overflow-visible transition-all relative group/input ${mentionOpen() || slashOpen() ? "rounded-t-none border-t-transparent shadow-none" : "shadow-xl"
