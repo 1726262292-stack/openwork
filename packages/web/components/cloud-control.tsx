@@ -1464,7 +1464,7 @@ export function CloudControlPanel() {
         ) : null}
 
         {step === 2 ? (
-          <div className="min-h-[calc(100vh-10rem)] rounded-[36px] bg-[#F4F5F7] p-3 md:p-6">
+          <div className="ow-app-shell">
             <div className="mb-3 flex items-center justify-between rounded-[18px] border border-slate-200 bg-white p-2 lg:hidden">
               <div className="flex gap-2">
                 <button
@@ -1500,11 +1500,6 @@ export function CloudControlPanel() {
               <div className="flex h-full flex-col gap-4 lg:flex-row">
                 <aside className="hidden w-[260px] shrink-0 flex-col justify-between rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm lg:flex">
                   <div>
-                    <div className="mb-8 mt-2 flex items-center gap-2 px-2">
-                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[#1B29FF]/10 text-sm font-bold text-[#1B29FF]">*</span>
-                      <span className="text-xl font-bold tracking-tight text-slate-900">OpenWork</span>
-                    </div>
-
                     <div className="mb-6">
                       <div className="mb-3 flex items-center gap-2 px-2 text-xs font-medium uppercase tracking-[0.08em] text-slate-400">
                         <span>Menu</span>
