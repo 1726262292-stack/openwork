@@ -68,8 +68,8 @@ export type MessageWithParts = {
 };
 
 export type MessageGroup =
-  | { kind: "text"; part: Part }
-  | { kind: "steps"; id: string; parts: Part[] };
+  | { kind: "text"; part: Part; segment: "intent" | "result" }
+  | { kind: "steps"; id: string; parts: Part[]; segment: "execution" };
 
 export type PromptMode = "prompt" | "shell";
 

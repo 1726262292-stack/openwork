@@ -502,17 +502,28 @@ export function groupMessageParts(parts: Part[], messageId: string): MessageGrou
   const steps: Part[] = [];
   let textBuffer = "";
   let stepGroupIndex = 0;
+  let sawExecution = false;
 
   const flushText = () => {
     if (!textBuffer) return;
-    groups.push({ kind: "text", part: { type: "text", text: textBuffer } as Part });
+    groups.push({
+      kind: "text",
+      part: { type: "text", text: textBuffer } as Part,
+      segment: sawExecution ? "result" : "intent",
+    });
     textBuffer = "";
   };
 
   const flushSteps = () => {
     if (!steps.length) return;
-    groups.push({ kind: "steps", id: `steps-${messageId}-${stepGroupIndex}`, parts: steps.splice(0, steps.length) });
+    groups.push({
+      kind: "steps",
+      id: `steps-${messageId}-${stepGroupIndex}`,
+      parts: steps.splice(0, steps.length),
+      segment: "execution",
+    });
     stepGroupIndex += 1;
+    sawExecution = true;
   };
 
   parts.forEach((part) => {
@@ -532,7 +543,7 @@ export function groupMessageParts(parts: Part[], messageId: string): MessageGrou
     if (part.type === "file") {
       flushSteps();
       flushText();
-      groups.push({ kind: "text", part });
+      groups.push({ kind: "text", part, segment: sawExecution ? "result" : "intent" });
       return;
     }
 

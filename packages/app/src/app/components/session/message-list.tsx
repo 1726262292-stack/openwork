@@ -117,6 +117,14 @@ export default function MessageList(props: MessageListProps) {
       })
       .filter((attachment) => !!attachment.url);
   const isImageAttachment = (mime: string) => mime.startsWith("image/");
+  const segmentBadgeText = (group: MessageGroup, isUser: boolean) => {
+    if (isUser) {
+      if (group.kind === "steps") return "user execution";
+      return "user request";
+    }
+    if (group.kind === "steps") return "execution";
+    return group.segment === "intent" ? "intent" : "result";
+  };
 
   onCleanup(() => {
     if (copyTimeout !== undefined) {
@@ -221,7 +229,7 @@ export default function MessageList(props: MessageListProps) {
       const groups = groupMessageParts(renderableParts, groupId);
       const isUser = (message.info as any).role === "user";
       const isStepsOnly = groups.length > 0 && groups.every((group) => group.kind === "steps");
-      const stepGroups = isStepsOnly ? (groups as { kind: "steps"; id: string; parts: Part[] }[]) : [];
+      const stepGroups = isStepsOnly ? (groups as { kind: "steps"; id: string; parts: Part[]; segment: "execution" }[]) : [];
       stepGroupCount += groups.reduce((count, group) => (group.kind === "steps" ? count + 1 : count), 0);
 
       if (isStepsOnly) {
@@ -369,6 +377,31 @@ export default function MessageList(props: MessageListProps) {
     const relatedIds = () => containerProps.relatedIds ?? [];
     const expanded = () => isStepsExpanded(containerProps.id, relatedIds());
     const latestStep = () => latestStepPart(containerProps.partsGroups);
+    const toolCallCount = () =>
+      containerProps.partsGroups.reduce(
+        (sum, parts) => sum + parts.reduce((count, part) => (part.type === "tool" ? count + 1 : count), 0),
+        0,
+      );
+    const reasoningCount = () =>
+      containerProps.partsGroups.reduce(
+        (sum, parts) => sum + parts.reduce((count, part) => (part.type === "reasoning" ? count + 1 : count), 0),
+        0,
+      );
+
+    const executionSummary = () => {
+      const tools = toolCallCount();
+      const reasoning = reasoningCount();
+      if (tools > 0 && reasoning > 0) {
+        return `${tools} tool call${tools === 1 ? "" : "s"}, ${reasoning} thinking`;
+      }
+      if (tools > 0) {
+        return `${tools} tool call${tools === 1 ? "" : "s"}`;
+      }
+      if (reasoning > 0) {
+        return `${reasoning} thinking update${reasoning === 1 ? "" : "s"}`;
+      }
+      return "execution steps";
+    };
 
     const compactPathToken = (value: string) => {
       const token = value
@@ -515,8 +548,13 @@ export default function MessageList(props: MessageListProps) {
             <Show when={hasRunning()}>
               <span class="inline-flex h-1 w-1 rounded-full bg-blue-10/70 animate-pulse" />
             </Show>
-            <span class="truncate max-w-[58ch]">{latestStepLabel()}</span>
+            <span class="truncate max-w-[58ch]">
+              {expanded() ? `Hide execution (${executionSummary()})` : `Execution: ${executionSummary()}`}
+            </span>
           </span>
+          <Show when={!expanded()}>
+            <span class="text-[11px] text-gray-9 truncate max-w-[42ch]">{latestStepLabel()}</span>
+          </Show>
         </button>
 
         {/* Expanded content */}
@@ -574,6 +612,9 @@ export default function MessageList(props: MessageListProps) {
                       : "max-w-[68ch] text-[15px] leading-7 text-gray-12 group pl-2"
                   } ${searchOutlineClass}`}
                 >
+                  <div class={`mb-1 text-[10px] uppercase tracking-[0.12em] ${block.isUser ? "text-gray-8" : "text-gray-9"}`}>
+                    {block.isUser ? "user execution" : "execution"}
+                  </div>
                   <StepsContainer
                     id={block.id}
                     relatedIds={block.stepIds.filter((stepId) => stepId !== block.id)}
@@ -628,6 +669,9 @@ export default function MessageList(props: MessageListProps) {
                 <For each={block.groups}>
                   {(group, idx) => (
                     <div class={idx() === block.groups.length - 1 ? "" : groupSpacing}>
+                      <div class={`mb-1 text-[10px] uppercase tracking-[0.12em] ${block.isUser ? "text-gray-8" : "text-gray-9"}`}>
+                        {segmentBadgeText(group, block.isUser)}
+                      </div>
                       <Show when={group.kind === "text"}>
                         {(() => {
                           const isStreamingLatestAssistant =
@@ -635,7 +679,7 @@ export default function MessageList(props: MessageListProps) {
                           const markdownThrottleMs = isStreamingLatestAssistant ? 550 : 100;
                           return (
                             <PartView
-                              part={(group as { kind: "text"; part: Part }).part}
+                              part={(group as { kind: "text"; part: Part; segment: "intent" | "result" }).part}
                               developerMode={props.developerMode}
                               showThinking={props.showThinking}
                               workspaceRoot={props.workspaceRoot}
@@ -648,7 +692,7 @@ export default function MessageList(props: MessageListProps) {
                       </Show>
                       {group.kind === "steps" &&
                         (() => {
-                          const stepGroup = group as { kind: "steps"; id: string; parts: Part[] };
+                          const stepGroup = group as { kind: "steps"; id: string; parts: Part[]; segment: "execution" };
                           return (
                             <StepsContainer
                               id={stepGroup.id}
