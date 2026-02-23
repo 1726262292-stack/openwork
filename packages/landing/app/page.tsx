@@ -29,10 +29,10 @@ export default async function Home() {
         <main className="pb-24 pt-20">
           <div className="content-max-width px-6">
           <div className="animate-fade-up">
-            <h1 className="mb-2 text-4xl font-bold tracking-tight">
+            <h1 className="mb-2 text-4xl font-bold tracking-tight md:text-5xl">
               Not just suggestions. Automate your work.
             </h1>
-            <p className="mb-8 flex flex-wrap items-center gap-1.5 text-lg font-medium text-gray-900/80">
+            <p className="mb-8 flex flex-wrap items-center gap-1.5 text-xl font-medium text-gray-900/80">
               OpenWork is your open-source
               <span className="word-cycle text-gray-900">
                 <span>Cowork</span>
@@ -45,7 +45,7 @@ export default async function Home() {
             </p>
           </div>
 
-          <div className="mb-10 space-y-4 text-[15px] leading-relaxed text-gray-900/80 font-medium">
+          <div className="mb-10 space-y-4 text-base leading-relaxed text-gray-900/80 font-medium">
             <p>
               OpenWork is a desktop app for working on automation threads in
               parallel, with built-in support for your local tools, files, and
@@ -92,7 +92,7 @@ export default async function Home() {
             <div className="ml-2 flex gap-4">
               <a
                 href={github.downloads.windows}
-                className="text-[13px] font-medium text-gray-900/60 transition hover:text-gray-900"
+                className="text-[15px] font-medium text-gray-900/60 transition hover:text-gray-900"
                 rel="noreferrer"
                 target="_blank"
               >
@@ -100,7 +100,7 @@ export default async function Home() {
               </a>
               <a
                 href={github.downloads.linux}
-                className="text-[13px] font-medium text-gray-900/60 transition hover:text-gray-900"
+                className="text-[15px] font-medium text-gray-900/60 transition hover:text-gray-900"
                 rel="noreferrer"
                 target="_blank"
               >
@@ -123,7 +123,7 @@ export default async function Home() {
             </div>
           </div>
 
-          <div className="mb-16 flex flex-wrap items-center gap-2 text-[13px] text-gray-500">
+          <div className="mb-16 flex flex-wrap items-center gap-2 text-[14px] text-gray-700">
             <span className="font-semibold text-gray-900">Powered by</span>
             <a
               href="https://opencode.ai"
@@ -138,8 +138,8 @@ export default async function Home() {
           </div>
 
           <section id="install">
-            <h2 className="mb-6 text-2xl font-bold">Getting started</h2>
-            <p className="mb-8 text-sm text-gray-500">
+            <h2 className="mb-6 text-2xl font-bold md:text-3xl">Getting started</h2>
+            <p className="mb-8 text-base text-gray-700">
               The OpenWork app is available on macOS, Windows, and Linux.
             </p>
 
@@ -147,10 +147,10 @@ export default async function Home() {
               <div className="flex gap-6">
                 <div className="step-circle shrink-0">1</div>
                 <div className="space-y-4">
-                  <h3 className="text-[15px] font-bold">
+                  <h3 className="text-base font-bold">
                     Download and install the OpenWork app
                   </h3>
-                  <p className="text-[14px] text-gray-600">
+                  <p className="text-[15px] text-gray-700">
                     Stable release for macOS. Windows and Linux builds are
                     available in alpha.
                   </p>
@@ -180,7 +180,7 @@ export default async function Home() {
                     <div className="ml-2 flex gap-4">
                       <a
                         href={github.downloads.windows}
-                        className="text-[13px] text-gray-400 transition hover:text-black"
+                        className="text-[15px] text-gray-700 transition hover:text-black"
                         rel="noreferrer"
                         target="_blank"
                       >
@@ -188,7 +188,7 @@ export default async function Home() {
                       </a>
                       <a
                         href={github.downloads.linux}
-                        className="text-[13px] text-gray-400 transition hover:text-black"
+                        className="text-[15px] text-gray-700 transition hover:text-black"
                         rel="noreferrer"
                         target="_blank"
                       >
@@ -202,8 +202,8 @@ export default async function Home() {
               <div className="flex gap-6">
                 <div className="step-circle shrink-0">2</div>
                 <div className="w-full space-y-4">
-                  <h3 className="text-[15px] font-bold">Send your first message</h3>
-                  <p className="text-[14px] text-gray-600">
+                  <h3 className="text-base font-bold">Send your first message</h3>
+                  <p className="text-[15px] text-gray-700">
                     Start instantly. No registration is required to begin using
                     basic models on your machine. Try these examples:
                   </p>
@@ -226,7 +226,7 @@ export default async function Home() {
                           <path d="M48 44v6" />
                         </svg>
                       </span>
-                      <p className="text-[12px] font-medium italic leading-relaxed text-gray-600">
+                      <p className="text-[13px] font-medium leading-relaxed text-gray-800">
                         "Open Chrome and find me a green couch on Facebook
                         Marketplace."
                       </p>
@@ -247,7 +247,7 @@ export default async function Home() {
                           <circle cx="38" cy="34" r="3" />
                         </svg>
                       </span>
-                      <p className="text-[12px] font-medium italic leading-relaxed text-gray-600">
+                      <p className="text-[13px] font-medium leading-relaxed text-gray-800">
                         "Go on Notion and update this CRM entry for me."
                       </p>
                     </div>
@@ -267,7 +267,7 @@ export default async function Home() {
                           <path d="M22 40h14" />
                         </svg>
                       </span>
-                      <p className="text-[12px] font-medium italic leading-relaxed text-gray-600">
+                      <p className="text-[13px] font-medium leading-relaxed text-gray-800">
                         "Update the CRM with this information."
                       </p>
                     </div>
@@ -280,35 +280,35 @@ export default async function Home() {
           <hr />
 
           <section id="capabilities" className="py-12">
-            <h2 className="mb-10 text-2xl font-bold">Work with the OpenWork app</h2>
+            <h2 className="mb-10 text-2xl font-bold md:text-3xl">Work with the OpenWork app</h2>
 
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
               <div className="feature-card">
-                <h4 className="mb-2 text-[14px] font-bold">
+                <h4 className="mb-2 text-[15px] font-bold">
                   Multitask across projects
                 </h4>
-                <p className="text-[13px] leading-relaxed text-gray-500">
+                <p className="text-[15px] leading-relaxed text-gray-700">
                   Run multiple independent threads in parallel and switch
                   context instantly between browser tasks and local file work.
                 </p>
               </div>
               <div className="feature-card">
-                <h4 className="mb-2 text-[14px] font-bold">Automations</h4>
-                <p className="text-[13px] leading-relaxed text-gray-500">
+                <h4 className="mb-2 text-[15px] font-bold">Automations</h4>
+                <p className="text-[15px] leading-relaxed text-gray-700">
                   Run any prompt on a schedule or trigger it automatically. Set
                   it once and let it handle itself.
                 </p>
               </div>
               <div className="feature-card">
-                <h4 className="mb-2 text-[14px] font-bold">Skills support</h4>
-                <p className="text-[13px] leading-relaxed text-gray-500">
+                <h4 className="mb-2 text-[15px] font-bold">Skills support</h4>
+                <p className="text-[15px] leading-relaxed text-gray-700">
                   Turn any complex workflow into a reusable skill. Share them
                   with your team so they can run automations with one click.
                 </p>
               </div>
               <div className="feature-card">
-                <h4 className="mb-2 text-[14px] font-bold">Slack-native agents</h4>
-                <p className="text-[13px] leading-relaxed text-gray-500">
+                <h4 className="mb-2 text-[15px] font-bold">Slack-native agents</h4>
+                <p className="text-[15px] leading-relaxed text-gray-700">
                   Bring OpenWork into Slack threads. Mention the agent, watch
                   progress stream in real time, and keep the whole team in the
                   loop.
@@ -320,10 +320,10 @@ export default async function Home() {
           <hr />
 
           <section id="cloud" className="py-12">
-            <h2 className="mb-2 text-2xl font-bold">
+            <h2 className="mb-2 text-2xl font-bold md:text-3xl">
               Automate your entire company, safely
             </h2>
-            <p className="mb-8 text-[15px] leading-relaxed text-gray-600">
+            <p className="mb-8 text-base leading-relaxed text-gray-700">
               OpenWork Cloud runs your automations so you don&apos;t have to
               manage infrastructure. Join the waitlist to get early access and
               a free series that walks you through automating every part of
@@ -332,28 +332,28 @@ export default async function Home() {
 
             <div className="mb-10 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
               <div className="feature-card">
-                <h4 className="mb-2 text-[14px] font-bold">
+                <h4 className="mb-2 text-[15px] font-bold">
                   Hosted for your team
                 </h4>
-                <p className="text-[13px] leading-relaxed text-gray-500">
+                <p className="text-[15px] leading-relaxed text-gray-700">
                   No servers to maintain. We handle the infrastructure so
                   your team can focus on the work.
                 </p>
               </div>
               <div className="feature-card">
-                <h4 className="mb-2 text-[14px] font-bold">
+                <h4 className="mb-2 text-[15px] font-bold">
                   Permissioned &amp; auditable
                 </h4>
-                <p className="text-[13px] leading-relaxed text-gray-500">
+                <p className="text-[15px] leading-relaxed text-gray-700">
                   Every agent action is logged. Set clear boundaries for what
                   agents can and cannot do.
                 </p>
               </div>
               <div className="feature-card">
-                <h4 className="mb-2 text-[14px] font-bold">
+                <h4 className="mb-2 text-[15px] font-bold">
                   Free automation series
                 </h4>
-                <p className="text-[13px] leading-relaxed text-gray-500">
+                <p className="text-[15px] leading-relaxed text-gray-700">
                   Step-by-step guides on safely automating ops, sales, support,
                   and more. Delivered to your inbox.
                 </p>
@@ -386,13 +386,13 @@ export default async function Home() {
           <hr />
 
           <section id="faq" className="py-12">
-            <h2 className="mb-10 text-2xl font-bold">FAQ</h2>
+            <h2 className="mb-10 text-2xl font-bold md:text-3xl">FAQ</h2>
             <div className="space-y-12">
               <div>
                 <h4 className="mb-2 text-[15px] font-bold">
                   What&apos;s the difference between OpenWork and regular chat?
                 </h4>
-                <p className="text-[14px] leading-relaxed text-gray-600">
+                <p className="text-[15px] leading-relaxed text-gray-700">
                   Regular chat gives you text answers. OpenWork can perform
                   actions like creating files, editing folders, and running
                   browser commands on your local machine, after you approve
@@ -401,7 +401,7 @@ export default async function Home() {
               </div>
               <div>
                 <h4 className="mb-2 text-[15px] font-bold">Is it free?</h4>
-                <p className="text-[14px] leading-relaxed text-gray-600">
+                <p className="text-[15px] leading-relaxed text-gray-700">
                   Yes. OpenWork is open source. You can download and use it for
                   free using free models on your machine. You only pay for API
                   usage if you choose to connect paid cloud models.
@@ -411,7 +411,7 @@ export default async function Home() {
                 <h4 className="mb-2 text-[15px] font-bold">
                   Can I share automations with my team?
                 </h4>
-                <p className="text-[14px] leading-relaxed text-gray-600">
+                <p className="text-[15px] leading-relaxed text-gray-700">
                   Yes. Package any workflow as a skill and share it. Your
                   coworkers can install and run it on their own machines
                   instantly.
@@ -419,7 +419,7 @@ export default async function Home() {
               </div>
               <div>
                 <h4 className="mb-2 text-[15px] font-bold">Is it safe?</h4>
-                <p className="text-[14px] leading-relaxed text-gray-600">
+                <p className="text-[15px] leading-relaxed text-gray-700">
                   OpenWork runs locally. It cannot access files or run commands
                   without your permission. You see a clear plan before any
                   action is taken.
@@ -429,7 +429,7 @@ export default async function Home() {
                 <h4 className="mb-2 text-[15px] font-bold">
                   Can I use it with Slack, Telegram, or WhatsApp?
                 </h4>
-                <p className="text-[14px] leading-relaxed text-gray-600">
+                <p className="text-[15px] leading-relaxed text-gray-700">
                   Yes. Once it is running somewhere, you can keep requests
                   flowing from Slack, Telegram, or WhatsApp and let OpenWork
                   carry them out.

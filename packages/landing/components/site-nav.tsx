@@ -17,7 +17,7 @@ export function SiteNav(props: Props) {
           <Link href="/" className="text-lg font-bold tracking-tight">
             OpenWork
           </Link>
-          <div className="hidden items-center gap-6 text-[14px] text-gray-500 md:flex">
+          <div className="hidden items-center gap-6 text-[15px] text-gray-700 md:flex">
             <Link href="/#install" className="transition hover:text-black">
               Getting started
             </Link>
@@ -44,7 +44,7 @@ export function SiteNav(props: Props) {
           </a>
           <a
             href="https://github.com/different-ai/openwork"
-            className="flex items-center gap-1 text-gray-500 transition hover:text-black"
+            className="flex items-center gap-1 text-gray-700 transition hover:text-black"
             rel="noreferrer"
             target="_blank"
             aria-label="OpenWork GitHub stars"

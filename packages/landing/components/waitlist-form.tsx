@@ -72,12 +72,12 @@ export function WaitlistForm() {
   if (state === "success") {
     return (
       <div className="space-y-3">
-        <p className="text-[14px] text-gray-600">
+        <p className="text-[15px] text-gray-700">
           Thanks! We&apos;ll be in touch.
         </p>
         <button
           onClick={reset}
-          className="text-[13px] text-gray-400 transition hover:text-black"
+          className="text-[14px] text-gray-500 transition hover:text-black"
         >
           &larr; Sign up another email
         </button>
@@ -88,12 +88,12 @@ export function WaitlistForm() {
   if (state === "error" || state === "rate-limited") {
     return (
       <div className="space-y-3">
-        <p className="text-[14px] text-red-700">
+        <p className="text-[15px] text-red-700">
           {errorMsg || "Oops! Something went wrong, please try again"}
         </p>
         <button
           onClick={reset}
-          className="text-[13px] text-gray-400 transition hover:text-black"
+          className="text-[14px] text-gray-500 transition hover:text-black"
         >
           &larr; Try again
         </button>
