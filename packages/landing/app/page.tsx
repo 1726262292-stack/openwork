@@ -2,6 +2,7 @@ import { SiteFooter } from "../components/site-footer";
 import { SiteNav } from "../components/site-nav";
 import { OpenCodeLogo } from "../components/opencode-logo";
 import { WaitlistForm } from "../components/waitlist-form";
+import { PaperMeshBackground } from "../components/paper-mesh-background";
 import { getGithubData } from "../lib/github";
 
 export default async function Home() {
@@ -11,8 +12,21 @@ export default async function Home() {
     <div className="min-h-screen">
       <SiteNav stars={github.stars} callUrl={cal} />
 
-      <main className="pb-24 pt-20">
-        <div className="content-max-width px-6">
+      <main className="relative pb-24 pt-20">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-[560px] overflow-hidden"
+          aria-hidden
+          style={{
+            WebkitMaskImage:
+              "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 55%, rgba(0,0,0,0) 100%)",
+            maskImage:
+              "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 55%, rgba(0,0,0,0) 100%)"
+          }}
+        >
+          <PaperMeshBackground opacity={0.26} />
+        </div>
+
+        <div className="content-max-width relative px-6">
           <div className="animate-fade-up">
             <h1 className="mb-2 text-4xl font-bold tracking-tight">
               Not just suggestions. Automate your work.

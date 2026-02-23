@@ -106,6 +106,9 @@ importers:
 
   packages/landing:
     dependencies:
+      '@paper-design/shaders-react':
+        specifier: 0.0.71
+        version: 0.0.71(@types/react@18.2.79)(react@18.2.0)
       next:
         specifier: 14.2.5
         version: 14.2.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -1271,6 +1274,18 @@ packages:
     resolution: {integrity: sha512-JY+hUbXVV+XCk6bC8dvcwawWCEmC3Gid6GDs23AJWBgHZ3TU2kRKrgwTdltm45DOq2cZXrYCt690/yE8bP+Gxg==}
     peerDependencies:
       solid-js: 1.9.9
+
+  '@paper-design/shaders-react@0.0.71':
+    resolution: {integrity: sha512-kTqjIlyZcpkwqJie+3ldEDscTtx1oOi8eRBD5QgWKI21GaNn/SSg26092M5zzqr3e8dVANv0ktS2ICSjbMFKbw==}
+    peerDependencies:
+      '@types/react': ^18 || ^19
+      react: ^18 || ^19
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+
+  '@paper-design/shaders@0.0.71':
+    resolution: {integrity: sha512-brCt05YxxyjBrhnE3l1wJJHcFXsM8aE4lmpd9TMQp+p0dMU3F+OWkJZL9m/RC1Tt7om5xr0Wg7d0HYm+b9NYZA==}
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
@@ -4307,6 +4322,15 @@ snapshots:
       - supports-color
       - typescript
       - web-tree-sitter
+
+  '@paper-design/shaders-react@0.0.71(@types/react@18.2.79)(react@18.2.0)':
+    dependencies:
+      '@paper-design/shaders': 0.0.71
+      react: 18.2.0
+    optionalDependencies:
+      '@types/react': 18.2.79
+
+  '@paper-design/shaders@0.0.71': {}
 
   '@pinojs/redact@0.4.0': {}
 
