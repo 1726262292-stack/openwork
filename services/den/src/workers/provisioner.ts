@@ -1,4 +1,5 @@
 import { env } from "../env.js"
+import { customDomainForWorker, ensureVercelDnsRecord } from "./vanity-domain.js"
 
 export type ProvisionInput = {
   workerId: string
@@ -57,20 +58,6 @@ const hostFromUrl = (value: string | null | undefined) => {
   }
 }
 
-function customDomainForWorker(workerId: string): string | null {
-  const suffix = env.render.workerPublicDomainSuffix?.trim().toLowerCase()
-  if (!suffix) {
-    return null
-  }
-
-  const label = slug(workerId).slice(0, 32)
-  if (!label) {
-    return null
-  }
-
-  return `${label}.${suffix}`
-}
-
 async function renderRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set("Authorization", `Bearer ${env.render.apiKey}`)
@@ -118,11 +105,11 @@ async function waitForDeployLive(serviceId: string) {
   throw new Error(`Timed out waiting for Render deploy for service ${serviceId}`)
 }
 
-async function waitForHealth(url: string) {
+async function waitForHealth(url: string, timeoutMs = env.render.healthcheckTimeoutMs) {
   const healthUrl = `${url.replace(/\/$/, "")}/health`
   const startedAt = Date.now()
 
-  while (Date.now() - startedAt < env.render.healthcheckTimeoutMs) {
+  while (Date.now() - startedAt < timeoutMs) {
     try {
       const response = await fetch(healthUrl, { method: "GET" })
       if (response.ok) {
@@ -165,8 +152,8 @@ async function listRenderServices(limit = 200) {
   return rows.slice(0, limit)
 }
 
-async function attachRenderCustomDomain(serviceId: string, workerId: string) {
-  const hostname = customDomainForWorker(workerId)
+async function attachRenderCustomDomain(serviceId: string, workerId: string, renderUrl: string) {
+  const hostname = customDomainForWorker(workerId, env.render.workerPublicDomainSuffix)
   if (!hostname) {
     return null
   }
@@ -178,6 +165,21 @@ async function attachRenderCustomDomain(serviceId: string, workerId: string) {
         name: hostname,
       }),
     })
+
+    const dnsReady = await ensureVercelDnsRecord({
+      hostname,
+      targetUrl: renderUrl,
+      domain: env.vercel.dnsDomain ?? env.render.workerPublicDomainSuffix,
+      apiBase: env.vercel.apiBase,
+      token: env.vercel.token,
+      teamId: env.vercel.teamId,
+      teamSlug: env.vercel.teamSlug,
+    })
+
+    if (!dnsReady) {
+      console.warn(`[provisioner] vanity dns upsert skipped or failed for ${hostname}; using Render URL fallback`)
+      return null
+    }
 
     return `https://${hostname}`
   } catch (error) {
@@ -244,10 +246,19 @@ async function provisionWorkerOnRender(input: ProvisionInput): Promise<Provision
     throw new Error(`Render service ${serviceId} has no public URL`)
   }
 
-  const customUrl = await attachRenderCustomDomain(serviceId, input.workerId)
-  const url = customUrl ?? renderUrl
-
   await waitForHealth(renderUrl)
+
+  const customUrl = await attachRenderCustomDomain(serviceId, input.workerId, renderUrl)
+  let url = renderUrl
+
+  if (customUrl) {
+    try {
+      await waitForHealth(customUrl, env.render.customDomainReadyTimeoutMs)
+      url = customUrl
+    } catch {
+      console.warn(`[provisioner] vanity domain not ready yet for ${input.workerId}; returning Render URL fallback`)
+    }
+  }
 
   return {
     provider: "render",

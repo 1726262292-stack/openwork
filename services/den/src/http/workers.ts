@@ -11,6 +11,7 @@ import { env } from "../env.js"
 import { asyncRoute, isTransientDbConnectionError } from "./errors.js"
 import { ensureDefaultOrg } from "../orgs.js"
 import { deprovisionWorker, provisionWorker } from "../workers/provisioner.js"
+import { customDomainForWorker } from "../workers/vanity-domain.js"
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -94,6 +95,34 @@ async function resolveConnectUrlFromWorker(instanceUrl: string, clientToken: str
   } catch {
     return null
   }
+}
+
+function getConnectUrlCandidates(workerId: string, instanceUrl: string | null) {
+  const candidates: string[] = []
+  const vanityHostname = customDomainForWorker(workerId, env.render.workerPublicDomainSuffix)
+  if (vanityHostname) {
+    candidates.push(`https://${vanityHostname}`)
+  }
+
+  if (instanceUrl) {
+    const normalized = normalizeUrl(instanceUrl)
+    if (normalized && !candidates.includes(normalized)) {
+      candidates.push(normalized)
+    }
+  }
+
+  return candidates
+}
+
+async function resolveConnectUrlFromCandidates(workerId: string, instanceUrl: string | null, clientToken: string) {
+  const candidates = getConnectUrlCandidates(workerId, instanceUrl)
+  for (const candidate of candidates) {
+    const resolved = await resolveConnectUrlFromWorker(candidate, clientToken)
+    if (resolved) {
+      return resolved
+    }
+  }
+  return null
 }
 
 async function requireSession(req: express.Request, res: express.Response) {
@@ -427,7 +456,7 @@ workersRouter.post("/:id/tokens", asyncRoute(async (req, res) => {
   }
 
   const instance = await getLatestWorkerInstance(rows[0].id)
-  const connect = instance?.url ? await resolveConnectUrlFromWorker(instance.url, clientToken) : null
+  const connect = await resolveConnectUrlFromCandidates(rows[0].id, instance?.url ?? null, clientToken)
 
   res.json({
     tokens: {

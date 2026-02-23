@@ -32,6 +32,8 @@ jobs:
           POLAR_ACCESS_TOKEN: ${{ secrets.POLAR_ACCESS_TOKEN }}
           POLAR_PRODUCT_ID: ${{ secrets.POLAR_PRODUCT_ID }}
           POLAR_BENEFIT_ID: ${{ secrets.POLAR_BENEFIT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          DEN_RENDER_WORKER_PUBLIC_DOMAIN_SUFFIX: ${{ vars.DEN_RENDER_WORKER_PUBLIC_DOMAIN_SUFFIX }}
           DEN_POLAR_FEATURE_GATE_ENABLED: ${{ vars.DEN_POLAR_FEATURE_GATE_ENABLED }}
         run: |
           missing=0
@@ -41,6 +43,12 @@ jobs:
               missing=1
             fi
           done
+
+          vanity_suffix="${DEN_RENDER_WORKER_PUBLIC_DOMAIN_SUFFIX:-openwork.studio}"
+          if [ -n "$vanity_suffix" ] && [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::Missing required secret: VERCEL_TOKEN (required when vanity domains are enabled)"
+            missing=1
+          fi
 
           feature_enabled="${DEN_POLAR_FEATURE_GATE_ENABLED:-false}"
           feature_enabled="$(echo "$feature_enabled" | tr '[:upper:]' '[:lower:]')"
@@ -67,10 +75,16 @@ jobs:
           DEN_RENDER_WORKER_PLAN: ${{ vars.DEN_RENDER_WORKER_PLAN }}
           DEN_RENDER_WORKER_OPENWORK_VERSION: ${{ vars.DEN_RENDER_WORKER_OPENWORK_VERSION }}
           DEN_RENDER_WORKER_PUBLIC_DOMAIN_SUFFIX: ${{ vars.DEN_RENDER_WORKER_PUBLIC_DOMAIN_SUFFIX }}
+          DEN_RENDER_CUSTOM_DOMAIN_READY_TIMEOUT_MS: ${{ vars.DEN_RENDER_CUSTOM_DOMAIN_READY_TIMEOUT_MS }}
+          DEN_VERCEL_API_BASE: ${{ vars.DEN_VERCEL_API_BASE }}
+          DEN_VERCEL_TEAM_ID: ${{ vars.DEN_VERCEL_TEAM_ID }}
+          DEN_VERCEL_TEAM_SLUG: ${{ vars.DEN_VERCEL_TEAM_SLUG }}
+          DEN_VERCEL_DNS_DOMAIN: ${{ vars.DEN_VERCEL_DNS_DOMAIN }}
           DEN_POLAR_FEATURE_GATE_ENABLED: ${{ vars.DEN_POLAR_FEATURE_GATE_ENABLED }}
           DEN_POLAR_API_BASE: ${{ vars.DEN_POLAR_API_BASE }}
           DEN_POLAR_SUCCESS_URL: ${{ vars.DEN_POLAR_SUCCESS_URL }}
           DEN_POLAR_RETURN_URL: ${{ vars.DEN_POLAR_RETURN_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           POLAR_ACCESS_TOKEN: ${{ secrets.POLAR_ACCESS_TOKEN }}
           POLAR_PRODUCT_ID: ${{ secrets.POLAR_PRODUCT_ID }}
           POLAR_BENEFIT_ID: ${{ secrets.POLAR_BENEFIT_ID }}
@@ -89,6 +103,12 @@ jobs:
           openwork_version = os.environ.get("DEN_RENDER_WORKER_OPENWORK_VERSION") or "0.11.113"
           worker_plan = os.environ.get("DEN_RENDER_WORKER_PLAN") or "standard"
           worker_public_domain_suffix = os.environ.get("DEN_RENDER_WORKER_PUBLIC_DOMAIN_SUFFIX") or "openwork.studio"
+          custom_domain_ready_timeout_ms = os.environ.get("DEN_RENDER_CUSTOM_DOMAIN_READY_TIMEOUT_MS") or "240000"
+          vercel_api_base = os.environ.get("DEN_VERCEL_API_BASE") or "https://api.vercel.com"
+          vercel_team_id = os.environ.get("DEN_VERCEL_TEAM_ID") or ""
+          vercel_team_slug = os.environ.get("DEN_VERCEL_TEAM_SLUG") or "prologe"
+          vercel_dns_domain = os.environ.get("DEN_VERCEL_DNS_DOMAIN") or worker_public_domain_suffix
+          vercel_token = os.environ.get("VERCEL_TOKEN") or ""
           paywall_enabled = (os.environ.get("DEN_POLAR_FEATURE_GATE_ENABLED") or "false").lower() == "true"
           polar_api_base = os.environ.get("DEN_POLAR_API_BASE") or "https://api.polar.sh"
           polar_success_url = os.environ.get("DEN_POLAR_SUCCESS_URL") or "https://app.openwork.software"
@@ -151,9 +171,15 @@ jobs:
               {"key": "RENDER_WORKER_OPENWORK_VERSION", "value": openwork_version},
               {"key": "RENDER_WORKER_NAME_PREFIX", "value": "den-worker-openwork"},
               {"key": "RENDER_WORKER_PUBLIC_DOMAIN_SUFFIX", "value": worker_public_domain_suffix},
+              {"key": "RENDER_CUSTOM_DOMAIN_READY_TIMEOUT_MS", "value": custom_domain_ready_timeout_ms},
               {"key": "RENDER_PROVISION_TIMEOUT_MS", "value": "900000"},
               {"key": "RENDER_HEALTHCHECK_TIMEOUT_MS", "value": "180000"},
               {"key": "RENDER_POLL_INTERVAL_MS", "value": "5000"},
+              {"key": "VERCEL_API_BASE", "value": vercel_api_base},
+              {"key": "VERCEL_TOKEN", "value": vercel_token},
+              {"key": "VERCEL_TEAM_ID", "value": vercel_team_id},
+              {"key": "VERCEL_TEAM_SLUG", "value": vercel_team_slug},
+              {"key": "VERCEL_DNS_DOMAIN", "value": vercel_dns_domain},
               {"key": "POLAR_FEATURE_GATE_ENABLED", "value": "true" if paywall_enabled else "false"},
               {"key": "POLAR_API_BASE", "value": polar_api_base},
               {"key": "POLAR_ACCESS_TOKEN", "value": polar_access_token},
