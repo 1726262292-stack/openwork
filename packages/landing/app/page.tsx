@@ -107,7 +107,6 @@ export default async function Home() {
             >
               <OpenCodeLogo className="h-3 w-auto" />
             </a>
-            <span>Everything from opencode just works.</span>
           </div>
 
           <section id="install">
