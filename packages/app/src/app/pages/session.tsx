@@ -1113,7 +1113,13 @@ export default function SessionView(props: SessionViewProps) {
     return null;
   });
 
-  const cleanReasoning = (value: string) => value.replace(/\[REDACTED\]/g, "").trim();
+  const cleanReasoning = (value: string) =>
+    value
+      .replace(/\[REDACTED\]/g, "")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/__([^_]+)__/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      .trim();
 
   const latestRunReasoning = createMemo<string | null>(() => {
     if (!showRunIndicator()) return null;

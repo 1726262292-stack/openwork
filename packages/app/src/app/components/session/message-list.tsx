@@ -118,12 +118,9 @@ export default function MessageList(props: MessageListProps) {
       .filter((attachment) => !!attachment.url);
   const isImageAttachment = (mime: string) => mime.startsWith("image/");
   const segmentBadgeText = (group: MessageGroup, isUser: boolean) => {
-    if (isUser) {
-      if (group.kind === "steps") return "user execution";
-      return "user request";
-    }
-    if (group.kind === "steps") return "execution";
-    return group.segment === "intent" ? "intent" : "result";
+    if (isUser) return null;
+    if (group.kind === "steps") return "Activity";
+    return group.segment === "intent" ? "Plan" : "Answer";
   };
 
   onCleanup(() => {
@@ -400,7 +397,7 @@ export default function MessageList(props: MessageListProps) {
       if (reasoning > 0) {
         return `${reasoning} thinking update${reasoning === 1 ? "" : "s"}`;
       }
-      return "execution steps";
+      return "activity updates";
     };
 
     const compactPathToken = (value: string) => {
@@ -549,7 +546,7 @@ export default function MessageList(props: MessageListProps) {
               <span class="inline-flex h-1 w-1 rounded-full bg-blue-10/70 animate-pulse" />
             </Show>
             <span class="truncate max-w-[58ch]">
-              {expanded() ? `Hide execution (${executionSummary()})` : `Execution: ${executionSummary()}`}
+              {expanded() ? `Hide activity (${executionSummary()})` : `Activity: ${executionSummary()}`}
             </span>
           </span>
           <Show when={!expanded()}>
@@ -612,9 +609,9 @@ export default function MessageList(props: MessageListProps) {
                       : "max-w-[68ch] text-[15px] leading-7 text-gray-12 group pl-2"
                   } ${searchOutlineClass}`}
                 >
-                  <div class={`mb-1 text-[10px] uppercase tracking-[0.12em] ${block.isUser ? "text-gray-8" : "text-gray-9"}`}>
-                    {block.isUser ? "user execution" : "execution"}
-                  </div>
+                  <Show when={!block.isUser}>
+                    <div class="mb-1 text-[10px] uppercase tracking-[0.12em] text-gray-9">Activity</div>
+                  </Show>
                   <StepsContainer
                     id={block.id}
                     relatedIds={block.stepIds.filter((stepId) => stepId !== block.id)}
@@ -669,9 +666,9 @@ export default function MessageList(props: MessageListProps) {
                 <For each={block.groups}>
                   {(group, idx) => (
                     <div class={idx() === block.groups.length - 1 ? "" : groupSpacing}>
-                      <div class={`mb-1 text-[10px] uppercase tracking-[0.12em] ${block.isUser ? "text-gray-8" : "text-gray-9"}`}>
-                        {segmentBadgeText(group, block.isUser)}
-                      </div>
+                      <Show when={segmentBadgeText(group, block.isUser)}>
+                        {(label) => <div class="mb-1 text-[10px] uppercase tracking-[0.12em] text-gray-9">{label()}</div>}
+                      </Show>
                       <Show when={group.kind === "text"}>
                         {(() => {
                           const isStreamingLatestAssistant =
