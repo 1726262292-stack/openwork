@@ -9,24 +9,25 @@ export default async function Home() {
   const github = await getGithubData();
   const cal = process.env.NEXT_PUBLIC_CAL_URL ?? "";
   return (
-    <div className="min-h-screen">
-      <SiteNav stars={github.stars} callUrl={cal} />
+    <div className="relative min-h-screen">
+      <div
+        className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
+        aria-hidden
+        style={{
+          WebkitMaskImage:
+            "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%)",
+          maskImage:
+            "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%)"
+        }}
+      >
+        <PaperMeshBackground opacity={0.24} />
+      </div>
 
-      <main className="relative pb-24 pt-20">
-        <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-[560px] overflow-hidden"
-          aria-hidden
-          style={{
-            WebkitMaskImage:
-              "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 55%, rgba(0,0,0,0) 100%)",
-            maskImage:
-              "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 55%, rgba(0,0,0,0) 100%)"
-          }}
-        >
-          <PaperMeshBackground opacity={0.26} />
-        </div>
+      <div className="relative z-10">
+        <SiteNav stars={github.stars} callUrl={cal} />
 
-        <div className="content-max-width relative px-6">
+        <main className="pb-24 pt-20">
+          <div className="content-max-width px-6">
           <div className="animate-fade-up">
             <h1 className="mb-2 text-4xl font-bold tracking-tight">
               Not just suggestions. Automate your work.
@@ -438,8 +439,9 @@ export default async function Home() {
           </section>
 
           <SiteFooter />
-        </div>
-      </main>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

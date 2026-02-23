@@ -11,7 +11,7 @@ export function SiteNav(props: Props) {
   const navLink = (isActive: boolean) =>
     isActive ? "transition text-black" : "transition hover:text-black";
   return (
-    <nav className="sticky top-0 z-50 border-b border-gray-100 bg-white/90 py-4 backdrop-blur">
+    <nav className="sticky top-0 z-50 border-b border-gray-100/60 bg-white/30 py-4 backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-6">
         <div className="flex items-center gap-6">
           <Link href="/" className="text-lg font-bold tracking-tight">
