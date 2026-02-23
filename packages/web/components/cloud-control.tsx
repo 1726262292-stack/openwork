@@ -1464,7 +1464,7 @@ export function CloudControlPanel() {
         ) : null}
 
         {step === 2 ? (
-          <div className="ow-app-shell">
+          <div className="space-y-3">
             <div className="mb-3 flex items-center justify-between rounded-[18px] border border-slate-200 bg-white p-2 lg:hidden">
               <div className="flex gap-2">
                 <button
