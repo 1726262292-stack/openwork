@@ -11,7 +11,6 @@ export const metadata = {
 
 export default async function Den() {
   const github = await getGithubData();
-  const checkoutUrl = process.env.NEXT_PUBLIC_DEN_CHECKOUT_URL ?? "";
 
   return (
     <div className="min-h-screen">
@@ -35,34 +34,28 @@ export default async function Den() {
           </div>
 
           <div className="mb-12 mt-10 flex flex-wrap items-center gap-3">
-            {checkoutUrl ? (
-              <a
-                href={checkoutUrl}
-                className="doc-button"
-                rel="noreferrer"
-                target="_blank"
+            <a
+              href="https://app.openwork.software"
+              className="doc-button"
+              rel="noreferrer"
+              target="_blank"
+            >
+              Start pre-order
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
               >
-                Start Den preorder
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M14 5l7 7m0 0l-7 7m7-7H3"
-                  />
-                </svg>
-              </a>
-            ) : (
-              <a href="/enterprise#book" className="doc-button">
-                Book onboarding
-              </a>
-            )}
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M14 5l7 7m0 0l-7 7m7-7H3"
+                />
+              </svg>
+            </a>
           </div>
 
           <div className="mb-8 text-[20px] font-semibold text-black">
