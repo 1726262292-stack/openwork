@@ -1,7 +1,6 @@
 import { SiteFooter } from "../components/site-footer";
 import { SiteNav } from "../components/site-nav";
 import { OpenCodeLogo } from "../components/opencode-logo";
-import { WaitlistForm } from "../components/waitlist-form";
 import { PaperMeshBackground } from "../components/paper-mesh-background";
 import { getGithubData } from "../lib/github";
 
@@ -29,40 +28,13 @@ export default async function Home() {
         <main className="pb-24 pt-20">
           <div className="content-max-width px-6">
           <div className="animate-fade-up">
-            <h1 className="mb-2 text-4xl font-bold tracking-tight md:text-5xl">
+            <h1 className="mb-4 max-w-3xl text-5xl font-bold tracking-tight md:text-6xl">
               Not just suggestions. Automate your work.
             </h1>
-            <p className="mb-8 flex flex-wrap items-center gap-1.5 text-xl font-medium text-gray-900/80">
-              OpenWork is your open-source
-              <span className="word-cycle text-gray-900">
-                <span>Cowork</span>
-                <span>Codex</span>
-              </span>
-              alternative for teams.
-              <span className="sr-only">
-                OpenWork is your open-source Cowork alternative for teams.
-              </span>
-            </p>
-          </div>
-
-          <div className="mb-10 space-y-4 text-base leading-relaxed text-gray-900/80 font-medium">
-            <p>
-              OpenWork is a desktop app for working on automation threads in
-              parallel, with built-in support for your local tools, files, and
-              browser.
-            </p>
-            <p>
-              Get started with free models, connect your ChatGPT account, or use
-              any of the 50 other{" "}
-              <a
-                href="https://opencode.ai/docs/providers/"
-                target="_blank"
-                rel="noreferrer"
-                className="text-gray-900 underline underline-offset-4 decoration-gray-900/30 hover:decoration-gray-900 transition-colors"
-              >
-                providers
-              </a>
-              .
+            <p className="mb-10 max-w-4xl text-xl font-medium leading-relaxed text-gray-900/80">
+              OpenWork lets you open any project, package your agents as usable
+              apps, and give non-technical coworkers access via desktop or
+              WhatsApp - no terminal, no YAML, no prompt engineering required.
             </p>
           </div>
 
@@ -109,7 +81,7 @@ export default async function Home() {
             </div>
           </div>
 
-          <div className="group relative mb-16 mt-8">
+          <div className="group relative mb-2 mt-8">
             <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl transition-transform duration-500 group-hover:scale-[1.01] ring-1 ring-black/5">
               <video
                 autoPlay
@@ -325,13 +297,15 @@ export default async function Home() {
             </h2>
             <p className="mb-8 text-base leading-relaxed text-gray-700">
               OpenWork Cloud runs your automations so you don&apos;t have to
-              manage infrastructure. Join the waitlist to get early access and
-              a free series that walks you through automating every part of
-              your business.
+              manage infrastructure. Give every team secure access to the
+              workflows they need, with clear controls and zero ops overhead.
             </p>
 
             <div className="mb-10 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
-              <div className="feature-card">
+              <div className="feature-card border-blue-100 bg-blue-50/50">
+                <span className="mb-3 inline-flex rounded-full border border-blue-200 bg-white px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-blue-700">
+                  Team ready
+                </span>
                 <h4 className="mb-2 text-[15px] font-bold">
                   Hosted for your team
                 </h4>
@@ -340,7 +314,10 @@ export default async function Home() {
                   your team can focus on the work.
                 </p>
               </div>
-              <div className="feature-card">
+              <div className="feature-card border-emerald-100 bg-emerald-50/50">
+                <span className="mb-3 inline-flex rounded-full border border-emerald-200 bg-white px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                  Safe by default
+                </span>
                 <h4 className="mb-2 text-[15px] font-bold">
                   Permissioned &amp; auditable
                 </h4>
@@ -349,7 +326,10 @@ export default async function Home() {
                   agents can and cannot do.
                 </p>
               </div>
-              <div className="feature-card">
+              <div className="feature-card border-amber-100 bg-amber-50/50">
+                <span className="mb-3 inline-flex rounded-full border border-amber-200 bg-white px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                  Practical onboarding
+                </span>
                 <h4 className="mb-2 text-[15px] font-bold">
                   Free automation series
                 </h4>
@@ -380,7 +360,6 @@ export default async function Home() {
               </a>
             </div>
 
-            <WaitlistForm />
           </section>
 
           <hr />
