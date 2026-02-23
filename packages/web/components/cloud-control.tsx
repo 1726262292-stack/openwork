@@ -599,7 +599,8 @@ export function CloudControlPanel() {
   const [workerQuery, setWorkerQuery] = useState("");
   const [workerStatusFilter, setWorkerStatusFilter] = useState<WorkerStatusBucket | "all">("all");
   const [showLaunchForm, setShowLaunchForm] = useState(false);
-  const [openAccordion, setOpenAccordion] = useState<"connect" | "actions" | "advanced" | null>("connect");
+  const [openAccordion, setOpenAccordion] = useState<"connect" | "actions" | "advanced" | null>(null);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
 
   const selectedWorker = workers.find((item) => item.workerId === workerLookupId) ?? null;
   const activeWorker: WorkerLaunch | null =
@@ -1736,165 +1737,192 @@ export function CloudControlPanel() {
                             </button>
                           </div>
 
-                          <div className="mb-6">
-                            <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Connection URL</label>
-                            <div className="flex items-center gap-2 rounded-[14px] border border-slate-200 bg-[#F8F9FA] p-1.5">
-                              <input
-                                type="text"
-                                readOnly
-                                value={openworkConnectUrl ?? "Connection URL is still preparing..."}
-                                className="w-full flex-1 bg-transparent px-3 py-2 font-mono text-xs text-slate-600 outline-none"
-                                onClick={(event) => event.currentTarget.select()}
-                              />
-                              <button
-                                type="button"
-                                className="rounded-xl border border-transparent bg-white px-3 py-2 text-xs font-medium text-slate-500 transition hover:border-slate-200 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                                disabled={!openworkConnectUrl}
-                                onClick={() => void copyToClipboard("openwork-url", openworkConnectUrl)}
-                              >
-                                {copiedField === "openwork-url" ? "Copied" : "Copy"}
-                              </button>
-                            </div>
-                            {!openworkDeepLink || !openworkConnectUrl || (!hasWorkspaceScopedUrl && openworkConnectUrl) ? (
-                              <p className="mt-2 text-xs text-slate-500">
-                                {!openworkDeepLink
-                                  ? "Getting connection details ready..."
-                                  : !openworkConnectUrl
-                                    ? "Keep this page open for a moment."
-                                    : "Finishing your workspace URL..."}
-                              </p>
-                            ) : null}
+                          <div className="rounded-[14px] border border-slate-100 bg-slate-50 px-4 py-3">
+                            <p className="text-sm text-slate-600">
+                              {openworkDeepLink
+                                ? "You are all set. Open in OpenWork to start working."
+                                : "We are still preparing your connection. The button will unlock when ready."}
+                            </p>
                           </div>
 
-                          <div className="overflow-hidden rounded-[20px] border border-slate-100">
-                            <div className="border-b border-slate-100">
-                              <button
-                                type="button"
-                                onClick={() => setOpenAccordion((current) => (current === "connect" ? null : "connect"))}
-                                className="flex w-full items-center justify-between p-4 text-left transition hover:bg-slate-50"
-                              >
-                                <span className="text-sm font-semibold text-slate-800">Manual connect details</span>
-                                <span className="text-sm text-slate-400">{openAccordion === "connect" ? "v" : ">"}</span>
-                              </button>
-                              {openAccordion === "connect" ? (
-                                <div className="space-y-3 px-4 pb-4">
-                                  <CredentialRow
-                                    label="OpenWork worker URL"
-                                    value={openworkConnectUrl}
-                                    placeholder="URL appears once ready"
-                                    canCopy={Boolean(openworkConnectUrl)}
-                                    copied={copiedField === "manual-openwork-url"}
-                                    onCopy={() => void copyToClipboard("manual-openwork-url", openworkConnectUrl)}
-                                  />
+                          <button
+                            type="button"
+                            className="mt-4 text-sm font-semibold text-[#1B29FF] transition hover:text-[#151FDA]"
+                            onClick={() =>
+                              setShowAdvancedOptions((current) => {
+                                if (current) {
+                                  setOpenAccordion(null);
+                                }
+                                return !current;
+                              })
+                            }
+                          >
+                            {showAdvancedOptions ? "Hide advanced options" : "Need manual setup? Show advanced options"}
+                          </button>
 
-                                  <CredentialRow
-                                    label="Access token"
-                                    value={activeWorker?.clientToken ?? null}
-                                    placeholder="Use Worker actions to refresh"
-                                    canCopy={Boolean(activeWorker?.clientToken)}
-                                    copied={copiedField === "access-token"}
-                                    onCopy={() => void copyToClipboard("access-token", activeWorker?.clientToken ?? null)}
+                          {showAdvancedOptions ? (
+                            <div className="mt-4 space-y-4">
+                              <div>
+                                <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Connection URL</label>
+                                <div className="flex items-center gap-2 rounded-[14px] border border-slate-200 bg-[#F8F9FA] p-1.5">
+                                  <input
+                                    type="text"
+                                    readOnly
+                                    value={openworkConnectUrl ?? "Connection URL is still preparing..."}
+                                    className="w-full flex-1 bg-transparent px-3 py-2 font-mono text-xs text-slate-600 outline-none"
+                                    onClick={(event) => event.currentTarget.select()}
                                   />
-                                </div>
-                              ) : null}
-                            </div>
-
-                            <div className="border-b border-slate-100">
-                              <button
-                                type="button"
-                                onClick={() => setOpenAccordion((current) => (current === "actions" ? null : "actions"))}
-                                className="flex w-full items-center justify-between p-4 text-left transition hover:bg-slate-50"
-                              >
-                                <span className="text-sm font-semibold text-slate-800">Worker actions</span>
-                                <span className="text-sm text-slate-400">{openAccordion === "actions" ? "v" : ">"}</span>
-                              </button>
-                              {openAccordion === "actions" ? (
-                                <div className="flex flex-wrap gap-2 px-4 pb-4">
                                   <button
                                     type="button"
-                                    className="rounded-[10px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                    onClick={() => void refreshWorkers({ keepSelection: true })}
-                                    disabled={workersBusy || actionBusy !== null}
+                                    className="rounded-xl border border-transparent bg-white px-3 py-2 text-xs font-medium text-slate-500 transition hover:border-slate-200 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                                    disabled={!openworkConnectUrl}
+                                    onClick={() => void copyToClipboard("openwork-url", openworkConnectUrl)}
                                   >
-                                    {workersBusy ? "Refreshing..." : "Refresh list"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="rounded-[10px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                    onClick={() => void handleCheckStatus({ workerId: selectedWorker.workerId })}
-                                    disabled={actionBusy !== null}
-                                  >
-                                    {actionBusy === "status" ? "Checking..." : "Check status"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="rounded-[10px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                    onClick={handleGenerateKey}
-                                    disabled={actionBusy !== null}
-                                  >
-                                    {actionBusy === "token" ? "Fetching..." : "Refresh token"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="rounded-[10px] border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
-                                    onClick={() => void handleDeleteWorker(selectedWorker.workerId)}
-                                    disabled={deleteBusyWorkerId !== null || actionBusy !== null || launchBusy}
-                                  >
-                                    {deleteBusyWorkerId === selectedWorker.workerId ? "Deleting..." : "Delete worker"}
+                                    {copiedField === "openwork-url" ? "Copied" : "Copy"}
                                   </button>
                                 </div>
-                              ) : null}
-                            </div>
+                                {!openworkDeepLink || !openworkConnectUrl || (!hasWorkspaceScopedUrl && openworkConnectUrl) ? (
+                                  <p className="mt-2 text-xs text-slate-500">
+                                    {!openworkDeepLink
+                                      ? "Getting connection details ready..."
+                                      : !openworkConnectUrl
+                                        ? "Keep this page open for a moment."
+                                        : "Finishing your workspace URL..."}
+                                  </p>
+                                ) : null}
+                              </div>
 
-                            <div>
-                              <button
-                                type="button"
-                                onClick={() => setOpenAccordion((current) => (current === "advanced" ? null : "advanced"))}
-                                className="flex w-full items-center justify-between p-4 text-left transition hover:bg-slate-50"
-                              >
-                                <span className="text-sm font-semibold text-slate-800">Advanced details</span>
-                                <span className="text-sm text-slate-400">{openAccordion === "advanced" ? "v" : ">"}</span>
-                              </button>
-                              {openAccordion === "advanced" ? (
-                                <div className="space-y-3 px-4 pb-4">
-                                  <CredentialRow
-                                    label="Worker host URL"
-                                    value={activeWorker?.instanceUrl ?? null}
-                                    placeholder="Host URL"
-                                    canCopy={Boolean(activeWorker?.instanceUrl)}
-                                    copied={copiedField === "worker-host-url"}
-                                    onCopy={() => void copyToClipboard("worker-host-url", activeWorker?.instanceUrl ?? null)}
-                                  />
+                              <div className="overflow-hidden rounded-[20px] border border-slate-100">
+                                <div className="border-b border-slate-100">
+                                  <button
+                                    type="button"
+                                    onClick={() => setOpenAccordion((current) => (current === "connect" ? null : "connect"))}
+                                    className="flex w-full items-center justify-between p-4 text-left transition hover:bg-slate-50"
+                                  >
+                                    <span className="text-sm font-semibold text-slate-800">Manual connect details</span>
+                                    <span className="text-sm text-slate-400">{openAccordion === "connect" ? "v" : ">"}</span>
+                                  </button>
+                                  {openAccordion === "connect" ? (
+                                    <div className="space-y-3 px-4 pb-4">
+                                      <CredentialRow
+                                        label="OpenWork worker URL"
+                                        value={openworkConnectUrl}
+                                        placeholder="URL appears once ready"
+                                        canCopy={Boolean(openworkConnectUrl)}
+                                        copied={copiedField === "manual-openwork-url"}
+                                        onCopy={() => void copyToClipboard("manual-openwork-url", openworkConnectUrl)}
+                                      />
 
-                                  <CredentialRow
-                                    label="Worker ID"
-                                    value={(activeWorker?.workerId ?? workerLookupId) || null}
-                                    placeholder="Worker ID"
-                                    canCopy={Boolean(activeWorker?.workerId || workerLookupId)}
-                                    copied={copiedField === "worker-id"}
-                                    onCopy={() => void copyToClipboard("worker-id", (activeWorker?.workerId ?? workerLookupId) || null)}
-                                  />
-
-                                  {events.length > 0 ? (
-                                    <div className="rounded-[12px] border border-slate-200 bg-slate-50 p-3">
-                                      <p className="mb-2 text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Recent activity</p>
-                                      <ul className="space-y-2">
-                                        {events.map((entry) => (
-                                          <li key={entry.id} className="rounded-[10px] border border-slate-100 bg-white px-3 py-2">
-                                            <div className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-700">
-                                              <span>{entry.label}</span>
-                                              <span className="font-mono text-[10px] text-slate-500">{new Date(entry.at).toLocaleTimeString()}</span>
-                                            </div>
-                                            <p className="mt-1 text-xs text-slate-600">{entry.detail}</p>
-                                          </li>
-                                        ))}
-                                      </ul>
+                                      <CredentialRow
+                                        label="Access token"
+                                        value={activeWorker?.clientToken ?? null}
+                                        placeholder="Use Worker actions to refresh"
+                                        canCopy={Boolean(activeWorker?.clientToken)}
+                                        copied={copiedField === "access-token"}
+                                        onCopy={() => void copyToClipboard("access-token", activeWorker?.clientToken ?? null)}
+                                      />
                                     </div>
                                   ) : null}
                                 </div>
-                              ) : null}
+
+                                <div className="border-b border-slate-100">
+                                  <button
+                                    type="button"
+                                    onClick={() => setOpenAccordion((current) => (current === "actions" ? null : "actions"))}
+                                    className="flex w-full items-center justify-between p-4 text-left transition hover:bg-slate-50"
+                                  >
+                                    <span className="text-sm font-semibold text-slate-800">Worker actions</span>
+                                    <span className="text-sm text-slate-400">{openAccordion === "actions" ? "v" : ">"}</span>
+                                  </button>
+                                  {openAccordion === "actions" ? (
+                                    <div className="flex flex-wrap gap-2 px-4 pb-4">
+                                      <button
+                                        type="button"
+                                        className="rounded-[10px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        onClick={() => void refreshWorkers({ keepSelection: true })}
+                                        disabled={workersBusy || actionBusy !== null}
+                                      >
+                                        {workersBusy ? "Refreshing..." : "Refresh list"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="rounded-[10px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        onClick={() => void handleCheckStatus({ workerId: selectedWorker.workerId })}
+                                        disabled={actionBusy !== null}
+                                      >
+                                        {actionBusy === "status" ? "Checking..." : "Check status"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="rounded-[10px] border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        onClick={handleGenerateKey}
+                                        disabled={actionBusy !== null}
+                                      >
+                                        {actionBusy === "token" ? "Fetching..." : "Refresh token"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="rounded-[10px] border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                        onClick={() => void handleDeleteWorker(selectedWorker.workerId)}
+                                        disabled={deleteBusyWorkerId !== null || actionBusy !== null || launchBusy}
+                                      >
+                                        {deleteBusyWorkerId === selectedWorker.workerId ? "Deleting..." : "Delete worker"}
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </div>
+
+                                <div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setOpenAccordion((current) => (current === "advanced" ? null : "advanced"))}
+                                    className="flex w-full items-center justify-between p-4 text-left transition hover:bg-slate-50"
+                                  >
+                                    <span className="text-sm font-semibold text-slate-800">Advanced details</span>
+                                    <span className="text-sm text-slate-400">{openAccordion === "advanced" ? "v" : ">"}</span>
+                                  </button>
+                                  {openAccordion === "advanced" ? (
+                                    <div className="space-y-3 px-4 pb-4">
+                                      <CredentialRow
+                                        label="Worker host URL"
+                                        value={activeWorker?.instanceUrl ?? null}
+                                        placeholder="Host URL"
+                                        canCopy={Boolean(activeWorker?.instanceUrl)}
+                                        copied={copiedField === "worker-host-url"}
+                                        onCopy={() => void copyToClipboard("worker-host-url", activeWorker?.instanceUrl ?? null)}
+                                      />
+
+                                      <CredentialRow
+                                        label="Worker ID"
+                                        value={(activeWorker?.workerId ?? workerLookupId) || null}
+                                        placeholder="Worker ID"
+                                        canCopy={Boolean(activeWorker?.workerId || workerLookupId)}
+                                        copied={copiedField === "worker-id"}
+                                        onCopy={() => void copyToClipboard("worker-id", (activeWorker?.workerId ?? workerLookupId) || null)}
+                                      />
+
+                                      {events.length > 0 ? (
+                                        <div className="rounded-[12px] border border-slate-200 bg-slate-50 p-3">
+                                          <p className="mb-2 text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Recent activity</p>
+                                          <ul className="space-y-2">
+                                            {events.map((entry) => (
+                                              <li key={entry.id} className="rounded-[10px] border border-slate-100 bg-white px-3 py-2">
+                                                <div className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-700">
+                                                  <span>{entry.label}</span>
+                                                  <span className="font-mono text-[10px] text-slate-500">{new Date(entry.at).toLocaleTimeString()}</span>
+                                                </div>
+                                                <p className="mt-1 text-xs text-slate-600">{entry.detail}</p>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </div>
                             </div>
-                          </div>
+                          ) : null}
                         </div>
                       </div>
                     </>
