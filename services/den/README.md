@@ -29,6 +29,7 @@ pnpm dev
 - `RENDER_WORKER_REGION` Render region for worker services
 - `RENDER_WORKER_OPENWORK_VERSION` `openwork-orchestrator` npm version installed in workers
 - `RENDER_WORKER_NAME_PREFIX` service name prefix
+- `RENDER_WORKER_PUBLIC_DOMAIN_SUFFIX` optional domain suffix for worker custom URLs (e.g. `openwork.studio` -> `<worker-id>.openwork.studio`)
 - `RENDER_PROVISION_TIMEOUT_MS` max time to wait for deploy to become live
 - `RENDER_HEALTHCHECK_TIMEOUT_MS` max time to wait for worker health checks
 - `RENDER_POLL_INTERVAL_MS` polling interval for deploy + health checks
@@ -67,6 +68,8 @@ pnpm db:migrate
 - `GET /v1/workers/:id`
   - Includes latest instance metadata when available.
 - `POST /v1/workers/:id/tokens`
+- `DELETE /v1/workers/:id`
+  - Deletes worker records and attempts to suspend the backing cloud service when destination is `cloud`.
 
 ## CI deployment (dev == prod)
 
@@ -84,6 +87,7 @@ Optional GitHub Actions variable:
 
 - `DEN_RENDER_WORKER_PLAN` (defaults to `standard`)
 - `DEN_RENDER_WORKER_OPENWORK_VERSION` (defaults to `0.11.113`)
+- `DEN_RENDER_WORKER_PUBLIC_DOMAIN_SUFFIX` (defaults to `openwork.studio`)
 - `DEN_POLAR_FEATURE_GATE_ENABLED` (`true`/`false`, defaults to `false`)
 - `DEN_POLAR_API_BASE` (defaults to `https://api.polar.sh`)
 - `DEN_POLAR_SUCCESS_URL` (defaults to `https://app.openwork.software`)

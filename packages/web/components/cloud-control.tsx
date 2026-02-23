@@ -255,7 +255,7 @@ function getWorkerStatusMeta(status: string): { label: string; bucket: WorkerSta
     return { label: "Starting", bucket: "starting" };
   }
 
-  if (normalized === "failed" || normalized === "suspended") {
+  if (normalized === "failed" || normalized === "suspended" || normalized === "stopped") {
     return { label: "Needs attention", bucket: "attention" };
   }
 
@@ -274,6 +274,7 @@ function getWorkerStatusCopy(status: string): string {
     case "failed":
       return "Worker failed to start.";
     case "suspended":
+    case "stopped":
       return "Worker is suspended.";
     default:
       return "Worker status unknown.";
@@ -594,6 +595,7 @@ export function CloudControlPanel() {
   const [events, setEvents] = useState<LaunchEvent[]>([]);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [tokenFetchedForWorkerId, setTokenFetchedForWorkerId] = useState<string | null>(null);
+  const [deleteBusyWorkerId, setDeleteBusyWorkerId] = useState<string | null>(null);
   const [workerQuery, setWorkerQuery] = useState("");
   const [workerStatusFilter, setWorkerStatusFilter] = useState<WorkerStatusBucket | "all">("all");
   const [showLaunchForm, setShowLaunchForm] = useState(false);
@@ -1032,6 +1034,7 @@ export function CloudControlPanel() {
     setCheckoutUrl(null);
     setPaymentReturned(false);
     setTokenFetchedForWorkerId(null);
+    setDeleteBusyWorkerId(null);
     setActionBusy(null);
     setLaunchBusy(false);
     setStep(1);
@@ -1315,6 +1318,69 @@ export function CloudControlPanel() {
       appendEvent("error", "Token fetch failed", message);
     } finally {
       setActionBusy(null);
+    }
+  }
+
+  async function handleDeleteWorker(workerId: string) {
+    if (!user) {
+      setLaunchError("Sign in before deleting a worker.");
+      return;
+    }
+
+    if (deleteBusyWorkerId || actionBusy !== null || launchBusy) {
+      return;
+    }
+
+    const target = workers.find((entry) => entry.workerId === workerId) ?? null;
+    const workerLabel = target?.workerName ?? "this worker";
+
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(`Delete "${workerLabel}"? This removes it from your worker list.`);
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setDeleteBusyWorkerId(workerId);
+    setLaunchError(null);
+
+    try {
+      const { response, payload } = await requestJson(`/v1/workers/${encodeURIComponent(workerId)}`, {
+        method: "DELETE",
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined
+      });
+
+      if (response.status !== 204 && !response.ok) {
+        const message = getErrorMessage(payload, `Delete failed with ${response.status}.`);
+        setLaunchError(message);
+        appendEvent("error", "Delete failed", message);
+        return;
+      }
+
+      setWorkers((current) => current.filter((entry) => entry.workerId !== workerId));
+
+      setWorker((current) => {
+        if (!current || current.workerId !== workerId) {
+          return current;
+        }
+        return null;
+      });
+
+      setWorkerLookupId((current) => (current === workerId ? "" : current));
+
+      if (typeof window !== "undefined" && worker?.workerId === workerId) {
+        window.localStorage.removeItem(LAST_WORKER_STORAGE_KEY);
+      }
+
+      setLaunchStatus(`Deleted ${workerLabel}.`);
+      appendEvent("success", "Worker deleted", workerLabel);
+      await refreshWorkers({ keepSelection: false });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown network error";
+      setLaunchError(message);
+      appendEvent("error", "Delete failed", message);
+    } finally {
+      setDeleteBusyWorkerId(null);
     }
   }
 
@@ -1772,6 +1838,14 @@ export function CloudControlPanel() {
                                     disabled={actionBusy !== null}
                                   >
                                     {actionBusy === "token" ? "Fetching..." : "Refresh token"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-[10px] border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                    onClick={() => void handleDeleteWorker(selectedWorker.workerId)}
+                                    disabled={deleteBusyWorkerId !== null || actionBusy !== null || launchBusy}
+                                  >
+                                    {deleteBusyWorkerId === selectedWorker.workerId ? "Deleting..." : "Delete worker"}
                                   </button>
                                 </div>
                               ) : null}

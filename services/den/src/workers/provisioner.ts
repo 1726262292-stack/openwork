@@ -16,11 +16,17 @@ export type ProvisionedInstance = {
 
 type RenderService = {
   id: string
+  name?: string
   slug?: string
   serviceDetails?: {
     url?: string
     region?: string
   }
+}
+
+type RenderServiceListRow = {
+  cursor?: string
+  service?: RenderService
 }
 
 type RenderDeploy = {
@@ -38,6 +44,32 @@ const slug = (value: string) =>
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
+
+const hostFromUrl = (value: string | null | undefined) => {
+  if (!value) {
+    return ""
+  }
+
+  try {
+    return new URL(value).host.toLowerCase()
+  } catch {
+    return ""
+  }
+}
+
+function customDomainForWorker(workerId: string): string | null {
+  const suffix = env.render.workerPublicDomainSuffix?.trim().toLowerCase()
+  if (!suffix) {
+    return null
+  }
+
+  const label = slug(workerId).slice(0, 32)
+  if (!label) {
+    return null
+  }
+
+  return `${label}.${suffix}`
+}
 
 async function renderRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
@@ -105,6 +137,56 @@ async function waitForHealth(url: string) {
   throw new Error(`Timed out waiting for worker health endpoint ${healthUrl}`)
 }
 
+async function listRenderServices(limit = 200) {
+  const rows: RenderService[] = []
+  let cursor: string | undefined
+
+  while (rows.length < limit) {
+    const query = new URLSearchParams({ limit: "100" })
+    if (cursor) {
+      query.set("cursor", cursor)
+    }
+
+    const page = await renderRequest<RenderServiceListRow[]>(`/services?${query.toString()}`)
+    if (page.length === 0) {
+      break
+    }
+
+    rows.push(...page.map((entry) => entry.service).filter((entry): entry is RenderService => Boolean(entry?.id)))
+
+    const nextCursor = page[page.length - 1]?.cursor
+    if (!nextCursor || nextCursor === cursor) {
+      break
+    }
+
+    cursor = nextCursor
+  }
+
+  return rows.slice(0, limit)
+}
+
+async function attachRenderCustomDomain(serviceId: string, workerId: string) {
+  const hostname = customDomainForWorker(workerId)
+  if (!hostname) {
+    return null
+  }
+
+  try {
+    await renderRequest(`/services/${serviceId}/custom-domains`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: hostname,
+      }),
+    })
+
+    return `https://${hostname}`
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown_error"
+    console.warn(`[provisioner] custom domain attach failed for ${serviceId}: ${message}`)
+    return null
+  }
+}
+
 function assertRenderConfig() {
   if (!env.render.apiKey) {
     throw new Error("RENDER_API_KEY is required for render provisioner")
@@ -156,13 +238,16 @@ async function provisionWorkerOnRender(input: ProvisionInput): Promise<Provision
   const serviceId = created.service.id
   await waitForDeployLive(serviceId)
   const service = await renderRequest<RenderService>(`/services/${serviceId}`)
-  const url = service.serviceDetails?.url
+  const renderUrl = service.serviceDetails?.url
 
-  if (!url) {
+  if (!renderUrl) {
     throw new Error(`Render service ${serviceId} has no public URL`)
   }
 
-  await waitForHealth(url)
+  const customUrl = await attachRenderCustomDomain(serviceId, input.workerId)
+  const url = customUrl ?? renderUrl
+
+  await waitForHealth(renderUrl)
 
   return {
     provider: "render",
@@ -183,5 +268,45 @@ export async function provisionWorker(input: ProvisionInput): Promise<Provisione
     provider: "stub",
     url,
     status: "provisioning",
+  }
+}
+
+export async function deprovisionWorker(input: { workerId: string; instanceUrl: string | null }) {
+  if (env.provisionerMode !== "render") {
+    return
+  }
+
+  assertRenderConfig()
+
+  const targetHost = hostFromUrl(input.instanceUrl)
+  const workerHint = input.workerId.slice(0, 8).toLowerCase()
+
+  const services = await listRenderServices()
+
+  const target =
+    services.find((service) => {
+      if (service.name?.toLowerCase().includes(workerHint)) {
+        return true
+      }
+
+      if (targetHost && hostFromUrl(service.serviceDetails?.url) === targetHost) {
+        return true
+      }
+
+      return false
+    }) ?? null
+
+  if (!target) {
+    return
+  }
+
+  try {
+    await renderRequest(`/services/${target.id}/suspend`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown_error"
+    console.warn(`[provisioner] failed to suspend Render service ${target.id}: ${message}`)
   }
 }

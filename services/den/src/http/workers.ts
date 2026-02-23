@@ -6,11 +6,11 @@ import { z } from "zod"
 import { auth } from "../auth.js"
 import { requireCloudWorkerAccess } from "../billing/polar.js"
 import { db } from "../db/index.js"
-import { OrgMembershipTable, WorkerInstanceTable, WorkerTable, WorkerTokenTable } from "../db/schema.js"
+import { AuditEventTable, OrgMembershipTable, WorkerBundleTable, WorkerInstanceTable, WorkerTable, WorkerTokenTable } from "../db/schema.js"
 import { env } from "../env.js"
 import { asyncRoute, isTransientDbConnectionError } from "./errors.js"
 import { ensureDefaultOrg } from "../orgs.js"
-import { provisionWorker } from "../workers/provisioner.js"
+import { deprovisionWorker, provisionWorker } from "../workers/provisioner.js"
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -436,4 +436,51 @@ workersRouter.post("/:id/tokens", asyncRoute(async (req, res) => {
     },
     connect: connect ?? (instance?.url ? { openworkUrl: instance.url, workspaceId: null } : null),
   })
+}))
+
+workersRouter.delete("/:id", asyncRoute(async (req, res) => {
+  const session = await requireSession(req, res)
+  if (!session) return
+
+  const orgId = await getOrgId(session.user.id)
+  if (!orgId) {
+    res.status(404).json({ error: "worker_not_found" })
+    return
+  }
+
+  const rows = await db
+    .select()
+    .from(WorkerTable)
+    .where(and(eq(WorkerTable.id, req.params.id), eq(WorkerTable.org_id, orgId)))
+    .limit(1)
+
+  if (rows.length === 0) {
+    res.status(404).json({ error: "worker_not_found" })
+    return
+  }
+
+  const worker = rows[0]
+  const instance = await getLatestWorkerInstance(worker.id)
+
+  if (worker.destination === "cloud") {
+    try {
+      await deprovisionWorker({
+        workerId: worker.id,
+        instanceUrl: instance?.url ?? null,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "deprovision_failed"
+      console.warn(`[workers] deprovision warning for ${worker.id}: ${message}`)
+    }
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.delete(WorkerTokenTable).where(eq(WorkerTokenTable.worker_id, worker.id))
+    await tx.delete(WorkerInstanceTable).where(eq(WorkerInstanceTable.worker_id, worker.id))
+    await tx.delete(WorkerBundleTable).where(eq(WorkerBundleTable.worker_id, worker.id))
+    await tx.delete(AuditEventTable).where(eq(AuditEventTable.worker_id, worker.id))
+    await tx.delete(WorkerTable).where(eq(WorkerTable.id, worker.id))
+  })
+
+  res.status(204).end()
 }))
