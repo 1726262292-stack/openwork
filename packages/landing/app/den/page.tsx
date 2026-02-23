@@ -62,8 +62,8 @@ export default async function Den() {
             $1 first month, then $50/month per worker. Cancel anytime.
           </div>
           <p className="mb-12 max-w-3xl text-[15px] leading-relaxed text-gray-600">
-            Preorder includes priority onboarding, custom workflow setup, and
-            Den access when hosted rollout drops by Feb 24.
+            Early adopters get priority onboarding and custom workflow setup
+            through March 1.
           </p>
 
           <div className="mb-14 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
