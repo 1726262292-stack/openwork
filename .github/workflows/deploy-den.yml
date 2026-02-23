@@ -29,6 +29,8 @@ jobs:
           RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
           DEN_DATABASE_URL: ${{ secrets.DEN_DATABASE_URL }}
           DEN_BETTER_AUTH_SECRET: ${{ secrets.DEN_BETTER_AUTH_SECRET }}
+          DEN_GITHUB_CLIENT_ID: ${{ secrets.DEN_GITHUB_CLIENT_ID }}
+          DEN_GITHUB_CLIENT_SECRET: ${{ secrets.DEN_GITHUB_CLIENT_SECRET }}
           POLAR_ACCESS_TOKEN: ${{ secrets.POLAR_ACCESS_TOKEN }}
           POLAR_PRODUCT_ID: ${{ secrets.POLAR_PRODUCT_ID }}
           POLAR_BENEFIT_ID: ${{ secrets.POLAR_BENEFIT_ID }}
@@ -61,6 +63,16 @@ jobs:
             done
           fi
 
+          if [ -n "$DEN_GITHUB_CLIENT_ID" ] && [ -z "$DEN_GITHUB_CLIENT_SECRET" ]; then
+            echo "::error::Missing required secret: DEN_GITHUB_CLIENT_SECRET (required when DEN_GITHUB_CLIENT_ID is set)"
+            missing=1
+          fi
+
+          if [ -n "$DEN_GITHUB_CLIENT_SECRET" ] && [ -z "$DEN_GITHUB_CLIENT_ID" ]; then
+            echo "::error::Missing required secret: DEN_GITHUB_CLIENT_ID (required when DEN_GITHUB_CLIENT_SECRET is set)"
+            missing=1
+          fi
+
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
@@ -72,6 +84,8 @@ jobs:
           RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
           DEN_DATABASE_URL: ${{ secrets.DEN_DATABASE_URL }}
           DEN_BETTER_AUTH_SECRET: ${{ secrets.DEN_BETTER_AUTH_SECRET }}
+          DEN_GITHUB_CLIENT_ID: ${{ secrets.DEN_GITHUB_CLIENT_ID }}
+          DEN_GITHUB_CLIENT_SECRET: ${{ secrets.DEN_GITHUB_CLIENT_SECRET }}
           DEN_RENDER_WORKER_PLAN: ${{ vars.DEN_RENDER_WORKER_PLAN }}
           DEN_RENDER_WORKER_OPENWORK_VERSION: ${{ vars.DEN_RENDER_WORKER_OPENWORK_VERSION }}
           DEN_CORS_ORIGINS: ${{ vars.DEN_CORS_ORIGINS }}
@@ -118,6 +132,13 @@ jobs:
           polar_access_token = os.environ.get("POLAR_ACCESS_TOKEN") or ""
           polar_product_id = os.environ.get("POLAR_PRODUCT_ID") or ""
           polar_benefit_id = os.environ.get("POLAR_BENEFIT_ID") or ""
+          github_client_id = os.environ.get("DEN_GITHUB_CLIENT_ID") or ""
+          github_client_secret = os.environ.get("DEN_GITHUB_CLIENT_SECRET") or ""
+
+          if bool(github_client_id) != bool(github_client_secret):
+              raise RuntimeError(
+                  "DEN_GITHUB_CLIENT_ID and DEN_GITHUB_CLIENT_SECRET must either both be set or both be empty"
+              )
 
           def validate_redirect_url(name: str, value: str):
               parsed = urllib.parse.urlparse(value)
@@ -197,6 +218,8 @@ jobs:
               {"key": "DATABASE_URL", "value": os.environ["DEN_DATABASE_URL"]},
               {"key": "BETTER_AUTH_SECRET", "value": os.environ["DEN_BETTER_AUTH_SECRET"]},
               {"key": "BETTER_AUTH_URL", "value": service_url},
+              {"key": "GITHUB_CLIENT_ID", "value": github_client_id},
+              {"key": "GITHUB_CLIENT_SECRET", "value": github_client_secret},
               {"key": "CORS_ORIGINS", "value": cors_origins},
               {"key": "PROVISIONER_MODE", "value": "render"},
               {"key": "RENDER_API_BASE", "value": "https://api.render.com/v1"},

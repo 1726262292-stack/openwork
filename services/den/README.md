@@ -15,6 +15,8 @@ pnpm dev
 - `DATABASE_URL` MySQL connection URL
 - `BETTER_AUTH_SECRET` 32+ char secret
 - `BETTER_AUTH_URL` base URL for auth callbacks
+- `GITHUB_CLIENT_ID` optional OAuth app client ID for GitHub sign-in
+- `GITHUB_CLIENT_SECRET` optional OAuth app client secret for GitHub sign-in
 - `PORT` server port
 - `CORS_ORIGINS` comma-separated list of trusted browser origins (used for Better Auth origin validation + Express CORS)
 - `PROVISIONER_MODE` `stub` or `render`
@@ -88,6 +90,11 @@ Required GitHub Actions secrets:
 - `RENDER_OWNER_ID`
 - `DEN_DATABASE_URL`
 - `DEN_BETTER_AUTH_SECRET`
+
+Optional GitHub Actions secrets (enable GitHub social sign-in):
+
+- `DEN_GITHUB_CLIENT_ID`
+- `DEN_GITHUB_CLIENT_SECRET`
 
 Optional GitHub Actions variable:
 

@@ -61,8 +61,15 @@ type LaunchEvent = {
   at: string;
 };
 
+function getAuthInfoForMode(mode: AuthMode): string {
+  return mode === "sign-up"
+    ? "Create an account to launch and manage cloud workers."
+    : "Sign in to launch and manage cloud workers.";
+}
+
 const LAST_WORKER_STORAGE_KEY = "openwork:web:last-worker";
 const WORKER_STATUS_POLL_MS = 5000;
+const DEFAULT_AUTH_NAME = "OpenWork User";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -569,12 +576,11 @@ export function CloudControlPanel() {
   const [step, setStep] = useState<Step>(1);
   const [shellView, setShellView] = useState<ShellView>("workers");
 
-  const [authMode, setAuthMode] = useState<AuthMode>("sign-in");
-  const [name, setName] = useState("OpenWork Builder");
+  const [authMode, setAuthMode] = useState<AuthMode>("sign-up");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
-  const [authInfo, setAuthInfo] = useState("Sign in to launch and manage cloud workers.");
+  const [authInfo, setAuthInfo] = useState(getAuthInfoForMode("sign-up"));
   const [authError, setAuthError] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -955,15 +961,16 @@ export function CloudControlPanel() {
 
     try {
       const endpoint = authMode === "sign-up" ? "/api/auth/sign-up/email" : "/api/auth/sign-in/email";
+      const trimmedEmail = email.trim();
       const body =
         authMode === "sign-up"
           ? {
-              name: name.trim() || "OpenWork Builder",
-              email: email.trim(),
+              name: DEFAULT_AUTH_NAME,
+              email: trimmedEmail,
               password
             }
           : {
-              email: email.trim(),
+              email: trimmedEmail,
               password
             };
 
@@ -1001,6 +1008,53 @@ export function CloudControlPanel() {
       const message = error instanceof Error ? error.message : "Unknown network error";
       setAuthError(message);
     } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function handleGitHubSignIn() {
+    if (authBusy || typeof window === "undefined") {
+      return;
+    }
+
+    setAuthBusy(true);
+    setAuthError(null);
+    setAuthInfo("Redirecting to GitHub...");
+
+    try {
+      const callbackURL = window.location.href;
+      const { response, payload } = await requestJson("/api/auth/sign-in/social", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "github",
+          callbackURL,
+          errorCallbackURL: callbackURL
+        })
+      });
+
+      if (!response.ok) {
+        setAuthInfo(getAuthInfoForMode(authMode));
+        setAuthError(getErrorMessage(payload, `GitHub sign-in failed with ${response.status}.`));
+        setAuthBusy(false);
+        return;
+      }
+
+      const payloadUrl = isRecord(payload) && typeof payload.url === "string" ? payload.url.trim() : "";
+      const headerUrl = response.headers.get("location")?.trim() ?? "";
+      const redirectUrl = payloadUrl || headerUrl;
+
+      if (!redirectUrl) {
+        setAuthInfo(getAuthInfoForMode(authMode));
+        setAuthError("GitHub sign-in did not return a redirect URL.");
+        setAuthBusy(false);
+        return;
+      }
+
+      window.location.assign(redirectUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown network error";
+      setAuthInfo(getAuthInfoForMode(authMode));
+      setAuthError(message);
       setAuthBusy(false);
     }
   }
@@ -1043,9 +1097,10 @@ export function CloudControlPanel() {
     setWorkerQuery("");
     setWorkerStatusFilter("all");
     setShowLaunchForm(false);
-    setAuthMode("sign-in");
+    setAuthMode("sign-up");
+    setEmail("");
     setPassword("");
-    setAuthInfo("Sign in to launch and manage cloud workers.");
+    setAuthInfo(getAuthInfoForMode("sign-up"));
     setLaunchStatus("Name your worker and click launch.");
     setEvents([]);
 
@@ -1399,24 +1454,15 @@ export function CloudControlPanel() {
           <div className="ow-stack">
             <div className="ow-heading-block">
               <span className="ow-icon-chip">01</span>
-              <h1 className="ow-title">Welcome back</h1>
-              <p className="ow-subtitle">Sign in to launch and manage cloud workers.</p>
+              <h1 className="ow-title">{authMode === "sign-up" ? "Get started" : "Welcome back"}</h1>
+              <p className="ow-subtitle">
+                {authMode === "sign-up"
+                  ? getAuthInfoForMode("sign-up")
+                  : getAuthInfoForMode("sign-in")}
+              </p>
             </div>
 
             <form className="ow-stack" onSubmit={handleAuthSubmit}>
-              {authMode === "sign-up" ? (
-                <label className="ow-field-block">
-                  <span className="ow-field-label">Name</span>
-                  <input
-                    className="ow-input"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    autoComplete="name"
-                    required
-                  />
-                </label>
-              ) : null}
-
               <label className="ow-field-block">
                 <span className="ow-field-label">Email</span>
                 <input
@@ -1442,7 +1488,11 @@ export function CloudControlPanel() {
               </label>
 
               <button type="submit" className="ow-btn-primary" disabled={authBusy}>
-                {authBusy ? "Working..." : authMode === "sign-in" ? "Continue" : "Create account"}
+                {authBusy ? "Working..." : authMode === "sign-in" ? "Sign in" : "Create account"}
+              </button>
+
+              <button type="button" className="ow-btn-secondary w-full" onClick={() => void handleGitHubSignIn()} disabled={authBusy}>
+                Continue with GitHub
               </button>
             </form>
 
@@ -1451,7 +1501,12 @@ export function CloudControlPanel() {
               <button
                 type="button"
                 className="ow-link"
-                onClick={() => setAuthMode((current) => (current === "sign-in" ? "sign-up" : "sign-in"))}
+                onClick={() => {
+                  const nextMode = authMode === "sign-in" ? "sign-up" : "sign-in";
+                  setAuthMode(nextMode);
+                  setAuthInfo(getAuthInfoForMode(nextMode));
+                  setAuthError(null);
+                }}
               >
                 {authMode === "sign-in" ? "Create account" : "Switch to sign in"}
               </button>
