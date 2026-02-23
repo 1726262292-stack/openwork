@@ -103,17 +103,50 @@ export const getGithubData = async () => {
     });
 
   const assets = Array.isArray(pick?.assets) ? pick.assets : [];
+  const releaseUrl = pick?.html_url || FALLBACK_RELEASE;
   const dmg = selectAsset(assets, [".dmg"]);
   const exe = selectAsset(assets, [".exe", ".msi"], ["win", "windows"]);
   const appImage = selectAsset(assets, [".appimage"], ["linux"]);
 
+  const macosApple = selectAsset(assets, [".dmg"], ["darwin-aarch64"]);
+  const macosIntel = selectAsset(assets, [".dmg"], ["darwin-x64"]);
+  const windowsX64 =
+    selectAsset(assets, [".msi", ".exe"], ["windows-x64"]) || exe;
+
+  const linuxDebX64 = selectAsset(assets, [".deb"], ["linux-amd64", "linux-x64"]);
+  const linuxDebArm64 = selectAsset(assets, [".deb"], ["linux-arm64", "linux-aarch64"]);
+  const linuxRpmX64 = selectAsset(assets, [".rpm"], ["linux-x86_64", "linux-amd64"]);
+  const linuxRpmArm64 = selectAsset(assets, [".rpm"], ["linux-aarch64", "linux-arm64"]);
+
   return {
     stars,
-    releaseUrl: pick?.html_url || FALLBACK_RELEASE,
+    releaseUrl,
+    releaseTag: pick?.tag_name || "",
     downloads: {
       macos: dmg?.browser_download_url || FALLBACK_RELEASE,
       windows: exe?.browser_download_url || FALLBACK_RELEASE,
-      linux: appImage?.browser_download_url || FALLBACK_RELEASE
+      linux:
+        appImage?.browser_download_url ||
+        linuxDebX64?.browser_download_url ||
+        linuxRpmX64?.browser_download_url ||
+        FALLBACK_RELEASE
+    },
+    installers: {
+      macos: {
+        appleSilicon: macosApple?.browser_download_url || dmg?.browser_download_url || releaseUrl,
+        intel: macosIntel?.browser_download_url || dmg?.browser_download_url || releaseUrl
+      },
+      windows: {
+        x64: windowsX64?.browser_download_url || releaseUrl
+      },
+      linux: {
+        aur: "https://aur.archlinux.org/packages/openwork",
+        debX64: linuxDebX64?.browser_download_url || releaseUrl,
+        debArm64: linuxDebArm64?.browser_download_url || releaseUrl,
+        rpmX64: linuxRpmX64?.browser_download_url || releaseUrl,
+        rpmArm64: linuxRpmArm64?.browser_download_url || releaseUrl,
+        appImage: appImage?.browser_download_url || releaseUrl
+      }
     }
   };
 };

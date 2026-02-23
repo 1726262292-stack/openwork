@@ -64,18 +64,14 @@ export default async function Home() {
             </a>
             <div className="ml-2 flex gap-4">
               <a
-                href={github.downloads.windows}
+                href="/download#windows"
                 className="text-[15px] font-medium text-gray-900/60 transition hover:text-gray-900"
-                rel="noreferrer"
-                target="_blank"
               >
                 Windows <span className="alpha-tag ml-1 border-gray-900/10 text-gray-900/60">Alpha</span>
               </a>
               <a
-                href={github.downloads.linux}
+                href="/download#linux"
                 className="text-[15px] font-medium text-gray-900/60 transition hover:text-gray-900"
-                rel="noreferrer"
-                target="_blank"
               >
                 Linux <span className="alpha-tag ml-1 border-gray-900/10 text-gray-900/60">Alpha</span>
               </a>
@@ -151,18 +147,14 @@ export default async function Home() {
                     </a>
                     <div className="ml-2 flex gap-4">
                       <a
-                        href={github.downloads.windows}
+                        href="/download#windows"
                         className="text-[15px] text-gray-700 transition hover:text-black"
-                        rel="noreferrer"
-                        target="_blank"
                       >
                         Windows <span className="alpha-tag ml-1">Alpha</span>
                       </a>
                       <a
-                        href={github.downloads.linux}
+                        href="/download#linux"
                         className="text-[15px] text-gray-700 transition hover:text-black"
-                        rel="noreferrer"
-                        target="_blank"
                       >
                         Linux <span className="alpha-tag ml-1">Alpha</span>
                       </a>
