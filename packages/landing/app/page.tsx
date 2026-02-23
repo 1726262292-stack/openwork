@@ -30,14 +30,12 @@ export default async function Home() {
           <div className="content-max-width px-6">
           <div className="animate-fade-up">
             <h1 className="mb-4 max-w-4xl text-5xl font-bold tracking-tight md:text-6xl">
-              Turn one working agent into one usable team app.
+              OpenWork is the team layer for your existing agent setup.
             </h1>
             <p className="mb-10 max-w-4xl text-xl font-medium leading-relaxed text-gray-900/80">
-              Open your project, run your agent, and share it with your team in
-              minutes. OpenWork plugs into Claude Code, Codex, OpenCode, or
-              your existing scripts, then gives non-technical coworkers a clean
-              interface on desktop, WhatsApp, or Telegram - no YAML, MCP, or
-              CLI setup required.
+              Whether you&apos;re using Claude Code, Codex, OpenCode, or your own
+              stack, OpenWork turns it into a shareable desktop app your
+              non-technical coworkers can use.
             </p>
           </div>
 
@@ -426,6 +424,46 @@ export default async function Home() {
                   flowing from Slack, Telegram, or WhatsApp and let OpenWork
                   carry them out.
                 </p>
+              </div>
+            </div>
+          </section>
+
+          <hr />
+
+          <section id="compatibility" className="py-12">
+            <h2 className="mb-3 text-2xl font-bold md:text-3xl">Compatibility</h2>
+            <p className="mb-8 text-base leading-relaxed text-gray-700">
+              OpenWork connects to your existing setup so you can ship team-ready
+              workflows without rebuilding from scratch.
+            </p>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="feature-card flex items-center justify-between gap-4 bg-white/80">
+                <h4 className="text-[15px] font-semibold text-gray-900">Claude Code</h4>
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[12px] font-semibold text-emerald-700">
+                  Full compatibility
+                </span>
+              </div>
+
+              <div className="feature-card flex items-center justify-between gap-4 bg-white/80">
+                <h4 className="text-[15px] font-semibold text-gray-900">OpenCode</h4>
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[12px] font-semibold text-emerald-700">
+                  Full compatibility
+                </span>
+              </div>
+
+              <div className="feature-card flex items-center justify-between gap-4 bg-white/80">
+                <h4 className="text-[15px] font-semibold text-gray-900">Codex</h4>
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[12px] font-semibold text-amber-700">
+                  Partial compatibility
+                </span>
+              </div>
+
+              <div className="feature-card flex items-center justify-between gap-4 bg-white/80">
+                <h4 className="text-[15px] font-semibold text-gray-900">PI</h4>
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[12px] font-semibold text-amber-700">
+                  Partial compatibility
+                </span>
               </div>
             </div>
           </section>
