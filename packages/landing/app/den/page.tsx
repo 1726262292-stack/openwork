@@ -40,7 +40,7 @@ export default async function Den() {
               rel="noreferrer"
               target="_blank"
             >
-              Start pre-order
+              Get started
               <svg
                 className="h-4 w-4"
                 fill="none"
