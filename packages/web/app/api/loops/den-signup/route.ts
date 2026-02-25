@@ -47,16 +47,6 @@ export async function POST(request: NextRequest) {
     contactPayload.firstName = name;
   }
 
-  const userId = asTrimmedString(payload.userId);
-  if (userId) {
-    contactPayload.userId = userId;
-  }
-
-  const authMethod = asTrimmedString(payload.authMethod);
-  if (authMethod) {
-    contactPayload.authMethod = authMethod;
-  }
-
   try {
     const response = await fetch(LOOPS_CONTACTS_CREATE_URL, {
       method: "POST",
