@@ -2608,10 +2608,50 @@ export default function App() {
 
   const sidebarWorkspaceGroups = createMemo<WorkspaceSessionGroup[]>(() => {
     const workspaces = workspaceStore.workspaces();
+    const activeWorkspaceId = workspaceStore.activeWorkspaceId().trim();
+    const connectingWorkspaceId = workspaceStore.connectingWorkspaceId()?.trim() ?? "";
     const sessionsById = sidebarSessionsByWorkspaceId();
     const statusById = sidebarSessionStatusByWorkspaceId();
     const errorById = sidebarSessionErrorByWorkspaceId();
-    return workspaces.map((workspace) => {
+    const dedupedWorkspaces: typeof workspaces = [];
+    const dedupeKeyToIndex = new Map<string, number>();
+    for (const workspace of workspaces) {
+      if (workspace.workspaceType !== "remote") {
+        dedupedWorkspaces.push(workspace);
+        continue;
+      }
+      const hostKey =
+        normalizeOpenworkServerUrl(workspace.openworkHostUrl?.trim() ?? "") ??
+        normalizeOpenworkServerUrl(workspace.baseUrl?.trim() ?? "") ??
+        "";
+      const workspaceIdKey =
+        workspace.openworkWorkspaceId?.trim() ||
+        parseOpenworkWorkspaceIdFromUrl(workspace.openworkHostUrl ?? "") ||
+        parseOpenworkWorkspaceIdFromUrl(workspace.baseUrl ?? "") ||
+        "";
+      const directoryKey = normalizeDirectoryPath(workspace.directory?.trim() ?? workspace.path?.trim() ?? "");
+      const identityKey = workspaceIdKey ? `id:${workspaceIdKey}` : (directoryKey ? `dir:${directoryKey}` : "");
+      if (!hostKey || !identityKey) {
+        dedupedWorkspaces.push(workspace);
+        continue;
+      }
+      const dedupeKey = `${workspace.remoteType ?? ""}|${hostKey}|${identityKey}`;
+      const existingIndex = dedupeKeyToIndex.get(dedupeKey);
+      if (existingIndex === undefined) {
+        dedupeKeyToIndex.set(dedupeKey, dedupedWorkspaces.length);
+        dedupedWorkspaces.push(workspace);
+        continue;
+      }
+      const existingWorkspace = dedupedWorkspaces[existingIndex];
+      const existingIsPriority =
+        existingWorkspace.id === activeWorkspaceId || existingWorkspace.id === connectingWorkspaceId;
+      const currentIsPriority =
+        workspace.id === activeWorkspaceId || workspace.id === connectingWorkspaceId;
+      if (currentIsPriority && !existingIsPriority) {
+        dedupedWorkspaces[existingIndex] = workspace;
+      }
+    }
+    return dedupedWorkspaces.map((workspace) => {
       const groupSessions = sessionsById[workspace.id] ?? [];
       return {
         workspace,

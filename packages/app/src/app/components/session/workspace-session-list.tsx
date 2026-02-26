@@ -47,11 +47,6 @@ const workspaceKindLabel = (workspace: WorkspaceInfo) =>
       : "Remote"
     : "Local";
 
-const sectionHeading = (workspaceType: WorkspaceInfo["workspaceType"]) =>
-  workspaceType === "remote"
-    ? { title: "Factory", subtitle: "Remote" }
-    : { title: "Experiments", subtitle: "Local" };
-
 export default function WorkspaceSessionList(props: Props) {
   const [expandedWorkspaceIds, setExpandedWorkspaceIds] = createSignal<Set<string>>(new Set());
   const [previewCountByWorkspaceId, setPreviewCountByWorkspaceId] = createSignal<Record<string, number>>({});
@@ -121,12 +116,6 @@ export default function WorkspaceSessionList(props: Props) {
     return nextCount > 0 ? `Show ${nextCount} more` : "Show more";
   };
 
-  const sortedWorkspaceGroups = () =>
-    [...props.workspaceSessionGroups].sort((a, b) => {
-      if (a.workspace.workspaceType === b.workspace.workspaceType) return 0;
-      return a.workspace.workspaceType === "remote" ? -1 : 1;
-    });
-
   createEffect(() => {
     if (!workspaceMenuId()) return;
     const closeMenu = (event: PointerEvent) => {
@@ -153,34 +142,17 @@ export default function WorkspaceSessionList(props: Props) {
   return (
     <>
       <div class="space-y-5 mb-3">
-        <For each={sortedWorkspaceGroups()}>
-          {(group, index) => {
+        <For each={props.workspaceSessionGroups}>
+          {(group) => {
             const workspace = () => group.workspace;
             const isConnecting = () => props.connectingWorkspaceId === workspace().id;
             const isMenuOpen = () => workspaceMenuId() === workspace().id;
             const taskLoadError = () => getWorkspaceTaskLoadErrorDisplay(workspace(), group.error);
             const soulStatus = () => props.soulStatusByWorkspaceId[workspace().id] ?? null;
             const soulEnabled = () => Boolean(soulStatus()?.enabled);
-            const isFirstInSection = () => {
-              if (index() === 0) return true;
-              const previous = sortedWorkspaceGroups()[index() - 1];
-              if (!previous) return true;
-              return previous.workspace.workspaceType !== workspace().workspaceType;
-            };
-            const heading = () => sectionHeading(workspace().workspaceType);
 
             return (
               <div class="space-y-2">
-                <Show when={isFirstInSection()}>
-                  <div class="px-2 pb-1">
-                    <div class="flex items-center gap-1.5 text-gray-11">
-                      <ChevronDown size={14} class="text-gray-10" />
-                      <span class="text-[14px] font-medium leading-tight">{heading().title}</span>
-                    </div>
-                    <div class="pl-6 pt-0.5 text-[12px] text-gray-10">{heading().subtitle}</div>
-                  </div>
-                </Show>
-
                 <div class="relative group">
                   <div
                     role="button"
