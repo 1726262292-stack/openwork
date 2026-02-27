@@ -19,6 +19,7 @@ import {
   formatRelativeTime,
   getWorkspaceTaskLoadErrorDisplay,
   isTauriRuntime,
+  isWindowsPlatform,
   normalizeDirectoryPath,
 } from "../utils";
 import {
@@ -210,6 +211,7 @@ export type DashboardViewProps = {
     }>;
   }>;
   addPlugin: (pluginNameOverride?: string) => void;
+  removePlugin: (pluginName: string) => void;
   mcpServers: McpServerEntry[];
   mcpStatus: string | null;
   mcpLastUpdatedAt: number | null;
@@ -524,6 +526,23 @@ export default function DashboardView(props: DashboardViewProps) {
       }
       props.setTab("soul");
     })();
+  };
+
+  const revealWorkspaceInFinder = async (workspaceId: string) => {
+    const workspace = props.workspaces.find((entry) => entry.id === workspaceId) ?? null;
+    if (!workspace || workspace.workspaceType !== "local") return;
+    const target = workspace.path?.trim() ?? "";
+    if (!target || !isTauriRuntime()) return;
+    try {
+      const { openPath, revealItemInDir } = await import("@tauri-apps/plugin-opener");
+      if (isWindowsPlatform()) {
+        await openPath(target);
+      } else {
+        await revealItemInDir(target);
+      }
+    } catch (error) {
+      console.warn("Failed to reveal workspace", error);
+    }
   };
 
   createEffect(() => {
@@ -1052,6 +1071,7 @@ export default function DashboardView(props: DashboardViewProps) {
             onOpenRenameWorkspace={props.openRenameWorkspace}
             onShareWorkspace={(workspaceId) => setShareWorkspaceId(workspaceId)}
             onOpenSoul={openSoulForWorkspace}
+            onRevealWorkspace={revealWorkspaceInFinder}
             onTestWorkspaceConnection={props.testWorkspaceConnection}
             onEditWorkspaceConnection={props.editWorkspaceConnection}
             onForgetWorkspace={props.forgetWorkspace}
@@ -1215,6 +1235,7 @@ export default function DashboardView(props: DashboardViewProps) {
                 suggestedPlugins={props.suggestedPlugins}
                 refreshPlugins={props.refreshPlugins}
                 addPlugin={props.addPlugin}
+                removePlugin={props.removePlugin}
               />
             </Match>
 

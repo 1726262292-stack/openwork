@@ -20,7 +20,13 @@ import type {
   WorkspaceSessionGroup,
 } from "../types";
 
-import type { EngineInfo, OpenworkServerInfo, WorkspaceInfo } from "../lib/tauri";
+import {
+  obsidianIsAvailable,
+  openInObsidian,
+  type EngineInfo,
+  type OpenworkServerInfo,
+  type WorkspaceInfo,
+} from "../lib/tauri";
 
 import {
   Box,
@@ -69,6 +75,7 @@ import { DEFAULT_OPENWORK_PUBLISHER_BASE_URL, publishOpenworkBundleJson } from "
 import { join } from "@tauri-apps/api/path";
 import {
   isTauriRuntime,
+  isWindowsPlatform,
   normalizeDirectoryPath,
   parseTemplateFrontmatter,
 } from "../utils";
@@ -85,7 +92,6 @@ import FlyoutItem from "../components/flyout-item";
 import QuestionModal from "../components/question-modal";
 import ArtifactsPanel from "../components/session/artifacts-panel";
 import InboxPanel from "../components/session/inbox-panel";
-import ArtifactMarkdownEditor from "../components/session/artifact-markdown-editor";
 
 export type SessionViewProps = {
   selectedSessionId: string | null;
@@ -318,14 +324,32 @@ export default function SessionView(props: SessionViewProps) {
   const [messageWindowSessionId, setMessageWindowSessionId] = createSignal<string | null>(null);
   const [messageWindowExpanded, setMessageWindowExpanded] = createSignal(false);
 
-  const [markdownEditorOpen, setMarkdownEditorOpen] = createSignal(false);
-  const [markdownEditorPath, setMarkdownEditorPath] = createSignal<string | null>(null);
+  const [obsidianAvailable, setObsidianAvailable] = createSignal(false);
 
   // When a session is selected (i.e. we are in SessionView), the right sidebar is
   // navigation-only. Avoid showing any tab as "selected" to reduce confusion.
   const showRightSidebarSelection = createMemo(() => !props.selectedSessionId);
   let commandPaletteInputEl: HTMLInputElement | undefined;
   const commandPaletteOptionRefs: HTMLButtonElement[] = [];
+
+  createEffect(() => {
+    if (!isTauriRuntime()) {
+      setObsidianAvailable(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const available = await obsidianIsAvailable();
+        if (!cancelled) setObsidianAvailable(available);
+      } catch {
+        if (!cancelled) setObsidianAvailable(false);
+      }
+    })();
+    onCleanup(() => {
+      cancelled = true;
+    });
+  });
 
   const agentLabel = createMemo(() => props.selectedSessionAgent ?? "Default agent");
   const workspaceLabel = (workspace: WorkspaceInfo) =>
@@ -730,86 +754,91 @@ export default function SessionView(props: SessionViewProps) {
     return out;
   });
 
-  const normalizeSidebarPath = (value: string) => String(value ?? "").trim().replace(/[\\/]+/g, "/");
+  const resolveArtifactLocalPath = async (file: string) => {
+    const trimmed = file.trim();
+    if (!trimmed) return null;
+    const root = props.activeWorkspaceRoot.trim();
+    if (!isAbsolutePath(trimmed) && !root) return null;
+    return !isAbsolutePath(trimmed) && root ? await join(root, trimmed) : trimmed;
+  };
 
-  const toWorkspaceRelativeForApi = (file: string) => {
-    const normalized = normalizeSidebarPath(file).replace(/^file:\/\//i, "");
-    if (!normalized) return "";
-
-    const root = normalizeSidebarPath(props.activeWorkspaceRoot).replace(/\/+$/, "");
-    const rootKey = root.toLowerCase();
-    const fileKey = normalized.toLowerCase();
-
-    if (root && fileKey.startsWith(`${rootKey}/`)) {
-      return normalized.slice(root.length + 1);
+  const revealArtifact = async (file: string) => {
+    if (props.activeWorkspaceDisplay.workspaceType === "remote") {
+      setToastMessage("Reveal is unavailable for remote workers.");
+      return;
     }
-    if (root && fileKey === rootKey) {
-      return "";
+    if (!isTauriRuntime()) {
+      setToastMessage("Reveal is available in the desktop app.");
+      return;
     }
-
-    if (root) {
-      const rootSegments = root.split("/").filter(Boolean);
-      const workspaceFolderName = rootSegments[rootSegments.length - 1]?.toLowerCase();
-      if (workspaceFolderName) {
-        const workspaceMarker = `workspaces/${workspaceFolderName}/`;
-        const markerIndex = fileKey.indexOf(workspaceMarker);
-        if (markerIndex >= 0) return normalized.slice(markerIndex + workspaceMarker.length);
-        if (fileKey.endsWith(`workspaces/${workspaceFolderName}`)) return "";
+    try {
+      const target = await resolveArtifactLocalPath(file);
+      if (!target) {
+        setToastMessage("Pick a worker to reveal files.");
+        return;
       }
+      const { openPath, revealItemInDir } = await import("@tauri-apps/plugin-opener");
+      if (isWindowsPlatform()) {
+        await openPath(target);
+      } else {
+        await revealItemInDir(target);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to reveal file";
+      setToastMessage(message);
     }
-
-    let relative = normalized.replace(/^\.\/+/, "");
-    if (!relative) return "";
-
-    // Tool output paths sometimes carry git-style prefixes (a/ or b/).
-    if (/^[ab]\/.+\.(md|mdx|markdown)$/i.test(relative)) {
-      relative = relative.slice(2);
-    }
-
-    // Some tool outputs include a leading "workspace/" prefix.
-    if (/^workspace\//i.test(relative)) {
-      relative = relative.replace(/^workspace\//i, "");
-    }
-
-    // Other surfaces include an absolute-style "/workspace/<path>" prefix.
-    if (/^\/+workspace\//i.test(relative)) {
-      relative = relative.replace(/^\/+workspace\//i, "");
-    }
-
-    if (relative.startsWith("/") || relative.startsWith("~") || /^[a-zA-Z]:\//.test(relative)) return "";
-    if (relative.split("/").some((part) => part === "." || part === "..")) return "";
-
-    if (/com\.[^/]+\.(openwork|opencode)/i.test(relative)) return "";
-
-    return relative;
   };
 
-  const openMarkdownEditor = (file: string) => {
-    if (!props.openworkServerClient) {
-      setToastMessage("Cannot open file: not connected to OpenWork server.");
+  const openArtifactInObsidian = async (file: string) => {
+    if (!/\.(md|mdx|markdown)$/i.test(file)) return;
+    if (!obsidianAvailable()) {
+      setToastMessage("Obsidian is not available on this system.");
       return;
     }
-    if (!props.openworkServerWorkspaceId) {
-      setToastMessage("Cannot open file: no workspace selected.");
+    if (props.activeWorkspaceDisplay.workspaceType === "remote") {
+      setToastMessage("Open in Obsidian is unavailable for remote workers.");
       return;
     }
-
-    const relative = toWorkspaceRelativeForApi(file);
-    if (!relative) {
-      setToastMessage(`Cannot open file: path "${file}" is not within the workspace.`);
+    if (!isTauriRuntime()) {
+      setToastMessage("Open in Obsidian is available in the desktop app.");
       return;
     }
-    if (!/\.(md|mdx|markdown)$/i.test(relative)) {
-      setToastMessage("Only markdown files can be edited here right now.");
-      return;
+    try {
+      const target = await resolveArtifactLocalPath(file);
+      if (!target) {
+        setToastMessage("Pick a worker to open files.");
+        return;
+      }
+      await openInObsidian(target);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to open file in Obsidian";
+      setToastMessage(message);
     }
-    setMarkdownEditorPath(relative);
-    setMarkdownEditorOpen(true);
   };
 
-  const closeMarkdownEditor = () => {
-    setMarkdownEditorOpen(false);
-    setMarkdownEditorPath(null);
+  const revealWorkspaceInFinder = async (workspaceId: string) => {
+    const workspace = props.workspaces.find((entry) => entry.id === workspaceId) ?? null;
+    if (!workspace || workspace.workspaceType !== "local") return;
+    const target = workspace.path?.trim() ?? "";
+    if (!target) {
+      setToastMessage("Workspace path is unavailable.");
+      return;
+    }
+    if (!isTauriRuntime()) {
+      setToastMessage("Reveal is available in the desktop app.");
+      return;
+    }
+    try {
+      const { openPath, revealItemInDir } = await import("@tauri-apps/plugin-opener");
+      if (isWindowsPlatform()) {
+        await openPath(target);
+      } else {
+        await revealItemInDir(target);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to reveal workspace";
+      setToastMessage(message);
+    }
   };
   const todoLabel = createMemo(() => {
     const total = todoCount();
@@ -2687,6 +2716,7 @@ export default function SessionView(props: SessionViewProps) {
             onOpenRenameWorkspace={props.openRenameWorkspace}
             onShareWorkspace={(workspaceId) => setShareWorkspaceId(workspaceId)}
             onOpenSoul={openSoul}
+            onRevealWorkspace={revealWorkspaceInFinder}
             onTestWorkspaceConnection={props.testWorkspaceConnection}
             onEditWorkspaceConnection={props.editWorkspaceConnection}
             onForgetWorkspace={props.forgetWorkspace}
@@ -3049,18 +3079,6 @@ export default function SessionView(props: SessionViewProps) {
             </Show>
          </div>
 
-          <Show when={markdownEditorOpen()}>
-            <aside class="hidden lg:flex w-[50%] min-w-[450px] shrink-0 border-l border-gray-6/70 bg-gray-1 shadow-[-8px_0_32px_rgba(0,0,0,0.03)]">
-              <ArtifactMarkdownEditor
-                open={markdownEditorOpen()}
-                path={markdownEditorPath()}
-                workspaceId={props.openworkServerWorkspaceId}
-                client={props.openworkServerClient}
-                onClose={closeMarkdownEditor}
-                onToast={(message) => setToastMessage(message)}
-              />
-            </aside>
-          </Show>
         </div>
 
       <Show when={todoCount() > 0}>
@@ -3284,7 +3302,9 @@ export default function SessionView(props: SessionViewProps) {
             id="sidebar-artifacts"
             files={touchedFiles()}
             workspaceRoot={props.activeWorkspaceRoot}
-            onOpenMarkdown={openMarkdownEditor}
+            onRevealArtifact={revealArtifact}
+            onOpenInObsidian={openArtifactInObsidian}
+            obsidianAvailable={obsidianAvailable()}
           />
         </div>
       </aside>

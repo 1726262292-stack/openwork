@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, HeartPulse, Loader2, MoreHorizontal, Plus } 
 import type { OpenworkSoulStatus } from "../../lib/openwork-server";
 import type { WorkspaceInfo } from "../../lib/tauri";
 import type { WorkspaceSessionGroup } from "../../types";
-import { formatRelativeTime, getWorkspaceTaskLoadErrorDisplay } from "../../utils";
+import { formatRelativeTime, getWorkspaceTaskLoadErrorDisplay, isWindowsPlatform } from "../../utils";
 
 type Props = {
   workspaceSessionGroups: WorkspaceSessionGroup[];
@@ -20,6 +20,7 @@ type Props = {
   onOpenRenameWorkspace: (workspaceId: string) => void;
   onShareWorkspace: (workspaceId: string) => void;
   onOpenSoul: (workspaceId: string) => void;
+  onRevealWorkspace: (workspaceId: string) => void;
   onTestWorkspaceConnection: (workspaceId: string) => Promise<boolean> | boolean | void;
   onEditWorkspaceConnection: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
@@ -48,6 +49,7 @@ const workspaceKindLabel = (workspace: WorkspaceInfo) =>
     : "Local";
 
 export default function WorkspaceSessionList(props: Props) {
+  const revealLabel = isWindowsPlatform() ? "Reveal in Explorer" : "Reveal in Finder";
   const [expandedWorkspaceIds, setExpandedWorkspaceIds] = createSignal<Set<string>>(new Set());
   const [previewCountByWorkspaceId, setPreviewCountByWorkspaceId] = createSignal<Record<string, number>>({});
   const [workspaceMenuId, setWorkspaceMenuId] = createSignal<string | null>(null);
@@ -287,6 +289,18 @@ export default function WorkspaceSessionList(props: Props) {
                       >
                         {soulEnabled() ? "Soul settings" : "Enable soul"}
                       </button>
+                      <Show when={workspace().workspaceType === "local"}>
+                        <button
+                          type="button"
+                          class="w-full text-left px-2 py-1.5 text-sm rounded-md hover:bg-gray-3"
+                          onClick={() => {
+                            props.onRevealWorkspace(workspace().id);
+                            setWorkspaceMenuId(null);
+                          }}
+                        >
+                          {revealLabel}
+                        </button>
+                      </Show>
                       <Show when={workspace().workspaceType === "remote"}>
                         <button
                           type="button"

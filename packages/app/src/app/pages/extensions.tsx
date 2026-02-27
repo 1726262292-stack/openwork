@@ -171,6 +171,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
             suggestedPlugins={props.suggestedPlugins}
             refreshPlugins={props.refreshPlugins}
             addPlugin={props.addPlugin}
+            removePlugin={props.removePlugin}
           />
         </div>
       </Show>

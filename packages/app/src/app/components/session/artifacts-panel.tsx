@@ -4,8 +4,9 @@ import { Paperclip } from "lucide-solid";
 export type ArtifactsPanelProps = {
   files: string[];
   workspaceRoot?: string;
-  onOpenMarkdown?: (path: string) => void;
-  onOpenImage?: (path: string) => void;
+  onRevealArtifact?: (path: string) => void;
+  onOpenInObsidian?: (path: string) => void;
+  obsidianAvailable?: boolean;
   maxPreview?: number;
   id?: string;
 };
@@ -88,8 +89,10 @@ export default function ArtifactsPanel(props: ArtifactsPanelProps) {
     return Math.max(0, total - shown);
   });
 
-  const canOpenMarkdown = createMemo(() => typeof props.onOpenMarkdown === "function");
-  const canOpenImage = createMemo(() => typeof props.onOpenImage === "function");
+  const canRevealArtifact = createMemo(() => typeof props.onRevealArtifact === "function");
+  const canOpenObsidian = createMemo(
+    () => Boolean(props.obsidianAvailable) && typeof props.onOpenInObsidian === "function",
+  );
   const prettyPath = (file: string) => toWorkspaceRelative(file, props.workspaceRoot);
 
   return (
@@ -115,25 +118,10 @@ export default function ArtifactsPanel(props: ArtifactsPanelProps) {
               const dir = () => getDirname(display());
               const md = () => artifact.kind === "markdown";
               const img = () => artifact.kind === "image";
-              const openable = () => (md() ? canOpenMarkdown() : img() ? canOpenImage() : false);
-              const tooltip = () => {
-                if (md()) return display();
-                if (img() && !canOpenImage()) return `${display()} (image preview coming soon)`;
-                return display();
-              };
               return (
-                <button
-                  type="button"
-                  class={`group w-full flex items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors border border-transparent ${
-                    openable() ? "hover:bg-gray-2 hover:border-gray-6/80" : "cursor-default"
-                  }`}
-                  onClick={() => {
-                    if (md()) props.onOpenMarkdown?.(artifact.path);
-                    else if (img()) props.onOpenImage?.(artifact.path);
-                  }}
-                  disabled={!openable()}
-                  title={tooltip()}
-                  aria-label={openable() ? `Open ${display()}` : tooltip()}
+                <div
+                  class="group w-full flex items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors border border-transparent hover:bg-gray-2 hover:border-gray-6/80"
+                  title={display()}
                 >
                   <div class="mt-0.5 shrink-0">
                     <Paperclip size={12} class="text-gray-9" />
@@ -156,7 +144,29 @@ export default function ArtifactsPanel(props: ArtifactsPanelProps) {
                       <div class="truncate text-[11px] text-gray-9">{dir()}</div>
                     </Show>
                   </div>
-                </button>
+                  <div class="shrink-0 flex items-center gap-1.5">
+                    <Show when={md() && canOpenObsidian()}>
+                      <button
+                        type="button"
+                        class="rounded-md border border-gray-6 bg-gray-2 px-1.5 py-0.5 text-[10px] font-medium text-gray-10 hover:text-gray-12 hover:border-gray-7 transition-colors"
+                        onClick={() => props.onOpenInObsidian?.(artifact.path)}
+                        title="Open in Obsidian"
+                      >
+                        Obsidian
+                      </button>
+                    </Show>
+                    <Show when={canRevealArtifact()}>
+                      <button
+                        type="button"
+                        class="rounded-md border border-gray-6 bg-gray-2 px-1.5 py-0.5 text-[10px] font-medium text-gray-10 hover:text-gray-12 hover:border-gray-7 transition-colors"
+                        onClick={() => props.onRevealArtifact?.(artifact.path)}
+                        title={img() ? "Reveal image in Finder" : "Reveal file in Finder"}
+                      >
+                        Reveal
+                      </button>
+                    </Show>
+                  </div>
+                </div>
               );
             }}
           </For>

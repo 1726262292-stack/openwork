@@ -272,6 +272,62 @@ pub fn app_build_info(app: AppHandle) -> AppBuildInfo {
 }
 
 #[tauri::command]
+pub fn obsidian_is_available() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let mut candidates = vec![PathBuf::from("/Applications/Obsidian.app")];
+        if let Some(home) = home_dir() {
+            candidates.push(home.join("Applications").join("Obsidian.app"));
+        }
+        return candidates.into_iter().any(|path| path.exists());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+#[tauri::command]
+pub fn open_in_obsidian(file_path: String) -> Result<(), String> {
+    let trimmed = file_path.trim();
+    if trimmed.is_empty() {
+        return Err("file_path is required".to_string());
+    }
+
+    let path = PathBuf::from(trimmed);
+    if !path.is_absolute() {
+        return Err("file_path must be an absolute path".to_string());
+    }
+    if !path.exists() {
+        return Err(format!("File does not exist: {}", path.display()));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if !obsidian_is_available() {
+            return Err("Obsidian is not installed.".to_string());
+        }
+
+        let status = std::process::Command::new("open")
+            .arg("-a")
+            .arg("Obsidian")
+            .arg(&path)
+            .status()
+            .map_err(|e| format!("Failed to launch Obsidian: {e}"))?;
+        if status.success() {
+            return Ok(());
+        }
+        return Err(format!("Failed to launch Obsidian (exit status: {status})."));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Open in Obsidian is currently supported on macOS only.".to_string())
+    }
+}
+
+#[tauri::command]
 pub fn opencode_db_migrate(
     app: AppHandle,
     project_dir: String,
