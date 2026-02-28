@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, HeartPulse, Loader2, MoreHorizontal, Plus } 
 
 import type { OpenworkSoulStatus } from "../../lib/openwork-server";
 import type { WorkspaceInfo } from "../../lib/tauri";
-import type { WorkspaceSessionGroup } from "../../types";
+import type { WorkspaceConnectionState, WorkspaceSessionGroup } from "../../types";
 import { formatRelativeTime, getWorkspaceTaskLoadErrorDisplay, isWindowsPlatform } from "../../utils";
 
 type Props = {
@@ -11,6 +11,7 @@ type Props = {
   activeWorkspaceId: string;
   selectedSessionId: string | null;
   connectingWorkspaceId: string | null;
+  workspaceConnectionStateById: Record<string, WorkspaceConnectionState>;
   newTaskDisabled: boolean;
   importingWorkspaceConfig: boolean;
   soulStatusByWorkspaceId: Record<string, OpenworkSoulStatus | null>;
@@ -149,6 +150,12 @@ export default function WorkspaceSessionList(props: Props) {
           {(group) => {
             const workspace = () => group.workspace;
             const isConnecting = () => props.connectingWorkspaceId === workspace().id;
+            const connectionState = () =>
+              props.workspaceConnectionStateById[workspace().id] ?? { status: "idle", message: null };
+            const isConnectionActionBusy = () =>
+              isConnecting() || connectionState().status === "connecting";
+            const canRecover = () =>
+              workspace().workspaceType === "remote" && connectionState().status === "error";
             const isMenuOpen = () => workspaceMenuId() === workspace().id;
             const taskLoadError = () => getWorkspaceTaskLoadErrorDisplay(workspace(), group.error);
             const soulStatus = () => props.soulStatusByWorkspaceId[workspace().id] ?? null;
@@ -303,17 +310,19 @@ export default function WorkspaceSessionList(props: Props) {
                         </button>
                       </Show>
                       <Show when={workspace().workspaceType === "remote"}>
-                        <button
-                          type="button"
-                          class="w-full text-left px-2 py-1.5 text-sm rounded-md hover:bg-gray-3"
-                          onClick={() => {
-                            void Promise.resolve(props.onRecoverWorkspace(workspace().id));
-                            setWorkspaceMenuId(null);
-                          }}
-                          disabled={isConnecting()}
-                        >
-                          Get back online
-                        </button>
+                        <Show when={canRecover()}>
+                          <button
+                            type="button"
+                            class="w-full text-left px-2 py-1.5 text-sm rounded-md hover:bg-gray-3"
+                            onClick={() => {
+                              void Promise.resolve(props.onRecoverWorkspace(workspace().id));
+                              setWorkspaceMenuId(null);
+                            }}
+                            disabled={isConnectionActionBusy()}
+                          >
+                            Recover
+                          </button>
+                        </Show>
                         <button
                           type="button"
                           class="w-full text-left px-2 py-1.5 text-sm rounded-md hover:bg-gray-3"
@@ -321,7 +330,7 @@ export default function WorkspaceSessionList(props: Props) {
                             void Promise.resolve(props.onTestWorkspaceConnection(workspace().id));
                             setWorkspaceMenuId(null);
                           }}
-                          disabled={isConnecting()}
+                          disabled={isConnectionActionBusy()}
                         >
                           Test connection
                         </button>
@@ -332,7 +341,7 @@ export default function WorkspaceSessionList(props: Props) {
                             props.onEditWorkspaceConnection(workspace().id);
                             setWorkspaceMenuId(null);
                           }}
-                          disabled={isConnecting()}
+                          disabled={isConnectionActionBusy()}
                         >
                           Edit connection
                         </button>

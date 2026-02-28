@@ -11,6 +11,7 @@ import type {
   HubSkillCard,
   SkillCard,
   StartupPreference,
+  WorkspaceConnectionState,
   WorkspaceSessionGroup,
   View,
 } from "../types";
@@ -131,6 +132,7 @@ export type DashboardViewProps = {
   workspaces: WorkspaceInfo[];
   activeWorkspaceId: string;
   connectingWorkspaceId: string | null;
+  workspaceConnectionStateById: Record<string, WorkspaceConnectionState>;
   activateWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   testWorkspaceConnection: (workspaceId: string) => Promise<boolean> | boolean;
   recoverWorkspace: (workspaceId: string) => Promise<boolean> | boolean;
@@ -1063,6 +1065,7 @@ export default function DashboardView(props: DashboardViewProps) {
             activeWorkspaceId={props.activeWorkspaceId}
             selectedSessionId={props.selectedSessionId}
             connectingWorkspaceId={props.connectingWorkspaceId}
+            workspaceConnectionStateById={props.workspaceConnectionStateById}
             newTaskDisabled={props.newTaskDisabled}
             importingWorkspaceConfig={props.importingWorkspaceConfig}
             soulStatusByWorkspaceId={props.soulStatusByWorkspaceId}

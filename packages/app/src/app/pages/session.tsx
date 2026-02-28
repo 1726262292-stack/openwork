@@ -2708,6 +2708,7 @@ export default function SessionView(props: SessionViewProps) {
             activeWorkspaceId={props.activeWorkspaceId}
             selectedSessionId={props.selectedSessionId}
             connectingWorkspaceId={props.connectingWorkspaceId}
+            workspaceConnectionStateById={props.workspaceConnectionStateById}
             newTaskDisabled={props.newTaskDisabled}
             importingWorkspaceConfig={props.importingWorkspaceConfig}
             soulStatusByWorkspaceId={props.soulStatusByWorkspaceId}

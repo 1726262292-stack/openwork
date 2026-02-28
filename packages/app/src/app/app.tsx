@@ -5567,6 +5567,7 @@ export default function App() {
       workspaces: workspaceStore.workspaces(),
       activeWorkspaceId: workspaceStore.activeWorkspaceId(),
       connectingWorkspaceId: workspaceStore.connectingWorkspaceId(),
+      workspaceConnectionStateById: workspaceStore.workspaceConnectionStateById(),
       activateWorkspace: workspaceStore.activateWorkspace,
       testWorkspaceConnection: workspaceStore.testWorkspaceConnection,
       recoverWorkspace: workspaceStore.recoverWorkspace,

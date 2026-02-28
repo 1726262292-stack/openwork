@@ -2092,6 +2092,7 @@ export function createWorkspaceStore(options: {
   async function recoverWorkspace(workspaceId: string) {
     const id = workspaceId.trim();
     if (!id) return false;
+    if (connectingWorkspaceId() === id) return false;
 
     const workspace = workspaces().find((item) => item.id === id) ?? null;
     if (!workspace) return false;
@@ -2103,42 +2104,40 @@ export function createWorkspaceStore(options: {
       return await testWorkspaceConnection(id);
     };
 
-    updateWorkspaceConnectionState(id, { status: "connecting", message: null });
-
-    if (workspace.workspaceType !== "remote") {
-      return Boolean(await reconnect());
-    }
-
-    const isSandboxWorkspace =
-      workspace.sandboxBackend === "docker" || Boolean(workspace.sandboxContainerName?.trim());
-
-    if (!isSandboxWorkspace) {
-      return Boolean(await reconnect());
-    }
-
-    if (!isTauriRuntime()) {
-      options.setError(t("app.error.tauri_required", currentLocale()));
-      updateWorkspaceConnectionState(id, {
-        status: "error",
-        message: t("app.error.tauri_required", currentLocale()),
-      });
-      return false;
-    }
-
-    const workspacePath = workspace.directory?.trim() || workspace.path?.trim() || "";
-    if (!workspacePath) {
-      const message = "Worker folder is missing. Open Edit connection and try again.";
-      options.setError(message);
-      updateWorkspaceConnectionState(id, { status: "error", message });
-      return false;
-    }
-
-    options.setBusy(true);
-    options.setBusyLabel("Getting worker back online...");
-    options.setBusyStartedAt(Date.now());
+    setConnectingWorkspaceId(id);
     options.setError(null);
 
     try {
+      updateWorkspaceConnectionState(id, { status: "connecting", message: null });
+
+      if (workspace.workspaceType !== "remote") {
+        return Boolean(await reconnect());
+      }
+
+      const isSandboxWorkspace =
+        workspace.sandboxBackend === "docker" || Boolean(workspace.sandboxContainerName?.trim());
+
+      if (!isSandboxWorkspace) {
+        return Boolean(await reconnect());
+      }
+
+      if (!isTauriRuntime()) {
+        options.setError(t("app.error.tauri_required", currentLocale()));
+        updateWorkspaceConnectionState(id, {
+          status: "error",
+          message: t("app.error.tauri_required", currentLocale()),
+        });
+        return false;
+      }
+
+      const workspacePath = workspace.directory?.trim() || workspace.path?.trim() || "";
+      if (!workspacePath) {
+        const message = "Worker folder is missing. Open Edit connection and try again.";
+        options.setError(message);
+        updateWorkspaceConnectionState(id, { status: "error", message });
+        return false;
+      }
+
       const doctor = await refreshSandboxDoctor();
       if (!doctor?.ready) {
         const detail =
@@ -2199,9 +2198,7 @@ export function createWorkspaceStore(options: {
       updateWorkspaceConnectionState(id, { status: "error", message: hint });
       return false;
     } finally {
-      options.setBusy(false);
-      options.setBusyLabel(null);
-      options.setBusyStartedAt(null);
+      setConnectingWorkspaceId((current) => (current === id ? null : current));
     }
   }
 
