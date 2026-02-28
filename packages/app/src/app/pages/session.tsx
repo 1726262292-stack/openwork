@@ -23,6 +23,7 @@ import type {
 import {
   obsidianIsAvailable,
   openInObsidian,
+  writeObsidianMirrorFile,
   type EngineInfo,
   type OpenworkServerInfo,
   type WorkspaceInfo,
@@ -62,6 +63,7 @@ import {
   buildOpenworkConnectInviteUrl,
   buildOpenworkWorkspaceBaseUrl,
   createOpenworkServerClient,
+  OpenworkServerError,
   parseOpenworkWorkspaceIdFromUrl,
 } from "../lib/openwork-server";
 import type {
@@ -69,6 +71,7 @@ import type {
   OpenworkServerSettings,
   OpenworkServerStatus,
   OpenworkSoulStatus,
+  OpenworkWorkspaceFileContent,
   OpenworkWorkspaceExport,
 } from "../lib/openwork-server";
 import { DEFAULT_OPENWORK_PUBLISHER_BASE_URL, publishOpenworkBundleJson } from "../lib/publisher";
@@ -763,6 +766,82 @@ export default function SessionView(props: SessionViewProps) {
     return !isAbsolutePath(trimmed) && root ? await join(root, trimmed) : trimmed;
   };
 
+  const toWorkerRelativeArtifactPath = (file: string) => {
+    const normalized = file.trim().replace(/^file:\/\//i, "").replace(/[\\/]+/g, "/");
+    if (!normalized) return "";
+
+    const root = props.activeWorkspaceRoot.trim().replace(/[\\/]+/g, "/").replace(/\/+$/, "");
+    if (root) {
+      const rootKey = root.toLowerCase();
+      const fileKey = normalized.toLowerCase();
+      if (fileKey === rootKey) return "";
+      if (fileKey.startsWith(`${rootKey}/`)) {
+        return normalized.slice(root.length + 1);
+      }
+    }
+
+    let relative = normalized.replace(/^\.\/+/, "");
+
+    if (/^[ab]\/.+\.(md|mdx|markdown)$/i.test(relative)) {
+      relative = relative.slice(2);
+    }
+
+    if (/^workspace\//i.test(relative)) {
+      relative = relative.replace(/^workspace\//i, "");
+    }
+
+    if (/^\/+workspace\//i.test(relative)) {
+      relative = relative.replace(/^\/+workspace\//i, "");
+    }
+
+    if (!relative) return "";
+    if (relative.startsWith("/") || relative.startsWith("~") || /^[a-zA-Z]:\//.test(relative)) {
+      return "";
+    }
+    if (relative.split("/").some((part) => part === "." || part === "..")) {
+      return "";
+    }
+    return relative;
+  };
+
+  const readRemoteArtifactForObsidian = async (file: string): Promise<OpenworkWorkspaceFileContent> => {
+    const client = props.openworkServerClient;
+    const workspaceId = props.openworkServerWorkspaceId?.trim() ?? "";
+    if (!client || !workspaceId) {
+      throw new Error("Connect to OpenWork server to open remote files in Obsidian.");
+    }
+
+    const target = toWorkerRelativeArtifactPath(file);
+    if (!target) {
+      throw new Error("Only worker-relative files can be opened in Obsidian.");
+    }
+
+    try {
+      const result = (await client.readWorkspaceFile(workspaceId, target)) as OpenworkWorkspaceFileContent;
+      return { ...result, path: result.path?.trim() || target };
+    } catch (error) {
+      const candidateOutbox = `.opencode/openwork/outbox/${target}`.replace(/\/+/g, "/");
+      const shouldTryOutbox =
+        !(target.startsWith(".opencode/openwork/outbox/") || target.startsWith("./.opencode/openwork/outbox/")) &&
+        error instanceof OpenworkServerError &&
+        error.status === 404;
+
+      if (!shouldTryOutbox) {
+        throw error;
+      }
+
+      const result = (await client.readWorkspaceFile(workspaceId, candidateOutbox)) as OpenworkWorkspaceFileContent;
+      return { ...result, path: result.path?.trim() || candidateOutbox };
+    }
+  };
+
+  const mirrorRemoteArtifactForObsidian = async (file: string) => {
+    const remote = await readRemoteArtifactForObsidian(file);
+    const workspaceKey =
+      props.openworkServerWorkspaceId?.trim() || props.activeWorkspaceDisplay.id?.trim() || "remote-worker";
+    return await writeObsidianMirrorFile(workspaceKey, remote.path, remote.content ?? "");
+  };
+
   const revealArtifact = async (file: string) => {
     if (props.activeWorkspaceDisplay.workspaceType === "remote") {
       setToastMessage("Reveal is unavailable for remote workers.");
@@ -796,21 +875,39 @@ export default function SessionView(props: SessionViewProps) {
       setToastMessage("Obsidian is not available on this system.");
       return;
     }
-    if (props.activeWorkspaceDisplay.workspaceType === "remote") {
-      setToastMessage("Open in Obsidian is unavailable for remote workers.");
-      return;
-    }
     if (!isTauriRuntime()) {
       setToastMessage("Open in Obsidian is available in the desktop app.");
       return;
     }
+
+    const isRemoteWorkspace = props.activeWorkspaceDisplay.workspaceType === "remote";
+    const preferLocalOpen = !isRemoteWorkspace || isSandboxWorkspace();
+
     try {
-      const target = await resolveArtifactLocalPath(file);
-      if (!target) {
+      if (preferLocalOpen) {
+        const target = await resolveArtifactLocalPath(file);
+        if (target) {
+          try {
+            await openInObsidian(target);
+            return;
+          } catch (error) {
+            if (!isRemoteWorkspace) {
+              throw error;
+            }
+          }
+        } else if (!isRemoteWorkspace) {
+          setToastMessage("Pick a worker to open files.");
+          return;
+        }
+      }
+
+      if (!isRemoteWorkspace) {
         setToastMessage("Pick a worker to open files.");
         return;
       }
-      await openInObsidian(target);
+
+      const mirrored = await mirrorRemoteArtifactForObsidian(file);
+      await openInObsidian(mirrored);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to open file in Obsidian";
       setToastMessage(message);

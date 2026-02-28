@@ -318,12 +318,168 @@ pub fn open_in_obsidian(file_path: String) -> Result<(), String> {
         if status.success() {
             return Ok(());
         }
-        return Err(format!("Failed to launch Obsidian (exit status: {status})."));
+        return Err(format!(
+            "Failed to launch Obsidian (exit status: {status})."
+        ));
     }
 
     #[cfg(not(target_os = "macos"))]
     {
         Err("Open in Obsidian is currently supported on macOS only.".to_string())
+    }
+}
+
+fn sanitize_obsidian_workspace_id(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::with_capacity(trimmed.len());
+    let mut last_dash = false;
+    for ch in trimmed.chars() {
+        let normalized = if ch.is_ascii_alphanumeric() || ch == '_' {
+            ch.to_ascii_lowercase()
+        } else {
+            '-'
+        };
+
+        if normalized == '-' {
+            if last_dash {
+                continue;
+            }
+            out.push('-');
+            last_dash = true;
+            continue;
+        }
+
+        out.push(normalized);
+        last_dash = false;
+    }
+
+    out.trim_matches('-').to_string()
+}
+
+fn normalize_obsidian_mirror_relative_path(file_path: &str) -> Result<PathBuf, String> {
+    let mut value = file_path.trim().replace('\\', "/");
+    if value.is_empty() {
+        return Err("file_path is required".to_string());
+    }
+
+    while let Some(stripped) = value.strip_prefix("./") {
+        value = stripped.to_string();
+    }
+
+    if value.is_empty() {
+        return Err("file_path is required".to_string());
+    }
+
+    let lower = value.to_ascii_lowercase();
+    if lower.starts_with("workspace/") {
+        value = value["workspace/".len()..].to_string();
+    } else if lower.starts_with("/workspace/") {
+        let without_leading_slash = value.trim_start_matches('/').to_string();
+        if without_leading_slash
+            .to_ascii_lowercase()
+            .starts_with("workspace/")
+        {
+            value = without_leading_slash["workspace/".len()..].to_string();
+        }
+    }
+
+    let bytes = value.as_bytes();
+    let is_windows_abs =
+        bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/';
+
+    if value.starts_with('/') || value.starts_with('~') || is_windows_abs {
+        return Err("file_path must be worker-relative".to_string());
+    }
+
+    let mut relative = PathBuf::new();
+    for part in value.split('/').filter(|part| !part.is_empty()) {
+        if part == "." || part == ".." {
+            return Err("file_path must not contain '.' or '..' segments".to_string());
+        }
+        relative.push(part);
+    }
+
+    if relative.as_os_str().is_empty() {
+        return Err("file_path is required".to_string());
+    }
+
+    Ok(relative)
+}
+
+#[tauri::command]
+pub fn write_obsidian_mirror_file(
+    app: AppHandle,
+    workspace_id: String,
+    file_path: String,
+    content: String,
+) -> Result<String, String> {
+    let workspace_trimmed = workspace_id.trim();
+    if workspace_trimmed.is_empty() {
+        return Err("workspace_id is required".to_string());
+    }
+
+    let workspace_key = sanitize_obsidian_workspace_id(workspace_trimmed);
+    if workspace_key.is_empty() {
+        return Err("workspace_id must contain at least one alphanumeric character".to_string());
+    }
+
+    let relative_path = normalize_obsidian_mirror_relative_path(&file_path)?;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve app data dir: {e}"))?;
+
+    let mirror_root = app_data_dir.join("obsidian-mirror").join(workspace_key);
+    let target = mirror_root.join(relative_path);
+
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create {}: {e}", parent.display()))?;
+    }
+
+    fs::write(&target, content.as_bytes())
+        .map_err(|e| format!("Failed to write {}: {e}", target.display()))?;
+
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_obsidian_mirror_relative_path, sanitize_obsidian_workspace_id};
+
+    #[test]
+    fn sanitize_workspace_id_collapses_separators() {
+        let out = sanitize_obsidian_workspace_id(" Team Alpha / Worker #1 ");
+        assert_eq!(out, "team-alpha-worker-1");
+    }
+
+    #[test]
+    fn normalize_mirror_path_strips_workspace_prefixes() {
+        let path = normalize_obsidian_mirror_relative_path("/workspace/notes/plan.md")
+            .expect("path should normalize");
+        assert_eq!(path.to_string_lossy(), "notes/plan.md");
+
+        let path = normalize_obsidian_mirror_relative_path("workspace/notes/plan.md")
+            .expect("path should normalize");
+        assert_eq!(path.to_string_lossy(), "notes/plan.md");
+    }
+
+    #[test]
+    fn normalize_mirror_path_rejects_parent_segments() {
+        let err = normalize_obsidian_mirror_relative_path("notes/../secret.md")
+            .expect_err("parent segments should be rejected");
+        assert!(err.contains("must not contain"));
+    }
+
+    #[test]
+    fn normalize_mirror_path_rejects_absolute_paths() {
+        let err = normalize_obsidian_mirror_relative_path("/etc/passwd")
+            .expect_err("absolute path should be rejected");
+        assert!(err.contains("worker-relative"));
     }
 }
 

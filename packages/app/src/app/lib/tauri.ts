@@ -683,6 +683,26 @@ export async function openInObsidian(filePath: string): Promise<void> {
   return invoke<void>("open_in_obsidian", { filePath: safePath });
 }
 
+export async function writeObsidianMirrorFile(
+  workspaceId: string,
+  filePath: string,
+  content: string,
+): Promise<string> {
+  const safeWorkspaceId = workspaceId.trim();
+  const safePath = filePath.trim();
+  if (!safeWorkspaceId) {
+    throw new Error("workspaceId is required");
+  }
+  if (!safePath) {
+    throw new Error("filePath is required");
+  }
+  return invoke<string>("write_obsidian_mirror_file", {
+    workspaceId: safeWorkspaceId,
+    filePath: safePath,
+    content,
+  });
+}
+
 export async function schedulerListJobs(scopeRoot?: string): Promise<ScheduledJob[]> {
   return invoke<ScheduledJob[]>("scheduler_list_jobs", { scopeRoot });
 }
