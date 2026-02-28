@@ -403,11 +403,15 @@ export async function orchestratorStartDetached(input: {
   workspacePath: string;
   sandboxBackend?: "none" | "docker" | null;
   runId?: string | null;
+  openworkToken?: string | null;
+  openworkHostToken?: string | null;
 }): Promise<OrchestratorDetachedHost> {
   return invoke<OrchestratorDetachedHost>("orchestrator_start_detached", {
     workspacePath: input.workspacePath,
     sandboxBackend: input.sandboxBackend ?? null,
     runId: input.runId ?? null,
+    openworkToken: input.openworkToken ?? null,
+    openworkHostToken: input.openworkHostToken ?? null,
   });
 }
 

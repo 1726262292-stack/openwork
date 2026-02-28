@@ -107,6 +107,7 @@ export type SessionViewProps = {
   workspaceConnectionStateById: Record<string, WorkspaceConnectionState>;
   activateWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   testWorkspaceConnection: (workspaceId: string) => Promise<boolean> | boolean;
+  recoverWorkspace: (workspaceId: string) => Promise<boolean> | boolean;
   editWorkspaceConnection: (workspaceId: string) => void;
   forgetWorkspace: (workspaceId: string) => void;
   soulStatusByWorkspaceId: Record<string, OpenworkSoulStatus | null>;
@@ -2717,6 +2718,7 @@ export default function SessionView(props: SessionViewProps) {
             onShareWorkspace={(workspaceId) => setShareWorkspaceId(workspaceId)}
             onOpenSoul={openSoul}
             onRevealWorkspace={revealWorkspaceInFinder}
+            onRecoverWorkspace={props.recoverWorkspace}
             onTestWorkspaceConnection={props.testWorkspaceConnection}
             onEditWorkspaceConnection={props.editWorkspaceConnection}
             onForgetWorkspace={props.forgetWorkspace}

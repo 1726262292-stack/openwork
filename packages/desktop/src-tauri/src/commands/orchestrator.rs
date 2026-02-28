@@ -617,6 +617,8 @@ pub fn orchestrator_start_detached(
     workspace_path: String,
     sandbox_backend: Option<String>,
     run_id: Option<String>,
+    openwork_token: Option<String>,
+    openwork_host_token: Option<String>,
 ) -> Result<OrchestratorDetachedHost, String> {
     let start_ts = now_ms();
     let workspace_path = workspace_path.trim().to_string();
@@ -647,8 +649,14 @@ pub fn orchestrator_start_detached(
     );
 
     let port = allocate_free_port()?;
-    let token = Uuid::new_v4().to_string();
-    let host_token = Uuid::new_v4().to_string();
+    let token = openwork_token
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let host_token = openwork_host_token
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
     let openwork_url = format!("http://127.0.0.1:{port}");
 
     emit_sandbox_progress(

@@ -133,6 +133,7 @@ export type DashboardViewProps = {
   connectingWorkspaceId: string | null;
   activateWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   testWorkspaceConnection: (workspaceId: string) => Promise<boolean> | boolean;
+  recoverWorkspace: (workspaceId: string) => Promise<boolean> | boolean;
   openCreateWorkspace: () => void;
   openCreateRemoteWorkspace: () => void;
   importWorkspaceConfig: () => void;
@@ -1072,6 +1073,7 @@ export default function DashboardView(props: DashboardViewProps) {
             onShareWorkspace={(workspaceId) => setShareWorkspaceId(workspaceId)}
             onOpenSoul={openSoulForWorkspace}
             onRevealWorkspace={revealWorkspaceInFinder}
+            onRecoverWorkspace={props.recoverWorkspace}
             onTestWorkspaceConnection={props.testWorkspaceConnection}
             onEditWorkspaceConnection={props.editWorkspaceConnection}
             onForgetWorkspace={props.forgetWorkspace}

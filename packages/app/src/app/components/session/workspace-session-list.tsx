@@ -21,6 +21,7 @@ type Props = {
   onShareWorkspace: (workspaceId: string) => void;
   onOpenSoul: (workspaceId: string) => void;
   onRevealWorkspace: (workspaceId: string) => void;
+  onRecoverWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   onTestWorkspaceConnection: (workspaceId: string) => Promise<boolean> | boolean | void;
   onEditWorkspaceConnection: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
@@ -302,6 +303,17 @@ export default function WorkspaceSessionList(props: Props) {
                         </button>
                       </Show>
                       <Show when={workspace().workspaceType === "remote"}>
+                        <button
+                          type="button"
+                          class="w-full text-left px-2 py-1.5 text-sm rounded-md hover:bg-gray-3"
+                          onClick={() => {
+                            void Promise.resolve(props.onRecoverWorkspace(workspace().id));
+                            setWorkspaceMenuId(null);
+                          }}
+                          disabled={isConnecting()}
+                        >
+                          Get back online
+                        </button>
                         <button
                           type="button"
                           class="w-full text-left px-2 py-1.5 text-sm rounded-md hover:bg-gray-3"
