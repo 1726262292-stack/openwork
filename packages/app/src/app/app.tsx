@@ -24,6 +24,7 @@ import type {
 
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type Event as TauriEvent } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { parse } from "jsonc-parser";
 
 import ModelPickerModal from "./components/model-picker-modal";
@@ -144,7 +145,9 @@ import {
 } from "./lib/tauri";
 import {
   FONT_ZOOM_STEP,
+  applyWebviewZoom,
   applyFontZoom,
+  normalizeFontZoom,
   parseFontZoomShortcut,
   persistFontZoom,
   readStoredFontZoom,
@@ -788,8 +791,22 @@ export default function App() {
     if (!isTauriRuntime()) return;
 
     const applyAndPersistFontZoom = (value: number) => {
-      const next = applyFontZoom(document.documentElement.style, value);
+      const next = normalizeFontZoom(value);
       persistFontZoom(window.localStorage, next);
+
+      try {
+        const webview = getCurrentWebview();
+        void applyWebviewZoom(webview, next)
+          .then(() => {
+            document.documentElement.style.removeProperty("--openwork-font-size");
+          })
+          .catch(() => {
+            applyFontZoom(document.documentElement.style, next);
+          });
+      } catch {
+        applyFontZoom(document.documentElement.style, next);
+      }
+
       return next;
     };
 

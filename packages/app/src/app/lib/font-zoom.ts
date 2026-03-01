@@ -5,6 +5,7 @@ export const FONT_ZOOM_MIN = 0.8;
 export const FONT_ZOOM_MAX = 1.6;
 
 export type FontZoomShortcutAction = "in" | "out" | "reset";
+export type FontZoomTarget = { setZoom: (scaleFactor: number) => Promise<void> };
 
 export function clampFontZoom(value: number): number {
   return Math.min(FONT_ZOOM_MAX, Math.max(FONT_ZOOM_MIN, value));
@@ -71,5 +72,11 @@ export function applyFontZoom(rootStyle: Pick<CSSStyleDeclaration, "setProperty"
   const normalized = normalizeFontZoom(value);
   const px = FONT_ZOOM_BASE_PX * normalized;
   rootStyle.setProperty("--openwork-font-size", `${px}px`);
+  return normalized;
+}
+
+export async function applyWebviewZoom(target: FontZoomTarget, value: number): Promise<number> {
+  const normalized = normalizeFontZoom(value);
+  await target.setZoom(normalized);
   return normalized;
 }
