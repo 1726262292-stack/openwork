@@ -14,6 +14,7 @@ export type InboundMessage = {
   text: string;
   parts?: InboundMessagePart[];
   raw: unknown;
+  fromMe?: boolean;
 };
 
 export type MessageHandler = (message: InboundMessage) => Promise<void> | void;
@@ -246,6 +247,16 @@ export function createTelegramAdapter(
   bot.on("message", async (ctx: Context) => {
     const msg = ctx.message;
     if (!msg?.chat) return;
+
+    const fromId = typeof msg.from?.id === "number" ? msg.from.id : null;
+    const selfId = typeof ctx.me?.id === "number" ? ctx.me.id : null;
+    const fromMe = fromId !== null && selfId !== null && fromId === selfId;
+    const fromBot = msg.from?.is_bot === true;
+    if (fromMe || fromBot) {
+      log.debug({ chatId: msg.chat.id, fromId, selfId }, "telegram message ignored (bot-originated)");
+      return;
+    }
+
     const mediaCandidates = extractMediaCandidates(msg as any);
     const hasMedia = mediaCandidates.length > 0;
 
@@ -320,6 +331,7 @@ export function createTelegramAdapter(
         text: textForPrompt,
         parts,
         raw: msg,
+        fromMe,
       });
     } catch (error) {
       log.error({ error, peerId: msg.chat.id }, "telegram inbound handler failed");

@@ -26,7 +26,7 @@ class FakeBot {
   constructor(token) {
     this.token = token;
     this.handlers = new Map();
-    this.me = { username: "routerbot" };
+    this.me = { id: 999, username: "routerbot" };
     this.calls = {
       sendMessage: [],
       sendPhoto: [],
@@ -169,4 +169,36 @@ test("createTelegramAdapter downloads inbound media to store", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("createTelegramAdapter ignores bot-originated inbound messages", async () => {
+  const logger = createLoggerStub();
+  const inbound = [];
+
+  createTelegramAdapter(
+    {
+      id: "default",
+      token: "tg-token",
+      enabled: true,
+    },
+    { groupsEnabled: false },
+    logger,
+    async (message) => inbound.push(message),
+    undefined,
+    { Bot: FakeBot },
+  );
+
+  await lastFakeBot.emitMessage({
+    chat: { id: 777, type: "private" },
+    from: { id: 999, is_bot: true },
+    text: "bot says hi",
+  });
+
+  await lastFakeBot.emitMessage({
+    chat: { id: 777, type: "private" },
+    from: { id: 123, is_bot: true },
+    text: "another bot says hi",
+  });
+
+  assert.equal(inbound.length, 0);
 });

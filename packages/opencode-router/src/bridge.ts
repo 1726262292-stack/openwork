@@ -1761,6 +1761,19 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
       text: inboundText,
       ...(normalizedParts.length ? { parts: normalizedParts } : {}),
     };
+
+    if (inbound.fromMe) {
+      logger.debug(
+        {
+          channel: inbound.channel,
+          identityId: inbound.identityId,
+          peerId: inbound.peerId,
+        },
+        "inbound ignored (self-authored)",
+      );
+      return;
+    }
+
     const reporterInboundText =
       inbound.text || summarizeInboundPartsForReporter(inbound.parts) || "[empty message]";
     logger.debug(
