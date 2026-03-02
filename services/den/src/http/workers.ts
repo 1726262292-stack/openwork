@@ -4,7 +4,7 @@ import { fromNodeHeaders } from "better-auth/node"
 import { and, asc, desc, eq, isNull } from "drizzle-orm"
 import { z } from "zod"
 import { auth } from "../auth.js"
-import { getCloudWorkerBillingStatus, requireCloudWorkerAccess } from "../billing/polar.js"
+import { getCloudWorkerBillingStatus, requireCloudWorkerAccess, setCloudWorkerSubscriptionCancellation } from "../billing/polar.js"
 import { db } from "../db/index.js"
 import { AuditEventTable, OrgMembershipTable, WorkerBundleTable, WorkerInstanceTable, WorkerTable, WorkerTokenTable } from "../db/schema.js"
 import { env } from "../env.js"
@@ -24,6 +24,10 @@ const createSchema = z.object({
 
 const listSchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
+})
+
+const billingSubscriptionSchema = z.object({
+  cancelAtPeriodEnd: z.boolean().default(true),
 })
 
 const token = () => randomBytes(32).toString("hex")
@@ -114,14 +118,14 @@ function getConnectUrlCandidates(workerId: string, instanceUrl: string | null) {
   return candidates
 }
 
-function queryIncludesCheckout(value: unknown): boolean {
+function queryIncludesFlag(value: unknown): boolean {
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase()
     return normalized === "1" || normalized === "true" || normalized === "yes"
   }
 
   if (Array.isArray(value)) {
-    return value.some((entry) => queryIncludesCheckout(entry))
+    return value.some((entry) => queryIncludesFlag(entry))
   }
 
   return false
@@ -405,17 +409,59 @@ workersRouter.get("/billing", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
-  const includeCheckoutUrl = queryIncludesCheckout(req.query.includeCheckout)
+  const includeCheckoutUrl = queryIncludesFlag(req.query.includeCheckout)
+  const includePortalUrl = !queryIncludesFlag(req.query.excludePortal)
+  const includeInvoices = !queryIncludesFlag(req.query.excludeInvoices)
+
+  const billingInput = {
+    userId: session.user.id,
+    email: session.user.email ?? `${session.user.id}@placeholder.local`,
+    name: session.user.name ?? session.user.email ?? "OpenWork User",
+  }
+
   const billing = await getCloudWorkerBillingStatus(
+    billingInput,
     {
-      userId: session.user.id,
-      email: session.user.email ?? `${session.user.id}@placeholder.local`,
-      name: session.user.name ?? session.user.email ?? "OpenWork User",
+      includeCheckoutUrl,
+      includePortalUrl,
+      includeInvoices,
     },
-    { includeCheckoutUrl },
   )
 
   res.json({
+    billing: {
+      ...billing,
+      productId: env.polar.productId,
+      benefitId: env.polar.benefitId,
+    },
+  })
+}))
+
+workersRouter.post("/billing/subscription", asyncRoute(async (req, res) => {
+  const session = await requireSession(req, res)
+  if (!session) return
+
+  const parsed = billingSubscriptionSchema.safeParse(req.body ?? {})
+  if (!parsed.success) {
+    res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() })
+    return
+  }
+
+  const billingInput = {
+    userId: session.user.id,
+    email: session.user.email ?? `${session.user.id}@placeholder.local`,
+    name: session.user.name ?? session.user.email ?? "OpenWork User",
+  }
+
+  const subscription = await setCloudWorkerSubscriptionCancellation(billingInput, parsed.data.cancelAtPeriodEnd)
+  const billing = await getCloudWorkerBillingStatus(billingInput, {
+    includeCheckoutUrl: false,
+    includePortalUrl: true,
+    includeInvoices: true,
+  })
+
+  res.json({
+    subscription,
     billing: {
       ...billing,
       productId: env.polar.productId,

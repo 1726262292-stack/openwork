@@ -7,11 +7,46 @@ type AuthMode = "sign-in" | "sign-up";
 type ShellView = "workers" | "billing";
 type WorkerStatusBucket = "ready" | "starting" | "attention" | "other";
 
+type BillingPrice = {
+  amount: number | null;
+  currency: string | null;
+  recurringInterval: string | null;
+  recurringIntervalCount: number | null;
+};
+
+type BillingSubscription = {
+  id: string;
+  status: string;
+  amount: number | null;
+  currency: string | null;
+  recurringInterval: string | null;
+  recurringIntervalCount: number | null;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  canceledAt: string | null;
+  endedAt: string | null;
+};
+
+type BillingInvoice = {
+  id: string;
+  createdAt: string | null;
+  status: string;
+  totalAmount: number | null;
+  currency: string | null;
+  invoiceNumber: string | null;
+  invoiceUrl: string | null;
+};
+
 type BillingSummary = {
   featureGateEnabled: boolean;
   hasActivePlan: boolean;
   checkoutRequired: boolean;
   checkoutUrl: string | null;
+  portalUrl: string | null;
+  price: BillingPrice | null;
+  subscription: BillingSubscription | null;
+  invoices: BillingInvoice[];
   productId: string | null;
   benefitId: string | null;
 };
@@ -187,6 +222,68 @@ function shortValue(value: string): string {
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
+function formatMoneyMinor(amount: number | null, currency: string | null): string {
+  if (typeof amount !== "number" || !Number.isFinite(amount)) {
+    return "Not available";
+  }
+
+  const normalizedCurrency = (currency ?? "USD").toUpperCase();
+  const majorValue = amount / 100;
+
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: normalizedCurrency
+    }).format(majorValue);
+  } catch {
+    return `${majorValue.toFixed(2)} ${normalizedCurrency}`;
+  }
+}
+
+function formatIsoDate(value: string | null): string {
+  if (!value) {
+    return "Not available";
+  }
+
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "Not available";
+    }
+    return date.toLocaleDateString();
+  } catch {
+    return "Not available";
+  }
+}
+
+function formatRecurringInterval(interval: string | null, count: number | null): string {
+  if (!interval) {
+    return "billing cycle";
+  }
+
+  const normalizedInterval = interval.replace(/_/g, " ");
+  const normalizedCount = typeof count === "number" && Number.isFinite(count) ? count : 1;
+
+  if (normalizedCount <= 1) {
+    return `per ${normalizedInterval}`;
+  }
+
+  const pluralSuffix = normalizedInterval.endsWith("s") ? "" : "s";
+  return `every ${normalizedCount} ${normalizedInterval}${pluralSuffix}`;
+}
+
+function formatSubscriptionStatus(status: string): string {
+  const normalized = status.trim().toLowerCase();
+  if (!normalized) {
+    return "Unknown";
+  }
+
+  return normalized
+    .split("_")
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
 function getErrorMessage(payload: unknown, fallback: string): string {
   if (typeof payload === "string" && payload.trim().length > 0) {
     const trimmed = payload.trim();
@@ -315,6 +412,55 @@ function getWorkerTokens(payload: unknown): WorkerTokens | null {
   return { clientToken, hostToken, openworkUrl, workspaceId };
 }
 
+function getBillingPrice(value: unknown): BillingPrice | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  return {
+    amount: typeof value.amount === "number" ? value.amount : null,
+    currency: typeof value.currency === "string" ? value.currency : null,
+    recurringInterval: typeof value.recurringInterval === "string" ? value.recurringInterval : null,
+    recurringIntervalCount: typeof value.recurringIntervalCount === "number" ? value.recurringIntervalCount : null
+  };
+}
+
+function getBillingSubscription(value: unknown): BillingSubscription | null {
+  if (!isRecord(value) || typeof value.id !== "string") {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    status: typeof value.status === "string" ? value.status : "unknown",
+    amount: typeof value.amount === "number" ? value.amount : null,
+    currency: typeof value.currency === "string" ? value.currency : null,
+    recurringInterval: typeof value.recurringInterval === "string" ? value.recurringInterval : null,
+    recurringIntervalCount: typeof value.recurringIntervalCount === "number" ? value.recurringIntervalCount : null,
+    currentPeriodStart: typeof value.currentPeriodStart === "string" ? value.currentPeriodStart : null,
+    currentPeriodEnd: typeof value.currentPeriodEnd === "string" ? value.currentPeriodEnd : null,
+    cancelAtPeriodEnd: value.cancelAtPeriodEnd === true,
+    canceledAt: typeof value.canceledAt === "string" ? value.canceledAt : null,
+    endedAt: typeof value.endedAt === "string" ? value.endedAt : null
+  };
+}
+
+function getBillingInvoice(value: unknown): BillingInvoice | null {
+  if (!isRecord(value) || typeof value.id !== "string") {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    createdAt: typeof value.createdAt === "string" ? value.createdAt : null,
+    status: typeof value.status === "string" ? value.status : "unknown",
+    totalAmount: typeof value.totalAmount === "number" ? value.totalAmount : null,
+    currency: typeof value.currency === "string" ? value.currency : null,
+    invoiceNumber: typeof value.invoiceNumber === "string" ? value.invoiceNumber : null,
+    invoiceUrl: typeof value.invoiceUrl === "string" ? value.invoiceUrl : null
+  };
+}
+
 function getBillingSummary(payload: unknown): BillingSummary | null {
   if (!isRecord(payload) || !isRecord(payload.billing)) {
     return null;
@@ -338,6 +484,14 @@ function getBillingSummary(payload: unknown): BillingSummary | null {
     hasActivePlan,
     checkoutRequired,
     checkoutUrl: typeof billing.checkoutUrl === "string" ? billing.checkoutUrl : null,
+    portalUrl: typeof billing.portalUrl === "string" ? billing.portalUrl : null,
+    price: getBillingPrice(billing.price),
+    subscription: getBillingSubscription(billing.subscription),
+    invoices: Array.isArray(billing.invoices)
+      ? billing.invoices
+          .map((item) => getBillingInvoice(item))
+          .filter((item): item is BillingInvoice => item !== null)
+      : [],
     productId: typeof billing.productId === "string" ? billing.productId : null,
     benefitId: typeof billing.benefitId === "string" ? billing.benefitId : null
   };
@@ -775,6 +929,7 @@ export function CloudControlPanel() {
   const [billingSummary, setBillingSummary] = useState<BillingSummary | null>(null);
   const [billingBusy, setBillingBusy] = useState(false);
   const [billingCheckoutBusy, setBillingCheckoutBusy] = useState(false);
+  const [billingSubscriptionBusy, setBillingSubscriptionBusy] = useState(false);
   const [billingError, setBillingError] = useState<string | null>(null);
   const [paymentReturned, setPaymentReturned] = useState(false);
 
@@ -835,6 +990,8 @@ export function CloudControlPanel() {
   const selectedWorkerStatus = activeWorker?.status ?? selectedWorker?.status ?? "unknown";
   const selectedStatusMeta = getWorkerStatusMeta(selectedWorkerStatus);
   const effectiveCheckoutUrl = checkoutUrl ?? billingSummary?.checkoutUrl ?? null;
+  const billingSubscription = billingSummary?.subscription ?? null;
+  const billingPrice = billingSummary?.price ?? null;
 
   function appendEvent(level: EventLevel, label: string, detail: string) {
     setEvents((current) => {
@@ -1000,6 +1157,8 @@ export function CloudControlPanel() {
       setBillingSummary(summary);
       if (summary.checkoutUrl) {
         setCheckoutUrl(summary.checkoutUrl);
+      } else if (!summary.checkoutRequired) {
+        setCheckoutUrl(null);
       }
 
       return summary;
@@ -1016,6 +1175,60 @@ export function CloudControlPanel() {
       } else {
         setBillingBusy(false);
       }
+    }
+  }
+
+  async function handleSubscriptionCancellation(cancelAtPeriodEnd: boolean) {
+    if (!user || billingSubscriptionBusy) {
+      return;
+    }
+
+    if (cancelAtPeriodEnd && typeof window !== "undefined") {
+      const confirmed = window.confirm("Cancel subscription at period end? You can still use your current billing period.");
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setBillingSubscriptionBusy(true);
+    setBillingError(null);
+
+    try {
+      const { response, payload } = await requestJson("/v1/workers/billing/subscription", {
+        method: "POST",
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+        body: JSON.stringify({ cancelAtPeriodEnd })
+      }, 12000);
+
+      if (!response.ok) {
+        const message = getErrorMessage(payload, `Subscription update failed (${response.status}).`);
+        setBillingError(message);
+        appendEvent("error", "Subscription update failed", message);
+        return;
+      }
+
+      const summary = getBillingSummary(payload);
+      if (!summary) {
+        setBillingError("Subscription updated, but billing details could not be refreshed.");
+        appendEvent("warning", "Subscription updated", "Billing summary missing");
+        return;
+      }
+
+      setBillingSummary(summary);
+      if (summary.checkoutUrl) {
+        setCheckoutUrl(summary.checkoutUrl);
+      } else if (!summary.checkoutRequired) {
+        setCheckoutUrl(null);
+      }
+
+      const actionLabel = cancelAtPeriodEnd ? "Subscription will cancel at period end" : "Subscription auto-renew resumed";
+      appendEvent("success", actionLabel, user.email);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown network error";
+      setBillingError(message);
+      appendEvent("error", "Subscription update failed", message);
+    } finally {
+      setBillingSubscriptionBusy(false);
     }
   }
 
@@ -1479,6 +1692,7 @@ export function CloudControlPanel() {
     setBillingError(null);
     setBillingBusy(false);
     setBillingCheckoutBusy(false);
+    setBillingSubscriptionBusy(false);
     setPaymentReturned(false);
     setTokenFetchedForWorkerId(null);
     setDeleteBusyWorkerId(null);
@@ -2457,7 +2671,7 @@ export function CloudControlPanel() {
                       type="button"
                       className="rounded-[12px] border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={() => void refreshBilling()}
-                      disabled={billingBusy || billingCheckoutBusy}
+                      disabled={billingBusy || billingCheckoutBusy || billingSubscriptionBusy}
                     >
                       {billingBusy ? "Refreshing..." : "Refresh"}
                     </button>
@@ -2498,6 +2712,11 @@ export function CloudControlPanel() {
                               ? "Your account can launch cloud workers right now."
                               : "Complete checkout to unlock cloud worker launches."}
                         </p>
+                        <p className="mt-2 text-sm font-semibold text-slate-900">
+                          {billingPrice && billingPrice.amount !== null
+                            ? `You are paying ${formatMoneyMinor(billingPrice.amount, billingPrice.currency)} ${formatRecurringInterval(billingPrice.recurringInterval, billingPrice.recurringIntervalCount)}.`
+                            : "Current plan amount is unavailable."}
+                        </p>
                       </div>
 
                       <div className="rounded-[18px] border border-slate-200 bg-slate-50 p-4">
@@ -2509,6 +2728,69 @@ export function CloudControlPanel() {
                         <p className="text-xs text-slate-500">
                           Benefit: {billingSummary.benefitId ? shortValue(billingSummary.benefitId) : "Not configured"}
                         </p>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="rounded-[18px] border border-slate-200 bg-white p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Subscription</p>
+                        {billingSubscription ? (
+                          <>
+                            <p className="mt-2 text-base font-semibold text-slate-900">{formatSubscriptionStatus(billingSubscription.status)}</p>
+                            <p className="mt-1 text-sm text-slate-600">
+                              {formatMoneyMinor(billingSubscription.amount, billingSubscription.currency)} {formatRecurringInterval(billingSubscription.recurringInterval, billingSubscription.recurringIntervalCount)}
+                            </p>
+                            <p className="mt-2 text-xs text-slate-500">
+                              {billingSubscription.cancelAtPeriodEnd
+                                ? `Cancels on ${formatIsoDate(billingSubscription.currentPeriodEnd)}`
+                                : `Renews on ${formatIsoDate(billingSubscription.currentPeriodEnd)}`}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="mt-2 text-sm text-slate-600">No active subscription found.</p>
+                        )}
+                      </div>
+
+                      <div className="rounded-[18px] border border-slate-200 bg-white p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Manage subscription</p>
+                        {billingSummary.portalUrl ? (
+                          <a
+                            href={billingSummary.portalUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-2 inline-flex rounded-[10px] border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900"
+                          >
+                            Open billing portal
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            className="mt-2 inline-flex rounded-[10px] border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick={() => void refreshBilling({ quiet: true })}
+                            disabled={billingBusy || billingCheckoutBusy || billingSubscriptionBusy}
+                          >
+                            Refresh portal link
+                          </button>
+                        )}
+
+                        {billingSubscription ? (
+                          <button
+                            type="button"
+                            className={`mt-2 inline-flex rounded-[10px] px-3 py-2 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                              billingSubscription.cancelAtPeriodEnd ? "bg-slate-700 hover:bg-slate-800" : "bg-rose-600 hover:bg-rose-700"
+                            }`}
+                            onClick={() => void handleSubscriptionCancellation(!billingSubscription.cancelAtPeriodEnd)}
+                            disabled={billingSubscriptionBusy || billingBusy || billingCheckoutBusy}
+                          >
+                            {billingSubscriptionBusy
+                              ? "Updating..."
+                              : billingSubscription.cancelAtPeriodEnd
+                                ? "Resume auto-renew"
+                                : "Cancel at period end"}
+                          </button>
+                        ) : null}
+
+                        <p className="mt-2 text-xs text-slate-500">You can also cancel from the billing portal at any time.</p>
                       </div>
                     </div>
 
@@ -2540,6 +2822,50 @@ export function CloudControlPanel() {
                         </button>
                       </div>
                     ) : null}
+
+                    <div className="rounded-[18px] border border-slate-200 bg-white p-4">
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Invoices</p>
+                        <button
+                          type="button"
+                          className="rounded-[10px] border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+                          onClick={() => void refreshBilling({ quiet: true })}
+                          disabled={billingBusy || billingCheckoutBusy || billingSubscriptionBusy}
+                        >
+                          Refresh invoices
+                        </button>
+                      </div>
+
+                      {billingSummary.invoices.length > 0 ? (
+                        <ul className="space-y-2">
+                          {billingSummary.invoices.map((invoice) => (
+                            <li key={invoice.id} className="flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-slate-100 bg-slate-50 px-3 py-2.5">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900">{invoice.invoiceNumber ?? shortValue(invoice.id)}</p>
+                                <p className="text-xs text-slate-600">
+                                  {formatIsoDate(invoice.createdAt)} · {formatMoneyMinor(invoice.totalAmount, invoice.currency)} · {formatSubscriptionStatus(invoice.status)}
+                                </p>
+                              </div>
+
+                              {invoice.invoiceUrl ? (
+                                <a
+                                  href={invoice.invoiceUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="rounded-[10px] border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900"
+                                >
+                                  Download invoice
+                                </a>
+                              ) : (
+                                <span className="text-xs font-medium text-slate-500">Not available yet</span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-slate-600">No invoices yet. When charges post, invoices appear here.</p>
+                      )}
+                    </div>
                   </div>
                 ) : !billingBusy ? (
                   <p className="text-sm text-slate-600">No billing details available yet. Click refresh to retry.</p>
