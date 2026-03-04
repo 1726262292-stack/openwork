@@ -639,11 +639,6 @@ export default function App() {
         goToSession(sessionId);
         return;
       }
-      const fallback = activeSessionId();
-      if (fallback) {
-        goToSession(fallback);
-        return;
-      }
       navigate("/session");
       return;
     }
@@ -2772,16 +2767,9 @@ export default function App() {
     if (creatingSession()) return;
     if (selectedSessionId()) return;
 
-    const list = sessions();
-    if (!list.length) return;
-
-    const workspaceId = workspaceStore.activeWorkspaceId();
-    const map = workspaceId ? readSessionByWorkspace() : null;
-    const saved = workspaceId ? map?.[workspaceId] : null;
-    const match = saved ? list.find((session) => session.id === saved) : null;
-    const next = match ?? list[0];
-    void selectSession(next.id);
-    setView("session", next.id);
+    // Keep /session as a draft-ready empty state until the user picks a session
+    // or sends a prompt. Avoid auto-selecting prior sessions on app launch.
+    return;
   });
 
   createEffect(() => {
@@ -6048,9 +6036,10 @@ export default function App() {
       const id = (sessionSegment ?? "").trim();
 
       if (!id) {
-        const fallback = activeSessionId();
-        if (fallback) {
-          goToSession(fallback, { replace: true });
+        if (selectedSessionId()) {
+          setSelectedSessionId(null);
+          setMessages([]);
+          setTodos([]);
         }
         return;
       }
