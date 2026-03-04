@@ -3849,15 +3849,6 @@ export default function App() {
     void workspaceStore.onConnectClient();
   });
 
-  createEffect(() => {
-    // If we lose the client (disconnect / stop engine), don't strand the user
-    // in a session view that can't operate.
-    if (currentView() !== "session") return;
-    if (creatingSession()) return;
-    if (client()) return;
-    setView("dashboard");
-  });
-
   const selectedSessionModel = createMemo<ModelRef>(() => {
     const id = selectedSessionId();
     if (!id) return defaultModel();
