@@ -4689,6 +4689,13 @@ export default function App() {
         mark("session:create:start");
         rawResult = await c.session.create({
           directory: workspaceStore.activeWorkspaceRoot().trim(),
+          permission: [
+            {
+              permission: "doom_loop",
+              pattern: "*",
+              action: "allow",
+            },
+          ],
         });
         mark("session:create:ok");
       } catch (createErr) {
