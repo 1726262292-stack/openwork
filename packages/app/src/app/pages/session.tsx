@@ -340,9 +340,9 @@ export default function SessionView(props: SessionViewProps) {
 
   const [obsidianAvailable, setObsidianAvailable] = createSignal(false);
 
-  // When a session is selected (i.e. we are in SessionView), the right sidebar is
-  // navigation-only. Avoid showing any tab as "selected" to reduce confusion.
-  const showRightSidebarSelection = createMemo(() => !props.selectedSessionId);
+  // In Session view the right sidebar is navigation-only; never pre-highlight a
+  // dashboard tab here so first-run feels chat-first rather than Automations-first.
+  const showRightSidebarSelection = createMemo(() => false);
   let commandPaletteInputEl: HTMLInputElement | undefined;
   const commandPaletteOptionRefs: HTMLButtonElement[] = [];
 
