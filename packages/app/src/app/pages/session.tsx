@@ -1417,6 +1417,8 @@ export default function SessionView(props: SessionViewProps) {
   const [shareWorkspaceId, setShareWorkspaceId] = createSignal<string | null>(null);
   let initialAnchorRafA: number | undefined;
   let initialAnchorRafB: number | undefined;
+  let initialAnchorSettleTimer: ReturnType<typeof setTimeout> | undefined;
+  let initialAnchorResizeObserver: ResizeObserver | undefined;
   const attachmentsEnabled = createMemo(() => {
     if (props.activeWorkspaceDisplay.workspaceType !== "remote") return true;
     return props.openworkServerStatus === "connected";
@@ -1431,6 +1433,10 @@ export default function SessionView(props: SessionViewProps) {
 
   const scrollToLatest = (behavior: ScrollBehavior = "auto") => {
     messagesEndEl?.scrollIntoView({ behavior, block: "end" });
+  };
+
+  const pinToLatestNow = () => {
+    messagesEndEl?.scrollIntoView({ behavior: "auto", block: "end" });
   };
 
   const scheduleScrollToLatest = (behavior: ScrollBehavior = "auto") => {
@@ -1460,19 +1466,56 @@ export default function SessionView(props: SessionViewProps) {
       window.cancelAnimationFrame(initialAnchorRafB);
       initialAnchorRafB = undefined;
     }
+    if (initialAnchorSettleTimer) {
+      clearTimeout(initialAnchorSettleTimer);
+      initialAnchorSettleTimer = undefined;
+    }
+    if (initialAnchorResizeObserver) {
+      initialAnchorResizeObserver.disconnect();
+      initialAnchorResizeObserver = undefined;
+    }
   };
 
   const applyInitialBottomAnchor = (sessionId: string) => {
     cancelInitialAnchorFrames();
-    scheduleScrollToLatest("auto");
+    const finish = () => {
+      if (props.selectedSessionId !== sessionId) return;
+      setInitialAnchorPending(false);
+      cancelInitialAnchorFrames();
+    };
+    const settleLater = () => {
+      if (initialAnchorSettleTimer) {
+        clearTimeout(initialAnchorSettleTimer);
+      }
+      initialAnchorSettleTimer = setTimeout(() => {
+        initialAnchorSettleTimer = undefined;
+        finish();
+      }, 250);
+    };
+
+    pinToLatestNow();
+    settleLater();
     initialAnchorRafA = window.requestAnimationFrame(() => {
       initialAnchorRafA = undefined;
+      pinToLatestNow();
+      settleLater();
       initialAnchorRafB = window.requestAnimationFrame(() => {
         initialAnchorRafB = undefined;
-        if (props.selectedSessionId !== sessionId) return;
-        setInitialAnchorPending(false);
+        pinToLatestNow();
+        settleLater();
       });
     });
+
+    if (typeof ResizeObserver !== "undefined") {
+      const container = chatContainerEl;
+      if (container) {
+        initialAnchorResizeObserver = new ResizeObserver(() => {
+          pinToLatestNow();
+          settleLater();
+        });
+        initialAnchorResizeObserver.observe(container);
+      }
+    }
   };
 
   onCleanup(() => {
@@ -1875,6 +1918,17 @@ export default function SessionView(props: SessionViewProps) {
     ),
   );
 
+  createEffect(
+    on(
+      () => [initialAnchorPending(), props.messages.length, totalPartCount()] as const,
+      ([pending]) => {
+        if (!pending) return;
+        pinToLatestNow();
+      },
+      { defer: true },
+    ),
+  );
+
   createEffect(() => {
     const hits = searchHits();
     if (!hits.length) {
@@ -2020,6 +2074,7 @@ export default function SessionView(props: SessionViewProps) {
   createEffect(() => {
     if (!showRunIndicator()) return;
     runProgressSignature();
+    if (initialAnchorPending()) return;
     if (!nearBottom()) return;
     scheduleScrollToLatest("auto");
   });

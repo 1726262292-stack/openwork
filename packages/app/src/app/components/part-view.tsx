@@ -360,6 +360,7 @@ const MARKDOWN_CACHE_MAX_ENTRIES = 100;
 const LARGE_TEXT_COLLAPSE_CHAR_THRESHOLD = 12_000;
 const LARGE_TEXT_PREVIEW_CHARS = 3_200;
 const markdownHtmlCache = new Map<string, string>();
+const expandedLargeTextPartIds = new Set<string>();
 const rendererByTone = new Map<"light" | "dark", ReturnType<typeof createCustomRenderer>>();
 
 function markdownCacheKey(tone: "light" | "dark", text: string) {
@@ -481,7 +482,22 @@ export default function PartView(props: Props) {
   const showThinking = () => props.showThinking ?? true;
   const renderMarkdown = () => props.renderMarkdown ?? false;
   const markdownThrottleMs = () => Math.max(0, props.markdownThrottleMs ?? 100);
+  const textPartStableId = createMemo(() => {
+    if (p().type !== "text") return "";
+    const record = p() as { id?: string | number; messageID?: string | number };
+    const partId = record.id;
+    if (typeof partId === "string") return partId;
+    if (typeof partId === "number") return String(partId);
+    const messageId = record.messageID;
+    if (typeof messageId === "string") return `msg:${messageId}`;
+    if (typeof messageId === "number") return `msg:${String(messageId)}`;
+    return "";
+  });
   const [expandedLongText, setExpandedLongText] = createSignal(false);
+  createEffect(() => {
+    const id = textPartStableId();
+    setExpandedLongText(Boolean(id && expandedLargeTextPartIds.has(id)));
+  });
   const rawText = createMemo(() => {
     if (p().type !== "text") return "";
     return "text" in p() ? String((p() as { text: string }).text ?? "") : "";
@@ -838,13 +854,19 @@ export default function PartView(props: Props) {
             >
               {collapsedPreviewText()}
             </div>
-            <button
-              type="button"
-              class="rounded-md border border-gray-6/80 bg-gray-1 px-3 py-1.5 text-xs font-medium text-gray-11 hover:bg-gray-2 hover:text-gray-12"
-              onClick={() => setExpandedLongText(true)}
-            >
-              Show full message ({rawText().length.toLocaleString()} chars)
-            </button>
+              <button
+                type="button"
+                class="rounded-md border border-gray-6/80 bg-gray-1 px-3 py-1.5 text-xs font-medium text-gray-11 hover:bg-gray-2 hover:text-gray-12"
+                onClick={() => {
+                  const id = textPartStableId();
+                  if (id) {
+                    expandedLargeTextPartIds.add(id);
+                  }
+                  setExpandedLongText(true);
+                }}
+              >
+                Show full message ({rawText().length.toLocaleString()} chars)
+              </button>
           </div>
         </Show>
         <Show
