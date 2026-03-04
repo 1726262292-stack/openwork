@@ -1814,17 +1814,13 @@ export default function SessionView(props: SessionViewProps) {
 
         if (!firstVisit) {
           queueMicrotask(() => {
-            if (nearBottom()) {
-              scheduleScrollToLatest("auto");
-            }
+            scheduleScrollToLatest("auto");
           });
           return;
         }
 
         queueMicrotask(() => {
-          const container = chatContainerEl;
-          if (!container) return;
-          container.scrollTop = 0;
+          scheduleScrollToLatest("auto");
         });
       },
     ),
