@@ -2312,6 +2312,10 @@ export default function SessionView(props: SessionViewProps) {
     }
     return "";
   });
+  const hasWorkspaceConfigured = createMemo(() => props.workspaces.length > 0);
+  const showWorkspaceSetupEmptyState = createMemo(
+    () => !hasWorkspaceConfigured() && !props.selectedSessionId && props.messages.length === 0,
+  );
 
   const renameCanSave = createMemo(() => {
     if (renameBusy()) return false;
@@ -3365,7 +3369,11 @@ export default function SessionView(props: SessionViewProps) {
               </button>
             </Show>
 
-            <h1 class="text-[13.5px] font-medium text-gray-11 truncate">{selectedSessionTitle() || "Explore and identify available topics"}</h1>
+            <h1 class="text-[13.5px] font-medium text-gray-11 truncate">
+              {showWorkspaceSetupEmptyState()
+                ? "Create or connect a worker"
+                : (selectedSessionTitle() || "New session")}
+            </h1>
             <Show when={props.developerMode}>
               <span class="text-xs text-dls-secondary">{props.headerStatus}</span>
             </Show>
@@ -3564,7 +3572,7 @@ export default function SessionView(props: SessionViewProps) {
         <div class="flex-1 flex overflow-hidden">
           <div class="flex-1 min-w-0 relative overflow-hidden bg-gray-1">
             <div
-              class="h-full overflow-y-auto px-8 pt-12 pb-56 scroll-smooth bg-gray-1"
+              class={`h-full overflow-y-auto px-8 ${showWorkspaceSetupEmptyState() ? "pt-20 pb-20" : "pt-12 pb-56"} scroll-smooth bg-gray-1`}
               style={{ contain: "layout paint style" }}
               ref={(el) => {
                 chatContainerEl = el;
@@ -3572,11 +3580,38 @@ export default function SessionView(props: SessionViewProps) {
               }}
             >
               <div class="max-w-[650px] mx-auto w-full">
-           <Show when={props.messages.length === 0}>
-             <div class="text-center py-16 px-6 space-y-6">
-               <div class="w-16 h-16 bg-dls-hover rounded-3xl mx-auto flex items-center justify-center border border-dls-border">
-                 <Zap class="text-dls-secondary" />
-               </div>
+            <Show when={showWorkspaceSetupEmptyState()}>
+              <div class="mx-auto max-w-xl rounded-3xl border border-gray-6 bg-gray-2/60 p-8 text-center shadow-sm">
+                <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-6 bg-gray-1 text-gray-11">
+                  <HardDrive size={24} />
+                </div>
+                <h3 class="text-2xl font-semibold text-gray-12">Set up your first worker</h3>
+                <p class="mt-2 text-sm text-gray-10">
+                  OpenWork needs a local or remote worker before you can start a session.
+                </p>
+                <div class="mt-6 grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    class="rounded-2xl border border-gray-7 bg-gray-12 px-4 py-3 text-sm font-semibold text-gray-1 transition-colors hover:bg-gray-11"
+                    onClick={props.openCreateWorkspace}
+                  >
+                    Create local worker
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded-2xl border border-gray-7 bg-gray-1 px-4 py-3 text-sm font-semibold text-gray-12 transition-colors hover:bg-gray-3"
+                    onClick={props.openCreateRemoteWorkspace}
+                  >
+                    Connect remote worker
+                  </button>
+                </div>
+              </div>
+            </Show>
+            <Show when={props.messages.length === 0 && !showWorkspaceSetupEmptyState()}>
+              <div class="text-center py-16 px-6 space-y-6">
+                <div class="w-16 h-16 bg-dls-hover rounded-3xl mx-auto flex items-center justify-center border border-dls-border">
+                  <Zap class="text-dls-secondary" />
+                </div>
               <div class="space-y-2">
                 <h3 class="text-xl font-medium">What do you want to do?</h3>
                 <p class="text-dls-secondary text-sm max-w-sm mx-auto">
@@ -3762,47 +3797,49 @@ export default function SessionView(props: SessionViewProps) {
         </div>
       </Show>
 
-      <Composer
-        prompt={props.prompt}
-        developerMode={props.developerMode}
-        busy={props.busy}
-        isStreaming={showRunIndicator()}
-        onSend={handleSendPrompt}
-        onStop={cancelRun}
-        onDraftChange={handleDraftChange}
-        selectedModelLabel={props.selectedSessionModelLabel || "Model"}
-        onModelClick={props.openSessionModelPicker}
-        modelVariantLabel={props.modelVariantLabel}
-        modelVariant={props.modelVariant}
-        onModelVariantChange={props.setModelVariant}
-        agentLabel={agentLabel()}
-        selectedAgent={props.selectedSessionAgent}
-        agentPickerOpen={agentPickerOpen()}
-        agentPickerBusy={agentPickerBusy()}
-        agentPickerError={agentPickerError()}
-        agentOptions={agentOptions()}
-        onToggleAgentPicker={openAgentPicker}
-        onSelectAgent={(agent) => {
-          applySessionAgent(agent);
-          setAgentPickerOpen(false);
-        }}
-        setAgentPickerRef={(el) => {
-          agentPickerRef = el;
-        }}
-        showNotionBanner={props.showTryNotionPrompt}
-        onNotionBannerClick={props.onTryNotionPrompt}
-        toast={toastMessage()}
-        onToast={(message) => setToastMessage(message)}
-        listAgents={props.listAgents}
-        recentFiles={props.workingFiles}
-        searchFiles={props.searchFiles}
-        listCommands={props.listCommands}
-        isRemoteWorkspace={props.activeWorkspaceDisplay.workspaceType === "remote"}
-        isSandboxWorkspace={isSandboxWorkspace()}
-        onUploadInboxFiles={uploadInboxFiles}
-        attachmentsEnabled={attachmentsEnabled()}
-        attachmentsDisabledReason={attachmentsDisabledReason()}
-      />
+      <Show when={!showWorkspaceSetupEmptyState()}>
+        <Composer
+          prompt={props.prompt}
+          developerMode={props.developerMode}
+          busy={props.busy}
+          isStreaming={showRunIndicator()}
+          onSend={handleSendPrompt}
+          onStop={cancelRun}
+          onDraftChange={handleDraftChange}
+          selectedModelLabel={props.selectedSessionModelLabel || "Model"}
+          onModelClick={props.openSessionModelPicker}
+          modelVariantLabel={props.modelVariantLabel}
+          modelVariant={props.modelVariant}
+          onModelVariantChange={props.setModelVariant}
+          agentLabel={agentLabel()}
+          selectedAgent={props.selectedSessionAgent}
+          agentPickerOpen={agentPickerOpen()}
+          agentPickerBusy={agentPickerBusy()}
+          agentPickerError={agentPickerError()}
+          agentOptions={agentOptions()}
+          onToggleAgentPicker={openAgentPicker}
+          onSelectAgent={(agent) => {
+            applySessionAgent(agent);
+            setAgentPickerOpen(false);
+          }}
+          setAgentPickerRef={(el) => {
+            agentPickerRef = el;
+          }}
+          showNotionBanner={props.showTryNotionPrompt}
+          onNotionBannerClick={props.onTryNotionPrompt}
+          toast={toastMessage()}
+          onToast={(message) => setToastMessage(message)}
+          listAgents={props.listAgents}
+          recentFiles={props.workingFiles}
+          searchFiles={props.searchFiles}
+          listCommands={props.listCommands}
+          isRemoteWorkspace={props.activeWorkspaceDisplay.workspaceType === "remote"}
+          isSandboxWorkspace={isSandboxWorkspace()}
+          onUploadInboxFiles={uploadInboxFiles}
+          attachmentsEnabled={attachmentsEnabled()}
+          attachmentsDisabledReason={attachmentsDisabledReason()}
+        />
+      </Show>
 
         <StatusBar
           clientConnected={props.clientConnected}
