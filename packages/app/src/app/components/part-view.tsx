@@ -357,6 +357,8 @@ function useThrottledValue<T>(value: () => T, delayMs: number | (() => number) =
 }
 
 const MARKDOWN_CACHE_MAX_ENTRIES = 100;
+const LARGE_TEXT_COLLAPSE_CHAR_THRESHOLD = 12_000;
+const LARGE_TEXT_PREVIEW_CHARS = 3_200;
 const markdownHtmlCache = new Map<string, string>();
 const rendererByTone = new Map<"light" | "dark", ReturnType<typeof createCustomRenderer>>();
 
@@ -479,6 +481,21 @@ export default function PartView(props: Props) {
   const showThinking = () => props.showThinking ?? true;
   const renderMarkdown = () => props.renderMarkdown ?? false;
   const markdownThrottleMs = () => Math.max(0, props.markdownThrottleMs ?? 100);
+  const [expandedLongText, setExpandedLongText] = createSignal(false);
+  const rawText = createMemo(() => {
+    if (p().type !== "text") return "";
+    return "text" in p() ? String((p() as { text: string }).text ?? "") : "";
+  });
+  const shouldCollapseLongText = createMemo(
+    () => renderMarkdown() && p().type === "text" && rawText().length >= LARGE_TEXT_COLLAPSE_CHAR_THRESHOLD,
+  );
+  const collapsedLongText = createMemo(() => shouldCollapseLongText() && !expandedLongText());
+  const collapsedPreviewText = createMemo(() => {
+    const text = rawText();
+    if (!collapsedLongText()) return text;
+    if (text.length <= LARGE_TEXT_PREVIEW_CHARS) return text;
+    return `${text.slice(0, LARGE_TEXT_PREVIEW_CHARS)}\n\n...`;
+  });
   let textContainerEl: HTMLDivElement | undefined;
   const fileInfo = () => {
     if (p().type !== "file") return null;
@@ -526,11 +543,13 @@ export default function PartView(props: Props) {
   const showToolOutput = () => developerMode();
   const markdownSource = createMemo(() => {
     if (!renderMarkdown() || p().type !== "text") return "";
-    return "text" in p() ? String((p() as { text: string }).text ?? "") : "";
+    if (collapsedLongText()) return "";
+    return rawText();
   });
   const throttledMarkdownSource = useThrottledValue(markdownSource, markdownThrottleMs);
   const renderedMarkdown = createMemo(() => {
     if (!renderMarkdown() || p().type !== "text") return null;
+    if (collapsedLongText()) return null;
     const text = throttledMarkdownSource();
     if (!text.trim()) return "";
 
@@ -809,8 +828,27 @@ export default function PartView(props: Props) {
   return (
     <Switch>
       <Match when={p().type === "text"}>
+        <Show when={collapsedLongText()}>
+          <div class="rounded-xl border border-gray-6/70 bg-gray-2/30 p-4 space-y-3">
+            <div
+              ref={(el) => {
+                textContainerEl = el;
+              }}
+              class={`whitespace-pre-wrap break-words text-[14px] leading-relaxed max-h-[22rem] overflow-hidden ${textClass()}`.trim()}
+            >
+              {collapsedPreviewText()}
+            </div>
+            <button
+              type="button"
+              class="rounded-md border border-gray-6/80 bg-gray-1 px-3 py-1.5 text-xs font-medium text-gray-11 hover:bg-gray-2 hover:text-gray-12"
+              onClick={() => setExpandedLongText(true)}
+            >
+              Show full message ({rawText().length.toLocaleString()} chars)
+            </button>
+          </div>
+        </Show>
         <Show
-          when={renderMarkdown()}
+          when={renderMarkdown() && !collapsedLongText()}
           fallback={
             <div
               ref={(el) => {
