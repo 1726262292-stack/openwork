@@ -420,7 +420,7 @@ export default function MessageList(props: MessageListProps) {
     return "";
   });
 
-  const shouldUseContentVisibility = createMemo(() => messageBlocks().length > 80);
+  const shouldUseContentVisibility = createMemo(() => messageBlocks().length > 24);
   const blockPerfStyle = (index: number): JSX.CSSProperties | undefined => {
     if (!shouldUseContentVisibility()) return undefined;
     const total = messageBlocks().length;
@@ -439,7 +439,7 @@ export default function MessageList(props: MessageListProps) {
     return block.messageId === messageId;
   };
 
-  const virtualizationThreshold = () => props.virtualizationThreshold ?? 30;
+  const virtualizationThreshold = () => props.virtualizationThreshold ?? 16;
   const shouldVirtualize = createMemo(
     () => Boolean(props.scrollReady) && messageBlocks().length >= virtualizationThreshold(),
   );
@@ -450,7 +450,7 @@ export default function MessageList(props: MessageListProps) {
     },
     getScrollElement: () => props.scrollElement?.() ?? null,
     estimateSize: () => 220,
-    overscan: 6,
+    overscan: 4,
     getItemKey: (index) => {
       const block = messageBlocks()[index];
       if (!block) return `block-${index}`;
