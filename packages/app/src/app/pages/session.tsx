@@ -223,6 +223,9 @@ export type SessionViewProps = {
   setSessionAgent: (sessionId: string, agent: string | null) => void;
   saveSession: (sessionId: string) => Promise<string>;
   sessionStatusById: Record<string, string>;
+  hasEarlierMessages: boolean;
+  loadingEarlierMessages: boolean;
+  loadEarlierMessages: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
 };
 
@@ -665,20 +668,37 @@ export default function SessionView(props: SessionViewProps) {
     return Math.min(hidden, MESSAGE_WINDOW_LOAD_CHUNK);
   });
 
-  const revealEarlierMessages = () => {
+  const hasServerEarlierMessages = createMemo(
+    () => !searchActive() && Boolean(props.selectedSessionId) && props.hasEarlierMessages,
+  );
+
+  const revealEarlierMessages = async () => {
     const hidden = hiddenMessageCount();
-    if (hidden <= 0) return;
-    const nextStart = Math.max(0, messageWindowStart() - MESSAGE_WINDOW_LOAD_CHUNK);
-    if (props.developerMode) {
-      recordPerfLog(true, "session.window", "reveal", {
-        sessionID: props.selectedSessionId,
-        hiddenBefore: hidden,
-        nextStart,
-      });
+    if (hidden > 0) {
+      const nextStart = Math.max(0, messageWindowStart() - MESSAGE_WINDOW_LOAD_CHUNK);
+      if (props.developerMode) {
+        recordPerfLog(true, "session.window", "reveal", {
+          sessionID: props.selectedSessionId,
+          hiddenBefore: hidden,
+          nextStart,
+        });
+      }
+      setMessageWindowStart(nextStart);
+      if (nextStart === 0) {
+        setMessageWindowExpanded(true);
+      }
+      return;
     }
-    setMessageWindowStart(nextStart);
-    if (nextStart === 0) {
-      setMessageWindowExpanded(true);
+
+    if (!hasServerEarlierMessages()) return;
+    if (!props.selectedSessionId) return;
+    setMessageWindowExpanded(true);
+    setMessageWindowStart(0);
+    await props.loadEarlierMessages(props.selectedSessionId);
+    if (props.developerMode) {
+      recordPerfLog(true, "session.window", "load-earlier", {
+        sessionID: props.selectedSessionId,
+      });
     }
   };
 
@@ -3293,6 +3313,7 @@ export default function SessionView(props: SessionViewProps) {
             workspaceSessionGroups={props.workspaceSessionGroups}
             activeWorkspaceId={props.activeWorkspaceId}
             selectedSessionId={props.selectedSessionId}
+            sessionStatusById={props.sessionStatusById}
             connectingWorkspaceId={props.connectingWorkspaceId}
             workspaceConnectionStateById={props.workspaceConnectionStateById}
             newTaskDisabled={props.newTaskDisabled}
@@ -3597,15 +3618,21 @@ export default function SessionView(props: SessionViewProps) {
             </div>
           </Show>
 
-          <Show when={hiddenMessageCount() > 0}>
+          <Show when={hiddenMessageCount() > 0 || hasServerEarlierMessages()}>
             <div class="mb-4 flex justify-center">
               <button
                 type="button"
                 class="rounded-full border border-dls-border bg-dls-hover/70 px-3 py-1 text-xs text-dls-secondary transition-colors hover:bg-dls-active hover:text-dls-text"
-                onClick={revealEarlierMessages}
+                onClick={() => {
+                  void revealEarlierMessages();
+                }}
+                disabled={props.loadingEarlierMessages}
               >
-                Show {nextRevealCount().toLocaleString()} earlier message
-                {nextRevealCount() === 1 ? "" : "s"}
+                {props.loadingEarlierMessages
+                  ? "Loading earlier messages..."
+                  : hiddenMessageCount() > 0
+                    ? `Show ${nextRevealCount().toLocaleString()} earlier message${nextRevealCount() === 1 ? "" : "s"}`
+                    : "Load earlier messages"}
               </button>
             </div>
           </Show>

@@ -1179,6 +1179,7 @@ export default function App() {
     refreshPendingPermissions,
     refreshPendingQuestions,
     selectSession,
+    loadEarlierMessages,
     renameSession,
     respondPermission,
     respondQuestion,
@@ -1187,6 +1188,8 @@ export default function App() {
     setMessages,
     setTodos,
     setPendingPermissions,
+    selectedSessionHasEarlierMessages,
+    selectedSessionLoadingEarlierMessages,
   } = sessionStore;
 
   const ARTIFACT_SCAN_MESSAGE_WINDOW = 220;
@@ -5996,6 +5999,9 @@ export default function App() {
     setSessionAgent: setSessionAgent,
     saveSession: saveSessionExport,
     sessionStatusById: activeSessionStatusById(),
+    hasEarlierMessages: selectedSessionHasEarlierMessages(),
+    loadingEarlierMessages: selectedSessionLoadingEarlierMessages(),
+    loadEarlierMessages,
     searchFiles: searchWorkspaceFiles,
     deleteSession: deleteSessionById,
     onTryNotionPrompt: () => {
