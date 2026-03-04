@@ -336,6 +336,7 @@ export default function SessionView(props: SessionViewProps) {
   const [messageWindowStart, setMessageWindowStart] = createSignal(0);
   const [messageWindowSessionId, setMessageWindowSessionId] = createSignal<string | null>(null);
   const [messageWindowExpanded, setMessageWindowExpanded] = createSignal(false);
+  const [initialAnchorPending, setInitialAnchorPending] = createSignal(false);
 
   const [obsidianAvailable, setObsidianAvailable] = createSignal(false);
 
@@ -1414,6 +1415,8 @@ export default function SessionView(props: SessionViewProps) {
     return `${todoCompletedCount()} out of ${total} tasks completed`;
   });
   const [shareWorkspaceId, setShareWorkspaceId] = createSignal<string | null>(null);
+  let initialAnchorRafA: number | undefined;
+  let initialAnchorRafB: number | undefined;
   const attachmentsEnabled = createMemo(() => {
     if (props.activeWorkspaceDisplay.workspaceType !== "remote") return true;
     return props.openworkServerStatus === "connected";
@@ -1448,7 +1451,32 @@ export default function SessionView(props: SessionViewProps) {
     });
   };
 
+  const cancelInitialAnchorFrames = () => {
+    if (initialAnchorRafA !== undefined) {
+      window.cancelAnimationFrame(initialAnchorRafA);
+      initialAnchorRafA = undefined;
+    }
+    if (initialAnchorRafB !== undefined) {
+      window.cancelAnimationFrame(initialAnchorRafB);
+      initialAnchorRafB = undefined;
+    }
+  };
+
+  const applyInitialBottomAnchor = (sessionId: string) => {
+    cancelInitialAnchorFrames();
+    scheduleScrollToLatest("auto");
+    initialAnchorRafA = window.requestAnimationFrame(() => {
+      initialAnchorRafA = undefined;
+      initialAnchorRafB = window.requestAnimationFrame(() => {
+        initialAnchorRafB = undefined;
+        if (props.selectedSessionId !== sessionId) return;
+        setInitialAnchorPending(false);
+      });
+    });
+  };
+
   onCleanup(() => {
+    cancelInitialAnchorFrames();
     if (scrollFrame !== undefined) {
       window.cancelAnimationFrame(scrollFrame);
       scrollFrame = undefined;
@@ -1811,18 +1839,39 @@ export default function SessionView(props: SessionViewProps) {
         if (!sessionId) return;
         const firstVisit = !topInitializedSessionIds.has(sessionId);
         topInitializedSessionIds.add(sessionId);
+        setInitialAnchorPending(true);
 
         if (!firstVisit) {
           queueMicrotask(() => {
-            scheduleScrollToLatest("auto");
+            applyInitialBottomAnchor(sessionId);
           });
           return;
         }
 
         queueMicrotask(() => {
-          scheduleScrollToLatest("auto");
+          applyInitialBottomAnchor(sessionId);
         });
       },
+    ),
+  );
+
+  createEffect(
+    on(
+      () => [props.selectedSessionId, props.messages.length, isChatContainerReady(), initialAnchorPending()] as const,
+      ([sessionId, count, ready, pending]) => {
+        if (!pending) return;
+        if (!sessionId) {
+          setInitialAnchorPending(false);
+          return;
+        }
+        if (!ready) return;
+        if (count === 0) {
+          setInitialAnchorPending(false);
+          return;
+        }
+        queueMicrotask(() => applyInitialBottomAnchor(sessionId));
+      },
+      { defer: true },
     ),
   );
 
@@ -3572,7 +3621,7 @@ export default function SessionView(props: SessionViewProps) {
         <div class="flex-1 flex overflow-hidden">
           <div class="flex-1 min-w-0 relative overflow-hidden bg-gray-1">
             <div
-              class={`h-full overflow-y-auto px-8 ${showWorkspaceSetupEmptyState() ? "pt-20 pb-20" : "pt-12 pb-56"} scroll-smooth bg-gray-1`}
+              class={`h-full overflow-y-auto px-8 ${showWorkspaceSetupEmptyState() ? "pt-20 pb-20" : "pt-12 pb-56"} scroll-smooth bg-gray-1 ${initialAnchorPending() ? "invisible" : "visible"}`}
               style={{ contain: "layout paint style" }}
               ref={(el) => {
                 chatContainerEl = el;
