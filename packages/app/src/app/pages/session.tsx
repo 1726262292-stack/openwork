@@ -1417,8 +1417,7 @@ export default function SessionView(props: SessionViewProps) {
   const [shareWorkspaceId, setShareWorkspaceId] = createSignal<string | null>(null);
   let initialAnchorRafA: number | undefined;
   let initialAnchorRafB: number | undefined;
-  let initialAnchorSettleTimer: ReturnType<typeof setTimeout> | undefined;
-  let initialAnchorResizeObserver: ResizeObserver | undefined;
+  let initialAnchorGuardTimer: ReturnType<typeof setTimeout> | undefined;
   const attachmentsEnabled = createMemo(() => {
     if (props.activeWorkspaceDisplay.workspaceType !== "remote") return true;
     return props.openworkServerStatus === "connected";
@@ -1466,56 +1465,30 @@ export default function SessionView(props: SessionViewProps) {
       window.cancelAnimationFrame(initialAnchorRafB);
       initialAnchorRafB = undefined;
     }
-    if (initialAnchorSettleTimer) {
-      clearTimeout(initialAnchorSettleTimer);
-      initialAnchorSettleTimer = undefined;
-    }
-    if (initialAnchorResizeObserver) {
-      initialAnchorResizeObserver.disconnect();
-      initialAnchorResizeObserver = undefined;
+    if (initialAnchorGuardTimer) {
+      clearTimeout(initialAnchorGuardTimer);
+      initialAnchorGuardTimer = undefined;
     }
   };
 
   const applyInitialBottomAnchor = (sessionId: string) => {
     cancelInitialAnchorFrames();
-    const finish = () => {
+    initialAnchorGuardTimer = setTimeout(() => {
+      initialAnchorGuardTimer = undefined;
       if (props.selectedSessionId !== sessionId) return;
       setInitialAnchorPending(false);
-      cancelInitialAnchorFrames();
-    };
-    const settleLater = () => {
-      if (initialAnchorSettleTimer) {
-        clearTimeout(initialAnchorSettleTimer);
-      }
-      initialAnchorSettleTimer = setTimeout(() => {
-        initialAnchorSettleTimer = undefined;
-        finish();
-      }, 250);
-    };
-
+    }, 200);
     pinToLatestNow();
-    settleLater();
     initialAnchorRafA = window.requestAnimationFrame(() => {
       initialAnchorRafA = undefined;
       pinToLatestNow();
-      settleLater();
       initialAnchorRafB = window.requestAnimationFrame(() => {
         initialAnchorRafB = undefined;
         pinToLatestNow();
-        settleLater();
+        if (props.selectedSessionId !== sessionId) return;
+        setInitialAnchorPending(false);
       });
     });
-
-    if (typeof ResizeObserver !== "undefined") {
-      const container = chatContainerEl;
-      if (container) {
-        initialAnchorResizeObserver = new ResizeObserver(() => {
-          pinToLatestNow();
-          settleLater();
-        });
-        initialAnchorResizeObserver.observe(container);
-      }
-    }
   };
 
   onCleanup(() => {
@@ -1913,17 +1886,6 @@ export default function SessionView(props: SessionViewProps) {
           return;
         }
         queueMicrotask(() => applyInitialBottomAnchor(sessionId));
-      },
-      { defer: true },
-    ),
-  );
-
-  createEffect(
-    on(
-      () => [initialAnchorPending(), props.messages.length, totalPartCount()] as const,
-      ([pending]) => {
-        if (!pending) return;
-        pinToLatestNow();
       },
       { defer: true },
     ),
