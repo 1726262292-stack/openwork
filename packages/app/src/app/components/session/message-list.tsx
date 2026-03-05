@@ -420,7 +420,7 @@ export default function MessageList(props: MessageListProps) {
     return "";
   });
 
-  const shouldUseContentVisibility = createMemo(() => messageBlocks().length > 24);
+  const shouldUseContentVisibility = createMemo(() => messageBlocks().length > 500);
   const blockPerfStyle = (index: number): JSX.CSSProperties | undefined => {
     if (!shouldUseContentVisibility()) return undefined;
     const total = messageBlocks().length;
