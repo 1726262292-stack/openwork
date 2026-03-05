@@ -74,6 +74,29 @@ OpenWork is designed to be:
 - Tauri CLI: `cargo install tauri-cli`
 - OpenCode CLI installed and available on PATH: `opencode`
 
+### Local Dev Prerequisites (Desktop)
+
+Before running `pnpm dev`, ensure these are installed and active in your shell:
+
+- Node + pnpm (repo uses `pnpm@10.27.0`)
+- **Bun 1.3.9+** (`bun --version`)
+- Rust toolchain (for Tauri), with Cargo from current `rustup` stable (supports `Cargo.lock` v4)
+- Xcode Command Line Tools (macOS)
+
+### One-minute sanity check
+
+Run from repo root:
+
+```bash
+git checkout dev
+git pull --ff-only origin dev
+pnpm install --frozen-lockfile
+
+which bun
+bun --version
+pnpm --filter @different-ai/openwork exec tauri --version
+```
+
 ### Install
 
 ```bash
