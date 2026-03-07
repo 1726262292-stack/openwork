@@ -1,5 +1,7 @@
 # Download Stats
 
+Legacy cumulative release-asset totals. For classified v2 buckets, see `STATS_V2.md`.
+
 | Date | GitHub Downloads | Total |
 |------|------------------|-------|
 | 2026-01-24 | 15,879 (+15,879) | 15,879 (+15,879) |
