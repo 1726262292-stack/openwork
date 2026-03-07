@@ -4,3 +4,4 @@ Classified GitHub release asset snapshots. `Manual installs` counts installer do
 
 | Date | Manual Installs | Updater | Other | All Release Assets |
 |------|-----------------|---------|-------|--------------------|
+| 2026-03-07 | 54,446 (+54,446) | 89,201 (+89,201) | 14,460 (+14,460) | 158,107 (+158,107) |
