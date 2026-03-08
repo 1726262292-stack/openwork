@@ -5,7 +5,7 @@ import { ResponsiveGrain } from "./responsive-grain";
 
 export function LandingBackground() {
   const { scrollY } = useScroll();
-  const darkOpacity = useTransform(scrollY, [0, 500], [0.14, 0]);
+  const darkOpacity = useTransform(scrollY, [0, 500], [0.6, 0]);
 
   return (
     <>
@@ -13,11 +13,11 @@ export function LandingBackground() {
 
       <motion.div
         style={{ opacity: darkOpacity, willChange: "opacity" }}
-        className="pointer-events-none fixed inset-0 z-0 mix-blend-multiply"
+        className="pointer-events-none fixed inset-0 z-0"
       >
-        <ResponsiveGrain
-          colors={["#f6f9fc", "#000000", "#111111", "#333333"]}
-          colorBack="#f6f7f3"
+           <ResponsiveGrain
+          colors={["#f6f9fc", "#f6f9fc", "#1e293b", "#334155"]}
+          colorBack="#f6f9fc"
           softness={1}
           intensity={0.03}
           noise={0.14}
