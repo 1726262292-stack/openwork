@@ -29,10 +29,22 @@ The goal is not generic SaaS polish. OpenWork should feel like calm, premium ope
 - Default shell is airy and bright.
 - Large surfaces should feel like frosted panels on top of a luminous field.
 - Use blur, translucent white fills, and soft shadows.
+- Treat grain as a presentational layer, not content.
+- Treat paper as the readable layer that sits above the atmospheric field.
 - Prefer rounded geometry everywhere:
   - Large containers: `rounded-[2rem]` to `rounded-[2.5rem]`
   - Medium cards: `rounded-2xl`
   - Buttons/chips: `rounded-full`
+
+### Grain and paper
+
+- Grain belongs behind UI or inside isolated showcase canvases. It should never compete with text contrast or become the primary surface.
+- Use grain to give the page atmosphere, depth, and a sense of motion; do not use it as a texture wash across every card.
+- The canonical fixed-page grain treatment lives in `packages/landing/components/landing-background.tsx` and is powered by `packages/landing/components/responsive-grain.tsx`.
+- Grain intensity should stay low on default page backgrounds; stronger color can appear only inside showcase moments like the enterprise canvas.
+- Paper means the readable surface layer: white or warm off-white cards with enough opacity to feel stable over the grain field.
+- The canonical paper shells live in `packages/landing/app/globals.css` via `.landing-shell`, `.landing-shell-soft`, and `.landing-chip`.
+- Use `landing-shell` for primary frosted containers, `landing-shell-soft` for denser interior cards, and `landing-chip` for pills, filters, and lightweight app chrome.
 
 ### Shadows and borders
 
@@ -190,6 +202,7 @@ The app is not a marketing page. It should feel more operational, more focused, 
   - Right rail: `~280px`
   - Center canvas: fluid
 - Reading width in the center should stay constrained enough for long-form scanning.
+- Canonical landing-derived shell reference: `packages/landing/components/landing-app-demo-panel.tsx`.
 
 ### App background and surfaces
 
@@ -211,6 +224,7 @@ The app is not a marketing page. It should feel more operational, more focused, 
 - Rows should feel compact but touch-safe.
 - Active session state should be obvious through fill/tint, not only text weight.
 - Hover actions should appear progressively, not all at once.
+- Use worker pills and compact metadata rows like the left column in `packages/landing/components/landing-app-demo-panel.tsx`.
 
 ### Center canvas rules
 
@@ -226,6 +240,7 @@ The app is not a marketing page. It should feel more operational, more focused, 
 - Workspace mode label above or inside composer.
 - Agent/model/tool selectors appear as chips or compact menus.
 - Send button should be a strong circular or pill blue affordance.
+- The default visual reference for task + context + result composition is the composer block in `packages/landing/components/landing-app-demo-panel.tsx`.
 
 ### Right rail rules
 
@@ -267,6 +282,10 @@ The landing experience should feel like the same company as the app, but more ci
   - open text-led sections
   - frosted demonstration panels
   - dense proof/feature blocks
+- Canonical shell references:
+  - `packages/landing/components/landing-background.tsx`
+  - `packages/landing/components/responsive-grain.tsx`
+  - `packages/landing/app/globals.css`
 
 ### Landing navigation
 
@@ -295,6 +314,11 @@ The landing experience should feel like the same company as the app, but more ci
   - clear active selection states
   - visible task/result flow
 - Use glass shells, white internals, and restrained gradients.
+- Extract showcase UI into reusable components before duplicating it in new pages.
+- Canonical app-interior reference: `packages/landing/components/landing-app-demo-panel.tsx`.
+- Canonical share/package card reference: `packages/landing/components/landing-share-package-card.tsx`.
+- Canonical cloud worker integration card reference: `packages/landing/components/landing-cloud-workers-card.tsx`.
+- Source data for the rotating demo states lives in `packages/landing/components/landing-demo-flows.ts`.
 
 ### Landing cards
 
@@ -302,6 +326,8 @@ The landing experience should feel like the same company as the app, but more ci
 - Each card should have a single idea.
 - Use a tint or micro-illustration to separate categories.
 - Headings are medium weight, not overly bold.
+- Reuse the share/package card pattern in `packages/landing/components/landing-share-package-card.tsx` when you need a paper card that explains packaging, bundling, or share-link creation.
+- Reuse the worker/integration card pattern in `packages/landing/components/landing-cloud-workers-card.tsx` when you need to show remote readiness, worker state pills, or connector actions like Slack.
 
 ### CTA rules
 
@@ -374,6 +400,8 @@ When building a landing enterprise page in this language, use this structure:
 - Is the raster accent used sparingly and intentionally?
 - Are large cards rounded, translucent, and softly shadowed?
 - Can a user understand the value proposition from the hero + first proof section alone?
+- Are grain and paper clearly separated so readable content never sits directly on top of a noisy effect?
+- If a section references the app, does it borrow from the extracted canonical components instead of inventing a second shell language?
 
 ## Do / Don't
 
@@ -409,3 +437,8 @@ When creating a new OpenWork UI from scratch, implement in this order:
 - Product guidance: `AGENTS.md`
 - App session-surface reference: `packages/docs/orbita-layout-style.mdx`
 - Product landing implementation target: `packages/landing`
+- Landing background + grain reference: `packages/landing/components/landing-background.tsx`
+- Landing shell tokens + button behavior: `packages/landing/app/globals.css`
+- Canonical app demo interior: `packages/landing/components/landing-app-demo-panel.tsx`
+- Canonical share card: `packages/landing/components/landing-share-package-card.tsx`
+- Canonical cloud worker card: `packages/landing/components/landing-cloud-workers-card.tsx`

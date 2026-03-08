@@ -1,0 +1,179 @@
+import Head from "next/head";
+import { useState } from "react";
+
+import ShareNav from "./share-nav";
+
+function toneClass(item) {
+  if (item?.tone === "agent") return "dot-agent";
+  if (item?.tone === "mcp") return "dot-mcp";
+  if (item?.tone === "command") return "dot-command";
+  return "dot-skill";
+}
+
+export default function ShareBundlePage(props) {
+  const [copyState, setCopyState] = useState("Copy share link");
+
+  const copyShareUrl = async () => {
+    if (!props.shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(props.shareUrl);
+      setCopyState("Copied!");
+      window.setTimeout(() => setCopyState("Copy share link"), 2000);
+    } catch {
+      setCopyState("Copy failed");
+      window.setTimeout(() => setCopyState("Copy share link"), 2000);
+    }
+  };
+
+  const pageTitle = props.missing ? "Bundle not found - OpenWork Share" : `${props.title} - OpenWork Share`;
+  const pageDescription = props.missing
+    ? "This share link does not exist anymore, or the bundle id is invalid."
+    : props.description;
+
+  return (
+    <>
+      <Head>
+        <title>{pageTitle}</title>
+        <meta name="description" content={pageDescription} />
+        <link rel="canonical" href={props.canonicalUrl} />
+        <meta property="og:type" content="website" />
+        <meta property="og:title" content={pageTitle} />
+        <meta property="og:description" content={pageDescription} />
+        <meta property="og:url" content={props.canonicalUrl} />
+        <meta property="og:image" content={props.ogImageUrl} />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={pageTitle} />
+        <meta name="twitter:description" content={pageDescription} />
+        <meta name="twitter:image" content={props.ogImageUrl} />
+        {props.missing ? null : (
+          <>
+            <meta name="openwork:bundle-id" content={props.id} />
+            <meta name="openwork:bundle-type" content={props.bundleType} />
+            <meta name="openwork:schema-version" content={props.schemaVersion} />
+            <meta name="openwork:open-in-app-url" content={props.openInAppDeepLink} />
+            <link rel="alternate" type="application/json" href={props.jsonUrl} />
+          </>
+        )}
+      </Head>
+
+      <main className="shell">
+        <ShareNav />
+
+        {props.missing ? (
+          <section className="status-card">
+            <span className="eyebrow">OpenWork Share</span>
+            <h1>Bundle not found</h1>
+            <p>
+              This share link does not exist anymore, or the bundle id is invalid.
+            </p>
+            <div className="hero-actions">
+              <a className="button-primary" href="/">
+                Package another worker
+              </a>
+            </div>
+          </section>
+        ) : (
+          <>
+            <section className="hero-layout">
+              <div className="hero-copy">
+                <span className="eyebrow">{props.typeLabel}</span>
+                <h1>
+                  {props.title} <em>ready</em>
+                </h1>
+                <p className="hero-body">{props.description}</p>
+                <div className="hero-actions">
+                  <a className="button-primary" href={props.openInAppDeepLink}>
+                    Open in app
+                  </a>
+                  <a className="button-secondary" href={props.openInWebAppUrl} target="_blank" rel="noreferrer">
+                    Open in web app
+                  </a>
+                </div>
+                <p className="hero-note">{props.installHint}</p>
+              </div>
+
+              <div className="hero-artifact">
+                <div className="app-window">
+                  <div className="app-window-header">
+                    <div className="mac-dots" aria-hidden="true">
+                      <div className="mac-dot red"></div>
+                      <div className="mac-dot yellow"></div>
+                      <div className="mac-dot green"></div>
+                    </div>
+                    <div className="app-window-title">OpenWork</div>
+                  </div>
+                  <div className="app-window-body">
+                    <div className="included-section">
+                      <h4>Package contents</h4>
+                      <div className="included-list">
+                        {props.items.length ? (
+                          props.items.map((item) => (
+                            <div className="included-item" key={`${item.kind}-${item.name}`}>
+                              <div className="item-left">
+                                <div className={`item-dot ${toneClass(item)}`}></div>
+                                <div>
+                                  <div className="item-title">{item.name}</div>
+                                  <div className="item-meta">
+                                    {item.kind} · {item.meta}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="included-item">
+                            <div className="item-left">
+                              <div className="item-dot dot-skill"></div>
+                              <div>
+                                <div className="item-title">OpenWork bundle</div>
+                                <div className="item-meta">Shared config</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="results-grid">
+              <div className="result-card">
+                <h3>Bundle details</h3>
+                <p>Stable metadata for parsing and direct OpenWork import.</p>
+                <dl className="metadata-list">
+                  {props.metadataRows.map((row) => (
+                    <div className="metadata-row" key={row.label}>
+                      <dt>{row.label}</dt>
+                      <dd>{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+
+              <div className="result-card">
+                <h3>Raw endpoints</h3>
+                <p>Keep the human page and machine payload side by side.</p>
+                <div className="url-stack">
+                  <div className="url-box">
+                    <a href={props.jsonUrl}>JSON payload</a>
+                  </div>
+                  <div className="url-box mono">{props.shareUrl}</div>
+                </div>
+                <div className="button-row">
+                  <a className="button-secondary" href={props.downloadUrl}>
+                    Download JSON
+                  </a>
+                  <button className="button-secondary" type="button" onClick={copyShareUrl}>
+                    {copyState}
+                  </button>
+                </div>
+              </div>
+            </section>
+          </>
+        )}
+      </main>
+    </>
+  );
+}

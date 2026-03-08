@@ -1,8 +1,8 @@
 # OpenWork Share Service (Publisher)
 
-This is a tiny publisher service for OpenWork "share link" bundles.
+This is a Next.js publisher app for OpenWork "share link" bundles.
 
-It is designed to be deployed on Vercel and backed by Vercel Blob.
+It keeps the existing bundle APIs, but the public share surface now runs as a simple Next.js site backed by Vercel Blob.
 
 ## Endpoints
 
@@ -74,14 +74,23 @@ The packager rejects files that appear to contain secrets in shareable config.
 
 ## Local development
 
-This repo is intended for Vercel deployment.
 For local testing you can use:
 
 ```bash
-cd services/openwork-share
 pnpm install
-vercel dev
+pnpm --dir services/openwork-share dev
 ```
+
+Open `http://localhost:3000`.
+
+## Deploy
+
+Recommended project settings:
+
+- Root directory: `services/openwork-share`
+- Framework preset: Next.js
+- Build command: `pnpm --dir services/openwork-share build`
+- Output directory: `.next`
 
 ## Tests
 
