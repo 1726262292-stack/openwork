@@ -71,13 +71,13 @@ export function LandingHome(props: Props) {
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-16 px-6 pb-24 md:gap-20 md:px-8 md:pb-28">
           <section className="max-w-3xl">
             <h1 className="mb-5 text-4xl font-medium leading-[1.1] tracking-tight md:text-5xl lg:text-6xl">
-              The open source{" "}
-              <span className="font-pixel mx-1 inline-block align-middle text-[1.05em] font-normal">
-                alt
-              </span>{" "}
-              to
+              The open source
               <br />
               Claude Cowork
+              <br />
+              <span className="font-pixel inline-block align-middle text-[1.05em] font-normal">
+                alternative.
+              </span>
             </h1>
             <p className="mb-6 max-w-4xl text-lg leading-relaxed text-gray-700 md:mb-7 md:text-xl">
               OpenWork is the desktop app that lets you use 50+ LLMs, bring your

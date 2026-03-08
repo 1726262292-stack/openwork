@@ -18,6 +18,13 @@ export const metadata = {
   title: "OpenWork — Local-first, open-source Cowork alternative",
   description:
     "OpenWork is the open-source Cowork alternative powered by OpenCode—run local-first workflows with any model, and extend with skills.",
+  openGraph: {
+    images: ["/og-image-clean.png"]
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/og-image-clean.png"]
+  },
   icons: {
     icon: "/openwork-mark.svg"
   }
