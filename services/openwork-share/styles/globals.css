@@ -98,12 +98,17 @@ a {
 .nav-links a,
 .button-primary,
 .button-secondary,
-.hero-artifact,
-.app-window,
-.simple-app,
-.drop-zone,
-.result-card,
-.status-card {
+  .hero-artifact,
+  .surface-shell,
+  .surface-soft,
+  .app-window,
+  .artifact-window,
+  .simple-app,
+  .drop-zone,
+  .selection-item,
+  .story-card,
+  .result-card,
+  .status-card {
   transition:
     background-color 300ms var(--ow-ease),
     border-color 300ms var(--ow-ease),
@@ -238,6 +243,7 @@ a {
 .hero-body,
 .hero-note,
 .simple-app-copy,
+.story-card p,
 .result-card p,
 .status-card p {
   margin: 0;
@@ -252,6 +258,28 @@ a {
 
 .hero-note {
   font-size: 13px;
+}
+
+.hero-proof-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.surface-chip {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 34px;
+  align-items: center;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  box-shadow: 0 14px 34px -28px rgba(15, 23, 42, 0.18);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ow-ink);
 }
 
 .eyebrow {
@@ -283,6 +311,10 @@ a {
   padding: clamp(24px, 4vw, 40px);
 }
 
+.hero-artifact-share {
+  padding: 18px;
+}
+
 .hero-artifact::before,
 .hero-artifact::after,
 .status-card::before,
@@ -312,7 +344,10 @@ a {
 }
 
 .simple-app,
-.app-window {
+.app-window,
+.artifact-window,
+.surface-shell,
+.surface-soft {
   position: relative;
   z-index: 1;
   border-radius: 32px;
@@ -321,8 +356,111 @@ a {
   box-shadow: var(--ow-shadow-soft);
 }
 
+.surface-soft {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.surface-shell {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.86));
+}
+
 .simple-app {
   padding: 24px;
+}
+
+.artifact-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(280px, 0.88fr);
+  gap: 18px;
+}
+
+.package-card,
+.preview-panel {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+}
+
+.package-card-header,
+.preview-panel-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.selection-badge,
+.preview-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  color: var(--ow-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.preview-state.is-ready {
+  background: rgba(236, 253, 245, 0.95);
+  border-color: rgba(134, 239, 172, 0.4);
+  color: #166534;
+}
+
+.selection-list {
+  display: grid;
+  gap: 8px;
+}
+
+.selection-item {
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.selection-item-name,
+.summary-stat-value {
+  display: block;
+  font-weight: 600;
+  color: var(--ow-ink);
+}
+
+.selection-item-path,
+.summary-stat-label {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ow-muted);
+}
+
+.package-actions,
+.link-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.summary-stat {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.preview-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ow-muted);
 }
 
 .simple-app-title,
@@ -495,11 +633,13 @@ a {
   text-align: center;
 }
 
-.app-window {
+.app-window,
+.artifact-window {
   overflow: hidden;
 }
 
-.app-window-header {
+.app-window-header,
+.artifact-window-header {
   position: relative;
   display: flex;
   align-items: center;
@@ -537,15 +677,109 @@ a {
   border: 1px solid rgba(26, 171, 41, 0.2);
 }
 
-.app-window-title {
+.app-window-title,
+.artifact-window-title {
   font-size: 12px;
   font-weight: 500;
   color: var(--ow-muted);
 }
 
-.app-window-body {
+.app-window-body,
+.artifact-window-body {
   padding: 24px;
   background: #ffffff;
+}
+
+.story-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 52px;
+}
+
+.story-card {
+  padding: 28px;
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.84));
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  box-shadow: var(--ow-shadow);
+}
+
+.story-card h3,
+.result-card h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.step-list,
+.safe-list {
+  display: grid;
+  gap: 12px;
+}
+
+.step-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  color: var(--ow-ink);
+  line-height: 1.6;
+}
+
+.step-bullet {
+  display: inline-flex;
+  min-width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ow-muted);
+}
+
+.pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tone-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.tone-skill {
+  background: var(--ow-skill);
+}
+
+.tone-agent {
+  background: var(--ow-agent);
+}
+
+.tone-mcp {
+  background: var(--ow-mcp);
+}
+
+.tone-command {
+  background: var(--ow-command);
+}
+
+.safe-list {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--ow-ink);
+  line-height: 1.7;
 }
 
 .results-grid {
@@ -558,8 +792,8 @@ a {
 .result-card {
   padding: 32px;
   border-radius: 28px;
-  background: #ffffff;
-  border: 1px solid var(--ow-border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.84));
+  border: 1px solid rgba(255, 255, 255, 0.86);
   box-shadow: var(--ow-shadow);
 }
 
@@ -619,6 +853,8 @@ a {
 @media (max-width: 960px) {
   .nav,
   .hero-layout,
+  .artifact-grid,
+  .story-grid,
   .results-grid {
     grid-template-columns: 1fr;
   }
