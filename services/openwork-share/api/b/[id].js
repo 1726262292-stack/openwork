@@ -1,14 +1,26 @@
-import { head } from "@vercel/blob";
+import { fetchBundleJsonById } from "../_lib/blob-store.js";
+import { buildStatusMarkup, setCors } from "../_lib/share-utils.js";
 import { renderBundlePage, wantsDownload, wantsJsonResponse } from "./render-bundle-page.js";
 
-function setCors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Accept");
+function sendNotFound(req, res) {
+  if (wantsJsonResponse(req)) {
+    res.status(404).json({ message: "Not found" });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.status(404).send(
+    buildStatusMarkup({
+      title: "Bundle not found",
+      description: "This share link does not exist anymore, or the bundle id is invalid.",
+      actionHref: "/",
+      actionLabel: "Package another worker",
+    }),
+  );
 }
 
 export default async function handler(req, res) {
-  setCors(res);
+  setCors(res, { methods: "GET,OPTIONS", headers: "Content-Type,Accept" });
   if (req.method === "OPTIONS") {
     res.status(204).end();
     return;
@@ -24,40 +36,26 @@ export default async function handler(req, res) {
     return;
   }
 
-  const pathname = `bundles/${id}.json`;
-
-  let blob;
   try {
-    blob = await head(pathname);
-  } catch {
-    res.status(404).json({ message: "Not found" });
-    return;
-  }
+    const { blob, rawBuffer, rawJson } = await fetchBundleJsonById(id);
 
-  // Proxy through this service so CORS is controlled here.
-  const response = await fetch(blob.url, { method: "GET" });
-  if (!response.ok) {
-    res.status(502).json({ message: "Upstream blob fetch failed" });
-    return;
-  }
+    const serveJson = wantsJsonResponse(req);
+    res.setHeader("Vary", "Accept");
+    res.setHeader("Cache-Control", "public, max-age=3600");
 
-  const rawBuffer = Buffer.from(await response.arrayBuffer());
-  const rawJson = rawBuffer.toString("utf8");
-  const serveJson = wantsJsonResponse(req);
-
-  res.setHeader("Vary", "Accept");
-  res.setHeader("Cache-Control", "public, max-age=3600");
-
-  if (serveJson) {
-    res.setHeader("Content-Type", blob.contentType || response.headers.get("content-type") || "application/json");
-    if (wantsDownload(req)) {
-      res.setHeader("Content-Disposition", `attachment; filename="openwork-bundle-${id}.json"`);
+    if (serveJson) {
+      res.setHeader("Content-Type", blob.contentType || "application/json");
+      if (wantsDownload(req)) {
+        res.setHeader("Content-Disposition", `attachment; filename="openwork-bundle-${id}.json"`);
+      }
+      res.status(200).send(rawBuffer);
+      return;
     }
-    res.status(200).send(rawBuffer);
-    return;
-  }
 
-  const html = renderBundlePage({ id, rawJson, req });
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.status(200).send(html);
+    const html = renderBundlePage({ id, rawJson, req });
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(200).send(html);
+  } catch {
+    sendNotFound(req, res);
+  }
 }

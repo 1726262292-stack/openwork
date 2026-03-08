@@ -1,8 +1,9 @@
 import { storeBundleJson } from "../_lib/blob-store.js";
-import { buildBundleUrls, getEnv, readBody, setCors, validateBundlePayload } from "../_lib/share-utils.js";
+import { packageOpenworkFiles } from "../_lib/package-openwork-files.js";
+import { buildBundleUrls, getEnv, readBody, setCors } from "../_lib/share-utils.js";
 
 function formatPublishError(error) {
-  const message = error instanceof Error ? error.message : "Blob put failed";
+  const message = error instanceof Error ? error.message : "Failed to package files";
   if (message.includes("BLOB_READ_WRITE_TOKEN") || message.includes("No token found")) {
     return "Publishing requires BLOB_READ_WRITE_TOKEN in the server environment.";
   }
@@ -21,7 +22,6 @@ export default async function handler(req, res) {
   }
 
   const maxBytes = Number.parseInt(getEnv("MAX_BYTES", "5242880"), 10);
-
   const contentType = String(req.headers["content-type"] ?? "").toLowerCase();
   if (!contentType.includes("application/json")) {
     res.status(415).json({ message: "Expected application/json" });
@@ -34,23 +34,33 @@ export default async function handler(req, res) {
     return;
   }
   if (raw.length > maxBytes) {
-    res.status(413).json({ message: "Bundle exceeds upload limit", maxBytes });
+    res.status(413).json({ message: "Package request exceeds upload limit", maxBytes });
     return;
   }
 
-  const rawJson = raw.toString("utf8");
-  const validation = validateBundlePayload(rawJson);
-  if (!validation.ok) {
-    res.status(422).json({ message: validation.message });
+  let body;
+  try {
+    body = JSON.parse(raw.toString("utf8"));
+  } catch {
+    res.status(422).json({ message: "Invalid JSON" });
     return;
   }
 
   try {
-    const { id } = await storeBundleJson(rawJson);
+    const packaged = packageOpenworkFiles(body);
+    if (body?.preview) {
+      res.status(200).json(packaged);
+      return;
+    }
+
+    const { id } = await storeBundleJson(JSON.stringify(packaged.bundle));
     const urls = buildBundleUrls(req, id);
-    res.setHeader("Content-Type", "application/json");
-      res.status(200).send(JSON.stringify({ url: urls.shareUrl }));
-  } catch (e) {
-    res.status(500).json({ message: formatPublishError(e) });
+    res.status(200).json({
+      ...packaged,
+      url: urls.shareUrl,
+      id,
+    });
+  } catch (error) {
+    res.status(422).json({ message: formatPublishError(error) });
   }
 }

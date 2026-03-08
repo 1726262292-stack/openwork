@@ -1,245 +1,88 @@
-const OPENWORK_SITE_URL = "https://openwork.software";
-const OPENWORK_DOWNLOAD_URL = "https://openwork.software/download";
-const OPENWORK_APP_URL =
-  typeof process.env.PUBLIC_OPENWORK_APP_URL === "string" && process.env.PUBLIC_OPENWORK_APP_URL.trim()
-    ? process.env.PUBLIC_OPENWORK_APP_URL.trim()
-    : "https://app.openwork.software";
+import {
+  OPENWORK_DOWNLOAD_URL,
+  OPENWORK_SITE_URL,
+  SHARE_EASE,
+  buildBundleNarrative,
+  buildBundleUrls,
+  buildOgImageUrl,
+  buildOpenInAppUrls,
+  collectBundleItems,
+  escapeHtml,
+  escapeJsonForScript,
+  getBundleCounts,
+  humanizeType,
+  parseBundle,
+  prettyJson,
+  truncate,
+  wantsDownload,
+  wantsJsonResponse,
+} from "../_lib/share-utils.js";
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+export { buildBundleUrls, wantsDownload, wantsJsonResponse } from "../_lib/share-utils.js";
+
+function toneInitial(tone, kind) {
+  if (tone === "mcp") return "MC";
+  if (tone === "command") return "/";
+  if (kind === "Agent") return "AI";
+  return kind.slice(0, 2).toUpperCase();
 }
 
-function escapeJsonForScript(rawJson) {
-  return rawJson
-    .replaceAll("<", "\\u003c")
-    .replaceAll(">", "\\u003e")
-    .replaceAll("\u2028", "\\u2028")
-    .replaceAll("\u2029", "\\u2029");
+function renderItem(item) {
+  return `
+    <li class="included-item" data-tone="${escapeHtml(item.tone)}">
+      <div class="item-icon" aria-hidden="true">${escapeHtml(toneInitial(item.tone, item.kind))}</div>
+      <div class="item-copy">
+        <div class="item-title">${escapeHtml(item.name)}</div>
+        <p class="item-meta">${escapeHtml(item.kind)} · ${escapeHtml(item.meta)}</p>
+      </div>
+    </li>`;
 }
 
-function maybeString(value) {
-  return typeof value === "string" ? value : "";
-}
-
-function maybeObject(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-
-function maybeArray(value) {
-  return Array.isArray(value) ? value : [];
-}
-
-function humanizeType(type) {
-  if (!type) return "Bundle";
-  return type
-    .split("-")
-    .filter(Boolean)
-    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
-    .join(" ");
-}
-
-function truncate(value, maxChars = 3200) {
-  if (value.length <= maxChars) return value;
-  return `${value.slice(0, maxChars)}\n\n... (truncated for display)`;
-}
-
-function normalizeAppUrl(input) {
-  const trimmed = String(input ?? "").trim();
-  if (!trimmed) return "";
-  return trimmed.replace(/\/+$/, "");
-}
-
-function buildOpenInAppUrls(shareUrl, options = {}) {
-  const query = new URLSearchParams();
-  query.set("ow_bundle", shareUrl);
-  query.set("ow_intent", "new_worker");
-  query.set("ow_source", "share_service");
-
-  const label = String(options.label ?? "").trim();
-  if (label) {
-    query.set("ow_label", label.slice(0, 120));
-  }
-
-  const openInAppDeepLink = `openwork://import-bundle?${query.toString()}`;
-
-  const appUrl = normalizeAppUrl(OPENWORK_APP_URL) || "https://app.openwork.software";
-  try {
-    const url = new URL(appUrl);
-    for (const [key, value] of query.entries()) {
-      url.searchParams.set(key, value);
-    }
-    return {
-      openInAppDeepLink,
-      openInWebAppUrl: url.toString(),
-    };
-  } catch {
-    return {
-      openInAppDeepLink,
-      openInWebAppUrl: `${"https://app.openwork.software"}?${query.toString()}`,
-    };
-  }
-}
-
-function parseBundle(rawJson) {
-  try {
-    const parsed = JSON.parse(rawJson);
-    if (!parsed || typeof parsed !== "object") {
-      return {
-        schemaVersion: null,
-        type: "",
-        name: "",
-        description: "",
-        trigger: "",
-        content: "",
-        workspace: null,
-        skills: [],
-        commands: [],
-      };
-    }
-
-    const workspace = maybeObject(parsed.workspace);
-    const skills = maybeArray(parsed.skills);
-    const commands = maybeArray(parsed.commands);
-
-    return {
-      schemaVersion: typeof parsed.schemaVersion === "number" ? parsed.schemaVersion : null,
-      type: maybeString(parsed.type).trim(),
-      name: maybeString(parsed.name).trim(),
-      description: maybeString(parsed.description).trim(),
-      trigger: maybeString(parsed.trigger).trim(),
-      content: maybeString(parsed.content),
-      workspace,
-      skills,
-      commands,
-    };
-  } catch {
-    return {
-      schemaVersion: null,
-      type: "",
-      name: "",
-      description: "",
-      trigger: "",
-      content: "",
-      workspace: null,
-      skills: [],
-      commands: [],
-    };
-  }
-}
-
-function prettyJson(rawJson) {
-  try {
-    return JSON.stringify(JSON.parse(rawJson), null, 2);
-  } catch {
-    return rawJson;
-  }
-}
-
-function listCount(value) {
-  return Array.isArray(value) ? value.length : 0;
-}
-
-function getOrigin(req) {
-  const protocolHeader = String(req.headers?.["x-forwarded-proto"] ?? "https").split(",")[0].trim();
-  const hostHeader = String(req.headers?.["x-forwarded-host"] ?? req.headers?.host ?? "")
-    .split(",")[0]
-    .trim();
-
-  if (!hostHeader) return "";
-  const protocol = protocolHeader || "https";
-  return `${protocol}://${hostHeader}`;
-}
-
-export function buildBundleUrls(req, id) {
-  const encodedId = encodeURIComponent(id);
-  const origin = getOrigin(req);
-  const path = `/b/${encodedId}`;
-
-  return {
-    shareUrl: origin ? `${origin}${path}` : path,
-    jsonUrl: origin ? `${origin}${path}?format=json` : `${path}?format=json`,
-    downloadUrl: origin ? `${origin}${path}?format=json&download=1` : `${path}?format=json&download=1`,
-  };
-}
-
-export function wantsJsonResponse(req) {
-  const format = String(req.query?.format ?? "").trim().toLowerCase();
-  if (format === "json") return true;
-  if (format === "html") return false;
-
-  const accept = String(req.headers?.accept ?? "").toLowerCase();
-  if (!accept) return true;
-  if (accept.includes("application/json")) return true;
-  if (accept.includes("text/html") || accept.includes("application/xhtml+xml")) return false;
-  return true;
-}
-
-export function wantsDownload(req) {
-  return String(req.query?.download ?? "").trim() === "1";
+function renderStat(label, value) {
+  if (!value) return "";
+  return `
+    <div class="stat-card">
+      <span class="stat-label">${escapeHtml(label)}</span>
+      <strong class="stat-value">${escapeHtml(String(value))}</strong>
+    </div>`;
 }
 
 export function renderBundlePage({ id, rawJson, req }) {
   const bundle = parseBundle(rawJson);
   const urls = buildBundleUrls(req, id);
+  const ogImageUrl = buildOgImageUrl(req, id);
   const { openInAppDeepLink, openInWebAppUrl } = buildOpenInAppUrls(urls.shareUrl, {
-    label: bundle.name || "Shared setup",
+    label: bundle.name || "Shared worker package",
   });
+
+  const counts = getBundleCounts(bundle);
   const prettyBundleJson = prettyJson(rawJson);
   const schemaVersion = bundle.schemaVersion == null ? "unknown" : String(bundle.schemaVersion);
   const typeLabel = humanizeType(bundle.type);
   const title = bundle.name || `OpenWork ${typeLabel}`;
-  const description =
-    bundle.description ||
-    "OpenWork share links stay human-friendly for reading while still exposing a stable machine-readable JSON bundle.";
-  
-  const workspaceSkills = listCount(bundle.workspace?.skills);
-  const workspaceCommands = listCount(bundle.workspace?.commands);
-  const workspaceHasConfig = Boolean(maybeObject(bundle.workspace?.opencode) || maybeObject(bundle.workspace?.openwork));
-  const skillsSetCount = listCount(bundle.skills);
-  
+  const description = bundle.description || buildBundleNarrative(bundle);
+  const items = collectBundleItems(bundle, 8);
   const installHint =
     bundle.type === "skill"
-      ? "Use Open in app to create a new worker and install this skill."
+      ? "Open in app to create a new worker and install this skill in one step."
       : bundle.type === "skills-set"
-        ? "Use Open in app to create a new worker and import this full skills set."
-        : bundle.type === "workspace-profile"
-          ? "Use Open in app to create a new worker from this full workspace profile (config, MCP, commands, and skills)."
-          : "Use the JSON endpoint if you want to import this bundle programmatically.";
-          
-  const contentLabel = bundle.type === "skill" && bundle.content.trim() ? "Skill content" : "Bundle payload";
-  const contentPreview =
-    bundle.type === "skill" && bundle.content.trim() ? truncate(bundle.content.trim()) : truncate(prettyBundleJson);
+        ? "Open in app to create a new worker with this entire skills set already attached."
+        : "Open in app to create a new worker with these skills, agents, MCPs, and config already bundled.";
+  const previewLabel = bundle.type === "skill" ? "Skill content" : "Bundle payload";
+  const previewContent = bundle.type === "skill" && bundle.content.trim() ? truncate(bundle.content.trim()) : truncate(prettyBundleJson);
 
-  let metadataExtras = "";
-  if (bundle.type === "workspace-profile") {
-    metadataExtras = `
-          <div class="meta-row">
-            <dt class="meta-label">Skills</dt>
-            <dd class="meta-value">${escapeHtml(String(workspaceSkills))}</dd>
-          </div>
-          <div class="meta-row">
-            <dt class="meta-label">Commands</dt>
-            <dd class="meta-value">${escapeHtml(String(workspaceCommands))}</dd>
-          </div>
-          <div class="meta-row">
-            <dt class="meta-label">Config</dt>
-            <dd class="meta-value">${escapeHtml(workspaceHasConfig ? "yes" : "no")}</dd>
-          </div>`;
-  } else if (bundle.type === "skills-set") {
-    metadataExtras = `
-          <div class="meta-row">
-            <dt class="meta-label">Skills</dt>
-            <dd class="meta-value">${escapeHtml(String(skillsSetCount))}</dd>
-          </div>`;
-  }
-
-  // Generate an avatar letter from the name
-  const avatarLetter = (bundle.name || "M").charAt(0).toUpperCase();
+  const metadataRows = [
+    `<div class="meta-pair"><dt>ID</dt><dd>${escapeHtml(id)}</dd></div>`,
+    `<div class="meta-pair"><dt>Type</dt><dd>${escapeHtml(bundle.type || "unknown")}</dd></div>`,
+    `<div class="meta-pair"><dt>Schema</dt><dd>${escapeHtml(schemaVersion)}</dd></div>`,
+    counts.skillCount ? `<div class="meta-pair"><dt>Skills</dt><dd>${escapeHtml(String(counts.skillCount))}</dd></div>` : "",
+    counts.agentCount ? `<div class="meta-pair"><dt>Agents</dt><dd>${escapeHtml(String(counts.agentCount))}</dd></div>` : "",
+    counts.mcpCount ? `<div class="meta-pair"><dt>MCPs</dt><dd>${escapeHtml(String(counts.mcpCount))}</dd></div>` : "",
+    counts.commandCount ? `<div class="meta-pair"><dt>Commands</dt><dd>${escapeHtml(String(counts.commandCount))}</dd></div>` : "",
+    counts.hasConfig ? `<div class="meta-pair"><dt>Config</dt><dd>yes</dd></div>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
 
   return `<!doctype html>
 <html lang="en">
@@ -252,663 +95,578 @@ export function renderBundlePage({ id, rawJson, req }) {
   <meta name="openwork:bundle-type" content="${escapeHtml(bundle.type || "unknown")}" />
   <meta name="openwork:schema-version" content="${escapeHtml(schemaVersion)}" />
   <meta name="openwork:open-in-app-url" content="${escapeHtml(openInAppDeepLink)}" />
+  <link rel="canonical" href="${escapeHtml(urls.shareUrl)}" />
   <link rel="alternate" type="application/json" href="${escapeHtml(urls.jsonUrl)}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="${escapeHtml(title)}" />
+  <meta property="og:description" content="${escapeHtml(description)}" />
+  <meta property="og:url" content="${escapeHtml(urls.shareUrl)}" />
+  <meta property="og:image" content="${escapeHtml(ogImageUrl)}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="${escapeHtml(title)}" />
+  <meta name="twitter:description" content="${escapeHtml(description)}" />
+  <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}" />
   <style>
     :root {
-      color-scheme: only light;
-      --bg-canvas: #f5f5f5; /* neutral-100 */
-      --bg-surface: #ffffff; /* white */
-      --bg-secondary: #fafafa; /* neutral-50 */
-      --bg-hover: rgba(245, 245, 245, 0.8); /* neutral-100/80 */
-      
-      --text-primary: #171717; /* neutral-900 */
-      --text-secondary: #737373; /* neutral-500 */
-      --text-muted: #a3a3a3; /* neutral-400 */
-      
-      --accent-primary: #171717; /* neutral-900 */
-      --accent-hover: #262626; /* neutral-800 */
-      --accent-ink: #ffffff; /* white */
-      
-      --border-primary: #e5e5e5; /* neutral-200 */
-      --border-hover: #d4d4d4; /* neutral-300 */
-      
-      --code-bg: #fafafa; /* neutral-50 */
-      
-      --font-sans: "Avenir Next", "Segoe UI Variable", "Segoe UI", "Inter", sans-serif;
-      --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", monospace;
-    }
-    
-    * { box-sizing: border-box; }
-    
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: var(--font-sans);
-      color: var(--text-primary);
-      background-color: var(--bg-canvas);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 1rem;
-    }
-    
-    /* The Modal Container */
-    .modal-container {
-      background: var(--bg-surface);
-      width: 100%;
-      max-width: 32rem; /* max-w-lg (512px) */
-      border-radius: 1rem; /* rounded-2xl */
-      box-shadow: 0 20px 50px -12px rgba(0,0,0,0.15);
-      border: 1px solid var(--border-primary);
-      overflow: hidden;
-      animation: zoomIn 300ms cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    
-    @keyframes zoomIn {
-      from { opacity: 0; transform: scale(0.95); }
-      to { opacity: 1; transform: scale(1); }
-    }
-    
-    /* Header Section */
-    .header {
-      padding: 1.5rem 1.5rem 1rem;
-      position: relative;
-      border-bottom: 1px solid transparent;
-    }
-    
-    .close-btn {
-      position: absolute;
-      top: 1.5rem;
-      right: 1.5rem;
-      padding: 0.375rem;
-      color: var(--text-muted);
-      background: transparent;
-      border: none;
-      border-radius: 0.5rem;
-      cursor: pointer;
-      transition: all 0.2s;
-      display: inline-flex;
-    }
-    
-    .close-btn:hover {
-      color: var(--text-secondary);
-      background: var(--bg-canvas);
-    }
-    
-    .header-content {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-    
-    .avatar {
-      width: 2.5rem;
-      height: 2.5rem;
-      background: var(--accent-primary);
-      border-radius: 0.75rem; /* rounded-xl */
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--accent-ink);
-      font-weight: 700;
-      font-size: 1.125rem;
-    }
-    
-    .title-area h1 {
-      margin: 0;
-      font-size: 17px; /* text-[17px] */
-      font-weight: 700;
-      color: var(--text-primary);
-      letter-spacing: -0.025em; /* tracking-tight */
-    }
-    
-    .subtitle-area {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      margin-top: 0.125rem;
-    }
-    
-    .subtitle-text {
-      font-size: 13px; /* text-[13px] */
-      font-weight: 600;
-      color: #404040; /* neutral-700 */
-    }
-    
-    .dot {
-      width: 4px;
-      height: 4px;
-      border-radius: 9999px;
-      background: #d4d4d4; /* neutral-300 */
-    }
-    
-    .subtitle-type {
-      font-size: 12px;
-      color: var(--text-muted);
-      font-family: var(--font-mono);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 180px;
-    }
-    
-    /* Main Content Area */
-    .main-content {
-      padding: 0 1.5rem 2rem;
-      max-height: 500px;
-      overflow-y: auto;
-      scrollbar-width: none; /* Firefox */
-      position: relative;
-    }
-    .main-content::-webkit-scrollbar {
-      display: none; /* Safari and Chrome */
-    }
-    
-    /* Tab Intro */
-    .tab-intro {
-      margin-top: 0.5rem;
-      margin-bottom: 1rem;
-    }
-    
-    .tab-intro p {
-      margin: 0;
-      font-size: 14px;
-      color: #525252; /* neutral-600 */
-      font-weight: 500;
-    }
-    
-    .tab-intro span {
-      display: block;
-      font-size: 12px;
-      color: var(--text-muted);
-      margin-top: 0.125rem;
-    }
-    
-    /* Cards */
-    .card {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-primary);
-      border-radius: 1rem; /* rounded-2xl */
-      padding: 1rem;
-      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); /* shadow-sm */
-      transition: all 0.2s;
-      margin-bottom: 1rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-    }
-    
-    .card:hover {
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); /* shadow-md */
-      border-color: var(--border-hover);
-    }
-    
-    .card-header {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      margin-bottom: 0.75rem;
-    }
-    
-    .card-icon {
-      padding: 0.5rem;
-      background: var(--bg-secondary);
-      border-radius: 0.5rem; /* rounded-lg */
-      color: var(--text-secondary);
-      transition: all 0.2s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    
-    .card:hover .card-icon {
-      color: var(--text-primary);
-      background: var(--bg-hover);
-    }
-    
-    .card-title-area h3 {
-      margin: 0;
-      font-size: 14px;
-      font-weight: 700;
-      color: var(--text-primary);
-    }
-    
-    .card-title-area p {
-      margin: 0;
-      font-size: 12px;
-      color: var(--text-secondary);
-      line-height: 1.25; /* leading-tight */
-    }
-    
-    /* Buttons */
-    .btn-primary {
-      width: 100%;
-      padding: 0.625rem;
-      background: var(--accent-primary);
-      color: var(--accent-ink);
-      font-size: 13px;
-      font-weight: 700;
-      font-family: var(--font-sans);
-      border: none;
-      border-radius: 0.75rem; /* rounded-xl */
-      cursor: pointer;
-      transition: all 0.2s;
-      text-align: center;
-      text-decoration: none;
-      display: inline-block;
-    }
-    
-    .btn-primary:hover {
-      background: var(--accent-hover);
-    }
-    
-    .btn-primary:active {
-      transform: scale(0.98);
-    }
-    
-    .btn-secondary {
-      width: 100%;
-      padding: 0.625rem;
-      background: #f5f5f5; /* neutral-100 */
-      color: var(--text-primary);
-      font-size: 13px;
-      font-weight: 700;
-      font-family: var(--font-sans);
-      border: none;
-      border-radius: 0.75rem; /* rounded-xl */
-      cursor: pointer;
-      transition: all 0.2s;
-      text-align: center;
-      text-decoration: none;
-      display: inline-block;
-    }
-    
-    .btn-secondary:hover {
-      background: #e5e5e5; /* neutral-200 */
-    }
-    
-    /* Input Group */
-    .input-group {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      animation: fadeIn 200ms ease;
-    }
-    
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-    
-    .input-field {
-      flex: 1;
-      background: var(--bg-secondary);
-      border: 1px solid var(--border-primary);
-      border-radius: 0.5rem; /* rounded-lg */
-      padding: 0.5rem 0.75rem;
-      font-size: 12px;
-      font-family: var(--font-mono);
-      color: #525252; /* neutral-600 */
-      outline: none;
-      width: 100%;
-    }
-    
-    .input-field:focus {
-      border-color: var(--border-hover);
-    }
-    
-    .btn-icon {
-      padding: 0.5rem;
-      background: var(--accent-primary);
-      color: var(--accent-ink);
-      border: none;
-      border-radius: 0.5rem;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: background 0.2s;
-    }
-    
-    .btn-icon:hover {
-      background: var(--accent-hover);
-    }
-    
-    .btn-icon.secondary-icon {
-      background: transparent;
-      color: var(--text-muted);
-    }
-    
-    .btn-icon.secondary-icon:hover {
-      background: var(--bg-hover);
-      color: var(--text-primary);
-    }
-    
-    /* Download Section */
-    .download-section {
-      padding-top: 1rem;
-      margin-top: 0.5rem;
-      border-top: 1px solid #f5f5f5; /* neutral-100 */
-    }
-    
-    .download-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.75rem;
-      background: var(--bg-secondary);
-      border-radius: 1rem; /* rounded-2xl */
-      border: 1px solid transparent;
-      transition: all 0.2s;
-      text-decoration: none;
-    }
-    
-    .download-row:hover {
-      background: rgba(245, 245, 245, 0.5); /* neutral-100/50 */
-      border-color: var(--border-primary);
-    }
-    
-    .download-info {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-    
-    .download-icon {
-      padding: 0.5rem;
-      background: var(--bg-surface);
-      border-radius: 0.5rem;
-      color: var(--text-muted);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    
-    .download-text h4 {
-      margin: 0;
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--text-primary);
-    }
-    
-    .download-text p {
-      margin: 0;
-      font-size: 12px;
-      color: var(--text-secondary);
-    }
-    
-    .btn-outline {
-      padding: 0.5rem 1rem;
-      background: var(--bg-surface);
-      border: 1px solid var(--border-primary);
-      border-radius: 0.75rem; /* rounded-xl */
-      font-size: 12px;
-      font-weight: 700;
-      color: #525252; /* neutral-600 */
-      cursor: pointer;
-      transition: all 0.2s;
-      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-      text-decoration: none;
-    }
-    
-    .download-row:hover .btn-outline {
-      border-color: var(--text-primary);
-      color: var(--text-primary);
-    }
-    
-    /* Raw Content Area */
-    .raw-content {
-      margin-top: 1rem;
-      padding-top: 1rem;
-      border-top: 1px solid var(--border-primary);
-    }
-    
-    .raw-content h3 {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin: 0 0 0.5rem 0.25rem;
-    }
-    
-    .raw-content pre {
-      margin: 0;
-      padding: 1rem;
-      background: var(--code-bg);
-      border: 1px solid var(--border-primary);
-      border-radius: 0.75rem;
-      font-family: var(--font-mono);
-      font-size: 12px;
-      color: #404040;
-      overflow-x: auto;
-      max-height: 200px;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    
-    /* Footer fade */
-    .footer-fade {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      height: 2rem;
-      background: linear-gradient(to top, var(--bg-surface), transparent);
-      pointer-events: none;
-      border-bottom-left-radius: 1rem;
-      border-bottom-right-radius: 1rem;
-    }
-    
-    /* Meta Details Layout */
-    .meta-details {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-      margin-top: 0.5rem;
-      padding-top: 0.5rem;
-      border-top: 1px dashed var(--border-primary);
-    }
-    
-    .meta-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    
-    .meta-label {
-      font-size: 12px;
-      color: var(--text-secondary);
-      margin: 0;
-    }
-    
-    .meta-value {
-      font-size: 12px;
-      font-family: var(--font-mono);
-      color: var(--text-primary);
-      margin: 0;
-      font-weight: 500;
-    }
-    
-    /* Toast */
-    .toast {
-      position: fixed;
-      bottom: 1.5rem;
-      left: 50%;
-      transform: translateX(-50%) translateY(1rem);
-      background: var(--text-primary);
-      color: var(--bg-surface);
-      padding: 0.5rem 1rem;
-      border-radius: 9999px;
-      font-size: 13px;
-      font-weight: 600;
-      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-      opacity: 0;
-      pointer-events: none;
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-      z-index: 50;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    
-    .toast.visible {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
+      color-scheme: light;
+      --ow-bg: #f6f9fc;
+      --ow-ink: #011627;
+      --ow-muted: #5f6b7a;
+      --ow-card: rgba(255, 255, 255, 0.8);
+      --ow-card-strong: rgba(255, 255, 255, 0.92);
+      --ow-border: rgba(255, 255, 255, 0.74);
+      --ow-shadow: 0 26px 72px -30px rgba(15, 23, 42, 0.2);
+      --ow-primary: #011627;
+      --ow-ease: ${SHARE_EASE};
+      --ow-skill: linear-gradient(135deg, #f97316, #facc15);
+      --ow-agent: linear-gradient(135deg, #1d4ed8, #60a5fa);
+      --ow-mcp: linear-gradient(135deg, #0f766e, #2dd4bf);
+      --ow-command: linear-gradient(135deg, #7c3aed, #c084fc);
+      --ow-sans: Inter, "Segoe UI", "Helvetica Neue", sans-serif;
+      --ow-accent: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
     }
 
-    svg {
-      width: 18px;
-      height: 18px;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      font-family: var(--ow-sans);
+      color: var(--ow-ink);
+      background:
+        radial-gradient(circle at top left, rgba(251, 191, 36, 0.32), transparent 32%),
+        radial-gradient(circle at right, rgba(96, 165, 250, 0.24), transparent 30%),
+        linear-gradient(180deg, #fbfdff 0%, var(--ow-bg) 100%);
+      overflow-x: hidden;
     }
-    
-    .btn-icon svg {
-      width: 16px;
-      height: 16px;
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        radial-gradient(rgba(1, 22, 39, 0.055) 0.75px, transparent 0.75px),
+        radial-gradient(rgba(1, 22, 39, 0.03) 0.6px, transparent 0.6px);
+      background-position: 0 0, 18px 18px;
+      background-size: 36px 36px;
+      opacity: 0.32;
+      mix-blend-mode: multiply;
+    }
+
+    a, button { font: inherit; }
+
+    .shell {
+      position: relative;
+      z-index: 1;
+      width: min(100%, 1180px);
+      margin: 0 auto;
+      padding: 28px 18px 54px;
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .brand,
+    .nav-link,
+    .button-secondary,
+    .button-copy,
+    .button-primary {
+      transition:
+        background-color 300ms var(--ow-ease),
+        border-color 300ms var(--ow-ease),
+        box-shadow 300ms var(--ow-ease),
+        color 300ms var(--ow-ease),
+        transform 300ms var(--ow-ease);
+    }
+
+    .brand,
+    .nav-link,
+    .button-secondary,
+    .button-copy {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 44px;
+      padding: 0 18px;
+      border-radius: 999px;
+      text-decoration: none;
+      background: rgba(255, 255, 255, 0.66);
+      border: 1px solid rgba(255, 255, 255, 0.82);
+      box-shadow: 0 18px 44px -34px rgba(15, 23, 42, 0.28);
+      backdrop-filter: blur(12px);
+      color: var(--ow-ink);
+    }
+
+    .brand:hover,
+    .nav-link:hover,
+    .button-secondary:hover,
+    .button-copy:hover {
+      background: rgb(242, 242, 242);
+      box-shadow:
+        rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
+        rgba(0, 0, 0, 0.04) 0px 1px 2px 0px,
+        rgba(0, 0, 0, 0.04) 0px 2px 4px 0px;
+    }
+
+    .button-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 48px;
+      padding: 0 22px;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      text-decoration: none;
+      color: #fff;
+      background: var(--ow-primary);
+      box-shadow: 0 22px 46px -28px rgba(1, 22, 39, 0.7);
+      font-weight: 600;
+    }
+
+    .button-primary:hover {
+      background: #0d2336;
+      transform: translateY(-1px);
+    }
+
+    .brand-mark {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #011627, #1d4ed8 60%, #60a5fa);
+      box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.9);
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      border-radius: 40px;
+      border: 1px solid var(--ow-border);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.72));
+      box-shadow: var(--ow-shadow);
+      backdrop-filter: blur(22px);
+      padding: clamp(24px, 4vw, 40px);
+      margin-bottom: 20px;
+    }
+
+    .hero::before,
+    .hero::after {
+      content: "";
+      position: absolute;
+      border-radius: 999px;
+      pointer-events: none;
+    }
+
+    .hero::before {
+      top: -72px;
+      right: -42px;
+      width: 240px;
+      height: 240px;
+      background: radial-gradient(circle, rgba(251, 191, 36, 0.3), rgba(251, 191, 36, 0));
+    }
+
+    .hero::after {
+      left: -28px;
+      bottom: -96px;
+      width: 280px;
+      height: 280px;
+      background: radial-gradient(circle, rgba(96, 165, 250, 0.24), rgba(96, 165, 250, 0));
+    }
+
+    .hero-layout {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      gap: 20px;
+      grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+      align-items: start;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 0 14px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.95);
+      box-shadow: 0 14px 34px -28px rgba(15, 23, 42, 0.28);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #526172;
+    }
+
+    h1 {
+      margin: 16px 0 12px;
+      max-width: 12ch;
+      font-size: clamp(3rem, 7vw, 5.2rem);
+      line-height: 0.92;
+      letter-spacing: -0.08em;
+      font-weight: 700;
+    }
+
+    h1 em {
+      font-style: normal;
+      font-family: var(--ow-accent);
+      font-weight: 600;
+      letter-spacing: -0.06em;
+    }
+
+    .hero-copy p,
+    .hero-note,
+    .helper-text,
+    .preview-card p,
+    .panel-title p,
+    .preview-box summary,
+    .preview-box pre,
+    .item-meta,
+    .json-link {
+      color: var(--ow-muted);
+      line-height: 1.7;
+    }
+
+    .hero-copy p { margin: 0; max-width: 52ch; font-size: 17px; }
+    .hero-note {
+      margin-top: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 13px;
+    }
+
+    .hero-note span {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.9);
+    }
+
+    .hero-actions,
+    .action-grid,
+    .helper-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .preview-card,
+    .panel,
+    .preview-box {
+      border-radius: 30px;
+      padding: 22px;
+      border: 1px solid rgba(255, 255, 255, 0.86);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.72));
+      box-shadow: 0 22px 56px -40px rgba(15, 23, 42, 0.3);
+      backdrop-filter: blur(16px);
+    }
+
+    .panel-grid {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: 1.1fr 0.9fr;
+      margin-top: 18px;
+    }
+
+    .panel-title { display: grid; gap: 6px; margin-bottom: 14px; }
+    .panel-title h2,
+    .panel-title h3,
+    .preview-card h2 {
+      margin: 0;
+      font-size: 28px;
+      letter-spacing: -0.05em;
+    }
+
+    .helper-text { margin: 0 0 16px; font-size: 14px; }
+    .stats-row {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 18px;
+    }
+
+    .stat-card {
+      display: grid;
+      gap: 8px;
+      min-height: 104px;
+      padding: 16px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid rgba(255, 255, 255, 0.9);
+      box-shadow: 0 18px 42px -36px rgba(15, 23, 42, 0.28);
+    }
+
+    .stat-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #738193;
+    }
+
+    .stat-value {
+      font-size: 30px;
+      line-height: 1;
+      letter-spacing: -0.08em;
+      font-weight: 700;
+    }
+
+    .included-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    .included-item {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px;
+      border-radius: 22px;
+      border: 1px solid rgba(255, 255, 255, 0.88);
+      background: rgba(255, 255, 255, 0.88);
+      box-shadow: 0 18px 46px -36px rgba(15, 23, 42, 0.28);
+    }
+
+    .item-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      color: white;
+      font-size: 13px;
+      font-weight: 700;
+      flex: 0 0 auto;
+      background: var(--ow-agent);
+    }
+
+    .included-item[data-tone="skill"] .item-icon { background: var(--ow-skill); }
+    .included-item[data-tone="agent"] .item-icon { background: var(--ow-agent); }
+    .included-item[data-tone="mcp"] .item-icon { background: var(--ow-mcp); }
+    .included-item[data-tone="command"] .item-icon { background: var(--ow-command); }
+
+    .item-copy { min-width: 0; display: grid; gap: 4px; }
+    .item-title {
+      font-size: 15px;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .metadata {
+      display: grid;
+      gap: 12px;
+      margin: 0;
+    }
+
+    .meta-pair {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 14px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.84);
+      border: 1px solid rgba(255, 255, 255, 0.9);
+      box-shadow: 0 18px 42px -38px rgba(15, 23, 42, 0.28);
+    }
+
+    .meta-pair dt {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #738193;
+    }
+
+    .meta-pair dd {
+      margin: 0;
+      font-size: 13px;
+      color: var(--ow-ink);
+      font-weight: 600;
+      word-break: break-word;
+    }
+
+    .preview-box { margin-top: 18px; }
+
+    .preview-box summary {
+      cursor: pointer;
+      list-style: none;
+      font-weight: 600;
+    }
+
+    .preview-box summary::-webkit-details-marker { display: none; }
+
+    .preview-box pre {
+      margin: 14px 0 0;
+      padding: 16px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.94);
+      box-shadow: 0 18px 44px -40px rgba(15, 23, 42, 0.24);
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.65;
+      color: #3a4b5b;
+    }
+
+    .json-link { margin-top: 14px; font-size: 14px; }
+    .json-link a { color: var(--ow-ink); font-weight: 600; }
+
+    @media (max-width: 960px) {
+      .hero-layout,
+      .panel-grid,
+      .stats-row { grid-template-columns: 1fr; }
+      h1 { max-width: none; }
+    }
+
+    @media (max-width: 640px) {
+      .shell { padding: 18px 14px 40px; }
+      .nav { flex-direction: column; align-items: stretch; }
+      .nav > * { width: 100%; }
+      .hero,
+      .preview-card,
+      .panel,
+      .preview-box { border-radius: 28px; padding: 20px; }
+      h1 { font-size: 3.4rem; }
+      .hero-actions > *,
+      .action-grid > *,
+      .helper-actions > * { width: 100%; }
     }
   </style>
 </head>
 <body
   data-openwork-share="true"
   data-openwork-bundle-id="${escapeHtml(id)}"
-  data-openwork-bundle-type="${escapeHtml(bundle.type || "unknown")}" 
+  data-openwork-bundle-type="${escapeHtml(bundle.type || "unknown")}"
   data-openwork-schema-version="${escapeHtml(schemaVersion)}"
 >
-  <div class="modal-container">
-    <div class="header">
-      <a href="${OPENWORK_SITE_URL}" target="_blank" rel="noreferrer" class="close-btn" aria-label="Close">
-        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+  <main class="shell">
+    <nav class="nav">
+      <a class="brand" href="/" aria-label="Package another worker">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>OpenWork Share</span>
       </a>
-      
-      <div class="header-content">
-        <div class="avatar">${escapeHtml(avatarLetter)}</div>
-        <div class="title-area">
-          <h1>OpenWork Share</h1>
-          <div class="subtitle-area">
-            <span class="subtitle-text">${escapeHtml(title)}</span>
-            <span class="dot"></span>
-            <span class="subtitle-type">.../${escapeHtml(id.slice(-8))}</span>
+      <div class="helper-actions">
+        <a class="nav-link" href="${escapeHtml(OPENWORK_SITE_URL)}" target="_blank" rel="noreferrer">OpenWork</a>
+        <a class="nav-link" href="${escapeHtml(OPENWORK_DOWNLOAD_URL)}" target="_blank" rel="noreferrer">Download app</a>
+      </div>
+    </nav>
+
+    <section class="hero">
+      <div class="hero-layout">
+        <div class="hero-copy">
+          <span class="eyebrow">${escapeHtml(typeLabel)} · ${escapeHtml(id.slice(-8))}</span>
+          <h1>${escapeHtml(title)} <em>ready</em></h1>
+          <p>${escapeHtml(description)}</p>
+          <div class="hero-actions">
+            <a class="button-primary" href="${escapeHtml(openInAppDeepLink)}">Open in app</a>
+            <a class="button-secondary" href="${escapeHtml(openInWebAppUrl)}" target="_blank" rel="noreferrer">Open in web app</a>
+            <button class="button-copy" type="button" id="copy-link">Copy share link</button>
+          </div>
+          <div class="hero-note">
+            <span>${escapeHtml(installHint)}</span>
+            <span>Machine readable JSON stays available at <a href="${escapeHtml(urls.jsonUrl)}">${escapeHtml(urls.jsonUrl)}</a>.</span>
+          </div>
+          <div class="stats-row">
+            ${renderStat("Skills", counts.skillCount)}
+            ${renderStat("Agents", counts.agentCount)}
+            ${renderStat("MCPs", counts.mcpCount)}
+            ${renderStat("Commands", counts.commandCount)}
           </div>
         </div>
+
+        <aside class="preview-card">
+          <h2>Included</h2>
+          <p>${escapeHtml(buildBundleNarrative(bundle))}</p>
+          <ul class="included-list">
+            ${items.length ? items.map(renderItem).join("") : `<li class="included-item" data-tone="skill"><div class="item-icon" aria-hidden="true">PK</div><div class="item-copy"><div class="item-title">OpenWork bundle</div><p class="item-meta">Bundle · Shared config</p></div></li>`}
+          </ul>
+        </aside>
       </div>
-    </div>
-    
-    <div class="main-content">
-      <div class="tab-intro">
-        <p>Shared configuration bundle</p>
-        <span>${escapeHtml(description)}</span>
-      </div>
-      
-      <div class="card">
-        <div class="card-header">
-          <div class="card-icon">
-            <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-          </div>
-          <div class="card-title-area">
-            <h3>${escapeHtml(typeLabel)}</h3>
-            <p>${escapeHtml(installHint)}</p>
-          </div>
+    </section>
+
+    <section class="panel-grid">
+      <section class="panel">
+        <div class="panel-title">
+          <h3>Bundle details</h3>
+          <p>Stable metadata for parsing, sharing, and direct OpenWork import.</p>
         </div>
-        
-        <a href="${escapeHtml(openInAppDeepLink)}" class="btn-primary">Open in App</a>
-        
-        <div class="input-group">
-          <input type="text" class="input-field" value="${escapeHtml(urls.shareUrl)}" readonly id="share-url-input" />
-          <button type="button" class="btn-icon" id="copy-link-btn" aria-label="Copy link">
-            <svg viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-          </button>
+        <dl class="metadata">
+          ${metadataRows}
+        </dl>
+        <details class="preview-box">
+          <summary>${escapeHtml(previewLabel)} preview</summary>
+          <pre>${escapeHtml(previewContent)}</pre>
+        </details>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">
+          <h3>Raw endpoints</h3>
+          <p>Keep the human page and machine payload side by side.</p>
         </div>
-        
-        <div class="meta-details">
-          <div class="meta-row">
-            <dt class="meta-label">ID</dt>
-            <dd class="meta-value">${escapeHtml(id)}</dd>
-          </div>
-          <div class="meta-row">
-            <dt class="meta-label">Type</dt>
-            <dd class="meta-value">${escapeHtml(bundle.type || "unknown")}</dd>
-          </div>
-          ${metadataExtras}
+        <p class="helper-text">Use the JSON endpoint for programmatic imports, or download the exact payload as a file.</p>
+        <div class="action-grid">
+          <a class="button-secondary" href="${escapeHtml(urls.jsonUrl)}">Open JSON</a>
+          <a class="button-secondary" href="${escapeHtml(urls.downloadUrl)}">Download JSON</a>
         </div>
-      </div>
-      
-      <div class="download-section">
-        <a href="${escapeHtml(urls.downloadUrl)}" class="download-row">
-          <div class="download-info">
-            <div class="download-icon">
-              <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-            </div>
-            <div class="download-text">
-              <h4>Download JSON</h4>
-              <p>Save configuration bundle locally</p>
-            </div>
-          </div>
-          <span class="btn-outline">Download</span>
-        </a>
-      </div>
-      
-      <div class="raw-content">
-        <h3>${escapeHtml(contentLabel)} Preview</h3>
-        <pre>${escapeHtml(contentPreview)}</pre>
-      </div>
-      
-    </div>
-    
-    <div class="footer-fade"></div>
-  </div>
+        <p class="json-link">Share page: <a href="${escapeHtml(urls.shareUrl)}">${escapeHtml(urls.shareUrl)}</a></p>
+        <p class="json-link">JSON payload: <a href="${escapeHtml(urls.jsonUrl)}">${escapeHtml(urls.jsonUrl)}</a></p>
+      </section>
+    </section>
+  </main>
 
   <script id="openwork-bundle-json" type="application/json">${escapeJsonForScript(rawJson)}</script>
-  
-  <div class="toast" id="toast-message" role="status" aria-live="polite">
-    <svg viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M20 6 9 17l-5-5"/></svg>
-    <span>Copied</span>
-  </div>
-  
   <script>
     const shareUrl = ${JSON.stringify(urls.shareUrl)};
-    const toastNode = document.getElementById("toast-message");
-
-    function showToast(text) {
-      if (!toastNode) return;
-      toastNode.querySelector('span').textContent = text;
-      toastNode.classList.add("visible");
-      window.setTimeout(() => toastNode.classList.remove("visible"), 2000);
-    }
-
-    async function copyText(value, label) {
-      if (!value) return;
+    const copyButton = document.getElementById("copy-link");
+    copyButton?.addEventListener("click", async () => {
       try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(value);
-        } else {
-          const textarea = document.createElement("textarea");
-          textarea.value = value;
-          textarea.style.position = "fixed";
-          textarea.style.left = "-99999px";
-          document.body.appendChild(textarea);
-          textarea.select();
-          document.execCommand("copy");
-          textarea.remove();
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(shareUrl);
+          copyButton.textContent = "Copied";
+          window.setTimeout(() => {
+            copyButton.textContent = "Copy share link";
+          }, 1600);
+          return;
         }
-        showToast(label + " copied");
       } catch {
-        showToast("Copy failed");
+        // fall through
       }
-    }
 
-    document.getElementById("copy-link-btn")?.addEventListener("click", () => {
-      copyText(shareUrl, "Link");
-      
-      // Select input text for visual feedback
-      const input = document.getElementById("share-url-input");
-      if (input) {
-        input.select();
-      }
+      const input = document.createElement("textarea");
+      input.value = shareUrl;
+      input.style.position = "fixed";
+      input.style.left = "-99999px";
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand("copy");
+      input.remove();
+      copyButton.textContent = "Copied";
+      window.setTimeout(() => {
+        copyButton.textContent = "Copy share link";
+      }, 1600);
     });
   </script>
 </body>
