@@ -23,19 +23,19 @@ export function BookCallForm(props: Props) {
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
 
-  const href = useMemo(() => {
-    if (!props.calUrl) return "";
-    return buildCalUrl(props.calUrl, {
-      email,
-      company
-    });
-  }, [props.calUrl, email, company]);
+  const href = useMemo(
+    () => {
+      if (!props.calUrl) return "";
+      return buildCalUrl(props.calUrl, {
+        email,
+        company
+      });
+    },
+    [props.calUrl, email, company]
+  );
 
   return (
-    <section
-      id="book"
-      className="rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-[0_20px_60px_-24px_rgba(15,23,42,0.18)] backdrop-blur-md md:p-8"
-    >
+    <section id="book" className="landing-shell rounded-[2rem] p-6 md:p-8">
       <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
         Book a call
       </div>
@@ -60,7 +60,7 @@ export function BookCallForm(props: Props) {
 
       <form
         className="space-y-4"
-        onSubmit={(event) => {
+        onSubmit={event => {
           event.preventDefault();
           if (!href) return;
           window.open(href, "_blank", "noopener,noreferrer");
@@ -73,7 +73,7 @@ export function BookCallForm(props: Props) {
             </label>
             <input
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={e => setEmail(e.target.value)}
               placeholder="jeff@amazon.com"
               className="w-full rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-[14px] text-[#011627] outline-none transition focus:border-slate-300 focus:bg-white"
               autoComplete="email"
@@ -86,7 +86,7 @@ export function BookCallForm(props: Props) {
             </label>
             <input
               value={company}
-              onChange={(e) => setCompany(e.target.value)}
+              onChange={e => setCompany(e.target.value)}
               placeholder="Amazon"
               className="w-full rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-[14px] text-[#011627] outline-none transition focus:border-slate-300 focus:bg-white"
               autoComplete="organization"

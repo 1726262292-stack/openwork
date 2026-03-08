@@ -1,44 +1,12 @@
-"use client";
-
-import { motion, useScroll, useTransform } from "framer-motion";
-import { ResponsiveGrain } from "./responsive-grain";
-
 export function LandingBackground() {
-  const { scrollY } = useScroll();
-  const darkOpacity = useTransform(scrollY, [0, 500], [0.6, 0]);
-  const subtleOpacity = useTransform(scrollY, [0, 500], [0, 0.6]);
-
   return (
     <>
-      <motion.div
-        style={{ opacity: subtleOpacity }}
-        className="pointer-events-none fixed inset-0 z-0"
-      >
-        <ResponsiveGrain
-          colors={["#f6f9fc", "#e2e8f0", "#cbd5e1", "#f8fafc"]}
-          colorBack="#f6f9fc"
-          softness={1}
-          intensity={0.06}
-          noise={0.12}
-          shape="corners"
-          speed={0.1}
-        />
-      </motion.div>
-
-      <motion.div
-        style={{ opacity: darkOpacity }}
-        className="pointer-events-none fixed inset-0 z-0 mix-blend-multiply"
-      >
-        <ResponsiveGrain
-          colors={["#f6f9fc", "#f6f9fc", "#1e293b", "#334155"]}
-          colorBack="#f6f9fc"
-          softness={1}
-          intensity={0.03}
-          noise={0.14}
-          shape="corners"
-          speed={0.2}
-        />
-      </motion.div>
+      <div className="pointer-events-none fixed inset-0 z-0 bg-[#f6f7f3]" />
+      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+        <div className="absolute left-[-8rem] top-24 h-64 w-64 rounded-full bg-[#dbe7e1]/70 blur-3xl" />
+        <div className="absolute right-[-6rem] top-40 h-72 w-72 rounded-full bg-[#e8ddd2]/75 blur-3xl" />
+        <div className="absolute bottom-[-10rem] left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-[#dde5ef]/80 blur-3xl" />
+      </div>
     </>
   );
 }

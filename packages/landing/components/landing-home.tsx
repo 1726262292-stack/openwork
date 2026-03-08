@@ -42,23 +42,23 @@ const demoFlows: DemoFlow[] = [
       "Turn plain-language requests into browser actions across the tools your team already uses.",
     activeAgent: {
       name: "Browser Operator",
-      color: "from-purple-400 to-blue-400"
+      color: "bg-[#2463eb]"
     },
     agents: [
       {
         name: "Digital Twin",
         desc: "Extended digital you",
-        color: "from-blue-400 to-indigo-500"
+        color: "bg-[#4f6ee8]"
       },
       {
         name: "Sales Inbound",
         desc: "Qualifies leads",
-        color: "from-orange-400 to-red-500"
+        color: "bg-[#f97316]"
       },
       {
         name: "Personal",
         desc: "Daily tasks",
-        color: "from-emerald-400 to-teal-500"
+        color: "bg-[#0f9f7f]"
       }
     ],
     task:
@@ -97,23 +97,23 @@ const demoFlows: DemoFlow[] = [
       "Work from Excel files or pasted spreadsheets without changing how your team already shares data.",
     activeAgent: {
       name: "Excel Analyst",
-      color: "from-emerald-400 to-teal-500"
+      color: "bg-[#0f9f7f]"
     },
     agents: [
       {
         name: "Digital Twin",
         desc: "Extended digital you",
-        color: "from-blue-400 to-indigo-500"
+        color: "bg-[#4f6ee8]"
       },
       {
         name: "Sales Inbound",
         desc: "Qualifies leads",
-        color: "from-orange-400 to-red-500"
+        color: "bg-[#f97316]"
       },
       {
         name: "Personal",
         desc: "Daily tasks",
-        color: "from-emerald-400 to-teal-500"
+        color: "bg-[#0f9f7f]"
       }
     ],
     task:
@@ -151,23 +151,23 @@ const demoFlows: DemoFlow[] = [
       "Turn Notion MCP context into personalized outreach, then push the final result into your CRM.",
     activeAgent: {
       name: "Outreach Writer",
-      color: "from-orange-400 to-rose-500"
+      color: "bg-[#d97706]"
     },
     agents: [
       {
         name: "Digital Twin",
         desc: "Extended digital you",
-        color: "from-blue-400 to-indigo-500"
+        color: "bg-[#4f6ee8]"
       },
       {
         name: "Sales Inbound",
         desc: "Qualifies leads",
-        color: "from-orange-400 to-red-500"
+        color: "bg-[#f97316]"
       },
       {
         name: "Personal",
         desc: "Daily tasks",
-        color: "from-emerald-400 to-teal-500"
+        color: "bg-[#0f9f7f]"
       }
     ],
     task:
@@ -263,7 +263,7 @@ export function LandingHome(props: Props) {
                 </a>
                 <a
                   href={props.callHref}
-                  className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-white/80 px-6 py-3 font-medium text-[#011627] shadow-sm backdrop-blur-sm transition-all hover:bg-white"
+                  className="landing-chip inline-flex items-center justify-center rounded-full px-6 py-3 font-medium text-[#011627] transition-all hover:bg-white"
                   {...callLinkProps}
                 >
                   Contact sales
@@ -287,8 +287,8 @@ export function LandingHome(props: Props) {
           </section>
 
           <section className="relative flex flex-col gap-6 overflow-hidden md:gap-8">
-            <div className="relative flex flex-col overflow-hidden rounded-2xl border border-white/80 bg-white/80 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] backdrop-blur-xl">
-              <div className="relative z-20 flex h-10 w-full shrink-0 items-center border-b border-white/50 bg-gradient-to-b from-white/90 to-white/60 px-4">
+            <div className="landing-shell relative flex flex-col overflow-hidden rounded-2xl">
+              <div className="relative z-20 flex h-10 w-full shrink-0 items-center border-b border-slate-200/70 bg-[#f3f4ef] px-4">
                 <div className="flex gap-1.5">
                   <div className="h-3 w-3 rounded-full border border-[#e0443e]/20 bg-[#ff5f56]/90 shadow-sm"></div>
                   <div className="h-3 w-3 rounded-full border border-[#dea123]/20 bg-[#ffbd2e]/90 shadow-sm"></div>
@@ -305,7 +305,7 @@ export function LandingHome(props: Props) {
                     <div className="flex items-center justify-between rounded-xl bg-gray-100/90 p-3">
                       <div className="flex items-center gap-3">
                         <div
-                          className={`h-6 w-6 rounded-full bg-gradient-to-br ${activeDemo.activeAgent.color}`}
+                            className={`h-6 w-6 rounded-full ${activeDemo.activeAgent.color}`}
                         ></div>
                         <span className="text-sm font-medium">
                           {activeDemo.activeAgent.name}
@@ -321,7 +321,7 @@ export function LandingHome(props: Props) {
                       >
                         <div className="flex items-center gap-3">
                           <div
-                            className={`h-6 w-6 rounded-full bg-gradient-to-br ${agent.color}`}
+                              className={`h-6 w-6 rounded-full ${agent.color}`}
                           ></div>
                           <span className="text-sm font-medium">{agent.name}</span>
                         </div>
@@ -432,7 +432,7 @@ export function LandingHome(props: Props) {
             </div>
 
             <div className="relative z-10 mb-4 flex w-full flex-col items-start justify-between gap-4 px-2 md:flex-row md:items-center">
-              <div className="flex w-full flex-wrap gap-2 overflow-x-auto rounded-full border border-white/60 bg-white/50 p-1.5 shadow-sm backdrop-blur-sm md:w-[600px]">
+              <div className="landing-chip flex w-full flex-wrap gap-2 overflow-x-auto rounded-full p-1.5 md:w-[600px]">
                 {demoFlows.map((flow) => {
                   const isActive = flow.id === activeDemo.id;
 
@@ -503,7 +503,7 @@ export function LandingHome(props: Props) {
                 </p>
                 <Link
                   href="/den"
-                  className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-white/80 px-6 py-2.5 text-sm font-medium text-[#011627] shadow-sm backdrop-blur-sm transition-all hover:bg-white"
+                  className="landing-chip inline-flex items-center justify-center rounded-full px-6 py-2.5 text-sm font-medium text-[#011627] transition-all hover:bg-white"
                 >
                   Learn More
                 </Link>
@@ -528,7 +528,7 @@ export function LandingHome(props: Props) {
             </Link>
           </section>
 
-          <section className="mt-4 rounded-[2.5rem] border border-white/60 bg-white/80 p-8 shadow-sm backdrop-blur-md md:mt-6 md:p-12">
+          <section className="landing-shell mt-4 rounded-[2.5rem] p-8 md:mt-6 md:p-12">
             <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-400">
               For Enterprises, Startups &amp; Teams
             </div>
@@ -614,8 +614,9 @@ export function LandingHome(props: Props) {
                 </button>
               </div>
 
-              <div className="relative flex min-h-[400px] w-full items-center justify-center overflow-hidden rounded-3xl p-6 shadow-inner lg:w-2/3 md:p-10">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(249,115,22,0.85),_transparent_35%),radial-gradient(circle_at_top_right,_rgba(168,85,247,0.65),_transparent_38%),radial-gradient(circle_at_bottom,_rgba(59,130,246,0.7),_transparent_42%),linear-gradient(135deg,_rgba(252,211,77,0.85),_rgba(249,115,22,0.55))]"></div>
+              <div className="landing-canvas relative flex min-h-[400px] w-full items-center justify-center overflow-hidden rounded-3xl p-6 lg:w-2/3 md:p-10">
+                <div className="absolute left-8 top-8 h-28 w-28 rounded-[2rem] border border-white/60 bg-white/40" />
+                <div className="absolute bottom-8 right-8 h-40 w-40 rounded-full border border-white/60 bg-white/30" />
 
                 <AnimatePresence mode="wait">
                   <motion.div
@@ -627,7 +628,7 @@ export function LandingHome(props: Props) {
                     className="z-10 flex w-full justify-center"
                   >
                     {activeUseCase === 0 ? (
-                      <div className="flex w-full max-w-md flex-col gap-6 rounded-[2rem] border border-white/60 bg-white/95 p-6 text-center shadow-2xl backdrop-blur-md md:p-8">
+                      <div className="landing-shell-soft flex w-full max-w-md flex-col gap-6 rounded-[2rem] p-6 text-center md:p-8">
                         <div>
                           <h3 className="text-xl font-semibold tracking-tight text-[#011627]">
                             Package Your Worker
@@ -668,7 +669,7 @@ export function LandingHome(props: Props) {
                             Included
                           </div>
                           <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white p-3 shadow-sm">
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-orange-400 to-red-500 text-white">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f97316] text-white">
                               <Shield size={16} />
                             </div>
                             <div className="min-w-0 flex-1">
@@ -706,18 +707,18 @@ export function LandingHome(props: Props) {
                     ) : null}
 
                     {activeUseCase === 1 ? (
-                      <div className="flex w-full max-w-lg flex-col gap-6 rounded-[2rem] border border-white/40 bg-white/60 p-4 shadow-sm backdrop-blur-md md:p-8">
-                        <div className="mb-2 flex w-fit items-center justify-between rounded-full bg-white/50 p-1 backdrop-blur-sm">
+                      <div className="landing-shell flex w-full max-w-lg flex-col gap-6 rounded-[2rem] p-4 md:p-8">
+                        <div className="landing-chip mb-2 flex w-fit items-center justify-between rounded-full p-1">
                           <button
                             type="button"
                             className="flex items-center gap-2 rounded-full border border-gray-100 bg-white px-4 py-2 text-sm font-medium shadow-sm"
                           >
-                            <div className="h-3 w-3 rounded-full bg-gradient-to-br from-orange-400 to-orange-600"></div>
+                            <div className="h-3 w-3 rounded-full bg-[#f97316]"></div>
                             Cloud Workers
                           </button>
                         </div>
 
-                        <div className="flex w-full flex-col gap-3 rounded-2xl border border-white/50 bg-white/90 p-2 shadow-sm backdrop-blur-sm">
+                        <div className="landing-shell-soft flex w-full flex-col gap-3 rounded-2xl p-2">
                           <div className="group relative cursor-pointer rounded-xl bg-gray-50/80 p-4">
                             <div className="mb-1 flex items-center justify-between">
                               <div className="text-[15px] font-medium text-[#011627] transition-colors group-hover:text-blue-600">
@@ -779,7 +780,7 @@ export function LandingHome(props: Props) {
                     ) : null}
 
                     {activeUseCase === 2 ? (
-                      <div className="flex h-[380px] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white/95 p-0 shadow-2xl backdrop-blur-sm">
+                      <div className="landing-shell-soft flex h-[380px] w-full max-w-lg flex-col overflow-hidden rounded-2xl p-0">
                         <div className="flex items-center gap-3 bg-[#4A154B] px-4 py-3">
                           <div className="hidden h-3 w-3 rounded-full bg-red-500/80 sm:block"></div>
                           <div className="hidden h-3 w-3 rounded-full bg-yellow-500/80 sm:block"></div>
@@ -791,7 +792,7 @@ export function LandingHome(props: Props) {
 
                         <div className="flex flex-1 flex-col gap-5 overflow-y-auto bg-white p-4">
                           <div className="flex gap-3">
-                            <div className="h-8 w-8 flex-shrink-0 rounded bg-gradient-to-br from-blue-400 to-blue-600"></div>
+                            <div className="h-8 w-8 flex-shrink-0 rounded bg-[#2463eb]"></div>
                             <div className="flex flex-col">
                               <div className="flex items-baseline gap-2">
                                 <span className="text-[15px] font-bold text-[#1d1c1d]">

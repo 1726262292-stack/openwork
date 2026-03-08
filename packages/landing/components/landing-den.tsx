@@ -39,8 +39,8 @@ export function LandingDen(props: Props) {
             </h2>
             <p className="mb-8 text-lg leading-relaxed text-gray-700 md:text-xl">
               Den gives your team hosted sandboxed workers that you can access
-              from our desktop app, Slack, or Telegram. All your skills,
-              agents, and MCP integrations are directly available.
+              from our desktop app, Slack, or Telegram. All your skills, agents,
+              and MCP integrations are directly available.
             </p>
 
             <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
@@ -65,8 +65,8 @@ export function LandingDen(props: Props) {
           </section>
 
           <section className="grid gap-6 md:grid-cols-2">
-            <div className="flex flex-col rounded-[2rem] border border-white/40 bg-white/60 p-6 shadow-sm backdrop-blur-md md:p-8">
-              <div className="mb-8 flex min-h-[200px] flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-white/50 bg-white/90 p-6 shadow-sm">
+            <div className="landing-shell flex flex-col rounded-[2rem] p-6 md:p-8">
+              <div className="landing-shell-soft mb-8 flex min-h-[200px] flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl p-6">
                 <div className="relative flex items-center gap-4">
                   <motion.div
                     className="absolute left-1/2 top-1/2 h-2 w-2 rounded-full bg-blue-400"
@@ -95,7 +95,11 @@ export function LandingDen(props: Props) {
                   <motion.div
                     className="group relative z-10 flex h-16 w-16 cursor-default items-center justify-center rounded-2xl border border-orange-200 bg-orange-100 shadow-inner"
                     animate={{ y: [-2, 2, -2] }}
-                    transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                    transition={{
+                      duration: 4,
+                      repeat: Infinity,
+                      ease: "easeInOut"
+                    }}
                   >
                     <Box
                       size={28}
@@ -111,8 +115,8 @@ export function LandingDen(props: Props) {
                   </motion.div>
 
                   <div className="z-0 flex flex-col gap-2 opacity-50">
-                    <div className="h-1.5 w-16 rounded-full bg-gray-300"></div>
-                    <div className="h-1.5 w-16 rounded-full bg-gray-300"></div>
+                    <div className="h-1.5 w-16 rounded-full bg-gray-300" />
+                    <div className="h-1.5 w-16 rounded-full bg-gray-300" />
                   </div>
 
                   <motion.div
@@ -150,7 +154,9 @@ export function LandingDen(props: Props) {
                 </motion.div>
               </div>
 
-              <h3 className="mb-2 text-xl font-medium">Hosted sandboxed workers</h3>
+              <h3 className="mb-2 text-xl font-medium">
+                Hosted sandboxed workers
+              </h3>
               <p className="leading-relaxed text-gray-600">
                 Every worker runs in an isolated environment so your team can
                 automate safely without managing infrastructure.
@@ -158,7 +164,7 @@ export function LandingDen(props: Props) {
             </div>
 
             <div className="flex flex-col gap-6">
-              <div className="flex flex-1 flex-col justify-center rounded-[2rem] border border-white/40 bg-white/60 p-6 shadow-sm backdrop-blur-md md:p-8">
+              <div className="landing-shell flex flex-1 flex-col justify-center rounded-[2rem] p-6 md:p-8">
                 <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-xl border border-gray-100 bg-white shadow-sm">
                   <MessageSquare size={20} className="text-gray-700" />
                 </div>
@@ -206,7 +212,7 @@ export function LandingDen(props: Props) {
                 </p>
               </div>
 
-              <div className="flex flex-1 flex-col justify-center rounded-[2rem] border border-white/40 bg-white/60 p-6 shadow-sm backdrop-blur-md md:p-8">
+              <div className="landing-shell flex flex-1 flex-col justify-center rounded-[2rem] p-6 md:p-8">
                 <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-xl border border-gray-100 bg-white shadow-sm">
                   <Blocks size={20} className="text-gray-700" />
                 </div>

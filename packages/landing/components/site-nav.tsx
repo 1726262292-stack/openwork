@@ -46,7 +46,7 @@ export function SiteNav(props: Props) {
           </Link>
 
           <nav className="hidden items-center gap-8 text-[15px] font-medium md:flex">
-            {navItems.map((item) => (
+            {navItems.map(item => (
               <Link
                 key={item.key}
                 href={item.href}
@@ -86,9 +86,11 @@ export function SiteNav(props: Props) {
             <button
               type="button"
               className="rounded-full p-2 text-[#011627] transition-colors hover:bg-white/70 md:hidden"
-              onClick={() => setMobileOpen((current) => !current)}
+              onClick={() => setMobileOpen(current => !current)}
               aria-expanded={mobileOpen}
-              aria-label={mobileOpen ? "Close navigation menu" : "Open navigation menu"}
+              aria-label={
+                mobileOpen ? "Close navigation menu" : "Open navigation menu"
+              }
             >
               {mobileOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
@@ -96,13 +98,15 @@ export function SiteNav(props: Props) {
         </div>
 
         {mobileOpen ? (
-          <div className="mb-8 rounded-[2rem] border border-white/80 bg-white/85 p-4 shadow-[0_20px_60px_-24px_rgba(15,23,42,0.22)] backdrop-blur-xl md:hidden">
+          <div className="landing-shell mb-8 rounded-[2rem] p-4 md:hidden">
             <div className="flex flex-col gap-1 text-[15px] font-medium text-gray-700">
-              {navItems.map((item) => (
+              {navItems.map(item => (
                 <Link
                   key={item.key}
                   href={item.href}
-                  className={`rounded-2xl px-4 py-3 ${navLink(props.active === item.key)}`}
+                  className={`rounded-2xl px-4 py-3 ${navLink(
+                    props.active === item.key
+                  )}`}
                   onClick={() => setMobileOpen(false)}
                 >
                   {item.label}
