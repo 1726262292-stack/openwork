@@ -17,7 +17,7 @@ export function LandingBackground() {
       >
         <ResponsiveGrain
           colors={["#f6f9fc", "#000000", "#111111", "#333333"]}
-          colorBack="#f6f9fc"
+          colorBack="#f6f7f3"
           softness={1}
           intensity={0.03}
           noise={0.14}
