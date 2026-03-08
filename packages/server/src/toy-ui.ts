@@ -311,6 +311,7 @@ export const TOY_UI_HTML = `<!doctype html>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>OpenWork Toy UI</title>
+    <link rel="icon" type="image/svg+xml" href="/ui/assets/opencode-mark.svg" />
     <link rel="stylesheet" href="/ui/assets/toy.css" />
   </head>
   <body>
@@ -535,6 +536,8 @@ export const TOY_UI_HTML = `<!doctype html>
   </body>
 </html>
 `;
+
+export const TOY_UI_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 42 42" fill="none"><g transform="translate(9 0)"><path d="M18 30H6V18H18V30Z" fill="#CFCECD" /><path d="M18 12H6V30H18V12ZM24 36H0V6H24V36Z" fill="#211E1E" /></g></svg>`;
 
 export const TOY_UI_JS = String.raw`const qs = (sel) => document.querySelector(sel);
 
@@ -1811,6 +1814,16 @@ export function jsResponse(body: string): Response {
     status: 200,
     headers: {
       "Content-Type": "text/javascript; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+export function svgResponse(body: string): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/svg+xml; charset=utf-8",
       "Cache-Control": "no-store",
     },
   });

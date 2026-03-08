@@ -20,7 +20,7 @@ import { ensureDir, exists, hashToken, shortId } from "./utils.js";
 import { workspaceIdForPath } from "./workspaces.js";
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
-import { TOY_UI_CSS, TOY_UI_HTML, TOY_UI_JS, cssResponse, htmlResponse, jsResponse } from "./toy-ui.js";
+import { TOY_UI_CSS, TOY_UI_FAVICON_SVG, TOY_UI_HTML, TOY_UI_JS, cssResponse, htmlResponse, jsResponse, svgResponse } from "./toy-ui.js";
 import { FileSessionStore } from "./file-sessions.js";
 import pkg from "../package.json" with { type: "json" };
 
@@ -1327,6 +1327,13 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
       throw new ApiError(404, "ui_disabled", "Toy UI is disabled");
     }
     return jsResponse(TOY_UI_JS);
+  });
+
+  addRoute(routes, "GET", "/ui/assets/opencode-mark.svg", "none", async () => {
+    if (!resolveToyUiEnabled()) {
+      throw new ApiError(404, "ui_disabled", "Toy UI is disabled");
+    }
+    return svgResponse(TOY_UI_FAVICON_SVG);
   });
 
   addRoute(routes, "GET", "/w/:id/status", "client", async (ctx) => {
