@@ -1,20 +1,44 @@
 "use client";
 
+import { motion, useScroll, useTransform } from "framer-motion";
 import { ResponsiveGrain } from "./responsive-grain";
 
 export function LandingBackground() {
+  const { scrollY } = useScroll();
+  const darkOpacity = useTransform(scrollY, [0, 500], [0.6, 0]);
+  const subtleOpacity = useTransform(scrollY, [0, 500], [0, 0.6]);
+
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[58vh] overflow-hidden md:h-[70vh]">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.88),_transparent_34%),radial-gradient(circle_at_top_right,_rgba(191,219,254,0.26),_transparent_30%),linear-gradient(180deg,_rgba(246,249,252,1)_0%,_rgba(246,249,252,0.82)_60%,_rgba(246,249,252,0)_100%)]" />
-      <ResponsiveGrain
-        colors={["#f6f9fc", "#eef4f8", "#dbe7ef", "#f8fafc"]}
-        colorBack="#f6f9fc"
-        softness={1}
-        intensity={0.025}
-        noise={0.08}
-        shape="corners"
-        speed={0.035}
-      />
-    </div>
+    <>
+      <motion.div
+        style={{ opacity: subtleOpacity }}
+        className="pointer-events-none fixed inset-0 z-0"
+      >
+        <ResponsiveGrain
+          colors={["#f6f9fc", "#e2e8f0", "#cbd5e1", "#f8fafc"]}
+          colorBack="#f6f9fc"
+          softness={1}
+          intensity={0.06}
+          noise={0.12}
+          shape="corners"
+          speed={0.1}
+        />
+      </motion.div>
+
+      <motion.div
+        style={{ opacity: darkOpacity }}
+        className="pointer-events-none fixed inset-0 z-0 mix-blend-multiply"
+      >
+        <ResponsiveGrain
+          colors={["#f6f9fc", "#f6f9fc", "#1e293b", "#334155"]}
+          colorBack="#f6f9fc"
+          softness={1}
+          intensity={0.03}
+          noise={0.14}
+          shape="corners"
+          speed={0.2}
+        />
+      </motion.div>
+    </>
   );
 }
