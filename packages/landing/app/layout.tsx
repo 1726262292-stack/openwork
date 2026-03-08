@@ -19,7 +19,7 @@ export const metadata = {
   description:
     "OpenWork is the open-source Cowork alternative powered by OpenCode—run local-first workflows with any model, and extend with skills.",
   icons: {
-    icon: "/opencode-mark.svg"
+    icon: "/openwork-mark.svg"
   }
 };
 

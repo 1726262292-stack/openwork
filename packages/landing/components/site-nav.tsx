@@ -39,7 +39,7 @@ export function SiteNav(props: Props) {
             className="group inline-flex items-center gap-2"
             onClick={() => setMobileOpen(false)}
           >
-            <OpenWorkMark className="h-[30px] w-[38px] text-[#011627] transition-opacity group-hover:opacity-80" />
+            <OpenWorkMark className="h-[30px] w-[38px] transition-opacity group-hover:opacity-80" />
             <span className="text-[1.2rem] font-semibold tracking-tight text-[#011627] lowercase md:text-[1.3rem]">
               OpenWork
             </span>

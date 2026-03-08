@@ -1329,7 +1329,7 @@ function createRoutes(config: ServerConfig, approvals: ApprovalService, tokens: 
     return jsResponse(TOY_UI_JS);
   });
 
-  addRoute(routes, "GET", "/ui/assets/opencode-mark.svg", "none", async () => {
+  addRoute(routes, "GET", "/ui/assets/openwork-mark.svg", "none", async () => {
     if (!resolveToyUiEnabled()) {
       throw new ApiError(404, "ui_disabled", "Toy UI is disabled");
     }
