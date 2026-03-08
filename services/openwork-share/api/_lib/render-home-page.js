@@ -10,40 +10,18 @@ export function renderHomePage(req) {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Package Your Worker - OpenWork Share</title>
-  <meta name="description" content="Drag and drop OpenWork skills, agents, commands, or MCP config to publish a shareable worker package." />
+  <meta name="description" content="Drag and drop skills, agents, commands, or MCP configs here to create beautiful shareable links." />
   <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Package Your Worker" />
-  <meta property="og:description" content="Drop skills, agents, or MCPs into OpenWork Share and publish a worker package in one move." />
+  <meta property="og:description" content="Drop skills, agents, commands, or MCP configs into OpenWork Share to create beautiful shareable links." />
   <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
   <meta property="og:image" content="${escapeHtml(ogImageUrl)}" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Package Your Worker" />
-  <meta name="twitter:description" content="Drop skills, agents, or MCPs into OpenWork Share and publish a worker package in one move." />
+  <meta name="twitter:description" content="Drop skills, agents, commands, or MCP configs into OpenWork Share to create beautiful shareable links." />
   <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}" />
   <style>
-    :root {
-      color-scheme: light;
-      --ow-bg: #f6f9fc;
-      --ow-ink: #011627;
-      --ow-muted: #5f6b7a;
-      --ow-card: rgba(255, 255, 255, 0.78);
-      --ow-card-strong: rgba(255, 255, 255, 0.92);
-      --ow-border: rgba(255, 255, 255, 0.72);
-      --ow-border-soft: rgba(148, 163, 184, 0.2);
-      --ow-shadow: 0 24px 70px -28px rgba(15, 23, 42, 0.18);
-      --ow-shadow-strong: 0 28px 80px -28px rgba(15, 23, 42, 0.26);
-      --ow-primary: #011627;
-      --ow-primary-hover: #0d2336;
-      --ow-skill: linear-gradient(135deg, #f97316, #facc15);
-      --ow-agent: linear-gradient(135deg, #1d4ed8, #60a5fa);
-      --ow-mcp: linear-gradient(135deg, #0f766e, #2dd4bf);
-      --ow-command: linear-gradient(135deg, #7c3aed, #c084fc);
-      --ow-ease: ${SHARE_EASE};
-      --ow-sans: Inter, "Segoe UI", "Helvetica Neue", sans-serif;
-      --ow-accent: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
-    }
-
     @font-face {
       font-family: "FK Raster Roman Compact Smooth";
       src: url("https://openwork.software/fonts/FKRasterRomanCompact-Smooth.woff2") format("woff2");
@@ -51,184 +29,111 @@ export function renderHomePage(req) {
       font-style: normal;
       font-display: swap;
     }
+    :root {
+      color-scheme: light;
+      --ow-bg: #f6f9fc;
+      --ow-ink: #011627;
+      --ow-muted: #5f6b7a;
+      --ow-card: #ffffff;
+      --ow-border: rgba(148, 163, 184, 0.16);
+      --ow-shadow: 0 20px 60px -24px rgba(15, 23, 42, 0.18);
+      --ow-primary: #011627;
+      --ow-ease: ${SHARE_EASE};
+      --ow-sans: Inter, "Segoe UI", "Helvetica Neue", sans-serif;
+      --ow-accent: "FK Raster Roman Compact Smooth", "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+    }
+
+    * { box-sizing: border-box; }
     [hidden] { display: none !important; }
     html, body { min-height: 100%; }
     body {
       margin: 0;
       font-family: var(--ow-sans);
       color: var(--ow-ink);
-      background:
-        radial-gradient(circle at top left, rgba(251, 191, 36, 0.34), transparent 34%),
-        radial-gradient(circle at top right, rgba(96, 165, 250, 0.28), transparent 30%),
-        radial-gradient(circle at bottom right, rgba(244, 114, 182, 0.14), transparent 28%),
-        linear-gradient(180deg, #fbfdff 0%, var(--ow-bg) 100%);
+      background-color: var(--ow-bg);
       overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
-    body::before {
+    /* Landing Page Slate Mesh Background */
+    body::after {
       content: "";
-      position: fixed;
-      inset: 0;
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 60vw;
+      height: 80vh;
+      background: radial-gradient(circle at 70% 30%, rgba(100, 116, 139, 0.25) 0%, transparent 60%);
+      filter: blur(60px);
+      z-index: 0;
       pointer-events: none;
-      background-image:
-        radial-gradient(rgba(1, 22, 39, 0.055) 0.75px, transparent 0.75px),
-        radial-gradient(rgba(1, 22, 39, 0.03) 0.6px, transparent 0.6px);
-      background-position: 0 0, 18px 18px;
-      background-size: 36px 36px;
-      opacity: 0.34;
-      mix-blend-mode: multiply;
     }
 
     a { color: inherit; }
 
     .shell {
       position: relative;
-      z-index: 1;
-      width: min(100%, 1200px);
+      z-index: 10;
+      width: min(100%, 1024px);
       margin: 0 auto;
-      padding: 28px 18px 48px;
+      padding: 8px 32px 64px;
     }
 
+    /* Navigation */
     .nav {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 28px;
-    }
-
-    .brand,
-    .nav-link,
-    .secondary-pill,
-    .copy-button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      min-height: 48px;
-      padding: 0 20px;
-      border-radius: 999px;
-      text-decoration: none;
-      background: rgb(255, 255, 255);
-      border: 0;
-      color: rgb(0, 0, 0);
-      box-shadow:
-        rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
-        rgba(0, 0, 0, 0.04) 0px 1px 2px 0px;
+      height: 80px;
+      margin-bottom: 40px;
     }
 
     .brand {
-      background: rgba(255, 255, 255, 0.62);
-      border: 1px solid rgba(255, 255, 255, 0.78);
-      box-shadow: 0 18px 40px -30px rgba(15, 23, 42, 0.3);
-      backdrop-filter: blur(12px);
-    }
-
-    .nav-link {
-      background: transparent;
-      border: 0;
-      box-shadow: none;
-      color: var(--ow-muted);
-      font-weight: 500;
-    }
-
-    .nav-link:hover {
-      background: transparent;
-      box-shadow: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 20px;
+      letter-spacing: -0.02em;
       color: var(--ow-ink);
     }
 
-    .brand:hover {
-      transform: translateY(-1px);
-    }
-
-    .secondary-pill:hover,
-    .copy-button:hover {
-      background: rgb(242, 242, 242);
-      color: rgb(0, 0, 0);
-      box-shadow:
-        rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
-        rgba(0, 0, 0, 0.04) 0px 1px 2px 0px,
-        rgba(0, 0, 0, 0.04) 0px 2px 4px 0px;
-    }
-
-    .brand {
-      display: inline-flex;
-      align-items: center;
-      gap: 12px;
-      text-decoration: none;
-      padding: 12px 18px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.62);
-      border: 1px solid rgba(255, 255, 255, 0.78);
-      box-shadow: 0 18px 40px -30px rgba(15, 23, 42, 0.3);
-      backdrop-filter: blur(12px);
-    }
-
-    .brand:hover { transform: translateY(-1px); }
-
     .brand-mark {
-      width: 14px;
-      height: 14px;
-      border-radius: 999px;
-      background: linear-gradient(135deg, #011627, #1d4ed8 60%, #60a5fa);
-      box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.85);
+      width: 24px;
+      height: 24px;
+      background: url('data:image/svg+xml;utf8,<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="%23011627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>') no-repeat center center;
     }
 
-    .brand-label { display: grid; gap: 1px; }
-    .brand-title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-    .brand-subtitle { font-size: 12px; color: var(--ow-muted); }
+    .nav-links {
+      display: none;
+    }
+    
+    @media (min-width: 768px) {
+      .nav-links {
+        display: flex;
+        gap: 32px;
+        font-size: 15px;
+        color: var(--ow-muted);
+        font-weight: 500;
+      }
+      .nav-links a {
+        text-decoration: none;
+        transition: color 0.2s;
+      }
+      .nav-links a:hover {
+        color: var(--ow-ink);
+      }
+    }
 
-    .nav-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
 
-    .nav-link,
-    .ghost-pill,
-    .secondary-pill,
-    .copy-button {
+    /* Buttons */
+    .button-primary {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 44px;
-      padding: 0 18px;
-      border-radius: 999px;
-      text-decoration: none;
-      background: rgba(255, 255, 255, 0.62);
-      border: 1px solid rgba(255, 255, 255, 0.78);
-      box-shadow: 0 18px 40px -30px rgba(15, 23, 42, 0.22);
-      backdrop-filter: blur(12px);
-    }
-
-    .nav-link:hover,
-    .ghost-pill:hover,
-    .secondary-pill:hover,
-    .copy-button:hover {
-      background: rgb(242, 242, 242);
-      box-shadow:
-        rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
-        rgba(0, 0, 0, 0.04) 0px 1px 2px 0px,
-        rgba(0, 0, 0, 0.04) 0px 2px 4px 0px;
-    }
-
-    .secondary-pill:disabled,
-    .upload-trigger:disabled {
-      cursor: not-allowed;
-      opacity: 0.55;
-      transform: none;
-      box-shadow: 0 10px 26px -22px rgba(15, 23, 42, 0.18);
-    }
-
-    .secondary-pill:disabled:hover,
-    .upload-trigger:disabled:hover {
-      background: rgba(255, 255, 255, 0.62);
-      box-shadow: 0 10px 26px -22px rgba(15, 23, 42, 0.18);
-    }
-
-    .primary-pill,
-    .upload-trigger {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
       min-height: 48px;
       padding: 0 24px;
       border-radius: 999px;
@@ -238,12 +143,14 @@ export function renderHomePage(req) {
       color: #fff;
       background: var(--ow-primary);
       box-shadow: 0 14px 32px -16px rgba(1, 22, 39, 0.55);
-      font: inherit;
+      font-family: inherit;
       font-weight: 500;
+      font-size: 16px;
+      transition: all 300ms var(--ow-ease);
+      will-change: transform, background-color, box-shadow;
     }
 
-    .primary-pill:hover,
-    .upload-trigger:hover {
+    .button-primary:hover {
       background: rgb(110, 110, 110);
       transform: translateY(-1px);
       box-shadow:
@@ -251,382 +158,294 @@ export function renderHomePage(req) {
         rgba(0, 0, 0, 0.04) 0px 1px 2px 0px,
         rgba(0, 0, 0, 0.04) 0px 2px 4px 0px;
     }
-
-    .hero-card {
-      position: relative;
-      overflow: hidden;
-      border-radius: 2rem;
-      border: 1px solid var(--ow-border);
-      background: var(--ow-card);
-      box-shadow: 0 20px 60px -15px rgba(0, 0, 0, 0.1);
-      backdrop-filter: blur(22px);
-      padding: clamp(24px, 4vw, 42px);
+    
+    .button-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+      background: var(--ow-primary);
+      box-shadow: 0 14px 32px -16px rgba(1, 22, 39, 0.55);
     }
 
-    .hero-card::before,
-    .hero-card::after {
-      content: "";
-      position: absolute;
-      border-radius: 999px;
-      pointer-events: none;
-      filter: blur(2px);
-    }
-
-    .hero-card::before {
-      top: -60px;
-      right: -40px;
-      width: 240px;
-      height: 240px;
-      background: radial-gradient(circle, rgba(251, 191, 36, 0.28), rgba(251, 191, 36, 0));
-    }
-
-    .hero-card::after {
-      left: -20px;
-      bottom: -80px;
-      width: 260px;
-      height: 260px;
-      background: radial-gradient(circle, rgba(96, 165, 250, 0.24), rgba(96, 165, 250, 0));
-    }
-
-    .hero-layout {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      gap: 24px;
-      grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
-      align-items: stretch;
-    }
-
-    .hero-copy { display: grid; gap: 18px; }
-    .eyebrow {
+    .button-secondary {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      width: fit-content;
-      min-height: 34px;
-      padding: 0 14px;
+      justify-content: center;
+      min-height: 48px;
+      padding: 0 24px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.9);
-      border: 1px solid rgba(255, 255, 255, 0.95);
-      box-shadow: 0 14px 32px -26px rgba(15, 23, 42, 0.28);
-      color: #526172;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
+      text-decoration: none;
+      background: rgb(255, 255, 255);
+      color: rgb(0, 0, 0);
+      border: none;
+      box-shadow:
+        rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
+        rgba(0, 0, 0, 0.04) 0px 1px 2px 0px;
+      font-family: inherit;
+      font-weight: 500;
+      font-size: 16px;
+      transition: all 300ms var(--ow-ease);
+      cursor: pointer;
+      will-change: transform, background-color, box-shadow;
     }
 
-    .hero-title {
-      margin: 0;
-      max-width: 12ch;
-      font-size: clamp(3rem, 8vw, 5.5rem);
-      line-height: 0.92;
-      letter-spacing: -0.08em;
-      font-weight: 700;
+    .button-secondary:hover {
+      background: rgb(242, 242, 242);
+      box-shadow:
+        rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
+        rgba(0, 0, 0, 0.04) 0px 1px 2px 0px,
+        rgba(0, 0, 0, 0.04) 0px 2px 4px 0px;
     }
 
-    .hero-title em {
+    /* Layout */
+    .hero-layout {
+      display: flex;
+      flex-direction: column;
+      gap: 64px;
+    }
+    @media (min-width: 1024px) {
+      .hero-layout {
+        flex-direction: row;
+        align-items: center;
+      }
+    }
+
+    /* Left Column: Hero Copy */
+    .hero-copy {
+      flex: 1.1;
+      max-width: 600px;
+    }
+
+    h1 {
+      margin: 0 0 24px 0;
+      font-size: clamp(3rem, 5.5vw, 4.5rem);
+      line-height: 1.1;
+      letter-spacing: -0.04em;
+      font-weight: 500;
+      color: var(--ow-ink);
+    }
+
+    h1 em {
       font-style: normal;
       font-family: var(--ow-accent);
       font-weight: 400;
-      letter-spacing: normal;
+      font-size: 1.05em;
+      display: inline-block;
+      vertical-align: baseline;
     }
 
     .hero-body {
-      margin: 0;
-      max-width: 48ch;
-      color: var(--ow-muted);
-      font-size: 17px;
-      line-height: 1.7;
+      margin: 0 0 32px 0;
+      font-size: 20px;
+      line-height: 1.6;
+      color: #374151; /* gray-700 */
+      max-width: 500px;
     }
 
-    .hero-actions {
+    .hero-artifact {
+      flex: 1;
+      width: 100%;
+      max-width: 560px;
+    }
+
+    .simple-app {
+      display: grid;
+      gap: 16px;
+      padding: 24px;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.72);
+      border-radius: 28px;
+      box-shadow: 0 24px 60px -28px rgba(15, 23, 42, 0.18);
+    }
+
+    .simple-app-header {
+      display: grid;
+      gap: 6px;
+    }
+
+    .simple-app-title {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 500;
+      letter-spacing: -0.03em;
+    }
+
+    .simple-app-copy {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--ow-muted);
+    }
+
+    .paste-panel {
+      display: grid;
+      gap: 12px;
+    }
+
+    .paste-panel textarea {
+      width: 100%;
+      min-height: 180px;
+      resize: vertical;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 16px;
+      padding: 14px 16px;
+      font: inherit;
+      color: var(--ow-ink);
+      background: rgba(255, 255, 255, 0.96);
+    }
+
+    .paste-panel textarea:focus {
+      outline: 2px solid rgba(36, 99, 235, 0.18);
+      outline-offset: 2px;
+      border-color: rgba(36, 99, 235, 0.34);
+    }
+
+    .paste-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--ow-muted);
+    }
+
+    .paste-actions {
       display: flex;
       flex-wrap: wrap;
       gap: 12px;
       align-items: center;
     }
 
-    .hero-footnote {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      color: #526172;
-      font-size: 13px;
-    }
-
-    .hero-footnote span {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 14px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.76);
-      border: 1px solid rgba(255, 255, 255, 0.88);
-    }
-
-    .upload-panel,
-    .stats-panel,
-    .result-panel {
-      display: grid;
-      gap: 16px;
-      border-radius: 2rem;
-      padding: 24px;
-      border: 1px solid var(--ow-border);
-      background: var(--ow-card);
-      box-shadow: 0 20px 60px -15px rgba(0, 0, 0, 0.1);
-      backdrop-filter: blur(16px);
-    }
-
-    .panel-title { display: grid; gap: 6px; }
-    .panel-title h2,
-    .panel-title h3 { margin: 0; font-size: 26px; letter-spacing: -0.04em; }
-    .panel-title p,
-    .support-copy,
-    .status-message,
-    .hint-copy,
-    .result-url-label,
-    .item-subtext {
-      margin: 0;
-      color: var(--ow-muted);
-      line-height: 1.6;
-    }
-
     .drop-zone {
-      position: relative;
-      min-height: 250px;
-      border-radius: 1.5rem;
-      border: 1.5px dashed rgba(113, 128, 150, 0.32);
-      background: var(--ow-card-soft);
-      padding: 24px;
-      display: grid;
-      gap: 18px;
-      align-content: start;
+      border: 1px dashed rgba(148, 163, 184, 0.4);
+      border-radius: 20px;
+      padding: 32px 24px;
+      text-align: center;
+      background: #fafafa;
       cursor: pointer;
-      transition:
-        border-color 300ms var(--ow-ease),
-        background-color 300ms var(--ow-ease),
-        box-shadow 300ms var(--ow-ease),
-        transform 300ms var(--ow-ease);
-    }
-
-    .drop-zone:hover,
-    .drop-zone.is-dragover {
-      border-color: rgba(37, 99, 235, 0.28);
-      background: linear-gradient(180deg, rgba(239, 246, 255, 0.96), rgba(255, 255, 255, 0.86));
-      box-shadow: 0 18px 46px -34px rgba(37, 99, 235, 0.42);
-      transform: translateY(-1px);
-    }
-
-    .drop-zone[aria-busy="true"] { cursor: progress; }
-
-    .upload-icon {
-      width: 58px;
-      height: 58px;
-      display: grid;
-      place-items: center;
-      border-radius: 999px;
-      background: linear-gradient(135deg, rgba(59, 130, 246, 0.14), rgba(14, 165, 233, 0.18));
-      color: #1d4ed8;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-    }
-
-    .upload-icon svg { width: 24px; height: 24px; }
-
-    .drop-headline { margin: 0; font-size: 20px; letter-spacing: -0.04em; }
-    .drop-subcopy { margin: 0; color: var(--ow-muted); font-size: 14px; }
-
-    .support-copy strong,
-    .status-message strong { color: var(--ow-ink); }
-
-    .included-label {
-      margin: 0;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: #738193;
-    }
-
-    .included-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      display: grid;
-      gap: 10px;
-    }
-
-    .included-item,
-    .stat-card {
+      transition: all 0.2s ease;
       display: flex;
+      flex-direction: column;
       align-items: center;
-      gap: 14px;
-      padding: 14px;
-      border-radius: 1.5rem;
-      border: 1px solid var(--ow-border);
-      background: var(--ow-card-soft);
-      box-shadow: 0 10px 24px -20px rgba(15, 23, 42, 0.18);
+      gap: 16px;
     }
-
-    .included-item .icon {
-      width: 40px;
-      height: 40px;
-      border-radius: 14px;
-      flex: 0 0 auto;
-      background: var(--ow-agent);
-      display: grid;
-      place-items: center;
-      color: white;
-      font-size: 13px;
-      font-weight: 700;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    .drop-zone:hover, .drop-zone.is-dragover {
+      border-color: rgba(37, 99, 235, 0.4);
+      background: #f0f7ff;
     }
+    .drop-zone[aria-busy="true"] { cursor: progress; opacity: 0.7; }
 
-    .included-item[data-tone="skill"] .icon { background: var(--ow-skill); }
-    .included-item[data-tone="agent"] .icon { background: var(--ow-agent); }
-    .included-item[data-tone="mcp"] .icon { background: var(--ow-mcp); }
-    .included-item[data-tone="command"] .icon { background: var(--ow-command); }
-
-    .item-copy {
-      min-width: 0;
-      display: grid;
-      gap: 4px;
-      flex: 1 1 auto;
-    }
-
-    .item-title {
-      font-size: 15px;
-      font-weight: 600;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .pill-ok {
-      display: inline-flex;
+    .drop-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: #ffffff;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      display: flex;
       align-items: center;
       justify-content: center;
-      width: 24px;
-      height: 24px;
-      border-radius: 999px;
-      background: rgba(34, 197, 94, 0.12);
-      color: #15803d;
-      flex: 0 0 auto;
+      color: #3b82f6;
     }
+    .drop-icon svg { width: 24px; height: 24px; }
 
-    .grid-panels {
-      display: grid;
-      gap: 18px;
-      margin-top: 22px;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+    .drop-text h3 { margin: 0 0 8px 0; font-size: 18px; font-weight: 500; color: var(--ow-ink); }
+    .drop-text p { margin: 0; font-size: 14px; color: var(--ow-muted); line-height: 1.5; }
+
+    /* Included Items list */
+    .included-section {
+      margin-top: 24px;
+      text-align: left;
+      width: 100%;
     }
-
-    .stat-card {
-      align-items: flex-start;
-      flex-direction: column;
-      gap: 8px;
-      min-height: 148px;
-    }
-
-    .stat-label {
+    .included-section h4 {
+      margin: 0 0 12px 0;
       font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.16em;
+      font-weight: 600;
       text-transform: uppercase;
-      color: #738193;
-    }
-
-    .stat-value {
-      font-size: 42px;
-      line-height: 0.95;
-      letter-spacing: -0.08em;
-      font-weight: 700;
-    }
-
-    .stats-list,
-    .warnings-list,
-    .result-actions { display: grid; gap: 10px; }
-    .warnings-list { margin: 0; padding-left: 18px; color: #9a3412; }
-
-    .status-line {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      min-height: 24px;
-      font-size: 14px;
+      letter-spacing: 0.05em;
       color: var(--ow-muted);
     }
+    .included-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .included-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: #f8fafc;
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      border-radius: 12px;
+    }
+    .item-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .item-dot {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+    }
+    /* Agent solid colors matching landing */
+    .dot-agent { background: #f97316; }
+    .dot-skill { background: #2463eb; }
+    .dot-mcp { background: #0f9f7f; }
+    .dot-command { background: #8b5cf6; }
 
-    .spinner {
-      width: 18px;
-      height: 18px;
-      border-radius: 999px;
-      border: 2px solid rgba(59, 130, 246, 0.18);
-      border-top-color: #2563eb;
-      animation: spin 1s linear infinite;
-      display: none;
+    .item-title { font-size: 14px; font-weight: 500; color: var(--ow-ink); }
+    .item-meta { font-size: 12px; color: var(--ow-muted); }
+    
+    .status-area {
+      margin-top: 20px;
+      font-size: 13px;
+      color: var(--ow-muted);
+      text-align: center;
     }
 
-    .status-line[data-busy="true"] .spinner { display: inline-block; }
+    /* Results layout */
+    .results-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 24px;
+      margin-top: 64px;
+    }
+    @media (min-width: 768px) {
+      .results-grid { grid-template-columns: 1fr 1fr; }
+    }
 
-    .result-url {
-      word-break: break-all;
-      padding: 14px 16px;
-      border-radius: 1rem;
-      background: var(--ow-card-soft);
+    .result-card {
+      background: #ffffff;
       border: 1px solid var(--ow-border);
-      font-size: 14px;
-      line-height: 1.5;
-      box-shadow: 0 10px 24px -20px rgba(15, 23, 42, 0.18);
+      border-radius: 1.5rem;
+      padding: 32px;
+      box-shadow: var(--ow-shadow);
     }
+    .result-card h3 { margin: 0 0 8px 0; font-size: 20px; font-weight: 500; }
+    .result-card p { margin: 0 0 24px 0; font-size: 15px; color: var(--ow-muted); line-height: 1.6; }
 
-    .result-actions {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+    .url-box {
+      background: #f8fafc;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 12px;
+      padding: 16px;
+      font-family: ui-monospace, monospace;
+      font-size: 13px;
+      color: var(--ow-ink);
+      word-break: break-all;
+      margin-bottom: 16px;
     }
-
-    .result-actions .primary-pill,
-    .result-actions .copy-button,
-    .result-actions .secondary-pill {
-      width: 100%;
-      min-height: 46px;
+    
+    .warnings-list {
+      margin: 0; padding-left: 20px; color: #b91c1c; font-size: 14px; line-height: 1.6;
     }
 
     .visually-hidden {
       position: absolute;
-      width: 1px;
-      height: 1px;
-      padding: 0;
-      margin: -1px;
-      overflow: hidden;
-      clip: rect(0, 0, 0, 0);
-      white-space: nowrap;
-      border: 0;
-    }
-
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    @media (max-width: 960px) {
-      .hero-layout,
-      .grid-panels,
-      .result-actions { grid-template-columns: 1fr; }
-      .hero-title { max-width: none; }
-    }
-
-    @media (max-width: 640px) {
-      .shell { padding: 18px 14px 40px; }
-      .nav { align-items: stretch; flex-direction: column; }
-      .nav-actions { justify-content: stretch; }
-      .nav-link,
-      .ghost-pill,
-      .primary-pill,
-      .secondary-pill,
-      .copy-button,
-      .upload-trigger { width: 100%; }
-      .hero-card,
-      .upload-panel,
-      .stats-panel,
-      .result-panel { border-radius: 28px; padding: 20px; }
-      .hero-title { font-size: 3.4rem; }
+      width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
     }
   </style>
 </head>
@@ -635,204 +454,192 @@ export function renderHomePage(req) {
     <nav class="nav">
       <a class="brand" href="/" aria-label="OpenWork Share home">
         <span class="brand-mark" aria-hidden="true"></span>
-        <span class="brand-label">
-          <span class="brand-title">OpenWork Share</span>
-          <span class="brand-subtitle">Package and ship worker setup</span>
-        </span>
+        <span>openwork</span>
       </a>
+      <div class="nav-links">
+        <a href="https://openwork.software/docs" target="_blank" rel="noreferrer">Docs</a>
+        <a href="${escapeHtml(OPENWORK_DOWNLOAD_URL)}" target="_blank" rel="noreferrer">Download</a>
+        <a href="https://openwork.software/enterprise" target="_blank" rel="noreferrer">Enterprise</a>
+      </div>
       <div class="nav-actions">
-        <a class="nav-link" href="${escapeHtml(OPENWORK_SITE_URL)}" target="_blank" rel="noreferrer">OpenWork</a>
-        <a class="nav-link" href="${escapeHtml(OPENWORK_DOWNLOAD_URL)}" target="_blank" rel="noreferrer">Download app</a>
+        <a class="button-secondary" href="https://github.com/different-ai/openwork" target="_blank" rel="noreferrer">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+          GitHub
+        </a>
       </div>
     </nav>
 
-    <section class="hero-card">
-      <div class="hero-layout">
-        <div class="hero-copy">
-          <span class="eyebrow">OpenWork Share Service</span>
-          <h1 class="hero-title">Package <em>Your</em> Worker</h1>
-          <p class="hero-body">Drag and drop skills, agents, or MCPs here to bundle them into a share link that opens straight into a new OpenWork worker.</p>
-          <div class="hero-actions">
-            <button class="upload-trigger" type="button" id="browse-files">Drop OpenWork files here</button>
-            <button class="secondary-pill" type="button" id="generate-link" disabled>Generate share link</button>
-          </div>
-          <div class="hero-footnote">
-            <span>Reads OpenWork skills, commands, agents, and OpenCode/OpenWork config.</span>
-            <span>Rejects config that appears to contain secrets.</span>
-          </div>
-        </div>
+    <section class="hero-layout">
+      <div class="hero-copy">
+        <h1>Package <em>Your</em><br/>Worker</h1>
+        <p class="hero-body">Drag and drop skills, agents, commands, or MCP configs here to create beautiful shareable links.</p>
+        <p style="margin-top: 16px; font-size: 13px; color: var(--ow-muted);">Ignores files that look like they contain secrets.</p>
+      </div>
 
-        <section class="upload-panel">
-          <div class="panel-title">
-            <h2>Drop OpenWork files here</h2>
-            <p>or click to browse local files</p>
+      <div class="hero-artifact">
+        <div class="simple-app">
+          <div class="simple-app-header">
+            <h2 class="simple-app-title">Create a share link</h2>
+            <p class="simple-app-copy">Drop files, paste a skill, then generate one clean shareable link.</p>
           </div>
-
           <div class="drop-zone" id="drop-zone" role="button" tabindex="0" aria-busy="false">
-            <div class="upload-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="17 8 12 3 7 8"></polyline>
-                <line x1="12" y1="3" x2="12" y2="15"></line>
-              </svg>
+            <div class="drop-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
             </div>
-            <div>
-              <h3 class="drop-headline">Drop OpenWork files here</h3>
-              <p class="drop-subcopy">Skills, agents, commands, <code>opencode.json</code>, <code>opencode.jsonc</code>, or <code>openwork.json</code>.</p>
+            <div class="drop-text">
+              <h3>Drop files here</h3>
+              <p>or click to browse local files</p>
             </div>
-            <p class="support-copy"><strong>Included</strong></p>
-            <ul class="included-list" id="included-list">
-              <li class="included-item" data-tone="agent">
-                <div class="icon" aria-hidden="true">AI</div>
-                <div class="item-copy">
-                  <div class="item-title">Sales Inbound</div>
-                  <p class="item-subtext">Agent · v1.2.0</p>
-                </div>
-                <span class="pill-ok" aria-hidden="true">✓</span>
-              </li>
-            </ul>
-          </div>
 
-          <p class="hint-copy" id="file-summary">Nothing selected yet. Drop a worker folder or a few OpenWork files to preview the package.</p>
-          <div class="status-line" id="status-line" data-busy="false">
-            <span class="spinner" aria-hidden="true"></span>
-            <span id="status-text">Waiting for files.</span>
+            <div class="included-section" id="included-section" hidden>
+              <h4>Included Items</h4>
+              <div class="included-list" id="included-list">
+                <!-- Items injected here -->
+              </div>
+            </div>
+          </div>
+          <div class="paste-panel" id="paste-panel">
+            <textarea id="paste-input" placeholder="Paste a full SKILL.md file here, including frontmatter and markdown instructions."></textarea>
+            <div class="paste-meta">
+              <span id="paste-status">Paste one skill and we will package it like a dropped file.</span>
+              <span id="paste-count">0 characters</span>
+            </div>
+            <div class="paste-actions">
+              <button class="button-secondary" type="button" id="paste-clipboard">Paste from clipboard</button>
+            </div>
+          </div>
+          <button class="button-primary" type="button" id="generate-link" disabled>Generate share link</button>
+          <div class="status-area" id="status-line" data-busy="false">
+            <span id="status-text">Nothing selected yet.</span>
           </div>
           <input class="visually-hidden" id="file-input" type="file" multiple />
-        </section>
+        </div>
       </div>
     </section>
 
-    <section class="grid-panels">
-      <section class="stats-panel">
-        <div class="panel-title">
-          <h3>Bundle shape</h3>
-          <p>We infer the smallest useful OpenWork bundle type from the files you drop.</p>
+    <section class="results-grid" id="results-area" hidden>
+      <div class="result-card">
+        <h3>Share link ready</h3>
+        <p>Your worker package is published. Anyone with this link can import it directly into OpenWork.</p>
+        <div class="url-box" id="result-url"></div>
+        <div style="display: flex; gap: 12px;">
+          <a class="button-primary" id="open-result" href="#" target="_blank">Open share page</a>
+          <button class="button-secondary" id="copy-result" type="button">Copy link</button>
         </div>
-        <div class="stats-list" id="stats-list">
-          <article class="stat-card">
-            <div class="stat-label">Bundle type</div>
-            <div class="stat-value" id="bundle-type">-</div>
-            <p class="status-message">Drop files to see whether this becomes a skill, a skills set, or a full worker package.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="stats-panel">
-        <div class="panel-title">
-          <h3>Warnings</h3>
-          <p>We ignore unsupported files and stop when config looks like it contains secrets.</p>
-        </div>
+      </div>
+      <div class="result-card">
+        <h3>Warnings</h3>
+        <p>Review any files that were skipped.</p>
         <ul class="warnings-list" id="warnings-list">
-          <li>Secret-looking config values never get published.</li>
-          <li>Unsupported files stay local and are skipped.</li>
+          <!-- Warnings injected here -->
         </ul>
-      </section>
-
-      <section class="result-panel">
-        <div class="panel-title">
-          <h3>Share link</h3>
-          <p>Generate a worker package and jump straight to the public share page.</p>
-        </div>
-        <p class="result-url-label">Latest generated URL</p>
-        <div class="result-url" id="result-url">No link yet.</div>
-        <div class="result-actions">
-          <a class="primary-pill" id="open-result" href="#" hidden>Open share page</a>
-          <button class="copy-button" id="copy-result" type="button" hidden>Copy link</button>
-        </div>
-      </section>
+      </div>
     </section>
+
   </main>
 
   <script>
     const fileInput = document.getElementById("file-input");
-    const browseButton = document.getElementById("browse-files");
     const generateButton = document.getElementById("generate-link");
     const dropZone = document.getElementById("drop-zone");
     const statusLine = document.getElementById("status-line");
     const statusText = document.getElementById("status-text");
+    const includedSection = document.getElementById("included-section");
     const includedList = document.getElementById("included-list");
     const warningsList = document.getElementById("warnings-list");
-    const bundleTypeNode = document.getElementById("bundle-type");
-    const fileSummary = document.getElementById("file-summary");
+    const resultsArea = document.getElementById("results-area");
     const resultUrl = document.getElementById("result-url");
     const openResult = document.getElementById("open-result");
     const copyResult = document.getElementById("copy-result");
+    const pastePanel = document.getElementById("paste-panel");
+    const pasteInput = document.getElementById("paste-input");
+    const pasteStatus = document.getElementById("paste-status");
+    const pasteCount = document.getElementById("paste-count");
+    const pasteClipboardButton = document.getElementById("paste-clipboard");
 
-    let selectedFiles = [];
+    let selectedEntries = [];
     let latestPreview = null;
     let latestGeneratedUrl = "";
+
+    function hasUsablePastedSkill() {
+      return Boolean((pasteInput.value || "").trim());
+    }
 
     function setBusy(busy, message) {
       statusLine.dataset.busy = busy ? "true" : "false";
       statusText.textContent = message;
       dropZone.setAttribute("aria-busy", busy ? "true" : "false");
-      generateButton.disabled = busy || selectedFiles.length === 0 || !latestPreview;
-      browseButton.disabled = busy;
+      generateButton.disabled = busy || (!selectedEntries.length && !hasUsablePastedSkill()) || !latestPreview;
+    }
+
+    function updatePasteCount() {
+      const count = (pasteInput.value || "").trim().length;
+      pasteCount.textContent = count + (count === 1 ? " character" : " characters");
+    }
+
+    function buildVirtualEntry(name, path, content) {
+      const safeName = name || "pasted-skill.md";
+      const safePath = path || ".opencode/skills/pasted-skill/SKILL.md";
+      return {
+        name: safeName,
+        path: safePath,
+        async read() {
+          return String(content || "");
+        },
+      };
+    }
+
+    function normalizeEntriesFromFiles(files) {
+      return Array.from(files || []).filter(Boolean).map((file) => ({
+        name: file.name,
+        path: file.relativePath || file.webkitRelativePath || file.name,
+        async read() {
+          return await file.text();
+        },
+      }));
     }
 
     function toneInitial(kind) {
-      if (kind === "MCP") return "MC";
-      if (kind === "Command") return "/";
-      return kind.slice(0, 2).toUpperCase();
+      if (kind === "MCP") return "mcp";
+      if (kind === "Command") return "command";
+      if (kind === "Agent") return "agent";
+      return "skill";
     }
 
     function renderItems(items) {
-      const entries = Array.isArray(items) && items.length ? items : [{ name: "Sales Inbound", kind: "Agent", meta: "v1.2.0", tone: "agent" }];
-      includedList.innerHTML = entries.map((item) => {
-        const tone = item.tone || "skill";
-        return '<li class="included-item" data-tone="' + tone + '">' +
-          '<div class="icon" aria-hidden="true">' + toneInitial(item.kind || "Item") + '</div>' +
-          '<div class="item-copy">' +
-            '<div class="item-title">' + escapeHtml(item.name || "Unnamed item") + '</div>' +
-            '<p class="item-subtext">' + escapeHtml((item.kind || "Item") + ' · ' + (item.meta || "Ready to bundle")) + '</p>' +
+      if (!items || !items.length) {
+        includedSection.hidden = true;
+        return;
+      }
+      includedSection.hidden = false;
+      includedList.innerHTML = items.map((item) => {
+        const dotClass = "dot-" + toneInitial(item.kind);
+        return '<div class="included-item">' +
+          '<div class="item-left">' +
+            '<div class="item-dot ' + dotClass + '"></div>' +
+            '<span class="item-title">' + escapeHtml(item.name || "Unnamed item") + '</span>' +
           '</div>' +
-          '<span class="pill-ok" aria-hidden="true">✓</span>' +
-        '</li>';
+          '<span class="item-meta">' + escapeHtml(item.kind || "Item") + '</span>' +
+        '</div>';
       }).join("");
     }
 
     function renderWarnings(warnings) {
       if (!Array.isArray(warnings) || !warnings.length) {
-        warningsList.innerHTML = '<li>No warnings. This package is ready to publish.</li>';
+        warningsList.innerHTML = '<li style="color: #64748b; list-style: none; margin-left: -20px;">No warnings. Package is clean.</li>';
         return;
       }
       warningsList.innerHTML = warnings.map((warning) => '<li>' + escapeHtml(warning) + '</li>').join("");
     }
 
-    function renderBundleType(preview) {
-      if (!preview) {
-        bundleTypeNode.textContent = "-";
-        return;
-      }
-      bundleTypeNode.textContent = preview.bundleType || "workspace-profile";
-    }
-
-    function renderSummary(preview) {
-      if (!preview) {
-        fileSummary.textContent = "Nothing selected yet. Drop a worker folder or a few OpenWork files to preview the package.";
-        return;
-      }
-      const summary = preview.summary || {};
-      const parts = [];
-      if (summary.skills) parts.push(summary.skills + ' skill' + (summary.skills === 1 ? '' : 's'));
-      if (summary.agents) parts.push(summary.agents + ' agent' + (summary.agents === 1 ? '' : 's'));
-      if (summary.mcpServers) parts.push(summary.mcpServers + ' MCP' + (summary.mcpServers === 1 ? '' : 's'));
-      if (summary.commands) parts.push(summary.commands + ' command' + (summary.commands === 1 ? '' : 's'));
-      fileSummary.textContent = parts.length ? ('Included ' + parts.join(', ') + '.') : 'Files are ready to publish.';
-    }
-
     function setGeneratedUrl(url) {
       latestGeneratedUrl = url || "";
       if (!latestGeneratedUrl) {
-        resultUrl.textContent = "No link yet.";
-        openResult.hidden = true;
-        copyResult.hidden = true;
+        resultsArea.hidden = true;
         return;
       }
+      resultsArea.hidden = false;
       resultUrl.textContent = latestGeneratedUrl;
-      openResult.hidden = false;
-      copyResult.hidden = false;
       openResult.href = latestGeneratedUrl;
     }
 
@@ -840,17 +647,18 @@ export function renderHomePage(req) {
       if (!latestGeneratedUrl) return;
       try {
         await navigator.clipboard.writeText(latestGeneratedUrl);
-        statusText.textContent = "Share link copied.";
+        copyResult.textContent = "Copied!";
+        setTimeout(() => copyResult.textContent = "Copy link", 2000);
       } catch {
-        statusText.textContent = "Copy failed. You can copy the URL manually.";
+        // Fallback
       }
     }
 
     async function fileToPayload(file) {
       return {
         name: file.name,
-        path: file.relativePath || file.webkitRelativePath || file.name,
-        content: await file.text(),
+        path: file.path || file.relativePath || file.webkitRelativePath || file.name,
+        content: await file.read(),
       };
     }
 
@@ -863,29 +671,21 @@ export function renderHomePage(req) {
           }, reject);
           return;
         }
-
         if (!entry.isDirectory) {
           resolve([]);
           return;
         }
-
         const reader = entry.createReader();
         const files = [];
-
         function readBatch() {
           reader.readEntries(async (entries) => {
-            if (!entries.length) {
-              resolve(files);
-              return;
-            }
+            if (!entries.length) { resolve(files); return; }
             for (const child of entries) {
-              const nestedFiles = await flattenEntries(child, prefix + entry.name + "/");
-              files.push(...nestedFiles);
+              files.push(...await flattenEntries(child, prefix + entry.name + "/"));
             }
             readBatch();
           }, reject);
         }
-
         readBatch();
       });
     }
@@ -901,138 +701,134 @@ export function renderHomePage(req) {
           if (file) collected.push(file);
           continue;
         }
-        const files = await flattenEntries(entry, "");
-        collected.push(...files);
+        collected.push(...await flattenEntries(entry, ""));
       }
       return collected;
     }
 
     async function requestPackage(previewOnly) {
-      const payload = await Promise.all(selectedFiles.map(fileToPayload));
+      const payload = await Promise.all(selectedEntries.map(fileToPayload));
       const response = await fetch('/v1/package', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ files: payload, preview: previewOnly }),
       });
-
       let json = null;
-      try {
-        json = await response.json();
-      } catch {
-        json = null;
-      }
-
-      if (!response.ok) {
-        throw new Error(json && typeof json.message === 'string' ? json.message : 'Packaging failed.');
-      }
-
+      try { json = await response.json(); } catch {}
+      if (!response.ok) throw new Error(json?.message || 'Packaging failed.');
       return json;
     }
 
     async function refreshPreview() {
-      if (!selectedFiles.length) {
+      if (!selectedEntries.length && hasUsablePastedSkill()) {
+        selectedEntries = [buildVirtualEntry("SKILL.md", ".opencode/skills/pasted-skill/SKILL.md", pasteInput.value.trim())];
+      }
+      if (!selectedEntries.length) {
         latestPreview = null;
         renderItems(null);
-        renderWarnings(null);
-        renderBundleType(null);
-        renderSummary(null);
         setGeneratedUrl("");
-        setBusy(false, 'Waiting for files.');
+        setBusy(false, 'Nothing selected yet.');
         return;
       }
-
-      setBusy(true, 'Reading files and building a worker preview…');
+      setBusy(true, 'Reading files...');
       try {
         latestPreview = await requestPackage(true);
         renderItems(latestPreview.items);
-        renderWarnings(latestPreview.warnings);
-        renderBundleType(latestPreview);
-        renderSummary(latestPreview);
-        setBusy(false, 'Preview ready. Generate the share link when you are ready.');
+        setBusy(false, 'Preview ready. Click Generate to publish.');
       } catch (error) {
         latestPreview = null;
-        renderWarnings([error instanceof Error ? error.message : 'Preview failed.']);
-        renderBundleType(null);
-        renderSummary(null);
-        setBusy(false, error instanceof Error ? error.message : 'Preview failed.');
+        setBusy(false, error.message);
       }
     }
 
     async function publishBundle() {
-      if (!selectedFiles.length) return;
-      setBusy(true, 'Publishing your OpenWork package…');
+      if (!selectedEntries.length && hasUsablePastedSkill()) {
+        selectedEntries = [buildVirtualEntry("SKILL.md", ".opencode/skills/pasted-skill/SKILL.md", pasteInput.value.trim())];
+      }
+      if (!selectedEntries.length) return;
+      setBusy(true, 'Publishing...');
       try {
         const result = await requestPackage(false);
         latestPreview = result;
         renderItems(result.items);
         renderWarnings(result.warnings);
-        renderBundleType(result);
-        renderSummary(result);
         setGeneratedUrl(result.url || '');
-        setBusy(false, result.url ? 'Share link ready.' : 'Package published.');
+        setBusy(false, 'Package published successfully!');
       } catch (error) {
-        setBusy(false, error instanceof Error ? error.message : 'Publish failed.');
+        setBusy(false, error.message);
       }
     }
 
-    async function assignFiles(files) {
-      selectedFiles = Array.from(files || []).filter(Boolean);
+    async function assignEntries(entries) {
+      selectedEntries = Array.from(entries || []).filter(Boolean);
       setGeneratedUrl("");
       await refreshPreview();
     }
 
-    function escapeHtml(value) {
-      return String(value)
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
+    async function pasteFromClipboard() {
+      if (!navigator.clipboard?.readText) {
+        pasteStatus.textContent = "Clipboard access is not available in this browser.";
+        return;
+      }
+
+      try {
+        const text = await navigator.clipboard.readText();
+        if (!text.trim()) {
+          pasteStatus.textContent = "Clipboard is empty.";
+          return;
+        }
+        pasteInput.value = text;
+        updatePasteCount();
+        selectedEntries = [];
+        latestPreview = null;
+        setGeneratedUrl("");
+        pasteStatus.textContent = "Clipboard pasted. Preview is ready.";
+        await refreshPreview();
+      } catch {
+        pasteStatus.textContent = "Clipboard access was blocked. Paste manually into the field.";
+      }
     }
 
-    browseButton.addEventListener('click', () => fileInput.click());
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, m => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[m]));
+    }
+
     generateButton.addEventListener('click', publishBundle);
     copyResult.addEventListener('click', copyGeneratedUrl);
-    fileInput.addEventListener('change', async (event) => {
-      await assignFiles(event.target.files);
+    fileInput.addEventListener('change', e => assignEntries(normalizeEntriesFromFiles(e.target.files)));
+    pasteInput.addEventListener('input', () => {
+      updatePasteCount();
+      selectedEntries = [];
+      latestPreview = null;
+      setGeneratedUrl("");
+      pasteStatus.textContent = pasteInput.value.trim()
+        ? 'Generate a link to preview and publish the pasted skill.'
+        : 'Paste one skill and we will package it like a dropped file.';
+      refreshPreview();
     });
+    pasteClipboardButton.addEventListener('click', pasteFromClipboard);
 
     dropZone.addEventListener('click', () => {
-      if (browseButton.disabled) return;
-      fileInput.click();
-    });
-    dropZone.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        if (browseButton.disabled) return;
-        fileInput.click();
-      }
+      if (dropZone.getAttribute("aria-busy") !== "true") fileInput.click();
     });
 
-    ['dragenter', 'dragover'].forEach((eventName) => {
-      dropZone.addEventListener(eventName, (event) => {
-        event.preventDefault();
-        dropZone.classList.add('is-dragover');
-      });
-    });
+    ['dragenter', 'dragover'].forEach(e => dropZone.addEventListener(e, ev => {
+      ev.preventDefault();
+      dropZone.classList.add('is-dragover');
+    }));
 
-    ['dragleave', 'dragend'].forEach((eventName) => {
-      dropZone.addEventListener(eventName, () => dropZone.classList.remove('is-dragover'));
-    });
-
-    dropZone.addEventListener('drop', async (event) => {
-      event.preventDefault();
+    ['dragleave', 'dragend'].forEach(e => dropZone.addEventListener(e, () => {
       dropZone.classList.remove('is-dragover');
-      const files = await collectDroppedFiles(event.dataTransfer);
-      await assignFiles(files);
+    }));
+
+    dropZone.addEventListener('drop', async ev => {
+      ev.preventDefault();
+      dropZone.classList.remove('is-dragover');
+      if (dropZone.getAttribute("aria-busy") === "true") return;
+      await assignEntries(normalizeEntriesFromFiles(await collectDroppedFiles(ev.dataTransfer)));
     });
 
-    renderItems(null);
-    renderWarnings(null);
-    setGeneratedUrl("");
+    updatePasteCount();
   </script>
 </body>
 </html>`;

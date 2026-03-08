@@ -1,6 +1,5 @@
 import {
   OPENWORK_DOWNLOAD_URL,
-  OPENWORK_SITE_URL,
   SHARE_EASE,
   buildBundleNarrative,
   buildBundleUrls,
@@ -12,38 +11,27 @@ import {
   getBundleCounts,
   humanizeType,
   parseBundle,
-  prettyJson,
-  truncate,
   wantsDownload,
   wantsJsonResponse,
 } from "../_lib/share-utils.js";
 
 export { buildBundleUrls, wantsDownload, wantsJsonResponse } from "../_lib/share-utils.js";
 
-function toneInitial(tone, kind) {
-  if (tone === "mcp") return "MC";
-  if (tone === "command") return "/";
-  if (kind === "Agent") return "AI";
-  return kind.slice(0, 2).toUpperCase();
+function toneInitial(kind) {
+  if (kind === "MCP") return "mcp";
+  if (kind === "Command") return "command";
+  if (kind === "Agent") return "agent";
+  return "skill";
 }
 
 function renderItem(item) {
   return `
-    <li class="included-item" data-tone="${escapeHtml(item.tone)}">
-      <div class="item-icon" aria-hidden="true">${escapeHtml(toneInitial(item.tone, item.kind))}</div>
-      <div class="item-copy">
-        <div class="item-title">${escapeHtml(item.name)}</div>
-        <p class="item-meta">${escapeHtml(item.kind)} · ${escapeHtml(item.meta)}</p>
+    <div class="included-item">
+      <div class="item-left">
+        <div class="item-dot dot-${escapeHtml(toneInitial(item.kind))}"></div>
+        <span class="item-title">${escapeHtml(item.name)}</span>
       </div>
-    </li>`;
-}
-
-function renderStat(label, value) {
-  if (!value) return "";
-  return `
-    <div class="stat-card">
-      <span class="stat-label">${escapeHtml(label)}</span>
-      <strong class="stat-value">${escapeHtml(String(value))}</strong>
+      <span class="item-meta">${escapeHtml(item.kind)} · ${escapeHtml(item.meta)}</span>
     </div>`;
 }
 
@@ -56,7 +44,6 @@ export function renderBundlePage({ id, rawJson, req }) {
   });
 
   const counts = getBundleCounts(bundle);
-  const prettyBundleJson = prettyJson(rawJson);
   const schemaVersion = bundle.schemaVersion == null ? "unknown" : String(bundle.schemaVersion);
   const typeLabel = humanizeType(bundle.type);
   const title = bundle.name || `OpenWork ${typeLabel}`;
@@ -68,20 +55,21 @@ export function renderBundlePage({ id, rawJson, req }) {
       : bundle.type === "skills-set"
         ? "Open in app to create a new worker with this entire skills set already attached."
         : "Open in app to create a new worker with these skills, agents, MCPs, and config already bundled.";
-  const previewLabel = bundle.type === "skill" ? "Skill content" : "Bundle payload";
-  const previewContent = bundle.type === "skill" && bundle.content.trim() ? truncate(bundle.content.trim()) : truncate(prettyBundleJson);
-
   const metadataRows = [
-    `<div class="meta-pair"><dt>ID</dt><dd>${escapeHtml(id)}</dd></div>`,
-    `<div class="meta-pair"><dt>Type</dt><dd>${escapeHtml(bundle.type || "unknown")}</dd></div>`,
-    `<div class="meta-pair"><dt>Schema</dt><dd>${escapeHtml(schemaVersion)}</dd></div>`,
-    counts.skillCount ? `<div class="meta-pair"><dt>Skills</dt><dd>${escapeHtml(String(counts.skillCount))}</dd></div>` : "",
-    counts.agentCount ? `<div class="meta-pair"><dt>Agents</dt><dd>${escapeHtml(String(counts.agentCount))}</dd></div>` : "",
-    counts.mcpCount ? `<div class="meta-pair"><dt>MCPs</dt><dd>${escapeHtml(String(counts.mcpCount))}</dd></div>` : "",
-    counts.commandCount ? `<div class="meta-pair"><dt>Commands</dt><dd>${escapeHtml(String(counts.commandCount))}</dd></div>` : "",
-    counts.hasConfig ? `<div class="meta-pair"><dt>Config</dt><dd>yes</dd></div>` : "",
+    ["ID", id],
+    ["Type", bundle.type || "unknown"],
+    ["Schema", schemaVersion],
+    counts.skillCount ? ["Skills", String(counts.skillCount)] : null,
+    counts.agentCount ? ["Agents", String(counts.agentCount)] : null,
+    counts.mcpCount ? ["MCPs", String(counts.mcpCount)] : null,
+    counts.commandCount ? ["Commands", String(counts.commandCount)] : null,
+    counts.hasConfig ? ["Config", "yes"] : null,
   ]
     .filter(Boolean)
+    .map(
+      ([label, value]) =>
+        `<div class="metadata-row"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`,
+    )
     .join("");
 
   return `<!doctype html>
@@ -107,25 +95,6 @@ export function renderBundlePage({ id, rawJson, req }) {
   <meta name="twitter:description" content="${escapeHtml(description)}" />
   <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}" />
   <style>
-    :root {
-      color-scheme: light;
-      --ow-bg: #f6f9fc;
-      --ow-ink: #011627;
-      --ow-muted: #5f6b7a;
-      --ow-card: rgba(255, 255, 255, 0.8);
-      --ow-card-strong: rgba(255, 255, 255, 0.92);
-      --ow-border: rgba(255, 255, 255, 0.74);
-      --ow-shadow: 0 26px 72px -30px rgba(15, 23, 42, 0.2);
-      --ow-primary: #011627;
-      --ow-ease: ${SHARE_EASE};
-      --ow-skill: linear-gradient(135deg, #f97316, #facc15);
-      --ow-agent: linear-gradient(135deg, #1d4ed8, #60a5fa);
-      --ow-mcp: linear-gradient(135deg, #0f766e, #2dd4bf);
-      --ow-command: linear-gradient(135deg, #7c3aed, #c084fc);
-      --ow-sans: Inter, "Segoe UI", "Helvetica Neue", sans-serif;
-      --ow-accent: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
-    }
-
     @font-face {
       font-family: "FK Raster Roman Compact Smooth";
       src: url("https://openwork.software/fonts/FKRasterRomanCompact-Smooth.woff2") format("woff2");
@@ -133,123 +102,100 @@ export function renderBundlePage({ id, rawJson, req }) {
       font-style: normal;
       font-display: swap;
     }
+    :root {
+      color-scheme: light;
+      --ow-bg: #f6f9fc;
+      --ow-ink: #011627;
+      --ow-muted: #5f6b7a;
+      --ow-card: #ffffff;
+      --ow-border: rgba(148, 163, 184, 0.16);
+      --ow-shadow: 0 20px 60px -24px rgba(15, 23, 42, 0.18);
+      --ow-primary: #011627;
+      --ow-ease: ${SHARE_EASE};
+      --ow-sans: Inter, "Segoe UI", "Helvetica Neue", sans-serif;
+      --ow-accent: "FK Raster Roman Compact Smooth", "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+    }
+
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     html, body { min-height: 100%; }
     body {
       margin: 0;
       font-family: var(--ow-sans);
       color: var(--ow-ink);
-      background:
-        radial-gradient(circle at top left, rgba(251, 191, 36, 0.32), transparent 32%),
-        radial-gradient(circle at right, rgba(96, 165, 250, 0.24), transparent 30%),
-        linear-gradient(180deg, #fbfdff 0%, var(--ow-bg) 100%);
+      background-color: var(--ow-bg);
       overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
-    body::before {
+    body::after {
       content: "";
-      position: fixed;
-      inset: 0;
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 60vw;
+      height: 80vh;
+      background: radial-gradient(circle at 70% 30%, rgba(100, 116, 139, 0.25) 0%, transparent 60%);
+      filter: blur(60px);
+      z-index: 0;
       pointer-events: none;
-      background-image:
-        radial-gradient(rgba(1, 22, 39, 0.055) 0.75px, transparent 0.75px),
-        radial-gradient(rgba(1, 22, 39, 0.03) 0.6px, transparent 0.6px);
-      background-position: 0 0, 18px 18px;
-      background-size: 36px 36px;
-      opacity: 0.32;
-      mix-blend-mode: multiply;
     }
 
-    a, button { font: inherit; }
+    a { color: inherit; }
 
     .shell {
       position: relative;
-      z-index: 1;
-      width: min(100%, 1180px);
+      z-index: 10;
+      width: min(100%, 1024px);
       margin: 0 auto;
-      padding: 28px 18px 54px;
+      padding: 8px 32px 64px;
     }
 
     .nav {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 24px;
-    }
-
-    .brand,
-    .nav-link,
-    .button-secondary,
-    .button-copy,
-    .button-primary {
-      transition:
-        background-color 300ms var(--ow-ease),
-        border-color 300ms var(--ow-ease),
-        box-shadow 300ms var(--ow-ease),
-        color 300ms var(--ow-ease),
-        transform 300ms var(--ow-ease);
-    }
-
-    .brand,
-    .nav-link,
-    .button-secondary,
-    .button-copy {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      min-height: 48px;
-      padding: 0 20px;
-      border-radius: 999px;
-      text-decoration: none;
-      background: rgb(255, 255, 255);
-      border: 0;
-      box-shadow:
-        rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
-        rgba(0, 0, 0, 0.04) 0px 1px 2px 0px;
-      color: rgb(0, 0, 0);
+      height: 80px;
+      margin-bottom: 40px;
     }
 
     .brand {
-      background: rgba(255, 255, 255, 0.62);
-      border: 1px solid rgba(255, 255, 255, 0.78);
-      box-shadow: 0 18px 40px -30px rgba(15, 23, 42, 0.3);
-      backdrop-filter: blur(12px);
-    }
-
-    .nav-link {
-      background: transparent;
-      border: 0;
-      box-shadow: none;
-      color: var(--ow-muted);
-      font-weight: 500;
-    }
-
-    .nav-link:hover {
-      background: transparent;
-      box-shadow: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 20px;
+      letter-spacing: -0.02em;
       color: var(--ow-ink);
     }
 
-    .brand:hover {
-      transform: translateY(-1px);
+    .brand-mark {
+      width: 24px;
+      height: 24px;
+      background: url('data:image/svg+xml;utf8,<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="%23011627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>') no-repeat center center;
     }
 
-    .button-secondary:hover,
-    .button-copy:hover {
-      background: rgb(242, 242, 242);
-      box-shadow:
-        rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
-        rgba(0, 0, 0, 0.04) 0px 1px 2px 0px,
-        rgba(0, 0, 0, 0.04) 0px 2px 4px 0px;
+    .nav-links { display: none; }
+    @media (min-width: 768px) {
+      .nav-links {
+        display: flex;
+        gap: 32px;
+        font-size: 15px;
+        color: var(--ow-muted);
+        font-weight: 500;
+      }
+      .nav-links a { text-decoration: none; transition: color 0.2s; }
+      .nav-links a:hover { color: var(--ow-ink); }
     }
+
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
 
     .button-primary {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 10px;
       min-height: 48px;
       padding: 0 24px;
       border-radius: 999px;
@@ -259,7 +205,11 @@ export function renderBundlePage({ id, rawJson, req }) {
       color: #fff;
       background: var(--ow-primary);
       box-shadow: 0 14px 32px -16px rgba(1, 22, 39, 0.55);
+      font-family: inherit;
       font-weight: 500;
+      font-size: 16px;
+      transition: all 300ms var(--ow-ease);
+      will-change: transform, background-color, box-shadow;
     }
 
     .button-primary:hover {
@@ -271,323 +221,215 @@ export function renderBundlePage({ id, rawJson, req }) {
         rgba(0, 0, 0, 0.04) 0px 2px 4px 0px;
     }
 
-    .brand-mark {
-      width: 14px;
-      height: 14px;
+    .button-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 0 24px;
       border-radius: 999px;
-      background: linear-gradient(135deg, #011627, #1d4ed8 60%, #60a5fa);
-      box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.9);
+      text-decoration: none;
+      background: rgb(255, 255, 255);
+      color: rgb(0, 0, 0);
+      border: none;
+      box-shadow:
+        rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
+        rgba(0, 0, 0, 0.04) 0px 1px 2px 0px;
+      font-family: inherit;
+      font-weight: 500;
+      font-size: 16px;
+      transition: all 300ms var(--ow-ease);
+      cursor: pointer;
+      will-change: transform, background-color, box-shadow;
     }
 
-    .hero {
-      position: relative;
-      overflow: hidden;
-      border-radius: 2rem;
-      border: 1px solid var(--ow-border);
-      background: var(--ow-card);
-      box-shadow: 0 20px 60px -15px rgba(0, 0, 0, 0.1);
-      backdrop-filter: blur(22px);
-      padding: clamp(24px, 4vw, 40px);
-      margin-bottom: 20px;
-    }
-
-    .hero::before,
-    .hero::after {
-      content: "";
-      position: absolute;
-      border-radius: 999px;
-      pointer-events: none;
-    }
-
-    .hero::before {
-      top: -72px;
-      right: -42px;
-      width: 240px;
-      height: 240px;
-      background: radial-gradient(circle, rgba(251, 191, 36, 0.3), rgba(251, 191, 36, 0));
-    }
-
-    .hero::after {
-      left: -28px;
-      bottom: -96px;
-      width: 280px;
-      height: 280px;
-      background: radial-gradient(circle, rgba(96, 165, 250, 0.24), rgba(96, 165, 250, 0));
+    .button-secondary:hover {
+      background: rgb(242, 242, 242);
+      box-shadow:
+        rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
+        rgba(0, 0, 0, 0.04) 0px 1px 2px 0px,
+        rgba(0, 0, 0, 0.04) 0px 2px 4px 0px;
     }
 
     .hero-layout {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      gap: 20px;
-      grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
-      align-items: start;
+      display: flex;
+      flex-direction: column;
+      gap: 64px;
+    }
+    @media (min-width: 1024px) {
+      .hero-layout { flex-direction: row; align-items: flex-start; }
     }
 
-    .eyebrow {
-      display: inline-flex;
-      align-items: center;
-      min-height: 34px;
-      padding: 0 14px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.9);
-      border: 1px solid rgba(255, 255, 255, 0.95);
-      box-shadow: 0 14px 34px -28px rgba(15, 23, 42, 0.28);
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: #526172;
+    .hero-copy {
+      flex: 1.1;
+      max-width: 600px;
     }
 
     h1 {
-      margin: 16px 0 12px;
-      max-width: 12ch;
-      font-size: clamp(3rem, 7vw, 5.2rem);
-      line-height: 0.92;
-      letter-spacing: -0.08em;
-      font-weight: 700;
+      margin: 0 0 24px 0;
+      font-size: clamp(3rem, 5.5vw, 4.5rem);
+      line-height: 1.1;
+      letter-spacing: -0.04em;
+      font-weight: 500;
+      color: var(--ow-ink);
     }
 
     h1 em {
       font-style: normal;
       font-family: var(--ow-accent);
       font-weight: 400;
-      letter-spacing: normal;
+      font-size: 1.05em;
+      display: inline-block;
+      vertical-align: baseline;
     }
 
-    .hero-copy p,
-    .hero-note,
-    .helper-text,
-    .preview-card p,
-    .panel-title p,
-    .preview-box summary,
-    .preview-box pre,
-    .item-meta,
-    .json-link {
-      color: var(--ow-muted);
-      line-height: 1.7;
+    .hero-body {
+      margin: 0 0 32px 0;
+      font-size: 20px;
+      line-height: 1.6;
+      color: #374151;
+      max-width: 500px;
     }
 
-    .hero-copy p { margin: 0; max-width: 52ch; font-size: 17px; }
-    .hero-note {
-      margin-top: 18px;
+    .hero-actions {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
-      font-size: 13px;
-    }
-
-    .hero-note span {
-      display: inline-flex;
+      gap: 16px;
       align-items: center;
-      gap: 8px;
-      padding: 10px 14px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.78);
-      border: 1px solid rgba(255, 255, 255, 0.9);
     }
 
-    .hero-actions,
-    .action-grid,
-    .helper-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-top: 18px;
+    .hero-artifact {
+      flex: 0.9;
+      width: 100%;
     }
 
-    .preview-card,
-    .panel,
-    .preview-box {
-      border-radius: 2rem;
-      padding: 22px;
-      border: 1px solid var(--ow-border);
-      background: var(--ow-card);
-      box-shadow: 0 20px 60px -15px rgba(0, 0, 0, 0.1);
-      backdrop-filter: blur(16px);
-    }
-
-    .panel-grid {
-      display: grid;
-      gap: 18px;
-      grid-template-columns: 1.1fr 0.9fr;
-      margin-top: 18px;
-    }
-
-    .panel-title { display: grid; gap: 6px; margin-bottom: 14px; }
-    .panel-title h2,
-    .panel-title h3,
-    .preview-card h2 {
-      margin: 0;
-      font-size: 28px;
-      letter-spacing: -0.05em;
-    }
-
-    .helper-text { margin: 0 0 16px; font-size: 14px; }
-    .stats-row {
-      display: grid;
-      gap: 10px;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      margin-top: 18px;
-    }
-
-    .stat-card {
-      display: grid;
-      gap: 8px;
-      min-height: 104px;
-      padding: 16px;
+    .app-window {
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.6);
       border-radius: 1.5rem;
-      background: var(--ow-card-soft);
-      border: 1px solid var(--ow-border);
-      box-shadow: 0 10px 24px -20px rgba(15, 23, 42, 0.18);
+      box-shadow: 0 20px 50px -24px rgba(15, 23, 42, 0.12);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      width: 100%;
     }
 
-    .stat-label {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.16em;
+    .app-window-header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 16px;
+      background: linear-gradient(to bottom, rgba(255,255,255,0.9), rgba(255,255,255,0.6));
+      border-bottom: 1px solid rgba(255,255,255,0.5);
+      position: relative;
+    }
+
+    .mac-dots {
+      position: absolute;
+      left: 16px;
+      display: flex;
+      gap: 6px;
+    }
+    .mac-dot { width: 12px; height: 12px; border-radius: 50%; }
+    .mac-dot.red { background: #ff5f56; border: 1px solid rgba(224, 68, 62, 0.2); }
+    .mac-dot.yellow { background: #ffbd2e; border: 1px solid rgba(222, 161, 35, 0.2); }
+    .mac-dot.green { background: #27c93f; border: 1px solid rgba(26, 171, 41, 0.2); }
+
+    .app-window-title {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--ow-muted);
+      letter-spacing: 0.02em;
+    }
+
+    .app-window-body {
+      padding: 24px;
+      background: #ffffff;
+    }
+
+    .included-section {
+      width: 100%;
+    }
+    .included-section h4 {
+      margin: 0 0 12px 0;
+      font-size: 12px;
+      font-weight: 600;
       text-transform: uppercase;
-      color: #738193;
+      letter-spacing: 0.05em;
+      color: var(--ow-muted);
     }
-
-    .stat-value {
-      font-size: 30px;
-      line-height: 1;
-      letter-spacing: -0.08em;
-      font-weight: 700;
-    }
-
     .included-list {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-      display: grid;
-      gap: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
-
     .included-item {
       display: flex;
       align-items: center;
-      gap: 14px;
-      padding: 14px;
-      border-radius: 1.5rem;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: #f8fafc;
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      border-radius: 12px;
+    }
+    .item-left { display: flex; align-items: center; gap: 12px; }
+    .item-dot { width: 24px; height: 24px; border-radius: 50%; }
+    .dot-agent { background: #f97316; }
+    .dot-skill { background: #2463eb; }
+    .dot-mcp { background: #0f9f7f; }
+    .dot-command { background: #8b5cf6; }
+
+    .item-title { font-size: 14px; font-weight: 500; color: var(--ow-ink); }
+    .item-meta { font-size: 12px; color: var(--ow-muted); }
+
+    .results-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 24px;
+      margin-top: 64px;
+    }
+    @media (min-width: 768px) {
+      .results-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    .result-card {
+      background: #ffffff;
       border: 1px solid var(--ow-border);
-      background: var(--ow-card-soft);
-      box-shadow: 0 10px 24px -20px rgba(15, 23, 42, 0.18);
-    }
-
-    .item-icon {
-      width: 40px;
-      height: 40px;
-      border-radius: 14px;
-      display: grid;
-      place-items: center;
-      color: white;
-      font-size: 13px;
-      font-weight: 700;
-      flex: 0 0 auto;
-      background: var(--ow-agent);
-    }
-
-    .included-item[data-tone="skill"] .item-icon { background: var(--ow-skill); }
-    .included-item[data-tone="agent"] .item-icon { background: var(--ow-agent); }
-    .included-item[data-tone="mcp"] .item-icon { background: var(--ow-mcp); }
-    .included-item[data-tone="command"] .item-icon { background: var(--ow-command); }
-
-    .item-copy { min-width: 0; display: grid; gap: 4px; }
-    .item-title {
-      font-size: 15px;
-      font-weight: 600;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .metadata {
-      display: grid;
-      gap: 12px;
-      margin: 0;
-    }
-
-    .meta-pair {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 10px;
-      align-items: center;
-      padding: 12px 14px;
       border-radius: 1.5rem;
-      background: var(--ow-card-soft);
-      border: 1px solid var(--ow-border);
-      box-shadow: 0 10px 24px -20px rgba(15, 23, 42, 0.18);
+      padding: 32px;
+      box-shadow: var(--ow-shadow);
     }
+    .result-card h3 { margin: 0 0 8px 0; font-size: 20px; font-weight: 500; }
+    .result-card p { margin: 0 0 24px 0; font-size: 15px; color: var(--ow-muted); line-height: 1.6; }
 
-    .meta-pair dt {
-      margin: 0;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: #738193;
-    }
-
-    .meta-pair dd {
-      margin: 0;
+    .url-box {
+      background: #f8fafc;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 12px;
+      padding: 16px;
+      font-family: ui-monospace, monospace;
       font-size: 13px;
       color: var(--ow-ink);
-      font-weight: 600;
-      word-break: break-word;
+      word-break: break-all;
+      margin-bottom: 16px;
     }
 
-    .preview-box { margin-top: 18px; }
-
-    .preview-box summary {
-      cursor: pointer;
-      list-style: none;
-      font-weight: 600;
+    .metadata-list {
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
-
-    .preview-box summary::-webkit-details-marker { display: none; }
-
-    .preview-box pre {
-      margin: 14px 0 0;
-      padding: 16px;
-      border-radius: 1.5rem;
-      background: var(--ow-card-soft);
-      border: 1px solid var(--ow-border);
-      box-shadow: 0 10px 24px -20px rgba(15, 23, 42, 0.18);
-      white-space: pre-wrap;
-      word-break: break-word;
-      overflow-x: auto;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 12px;
-      line-height: 1.65;
-      color: #3a4b5b;
+    .metadata-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      font-size: 13px;
     }
-
-    .json-link { margin-top: 14px; font-size: 14px; }
-    .json-link a { color: var(--ow-ink); font-weight: 600; }
-
-    @media (max-width: 960px) {
-      .hero-layout,
-      .panel-grid,
-      .stats-row { grid-template-columns: 1fr; }
-      h1 { max-width: none; }
-    }
-
-    @media (max-width: 640px) {
-      .shell { padding: 18px 14px 40px; }
-      .nav { flex-direction: column; align-items: stretch; }
-      .nav > * { width: 100%; }
-      .hero,
-      .preview-card,
-      .panel,
-      .preview-box { border-radius: 28px; padding: 20px; }
-      h1 { font-size: 3.4rem; }
-      .hero-actions > *,
-      .action-grid > *,
-      .helper-actions > * { width: 100%; }
-    }
+    .metadata-list dt { color: var(--ow-muted); }
+    .metadata-list dd { margin: 0; color: var(--ow-ink); font-weight: 500; }
   </style>
 </head>
 <body
@@ -598,78 +440,77 @@ export function renderBundlePage({ id, rawJson, req }) {
 >
   <main class="shell">
     <nav class="nav">
-      <a class="brand" href="/" aria-label="Package another worker">
+      <a class="brand" href="/" aria-label="OpenWork Share home">
         <span class="brand-mark" aria-hidden="true"></span>
-        <span>OpenWork Share</span>
+        <span>openwork</span>
       </a>
-      <div class="helper-actions">
-        <a class="nav-link" href="${escapeHtml(OPENWORK_SITE_URL)}" target="_blank" rel="noreferrer">OpenWork</a>
-        <a class="nav-link" href="${escapeHtml(OPENWORK_DOWNLOAD_URL)}" target="_blank" rel="noreferrer">Download app</a>
+      <div class="nav-links">
+        <a href="https://openwork.software/docs" target="_blank" rel="noreferrer">Docs</a>
+        <a href="${escapeHtml(OPENWORK_DOWNLOAD_URL)}" target="_blank" rel="noreferrer">Download</a>
+        <a href="https://openwork.software/enterprise" target="_blank" rel="noreferrer">Enterprise</a>
+      </div>
+      <div class="nav-actions">
+        <a class="button-secondary" href="https://github.com/different-ai/openwork" target="_blank" rel="noreferrer">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+          GitHub
+        </a>
       </div>
     </nav>
 
-    <section class="hero">
-      <div class="hero-layout">
-        <div class="hero-copy">
-          <span class="eyebrow">${escapeHtml(typeLabel)} · ${escapeHtml(id.slice(-8))}</span>
-          <h1>${escapeHtml(title)} <em>ready</em></h1>
-          <p>${escapeHtml(description)}</p>
-          <div class="hero-actions">
-            <a class="button-primary" href="${escapeHtml(openInAppDeepLink)}">Open in app</a>
-            <a class="button-secondary" href="${escapeHtml(openInWebAppUrl)}" target="_blank" rel="noreferrer">Open in web app</a>
-            <button class="button-copy" type="button" id="copy-link">Copy share link</button>
+    <section class="hero-layout">
+      <div class="hero-copy">
+        <h1>${escapeHtml(title)} <em>ready</em></h1>
+        <p class="hero-body">${escapeHtml(description)}</p>
+        <div class="hero-actions">
+          <a class="button-primary" href="${escapeHtml(openInAppDeepLink)}">Open in app</a>
+          <a class="button-secondary" href="${escapeHtml(openInWebAppUrl)}" target="_blank" rel="noreferrer">Open in web app</a>
+        </div>
+        <p style="margin-top: 16px; font-size: 13px; color: var(--ow-muted);">
+          ${escapeHtml(installHint)}
+        </p>
+      </div>
+
+      <div class="hero-artifact">
+        <div class="app-window">
+          <div class="app-window-header">
+            <div class="mac-dots">
+              <div class="mac-dot red"></div>
+              <div class="mac-dot yellow"></div>
+              <div class="mac-dot green"></div>
+            </div>
+            <div class="app-window-title">OpenWork</div>
           </div>
-          <div class="hero-note">
-            <span>${escapeHtml(installHint)}</span>
-            <span>Machine readable JSON stays available at <a href="${escapeHtml(urls.jsonUrl)}">${escapeHtml(urls.jsonUrl)}</a>.</span>
-          </div>
-          <div class="stats-row">
-            ${renderStat("Skills", counts.skillCount)}
-            ${renderStat("Agents", counts.agentCount)}
-            ${renderStat("MCPs", counts.mcpCount)}
-            ${renderStat("Commands", counts.commandCount)}
+          <div class="app-window-body">
+            <div class="included-section">
+              <h4>Package Contents</h4>
+              <div class="included-list">
+                ${items.length ? items.map(renderItem).join("") : `<div class="included-item"><div class="item-left"><div class="item-dot dot-skill"></div><span class="item-title">OpenWork bundle</span></div><span class="item-meta">Shared config</span></div>`}
+              </div>
+            </div>
           </div>
         </div>
-
-        <aside class="preview-card">
-          <h2>Included</h2>
-          <p>${escapeHtml(buildBundleNarrative(bundle))}</p>
-          <ul class="included-list">
-            ${items.length ? items.map(renderItem).join("") : `<li class="included-item" data-tone="skill"><div class="item-icon" aria-hidden="true">PK</div><div class="item-copy"><div class="item-title">OpenWork bundle</div><p class="item-meta">Bundle · Shared config</p></div></li>`}
-          </ul>
-        </aside>
       </div>
     </section>
 
-    <section class="panel-grid">
-      <section class="panel">
-        <div class="panel-title">
-          <h3>Bundle details</h3>
-          <p>Stable metadata for parsing, sharing, and direct OpenWork import.</p>
-        </div>
-        <dl class="metadata">
+    <section class="results-grid">
+      <div class="result-card">
+        <h3>Bundle details</h3>
+        <p>Stable metadata for parsing and direct OpenWork import.</p>
+        <dl class="metadata-list">
           ${metadataRows}
         </dl>
-        <details class="preview-box">
-          <summary>${escapeHtml(previewLabel)} preview</summary>
-          <pre>${escapeHtml(previewContent)}</pre>
-        </details>
-      </section>
-
-      <section class="panel">
-        <div class="panel-title">
-          <h3>Raw endpoints</h3>
-          <p>Keep the human page and machine payload side by side.</p>
-        </div>
-        <p class="helper-text">Use the JSON endpoint for programmatic imports, or download the exact payload as a file.</p>
-        <div class="action-grid">
-          <a class="button-secondary" href="${escapeHtml(urls.jsonUrl)}">Open JSON</a>
+      </div>
+      <div class="result-card">
+        <h3>Raw endpoints</h3>
+        <p>Keep the human page and machine payload side by side.</p>
+        <div class="url-box"><a href="${escapeHtml(urls.jsonUrl)}">JSON payload</a></div>
+        <div style="display: flex; gap: 12px;">
           <a class="button-secondary" href="${escapeHtml(urls.downloadUrl)}">Download JSON</a>
+          <button class="button-secondary" id="copy-link" type="button">Copy share link</button>
         </div>
-        <p class="json-link">Share page: <a href="${escapeHtml(urls.shareUrl)}">${escapeHtml(urls.shareUrl)}</a></p>
-        <p class="json-link">JSON payload: <a href="${escapeHtml(urls.jsonUrl)}">${escapeHtml(urls.jsonUrl)}</a></p>
-      </section>
+      </div>
     </section>
+
   </main>
 
   <script id="openwork-bundle-json" type="application/json">${escapeJsonForScript(rawJson)}</script>
@@ -680,15 +521,11 @@ export function renderBundlePage({ id, rawJson, req }) {
       try {
         if (navigator.clipboard?.writeText) {
           await navigator.clipboard.writeText(shareUrl);
-          copyButton.textContent = "Copied";
-          window.setTimeout(() => {
-            copyButton.textContent = "Copy share link";
-          }, 1600);
+          copyButton.textContent = "Copied!";
+          setTimeout(() => copyButton.textContent = "Copy share link", 2000);
           return;
         }
-      } catch {
-        // fall through
-      }
+      } catch {}
 
       const input = document.createElement("textarea");
       input.value = shareUrl;
@@ -698,10 +535,8 @@ export function renderBundlePage({ id, rawJson, req }) {
       input.select();
       document.execCommand("copy");
       input.remove();
-      copyButton.textContent = "Copied";
-      window.setTimeout(() => {
-        copyButton.textContent = "Copy share link";
-      }, 1600);
+      copyButton.textContent = "Copied!";
+      setTimeout(() => copyButton.textContent = "Copy share link", 2000);
     });
   </script>
 </body>
