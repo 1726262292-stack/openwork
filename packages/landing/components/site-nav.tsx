@@ -60,7 +60,7 @@ export function SiteNav(props: Props) {
           <div className="flex items-center gap-4">
             <a
               href={downloadHref}
-              className="hidden rounded-full bg-[#011627] px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-black md:inline-flex"
+              className="doc-button hidden px-6 text-sm md:inline-flex"
               rel={downloadExternal ? "noreferrer" : undefined}
               target={downloadExternal ? "_blank" : undefined}
             >
@@ -117,7 +117,7 @@ export function SiteNav(props: Props) {
             <div className="mt-4 flex flex-col gap-3">
               <a
                 href={downloadHref}
-                className="inline-flex items-center justify-center rounded-full bg-[#011627] px-6 py-3 text-sm font-medium text-white shadow-sm transition-all hover:bg-black"
+                className="doc-button text-sm"
                 rel={downloadExternal ? "noreferrer" : undefined}
                 target={downloadExternal ? "_blank" : undefined}
               >
@@ -125,7 +125,7 @@ export function SiteNav(props: Props) {
               </a>
               <a
                 href={callHref}
-                className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-white px-6 py-3 text-sm font-medium text-[#011627] shadow-sm transition-colors hover:bg-gray-50"
+                className="secondary-button text-sm"
                 rel={callExternal ? "noreferrer" : undefined}
                 target={callExternal ? "_blank" : undefined}
               >

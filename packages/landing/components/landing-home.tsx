@@ -243,32 +243,27 @@ export function LandingHome(props: Props) {
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-16 px-6 pb-24 md:gap-20 md:px-8 md:pb-28">
           <section className="max-w-3xl">
             <h1 className="mb-5 text-4xl font-medium leading-[1.1] tracking-tight md:text-5xl lg:text-6xl">
-              The team layer for your
+              The open source alt to
               <br />
-              existing{" "}
-              <span className="font-pixel inline-block align-middle text-[1.3em] font-normal leading-[0.8] -mt-2">
-                agent
-              </span>{" "}
-              setup.
+              Claude Cowork
             </h1>
-            <p className="mb-6 text-lg leading-relaxed text-gray-700 md:mb-7 md:text-xl">
-              Whether you&apos;re using Claude Code, Codex, OpenCode, or your own
-              stack, OpenWork turns it into a shareable desktop app your
-              non-technical coworkers can use.
+            <p className="mb-6 max-w-4xl text-lg leading-relaxed text-gray-700 md:mb-7 md:text-xl">
+              OpenWork is the desktop app that lets you use 50+ LLMs, bring your
+              own keys, and share your setups seamlessly with your team.
             </p>
 
             <div className="mt-6 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
               <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
                 <a
                   href={props.downloadHref}
-                  className="inline-flex items-center justify-center rounded-full bg-[#011627] px-6 py-3 font-medium text-white shadow-md transition-all hover:bg-black"
+                  className="doc-button"
                   {...downloadLinkProps}
                 >
                   Download for free
                 </a>
                 <a
                   href={props.callHref}
-                  className="landing-chip inline-flex items-center justify-center rounded-full px-6 py-3 font-medium text-[#011627] transition-all hover:bg-white"
+                  className="secondary-button"
                   {...callLinkProps}
                 >
                   Contact sales
@@ -293,7 +288,7 @@ export function LandingHome(props: Props) {
 
           <section className="relative flex flex-col gap-6 overflow-hidden md:gap-8">
             <div className="landing-shell relative flex flex-col overflow-hidden rounded-2xl">
-              <div className="relative z-20 flex h-10 w-full shrink-0 items-center border-b border-slate-200/70 bg-[#f3f4ef] px-4">
+              <div className="relative z-20 flex h-10 w-full shrink-0 items-center border-b border-white/50 bg-gradient-to-b from-white/90 to-white/60 px-4">
                 <div className="flex gap-1.5">
                   <div className="h-3 w-3 rounded-full border border-[#e0443e]/20 bg-[#ff5f56]/90 shadow-sm"></div>
                   <div className="h-3 w-3 rounded-full border border-[#dea123]/20 bg-[#ffbd2e]/90 shadow-sm"></div>
@@ -303,7 +298,7 @@ export function LandingHome(props: Props) {
                   OpenWork
                 </div>
               </div>
-
+ 
               <div className="bg-white p-4 md:p-6">
                 <div className="relative z-10 flex flex-col gap-4 md:flex-row">
                   <div className="flex w-full flex-col gap-1 rounded-2xl border border-gray-100 bg-gray-50 p-2 md:w-1/3">
@@ -508,7 +503,7 @@ export function LandingHome(props: Props) {
                 </p>
                 <Link
                   href="/den"
-                  className="landing-chip inline-flex items-center justify-center rounded-full px-6 py-2.5 text-sm font-medium text-[#011627] transition-all hover:bg-white"
+                  className="secondary-button text-sm"
                 >
                   Learn More
                 </Link>

@@ -67,6 +67,8 @@ The goal is not generic SaaS polish. OpenWork should feel like calm, premium ope
   - hover lift of 1-2px max
 - Background motion should be slow and atmospheric.
 - Avoid bouncy UI, large parallax, or busy looping animation.
+- Default landing interaction timing should use `300ms` with `cubic-bezier(0.31, 0.325, 0, 0.92)`.
+- On interactive controls, prefer color/background/shadow transitions first, then a very small positional shift.
 
 ### Interaction philosophy
 
@@ -75,6 +77,77 @@ The goal is not generic SaaS polish. OpenWork should feel like calm, premium ope
 - Active state should feel selected through fill, weight, and shadow.
 - Primary action is almost always a dark filled pill.
 - Secondary action is usually a white/translucent pill with border.
+
+### Micro-interaction rules
+
+- OpenWork should feel alive in small ways, especially on hover, focus, and active transitions.
+- Micro-interactions should be visible enough to reward intent, but subtle enough to avoid feeling animated for its own sake.
+- The most important place to get this right is buttons, tabs, cards, and interactive rows.
+
+#### Button motion baseline
+
+- Use `transition-duration: 0.3s`.
+- Use `transition-timing-function: cubic-bezier(0.31, 0.325, 0, 0.92)`.
+- Prefer transitions on:
+  - `color`
+  - `background-color`
+  - `border-color`
+  - `box-shadow`
+  - `transform`
+
+#### Primary button behavior
+
+- Base state:
+  - dark fill
+  - white text
+  - pill radius
+  - compact horizontal padding
+- Hover state:
+  - shift upward slightly (`translateY(-1px)` or `-2px` max)
+  - lighten or soften the dark fill rather than making it more saturated
+  - keep the shadow tight and controlled
+- Avoid oversized lift, glow, or springy bounce.
+
+Reference hover target:
+
+```css
+.primary-button:hover {
+  background-color: rgb(110, 110, 110);
+  transform: translateY(-1px);
+}
+```
+
+#### Secondary button behavior
+
+- Base state:
+  - white surface
+  - dark text
+  - pill radius
+  - subtle border or edge definition
+- Hover state:
+  - background shifts to a soft center-gray (`rgb(242, 242, 242)`)
+  - text remains dark
+  - use a crisp micro-shadow so it feels tactile
+  - no dramatic lift required; the color change is the main signal
+
+Reference hover target:
+
+```css
+.secondary-button:hover {
+  background-color: rgb(242, 242, 242);
+  box-shadow:
+    rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
+    rgba(0, 0, 0, 0.04) 0px 1px 2px 0px,
+    rgba(0, 0, 0, 0.04) 0px 2px 4px 0px;
+}
+```
+
+#### Card and row behavior
+
+- Cards may lift by `1-2px` max.
+- Interactive rows should slightly darken or tint their background on hover.
+- Active pills/tabs should animate with a soft spring or equivalent eased slide.
+- Never rely on opacity-only hover for core controls when a clearer material shift would help.
 
 ## Core Tokens
 
@@ -234,6 +307,7 @@ The landing experience should feel like the same company as the app, but more ci
 
 - Primary CTA: dark navy/black pill, medium weight.
 - Secondary CTA: white or translucent with border.
+- Primary and secondary CTAs must have explicit hover states; do not leave them visually static.
 - CTA copy should be short and direct:
   - `Download for free`
   - `Contact sales`
