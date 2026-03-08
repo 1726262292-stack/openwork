@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useInView } from "framer-motion";
 import { Check, ChevronRight, Shield } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { LandingBackground } from "./landing-background";
 import { SiteFooter } from "./site-footer";
 import { SiteNav } from "./site-nav";
@@ -212,6 +212,11 @@ const externalLinkProps = (href: string) =>
 export function LandingHome(props: Props) {
   const [activeDemoId, setActiveDemoId] = useState(demoFlows[0].id);
   const [activeUseCase, setActiveUseCase] = useState(0);
+  const enterpriseShowcaseRef = useRef<HTMLElement>(null);
+  const showEnterpriseShowcase = useInView(enterpriseShowcaseRef, {
+    once: true,
+    margin: "-15% 0px"
+  });
 
   const activeDemo = useMemo(
     () => demoFlows.find((flow) => flow.id === activeDemoId) ?? demoFlows[0],
@@ -528,7 +533,10 @@ export function LandingHome(props: Props) {
             </Link>
           </section>
 
-          <section className="landing-shell mt-4 rounded-[2.5rem] p-8 md:mt-6 md:p-12">
+          <section
+            ref={enterpriseShowcaseRef}
+            className="landing-shell mt-4 rounded-[2.5rem] p-8 md:mt-6 md:p-12"
+          >
             <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-400">
               For Enterprises, Startups &amp; Teams
             </div>
@@ -618,15 +626,16 @@ export function LandingHome(props: Props) {
                 <div className="absolute left-8 top-8 h-28 w-28 rounded-[2rem] border border-white/60 bg-white/40" />
                 <div className="absolute bottom-8 right-8 h-40 w-40 rounded-full border border-white/60 bg-white/30" />
 
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={activeUseCase}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    transition={{ duration: 0.2 }}
-                    className="z-10 flex w-full justify-center"
-                  >
+                {showEnterpriseShowcase ? (
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={activeUseCase}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                      className="z-10 flex w-full justify-center"
+                    >
                     {activeUseCase === 0 ? (
                       <div className="landing-shell-soft flex w-full max-w-md flex-col gap-6 rounded-[2rem] p-6 text-center md:p-8">
                         <div>
@@ -855,8 +864,13 @@ export function LandingHome(props: Props) {
                         </div>
                       </div>
                     ) : null}
-                  </motion.div>
-                </AnimatePresence>
+                    </motion.div>
+                  </AnimatePresence>
+                ) : (
+                  <div className="z-10 flex w-full justify-center">
+                    <div className="landing-shell-soft h-[380px] w-full max-w-lg rounded-[2rem] border border-dashed border-slate-300/80 bg-white/70" />
+                  </div>
+                )}
               </div>
             </div>
           </section>
