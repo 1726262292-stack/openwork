@@ -1,5 +1,5 @@
-import { buildBundleNarrative, buildBundleUrls, buildOgImageUrl, buildOpenInAppUrls, collectBundleItems, getBundleCounts, humanizeType, parseBundle, wantsDownload, wantsJsonResponse } from "../../api/_lib/share-utils.js";
-import { fetchBundleJsonById } from "../../api/_lib/blob-store.js";
+import { buildBundleNarrative, buildBundleUrls, buildOgImageUrl, buildOpenInAppUrls, collectBundleItems, getBundleCounts, humanizeType, parseBundle, wantsDownload, wantsJsonResponse } from "../../server/_lib/share-utils.js";
+import { fetchBundleJsonById } from "../../server/_lib/blob-store.js";
 import ShareBundlePage from "../../components/share-bundle-page";
 
 function buildMetadataRows(id, bundle, counts, schemaVersion) {

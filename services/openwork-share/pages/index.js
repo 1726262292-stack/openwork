@@ -2,7 +2,7 @@ import Head from "next/head";
 
 import ShareHomeClient from "../components/share-home-client";
 import ShareNav from "../components/share-nav";
-import { DEFAULT_PUBLIC_BASE_URL } from "../api/_lib/share-utils.js";
+import { DEFAULT_PUBLIC_BASE_URL } from "../server/_lib/share-utils.js";
 
 const rootOgImageUrl = `${DEFAULT_PUBLIC_BASE_URL}/og/root`;
 
