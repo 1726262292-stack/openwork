@@ -44,7 +44,13 @@ export function renderHomePage(req) {
       --ow-accent: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
     }
 
-    * { box-sizing: border-box; }
+    @font-face {
+      font-family: "FK Raster Roman Compact Smooth";
+      src: url("https://openwork.software/fonts/FKRasterRomanCompact-Smooth.woff2") format("woff2");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
     [hidden] { display: none !important; }
     html, body { min-height: 100%; }
     body {
@@ -93,17 +99,57 @@ export function renderHomePage(req) {
 
     .brand,
     .nav-link,
-    .ghost-pill,
-    .primary-pill,
     .secondary-pill,
-    .upload-trigger,
     .copy-button {
-      transition:
-        background-color 300ms var(--ow-ease),
-        border-color 300ms var(--ow-ease),
-        color 300ms var(--ow-ease),
-        box-shadow 300ms var(--ow-ease),
-        transform 300ms var(--ow-ease);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 48px;
+      padding: 0 20px;
+      border-radius: 999px;
+      text-decoration: none;
+      background: rgb(255, 255, 255);
+      border: 0;
+      color: rgb(0, 0, 0);
+      box-shadow:
+        rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
+        rgba(0, 0, 0, 0.04) 0px 1px 2px 0px;
+    }
+
+    .brand {
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px solid rgba(255, 255, 255, 0.78);
+      box-shadow: 0 18px 40px -30px rgba(15, 23, 42, 0.3);
+      backdrop-filter: blur(12px);
+    }
+
+    .nav-link {
+      background: transparent;
+      border: 0;
+      box-shadow: none;
+      color: var(--ow-muted);
+      font-weight: 500;
+    }
+
+    .nav-link:hover {
+      background: transparent;
+      box-shadow: none;
+      color: var(--ow-ink);
+    }
+
+    .brand:hover {
+      transform: translateY(-1px);
+    }
+
+    .secondary-pill:hover,
+    .copy-button:hover {
+      background: rgb(242, 242, 242);
+      color: rgb(0, 0, 0);
+      box-shadow:
+        rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
+        rgba(0, 0, 0, 0.04) 0px 1px 2px 0px,
+        rgba(0, 0, 0, 0.04) 0px 2px 4px 0px;
     }
 
     .brand {
@@ -184,31 +230,35 @@ export function renderHomePage(req) {
       justify-content: center;
       gap: 10px;
       min-height: 48px;
-      padding: 0 20px;
+      padding: 0 24px;
       border-radius: 999px;
       border: none;
       cursor: pointer;
       text-decoration: none;
       color: #fff;
       background: var(--ow-primary);
-      box-shadow: 0 22px 46px -28px rgba(1, 22, 39, 0.7);
+      box-shadow: 0 14px 32px -16px rgba(1, 22, 39, 0.55);
       font: inherit;
-      font-weight: 600;
+      font-weight: 500;
     }
 
     .primary-pill:hover,
     .upload-trigger:hover {
-      background: rgb(13, 35, 54);
+      background: rgb(110, 110, 110);
       transform: translateY(-1px);
+      box-shadow:
+        rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
+        rgba(0, 0, 0, 0.04) 0px 1px 2px 0px,
+        rgba(0, 0, 0, 0.04) 0px 2px 4px 0px;
     }
 
     .hero-card {
       position: relative;
       overflow: hidden;
-      border-radius: 40px;
+      border-radius: 2rem;
       border: 1px solid var(--ow-border);
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.72));
-      box-shadow: var(--ow-shadow-strong);
+      background: var(--ow-card);
+      box-shadow: 0 20px 60px -15px rgba(0, 0, 0, 0.1);
       backdrop-filter: blur(22px);
       padding: clamp(24px, 4vw, 42px);
     }
@@ -278,8 +328,8 @@ export function renderHomePage(req) {
     .hero-title em {
       font-style: normal;
       font-family: var(--ow-accent);
-      font-weight: 600;
-      letter-spacing: -0.06em;
+      font-weight: 400;
+      letter-spacing: normal;
     }
 
     .hero-body {
@@ -320,11 +370,11 @@ export function renderHomePage(req) {
     .result-panel {
       display: grid;
       gap: 16px;
-      border-radius: 32px;
+      border-radius: 2rem;
       padding: 24px;
-      border: 1px solid rgba(255, 255, 255, 0.86);
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.72));
-      box-shadow: var(--ow-shadow);
+      border: 1px solid var(--ow-border);
+      background: var(--ow-card);
+      box-shadow: 0 20px 60px -15px rgba(0, 0, 0, 0.1);
       backdrop-filter: blur(16px);
     }
 
@@ -345,9 +395,9 @@ export function renderHomePage(req) {
     .drop-zone {
       position: relative;
       min-height: 250px;
-      border-radius: 30px;
+      border-radius: 1.5rem;
       border: 1.5px dashed rgba(113, 128, 150, 0.32);
-      background: linear-gradient(180deg, rgba(247, 250, 252, 0.92), rgba(255, 255, 255, 0.82));
+      background: var(--ow-card-soft);
       padding: 24px;
       display: grid;
       gap: 18px;
@@ -412,10 +462,10 @@ export function renderHomePage(req) {
       align-items: center;
       gap: 14px;
       padding: 14px;
-      border-radius: 22px;
-      border: 1px solid rgba(255, 255, 255, 0.88);
-      background: rgba(255, 255, 255, 0.88);
-      box-shadow: 0 18px 46px -36px rgba(15, 23, 42, 0.28);
+      border-radius: 1.5rem;
+      border: 1px solid var(--ow-border);
+      background: var(--ow-card-soft);
+      box-shadow: 0 10px 24px -20px rgba(15, 23, 42, 0.18);
     }
 
     .included-item .icon {
@@ -522,12 +572,12 @@ export function renderHomePage(req) {
     .result-url {
       word-break: break-all;
       padding: 14px 16px;
-      border-radius: 20px;
-      background: rgba(255, 255, 255, 0.92);
-      border: 1px solid rgba(255, 255, 255, 0.9);
+      border-radius: 1rem;
+      background: var(--ow-card-soft);
+      border: 1px solid var(--ow-border);
       font-size: 14px;
       line-height: 1.5;
-      box-shadow: 0 16px 40px -36px rgba(15, 23, 42, 0.3);
+      box-shadow: 0 10px 24px -20px rgba(15, 23, 42, 0.18);
     }
 
     .result-actions {

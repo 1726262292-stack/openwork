@@ -410,13 +410,20 @@ export function buildStatusMarkup({ title, description, actionHref, actionLabel 
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(title)} - OpenWork Share</title>
   <style>
+    @font-face {
+      font-family: "FK Raster Roman Compact Smooth";
+      src: url("https://openwork.software/fonts/FKRasterRomanCompact-Smooth.woff2") format("woff2");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
     :root {
       color-scheme: light;
       --ow-bg: #f6f9fc;
       --ow-ink: #011627;
-      --ow-card: rgba(255, 255, 255, 0.84);
-      --ow-border: rgba(255, 255, 255, 0.75);
-      --ow-shadow: 0 24px 70px -28px rgba(15, 23, 42, 0.2);
+      --ow-card: rgba(255, 255, 255, 0.8);
+      --ow-border: rgba(255, 255, 255, 0.8);
+      --ow-shadow: 0 20px 60px -15px rgba(0, 0, 0, 0.1);
     }
     * { box-sizing: border-box; }
     body {
@@ -429,20 +436,45 @@ export function buildStatusMarkup({ title, description, actionHref, actionLabel 
       color: var(--ow-ink);
       background:
         radial-gradient(circle at top left, rgba(251, 191, 36, 0.34), transparent 36%),
-        radial-gradient(circle at right, rgba(59, 130, 246, 0.22), transparent 30%),
-        linear-gradient(180deg, #f9fbfe 0%, var(--ow-bg) 100%);
+        radial-gradient(circle at right, rgba(96, 165, 250, 0.28), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(244, 114, 182, 0.14), transparent 28%),
+        linear-gradient(180deg, #fbfdff 0%, var(--ow-bg) 100%);
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        radial-gradient(rgba(1, 22, 39, 0.055) 0.75px, transparent 0.75px),
+        radial-gradient(rgba(1, 22, 39, 0.03) 0.6px, transparent 0.6px);
+      background-position: 0 0, 18px 18px;
+      background-size: 36px 36px;
+      opacity: 0.34;
+      mix-blend-mode: multiply;
     }
     .card {
+      position: relative;
+      z-index: 1;
       width: min(100%, 540px);
-      border-radius: 32px;
+      border-radius: 2rem;
       padding: 32px;
       border: 1px solid var(--ow-border);
       background: var(--ow-card);
       box-shadow: var(--ow-shadow);
       backdrop-filter: blur(16px);
     }
-    h1 { margin: 0 0 12px; font-size: clamp(2rem, 5vw, 2.8rem); line-height: 0.96; letter-spacing: -0.06em; }
-    p { margin: 0; color: #5f6b7a; line-height: 1.6; }
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(2rem, 5vw, 2.8rem);
+      line-height: 0.96;
+      letter-spacing: -0.06em;
+    }
+    p {
+      margin: 0;
+      color: #5f6b7a;
+      line-height: 1.6;
+    }
     a {
       display: inline-flex;
       align-items: center;
@@ -455,9 +487,17 @@ export function buildStatusMarkup({ title, description, actionHref, actionLabel 
       color: white;
       background: #011627;
       transition: transform 300ms ${SHARE_EASE}, background-color 300ms ${SHARE_EASE}, box-shadow 300ms ${SHARE_EASE};
-      box-shadow: 0 20px 40px -26px rgba(1, 22, 39, 0.7);
+      box-shadow: 0 14px 32px -16px rgba(1, 22, 39, 0.55);
+      font-weight: 500;
     }
-    a:hover { background: #0d2336; transform: translateY(-1px); }
+    a:hover {
+      background: rgb(110, 110, 110);
+      transform: translateY(-1px);
+      box-shadow:
+        rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
+        rgba(0, 0, 0, 0.04) 0px 1px 2px 0px,
+        rgba(0, 0, 0, 0.04) 0px 2px 4px 0px;
+    }
   </style>
 </head>
 <body>
