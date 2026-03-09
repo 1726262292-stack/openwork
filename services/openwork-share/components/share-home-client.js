@@ -284,233 +284,121 @@ export default function ShareHomeClient() {
     <>
       <section className="hero-layout hero-layout-share">
         <div className="hero-copy">
-          <span className="eyebrow">OpenWork Share</span>
           <h1>
-            Share a <em>worker</em>
+            Share your <em>agent</em>
             <br />
-            setup the landing way
+            setup
           </h1>
           <p className="hero-body">
-            Package skills, agents, commands, and MCP config into the same grain-and-paper presentation language the OpenWork landing page already uses, then publish one clean import link.
+            Package skills, agents, commands, and MCP config in seconds.
           </p>
-          <div className="hero-proof-strip">
-            <span className="surface-chip">Drag folders or files</span>
-            <span className="surface-chip">Paste one SKILL.md</span>
-            <span className="surface-chip">Import from one link</span>
-          </div>
-          <p className="hero-note">Secrets stay out. The packager rejects configs that look unsafe to publish.</p>
+         <p className="hero-note">Secrets stay out. The packager rejects configs that look unsafe to publish.</p>
         </div>
 
         <div className="hero-artifact hero-artifact-share">
-          <div className="artifact-window">
-            <div className="artifact-window-header">
-              <div className="mac-dots" aria-hidden="true">
-                <div className="mac-dot red"></div>
-                <div className="mac-dot yellow"></div>
-                <div className="mac-dot green"></div>
-              </div>
-              <div className="artifact-window-title">OpenWork Share</div>
-            </div>
-
-            <div className="artifact-window-body">
-              <div className="artifact-grid">
-                <div className="package-card surface-soft">
-                  <div className="package-card-header">
-                    <div>
-                      <span className="surface-chip">Package once</span>
-                      <h2 className="simple-app-title">Create a share link</h2>
-                      <p className="simple-app-copy">
-                        Drop OpenWork files, preview the inferred bundle, then publish a public import page.
-                      </p>
-                    </div>
-                    <div className="selection-badge">{selectionLabel}</div>
+          <div className="artifact-window-body">
+            <div className="artifact-grid">
+              <div className="package-card surface-soft">
+                <div className="package-card-header">
+                  <div>
+                    <span className="surface-chip">Package once</span>
+                    <h2 className="simple-app-title">Create a share link</h2>
+                    <p className="simple-app-copy">
+                      Drop OpenWork files, preview the inferred bundle, then publish a public import page.
+                    </p>
                   </div>
-
-                  <label
-                    className={`drop-zone${dropActive ? " is-dragover" : ""}`}
-                    aria-busy={busy ? "true" : "false"}
-                    onDragEnter={(event) => {
-                      event.preventDefault();
-                      setDropActive(true);
-                    }}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      setDropActive(true);
-                    }}
-                    onDragLeave={(event) => {
-                      event.preventDefault();
-                      setDropActive(false);
-                    }}
-                    onDrop={async (event) => {
-                      event.preventDefault();
-                      setDropActive(false);
-                      if (busy) return;
-                      const files = await collectDroppedFiles(event.dataTransfer);
-                      assignEntries(files);
-                    }}
-                  >
-                    <input
-                      className="visually-hidden"
-                      type="file"
-                      multiple
-                      onChange={(event) => assignEntries(event.target.files)}
-                    />
-                    <div className="drop-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="17 8 12 3 7 8"></polyline>
-                        <line x1="12" y1="3" x2="12" y2="15"></line>
-                      </svg>
-                    </div>
-                    <div className="drop-text">
-                      <h3>Drop OpenWork files here</h3>
-                      <p>or click to browse local files</p>
-                    </div>
-                  </label>
-
-                  {effectiveEntries.length ? (
-                    <div className="selection-list">
-                      {effectiveEntries.slice(0, 4).map((entry) => (
-                        <div className="selection-item" key={entry.path || entry.name}>
-                          <span className="selection-item-name">{entry.name || entry.path}</span>
-                          <span className="selection-item-path mono">{entry.path || entry.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  <div className="paste-panel">
-                    <textarea
-                      value={pasteValue}
-                      onChange={handlePasteChange}
-                      placeholder="Paste a full SKILL.md file here, including frontmatter and markdown instructions."
-                    />
-                    <div className="paste-meta">
-                      <span>{pasteState}</span>
-                      <span>{pasteCountLabel}</span>
-                    </div>
-                    <div className="paste-actions">
-                      <button className="button-secondary" type="button" onClick={pasteFromClipboard}>
-                        Paste from clipboard
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="package-actions">
-                    <button
-                      className="button-primary"
-                      type="button"
-                      onClick={() => void publishBundle()}
-                      disabled={busy || !effectiveEntries.length || !preview}
-                    >
-                      {busyMode === "publish" ? "Publishing..." : "Generate share link"}
-                    </button>
-                    <div className="status-area" data-busy={busy ? "true" : "false"}>
-                      <span>{statusText}</span>
-                    </div>
-                  </div>
+                  <div className="selection-badge">{selectionLabel}</div>
                 </div>
 
-                <aside className="preview-panel surface-shell">
-                  <div className="preview-panel-header">
-                    <span className="surface-chip">Preview</span>
-                    <span className={`preview-state${preview ? " is-ready" : ""}`}>
-                      {preview ? "Ready to publish" : "Landing sample"}
-                    </span>
+                <label
+                  className={`drop-zone${dropActive ? " is-dragover" : ""}`}
+                  aria-busy={busy ? "true" : "false"}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    setDropActive(true);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setDropActive(true);
+                  }}
+                  onDragLeave={(event) => {
+                    event.preventDefault();
+                    setDropActive(false);
+                  }}
+                  onDrop={async (event) => {
+                    event.preventDefault();
+                    setDropActive(false);
+                    if (busy) return;
+                    const files = await collectDroppedFiles(event.dataTransfer);
+                    assignEntries(files);
+                  }}
+                >
+                  <input
+                    className="visually-hidden"
+                    type="file"
+                    multiple
+                    onChange={(event) => assignEntries(event.target.files)}
+                  />
+                  <div className="drop-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <polyline points="17 8 12 3 7 8"></polyline>
+                      <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
                   </div>
+                  <div className="drop-text">
+                    <h3>Drop OpenWork files here</h3>
+                    <p>or click to browse local files</p>
+                  </div>
+                </label>
 
-                  <h3 className="simple-app-title">Worker package</h3>
-                  <p className="simple-app-copy">
-                    The share card stays paper-clean, with the same warm glass shell and compact included list language used on the OpenWork landing page.
-                  </p>
-
-                  <div className="summary-grid">
-                    {summaryCards.map((card) => (
-                      <div className="summary-stat" key={card.label}>
-                        <strong className="summary-stat-value">{card.value}</strong>
-                        <span className="summary-stat-label">{card.label}</span>
+                {effectiveEntries.length ? (
+                  <div className="selection-list">
+                    {effectiveEntries.slice(0, 4).map((entry) => (
+                      <div className="selection-item" key={entry.path || entry.name}>
+                        <span className="selection-item-name">{entry.name || entry.path}</span>
+                        <span className="selection-item-path mono">{entry.path || entry.name}</span>
                       </div>
                     ))}
                   </div>
+                ) : null}
 
-                  <div className="included-section">
-                    <h4>{preview?.items?.length ? "Included" : "Example contents"}</h4>
-                    <div className="included-list">
-                      {visibleItems.map((item) => (
-                        <div className="included-item" key={`${item.kind}-${item.name}`}>
-                          <div className="item-left">
-                            <div className={`item-dot ${toneClass(item)}`}></div>
-                            <div>
-                              <div className="item-title">{item.name || "Unnamed item"}</div>
-                              <div className="item-meta">{item.meta || item.kind || "Item"}</div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                <div className="paste-panel">
+                  <textarea
+                    value={pasteValue}
+                    onChange={handlePasteChange}
+                    placeholder="Paste a full SKILL.md file here, including frontmatter and markdown instructions."
+                  />
+                  <div className="paste-meta">
+                    <span>{pasteState}</span>
+                    <span>{pasteCountLabel}</span>
                   </div>
+                  <div className="paste-actions">
+                    <button className="button-secondary" type="button" onClick={pasteFromClipboard}>
+                      Paste from clipboard
+                    </button>
+                  </div>
+                </div>
 
-                  {generatedUrl ? (
-                    <div className="link-stack">
-                      <div className="url-box mono">{generatedUrl}</div>
-                      <div className="button-row">
-                        <a className="button-primary" href={generatedUrl} target="_blank" rel="noreferrer">
-                          Open share page
-                        </a>
-                        <button className="button-secondary" type="button" onClick={copyGeneratedUrl}>
-                          {copyState}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="preview-note">
-                      Generate a share link to open this bundle in OpenWork or hand it directly to a teammate.
-                    </div>
-                  )}
-                </aside>
+                <div className="package-actions">
+                  <button
+                    className="button-primary"
+                    type="button"
+                    onClick={() => void publishBundle()}
+                    disabled={busy || !effectiveEntries.length || !preview}
+                  >
+                    {busyMode === "publish" ? "Publishing..." : "Generate share link"}
+                  </button>
+                  <div className="status-area" data-busy={busy ? "true" : "false"}>
+                    <span>{statusText}</span>
+                  </div>
+                </div>
               </div>
+
             </div>
           </div>
         </div>
-      </section>
 
-      <section className="story-grid">
-        <article className="story-card">
-          <span className="eyebrow">How it works</span>
-          <h3>One packaging flow, no hidden steps</h3>
-          <div className="step-list">
-            {WORKFLOW_STEPS.map((step, index) => (
-              <div className="step-row" key={step}>
-                <span className="step-bullet">0{index + 1}</span>
-                <span>{step}</span>
-              </div>
-            ))}
-          </div>
-        </article>
-
-        <article className="story-card">
-          <span className="eyebrow">What ships</span>
-          <h3>Only the OpenWork pieces that matter</h3>
-          <p>
-            The packager keeps the share payload focused on portable worker setup: skills, agents, commands, MCP config, and the metadata needed for direct import.
-          </p>
-          <div className="pill-list">
-            <span className="tone-pill tone-skill">Skills</span>
-            <span className="tone-pill tone-agent">Agents</span>
-            <span className="tone-pill tone-command">Commands</span>
-            <span className="tone-pill tone-mcp">MCP config</span>
-          </div>
-        </article>
-
-        <article className="story-card">
-          <span className="eyebrow">Safe by default</span>
-          <h3>Shareable configs without leaking secrets</h3>
-          <ul className="safe-list">
-            {SAFETY_POINTS.map((point) => (
-              <li key={point}>{point}</li>
-            ))}
-          </ul>
-        </article>
       </section>
 
       {generatedUrl ? (
