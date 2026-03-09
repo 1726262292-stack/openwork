@@ -38,6 +38,9 @@ export function LandingHome(props: Props) {
     once: true,
     margin: "-15% 0px"
   });
+  const showEnterpriseGrain = useInView(enterpriseShowcaseRef, {
+    margin: "-15% 0px"
+  });
 
   const activeDemo = useMemo(
     () => landingDemoFlows.find((flow) => flow.id === activeDemoId) ?? landingDemoFlows[0],
@@ -351,17 +354,17 @@ export function LandingHome(props: Props) {
               </div>
 
               <div className="landing-canvas relative flex min-h-[400px] w-full items-center justify-center overflow-hidden rounded-3xl p-6 lg:w-2/3 md:p-10">
-                {showEnterpriseShowcase ? (
+                {showEnterpriseGrain ? (
                   <>
                     <ResponsiveGrain
-                colors={["#f97316", "#a855f7", "#3b82f6", "#fcd34d"]}
-                colorBack="#f97316"
-                softness={0.6}
-                intensity={0.8}
-                noise={0.3}
-                shape="corners"
-                speed={0.5}
-              />
+                      colors={["#f97316", "#a855f7", "#3b82f6", "#fcd34d"]}
+                      colorBack="#f97316"
+                      softness={0.6}
+                      intensity={0.8}
+                      noise={0.3}
+                      shape="corners"
+                      speed={0}
+                    />
                     <div className="absolute left-8 top-8 h-28 w-28 rounded-[2rem] border border-white/60 bg-white/30" />
                     <div className="absolute bottom-8 right-8 h-40 w-40 rounded-full border border-white/60 bg-white/24" />
                   </>
