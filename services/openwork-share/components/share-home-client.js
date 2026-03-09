@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const DEFAULT_PREVIEW_ITEMS = [
@@ -292,7 +294,7 @@ export default function ShareHomeClient() {
           <p className="hero-body">
             Package skills, agents, commands, and MCP config in seconds.
           </p>
-         <p className="hero-note">Secrets stay out. The packager rejects configs that look unsafe to publish.</p>
+          <p className="hero-note">Secrets stay out. The packager rejects configs that look unsafe to publish.</p>
         </div>
 
         <div className="hero-artifact hero-artifact-share">

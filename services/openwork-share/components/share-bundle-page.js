@@ -1,4 +1,5 @@
-import Head from "next/head";
+"use client";
+
 import { useState } from "react";
 
 import ShareNav from "./share-nav";
@@ -30,37 +31,8 @@ export default function ShareBundlePage(props) {
     }
   };
 
-  const pageTitle = props.missing ? "Bundle not found - OpenWork Share" : `${props.title} - OpenWork Share`;
-  const pageDescription = props.missing
-    ? "This share link does not exist anymore, or the bundle id is invalid."
-    : props.description;
-
   return (
     <>
-      <Head>
-        <title>{pageTitle}</title>
-        <meta name="description" content={pageDescription} />
-        <link rel="canonical" href={props.canonicalUrl} />
-        <meta property="og:type" content="website" />
-        <meta property="og:title" content={pageTitle} />
-        <meta property="og:description" content={pageDescription} />
-        <meta property="og:url" content={props.canonicalUrl} />
-        <meta property="og:image" content={props.ogImageUrl} />
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content={pageTitle} />
-        <meta name="twitter:description" content={pageDescription} />
-        <meta name="twitter:image" content={props.ogImageUrl} />
-        {props.missing ? null : (
-          <>
-            <meta name="openwork:bundle-id" content={props.id} />
-            <meta name="openwork:bundle-type" content={props.bundleType} />
-            <meta name="openwork:schema-version" content={props.schemaVersion} />
-            <meta name="openwork:open-in-app-url" content={props.openInAppDeepLink} />
-            <link rel="alternate" type="application/json" href={props.jsonUrl} />
-          </>
-        )}
-      </Head>
-
       <main className="shell">
         <ShareNav />
 
