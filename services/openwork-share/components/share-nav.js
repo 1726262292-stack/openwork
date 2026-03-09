@@ -8,12 +8,17 @@ function GitHubMark() {
   );
 }
 
-export default function ShareNav() {
+export default function ShareNav({ stars = "—" }) {
   return (
     <nav className="nav">
       <a className="brand" href="/" aria-label="OpenWork Share home">
-        <span className="brand-mark" aria-hidden="true"></span>
-        <span>openwork</span>
+        <img
+          src="/openwork-mark.svg"
+          alt=""
+          aria-hidden="true"
+          style={{ width: "24px", height: "auto" }}
+        />
+        <span style={{ fontWeight: "600", fontSize: "1.2rem" }}>openwork</span>
       </a>
       <div className="nav-links">
         <a href="https://openwork.software/docs" target="_blank" rel="noreferrer">
@@ -28,13 +33,14 @@ export default function ShareNav() {
       </div>
       <div className="nav-actions">
         <a
-          className="button-secondary"
+          className="button-secondary share-github-button"
           href="https://github.com/different-ai/openwork"
           target="_blank"
           rel="noreferrer"
+          aria-label="OpenWork GitHub stars"
         >
           <GitHubMark />
-          GitHub
+          GitHub {stars}
         </a>
       </div>
     </nav>
