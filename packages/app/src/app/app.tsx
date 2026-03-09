@@ -5968,7 +5968,6 @@ export default function App() {
     exportWorkspaceBusy: workspaceStore.exportingWorkspaceConfig(),
     clientConnected: Boolean(client()),
     openworkServerStatus: openworkServerStatus(),
-    startupPreference: startupPreference(),
     openworkServerClient: openworkServerClient(),
     openworkServerSettings: openworkServerSettings(),
     openworkServerHostInfo: openworkServerHostInfo(),

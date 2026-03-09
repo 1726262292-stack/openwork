@@ -1473,7 +1473,6 @@ export default function DashboardView(props: DashboardViewProps) {
         <StatusBar
           clientConnected={props.clientConnected}
           openworkServerStatus={props.openworkServerStatus}
-          startupPreference={props.startupPreference}
           developerMode={props.developerMode}
           onOpenSettings={() => openSettings("general")}
           onOpenMessaging={openConfig}
