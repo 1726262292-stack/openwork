@@ -11,10 +11,10 @@ export function LandingBackground() {
     <>
       <div className="pointer-events-none fixed inset-0 z-0 bg-[#f6f9fc]" />
 
-      <motion.div
+      {/* <motion.div
         style={{ opacity: darkOpacity, willChange: "opacity" }}
         className="pointer-events-none fixed inset-0 z-0"
-      >
+      > */}
            <ResponsiveGrain
           colors={["#f6f9fc", "#f6f9fc", "#1e293b", "#334155"]}
           colorBack="#f6f9fc"
@@ -24,7 +24,7 @@ export function LandingBackground() {
           shape="corners"
           speed={0.2}
         />
-      </motion.div>
+      {/* </motion.div> */}
     </>
   );
 }
