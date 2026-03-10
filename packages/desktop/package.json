@@ -2,7 +2,7 @@
   "name": "@different-ai/openwork",
   "private": true,
   "version": "0.11.136",
-  "opencodeVersion": "1.2.6",
+  "opencodeVersion": "1.1.20",
   "opencodeRouterVersion": "0.11.136",
   "type": "module",
   "scripts": {
