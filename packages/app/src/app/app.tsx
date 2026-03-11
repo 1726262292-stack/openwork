@@ -6154,6 +6154,7 @@ export default function App() {
       events: events(),
       workspaceDebugEvents: workspaceStore.workspaceDebugEvents(),
       sandboxCreateProgress: workspaceStore.sandboxCreateProgress(),
+      sandboxCreateProgressLast: workspaceStore.lastSandboxCreateProgress(),
       clearWorkspaceDebugEvents: workspaceStore.clearWorkspaceDebugEvents,
       safeStringify,
       repairOpencodeMigration: workspaceStore.repairOpencodeMigration,
