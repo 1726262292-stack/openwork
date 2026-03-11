@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildBundleUrls, renderBundlePage, wantsDownload, wantsJsonResponse } from "./render-bundle-page.js";
+import { buildBundleUrls, renderBundlePage, wantsDownload, wantsJsonResponse } from "./render-bundle-page.ts";
+import type { RequestLike } from "../_lib/types.ts";
 
-function makeReq({ accept = "", query = {}, host = "share.openwork.software" } = {}) {
+function makeReq({ accept = "", query = {}, host = "share.openwork.software" }: { accept?: string; query?: Record<string, string>; host?: string } = {}): RequestLike {
   return {
     query,
     headers: {
@@ -88,5 +89,5 @@ test("renderBundlePage shows workspace profile metadata", () => {
 
   assert.match(html, /<dt>Skills<\/dt><dd>2<\/dd>/);
   assert.match(html, /<dt>Commands<\/dt><dd>1<\/dd>/);
-  assert.match(html, /<dt>Config<\/dt><dd>yes<\/dd>/);
+  assert.match(html, /<dt>Configs<\/dt><dd>2<\/dd>/);
 });

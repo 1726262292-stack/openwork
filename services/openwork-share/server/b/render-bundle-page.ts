@@ -13,18 +13,21 @@ import {
   parseBundle,
   wantsDownload,
   wantsJsonResponse,
-} from "../_lib/share-utils.js";
+} from "../_lib/share-utils.ts";
+import type { RequestLike } from "../_lib/types.ts";
+import type { PreviewItem } from "../../components/share-home-types.ts";
 
-export { buildBundleUrls, wantsDownload, wantsJsonResponse } from "../_lib/share-utils.js";
+export { buildBundleUrls, wantsDownload, wantsJsonResponse } from "../_lib/share-utils.ts";
 
-function toneInitial(kind) {
+function toneInitial(kind: string): string {
+  if (kind === "Config") return "config";
   if (kind === "MCP") return "mcp";
   if (kind === "Command") return "command";
   if (kind === "Agent") return "agent";
   return "skill";
 }
 
-function renderItem(item) {
+function renderItem(item: PreviewItem): string {
   return `
     <div class="included-item">
       <div class="item-left">
@@ -35,7 +38,7 @@ function renderItem(item) {
     </div>`;
 }
 
-export function renderBundlePage({ id, rawJson, req }) {
+export function renderBundlePage({ id, rawJson, req }: { id: string; rawJson: string; req: RequestLike }): string {
   const bundle = parseBundle(rawJson);
   const urls = buildBundleUrls(req, id);
   const ogImageUrl = buildOgImageUrl(req, id);
@@ -63,9 +66,9 @@ export function renderBundlePage({ id, rawJson, req }) {
     counts.agentCount ? ["Agents", String(counts.agentCount)] : null,
     counts.mcpCount ? ["MCPs", String(counts.mcpCount)] : null,
     counts.commandCount ? ["Commands", String(counts.commandCount)] : null,
-    counts.hasConfig ? ["Config", "yes"] : null,
+    counts.configCount ? ["Configs", String(counts.configCount)] : null,
   ]
-    .filter(Boolean)
+    .filter((row): row is [string, string] => row !== null)
     .map(
       ([label, value]) =>
         `<div class="metadata-row"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`,
@@ -378,6 +381,7 @@ export function renderBundlePage({ id, rawJson, req }) {
     .dot-skill { background: #2463eb; }
     .dot-mcp { background: #0f9f7f; }
     .dot-command { background: #8b5cf6; }
+    .dot-config { background: #475569; }
 
     .item-title { font-size: 14px; font-weight: 500; color: var(--ow-ink); }
     .item-meta { font-size: 12px; color: var(--ow-muted); }
