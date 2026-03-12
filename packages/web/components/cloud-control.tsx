@@ -158,7 +158,7 @@ const AUTH_TOKEN_STORAGE_KEY = "openwork:web:auth-token";
 const WORKER_STATUS_POLL_MS = 5000;
 const DEFAULT_AUTH_NAME = "OpenWork User";
 const OPENWORK_APP_CONNECT_BASE_URL = (process.env.NEXT_PUBLIC_OPENWORK_APP_CONNECT_URL ?? "").trim();
-const OPENWORK_AUTH_CALLBACK_BASE_URL = (process.env.NEXT_PUBLIC_OPENWORK_AUTH_CALLBACK_URL ?? "https://app.openwork.software").trim();
+const OPENWORK_AUTH_CALLBACK_BASE_URL = (process.env.NEXT_PUBLIC_OPENWORK_AUTH_CALLBACK_URL ?? "").trim();
 
 function getEmailDomain(email: string): string {
   const atIndex = email.lastIndexOf("@");
@@ -228,7 +228,10 @@ async function trackDenSignupInLoops(payload: DenSignupTrackPayload) {
 
 function getSocialCallbackUrl(): string {
   try {
-    return new URL("/", OPENWORK_AUTH_CALLBACK_BASE_URL || "https://app.openwork.software").toString();
+    const origin = typeof window !== "undefined"
+      ? window.location.origin
+      : OPENWORK_AUTH_CALLBACK_BASE_URL || "https://app.openwork.software";
+    return new URL("/", origin).toString();
   } catch {
     return "https://app.openwork.software/";
   }
@@ -1062,6 +1065,8 @@ export function CloudControlPanel() {
   const [workerQuery, setWorkerQuery] = useState("");
   const [workerStatusFilter, setWorkerStatusFilter] = useState<WorkerStatusBucket | "all">("all");
   const [showLaunchForm, setShowLaunchForm] = useState(false);
+  const [mobileWorkersExpanded, setMobileWorkersExpanded] = useState(false);
+  const [pendingRestoredWorkerId, setPendingRestoredWorkerId] = useState<string | null>(null);
   const [openAccordion, setOpenAccordion] = useState<"connect" | "actions" | "advanced" | null>(null);
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [runtimeSnapshot, setRuntimeSnapshot] = useState<WorkerRuntimeSnapshot | null>(null);
@@ -1114,6 +1119,73 @@ export function CloudControlPanel() {
 
     return getWorkerStatusMeta(item.status).bucket === workerStatusFilter;
   });
+
+  const selectWorker = (item: WorkerListItem, options: { collapseMobile?: boolean } = {}) => {
+    setWorkerLookupId(item.workerId);
+    setWorker((current) => listItemToWorker(item, current));
+    if (options.collapseMobile) {
+      setMobileWorkersExpanded(false);
+      setShowLaunchForm(false);
+    }
+  };
+
+  const mobilePreviewWorker = selectedWorker ?? filteredWorkers[0] ?? null;
+
+  const renderWorkerRow = (
+    item: WorkerListItem,
+    options: { collapseMobile?: boolean; dense?: boolean } = {}
+  ) => {
+    const meta = getWorkerStatusMeta(item.status);
+    const isActive = workerLookupId === item.workerId;
+    const statusPill =
+      meta.bucket === "ready"
+        ? "bg-[#E8F5E9] text-[#2E7D32]"
+        : meta.bucket === "starting"
+          ? "bg-amber-100 text-amber-700"
+          : meta.bucket === "attention"
+            ? "bg-rose-100 text-rose-700"
+            : "bg-slate-100 text-slate-500";
+
+    const statusDot =
+      meta.bucket === "ready"
+        ? "bg-[#2E7D32]"
+        : meta.bucket === "starting"
+          ? "bg-amber-500"
+          : meta.bucket === "attention"
+            ? "bg-rose-500"
+            : "bg-slate-400";
+
+    return (
+      <button
+        key={item.workerId}
+        type="button"
+        onClick={() => selectWorker(item, { collapseMobile: options.collapseMobile })}
+        className={`w-full rounded-[20px] border ${options.dense ? "p-3" : "p-4"} text-left transition-all ${
+          isActive
+            ? "border-[#1B29FF] bg-[#1B29FF]/[0.03] ring-1 ring-[#1B29FF]/30"
+            : "border-slate-100 bg-white hover:border-slate-300"
+        }`}
+      >
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <span className={`truncate pr-2 text-sm font-semibold ${isActive ? "text-[#1B29FF]" : "text-slate-700"}`}>
+            {item.workerName}
+          </span>
+          {item.isMine ? (
+            <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              Yours
+            </span>
+          ) : null}
+        </div>
+        <div className="mt-3 flex items-center justify-between">
+          <span className="font-mono text-xs font-medium text-slate-400">{getWorkerAddressLabel(item)}</span>
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${statusPill}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${statusDot}`} />
+            {meta.label}
+          </span>
+        </div>
+      </button>
+    );
+  };
 
   const selectedWorkerStatus = activeWorker?.status ?? selectedWorker?.status ?? "unknown";
   const selectedStatusMeta = getWorkerStatusMeta(selectedWorkerStatus);
@@ -1216,6 +1288,9 @@ export function CloudControlPanel() {
       const nextWorkers = getWorkersList(payload);
       setWorkers(nextWorkers);
 
+      const restoredWorkerStillExists =
+        pendingRestoredWorkerId && nextWorkers.some((item) => item.workerId === pendingRestoredWorkerId);
+
       const currentSelection = options.keepSelection ? workerLookupId : "";
       const nextSelectedId =
         currentSelection && nextWorkers.some((item) => item.workerId === currentSelection)
@@ -1223,6 +1298,21 @@ export function CloudControlPanel() {
           : nextWorkers[0]?.workerId ?? "";
 
       setWorkerLookupId(nextSelectedId);
+
+      if (!nextSelectedId) {
+        setWorker(null);
+        setTokenFetchedForWorkerId(null);
+        setPendingRestoredWorkerId(null);
+        setLaunchStatus("Name your worker and click launch.");
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem(LAST_WORKER_STORAGE_KEY);
+        }
+        return;
+      }
+
+      if (restoredWorkerStillExists) {
+        setPendingRestoredWorkerId(null);
+      }
 
       if (nextSelectedId && worker && worker.workerId === nextSelectedId) {
         const selected = nextWorkers.find((item) => item.workerId === nextSelectedId) ?? null;
@@ -1534,14 +1624,14 @@ export function CloudControlPanel() {
 
   useEffect(() => {
     const targetWorkerId = activeWorker?.workerId ?? selectedWorker?.workerId ?? null;
-    if (!user || !targetWorkerId) {
+    if (!user || !targetWorkerId || pendingRestoredWorkerId === targetWorkerId) {
       setRuntimeSnapshot(null);
       setRuntimeError(null);
       return;
     }
 
     void refreshRuntime(targetWorkerId, { quiet: true });
-  }, [user?.id, authToken, activeWorker?.workerId, selectedWorker?.workerId]);
+  }, [user?.id, authToken, activeWorker?.workerId, pendingRestoredWorkerId, selectedWorker?.workerId]);
 
   useEffect(() => {
     const targetWorkerId = activeWorker?.workerId ?? selectedWorker?.workerId ?? null;
@@ -1662,6 +1752,7 @@ export function CloudControlPanel() {
 
       setWorker(restored);
       setWorkerLookupId(restored.workerId);
+      setPendingRestoredWorkerId(restored.workerId);
       setLaunchStatus(`Recovered worker ${restored.workerName}. ${getWorkerStatusCopy(restored.status)}`);
       appendEvent("info", "Recovered worker context", `Worker ID ${restored.workerId}`);
     } catch {
@@ -1697,13 +1788,19 @@ export function CloudControlPanel() {
       return;
     }
 
-    if (workers.length === 0) {
-      setShowLaunchForm(true);
+    if (workers.length > 0) {
+      return;
     }
-  }, [step, workers.length]);
+
+    setMobileWorkersExpanded(false);
+    setShowLaunchForm(pendingRestoredWorkerId === null);
+  }, [pendingRestoredWorkerId, step, workers.length]);
 
   useEffect(() => {
     if (!user || !worker) {
+      return;
+    }
+    if (pendingRestoredWorkerId === worker.workerId) {
       return;
     }
     if (worker.clientToken) {
@@ -1718,10 +1815,13 @@ export function CloudControlPanel() {
 
     setTokenFetchedForWorkerId(worker.workerId);
     void handleGenerateKey();
-  }, [actionBusy, launchBusy, tokenFetchedForWorkerId, user, worker]);
+  }, [actionBusy, launchBusy, pendingRestoredWorkerId, tokenFetchedForWorkerId, user, worker]);
 
   useEffect(() => {
     if (!user || !worker || worker.status !== "provisioning") {
+      return;
+    }
+    if (pendingRestoredWorkerId === worker.workerId) {
       return;
     }
     if (actionBusy !== null || launchBusy) {
@@ -1746,7 +1846,7 @@ export function CloudControlPanel() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [actionBusy, authToken, launchBusy, user?.id, worker?.workerId, worker?.status]);
+  }, [actionBusy, authToken, launchBusy, pendingRestoredWorkerId, user?.id, worker?.workerId, worker?.status]);
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1973,6 +2073,8 @@ export function CloudControlPanel() {
     setWorkerQuery("");
     setWorkerStatusFilter("all");
     setShowLaunchForm(false);
+    setMobileWorkersExpanded(false);
+    setPendingRestoredWorkerId(null);
     setAuthMode("sign-up");
     setEmail("");
     setPassword("");
@@ -2072,6 +2174,7 @@ export function CloudControlPanel() {
       const resolvedWorker = await withResolvedOpenworkCredentials(parsedWorker);
       setWorker(resolvedWorker);
       setWorkerLookupId(parsedWorker.workerId);
+      setPendingRestoredWorkerId(null);
       setPaymentReturned(false);
       setCheckoutUrl(null);
       setShowLaunchForm(false);
@@ -2186,6 +2289,7 @@ export function CloudControlPanel() {
 
       const resolvedWorker = await withResolvedOpenworkCredentials(nextWorker, { quiet: true });
       setWorker(resolvedWorker);
+      setPendingRestoredWorkerId(null);
 
       setWorkerLookupId(summary.workerId);
 
@@ -2281,6 +2385,7 @@ export function CloudControlPanel() {
 
       const resolvedWorker = await withResolvedOpenworkCredentials(nextWorker, { quiet: true });
       setWorker(resolvedWorker);
+      setPendingRestoredWorkerId(null);
 
       setLaunchStatus("Worker is ready to connect.");
       appendEvent("success", "Access token ready", `Worker ID ${id}`);
@@ -2338,6 +2443,7 @@ export function CloudControlPanel() {
         }
         return null;
       });
+      setPendingRestoredWorkerId((current) => (current === workerId ? null : current));
 
       setWorkerLookupId((current) => (current === workerId ? "" : current));
 
@@ -2539,7 +2645,137 @@ export function CloudControlPanel() {
                   </div>
                 </aside>
 
-                <section className="flex h-full w-full shrink-0 flex-col rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:w-[340px]">
+                <section className="flex flex-col gap-3 lg:hidden">
+                  <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h2 className="text-base font-semibold tracking-tight text-slate-900">Workers</h2>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {workers.length > 0
+                            ? mobileWorkersExpanded
+                              ? `Showing ${filteredWorkers.length} of ${workers.length}`
+                              : mobilePreviewWorker
+                                ? "Selected worker stays pinned here."
+                                : "Choose a worker to see its details."
+                            : "No workers yet."}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="rounded-full bg-[#1B29FF] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#151FDA]"
+                          onClick={() => {
+                            setShowLaunchForm((current) => !current);
+                            setMobileWorkersExpanded(true);
+                          }}
+                        >
+                          {showLaunchForm ? "Close" : "New"}
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+                          onClick={() => setMobileWorkersExpanded((current) => !current)}
+                          disabled={!mobilePreviewWorker && filteredWorkers.length === 0}
+                        >
+                          {mobileWorkersExpanded ? "Collapse" : `Show all${filteredWorkers.length > 1 ? ` (${filteredWorkers.length})` : ""}`}
+                        </button>
+                      </div>
+                    </div>
+
+                    {showLaunchForm ? (
+                      <div className="mt-4 rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                        <label className="mb-3 block">
+                          <span className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Worker Name</span>
+                          <input
+                            className="w-full rounded-[12px] border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-[#1B29FF] focus:ring-2 focus:ring-[#1B29FF]/15"
+                            value={workerName}
+                            onChange={(event) => setWorkerName(event.target.value)}
+                            maxLength={80}
+                          />
+                        </label>
+
+                        <button
+                          type="button"
+                          className="w-full rounded-[12px] bg-[#1B29FF] px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-[#151FDA] disabled:cursor-not-allowed disabled:opacity-60"
+                          onClick={handleLaunchWorker}
+                          disabled={!user || launchBusy || worker?.status === "provisioning"}
+                        >
+                          {launchBusy
+                            ? "Starting worker..."
+                            : worker?.status === "provisioning"
+                              ? "Worker is starting..."
+                              : `Launch "${workerName || "Cloud Worker"}"`}
+                        </button>
+
+                        {(launchStatus || launchError) && showLaunchForm ? (
+                          <div className="mt-3 rounded-[12px] border border-slate-200 bg-white px-3 py-2">
+                            <p className="text-xs text-slate-600">{launchStatus}</p>
+                            {launchError ? <p className="mt-1 text-xs font-medium text-rose-600">{launchError}</p> : null}
+                          </div>
+                        ) : null}
+
+                        {effectiveCheckoutUrl ? (
+                          <div className="mt-3 rounded-[12px] border border-amber-200 bg-amber-50 px-3 py-2.5">
+                            <p className="text-sm font-semibold text-amber-800">Payment needed before launch</p>
+                            <a
+                              href={effectiveCheckoutUrl}
+                              rel="noreferrer"
+                              className="mt-2 inline-flex rounded-[10px] border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+                            >
+                              Continue to checkout
+                            </a>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {mobileWorkersExpanded || showLaunchForm ? (
+                      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+                        <input
+                          className="min-w-[170px] rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-700 outline-none focus:border-[#1B29FF]"
+                          value={workerQuery}
+                          onChange={(event) => setWorkerQuery(event.target.value)}
+                          placeholder="Search..."
+                          aria-label="Search workers"
+                        />
+                        <select
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 outline-none"
+                          value={workerStatusFilter}
+                          onChange={(event) => setWorkerStatusFilter(event.target.value as WorkerStatusBucket | "all")}
+                        >
+                          <option value="all">All</option>
+                          <option value="ready">Ready</option>
+                          <option value="starting">Starting</option>
+                          <option value="attention">Attention</option>
+                        </select>
+                      </div>
+                    ) : null}
+
+                    {workersBusy ? <p className="mt-3 text-xs text-slate-500">Loading workers...</p> : null}
+                    {workersError ? <p className="mt-3 text-xs font-medium text-rose-600">{workersError}</p> : null}
+
+                    <div className="mt-4 space-y-3">
+                      {mobilePreviewWorker ? renderWorkerRow(mobilePreviewWorker, { collapseMobile: true, dense: true }) : null}
+
+                      {mobileWorkersExpanded ? (
+                        <div className="space-y-3 border-t border-slate-100 pt-3">
+                          {filteredWorkers
+                            .filter((item) => item.workerId !== mobilePreviewWorker?.workerId)
+                            .map((item) => renderWorkerRow(item, { collapseMobile: true, dense: true }))}
+                          {workers.length > 0 && filteredWorkers.length === 0 ? (
+                            <p className="text-xs text-slate-500">No workers match this filter.</p>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {workers.length === 0 && !workersBusy ? (
+                        <p className="text-xs text-slate-500">No workers yet. Create one to get started.</p>
+                      ) : null}
+                    </div>
+                  </div>
+                </section>
+
+                <section className="hidden h-full w-full shrink-0 flex-col rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:w-[340px] lg:flex">
                   <div className="mb-6 flex items-center justify-between">
                     <h2 className="text-xl font-semibold tracking-tight text-slate-900">Workers</h2>
                     <button
@@ -2622,61 +2858,7 @@ export function CloudControlPanel() {
                   {workersError ? <p className="mb-2 text-xs font-medium text-rose-600">{workersError}</p> : null}
 
                   <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-                    {filteredWorkers.map((item) => {
-                      const meta = getWorkerStatusMeta(item.status);
-                      const isActive = workerLookupId === item.workerId;
-                      const statusPill =
-                        meta.bucket === "ready"
-                          ? "bg-[#E8F5E9] text-[#2E7D32]"
-                          : meta.bucket === "starting"
-                            ? "bg-amber-100 text-amber-700"
-                            : meta.bucket === "attention"
-                              ? "bg-rose-100 text-rose-700"
-                              : "bg-slate-100 text-slate-500";
-
-                      const statusDot =
-                        meta.bucket === "ready"
-                          ? "bg-[#2E7D32]"
-                          : meta.bucket === "starting"
-                            ? "bg-amber-500"
-                            : meta.bucket === "attention"
-                              ? "bg-rose-500"
-                              : "bg-slate-400";
-
-                      return (
-                        <button
-                          key={item.workerId}
-                          type="button"
-                          onClick={() => {
-                            setWorkerLookupId(item.workerId);
-                            setWorker((current) => listItemToWorker(item, current));
-                          }}
-                          className={`w-full rounded-[20px] border p-4 text-left transition-all ${
-                            isActive
-                              ? "border-[#1B29FF] bg-[#1B29FF]/[0.03] ring-1 ring-[#1B29FF]/30"
-                              : "border-slate-100 bg-white hover:border-slate-300"
-                          }`}
-                        >
-                          <div className="mb-1 flex items-center justify-between gap-2">
-                            <span className={`truncate pr-2 text-sm font-semibold ${isActive ? "text-[#1B29FF]" : "text-slate-700"}`}>
-                              {item.workerName}
-                            </span>
-                            {item.isMine ? (
-                              <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                                Yours
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="mt-3 flex items-center justify-between">
-                            <span className="font-mono text-xs font-medium text-slate-400">{getWorkerAddressLabel(item)}</span>
-                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${statusPill}`}>
-                              <span className={`h-1.5 w-1.5 rounded-full ${statusDot}`} />
-                              {meta.label}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
+                    {filteredWorkers.map((item) => renderWorkerRow(item))}
                   </div>
 
                   {workers.length > 0 && filteredWorkers.length === 0 ? (
