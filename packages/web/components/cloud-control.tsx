@@ -184,6 +184,8 @@ const WORKER_STATUS_POLL_MS = 5000;
 const DEFAULT_AUTH_NAME = "OpenWork User";
 const OPENWORK_APP_CONNECT_BASE_URL = (process.env.NEXT_PUBLIC_OPENWORK_APP_CONNECT_URL ?? "").trim();
 const OPENWORK_AUTH_CALLBACK_BASE_URL = (process.env.NEXT_PUBLIC_OPENWORK_AUTH_CALLBACK_URL ?? "https://app.openwork.software").trim();
+const OPENWORK_DOWNLOAD_URL = "https://openwork.software/";
+const OPENWORK_DOWNLOAD_FALLBACK_URL = "https://openwork.software/download";
 const BILLING_DISABLED_FOR_EXPERIMENT = true;
 const STARTUP_ROTATION_MS = 2700;
 const STARTUP_SEQUENCE: StartupSequenceItem[] = [
@@ -759,24 +761,11 @@ function getWorkerStatusCopy(status: string): string {
   }
 }
 
-function getStatusIndicatorClasses(bucket: WorkerStatusBucket) {
+function getTrafficLightClasses(bucket: WorkerStatusBucket) {
   return {
-    pill:
-      bucket === "ready"
-        ? "bg-[#E8F5E9] text-[#2E7D32]"
-        : bucket === "starting"
-          ? "bg-amber-100 text-amber-700"
-          : bucket === "attention"
-            ? "bg-rose-100 text-rose-700"
-            : "bg-slate-100 text-slate-500",
-    dot:
-      bucket === "ready"
-        ? "bg-[#2E7D32]"
-        : bucket === "starting"
-          ? "bg-amber-500"
-          : bucket === "attention"
-            ? "bg-rose-500"
-            : "bg-slate-400"
+    red: bucket === "attention" || bucket === "other" ? "bg-rose-500 shadow-[0_0_0_4px_rgba(244,63,94,0.16)]" : "bg-rose-100",
+    amber: bucket === "starting" ? "bg-amber-500 shadow-[0_0_0_4px_rgba(245,158,11,0.16)]" : "bg-amber-100",
+    green: bucket === "ready" ? "bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.16)]" : "bg-emerald-100"
   };
 }
 
@@ -1340,6 +1329,9 @@ export function CloudControlPanel() {
   const [runtimeBusy, setRuntimeBusy] = useState(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [runtimeUpgradeBusy, setRuntimeUpgradeBusy] = useState(false);
+  const [dismissedDesktopPromptWorkerId, setDismissedDesktopPromptWorkerId] = useState<string | null>(null);
+  const [isDesktopViewport, setIsDesktopViewport] = useState(false);
+
   const selectedWorker = workers.find((item) => item.workerId === workerLookupId) ?? null;
   const activeWorker: WorkerLaunch | null =
     worker && workerLookupId === worker.workerId
@@ -1457,13 +1449,20 @@ export function CloudControlPanel() {
 
   const selectedWorkerStatus = activeWorker?.status ?? selectedWorker?.status ?? "unknown";
   const selectedStatusMeta = getWorkerStatusMeta(selectedWorkerStatus);
-  const selectedStatusIndicator = getStatusIndicatorClasses(selectedStatusMeta.bucket);
+  const trafficLights = getTrafficLightClasses(selectedStatusMeta.bucket);
   const primaryWorker = activeWorker;
-  const primaryAppUrl = openworkDeepLink ?? openworkAppConnectUrl;
+  const primaryAppUrl = openworkDeepLink;
   const browserStartUrl = openworkAppConnectUrl;
-  const canStartWorker = selectedStatusMeta.bucket === "ready" && Boolean(primaryAppUrl ?? browserStartUrl);
+  const canOpenWorker = selectedStatusMeta.bucket === "ready" && Boolean(primaryAppUrl);
+  const canStartInOpenwork = selectedStatusMeta.bucket === "ready" && Boolean(openworkDeepLink);
+  const canStartHere = selectedStatusMeta.bucket === "ready" && Boolean(browserStartUrl);
   const showStartupSequence = launchBusy || (Boolean(primaryWorker) && selectedStatusMeta.bucket !== "ready");
-  const showInlineStartupSequence = showStartupSequence;
+  const showDesktopStartupModal =
+    isDesktopViewport &&
+    Boolean(primaryWorker) &&
+    selectedStatusMeta.bucket !== "ready" &&
+    dismissedDesktopPromptWorkerId !== primaryWorker?.workerId;
+  const showInlineStartupSequence = showStartupSequence && !showDesktopStartupModal;
   const effectiveCheckoutUrl = BILLING_DISABLED_FOR_EXPERIMENT ? null : (checkoutUrl ?? billingSummary?.checkoutUrl ?? null);
   const billingSubscription = billingSummary?.subscription ?? null;
   const billingPrice = billingSummary?.price ?? null;
@@ -1486,6 +1485,37 @@ export function CloudControlPanel() {
       return next.slice(0, 10);
     });
   }
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia("(min-width: 1024px)");
+    const handleChange = () => setIsDesktopViewport(mediaQuery.matches);
+
+    handleChange();
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
+  useEffect(() => {
+    if (!primaryWorker || selectedStatusMeta.bucket === "ready") {
+      setDismissedDesktopPromptWorkerId(null);
+    }
+  }, [primaryWorker?.workerId, selectedStatusMeta.bucket]);
+
+  useEffect(() => {
+    if (!showDesktopStartupModal || !primaryWorker) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setDismissedDesktopPromptWorkerId(primaryWorker.workerId);
+    }, 90_000);
+
+    return () => window.clearTimeout(timeout);
+  }, [primaryWorker, showDesktopStartupModal]);
 
   async function withResolvedOpenworkCredentials(candidate: WorkerLaunch, options: { quiet?: boolean } = {}) {
     const existingConnectUrl = candidate.openworkUrl?.trim() ?? "";
@@ -2883,10 +2913,10 @@ export function CloudControlPanel() {
 
                   {primaryWorker ? (
                     <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-3">
-                      <div className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] ${selectedStatusIndicator.pill}`}>
-                        <span className={`h-2 w-2 rounded-full ${selectedStatusIndicator.dot}`} />
-                        <span>Status</span>
-                        <span>{getSimplifiedStatusTitle(selectedStatusMeta.bucket)}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`h-3 w-3 rounded-full ${trafficLights.red}`} />
+                        <span className={`h-3 w-3 rounded-full ${trafficLights.amber}`} />
+                        <span className={`h-3 w-3 rounded-full ${trafficLights.green}`} />
                       </div>
                     </div>
                   ) : null}
@@ -2921,34 +2951,72 @@ export function CloudControlPanel() {
                       onClick={handleLaunchWorker}
                       disabled={!user || launchBusy}
                     >
-                      {launchBusy ? "Starting the worker..." : "Start the worker"}
+                      {launchBusy ? "Starting worker..." : "Start worker"}
                     </button>
                   ) : (
                     <>
-                      {canStartWorker && (primaryAppUrl ?? browserStartUrl) ? (
+                      {canOpenWorker && primaryAppUrl ? (
                         <a
-                          href={primaryAppUrl ?? browserStartUrl ?? "#"}
+                          href={primaryAppUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="block w-full rounded-[18px] bg-[#1B29FF] px-4 py-3 text-center text-base font-semibold text-white shadow-[0_14px_30px_rgba(27,41,255,0.22)] transition hover:bg-[#151FDA]"
+                          className="block w-full rounded-[18px] bg-[#1B29FF] px-4 py-3 text-center text-base font-semibold text-white shadow-[0_14px_30px_rgba(27,41,255,0.22)] transition hover:bg-[#151FDA] lg:hidden"
                         >
-                          Start the worker
+                          Open in app
                         </a>
                       ) : (
                         <button
                           type="button"
                           disabled
-                          className="w-full rounded-[18px] bg-slate-200 px-4 py-3 text-base font-semibold text-slate-500"
+                          className="w-full rounded-[18px] bg-slate-200 px-4 py-3 text-base font-semibold text-slate-500 lg:hidden"
                         >
-                          Start the worker
+                          Open in app
                         </button>
                       )}
+
+                      <div className="hidden gap-3 lg:grid">
+                        {canStartInOpenwork && openworkDeepLink ? (
+                          <a
+                            href={openworkDeepLink}
+                            className="block w-full rounded-[18px] bg-[#1B29FF] px-4 py-3 text-center text-base font-semibold text-white shadow-[0_14px_30px_rgba(27,41,255,0.22)] transition hover:bg-[#151FDA]"
+                          >
+                            Start in OpenWork
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled
+                            className="w-full rounded-[18px] bg-slate-200 px-4 py-3 text-base font-semibold text-slate-500"
+                          >
+                            Start in OpenWork
+                          </button>
+                        )}
+
+                        {canStartHere && browserStartUrl ? (
+                          <a
+                            href={browserStartUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block w-full rounded-[18px] border border-slate-300 bg-white px-4 py-3 text-center text-base font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900"
+                          >
+                            Start here
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled
+                            className="w-full rounded-[18px] border border-slate-200 bg-slate-100 px-4 py-3 text-base font-semibold text-slate-400"
+                          >
+                            Start here
+                          </button>
+                        )}
+                      </div>
                     </>
                   )}
 
                   <p className="text-xs leading-5 text-slate-500">
                     {primaryWorker
-                      ? canStartWorker
+                      ? canOpenWorker
                         ? "The start button unlocks as soon as the worker is ready."
                         : "The start button unlocks automatically when the worker is ready."
                       : "Founder Ops is the default name. Change it before launch if you want to."}
@@ -3048,7 +3116,6 @@ export function CloudControlPanel() {
           </div>
         ) : null}
 
-        {/* Preserved for later recovery: desktop download modal.
         {showDesktopStartupModal ? (
           <div
             className="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/10 p-5 backdrop-blur-[2px] lg:flex"
@@ -3141,7 +3208,6 @@ export function CloudControlPanel() {
             </div>
           </div>
         ) : null}
-        */}
 
       </div>
     </section>
