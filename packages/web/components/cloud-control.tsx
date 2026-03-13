@@ -1468,6 +1468,7 @@ export function CloudControlPanel() {
   const billingSubscription = billingSummary?.subscription ?? null;
   const billingPrice = billingSummary?.price ?? null;
   const runtimeUpgradeCount = runtimeSnapshot?.services.filter((item) => item.upgradeAvailable).length ?? 0;
+  const userDisplayName = user?.name?.trim() || user?.email || "Signed in";
 
   function appendEvent(level: EventLevel, label: string, detail: string) {
     setEvents((current) => {
@@ -2892,6 +2893,27 @@ export function CloudControlPanel() {
                 </div>
 
                 <div className="space-y-3">
+                  {user ? (
+                    <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Account</p>
+                          <p className="mt-1 truncate text-sm font-semibold text-slate-900">{userDisplayName}</p>
+                          {user.name?.trim() ? <p className="truncate text-sm text-slate-500">{user.email}</p> : null}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => void handleSignOut()}
+                          disabled={authBusy}
+                          className="inline-flex w-full items-center justify-center rounded-[14px] border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                        >
+                          {authBusy ? "Signing out..." : "Log out"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
                   {!primaryWorker ? (
                     <button
                       type="button"
