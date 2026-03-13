@@ -1,6 +1,7 @@
 import express from "express"
 import { fromNodeHeaders } from "better-auth/node"
 import { asc, desc, eq, isNotNull, sql } from "drizzle-orm"
+import { ensureAdminAllowlistSeeded } from "../admin-allowlist.js"
 import { auth } from "../auth.js"
 import { getCloudWorkerAdminBillingStatus } from "../billing/polar.js"
 import { db } from "../db/index.js"
@@ -96,6 +97,8 @@ async function requireAdminSession(req: express.Request, res: express.Response) 
     res.status(403).json({ error: "admin_email_required" })
     return null
   }
+
+  await ensureAdminAllowlistSeeded()
 
   const allowed = await db
     .select({ id: AdminAllowlistTable.id })
