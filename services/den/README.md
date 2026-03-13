@@ -10,6 +10,21 @@ cp .env.example .env
 pnpm dev
 ```
 
+## Docker dev stack
+
+For a one-command local stack with MySQL + the Den cloud web app, run this from the repo root:
+
+```bash
+./packaging/docker/den-dev-up.sh
+```
+
+That brings up:
+- local MySQL for Den
+- the Den control plane on a randomized host port
+- the OpenWork Cloud web app on a randomized host port
+
+The script prints the exact URLs and `docker compose ... down` command to use for cleanup.
+
 ## Environment
 
 - `DATABASE_URL` MySQL connection URL

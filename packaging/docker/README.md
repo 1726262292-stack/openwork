@@ -39,6 +39,46 @@ Optional env vars (via `.env` or `export`):
 
 ---
 
+## Den local stack (Docker)
+
+One command for the Den control plane, local MySQL, and the cloud web app.
+
+From the repo root:
+
+```bash
+./packaging/docker/den-dev-up.sh
+```
+
+Or via pnpm:
+
+```bash
+pnpm dev:den-docker
+```
+
+What it does:
+- Starts **MySQL** for the Den service
+- Starts **Den control plane** on port 8788 inside Docker with `PROVISIONER_MODE=stub`
+- Runs **Den migrations** automatically before the API starts
+- Starts the **OpenWork Cloud web app** on port 3005 inside Docker
+- Points the web app's auth + API proxy routes at the local Den service
+- Prints randomized host URLs so multiple stacks can run side by side
+
+Useful commands:
+- Logs: `docker compose -p <project> -f packaging/docker/docker-compose.den-dev.yml logs`
+- Tear down: `docker compose -p <project> -f packaging/docker/docker-compose.den-dev.yml down`
+- Tear down + reset DB: `docker compose -p <project> -f packaging/docker/docker-compose.den-dev.yml down -v`
+
+Optional env vars (via `.env` or `export`):
+- `DEN_API_PORT` — host port to map to the Den control plane :8788
+- `DEN_WEB_PORT` — host port to map to the cloud web app :3005
+- `DEN_BETTER_AUTH_SECRET` — Better Auth secret (auto-generated if unset)
+- `DEN_BETTER_AUTH_URL` — browser-facing auth base URL (defaults to the printed web URL)
+- `DEN_CORS_ORIGINS` — trusted origins for Better Auth + Express CORS
+- `DEN_PROVISIONER_MODE` — `stub` or `render` (defaults to `stub`)
+- `DEN_WORKER_URL_TEMPLATE` — stub worker URL template with `{workerId}` placeholder
+
+---
+
 ## Production container
 
 This is a minimal packaging template to run the OpenWork Host contract in a single container.
