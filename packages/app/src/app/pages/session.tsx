@@ -29,13 +29,14 @@ import {
   type OpenworkServerInfo,
   type WorkspaceInfo,
 } from "../lib/tauri";
+import { createWorkspaceShellLayout } from "../lib/workspace-shell-layout";
 
 import {
   Box,
+  ChevronLeft,
+  ChevronRight,
   Check,
   Circle,
-  Cpu,
-  HeartPulse,
   HardDrive,
   History,
   ListTodo,
@@ -46,7 +47,6 @@ import {
   MoreHorizontal,
   Redo2,
   Search,
-  Settings,
   Shield,
   SlidersHorizontal,
   Undo2,
@@ -72,7 +72,6 @@ import type {
   OpenworkServerClient,
   OpenworkServerSettings,
   OpenworkServerStatus,
-  OpenworkSoulStatus,
   OpenworkWorkspaceExport,
 } from "../lib/openwork-server";
 import { DEFAULT_OPENWORK_PUBLISHER_BASE_URL, publishOpenworkBundleJson } from "../lib/publisher";
@@ -87,9 +86,7 @@ import {
 import { finishPerf, perfNow, recordPerfLog } from "../lib/perf-log";
 import { normalizeLocalFilePath } from "../lib/local-file-path";
 
-import sortInboxCsvTemplate from "../data/commands/sort-inbox-csv.md?raw";
-import buildThreePenguinsSiteTemplate from "../data/commands/build-three-penguins-site.md?raw";
-import scrapeOpenworkComTemplate from "../data/commands/scrape-openwork-com.md?raw";
+import browserSetupTemplate from "../data/commands/browser-setup.md?raw";
 
 import MessageList from "../components/session/message-list";
 import Composer from "../components/session/composer";
@@ -106,6 +103,7 @@ export type SessionViewProps = {
   tab: DashboardTab;
   setTab: (tab: DashboardTab) => void;
   setSettingsTab: (tab: SettingsTab) => void;
+  toggleSettings: () => void;
   activeWorkspaceDisplay: WorkspaceDisplay;
   activeWorkspaceRoot: string;
   workspaces: WorkspaceInfo[];
@@ -117,7 +115,6 @@ export type SessionViewProps = {
   recoverWorkspace: (workspaceId: string) => Promise<boolean> | boolean;
   editWorkspaceConnection: (workspaceId: string) => void;
   forgetWorkspace: (workspaceId: string) => void;
-  soulStatusByWorkspaceId: Record<string, OpenworkSoulStatus | null>;
   openCreateWorkspace: () => void;
   openCreateRemoteWorkspace: () => void;
   importWorkspaceConfig: () => void;
@@ -271,43 +268,13 @@ type SkillsSetBundleV1 = {
   };
 };
 
-type StarterTemplate = {
-  name: string;
-  description: string;
-  body: string;
-  seedFiles?: Array<{ path: string; content: string }>;
-};
-
-const buildStarterTemplate = (
-  source: string,
-  defaults: { name: string; description: string; body: string },
-): StarterTemplate => {
-  const parsed = parseTemplateFrontmatter(source);
-  return {
-    name: parsed?.data?.name?.trim() || defaults.name,
-    description: parsed?.data?.description?.trim() || defaults.description,
-    body: (parsed?.body ?? source).trim() || defaults.body,
-    seedFiles: Array.isArray(parsed?.data?.seedFiles) ? parsed.data.seedFiles : undefined,
-  };
-};
-
-const SORT_INBOX_CSV_TEMPLATE = buildStarterTemplate(sortInboxCsvTemplate, {
-  name: "sort-inbox-csv",
-  description: "Create or sort a CSV file in the worker inbox",
-  body: "Open a CSV file in .opencode/openwork/inbox, create a sample one if needed, sort it alphabetically, and save the result.",
-});
-
-const BUILD_THREE_PENGUINS_SITE_TEMPLATE = buildStarterTemplate(buildThreePenguinsSiteTemplate, {
-  name: "build-three-penguins-site",
-  description: "Build and run a small website with three penguins",
-  body: "Make me a small website with three penguins, start it locally, and do not stop until the running site is open and verified.",
-});
-
-const SCRAPE_OPENWORK_COM_TEMPLATE = buildStarterTemplate(scrapeOpenworkComTemplate, {
-  name: "scrape-openwork-com",
-  description: "Verify browser prerequisites and scrape data from openwork.com",
-  body: "Verify npx is installed, install it if needed, then open openwork.com in the browser and scrape the page data.",
-});
+const BROWSER_SETUP_TEMPLATE = (() => {
+  const parsed = parseTemplateFrontmatter(browserSetupTemplate);
+  const name = parsed?.data?.name?.trim() || "browser-setup";
+  const description = parsed?.data?.description?.trim() || "Guide the user through browser automation setup";
+  const body = (parsed?.body ?? browserSetupTemplate).trim();
+  return { name, description, body };
+})();
 
 const INITIAL_MESSAGE_WINDOW = 140;
 const MESSAGE_WINDOW_LOAD_CHUNK = 120;
@@ -381,6 +348,13 @@ export default function SessionView(props: SessionViewProps) {
   const showRightSidebarSelection = createMemo(() => false);
   let commandPaletteInputEl: HTMLInputElement | undefined;
   const commandPaletteOptionRefs: HTMLButtonElement[] = [];
+  const {
+    leftSidebarWidth,
+    rightSidebarExpanded,
+    rightSidebarWidth,
+    startLeftSidebarResize,
+    toggleRightSidebar,
+  } = createWorkspaceShellLayout({ expandedRightWidth: 280 });
 
   createEffect(() => {
     if (!isTauriRuntime()) {
@@ -2976,33 +2950,17 @@ export default function SessionView(props: SessionViewProps) {
     props.sendPromptAsync(draft).catch(() => undefined);
   };
 
-  const handleStarterQuickstart = async (template: StarterTemplate) => {
-    if (template.seedFiles && template.seedFiles.length > 0) {
-      try {
-        const client = props.openworkServerClient;
-        const workspaceId = props.openworkServerWorkspaceId?.trim();
-        if (client && workspaceId && props.openworkServerStatus === "connected") {
-          for (const sf of template.seedFiles) {
-            const file = new File([sf.content], sf.path, { type: "text/plain" });
-            await client.uploadInbox(workspaceId, file, { path: sf.path });
-          }
-        }
-      } catch (err) {
-        console.warn("Failed to seed template files", err);
-      }
-    }
-
-    const name = template.name;
-    const slashCommand = `/${name}`;
+  const handleBrowserAutomationQuickstart = async () => {
+    const name = BROWSER_SETUP_TEMPLATE.name;
     try {
       const commands = await props.listCommands();
       const hasCommand = commands.some((cmd) => cmd.name === name);
       if (hasCommand) {
         handleSendPrompt({
           mode: "prompt",
-          text: slashCommand,
-          resolvedText: slashCommand,
-          parts: [{ type: "text", text: slashCommand }],
+          text: `/${name}`,
+          resolvedText: `/${name}`,
+          parts: [{ type: "text", text: `/${name}` }],
           attachments: [],
           command: { name, arguments: "" },
         });
@@ -3012,15 +2970,15 @@ export default function SessionView(props: SessionViewProps) {
       // Fall back to prompt-based setup below.
     }
 
-    const text = template.body;
-    handleSendPrompt({
-      mode: "prompt",
-      text,
-      resolvedText: text,
-      parts: [{ type: "text", text }],
-      attachments: [],
-    });
-  };
+  const text = BROWSER_SETUP_TEMPLATE.body || "Help me set up browser automation.";
+  handleSendPrompt({
+    mode: "prompt",
+    text,
+    resolvedText: text,
+    parts: [{ type: "text", text }],
+    attachments: [],
+  });
+};
 
   const isSandboxWorkspace = createMemo(() => Boolean((props.activeWorkspaceDisplay as any)?.sandboxContainerName?.trim()));
 
@@ -3348,24 +3306,6 @@ export default function SessionView(props: SessionViewProps) {
     props.setView("dashboard");
   };
 
-  const openSoul = (workspaceId?: string) => {
-    const id = (workspaceId ?? props.activeWorkspaceId).trim();
-    if (!id) return;
-    void (async () => {
-      if (id !== props.activeWorkspaceId) {
-        await Promise.resolve(props.activateWorkspace(id));
-      }
-      props.setTab("soul");
-      props.setView("dashboard");
-    })();
-  };
-
-  const soulModeEnabled = createMemo(() =>
-    Boolean(props.soulStatusByWorkspaceId[props.activeWorkspaceId]?.enabled)
-  );
-
-  const soulNavIconClass = () => (soulModeEnabled() ? "soul-nav-icon-active" : "");
-
   const openProviderAuth = () => {
     void props.openProviderAuthModal().catch((error) => {
       const message = error instanceof Error ? error.message : "Connect failed";
@@ -3373,9 +3313,35 @@ export default function SessionView(props: SessionViewProps) {
     });
   };
 
+  const rightSidebarNavButton = (
+    label: string,
+    icon: any,
+    active: boolean,
+    onClick: () => void,
+  ) => (
+    <button
+      type="button"
+      class={`h-9 w-full rounded-lg text-[13px] font-medium transition-colors ${
+        active ? "bg-gray-4 text-gray-12" : "text-gray-11 hover:text-gray-12 hover:bg-gray-3"
+      } ${rightSidebarExpanded() ? "flex items-center gap-2.5 px-3 justify-start" : "flex items-center justify-center px-0"}`}
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+    >
+      {icon}
+      <Show when={rightSidebarExpanded()}>{label}</Show>
+    </button>
+  );
+
   return (
     <div class="flex h-screen w-full bg-dls-sidebar text-gray-12 font-sans overflow-hidden">
-      <aside class="w-[260px] hidden lg:flex flex-col bg-dls-sidebar border-r border-gray-6/70 p-3 pt-5">
+      <aside
+        class="relative hidden lg:flex shrink-0 flex-col bg-dls-sidebar border-r border-gray-6/70 p-3 pt-5"
+        style={{
+          width: `${leftSidebarWidth()}px`,
+          "min-width": `${leftSidebarWidth()}px`,
+        }}
+      >
         <div class="flex-1 overflow-y-auto">
           <Show when={showUpdatePill()}>
             <button
@@ -3413,13 +3379,11 @@ export default function SessionView(props: SessionViewProps) {
             workspaceConnectionStateById={props.workspaceConnectionStateById}
             newTaskDisabled={props.newTaskDisabled}
             importingWorkspaceConfig={props.importingWorkspaceConfig}
-            soulStatusByWorkspaceId={props.soulStatusByWorkspaceId}
             onActivateWorkspace={props.activateWorkspace}
             onOpenSession={openSessionFromList}
             onCreateTaskInWorkspace={createTaskInWorkspace}
             onOpenRenameWorkspace={props.openRenameWorkspace}
             onShareWorkspace={(workspaceId) => setShareWorkspaceId(workspaceId)}
-            onOpenSoul={openSoul}
             onRevealWorkspace={revealWorkspaceInFinder}
             onRecoverWorkspace={props.recoverWorkspace}
             onTestWorkspaceConnection={props.testWorkspaceConnection}
@@ -3430,6 +3394,12 @@ export default function SessionView(props: SessionViewProps) {
             onImportWorkspaceConfig={props.importWorkspaceConfig}
           />
         </div>
+        <div
+          class="absolute right-0 top-0 hidden h-full w-2 translate-x-1/2 cursor-col-resize bg-transparent transition-colors hover:bg-gray-6/40 lg:block"
+          onPointerDown={startLeftSidebarResize}
+          title="Resize workspace column"
+          aria-label="Resize workspace column"
+        />
 
       </aside>
 
@@ -3750,89 +3720,32 @@ export default function SessionView(props: SessionViewProps) {
               </div>
             </Show>
             <Show when={props.messages.length === 0 && !showWorkspaceSetupEmptyState()}>
-              <div class="py-14 px-4 md:px-6">
-                <div class="mx-auto max-w-4xl rounded-3xl border border-gray-6 bg-gray-2/60 p-6 text-center shadow-sm md:p-8">
-                  <div class="inline-flex items-center rounded-full border border-gray-6 bg-gray-1 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-11 shadow-sm">
-                    Starter tasks
-                  </div>
-                  <div class="mx-auto mt-4 flex h-14 w-14 items-center justify-center rounded-[20px] border border-gray-6 bg-gray-1 text-gray-11 shadow-sm">
-                    <Zap size={22} />
-                  </div>
-                  <div class="mt-5 space-y-2">
-                    <h3 class="text-2xl font-semibold tracking-tight text-gray-12">Start with a real task</h3>
-                    <p class="mx-auto max-w-2xl text-sm leading-relaxed text-gray-11">
-                      These examples create or verify their own inputs, then finish with a visible result.
-                      Or skip them and type your own task below.
-                    </p>
-                  </div>
-
-                  <div class="mt-10 grid gap-4 text-left md:grid-cols-3">
-                    <button
-                      type="button"
-                      class="group flex flex-col justify-between rounded-3xl border border-gray-6 bg-gray-1 p-5 transition-all hover:-translate-y-0.5 hover:border-gray-7 hover:shadow-md"
-                      onClick={() => {
-                        void handleStarterQuickstart(SORT_INBOX_CSV_TEMPLATE);
-                      }}
-                    >
-                      <div class="flex items-center gap-3">
-                        <div class="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-6 bg-gray-2/60 text-gray-11 group-hover:border-gray-7 group-hover:bg-gray-3 transition-colors">
-                          <HardDrive size={18} />
-                        </div>
-                        <div>
-                          <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-11">Files</div>
-                          <div class="mt-1 text-sm font-semibold text-gray-12">Sort a CSV in the inbox</div>
-                        </div>
-                      </div>
-                      <div class="mt-3 text-xs leading-relaxed text-gray-10">
-                        Create a sample inbox CSV if needed, alphabetize the rows, and save the sorted result back to the worker.
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      class="group flex flex-col justify-between rounded-3xl border border-gray-6 bg-gray-1 p-5 transition-all hover:-translate-y-0.5 hover:border-gray-7 hover:shadow-md"
-                      onClick={() => {
-                        void handleStarterQuickstart(BUILD_THREE_PENGUINS_SITE_TEMPLATE);
-                      }}
-                    >
-                      <div class="flex items-center gap-3">
-                        <div class="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-6 bg-gray-2/60 text-gray-11 group-hover:border-gray-7 group-hover:bg-gray-3 transition-colors">
-                          <Box size={18} />
-                        </div>
-                        <div>
-                          <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-11">Website</div>
-                          <div class="mt-1 text-sm font-semibold text-gray-12">Build a three-penguin site</div>
-                        </div>
-                      </div>
-                      <div class="mt-3 text-xs leading-relaxed text-gray-10">
-                        Make a small website, keep three penguins on the page, start it locally, and leave the running site open before you finish.
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      class="group flex flex-col justify-between rounded-3xl border border-gray-6 bg-gray-1 p-5 transition-all hover:-translate-y-0.5 hover:border-gray-7 hover:shadow-md"
-                      onClick={() => {
-                        void handleStarterQuickstart(SCRAPE_OPENWORK_COM_TEMPLATE);
-                      }}
-                    >
-                      <div class="flex items-center gap-3">
-                        <div class="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-6 bg-gray-2/60 text-gray-11 group-hover:border-gray-7 group-hover:bg-gray-3 transition-colors">
-                          <Search size={18} />
-                        </div>
-                        <div>
-                          <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-11">Browser</div>
-                          <div class="mt-1 text-sm font-semibold text-gray-12">Scrape openwork.com</div>
-                        </div>
-                      </div>
-                      <div class="mt-3 text-xs leading-relaxed text-gray-10">
-                        Verify `npx` first, then open the site in a browser and bring back the scraped page data.
-                      </div>
-                    </button>
-                  </div>
+              <div class="text-center py-16 px-6 space-y-6">
+                <div class="w-16 h-16 bg-dls-hover rounded-3xl mx-auto flex items-center justify-center border border-dls-border">
+                  <Zap class="text-dls-secondary" />
                 </div>
+              <div class="space-y-2">
+                <h3 class="text-xl font-medium">What do you want to do?</h3>
+                <p class="text-dls-secondary text-sm max-w-sm mx-auto">
+                  Pick a starting point or just type below.
+                </p>
               </div>
-            </Show>
+              <div class="grid gap-3 max-w-lg mx-auto text-left">
+                <button
+                  type="button"
+                  class="rounded-2xl border border-dls-border bg-dls-hover p-4 transition-all hover:bg-dls-active hover:border-gray-7"
+                  onClick={() => {
+                    void handleBrowserAutomationQuickstart();
+                  }}
+                >
+                  <div class="text-sm font-semibold text-dls-text">Automate your browser</div>
+                  <div class="mt-1 text-xs text-dls-secondary leading-relaxed">
+                    Set up browser actions and run reliable web tasks from OpenWork.
+                  </div>
+                </button>
+              </div>
+            </div>
+          </Show>
 
           <Show when={hiddenMessageCount() > 0 || hasServerEarlierMessages()}>
             <div class="mb-4 flex justify-center">
@@ -4033,7 +3946,8 @@ export default function SessionView(props: SessionViewProps) {
           clientConnected={props.clientConnected}
           openworkServerStatus={props.openworkServerStatus}
           developerMode={props.developerMode}
-          onOpenSettings={() => openSettings("general")}
+          settingsOpen={false}
+          onOpenSettings={props.toggleSettings}
           onOpenMessaging={openConfig}
           onOpenProviders={openProviderAuth}
           onOpenMcp={openMcp}
@@ -4042,112 +3956,91 @@ export default function SessionView(props: SessionViewProps) {
         />
       </main>
 
-      <aside class="w-[280px] hidden xl:flex flex-col bg-dls-sidebar border-l border-gray-6/70 p-3">
-        <div class="flex-1 overflow-y-auto space-y-5 pt-2">
+      <aside
+        class="flex shrink-0 flex-col overflow-hidden bg-dls-sidebar border-l border-gray-6/70 p-3 transition-[width] duration-200"
+        style={{
+          width: `${rightSidebarWidth()}px`,
+          "min-width": `${rightSidebarWidth()}px`,
+        }}
+      >
+        <div class={`flex items-center pb-3 ${rightSidebarExpanded() ? "justify-end" : "justify-center"}`}>
+          <button
+            type="button"
+            class="flex h-9 w-9 items-center justify-center rounded-lg text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12"
+            onClick={toggleRightSidebar}
+            title={rightSidebarExpanded() ? "Collapse sidebar" : "Expand sidebar"}
+            aria-label={rightSidebarExpanded() ? "Collapse sidebar" : "Expand sidebar"}
+          >
+            <Show when={rightSidebarExpanded()} fallback={<ChevronLeft size={18} />}>
+              <ChevronRight size={18} />
+            </Show>
+          </button>
+        </div>
+        <div class={`flex-1 overflow-y-auto ${rightSidebarExpanded() ? "space-y-5 pt-1" : "space-y-3 pt-1"}`}>
           <div class="space-y-1 mb-2">
-          <button
-            type="button"
-            class={`w-full h-9 flex items-center gap-2.5 px-3 rounded-lg text-[13px] font-medium transition-colors ${
-              showRightSidebarSelection() && props.tab === "scheduled"
-                ? "bg-gray-4 text-gray-12"
-                : "text-gray-11 hover:text-gray-12 hover:bg-gray-3"
-            }`}
-            onClick={() => {
-              props.setTab("scheduled");
-              props.setView("dashboard");
-            }}
-          >
-            <History size={18} />
-            Automations
-          </button>
-          <button
-            type="button"
-            class={`w-full h-9 flex items-center gap-2.5 px-3 rounded-lg text-[13px] font-medium transition-colors ${
-              showRightSidebarSelection() && props.tab === "soul"
-                ? "bg-gray-4 text-gray-12"
-                : "text-gray-11 hover:text-gray-12 hover:bg-gray-3"
-            }`}
-            onClick={() => openSoul()}
-          >
-            <HeartPulse size={18} class={soulNavIconClass()} />
-            Soul
-          </button>
-          <button
-            type="button"
-            class={`w-full h-9 flex items-center gap-2.5 px-3 rounded-lg text-[13px] font-medium transition-colors ${
-              showRightSidebarSelection() && props.tab === "skills"
-                ? "bg-gray-4 text-gray-12"
-                : "text-gray-11 hover:text-gray-12 hover:bg-gray-3"
-            }`}
-            onClick={() => {
-              props.setTab("skills");
-              props.setView("dashboard");
-            }}
-          >
-            <Zap size={18} />
-            Skills
-          </button>
-          <button
-            type="button"
-            class={`w-full h-9 flex items-center gap-2.5 px-3 rounded-lg text-[13px] font-medium transition-colors ${
-              showRightSidebarSelection() && (props.tab === "mcp" || props.tab === "plugins")
-                ? "bg-gray-4 text-gray-12"
-                : "text-gray-11 hover:text-gray-12 hover:bg-gray-3"
-            }`}
-            onClick={() => {
-              props.setTab("mcp");
-              props.setView("dashboard");
-            }}
-          >
-            <Box size={18} />
-            Extensions
-          </button>
-          <button
-            type="button"
-            class={`w-full h-9 flex items-center gap-2.5 px-3 rounded-lg text-[13px] font-medium transition-colors ${
-              showRightSidebarSelection() && props.tab === "identities"
-                ? "bg-gray-4 text-gray-12"
-                : "text-gray-11 hover:text-gray-12 hover:bg-gray-3"
-            }`}
-            onClick={() => {
-              props.setTab("identities");
-              props.setView("dashboard");
-            }}
-          >
-            <MessageCircle size={18} />
-            Messaging
-          </button>
-          <Show when={props.developerMode}>
-            <button
-              type="button"
-              class={`w-full h-9 flex items-center gap-2.5 px-3 rounded-lg text-[13px] font-medium transition-colors ${
-                showRightSidebarSelection() && props.tab === "config"
-                  ? "bg-gray-4 text-gray-12"
-                  : "text-gray-11 hover:text-gray-12 hover:bg-gray-3"
-              }`}
-              onClick={openConfig}
-            >
-              <SlidersHorizontal size={18} />
-              Advanced
-            </button>
-          </Show>
+            {rightSidebarNavButton(
+              "Automations",
+              <History size={18} />,
+              showRightSidebarSelection() && props.tab === "scheduled",
+              () => {
+                props.setTab("scheduled");
+                props.setView("dashboard");
+              },
+            )}
+            {rightSidebarNavButton(
+              "Skills",
+              <Zap size={18} />,
+              showRightSidebarSelection() && props.tab === "skills",
+              () => {
+                props.setTab("skills");
+                props.setView("dashboard");
+              },
+            )}
+            {rightSidebarNavButton(
+              "Extensions",
+              <Box size={18} />,
+              showRightSidebarSelection() && (props.tab === "mcp" || props.tab === "plugins"),
+              () => {
+                props.setTab("mcp");
+                props.setView("dashboard");
+              },
+            )}
+            {rightSidebarNavButton(
+              "Messaging",
+              <MessageCircle size={18} />,
+              showRightSidebarSelection() && props.tab === "identities",
+              () => {
+                props.setTab("identities");
+                props.setView("dashboard");
+              },
+            )}
+            <Show when={props.developerMode}>
+              {rightSidebarNavButton(
+                "Advanced",
+                <SlidersHorizontal size={18} />,
+                showRightSidebarSelection() && props.tab === "config",
+                openConfig,
+              )}
+            </Show>
           </div>
 
-          <InboxPanel
-            id="sidebar-inbox"
-            client={props.openworkServerClient}
-            workspaceId={props.openworkServerWorkspaceId}
-            onToast={(message) => setToastMessage(message)}
-          />
+          <Show when={rightSidebarExpanded()}>
+            <InboxPanel
+              id="sidebar-inbox"
+              client={props.openworkServerClient}
+              workspaceId={props.openworkServerWorkspaceId}
+              onToast={(message) => setToastMessage(message)}
+            />
 
-          <ArtifactsPanel
-            id="sidebar-artifacts"
-            files={touchedFiles()}
-            workspaceRoot={props.activeWorkspaceRoot}
-            onRevealArtifact={revealArtifact}
-            onOpenInObsidian={openArtifactInObsidian}
-            obsidianAvailable={obsidianAvailable()}
-          />
+            <ArtifactsPanel
+              id="sidebar-artifacts"
+              files={touchedFiles()}
+              workspaceRoot={props.activeWorkspaceRoot}
+              onRevealArtifact={revealArtifact}
+              onOpenInObsidian={openArtifactInObsidian}
+              obsidianAvailable={obsidianAvailable()}
+            />
+          </Show>
         </div>
       </aside>
 
