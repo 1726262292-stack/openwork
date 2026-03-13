@@ -187,7 +187,7 @@ export default function WorkspaceSessionList(props: Props) {
                   <div
                     role="button"
                     tabIndex={0}
-                    class={`w-full flex items-center justify-between rounded-[20px] border px-4 py-3 text-left transition-[background-color,border-color,box-shadow] ${
+                    class={`w-full flex items-start justify-between rounded-[20px] border px-4 py-3 text-left transition-[background-color,border-color,box-shadow] ${
                       props.activeWorkspaceId === workspace().id
                         ? "border-dls-border bg-dls-surface shadow-[var(--dls-card-shadow)]"
                         : "border-transparent text-gray-12 hover:bg-gray-2/70"
@@ -204,50 +204,50 @@ export default function WorkspaceSessionList(props: Props) {
                       void Promise.resolve(props.onActivateWorkspace(workspace().id));
                     }}
                   >
-                    <div class="flex min-w-0 items-center gap-4">
+                    <div class="flex min-w-0 flex-1 items-start gap-4">
                       <div
-                        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                        class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
                         style={{ "background-color": workspaceSwatchColor(workspace().id || workspaceLabel(workspace())) }}
                       />
-                      <div class="min-w-0">
+                      <div class="min-w-0 flex-1">
                         <div class="truncate text-[16px] font-medium text-dls-text">{workspaceLabel(workspace())}</div>
                         <div class={`mt-0.5 truncate text-[13px] ${statusTone()}`}>{statusLabel()}</div>
+
+                        <div class="mt-1.5 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                          <button
+                            type="button"
+                            class="rounded-md p-1 text-gray-9 hover:bg-gray-3/80 hover:text-gray-11"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              props.onCreateTaskInWorkspace(workspace().id);
+                            }}
+                            disabled={props.newTaskDisabled}
+                            aria-label="New task"
+                          >
+                            <Plus size={14} />
+                          </button>
+
+                          <button
+                            type="button"
+                            class="rounded-md p-1 text-gray-9 hover:bg-gray-3/80 hover:text-gray-11"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setWorkspaceMenuId((current) =>
+                                current === workspace().id ? null : workspace().id,
+                              );
+                            }}
+                            aria-label="Worker options"
+                          >
+                            <MoreHorizontal size={14} />
+                          </button>
+                        </div>
                       </div>
                     </div>
 
-                    <div class="ml-4 flex shrink-0 items-center gap-1.5">
+                    <div class="ml-3 flex shrink-0 items-start gap-1.5 pt-1">
                       <Show when={group.status === "loading" || isConnecting()}>
                         <Loader2 size={14} class="animate-spin text-gray-9" />
                       </Show>
-
-                      <div class="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                        <button
-                          type="button"
-                          class="rounded-md p-1 text-gray-9 hover:bg-gray-3/80 hover:text-gray-11"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            props.onCreateTaskInWorkspace(workspace().id);
-                          }}
-                          disabled={props.newTaskDisabled}
-                          aria-label="New task"
-                        >
-                          <Plus size={14} />
-                        </button>
-
-                        <button
-                          type="button"
-                          class="rounded-md p-1 text-gray-9 hover:bg-gray-3/80 hover:text-gray-11"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setWorkspaceMenuId((current) =>
-                              current === workspace().id ? null : workspace().id,
-                            );
-                          }}
-                          aria-label="Worker options"
-                        >
-                          <MoreHorizontal size={14} />
-                        </button>
-                      </div>
 
                       <button
                         type="button"
