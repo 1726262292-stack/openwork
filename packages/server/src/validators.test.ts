@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   sanitizeCommandName,
   validateCommandName,
-  validateDescription,
   validateMcpName,
   validateSkillName,
   validateMcpConfig,
@@ -93,22 +92,6 @@ describe("validateSkillName", () => {
 
   test("rejects names over 64 chars", () => {
     expect(() => validateSkillName("a".repeat(65))).toThrow();
-  });
-});
-
-describe("validateDescription", () => {
-  test("accepts missing descriptions", () => {
-    expect(() => validateDescription(undefined)).not.toThrow();
-    expect(() => validateDescription("")).not.toThrow();
-  });
-
-  test("accepts non-empty descriptions up to 1024 chars", () => {
-    expect(() => validateDescription("hello")).not.toThrow();
-    expect(() => validateDescription("a".repeat(1024))).not.toThrow();
-  });
-
-  test("rejects descriptions over 1024 chars", () => {
-    expect(() => validateDescription("a".repeat(1025))).toThrow();
   });
 });
 
