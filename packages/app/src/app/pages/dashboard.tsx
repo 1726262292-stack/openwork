@@ -1434,6 +1434,10 @@ export default function DashboardView(props: DashboardViewProps) {
           shareWorkspaceProfileError={shareWorkspaceProfileError()}
           shareWorkspaceProfileDisabledReason={shareServiceDisabledReason()}
           onShareSkillsSet={publishSkillsSetLink}
+          onOpenSingleSkillShare={() => {
+            setShareWorkspaceId(null);
+            props.setTab("skills");
+          }}
           shareSkillsSetBusy={shareSkillsSetBusy()}
           shareSkillsSetUrl={shareSkillsSetUrl()}
           shareSkillsSetError={shareSkillsSetError()}
