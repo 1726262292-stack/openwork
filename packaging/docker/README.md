@@ -33,9 +33,12 @@ Optional env vars (via `.env` or `export`):
 - `OPENWORK_WORKSPACE` — host path to mount as workspace
 - `OPENWORK_PORT` — host port to map to container :8787
 - `WEB_PORT` — host port to map to container :5173
+- `SHARE_PORT` — host port to map to the local share service :3000
 - `OPENWORK_DOCKER_DEV_MOUNT_HOST_OPENCODE=1` — import host OpenCode config/auth into the isolated dev state
 - `OPENWORK_OPENCODE_CONFIG_DIR` — override the host OpenCode config source used for that optional import
 - `OPENWORK_OPENCODE_DATA_DIR` — override the host OpenCode data source used for that optional import
+
+The dev stack also starts the local share service automatically and points the OpenWork app at it, so share-link flows publish to a local service instead of `https://share.openwork.software`.
 
 ---
 

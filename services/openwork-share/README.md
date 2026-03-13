@@ -72,6 +72,10 @@ The packager rejects files that appear to contain secrets in shareable config.
   - Default: `https://app.openwork.software`
   - Target app URL for the Open in app action on bundle pages.
 
+- `LOCAL_BLOB_DIR`
+  - Optional local filesystem storage root for bundle JSON.
+  - When `BLOB_READ_WRITE_TOKEN` is unset in local/dev mode, the service falls back to local file storage automatically.
+
 ## Local development
 
 For local testing you can use:
@@ -82,6 +86,8 @@ pnpm --dir services/openwork-share dev
 ```
 
 Open `http://localhost:3000`.
+
+Without a `BLOB_READ_WRITE_TOKEN`, local development now stores bundles on disk in a local dev blob directory so publishing works out of the box.
 
 ## Deploy
 
