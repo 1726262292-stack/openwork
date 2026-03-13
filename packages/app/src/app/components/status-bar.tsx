@@ -156,28 +156,30 @@ export default function StatusBar(props: StatusBarProps) {
 
   return (
     <div class="border-t border-gray-6 bg-gray-1/90 backdrop-blur-md">
-      <div class="px-4 py-2 flex flex-wrap items-center justify-end gap-2 text-xs">
-        <Show when={tipVisible() && activeTip()}>
-          <button
-            type="button"
-            class="flex h-7 items-center gap-2 rounded-full border border-gray-6/70 bg-gray-2/40 px-3 text-xs text-gray-10 transition-colors hover:bg-gray-2/60"
-            onClick={() => runAction(activeTip()?.action)}
-            title={activeTip()?.label}
-            aria-label={activeTip()?.label}
-          >
-            <span class="uppercase tracking-[0.2em] text-[10px] text-gray-8">Tip</span>
-            <span class="text-gray-11 font-medium">{activeTip()?.label}</span>
-          </button>
-        </Show>
+      <div class="flex min-h-11 items-center gap-2 px-4 py-2 text-xs">
+        <div class="flex min-w-0 flex-1 justify-end">
+          <Show when={tipVisible() && activeTip()}>
+            <button
+              type="button"
+              class="flex h-7 min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-full border border-gray-6/70 bg-gray-2/40 px-3 text-xs text-gray-10 transition-colors hover:bg-gray-2/60"
+              onClick={() => runAction(activeTip()?.action)}
+              title={activeTip()?.label}
+              aria-label={activeTip()?.label}
+            >
+              <span class="shrink-0 uppercase tracking-[0.2em] text-[10px] text-gray-8">Tip</span>
+              <span class="truncate text-gray-11 font-medium">{activeTip()?.label}</span>
+            </button>
+          </Show>
+        </div>
         <Button
           variant="ghost"
-          class={`h-7 px-2.5 py-0 text-xs ${props.settingsOpen ? "bg-gray-3 text-gray-12 hover:bg-gray-4" : ""}`}
+          class={`h-7 shrink-0 py-0 text-xs ${props.developerMode ? "w-28 px-2.5" : "w-9 px-0"} ${props.settingsOpen ? "bg-gray-3 text-gray-12 hover:bg-gray-4" : ""}`}
           onClick={props.onOpenSettings}
           title={props.settingsOpen ? "Back to previous screen" : "Settings"}
         >
-          <Settings class="w-4 h-4" />
+          <Settings class="h-4 w-4 shrink-0" />
           <Show when={props.developerMode}>
-            <span class="text-gray-11 font-medium">{props.settingsOpen ? "Back" : "Settings"}</span>
+            <span class="truncate text-gray-11 font-medium">{props.settingsOpen ? "Back" : "Settings"}</span>
           </Show>
         </Button>
       </div>
