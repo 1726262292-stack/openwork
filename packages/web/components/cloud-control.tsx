@@ -715,18 +715,6 @@ function getWorkerStatusCopy(status: string): string {
   }
 }
 
-function getWorkerAddressLabel(item: WorkerListItem): string {
-  if (!item.instanceUrl) {
-    return shortValue(item.workerId);
-  }
-
-  try {
-    return new URL(item.instanceUrl).host;
-  } catch {
-    return shortValue(item.instanceUrl);
-  }
-}
-
 function isWorkerLaunch(value: unknown): value is WorkerLaunch {
   if (!isRecord(value)) {
     return false;
@@ -1205,8 +1193,7 @@ export function CloudControlPanel() {
             </span>
           ) : null}
         </div>
-        <div className="mt-3 flex items-center justify-between">
-          <span className="font-mono text-xs font-medium text-slate-400">{getWorkerAddressLabel(item)}</span>
+        <div className="mt-3 flex items-center justify-end">
           <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${statusPill}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${statusDot}`} />
             {meta.label}
@@ -2985,10 +2972,10 @@ export function CloudControlPanel() {
                                 href={openworkAppConnectUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className={`shrink-0 rounded-[14px] border px-4 py-2 text-sm font-semibold transition ${
+                                className={`shrink-0 rounded-[16px] px-6 py-3 text-base font-semibold shadow-md shadow-[#1B29FF]/25 transition ${
                                   selectedStatusMeta.bucket === "ready"
-                                    ? "border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:text-slate-900"
-                                    : "pointer-events-none cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
+                                    ? "bg-[#1B29FF] text-white hover:bg-[#151FDA]"
+                                    : "pointer-events-none cursor-not-allowed bg-slate-200 text-slate-500 shadow-none"
                                 }`}
                                 aria-disabled={selectedStatusMeta.bucket !== "ready"}
                               >
@@ -2997,23 +2984,6 @@ export function CloudControlPanel() {
                             ) : null}
                           </div>
                           <p className="mb-6 text-sm text-slate-500">{getWorkerStatusCopy(selectedWorkerStatus)}</p>
-
-                          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                            <div className="rounded-[20px] border border-slate-100 bg-white p-4">
-                              <p className="text-sm font-medium text-slate-500">Status</p>
-                              <p className="mt-2 text-2xl font-bold text-slate-900">{selectedStatusMeta.label}</p>
-                            </div>
-                            <div className="rounded-[20px] border border-slate-100 bg-white p-4">
-                              <p className="text-sm font-medium text-slate-500">Connection</p>
-                              <p className="mt-2 text-2xl font-bold text-slate-900">{openworkDeepLink ? "Ready" : "Preparing"}</p>
-                            </div>
-                            <div className="rounded-[20px] border border-slate-100 bg-white p-4">
-                              <p className="text-sm font-medium text-slate-500">Runtime</p>
-                              <p className="mt-2 text-2xl font-bold text-slate-900">
-                                {runtimeBusy ? "Checking" : runtimeUpgradeCount > 0 ? `${runtimeUpgradeCount} update${runtimeUpgradeCount === 1 ? "" : "s"}` : "Current"}
-                              </p>
-                            </div>
-                          </div>
                         </div>
 
                         <div className="rounded-[28px] border border-slate-100 bg-white p-6">
