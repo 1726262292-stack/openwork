@@ -1,11 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import type { BundlePageProps } from "../server/_lib/types.ts";
 import { ResponsiveGrain } from "./responsive-grain";
 import ShareNav from "./share-nav";
-import { highlightSyntax } from "./share-preview-syntax";
+import SkillEditorSurface from "./skill-editor-surface";
+import { DEFAULT_SKILL_DESCRIPTION, parseSkillMarkdown } from "./skill-markdown";
+
+const OPENWORK_DEN_URL = "https://openworklabs.com/den";
 
 function toneClass(item: { tone?: string } | null | undefined): string {
   if (item?.tone === "agent") return "dot-agent";
@@ -15,69 +18,47 @@ function toneClass(item: { tone?: string } | null | undefined): string {
   return "dot-skill";
 }
 
-function CopyIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="20 6 9 17 4 12"></polyline>
-    </svg>
-  );
-}
-
-function countLabel(text: string | undefined): string {
-  const length = String(text ?? "").trim().length;
-  return `${length} ${length === 1 ? "character" : "characters"}`;
-}
-
 export default function ShareBundlePage(props: BundlePageProps) {
-  const [copyState, setCopyState] = useState<"ready" | "copied" | "failed">("ready");
   const [previewCopied, setPreviewCopied] = useState(false);
+  const [activeSelectionId, setActiveSelectionId] = useState(props.previewSelections?.[0]?.id ?? "preview-0");
+  const previewCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const shareUrl = props.shareUrl || "";
   const openInAppUrl = props.openInAppDeepLink || "#";
-  const openInWebUrl = props.openInWebAppUrl || "#";
-  const jsonUrl = props.jsonUrl || "#";
-  const downloadUrl = props.downloadUrl || "#";
   const title = props.title || "OpenWork bundle";
   const description = props.description || "OpenWork bundle ready to import.";
-
-  const highlightedPreview = useMemo(() => highlightSyntax(props.previewText || ""), [props.previewText]);
-  const previewFooter = props.previewText
-    ? `${countLabel(props.previewText)}${props.previewLabel ? ` · ${props.previewLabel}` : ""}`
-    : "Preview unavailable";
-
-  const copyShareUrl = async () => {
-    if (!shareUrl) return;
-
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setCopyState("copied");
-    } catch {
-      setCopyState("failed");
-    }
-
-    window.setTimeout(() => setCopyState("ready"), 1800);
-  };
+  const previewSelections = props.previewSelections?.length
+    ? props.previewSelections
+    : [
+        {
+          id: "preview-0",
+          name: props.title || "Untitled skill",
+          filename: props.previewFilename || "skill.md",
+          text: props.previewText || "",
+          tone: props.previewTone || "skill",
+          label: props.previewLabel || "Skill preview",
+        },
+      ];
+  const activeSelection = previewSelections.find((selection) => selection.id === activeSelectionId) ?? previewSelections[0];
+  const parsedPreview = useMemo(() => parseSkillMarkdown(activeSelection?.text || ""), [activeSelection?.text]);
+  const previewName = parsedPreview.name || activeSelection?.name || title;
+  const previewDescription = parsedPreview.description || description || DEFAULT_SKILL_DESCRIPTION;
+  const previewBody = parsedPreview.body || activeSelection?.text || "";
 
   const copyPreview = async () => {
-    if (!props.previewText) return;
+    if (!activeSelection?.text) return;
 
     try {
-      await navigator.clipboard.writeText(props.previewText);
+      await navigator.clipboard.writeText(activeSelection.text);
       setPreviewCopied(true);
     } catch {
       setPreviewCopied(false);
     }
 
-    window.setTimeout(() => setPreviewCopied(false), 800);
+    if (previewCopyTimerRef.current) clearTimeout(previewCopyTimerRef.current);
+    previewCopyTimerRef.current = setTimeout(() => {
+      setPreviewCopied(false);
+      previewCopyTimerRef.current = null;
+    }, 800);
   };
 
   return (
@@ -115,151 +96,70 @@ export default function ShareBundlePage(props: BundlePageProps) {
             <section className="hero-layout hero-layout-share">
               <div className="hero-copy">
                 <span className="eyebrow">{props.typeLabel}</span>
-                <h1>
-                  {title}
-                </h1>
+                <h1>{title}</h1>
                 <p className="hero-body">{description}</p>
-                <div className="button-row">
+                <div className="button-row share-bundle-actions">
                   <a className="button-primary" href={openInAppUrl}>
-                    Open in app
+                    Open in OpenWork app
                   </a>
-                  <a className="button-secondary" href={openInWebUrl} target="_blank" rel="noreferrer">
-                    Open in web app
+                  <a className="button-secondary" href={OPENWORK_DEN_URL} target="_blank" rel="noreferrer">
+                    Open in an OpenWork den
                   </a>
                 </div>
-                <p className="hero-note">{props.installHint}</p>
-              </div>
-
-              <div className="share-cards-grid share-bundle-grid">
-                <article className="package-card share-card surface-soft">
-                  <h2 className="simple-app-title">Package contents</h2>
-                  <p className="simple-app-copy">
-                    Everything bundled in this share link.
-                  </p>
-
-                  <div className="included-section">
-                    <div className="included-section-header">
-                      <h4>Package contents</h4>
-                      <span className="surface-chip">Top {props.items?.length || 1}</span>
-                    </div>
-
-                    <div className="included-list">
-                      {props.items?.length ? (
-                        props.items.map((item) => (
-                          <div className="included-item" key={`${item.kind}-${item.name}`}>
-                            <div className="item-left">
-                              <div className={`item-dot ${toneClass(item)}`}></div>
-                              <div className="item-text">
-                                <span className="item-title">{item.name}</span>
-                                <span className="item-meta">
-                                  {item.kind} · {item.meta}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="included-item">
-                          <div className="item-left">
-                            <div className="item-dot dot-skill"></div>
-                            <div className="item-text">
-                              <span className="item-title">OpenWork bundle</span>
-                              <span className="item-meta">Shared config</span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </article>
-
-                <aside className="preview-panel share-preview-panel">
-                  <div className="preview-surface">
-                    <div className="preview-header">
-                      <span className="preview-eyebrow">Preview</span>
-
-                      <div className="preview-header-actions">
-                        <span className="preview-filename">
-                          <span className="preview-filename-dot dot-pending" />
-                          {props.previewFilename || "bundle.json"}
-                          <button
-                            type="button"
-                            className="clipboard-egg-button preview-copy-button clipboard-egg-inline"
-                            title="Copy preview"
-                            aria-label="Copy preview"
-                            onClick={() => void copyPreview()}
-                          >
-                            {previewCopied ? <CheckIcon /> : <CopyIcon />}
-                          </button>
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="preview-editor-wrap">
-                      <pre className="preview-highlight share-preview-readonly" dangerouslySetInnerHTML={{ __html: `${highlightedPreview}\n` }} />
-                    </div>
-
-                    <div className="preview-footer">
-                      <span>{previewFooter}</span>
-                    </div>
-                  </div>
-                </aside>
               </div>
             </section>
 
-            <section className="share-story-grid">
-              <article className="result-card">
-                <span className="eyebrow">Bundle details</span>
-                <h3>Bundle details</h3>
-                <p>Stable metadata for parsing and direct OpenWork import.</p>
-                <dl className="metadata-list">
-                  {props.metadataRows?.map((row) => (
-                    <div className="metadata-row" key={row.label}>
-                      <dt>{row.label}</dt>
-                      <dd>{row.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </article>
-
-              <article className="result-card">
-                <span className="eyebrow">Raw endpoints</span>
-                <h3>Raw endpoints</h3>
-                <p>Keep the human page and machine payload side by side.</p>
-                <div className="url-stack">
-                  <div className="url-box">
-                    <a href={jsonUrl}>JSON payload</a>
-                  </div>
-                  <div className="url-box mono">{shareUrl}</div>
-                </div>
-                <div className="button-row">
-                  <a className="button-secondary" href={downloadUrl}>
-                    Download JSON
-                  </a>
-                  <button className="button-secondary" type="button" onClick={() => void copyShareUrl()}>
-                    {copyState === "copied" ? "Copied!" : "Copy share link"}
-                  </button>
-                </div>
-              </article>
-
-              <article className="result-card">
-                <span className="eyebrow">Install path</span>
-                <h3>Open it in OpenWork</h3>
-                <div className="step-list">
-                  <div className="step-row">
+            <section className="share-bundle-stack">
+              <article className="result-card share-install-card">
+                <div className="share-inline-steps">
+                  <div className="share-inline-step">
                     <span className="step-bullet">01</span>
-                    <span>Open the share page or use the deep link directly from this package.</span>
+                    <span>Open the bundle in OpenWork</span>
                   </div>
-                  <div className="step-row">
+                  <div className="share-inline-step">
                     <span className="step-bullet">02</span>
-                    <span>OpenWork reads the bundle metadata, then lets you choose an existing worker or a new one.</span>
+                    <span>Choose the destination worker</span>
                   </div>
-                  <div className="step-row">
+                  <div className="share-inline-step">
                     <span className="step-bullet">03</span>
-                    <span>Your teammate lands in a clean import path with the packaged skills, agents, and MCP setup ready to apply.</span>
+                    <span>Happy OpenWorking!</span>
                   </div>
                 </div>
               </article>
+
+              <article className="bundle-compact-strip surface-soft">
+                <div className="bundle-strip-header">Skills:</div>
+                <div className="bundle-strip-list" aria-label="Skills">
+                  {previewSelections.map((selection) => {
+                    const isActive = selection.id === activeSelection?.id;
+                    return (
+                      <button
+                        key={selection.id}
+                        type="button"
+                        className={`bundle-strip-chip${isActive ? " is-active" : ""}`}
+                        onClick={() => setActiveSelectionId(selection.id)}
+                        disabled={isActive}
+                      >
+                        <span className={`preview-filename-dot ${toneClass(selection)}`} />
+                        {selection.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </article>
+
+              <SkillEditorSurface
+                className="share-bundle-editor"
+                toneClassName={toneClass(activeSelection)}
+                filename="skill.md"
+                skillName={previewName}
+                skillDescription={previewDescription}
+                bodyValue={previewBody}
+                metadataMode="readonly"
+                readOnly={true}
+                copied={previewCopied}
+                onCopy={() => void copyPreview()}
+              />
             </section>
           </>
         )}
