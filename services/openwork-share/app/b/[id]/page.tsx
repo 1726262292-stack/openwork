@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 
 import ShareBundlePage from "../../../components/share-bundle-page";
 import { getBundlePageProps } from "../../../server/b/get-bundle-page-props.ts";
+import { getGithubStars } from "../../../server/_lib/github-stars.ts";
 import { buildRequestLike } from "../../../server/_lib/request-like.ts";
 
 async function loadBundlePageProps(id: string) {
@@ -67,5 +68,6 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 export default async function BundlePage({ params }: { params: Promise<{ id: string }> }) {
   const routeParams = await params;
   const props = await loadBundlePageProps(routeParams?.id);
-  return <ShareBundlePage {...props} />;
+  const stars = await getGithubStars();
+  return <ShareBundlePage {...props} stars={stars} />;
 }

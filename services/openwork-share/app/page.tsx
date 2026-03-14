@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import ShareHomeClient from "../components/share-home-client";
 import ShareNav from "../components/share-nav";
-import { ResponsiveGrain } from "../components/responsive-grain";
+import { getGithubStars } from "../server/_lib/github-stars.ts";
 import { DEFAULT_PUBLIC_BASE_URL } from "../server/_lib/share-utils.ts";
 
 export const revalidate = 3600;
@@ -43,64 +43,13 @@ export const metadata: Metadata = {
   }
 };
 
-function formatCompact(value: number): string {
-  try {
-    return new Intl.NumberFormat("en", {
-      notation: "compact",
-      maximumFractionDigits: 1
-    }).format(value);
-  } catch {
-    return String(value);
-  }
-}
-
-async function getStars(): Promise<string> {
-  try {
-    const response = await fetch("https://api.github.com/repos/different-ai/openwork", {
-      headers: {
-        Accept: "application/vnd.github+json"
-      },
-      next: {
-        revalidate: 3600
-      }
-    });
-
-    if (!response.ok) {
-      return "—";
-    }
-
-    const repo = await response.json();
-    if (typeof repo?.stargazers_count === "number") {
-      return formatCompact(repo.stargazers_count);
-    }
-  } catch {
-    return "—";
-  }
-
-  return "—";
-}
-
 export default async function ShareHomePage() {
-  const stars = await getStars();
+  const stars = await getGithubStars();
 
   return (
-    <>
-      <div className="grain-background">
-        <ResponsiveGrain
-          colors={["#f6f9fc", "#f6f9fc", "#1e293b", "#334155"]}
-          colorBack="#f6f9fc"
-          softness={1}
-          intensity={0.03}
-          noise={0.14}
-          shape="corners"
-          speed={0.2}
-        />
-      </div>
-
-      <main className="shell">
-        <ShareNav stars={stars} />
-        <ShareHomeClient />
-      </main>
-    </>
+    <main className="shell">
+      <ShareNav stars={stars} />
+      <ShareHomeClient />
+    </main>
   );
 }

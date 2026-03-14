@@ -3,7 +3,6 @@
 import { useMemo, useRef, useState } from "react";
 
 import type { BundlePageProps } from "../server/_lib/types.ts";
-import { ResponsiveGrain } from "./responsive-grain";
 import ShareNav from "./share-nav";
 import SkillEditorSurface from "./skill-editor-surface";
 import { parseSkillMarkdown } from "./skill-markdown";
@@ -16,7 +15,7 @@ function toneClass(item: { tone?: string } | null | undefined): string {
   return "dot-skill";
 }
 
-export default function ShareBundlePage(props: BundlePageProps) {
+export default function ShareBundlePage(props: BundlePageProps & { stars?: string }) {
   const [previewCopied, setPreviewCopied] = useState(false);
   const [activeSelectionId, setActiveSelectionId] = useState(props.previewSelections?.[0]?.id ?? "preview-0");
   const previewCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -57,89 +56,75 @@ export default function ShareBundlePage(props: BundlePageProps) {
   };
 
   return (
-    <>
-      <div className="grain-background">
-        <ResponsiveGrain
-          colors={["#f6f9fc", "#f6f9fc", "#1e293b", "#334155"]}
-          colorBack="#f6f9fc"
-          softness={1}
-          intensity={0.03}
-          noise={0.14}
-          shape="corners"
-          speed={0.2}
-        />
-      </div>
+    <main className="shell">
+      <ShareNav stars={props.stars} />
 
-      <main className="shell">
-        <ShareNav />
-
-        {props.missing ? (
-          <section className="status-card">
-            <span className="eyebrow">OpenWork Share</span>
-            <h1>Bundle not found</h1>
-            <p>
-              This share link does not exist anymore, or the bundle id is invalid.
-            </p>
-            <div className="hero-actions">
-              <a className="button-primary" href="/">
-                Package another worker
-              </a>
+      {props.missing ? (
+        <section className="status-card">
+          <span className="eyebrow">OpenWork Share</span>
+          <h1>Bundle not found</h1>
+          <p>
+            This share link does not exist anymore, or the bundle id is invalid.
+          </p>
+          <div className="hero-actions">
+            <a className="button-primary" href="/">
+              Package another worker
+            </a>
+          </div>
+        </section>
+      ) : (
+        <>
+          <section className="hero-layout hero-layout-share">
+            <div className="hero-copy">
+              <span className="eyebrow">{props.typeLabel}</span>
+              <h1>Skill share</h1>
+              <div className="button-row share-bundle-actions">
+                <button className="button-primary" type="button" onClick={() => void copyPreview()}>
+                  {previewCopied ? "Copied to clipboard" : "Copy to clipboard"}
+                </button>
+                <a className="button-secondary" href={openInAppUrl}>
+                  Open in OpenWork
+                </a>
+              </div>
             </div>
           </section>
-        ) : (
-          <>
-            <section className="hero-layout hero-layout-share">
-              <div className="hero-copy">
-                <span className="eyebrow">{props.typeLabel}</span>
-                <h1>Skill share</h1>
-                <div className="button-row share-bundle-actions">
-                  <button className="button-primary" type="button" onClick={() => void copyPreview()}>
-                    {previewCopied ? "Copied to clipboard" : "Copy to clipboard"}
-                  </button>
-                  <a className="button-secondary" href={openInAppUrl}>
-                    Open in OpenWork
-                  </a>
+
+          <section className={`share-bundle-stack${showBundleSidebar ? " has-sidebar" : ""}`}>
+            {showBundleSidebar ? (
+              <article className="bundle-compact-strip surface-soft">
+                <div className="bundle-strip-header">Skills:</div>
+                <div className="bundle-strip-list" aria-label="Skills">
+                  {previewSelections.map((selection) => {
+                    const isActive = selection.id === activeSelection?.id;
+                    return (
+                      <button
+                        key={selection.id}
+                        type="button"
+                        className={`bundle-strip-chip${isActive ? " is-active" : ""}`}
+                        onClick={() => setActiveSelectionId(selection.id)}
+                        disabled={isActive}
+                      >
+                        <span className={`preview-filename-dot ${toneClass(selection)}`} />
+                        {selection.name}
+                      </button>
+                    );
+                  })}
                 </div>
-              </div>
-            </section>
+              </article>
+            ) : null}
 
-            <section className={`share-bundle-stack${showBundleSidebar ? " has-sidebar" : ""}`}>
-              {showBundleSidebar ? (
-                <article className="bundle-compact-strip surface-soft">
-                  <div className="bundle-strip-header">Skills:</div>
-                  <div className="bundle-strip-list" aria-label="Skills">
-                    {previewSelections.map((selection) => {
-                      const isActive = selection.id === activeSelection?.id;
-                      return (
-                        <button
-                          key={selection.id}
-                          type="button"
-                          className={`bundle-strip-chip${isActive ? " is-active" : ""}`}
-                          onClick={() => setActiveSelectionId(selection.id)}
-                          disabled={isActive}
-                        >
-                          <span className={`preview-filename-dot ${toneClass(selection)}`} />
-                          {selection.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </article>
-              ) : null}
-
-              <SkillEditorSurface
-                className="share-bundle-editor"
-                toneClassName={toneClass(activeSelection)}
-                filename={previewName}
-                documentValue={activeSelection?.text || ""}
-                readOnly={true}
-                copied={previewCopied}
-                onCopy={() => void copyPreview()}
-              />
-            </section>
-          </>
-        )}
-      </main>
-    </>
+            <SkillEditorSurface
+              className="share-bundle-editor"
+              toneClassName={toneClass(activeSelection)}
+              filename={previewName}
+              documentValue={activeSelection?.text || ""}
+              readOnly={true}
+              copied={previewCopied}
+              onCopy={() => void copyPreview()}
+            />
+          </section>
+        </>
+      )}
+    </main>
   );
 }
