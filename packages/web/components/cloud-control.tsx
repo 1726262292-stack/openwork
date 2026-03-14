@@ -328,6 +328,17 @@ function GoogleLogo() {
   );
 }
 
+function DiscordLogo() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 shrink-0">
+      <path
+        fill="currentColor"
+        d="M20.317 4.369A19.791 19.791 0 0 0 15.558 3c-.206.375-.446.88-.61 1.275a18.27 18.27 0 0 0-5.896 0A12.62 12.62 0 0 0 8.44 3a19.736 19.736 0 0 0-4.76 1.37C.67 8.874-.142 13.268.264 17.6a19.9 19.9 0 0 0 5.84 2.962c.47-.63.89-1.296 1.252-1.994a12.97 12.97 0 0 1-1.972-.95c.166-.12.328-.246.486-.377 3.804 1.787 7.928 1.787 11.688 0 .16.13.322.257.487.377-.628.377-1.29.695-1.974.951.362.697.782 1.362 1.252 1.993a19.87 19.87 0 0 0 5.84-2.962c.477-5.02-.816-9.374-3.006-13.23ZM8.02 14.962c-1.14 0-2.074-1.05-2.074-2.337 0-1.286.915-2.337 2.074-2.337 1.168 0 2.093 1.06 2.074 2.337 0 1.287-.915 2.337-2.074 2.337Zm7.96 0c-1.14 0-2.074-1.05-2.074-2.337 0-1.286.916-2.337 2.074-2.337 1.169 0 2.094 1.06 2.075 2.337 0 1.287-.906 2.337-2.075 2.337Z"
+      />
+    </svg>
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -1194,11 +1205,11 @@ export function CloudControlPanel() {
             ? "bg-rose-100 text-rose-700"
             : "bg-slate-100 text-slate-500";
 
-    const statusDot =
+      const statusDot =
       meta.bucket === "ready"
         ? "bg-[#2E7D32]"
         : meta.bucket === "starting"
-          ? "bg-amber-500"
+          ? "bg-amber-500 ow-soft-pulse-dot"
           : meta.bucket === "attention"
             ? "bg-rose-500"
             : "bg-slate-400";
@@ -3067,7 +3078,10 @@ export function CloudControlPanel() {
 
               <div className="rounded-[24px] border border-[var(--dls-border)] bg-[linear-gradient(180deg,#fbfcfd_0%,#ffffff_100%)] p-5">
                 <div className="flex items-center gap-4">
-                  <span className="inline-flex h-12 w-12 animate-spin items-center justify-center rounded-full border-2 border-slate-200 border-t-slate-900" aria-hidden="true" />
+                  <span className="relative inline-flex h-12 w-12 items-center justify-center" aria-hidden="true">
+                    <span className="ow-soft-pulse-ring absolute inset-0 rounded-full bg-slate-900/8" />
+                    <span className="ow-soft-pulse-orb relative h-4 w-4 rounded-full bg-slate-900" />
+                  </span>
                   <div>
                     <p className="text-[15px] font-semibold text-[var(--dls-text-primary)]">{launchBusy ? "Creating worker" : "Provisioning in progress"}</p>
                     <p className="mt-1 text-[13px] leading-6 text-[var(--dls-text-secondary)]">{launchStatus}</p>
@@ -3109,20 +3123,22 @@ export function CloudControlPanel() {
                     href={OPENWORK_DOWNLOAD_URL}
                     target="_blank"
                     rel="noreferrer"
-                    className="rounded-[22px] border border-slate-200 bg-white p-4 text-[14px] font-medium leading-6 text-[var(--dls-text-primary)] shadow-sm transition hover:border-slate-300"
+                    className="inline-flex w-full items-center justify-center rounded-[20px] bg-slate-900 px-4 py-4 text-[15px] font-semibold text-white shadow-[0_12px_24px_rgba(15,23,42,0.14)] transition hover:bg-black"
                   >
-                    <span className="block text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--dls-text-secondary)]">While it loads</span>
-                    <span className="mt-2 block">Download the desktop app. It is instantly available and feels closest to the full OpenWork experience.</span>
+                    Download OpenWork desktop
                   </a>
                   <a
                     href={OPENWORK_DISCORD_URL}
                     target="_blank"
                     rel="noreferrer"
-                    className="rounded-[22px] border border-slate-200 bg-white p-4 text-[14px] font-medium leading-6 text-[var(--dls-text-primary)] shadow-sm transition hover:border-slate-300"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-[20px] border border-slate-200 bg-white px-4 py-4 text-[15px] font-semibold text-slate-900 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
                   >
-                    <span className="block text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--dls-text-secondary)]">Need help?</span>
-                    <span className="mt-2 block">Join Discord while the first run finishes. We are usually there if you want setup help or want to share what you are building.</span>
+                    <DiscordLogo />
+                    Join Discord while it loads
                   </a>
+                  <p className="rounded-[18px] border border-white bg-white px-4 py-3 text-[13px] leading-6 text-[var(--dls-text-secondary)] shadow-sm">
+                    First runs usually take around 1-2 minutes. The desktop app is instant if you want to get moving right away.
+                  </p>
                 </div>
               ) : (
                 <div className="rounded-[22px] border border-white bg-white p-4 text-[14px] leading-6 text-[var(--dls-text-secondary)] shadow-sm">
@@ -3503,111 +3519,9 @@ export function CloudControlPanel() {
                         </div>
 
                         <div className="rounded-[28px] border border-[var(--dls-border)] bg-[var(--dls-hover)] p-6">
-                          <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                            <div>
-                              <h3 className="text-lg font-bold tracking-tight text-slate-900">Worker runtime</h3>
-                              <p className="text-sm text-slate-500">Compare installed runtime versions with the versions this worker should be running.</p>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <button
-                                type="button"
-                                className="rounded-[14px] border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                onClick={() => void refreshRuntime(selectedWorker.workerId)}
-                                disabled={runtimeBusy || runtimeUpgradeBusy}
-                              >
-                                {runtimeBusy ? "Checking..." : "Refresh runtime"}
-                              </button>
-                              <button
-                                type="button"
-                                className="rounded-[14px] bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
-                                onClick={() => void handleRuntimeUpgrade()}
-                                disabled={runtimeUpgradeBusy || runtimeBusy || selectedStatusMeta.bucket !== "ready"}
-                              >
-                                {runtimeUpgradeBusy || runtimeSnapshot?.upgrade.status === "running" ? "Upgrading..." : "Upgrade runtime"}
-                              </button>
-                            </div>
-                          </div>
-
-                          {runtimeError ? (
-                            <div className="mb-4 rounded-[14px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{runtimeError}</div>
-                          ) : null}
-
-                          {runtimeSnapshot?.upgrade.status === "failed" && runtimeSnapshot.upgrade.error ? (
-                            <div className="mb-4 rounded-[14px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                              Last upgrade failed: {runtimeSnapshot.upgrade.error}
-                            </div>
-                          ) : null}
-
-                          {runtimeUpgradeCount > 0 ? (
-                            <div className="mb-4 rounded-[14px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                              This worker has {runtimeUpgradeCount} runtime component{runtimeUpgradeCount === 1 ? "" : "s"} behind the target version.
-                            </div>
-                          ) : null}
-
-                          <div className="space-y-3">
-                            {(runtimeSnapshot?.services ?? []).map((service) => (
-                              <div key={service.name} className="flex flex-col gap-3 rounded-[18px] border border-[var(--dls-border)] bg-white px-4 py-3 md:flex-row md:items-center md:justify-between">
-                                <div>
-                                  <p className="text-sm font-semibold text-slate-900">{getRuntimeServiceLabel(service.name)}</p>
-                                  <p className="text-xs text-slate-500">
-                                    Installed {service.actualVersion ?? "unknown"} · Target {service.targetVersion ?? "unknown"}
-                                  </p>
-                                </div>
-                                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide">
-                                  <span className={`rounded-full px-2.5 py-1 ${service.running ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
-                                    {service.running ? "Running" : service.enabled ? "Stopped" : "Disabled"}
-                                  </span>
-                                  <span className={`rounded-full px-2.5 py-1 ${service.upgradeAvailable ? "bg-amber-100 text-amber-700" : "bg-slate-200 text-slate-600"}`}>
-                                    {service.upgradeAvailable ? "Upgrade available" : "Current"}
-                                  </span>
-                                </div>
-                              </div>
-                            ))}
-                            {!runtimeSnapshot && !runtimeBusy ? (
-                              <p className="text-sm text-slate-500">Runtime details appear after the worker is reachable.</p>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        <div className="rounded-[28px] border border-[var(--dls-border)] bg-[var(--dls-hover)] p-6">
-                          <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                            <div>
-                              <div>
-                                <h3 className="text-lg font-bold tracking-tight text-slate-900">Connection Details</h3>
-                                <p className="text-sm text-slate-500">Access and manage your worker instance.</p>
-                              </div>
-                            </div>
-
-                            <div className="flex flex-wrap items-center gap-2">
-                              <button
-                                type="button"
-                                className="rounded-[16px] bg-slate-900 px-6 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(15,23,42,0.14)] transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
-                                onClick={() => {
-                                  if (!openworkDeepLink) {
-                                    return;
-                                  }
-                                  window.location.href = openworkDeepLink;
-                                }}
-                                disabled={!openworkDeepLink || selectedStatusMeta.bucket !== "ready"}
-                              >
-                                {openworkDeepLink ? "Open in OpenWork" : "Preparing connection..."}
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="rounded-[16px] border border-slate-200 bg-white px-4 py-3">
-                            <p className="text-sm text-slate-600">
-                              {openworkDeepLink
-                                ? openworkAppConnectUrl
-                                  ? "You are all set. Open in OpenWork or Open in Web to start working."
-                                  : "You are all set. Open in OpenWork to start working."
-                                : "We are still preparing your connection. The button will unlock when ready."}
-                            </p>
-                          </div>
-
                           <button
                             type="button"
-                            className="mt-4 text-sm font-semibold text-slate-900 transition hover:text-black"
+                            className="flex w-full items-center justify-between gap-4 text-left"
                             onClick={() =>
                               setShowAdvancedOptions((current) => {
                                 if (current) {
@@ -3617,11 +3531,121 @@ export function CloudControlPanel() {
                               })
                             }
                           >
-                            {showAdvancedOptions ? "Hide advanced options" : "Need manual setup? Show advanced options"}
+                            <div>
+                              <h3 className="text-lg font-bold tracking-tight text-slate-900">Advanced settings</h3>
+                              <p className="text-sm text-slate-500">Runtime controls, connection details, and worker management.</p>
+                            </div>
+                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-lg text-slate-500">
+                              {showAdvancedOptions ? "-" : "+"}
+                            </span>
                           </button>
 
                           {showAdvancedOptions ? (
-                            <div className="mt-4 space-y-4">
+                            <div className="mt-5 space-y-6">
+                              <div className="rounded-[24px] border border-slate-200 bg-white p-5">
+                                <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                                  <div>
+                                    <h3 className="text-lg font-bold tracking-tight text-slate-900">Worker runtime</h3>
+                                    <p className="text-sm text-slate-500">Compare installed runtime versions with the versions this worker should be running.</p>
+                                  </div>
+                                  <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:flex-wrap md:items-center">
+                                    <button
+                                      type="button"
+                                      className="rounded-[14px] border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                      onClick={() => void refreshRuntime(selectedWorker.workerId)}
+                                      disabled={runtimeBusy || runtimeUpgradeBusy}
+                                    >
+                                      {runtimeBusy ? "Checking..." : "Refresh runtime"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="rounded-[14px] bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
+                                      onClick={() => void handleRuntimeUpgrade()}
+                                      disabled={runtimeUpgradeBusy || runtimeBusy || selectedStatusMeta.bucket !== "ready"}
+                                    >
+                                      {runtimeUpgradeBusy || runtimeSnapshot?.upgrade.status === "running" ? "Upgrading..." : "Upgrade runtime"}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {runtimeError ? (
+                                  <div className="mb-4 rounded-[14px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{runtimeError}</div>
+                                ) : null}
+
+                                {runtimeSnapshot?.upgrade.status === "failed" && runtimeSnapshot.upgrade.error ? (
+                                  <div className="mb-4 rounded-[14px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                                    Last upgrade failed: {runtimeSnapshot.upgrade.error}
+                                  </div>
+                                ) : null}
+
+                                {runtimeUpgradeCount > 0 ? (
+                                  <div className="mb-4 rounded-[14px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                                    This worker has {runtimeUpgradeCount} runtime component{runtimeUpgradeCount === 1 ? "" : "s"} behind the target version.
+                                  </div>
+                                ) : null}
+
+                                <div className="space-y-3">
+                                  {(runtimeSnapshot?.services ?? []).map((service) => (
+                                    <div key={service.name} className="flex flex-col gap-3 rounded-[18px] border border-[var(--dls-border)] bg-white px-4 py-3 md:flex-row md:items-center md:justify-between">
+                                      <div>
+                                        <p className="text-sm font-semibold text-slate-900">{getRuntimeServiceLabel(service.name)}</p>
+                                        <p className="text-xs text-slate-500">
+                                          Installed {service.actualVersion ?? "unknown"} · Target {service.targetVersion ?? "unknown"}
+                                        </p>
+                                      </div>
+                                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide">
+                                        <span className={`rounded-full px-2.5 py-1 ${service.running ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
+                                          {service.running ? "Running" : service.enabled ? "Stopped" : "Disabled"}
+                                        </span>
+                                        <span className={`rounded-full px-2.5 py-1 ${service.upgradeAvailable ? "bg-amber-100 text-amber-700" : "bg-slate-200 text-slate-600"}`}>
+                                          {service.upgradeAvailable ? "Upgrade available" : "Current"}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                  {!runtimeSnapshot && !runtimeBusy ? (
+                                    <p className="text-sm text-slate-500">Runtime details appear after the worker is reachable.</p>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <div className="rounded-[24px] border border-slate-200 bg-white p-5">
+                                <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                  <div>
+                                    <div>
+                                      <h3 className="text-lg font-bold tracking-tight text-slate-900">Connection details</h3>
+                                      <p className="text-sm text-slate-500">Access and manage your worker instance.</p>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:flex-wrap md:items-center">
+                                    <button
+                                      type="button"
+                                      className="rounded-[16px] bg-slate-900 px-6 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(15,23,42,0.14)] transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+                                      onClick={() => {
+                                        if (!openworkDeepLink) {
+                                          return;
+                                        }
+                                        window.location.href = openworkDeepLink;
+                                      }}
+                                      disabled={!openworkDeepLink || selectedStatusMeta.bucket !== "ready"}
+                                    >
+                                      {openworkDeepLink ? "Open in OpenWork" : "Preparing connection..."}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="rounded-[16px] border border-slate-200 bg-[var(--dls-hover)] px-4 py-3">
+                                  <p className="text-sm text-slate-600">
+                                    {openworkDeepLink
+                                      ? openworkAppConnectUrl
+                                        ? "You are all set. Open in OpenWork or Open in Web to start working."
+                                        : "You are all set. Open in OpenWork to start working."
+                                      : "We are still preparing your connection. The button will unlock when ready."}
+                                  </p>
+                                </div>
+
+                                <div className="mt-4 space-y-4">
                               <div>
                                 <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Connection URL</label>
                                 <div className="flex items-center gap-2 rounded-[14px] border border-slate-200 bg-[#F8F9FA] p-1.5">
@@ -3794,6 +3818,8 @@ export function CloudControlPanel() {
                                     </div>
                                   ) : null}
                                 </div>
+                              </div>
+                            </div>
                               </div>
                             </div>
                           ) : null}
