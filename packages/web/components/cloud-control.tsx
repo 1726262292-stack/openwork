@@ -296,7 +296,7 @@ function getAdditionalWorkerRequestHref(): string {
 
 function GitHubLogo() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="ow-social-icon">
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4 shrink-0">
       <path
         fill="currentColor"
         d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.5 7.5 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
@@ -307,7 +307,7 @@ function GitHubLogo() {
 
 function GoogleLogo() {
   return (
-    <svg viewBox="0 0 18 18" aria-hidden="true" className="ow-social-icon">
+    <svg viewBox="0 0 18 18" aria-hidden="true" className="h-4 w-4 shrink-0">
       <path
         fill="#4285F4"
         d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.71-1.57 2.68-3.89 2.68-6.62Z"
@@ -1209,7 +1209,7 @@ export function CloudControlPanel() {
       meta.bucket === "ready"
         ? "bg-[#2E7D32]"
         : meta.bucket === "starting"
-          ? "bg-amber-500 ow-soft-pulse-dot"
+          ? "bg-amber-500 animate-pulse"
           : meta.bucket === "attention"
             ? "bg-rose-500"
             : "bg-slate-400";
@@ -2829,15 +2829,15 @@ export function CloudControlPanel() {
 
   return (
     <section
-      className={`ow-card ${
+      className={
         isShellStep
-          ? "ow-card-shell"
+          ? "flex min-h-0 w-full flex-1"
           : step === "auth"
-            ? "mx-auto w-full max-w-[32rem]"
-            : "mx-auto w-full max-w-[48rem]"
-      }`}
+            ? "mx-auto w-full max-w-[32rem] rounded-[32px] border border-[var(--dls-border)] bg-white/95 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)] md:p-6"
+            : "mx-auto w-full max-w-[48rem] rounded-[32px] border border-[var(--dls-border)] bg-white/95 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)] md:p-6"
+      }
     >
-      <div className="ow-card-body">
+      <div className={isShellStep ? "flex min-h-0 w-full flex-1" : ""}>
 
         {step === "auth" ? (
           <div className="mx-auto grid w-full max-w-[28rem] gap-6 px-1 py-2">
@@ -3078,9 +3078,9 @@ export function CloudControlPanel() {
 
               <div className="rounded-[24px] border border-[var(--dls-border)] bg-[linear-gradient(180deg,#fbfcfd_0%,#ffffff_100%)] p-5">
                 <div className="flex items-center gap-4">
-                  <span className="relative inline-flex h-12 w-12 items-center justify-center" aria-hidden="true">
-                    <span className="ow-soft-pulse-ring absolute inset-0 rounded-full bg-slate-900/8" />
-                    <span className="ow-soft-pulse-orb relative h-4 w-4 rounded-full bg-slate-900" />
+                    <span className="relative inline-flex h-12 w-12 items-center justify-center" aria-hidden="true">
+                    <span className="absolute inset-0 animate-ping rounded-full bg-slate-900/8" />
+                    <span className="relative h-4 w-4 animate-pulse rounded-full bg-slate-900" />
                   </span>
                   <div>
                     <p className="text-[15px] font-semibold text-[var(--dls-text-primary)]">{launchBusy ? "Creating worker" : "Provisioning in progress"}</p>
@@ -3150,7 +3150,7 @@ export function CloudControlPanel() {
         ) : null}
 
         {step === "workspace" ? (
-          <div className="flex h-full flex-col gap-3">
+          <div className="flex min-h-0 w-full flex-1 flex-col gap-3 rounded-[32px] bg-white/92 shadow-[0_20px_60px_rgba(15,23,42,0.08)] ring-1 ring-black/5">
             <div className="mb-3 flex items-center justify-between rounded-[24px] border border-[var(--dls-border)] bg-white p-2.5 shadow-[var(--dls-card-shadow)] lg:hidden">
               <div className="flex gap-2">
                 <button
@@ -3184,8 +3184,8 @@ export function CloudControlPanel() {
             </div>
 
             {shellView === "workers" || BILLING_DISABLED_FOR_EXPERIMENT ? (
-              <div className="flex h-full min-h-0 flex-col gap-4 lg:flex-row">
-                <aside className="hidden h-full w-[260px] shrink-0 flex-col justify-between rounded-[30px] border border-[var(--dls-border)] bg-white p-5 shadow-[var(--dls-card-shadow)] lg:flex">
+              <div className="flex h-full min-h-0 flex-col lg:flex-row">
+                <aside className="hidden h-full w-[260px] shrink-0 flex-col justify-between border-r border-[var(--dls-border)] bg-transparent p-6 lg:flex">
                   <div>
                     <div className="mb-6">
                       <div className="mb-3 flex items-center gap-2 px-2 text-xs font-medium uppercase tracking-[0.08em] text-slate-400">
@@ -3213,7 +3213,7 @@ export function CloudControlPanel() {
                     </div>
                   </div>
 
-                  <div className="rounded-[24px] border border-[var(--dls-border)] bg-[var(--dls-hover)] p-4">
+                  <div className="mt-auto rounded-[24px] bg-[var(--dls-hover)] p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">Signed in</p>
                     <p className="mt-1 break-all text-sm font-medium text-slate-700">{(user?.email ?? email) || "account"}</p>
                     <button
@@ -3368,12 +3368,12 @@ export function CloudControlPanel() {
                   </div>
                 </section>
 
-                <section className="hidden h-full w-full shrink-0 flex-col rounded-[30px] border border-[var(--dls-border)] bg-white p-6 shadow-[var(--dls-card-shadow)] md:w-[340px] lg:flex">
+                <section className="hidden h-full w-full shrink-0 flex-col border-r border-[var(--dls-border)] bg-transparent p-6 md:w-[340px] lg:flex">
                   <div className="mb-6 flex items-center justify-between">
                     <h2 className="text-xl font-semibold tracking-tight text-slate-900">Workers</h2>
                     <button
                       type="button"
-                      className="rounded-full bg-slate-900 p-2.5 text-white transition hover:bg-black"
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-slate-900 p-0 text-lg leading-none text-white transition hover:bg-black"
                       onClick={() => setShowLaunchForm((current) => !current)}
                     >
                       {showLaunchForm ? "-" : "+"}
@@ -3476,7 +3476,7 @@ export function CloudControlPanel() {
                   ) : null}
                 </section>
 
-                <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col rounded-[30px] border border-[var(--dls-border)] bg-white p-6 shadow-[var(--dls-card-shadow)] md:p-8">
+                <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-transparent p-6 md:p-8">
                   {selectedWorker ? (
                     <>
                       <div className="mb-2 px-1">
@@ -3501,11 +3501,11 @@ export function CloudControlPanel() {
                                 }`}
                                 aria-disabled={selectedStatusMeta.bucket !== "ready"}
                               >
-                                <span className={`inline-flex items-center gap-2 ${selectedStatusMeta.bucket !== "ready" ? "ow-soft-disabled-cta" : ""}`}>
+                                <span className={`inline-flex items-center gap-2 ${selectedStatusMeta.bucket !== "ready" ? "animate-pulse" : ""}`}>
                                   {selectedStatusMeta.bucket !== "ready" ? (
                                     <span className="relative inline-flex h-2.5 w-2.5">
-                                      <span className="ow-soft-pulse-ring absolute inset-0 rounded-full bg-amber-400/40" />
-                                      <span className="ow-soft-pulse-orb relative h-2.5 w-2.5 rounded-full bg-amber-500" />
+                                      <span className="absolute inset-0 animate-ping rounded-full bg-amber-400/40" />
+                                      <span className="relative h-2.5 w-2.5 animate-pulse rounded-full bg-amber-500" />
                                     </span>
                                   ) : null}
                                   <span>{selectedStatusMeta.bucket === "ready" ? "Open in Web" : "Preparing worker"}</span>
@@ -3517,8 +3517,8 @@ export function CloudControlPanel() {
                           {selectedStatusMeta.bucket !== "ready" && openworkAppConnectUrl ? (
                             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50/80 px-3 py-1.5 text-xs font-medium text-amber-800">
                               <span className="relative inline-flex h-2 w-2">
-                                <span className="ow-soft-pulse-ring absolute inset-0 rounded-full bg-amber-400/40" />
-                                <span className="ow-soft-pulse-orb relative h-2 w-2 rounded-full bg-amber-500" />
+                                <span className="absolute inset-0 animate-ping rounded-full bg-amber-400/40" />
+                                <span className="relative h-2 w-2 animate-pulse rounded-full bg-amber-500" />
                               </span>
                               Browser access is being prepared - this button will light up automatically.
                             </div>
@@ -3553,6 +3553,7 @@ export function CloudControlPanel() {
                               <p className="text-sm text-slate-500">Runtime controls, connection details, and worker management.</p>
                             </div>
                             <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-lg text-slate-500">
+                            <span className="sr-only">Toggle advanced settings</span>
                               {showAdvancedOptions ? "-" : "+"}
                             </span>
                           </button>
