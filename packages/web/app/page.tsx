@@ -10,7 +10,7 @@ export default function HomePage() {
         <span className="absolute bottom-[-10rem] left-1/3 h-[18rem] w-[18rem] rounded-full bg-slate-100 blur-[120px]" />
       </div>
 
-      <header className="relative z-10 flex w-full max-w-[1180px] flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+      <header className="relative z-10 flex w-full max-w-[1180px] items-center gap-3">
         <div className="inline-flex items-center gap-3">
           <Image
             src="/openwork-mark.svg"
@@ -26,11 +26,6 @@ export default function HomePage() {
             <div className="text-[15px] font-semibold tracking-[-0.02em] text-[var(--dls-text-primary)]">OpenWork</div>
             <div className="text-[12px] text-[var(--dls-text-secondary)]">Den onboarding</div>
           </div>
-        </div>
-
-        <div className="inline-flex items-center gap-2 rounded-full border border-[var(--dls-border)] bg-white px-3 py-1.5 text-[12px] font-medium text-[var(--dls-text-secondary)] shadow-[var(--dls-card-shadow)]" aria-label="OpenWork status">
-          <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]" aria-hidden />
-          <span>Guided worker setup</span>
         </div>
       </header>
 

@@ -1046,7 +1046,7 @@ function CredentialRow({
         />
         <button
           type="button"
-          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-[#1B29FF] hover:text-[#1B29FF] disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!canCopy}
           onClick={onCopy}
         >
@@ -1210,12 +1210,12 @@ export function CloudControlPanel() {
         onClick={() => selectWorker(item, { collapseMobile: options.collapseMobile })}
         className={`w-full rounded-[20px] border ${options.dense ? "p-3" : "p-4"} text-left transition-all ${
           isActive
-            ? "border-[#1B29FF] bg-[#1B29FF]/[0.03] ring-1 ring-[#1B29FF]/30"
+            ? "border-slate-900/10 bg-slate-900/[0.03] ring-1 ring-slate-900/10"
             : "border-slate-100 bg-white hover:border-slate-300"
         }`}
       >
         <div className="mb-1 flex items-center justify-between gap-2">
-          <span className={`truncate pr-2 text-sm font-semibold ${isActive ? "text-[#1B29FF]" : "text-slate-700"}`}>
+          <span className={`truncate pr-2 text-sm font-semibold ${isActive ? "text-slate-900" : "text-slate-700"}`}>
             {item.workerName}
           </span>
           {item.isMine ? (
@@ -2376,7 +2376,16 @@ export function CloudControlPanel() {
         return value;
       }
 
-      return current;
+      const currentLines = normalized
+        .split(/\n+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+
+      if (currentLines.some((entry) => entry.toLowerCase() === value.toLowerCase())) {
+        return current;
+      }
+
+      return `${current.replace(/\s+$/, "")}\n${value}`;
     });
   }
 
@@ -2822,10 +2831,6 @@ export function CloudControlPanel() {
         {step === "auth" ? (
           <div className="mx-auto grid w-full max-w-[28rem] gap-6 px-1 py-2">
             <div className="grid gap-3 text-center">
-              <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-[var(--dls-border)] bg-white px-3 py-1 text-[11px] font-medium text-[var(--dls-text-secondary)] shadow-[var(--dls-card-shadow)]">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                OpenWork Den
-              </div>
               <h1 className="text-[2rem] font-semibold leading-[1.02] tracking-[-0.045em] text-[var(--dls-text-primary)] md:text-[2.5rem]">
                 {authMode === "sign-up" ? "Create your account." : "Sign in to Den."}
               </h1>
@@ -2925,15 +2930,11 @@ export function CloudControlPanel() {
           <div className="mx-auto grid w-full max-w-[46rem] gap-6 px-1 py-2 md:grid-cols-[minmax(0,1.05fr)_minmax(260px,0.95fr)]">
             <div className="grid gap-5 rounded-[30px] border border-[var(--dls-border)] bg-white p-6 shadow-[var(--dls-card-shadow)] md:p-7">
               <div className="grid gap-3">
-                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-700">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  Worker provisioning started
-                </div>
                 <h2 className="text-[1.9rem] font-semibold leading-[1.04] tracking-[-0.04em] text-[var(--dls-text-primary)] md:text-[2.35rem]">
                   Name your worker.
                 </h2>
                 <p className="max-w-[32rem] text-[15px] leading-7 text-[var(--dls-text-secondary)]">
-                  We already kicked off provisioning. Give it a clear name now and we will carry that through as the worker comes online.
+                  Pick something recognizable. You can always rename it later.
                 </p>
               </div>
 
@@ -2973,7 +2974,7 @@ export function CloudControlPanel() {
                 </div>
               </div>
               <div className="rounded-[24px] border border-white/80 bg-white/70 p-5">
-                <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--dls-text-secondary)]">Expected timing</div>
+                <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--dls-text-secondary)]">First run timing</div>
                 <p className="mt-2 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
                   First runs usually take around 1-2 minutes while we provision the environment and prepare the OpenWork connection.
                 </p>
@@ -2986,12 +2987,9 @@ export function CloudControlPanel() {
           <div className="mx-auto grid w-full max-w-[42rem] gap-6 px-1 py-1 md:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
             <div className="grid gap-5 rounded-[28px] border border-[var(--dls-border)] bg-white p-5 shadow-[var(--dls-card-shadow)] md:p-6">
               <div className="grid gap-3">
-                <div className="inline-flex items-center gap-2 rounded-full border border-[var(--dls-border)] bg-[var(--dls-hover)] px-3 py-1 text-[11px] font-medium text-[var(--dls-text-secondary)]">
-                  Shape the worker
-                </div>
-                <h2 className="text-[1.8rem] font-semibold leading-[1.08] tracking-[-0.035em] text-[var(--dls-text-primary)] md:text-[2.15rem]">What should this worker do first?</h2>
+                <h2 className="text-[1.8rem] font-semibold leading-[1.08] tracking-[-0.035em] text-[var(--dls-text-primary)] md:text-[2.15rem]">What do you want it to do?</h2>
                 <p className="text-[15px] leading-7 text-[var(--dls-text-secondary)]">
-                  Keep it short. This helps us understand the first job you want the worker to take on.
+                  Keep it short. You can tap multiple suggestions to chain them together.
                 </p>
               </div>
 
@@ -3009,7 +3007,7 @@ export function CloudControlPanel() {
               </div>
 
               <label className="grid gap-2">
-                <span className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">What do you want it to do? (optional)</span>
+                <span className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Optional context</span>
                 <textarea
                   className="min-h-[9rem] w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-900/5"
                   value={workerIntent}
@@ -3039,10 +3037,6 @@ export function CloudControlPanel() {
             </div>
 
             <div className="grid content-start gap-4 rounded-[28px] border border-[var(--dls-border)] bg-[var(--dls-hover)] p-5 md:p-6">
-              <div>
-                <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--dls-text-secondary)]">In progress</div>
-                <div className="mt-2 text-[1.15rem] font-semibold tracking-[-0.03em] text-[var(--dls-text-primary)]">We are already creating the worker.</div>
-              </div>
               <div className="rounded-[22px] border border-white bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-3">
                   <div className="h-10 w-10 rounded-2xl bg-slate-900 text-white inline-flex items-center justify-center text-[11px] font-semibold">AI</div>
@@ -3053,7 +3047,7 @@ export function CloudControlPanel() {
                 </div>
               </div>
               <p className="text-[14px] leading-6 text-[var(--dls-text-secondary)]">
-                Skip this if you want. You can always refine the worker's purpose once it is live in the app.
+                Add one idea or stack a few suggestions together. You can still refine everything later once the worker is live.
               </p>
             </div>
           </div>
@@ -3141,13 +3135,13 @@ export function CloudControlPanel() {
 
         {step === "workspace" ? (
           <div className="flex h-full flex-col gap-3">
-            <div className="mb-3 flex items-center justify-between rounded-[18px] border border-slate-200 bg-white p-2 lg:hidden">
+            <div className="mb-3 flex items-center justify-between rounded-[24px] border border-[var(--dls-border)] bg-white p-2.5 shadow-[var(--dls-card-shadow)] lg:hidden">
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => setShellView("workers")}
                   className={`rounded-[12px] px-3 py-1.5 text-sm font-medium transition ${
-                    shellView === "workers" ? "bg-[#1B29FF]/10 text-[#1B29FF]" : "text-slate-600 hover:bg-slate-100"
+                    shellView === "workers" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
                   }`}
                 >
                   Workers
@@ -3156,16 +3150,16 @@ export function CloudControlPanel() {
                 {/* <button
                   type="button"
                   onClick={() => setShellView("billing")}
-                  className={`rounded-[12px] px-3 py-1.5 text-sm font-medium transition ${
-                    shellView === "billing" ? "bg-[#1B29FF]/10 text-[#1B29FF]" : "text-slate-600 hover:bg-slate-100"
-                  }`}
+                    className={`rounded-[12px] px-3 py-1.5 text-sm font-medium transition ${
+                      shellView === "billing" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+                    }`}
                 >
                   Billing
                 </button> */}
               </div>
               <button
                 type="button"
-                className="rounded-[12px] border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-[12px] border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void handleSignOut()}
                 disabled={authBusy}
               >
@@ -3175,16 +3169,16 @@ export function CloudControlPanel() {
 
             {shellView === "workers" || BILLING_DISABLED_FOR_EXPERIMENT ? (
               <div className="flex h-full min-h-0 flex-col gap-4 lg:flex-row">
-                <aside className="hidden h-full w-[260px] shrink-0 flex-col justify-between rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm lg:flex">
+                <aside className="hidden h-full w-[260px] shrink-0 flex-col justify-between rounded-[30px] border border-[var(--dls-border)] bg-white p-5 shadow-[var(--dls-card-shadow)] lg:flex">
                   <div>
                     <div className="mb-6">
                       <div className="mb-3 flex items-center gap-2 px-2 text-xs font-medium uppercase tracking-[0.08em] text-slate-400">
-                        <span>Menu</span>
+                        <span>Den</span>
                       </div>
                       <nav className="space-y-1">
                         <button
                           type="button"
-                          className="w-full rounded-[14px] bg-[#1B29FF]/10 px-3 py-2.5 text-left text-sm font-medium text-[#1B29FF] transition"
+                          className="w-full rounded-[16px] bg-slate-900 px-3 py-2.5 text-left text-sm font-medium text-white transition"
                           onClick={() => setShellView("workers")}
                         >
                           Workers
@@ -3203,12 +3197,12 @@ export function CloudControlPanel() {
                     </div>
                   </div>
 
-                  <div className="rounded-[22px] border border-slate-200 bg-[#F8F9FA] p-4">
+                  <div className="rounded-[24px] border border-[var(--dls-border)] bg-[var(--dls-hover)] p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">Signed in</p>
                     <p className="mt-1 break-all text-sm font-medium text-slate-700">{(user?.email ?? email) || "account"}</p>
                     <button
                       type="button"
-                      className="mt-4 w-full rounded-[12px] bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="mt-4 w-full rounded-[16px] bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={() => void handleSignOut()}
                       disabled={authBusy}
                     >
@@ -3218,7 +3212,7 @@ export function CloudControlPanel() {
                 </aside>
 
                 <section className="flex flex-col gap-3 lg:hidden">
-                  <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="rounded-[28px] border border-[var(--dls-border)] bg-white p-4 shadow-[var(--dls-card-shadow)]">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <h2 className="text-base font-semibold tracking-tight text-slate-900">Workers</h2>
@@ -3235,7 +3229,7 @@ export function CloudControlPanel() {
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          className="rounded-full bg-[#1B29FF] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#151FDA]"
+                          className="rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-black"
                           onClick={() => {
                             setShowLaunchForm((current) => !current);
                             setMobileWorkersExpanded(true);
@@ -3255,11 +3249,11 @@ export function CloudControlPanel() {
                     </div>
 
                     {showLaunchForm ? (
-                      <div className="mt-4 rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                      <div className="mt-4 rounded-[24px] border border-[var(--dls-border)] bg-[var(--dls-hover)] p-4">
                         <label className="mb-3 block">
                           <span className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Worker Name</span>
                           <input
-                            className="w-full rounded-[12px] border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-[#1B29FF] focus:ring-2 focus:ring-[#1B29FF]/15"
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-900/5"
                             value={workerName}
                             onChange={(event) => setWorkerName(event.target.value)}
                             maxLength={80}
@@ -3268,7 +3262,7 @@ export function CloudControlPanel() {
 
                         <button
                           type="button"
-                          className="w-full rounded-[12px] bg-[#1B29FF] px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-[#151FDA] disabled:cursor-not-allowed disabled:opacity-60"
+                          className="w-full rounded-2xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
                           onClick={() => void handleLaunchWorker({ source: "manual" })}
                           disabled={!user || launchBusy || worker?.status === "provisioning" || workerLimitReached}
                         >
@@ -3282,7 +3276,7 @@ export function CloudControlPanel() {
                         </button>
 
                         {(launchStatus || launchError) && showLaunchForm ? (
-                          <div className="mt-3 rounded-[12px] border border-slate-200 bg-white px-3 py-2">
+                          <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-3 py-3">
                             <p className="text-xs text-slate-600">{launchStatus}</p>
                             {launchError ? <p className="mt-1 text-xs font-medium text-rose-600">{launchError}</p> : null}
                           </div>
@@ -3315,7 +3309,7 @@ export function CloudControlPanel() {
                     {mobileWorkersExpanded || showLaunchForm ? (
                       <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
                         <input
-                          className="min-w-[170px] rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-700 outline-none focus:border-[#1B29FF]"
+                          className="min-w-[170px] rounded-xl border border-slate-200 bg-[var(--dls-hover)] px-3 py-1.5 text-xs text-slate-700 outline-none focus:border-slate-400"
                           value={workerQuery}
                           onChange={(event) => setWorkerQuery(event.target.value)}
                           placeholder="Search..."
@@ -3358,12 +3352,12 @@ export function CloudControlPanel() {
                   </div>
                 </section>
 
-                <section className="hidden h-full w-full shrink-0 flex-col rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:w-[340px] lg:flex">
+                <section className="hidden h-full w-full shrink-0 flex-col rounded-[30px] border border-[var(--dls-border)] bg-white p-6 shadow-[var(--dls-card-shadow)] md:w-[340px] lg:flex">
                   <div className="mb-6 flex items-center justify-between">
                     <h2 className="text-xl font-semibold tracking-tight text-slate-900">Workers</h2>
                     <button
                       type="button"
-                      className="rounded-full bg-[#1B29FF] p-2.5 text-white transition hover:bg-[#151FDA]"
+                      className="rounded-full bg-slate-900 p-2.5 text-white transition hover:bg-black"
                       onClick={() => setShowLaunchForm((current) => !current)}
                     >
                       {showLaunchForm ? "-" : "+"}
@@ -3371,11 +3365,11 @@ export function CloudControlPanel() {
                   </div>
 
                   {showLaunchForm ? (
-                    <div className="mb-5 rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                    <div className="mb-5 rounded-[24px] border border-[var(--dls-border)] bg-[var(--dls-hover)] p-4">
                       <label className="mb-3 block">
                         <span className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Worker Name</span>
                         <input
-                          className="w-full rounded-[12px] border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-[#1B29FF] focus:ring-2 focus:ring-[#1B29FF]/15"
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-900/5"
                           value={workerName}
                           onChange={(event) => setWorkerName(event.target.value)}
                           maxLength={80}
@@ -3384,7 +3378,7 @@ export function CloudControlPanel() {
 
                       <button
                         type="button"
-                        className="w-full rounded-[12px] bg-[#1B29FF] px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-[#151FDA] disabled:cursor-not-allowed disabled:opacity-60"
+                        className="w-full rounded-2xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
                         onClick={() => void handleLaunchWorker({ source: "manual" })}
                         disabled={!user || launchBusy || worker?.status === "provisioning" || workerLimitReached}
                       >
@@ -3398,7 +3392,7 @@ export function CloudControlPanel() {
                       </button>
 
                       {(launchStatus || launchError) && showLaunchForm ? (
-                        <div className="mt-3 rounded-[12px] border border-slate-200 bg-white px-3 py-2">
+                        <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-3 py-3">
                           <p className="text-xs text-slate-600">{launchStatus}</p>
                           {launchError ? <p className="mt-1 text-xs font-medium text-rose-600">{launchError}</p> : null}
                         </div>
@@ -3432,7 +3426,7 @@ export function CloudControlPanel() {
 
                   <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
                     <input
-                      className="min-w-[170px] rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-700 outline-none focus:border-[#1B29FF]"
+                      className="min-w-[170px] rounded-xl border border-slate-200 bg-[var(--dls-hover)] px-3 py-1.5 text-xs text-slate-700 outline-none focus:border-slate-400"
                       value={workerQuery}
                       onChange={(event) => setWorkerQuery(event.target.value)}
                       placeholder="Search..."
@@ -3466,7 +3460,7 @@ export function CloudControlPanel() {
                   ) : null}
                 </section>
 
-                <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
+                <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col rounded-[30px] border border-[var(--dls-border)] bg-white p-6 shadow-[var(--dls-card-shadow)] md:p-8">
                   {selectedWorker ? (
                     <>
                       <div className="mb-2 px-1">
@@ -3474,7 +3468,7 @@ export function CloudControlPanel() {
                       </div>
 
                       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pb-2">
-                        <div className="rounded-[28px] border border-slate-100 bg-white p-6">
+                        <div className="rounded-[28px] border border-[var(--dls-border)] bg-[var(--dls-hover)] p-6">
                           <div className="mb-2 flex items-start justify-between gap-4">
                             <h2 className="text-3xl font-bold tracking-tight text-slate-900">
                               {activeWorker?.workerName ?? selectedWorker.workerName}
@@ -3484,9 +3478,9 @@ export function CloudControlPanel() {
                                 href={openworkAppConnectUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className={`shrink-0 rounded-[16px] px-6 py-3 text-base font-semibold shadow-md shadow-[#1B29FF]/25 transition ${
+                                className={`shrink-0 rounded-[16px] px-6 py-3 text-base font-semibold shadow-[0_12px_24px_rgba(15,23,42,0.14)] transition ${
                                   selectedStatusMeta.bucket === "ready"
-                                    ? "bg-[#1B29FF] text-white hover:bg-[#151FDA]"
+                                    ? "bg-slate-900 text-white hover:bg-black"
                                     : "pointer-events-none cursor-not-allowed bg-slate-200 text-slate-500 shadow-none"
                                 }`}
                                 aria-disabled={selectedStatusMeta.bucket !== "ready"}
@@ -3499,7 +3493,7 @@ export function CloudControlPanel() {
                           {isSelectedWorkerFailed ? (
                             <button
                               type="button"
-                              className="rounded-[12px] bg-[#1B29FF] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#151FDA] disabled:cursor-not-allowed disabled:opacity-50"
+                              className="rounded-[14px] bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
                               onClick={() => void handleRedeployWorker(selectedWorker.workerId)}
                               disabled={redeployBusyWorkerId !== null || deleteBusyWorkerId !== null || actionBusy !== null || launchBusy}
                             >
@@ -3508,7 +3502,7 @@ export function CloudControlPanel() {
                           ) : null}
                         </div>
 
-                        <div className="rounded-[28px] border border-slate-100 bg-white p-6">
+                        <div className="rounded-[28px] border border-[var(--dls-border)] bg-[var(--dls-hover)] p-6">
                           <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                             <div>
                               <h3 className="text-lg font-bold tracking-tight text-slate-900">Worker runtime</h3>
@@ -3517,7 +3511,7 @@ export function CloudControlPanel() {
                             <div className="flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
-                                className="rounded-[12px] border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="rounded-[14px] border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                                 onClick={() => void refreshRuntime(selectedWorker.workerId)}
                                 disabled={runtimeBusy || runtimeUpgradeBusy}
                               >
@@ -3525,7 +3519,7 @@ export function CloudControlPanel() {
                               </button>
                               <button
                                 type="button"
-                                className="rounded-[12px] bg-[#1B29FF] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#151FDA] disabled:cursor-not-allowed disabled:opacity-50"
+                                className="rounded-[14px] bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
                                 onClick={() => void handleRuntimeUpgrade()}
                                 disabled={runtimeUpgradeBusy || runtimeBusy || selectedStatusMeta.bucket !== "ready"}
                               >
@@ -3552,7 +3546,7 @@ export function CloudControlPanel() {
 
                           <div className="space-y-3">
                             {(runtimeSnapshot?.services ?? []).map((service) => (
-                              <div key={service.name} className="flex flex-col gap-3 rounded-[18px] border border-slate-100 bg-slate-50 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                              <div key={service.name} className="flex flex-col gap-3 rounded-[18px] border border-[var(--dls-border)] bg-white px-4 py-3 md:flex-row md:items-center md:justify-between">
                                 <div>
                                   <p className="text-sm font-semibold text-slate-900">{getRuntimeServiceLabel(service.name)}</p>
                                   <p className="text-xs text-slate-500">
@@ -3575,7 +3569,7 @@ export function CloudControlPanel() {
                           </div>
                         </div>
 
-                        <div className="rounded-[28px] border border-slate-100 bg-white p-6">
+                        <div className="rounded-[28px] border border-[var(--dls-border)] bg-[var(--dls-hover)] p-6">
                           <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                             <div>
                               <div>
@@ -3587,7 +3581,7 @@ export function CloudControlPanel() {
                             <div className="flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
-                                className="rounded-[14px] bg-[#1B29FF] px-6 py-3 text-sm font-semibold text-white shadow-md shadow-[#1B29FF]/25 transition hover:bg-[#151FDA] disabled:cursor-not-allowed disabled:opacity-60"
+                                className="rounded-[16px] bg-slate-900 px-6 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(15,23,42,0.14)] transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
                                 onClick={() => {
                                   if (!openworkDeepLink) {
                                     return;
@@ -3601,7 +3595,7 @@ export function CloudControlPanel() {
                             </div>
                           </div>
 
-                          <div className="rounded-[14px] border border-slate-100 bg-slate-50 px-4 py-3">
+                          <div className="rounded-[16px] border border-slate-200 bg-white px-4 py-3">
                             <p className="text-sm text-slate-600">
                               {openworkDeepLink
                                 ? openworkAppConnectUrl
@@ -3613,7 +3607,7 @@ export function CloudControlPanel() {
 
                           <button
                             type="button"
-                            className="mt-4 text-sm font-semibold text-[#1B29FF] transition hover:text-[#151FDA]"
+                            className="mt-4 text-sm font-semibold text-slate-900 transition hover:text-black"
                             onClick={() =>
                               setShowAdvancedOptions((current) => {
                                 if (current) {
@@ -3728,7 +3722,7 @@ export function CloudControlPanel() {
                                       </button>
                                       <button
                                         type="button"
-                                        className="rounded-[10px] border border-[#1B29FF]/20 bg-[#1B29FF]/5 px-3 py-2 text-xs font-semibold text-[#1B29FF] transition hover:bg-[#1B29FF]/10 disabled:cursor-not-allowed disabled:opacity-50"
+                                        className="rounded-[12px] border border-slate-200 bg-slate-900/5 px-3 py-2 text-xs font-semibold text-slate-900 transition hover:bg-slate-900/10 disabled:cursor-not-allowed disabled:opacity-50"
                                         onClick={() => void handleRedeployWorker(selectedWorker.workerId)}
                                         disabled={
                                           !isSelectedWorkerFailed ||
@@ -3977,7 +3971,7 @@ export function CloudControlPanel() {
                         <p className="mt-1 text-sm text-slate-600">Generate a fresh checkout session for this account.</p>
                         <button
                           type="button"
-                          className="mt-3 rounded-[10px] bg-[#1B29FF] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#151FDA] disabled:cursor-not-allowed disabled:opacity-60"
+                          className="mt-3 rounded-[12px] bg-slate-900 px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
                           onClick={() => void refreshBilling({ includeCheckout: true })}
                           disabled={billingCheckoutBusy || billingBusy}
                         >
