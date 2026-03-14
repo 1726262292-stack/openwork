@@ -4,13 +4,26 @@
 
 :root {
     color-scheme: light;
-    --ow-bg: #fafafa;
-    --ow-ink: #0f172a;
-    --ow-muted: #475569;
-    --ow-line: #dce2f4;
-    --ow-card: rgba(255, 255, 255, 0.94);
-    --ow-accent: #1b29ff;
-    --ow-accent-strong: #1722d1;
+    --dls-surface: #ffffff;
+    --dls-sidebar: #f9fafb;
+    --dls-app-bg: #ffffff;
+    --dls-border: #f3f4f6;
+    --dls-accent: #011627;
+    --dls-accent-hover: #000000;
+    --dls-accent-rgb: 1 22 39;
+    --dls-text-primary: #111827;
+    --dls-text-secondary: #6b7280;
+    --dls-hover: #f3f4f6;
+    --dls-active: #eef2f7;
+    --dls-shell-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+    --dls-card-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+    --ow-bg: var(--dls-app-bg);
+    --ow-ink: var(--dls-text-primary);
+    --ow-muted: var(--dls-text-secondary);
+    --ow-line: var(--dls-border);
+    --ow-card: rgba(255, 255, 255, 0.98);
+    --ow-accent: var(--dls-accent);
+    --ow-accent-strong: #0b1320;
     --ow-success: #0f9f66;
     --ow-warning: #b45309;
     --ow-danger: #b42318;
@@ -28,9 +41,9 @@ body {
 body {
     margin: 0;
     font-family:
-        var(--font-inter), "Inter", "Avenir Next", "Segoe UI", sans-serif;
+        "IBM Plex Sans", var(--font-inter), "Avenir Next", "Segoe UI", sans-serif;
     color: var(--ow-ink);
-    background: #fafafa;
+    background: var(--ow-bg);
 }
 
 .ow-shell {
@@ -40,10 +53,13 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
-    gap: 1.2rem;
-    padding: 5rem 3rem 3rem;
+    gap: 1rem;
+    padding: 1rem;
     overflow-x: hidden;
     overflow-y: auto;
+    background:
+        radial-gradient(circle at top left, rgba(1, 22, 39, 0.03), transparent 28%),
+        linear-gradient(180deg, #ffffff 0%, #fbfbfc 100%);
 }
 
 .ow-ambient {
@@ -55,51 +71,47 @@ body {
 .ow-blob {
     position: absolute;
     border-radius: 999px;
-    filter: blur(115px);
-    mix-blend-mode: multiply;
-    opacity: 0.45;
+    filter: blur(130px);
+    mix-blend-mode: normal;
+    opacity: 0.18;
 }
 
 .ow-blob-one {
-    width: 46rem;
-    height: 46rem;
-    top: -22%;
-    left: -12%;
-    background: rgba(99, 102, 241, 0.42);
+    width: 36rem;
+    height: 36rem;
+    top: -12%;
+    left: -8%;
+    background: rgba(17, 24, 39, 0.1);
 }
 
 .ow-blob-two {
-    width: 34rem;
-    height: 34rem;
-    top: 8%;
+    width: 28rem;
+    height: 28rem;
+    top: 10%;
     right: -8%;
-    background: rgba(59, 130, 246, 0.3);
+    background: rgba(99, 102, 241, 0.08);
 }
 
 .ow-blob-three {
-    width: 40rem;
-    height: 40rem;
+    width: 32rem;
+    height: 32rem;
     bottom: -28%;
     left: 18%;
-    background: rgba(147, 197, 253, 0.34);
+    background: rgba(226, 232, 240, 0.8);
 }
 
 .ow-brand {
-    position: absolute;
-    top: 1.75rem;
-    left: 1.75rem;
     display: inline-flex;
     align-items: center;
     gap: 0.55rem;
-    z-index: 5;
 }
 
 .ow-brand-icon {
     width: 1.95rem;
     height: 1.95rem;
     border-radius: 0.65rem;
-    background: rgba(27, 41, 255, 0.13);
-    border: 1px solid rgba(27, 41, 255, 0.24);
+    background: rgba(1, 22, 39, 0.05);
+    border: 1px solid var(--dls-border);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -110,22 +122,22 @@ body {
     height: 0.9rem;
     border-radius: 999px;
     background: var(--ow-accent);
-    box-shadow: 0 0 0 0.3rem rgba(27, 41, 255, 0.2);
+    box-shadow: 0 0 0 0.3rem rgba(1, 22, 39, 0.1);
 }
 
 .ow-brand-text {
-    font-size: 1.03rem;
-    font-weight: 700;
+    font-size: 0.98rem;
+    font-weight: 600;
     letter-spacing: -0.02em;
 }
 
 .ow-card {
-    width: min(100%, 68rem);
+    width: min(100%, 1180px);
     background: var(--ow-card);
-    border: 1px solid rgba(220, 226, 244, 0.95);
-    border-radius: 1.8rem;
-    box-shadow: 0 18px 55px rgba(15, 23, 42, 0.09);
-    backdrop-filter: blur(14px);
+    border: 1px solid var(--dls-border);
+    border-radius: 1.5rem;
+    box-shadow: var(--dls-shell-shadow);
+    backdrop-filter: blur(10px);
     position: relative;
     z-index: 4;
     overflow: hidden;
@@ -136,22 +148,19 @@ body {
 }
 
 .ow-card-shell {
-    width: calc(100vw - 3rem);
+    width: min(100%, 1180px);
     max-width: none;
-    min-height: calc(100vh - 8rem);
-    height: calc(100vh - 8rem);
-    height: calc(100dvh - 8rem);
-    border-radius: 2rem;
-    background: transparent;
-    border-color: transparent;
-    box-shadow: none;
-    backdrop-filter: none;
+    min-height: calc(100vh - 6rem);
+    height: calc(100vh - 6rem);
+    height: calc(100dvh - 6rem);
+    border-radius: 1.5rem;
+    background: rgba(255, 255, 255, 0.98);
 }
 
 .ow-card-shell .ow-card-body {
-    min-height: calc(100vh - 8rem);
-    height: calc(100vh - 8rem);
-    height: calc(100dvh - 8rem);
+    min-height: calc(100vh - 6rem);
+    height: calc(100vh - 6rem);
+    height: calc(100dvh - 6rem);
     display: flex;
     flex-direction: column;
     padding: 0;
@@ -164,7 +173,7 @@ body {
 .ow-progress-track {
     width: 100%;
     height: 0.28rem;
-    background: #e8edf8;
+    background: var(--dls-hover);
 }
 
 .ow-progress-fill {
@@ -245,7 +254,7 @@ body {
 .ow-input {
     width: 100%;
     border-radius: 0.78rem;
-    border: 1px solid #d9e1f2;
+    border: 1px solid #e5e7eb;
     background: #fff;
     color: var(--ow-ink);
     padding: 0.82rem 0.9rem;
@@ -258,8 +267,8 @@ body {
 
 .ow-input:focus-visible {
     outline: none;
-    border-color: rgba(27, 41, 255, 0.55);
-    box-shadow: 0 0 0 0.22rem rgba(27, 41, 255, 0.16);
+    border-color: rgba(1, 22, 39, 0.18);
+    box-shadow: 0 0 0 0.22rem rgba(1, 22, 39, 0.08);
 }
 
 .ow-mono {
@@ -281,8 +290,8 @@ body {
 .ow-btn-primary {
     width: 100%;
     border-radius: 0.82rem;
-    border: 1px solid rgba(27, 41, 255, 0.28);
-    background: linear-gradient(135deg, #1b29ff 0%, #2639ff 58%, #1a2bd0 100%);
+    border: 1px solid rgba(1, 22, 39, 0.22);
+    background: linear-gradient(135deg, #011627 0%, #0f1f33 100%);
     color: #fff;
     font-weight: 700;
     font-size: 0.92rem;
@@ -291,7 +300,7 @@ body {
         transform 120ms ease,
         box-shadow 120ms ease,
         opacity 120ms ease;
-    box-shadow: 0 12px 24px rgba(27, 41, 255, 0.2);
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.12);
 }
 
 .ow-btn-primary:hover:not(:disabled) {
@@ -306,7 +315,7 @@ body {
 
 .ow-btn-secondary {
     border-radius: 0.82rem;
-    border: 1px solid #cbd5e1;
+    border: 1px solid #e5e7eb;
     background: #fff;
     color: #334155;
     font-size: 0.84rem;
@@ -320,9 +329,9 @@ body {
 
 .ow-btn-secondary:hover:not(:disabled),
 .ow-btn-icon:hover:not(:disabled) {
-    border-color: rgba(27, 41, 255, 0.35);
-    color: #1b29ff;
-    background: rgba(27, 41, 255, 0.06);
+    border-color: rgba(1, 22, 39, 0.16);
+    color: var(--ow-accent);
+    background: rgba(1, 22, 39, 0.04);
 }
 
 .ow-btn-secondary:disabled,
@@ -1075,15 +1084,10 @@ body {
 
 @media (max-width: 640px) {
     .ow-shell {
-        padding-top: 4.4rem;
+        padding-top: 0.85rem;
         padding-bottom: 2.2rem;
-        padding-left: 2rem;
-        padding-right: 2rem;
-    }
-
-    .ow-brand {
-        top: 1rem;
-        left: 1rem;
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
     }
 
     .ow-card {
@@ -1095,17 +1099,17 @@ body {
     }
 
     .ow-card-shell {
-        width: calc(100vw - 1rem);
-        min-height: calc(100vh - 5.2rem);
-        height: calc(100vh - 5.2rem);
-        height: calc(100dvh - 5.2rem);
+        width: 100%;
+        min-height: calc(100vh - 6.4rem);
+        height: calc(100vh - 6.4rem);
+        height: calc(100dvh - 6.4rem);
         border-radius: 0.95rem;
     }
 
     .ow-card-shell .ow-card-body {
-        min-height: calc(100vh - 5.2rem);
-        height: calc(100vh - 5.2rem);
-        height: calc(100dvh - 5.2rem);
+        min-height: calc(100vh - 6.4rem);
+        height: calc(100vh - 6.4rem);
+        height: calc(100dvh - 6.4rem);
         padding: 0.72rem;
     }
 
@@ -1119,6 +1123,10 @@ body {
 
     .ow-auth-panel {
         width: 100%;
+    }
+
+    .ow-inline-actions.ow-inline-row {
+        justify-content: space-between;
     }
 
     .ow-auth-panel .ow-inline-row {
@@ -1137,4 +1145,5 @@ body {
     .ow-input {
         transition: none;
     }
+
 }

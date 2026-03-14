@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 
-type Step = 1 | 2;
+type Step = "auth" | "name" | "intent" | "initializing" | "workspace";
 type AuthMode = "sign-in" | "sign-up";
 type SocialAuthProvider = "github" | "google";
 type ShellView = "workers" | "billing";
@@ -160,6 +160,14 @@ const DEFAULT_AUTH_NAME = "OpenWork User";
 const OPENWORK_APP_CONNECT_BASE_URL = (process.env.NEXT_PUBLIC_OPENWORK_APP_CONNECT_URL ?? "").trim();
 const OPENWORK_AUTH_CALLBACK_BASE_URL = (process.env.NEXT_PUBLIC_OPENWORK_AUTH_CALLBACK_URL ?? "").trim();
 const BILLING_DISABLED_FOR_EXPERIMENT = true;
+const OPENWORK_DOWNLOAD_URL = "https://openwork.software/download";
+const OPENWORK_DISCORD_URL = "https://discord.gg/VEhNQXxYMB";
+const INTENT_SUGGESTIONS = [
+  "Handle customer support triage",
+  "Review pull requests and summarize",
+  "Run sales follow-ups from CRM",
+  "Prepare weekly operations reports"
+];
 
 function getEmailDomain(email: string): string {
   const atIndex = email.lastIndexOf("@");
@@ -240,6 +248,24 @@ function getSocialCallbackUrl(): string {
 
 function getSocialProviderLabel(provider: SocialAuthProvider): string {
   return provider === "github" ? "GitHub" : "Google";
+}
+
+function normalizeIntent(input: string): string {
+  return input.trim().replace(/\s+/g, " ");
+}
+
+function normalizeWorkerName(input: string): string {
+  const normalized = input.trim().replace(/\s+/g, " ");
+  return normalized || "Founder Ops Pilot";
+}
+
+function isDesktopContext(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const ua = window.navigator.userAgent || "";
+  return !/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
 }
 
 function getExperimentBillingSummary(): BillingSummary {
@@ -701,7 +727,7 @@ function getWorkerStatusCopy(status: string): string {
   switch (normalized) {
     case "provisioning":
     case "starting":
-      return "Starting... This may take a minute.";
+      return "Starting... first runs usually take around 1-2 minutes.";
     case "healthy":
     case "ready":
       return "Ready to connect.";
@@ -1032,7 +1058,7 @@ function CredentialRow({
 }
 
 export function CloudControlPanel() {
-  const [step, setStep] = useState<Step>(1);
+  const [step, setStep] = useState<Step>("auth");
   const [shellView, setShellView] = useState<ShellView>("workers");
 
   const [authMode, setAuthMode] = useState<AuthMode>("sign-up");
@@ -1056,6 +1082,7 @@ export function CloudControlPanel() {
   });
 
   const [workerName, setWorkerName] = useState("Founder Ops Pilot");
+  const [workerIntent, setWorkerIntent] = useState("");
   const [worker, setWorker] = useState<WorkerLaunch | null>(null);
   const [workerLookupId, setWorkerLookupId] = useState("");
   const [workers, setWorkers] = useState<WorkerListItem[]>([]);
@@ -1089,6 +1116,10 @@ export function CloudControlPanel() {
   const [runtimeBusy, setRuntimeBusy] = useState(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [runtimeUpgradeBusy, setRuntimeUpgradeBusy] = useState(false);
+  const [signupOnboardingActive, setSignupOnboardingActive] = useState(false);
+  const [autoLaunchPending, setAutoLaunchPending] = useState(false);
+  const [desktopContext, setDesktopContext] = useState(false);
+  const [nameStepBusy, setNameStepBusy] = useState(false);
 
   const selectedWorker = workers.find((item) => item.workerId === workerLookupId) ?? null;
   const activeWorker: WorkerLaunch | null =
@@ -1098,8 +1129,7 @@ export function CloudControlPanel() {
         ? listItemToWorker(selectedWorker, worker)
         : worker;
 
-  const progressWidth = step === 1 ? "45%" : "100%";
-  const isShellStep = step === 2;
+  const isShellStep = step === "workspace";
   const defaultAuthInfo = getAuthInfoForMode(authMode);
   const showAuthFeedback = authInfo !== defaultAuthInfo || authError !== null;
   const openworkConnectUrl = activeWorker?.openworkUrl ?? activeWorker?.instanceUrl ?? null;
@@ -1735,6 +1765,11 @@ export function CloudControlPanel() {
       userId: user.id,
       authMethod: pendingSocialSignup
     });
+    setSignupOnboardingActive(true);
+    setAutoLaunchPending(true);
+    setLaunchError(null);
+    setLaunchStatus("Creating your first worker now. First runs usually take around 1-2 minutes.");
+    setStep("name");
   }, [user?.id]);
 
   useEffect(() => {
@@ -1827,16 +1862,28 @@ export function CloudControlPanel() {
   }, [worker]);
 
   useEffect(() => {
-    if (user || checkoutUrl) {
-      setStep(2);
+    if (typeof window === "undefined") {
       return;
     }
 
-    setStep(1);
-  }, [user, checkoutUrl]);
+    setDesktopContext(isDesktopContext());
+  }, []);
 
   useEffect(() => {
-    if (step !== 2) {
+    if (user || checkoutUrl) {
+      if (step === "auth" && !signupOnboardingActive) {
+        setStep("workspace");
+      }
+      return;
+    }
+
+    setStep("auth");
+    setSignupOnboardingActive(false);
+    setAutoLaunchPending(false);
+  }, [checkoutUrl, signupOnboardingActive, step, user]);
+
+  useEffect(() => {
+    if (step !== "workspace") {
       return;
     }
 
@@ -1847,6 +1894,33 @@ export function CloudControlPanel() {
     setMobileWorkersExpanded(false);
     setShowLaunchForm(pendingRestoredWorkerId === null);
   }, [pendingRestoredWorkerId, step, workers.length]);
+
+  useEffect(() => {
+    if (!autoLaunchPending || !user || launchBusy) {
+      return;
+    }
+
+    if (workerLimitReached) {
+      setAutoLaunchPending(false);
+      return;
+    }
+
+    setAutoLaunchPending(false);
+    void handleLaunchWorker({ source: "signup_auto" });
+  }, [autoLaunchPending, launchBusy, user?.id, workerLimitReached]);
+
+  useEffect(() => {
+    if (step !== "initializing" || !worker) {
+      return;
+    }
+
+    if (worker.status === "provisioning") {
+      return;
+    }
+
+    setStep("workspace");
+    setSignupOnboardingActive(false);
+  }, [step, worker?.status, worker?.workerId]);
 
   useEffect(() => {
     if (!user || !worker) {
@@ -1984,7 +2058,16 @@ export function CloudControlPanel() {
         }
       }
 
-      setStep(2);
+      if (authMode === "sign-up") {
+        setSignupOnboardingActive(true);
+        setAutoLaunchPending(true);
+        setLaunchError(null);
+        setLaunchStatus("Creating your first worker now. First runs usually take around 1-2 minutes.");
+        setStep("name");
+      } else {
+        setSignupOnboardingActive(false);
+        setStep("workspace");
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown network error";
       setAuthError(message);
@@ -2120,8 +2203,13 @@ export function CloudControlPanel() {
     setDeleteBusyWorkerId(null);
     setActionBusy(null);
     setLaunchBusy(false);
-    setStep(1);
+    setStep("auth");
     setShellView("workers");
+    setSignupOnboardingActive(false);
+    setAutoLaunchPending(false);
+    setNameStepBusy(false);
+    setWorkerName("Founder Ops Pilot");
+    setWorkerIntent("");
     setWorkerQuery("");
     setWorkerStatusFilter("all");
     setShowLaunchForm(false);
@@ -2142,19 +2230,29 @@ export function CloudControlPanel() {
     }
   }
 
-  async function handleLaunchWorker() {
+  async function handleLaunchWorker(options: {
+    source?: "manual" | "signup_auto" | "onboarding_continue";
+    workerNameOverride?: string;
+  } = {}) {
     if (!user) {
       setAuthError("Sign in before launching a worker.");
       return;
     }
 
+    const resolvedLaunchName = options.workerNameOverride?.trim() || workerName.trim() || "Cloud Worker";
+
     setLaunchBusy(true);
     setLaunchError(null);
     setCheckoutUrl(null);
-    setLaunchStatus("Checking subscription and launch eligibility...");
-    appendEvent("info", "Launch requested", workerName.trim() || "Cloud worker");
+    setLaunchStatus(
+      options.source === "signup_auto"
+        ? "Creating your first worker..."
+        : "Checking subscription and launch eligibility..."
+    );
+    appendEvent("info", "Launch requested", resolvedLaunchName);
     trackPosthogEvent("den_worker_launch_requested", {
-      worker_name_present: Boolean(workerName.trim())
+      worker_name_present: Boolean(resolvedLaunchName),
+      source: options.source ?? "manual"
     });
 
     try {
@@ -2164,7 +2262,7 @@ export function CloudControlPanel() {
           method: "POST",
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
           body: JSON.stringify({
-            name: workerName.trim() || "Cloud Worker",
+            name: resolvedLaunchName,
             destination: "cloud"
           })
         },
@@ -2240,7 +2338,7 @@ export function CloudControlPanel() {
       setShowLaunchForm(false);
 
       if (resolvedWorker.status === "provisioning") {
-        setLaunchStatus("Provisioning started. This can take a few minutes, and we will keep checking automatically.");
+        setLaunchStatus("Provisioning started. First runs usually take around 1-2 minutes, and we will keep checking automatically.");
         appendEvent("info", "Provisioning started", `Worker ID ${parsedWorker.workerId}`);
       } else {
         setLaunchStatus(getWorkerStatusCopy(resolvedWorker.status));
@@ -2268,6 +2366,96 @@ export function CloudControlPanel() {
     } finally {
       setLaunchBusy(false);
       void refreshWorkers({ keepSelection: true });
+    }
+  }
+
+  function applyIntentSuggestion(value: string) {
+    setWorkerIntent((current) => {
+      const normalized = normalizeIntent(current);
+      if (!normalized) {
+        return value;
+      }
+
+      return current;
+    });
+  }
+
+  async function continueFromName() {
+    const normalizedName = normalizeWorkerName(workerName);
+    setWorkerName(normalizedName);
+
+    trackPosthogEvent("den_worker_name_submitted", {
+      name_length: normalizedName.length
+    });
+
+    setNameStepBusy(true);
+
+    try {
+      if (worker && normalizedName !== worker.workerName) {
+        const { response, payload } = await requestJson(
+          `/v1/workers/${encodeURIComponent(worker.workerId)}`,
+          {
+            method: "PATCH",
+            headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+            body: JSON.stringify({
+              name: normalizedName
+            })
+          },
+          12000
+        );
+
+        if (response.ok) {
+          setWorker((current) => {
+            if (!current || current.workerId !== worker.workerId) {
+              return current;
+            }
+
+            return {
+              ...current,
+              workerName: normalizedName
+            };
+          });
+          setWorkers((current) => current.map((entry) => (
+            entry.workerId === worker.workerId
+              ? { ...entry, workerName: normalizedName }
+              : entry
+          )));
+          appendEvent("success", "Worker named", normalizedName);
+        } else {
+          appendEvent(
+            "warning",
+            "Worker naming deferred",
+            getErrorMessage(payload, "We could not save the worker name yet. You can rename it later in the app.")
+          );
+        }
+      } else if (!worker && !launchBusy && !autoLaunchPending && user) {
+        await handleLaunchWorker({ source: "onboarding_continue", workerNameOverride: normalizedName });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown network error";
+      appendEvent("warning", "Worker naming deferred", message);
+    } finally {
+      setNameStepBusy(false);
+      setStep("intent");
+    }
+  }
+
+  function continueFromIntent(skip: boolean) {
+    const normalizedIntent = normalizeIntent(workerIntent);
+
+    trackPosthogEvent("den_worker_intent_submitted", {
+      skipped: skip || normalizedIntent.length === 0,
+      intent_length: normalizedIntent.length
+    });
+
+    if (normalizedIntent) {
+      appendEvent("info", "Worker intent", normalizedIntent);
+    }
+
+    setStep("initializing");
+
+    if (!worker && !launchBusy && !autoLaunchPending && user) {
+      void handleLaunchWorker({ source: "onboarding_continue", workerNameOverride: normalizeWorkerName(workerName) });
     }
   }
 
@@ -2620,36 +2808,38 @@ export function CloudControlPanel() {
   }
 
   return (
-    <section className={`ow-card${isShellStep ? " ow-card-shell" : " ow-card-auth"}`}>
-      {!isShellStep ? (
-        <div className="ow-progress-track">
-          <span className="ow-progress-fill" style={{ width: progressWidth }} />
-        </div>
-      ) : null}
-
+    <section
+      className={`ow-card ${
+        isShellStep
+          ? "ow-card-shell"
+          : step === "auth"
+            ? "mx-auto w-full max-w-[32rem]"
+            : "mx-auto w-full max-w-[48rem]"
+      }`}
+    >
       <div className="ow-card-body">
 
-        {step === 1 ? (
-          <div className="ow-stack ow-auth-panel">
-            <div className="ow-heading-block">
-              <span className="ow-icon-chip">01</span>
-              <h1 className="ow-title">{authMode === "sign-up" ? "Get started" : "Welcome back"}</h1>
-              <p className="ow-subtitle">
-                {authMode === "sign-up" ? (
-                  <>
-                    <span className="ow-subtitle-line">Create an account to launch</span>
-                    <span className="ow-subtitle-line">and manage cloud workers.</span>
-                  </>
-                ) : (
-                  getAuthInfoForMode("sign-in")
-                )}
+        {step === "auth" ? (
+          <div className="mx-auto grid w-full max-w-[28rem] gap-6 px-1 py-2">
+            <div className="grid gap-3 text-center">
+              <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-[var(--dls-border)] bg-white px-3 py-1 text-[11px] font-medium text-[var(--dls-text-secondary)] shadow-[var(--dls-card-shadow)]">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                OpenWork Den
+              </div>
+              <h1 className="text-[2rem] font-semibold leading-[1.02] tracking-[-0.045em] text-[var(--dls-text-primary)] md:text-[2.5rem]">
+                {authMode === "sign-up" ? "Create your account." : "Sign in to Den."}
+              </h1>
+              <p className="mx-auto max-w-[24rem] text-[15px] leading-7 text-[var(--dls-text-secondary)]">
+                {authMode === "sign-up"
+                  ? "As soon as you sign up, we start provisioning your first hosted worker in the background."
+                  : "Pick up your existing worker setup and jump back into OpenWork."}
               </p>
             </div>
 
-            <form className="ow-stack" onSubmit={handleAuthSubmit}>
+            <form className="grid gap-3 rounded-[28px] border border-[var(--dls-border)] bg-white p-5 shadow-[var(--dls-card-shadow)] md:p-6" onSubmit={handleAuthSubmit}>
               <button
                 type="button"
-                className="ow-btn-secondary ow-social-btn"
+                className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() => void handleSocialSignIn("github")}
                 disabled={authBusy}
               >
@@ -2659,7 +2849,7 @@ export function CloudControlPanel() {
 
               <button
                 type="button"
-                className="ow-btn-secondary ow-social-btn"
+                className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() => void handleSocialSignIn("google")}
                 disabled={authBusy}
               >
@@ -2667,14 +2857,16 @@ export function CloudControlPanel() {
                 <span>Continue with Google</span>
               </button>
 
-              <div className="ow-divider" aria-hidden="true">
+              <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400" aria-hidden="true">
+                <span className="h-px flex-1 bg-slate-200" />
                 <span>or</span>
+                <span className="h-px flex-1 bg-slate-200" />
               </div>
 
-              <label className="ow-field-block">
-                <span className="ow-field-label">Email</span>
+              <label className="grid gap-2">
+                <span className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Email</span>
                 <input
-                  className="ow-input"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-900/5"
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
@@ -2683,10 +2875,10 @@ export function CloudControlPanel() {
                 />
               </label>
 
-              <label className="ow-field-block">
-                <span className="ow-field-label">Password</span>
+              <label className="grid gap-2">
+                <span className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Password</span>
                 <input
-                  className="ow-input"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-900/5"
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
@@ -2695,16 +2887,20 @@ export function CloudControlPanel() {
                 />
               </label>
 
-              <button type="submit" className="ow-btn-primary" disabled={authBusy}>
+              <button
+                type="submit"
+                className="inline-flex w-full items-center justify-center rounded-2xl bg-[#011627] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(15,23,42,0.14)] transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={authBusy}
+              >
                 {authBusy ? "Working..." : authMode === "sign-in" ? "Sign in" : "Create account"}
               </button>
             </form>
 
-            <div className="ow-inline-row">
-              <p className="ow-caption">{authMode === "sign-in" ? "Need an account?" : "Already have an account?"}</p>
+            <div className="flex items-center justify-between gap-3 px-1 text-sm text-[var(--dls-text-secondary)]">
+              <p>{authMode === "sign-in" ? "Need an account?" : "Already have an account?"}</p>
               <button
                 type="button"
-                className="ow-link"
+                className="font-medium text-[var(--dls-text-primary)] transition hover:opacity-70"
                 onClick={() => {
                   const nextMode = authMode === "sign-in" ? "sign-up" : "sign-in";
                   setAuthMode(nextMode);
@@ -2717,15 +2913,233 @@ export function CloudControlPanel() {
             </div>
 
             {showAuthFeedback ? (
-              <div className="ow-auth-feedback" aria-live="polite">
+              <div className="grid gap-1 rounded-2xl border border-[var(--dls-border)] bg-[var(--dls-hover)] px-4 py-3 text-center text-[13px] text-[var(--dls-text-secondary)]" aria-live="polite">
                 {authInfo !== defaultAuthInfo ? <p>{authInfo}</p> : null}
-                {authError ? <p className="ow-error-text">{authError}</p> : null}
+                {authError ? <p className="font-medium text-rose-600">{authError}</p> : null}
               </div>
             ) : null}
           </div>
         ) : null}
 
-        {step === 2 ? (
+        {step === "name" ? (
+          <div className="mx-auto grid w-full max-w-[46rem] gap-6 px-1 py-2 md:grid-cols-[minmax(0,1.05fr)_minmax(260px,0.95fr)]">
+            <div className="grid gap-5 rounded-[30px] border border-[var(--dls-border)] bg-white p-6 shadow-[var(--dls-card-shadow)] md:p-7">
+              <div className="grid gap-3">
+                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-700">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  Worker provisioning started
+                </div>
+                <h2 className="text-[1.9rem] font-semibold leading-[1.04] tracking-[-0.04em] text-[var(--dls-text-primary)] md:text-[2.35rem]">
+                  Name your worker.
+                </h2>
+                <p className="max-w-[32rem] text-[15px] leading-7 text-[var(--dls-text-secondary)]">
+                  We already kicked off provisioning. Give it a clear name now and we will carry that through as the worker comes online.
+                </p>
+              </div>
+
+              <label className="grid gap-2">
+                <span className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Worker name</span>
+                <input
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-900/5"
+                  type="text"
+                  value={workerName}
+                  onChange={(event) => setWorkerName(event.target.value)}
+                  placeholder="Founder Ops Pilot"
+                  maxLength={64}
+                />
+              </label>
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-[13px] text-[var(--dls-text-secondary)]">You can rename it later if you want to refine this.</p>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl bg-[#011627] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(15,23,42,0.14)] transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => void continueFromName()}
+                  disabled={nameStepBusy}
+                >
+                  {nameStepBusy ? "Saving..." : "Continue"}
+                </button>
+              </div>
+            </div>
+
+            <div className="grid content-start gap-4 rounded-[30px] border border-[var(--dls-border)] bg-[var(--dls-hover)] p-5 md:p-6">
+              <div className="rounded-[24px] border border-white bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#011627] text-[11px] font-semibold text-white">OW</div>
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--dls-text-primary)]">{normalizeWorkerName(workerName)}</div>
+                    <div className="text-[13px] text-[var(--dls-text-secondary)]">Provisioning in the background</div>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-[24px] border border-white/80 bg-white/70 p-5">
+                <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--dls-text-secondary)]">Expected timing</div>
+                <p className="mt-2 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
+                  First runs usually take around 1-2 minutes while we provision the environment and prepare the OpenWork connection.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {step === "intent" ? (
+          <div className="mx-auto grid w-full max-w-[42rem] gap-6 px-1 py-1 md:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
+            <div className="grid gap-5 rounded-[28px] border border-[var(--dls-border)] bg-white p-5 shadow-[var(--dls-card-shadow)] md:p-6">
+              <div className="grid gap-3">
+                <div className="inline-flex items-center gap-2 rounded-full border border-[var(--dls-border)] bg-[var(--dls-hover)] px-3 py-1 text-[11px] font-medium text-[var(--dls-text-secondary)]">
+                  Shape the worker
+                </div>
+                <h2 className="text-[1.8rem] font-semibold leading-[1.08] tracking-[-0.035em] text-[var(--dls-text-primary)] md:text-[2.15rem]">What should this worker do first?</h2>
+                <p className="text-[15px] leading-7 text-[var(--dls-text-secondary)]">
+                  Keep it short. This helps us understand the first job you want the worker to take on.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2" role="list" aria-label="Worker intent suggestions">
+                {INTENT_SUGGESTIONS.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    className="rounded-full border border-[var(--dls-border)] bg-[var(--dls-hover)] px-3 py-2 text-left text-[13px] font-medium text-[var(--dls-text-primary)] transition hover:border-slate-300 hover:bg-white"
+                    onClick={() => applyIntentSuggestion(suggestion)}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+
+              <label className="grid gap-2">
+                <span className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">What do you want it to do? (optional)</span>
+                <textarea
+                  className="min-h-[9rem] w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-900/5"
+                  value={workerIntent}
+                  onChange={(event) => setWorkerIntent(event.target.value)}
+                  placeholder="Example: Monitor new inbound leads, enrich them, and post a daily summary."
+                  rows={5}
+                  maxLength={300}
+                />
+              </label>
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                  onClick={() => continueFromIntent(true)}
+                >
+                  Skip for now
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl bg-[#011627] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(15,23,42,0.14)] transition hover:bg-black"
+                  onClick={() => continueFromIntent(false)}
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+
+            <div className="grid content-start gap-4 rounded-[28px] border border-[var(--dls-border)] bg-[var(--dls-hover)] p-5 md:p-6">
+              <div>
+                <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--dls-text-secondary)]">In progress</div>
+                <div className="mt-2 text-[1.15rem] font-semibold tracking-[-0.03em] text-[var(--dls-text-primary)]">We are already creating the worker.</div>
+              </div>
+              <div className="rounded-[22px] border border-white bg-white p-4 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-2xl bg-slate-900 text-white inline-flex items-center justify-center text-[11px] font-semibold">AI</div>
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--dls-text-primary)]">{normalizeWorkerName(workerName)}</div>
+                    <div className="text-[13px] text-[var(--dls-text-secondary)]">Provisioning in the background</div>
+                  </div>
+                </div>
+              </div>
+              <p className="text-[14px] leading-6 text-[var(--dls-text-secondary)]">
+                Skip this if you want. You can always refine the worker's purpose once it is live in the app.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {step === "initializing" ? (
+          <div className="mx-auto grid w-full max-w-[44rem] gap-6 px-1 py-1 md:grid-cols-[minmax(0,1.1fr)_minmax(250px,0.9fr)]">
+            <div className="grid gap-5 rounded-[28px] border border-[var(--dls-border)] bg-white p-6 shadow-[var(--dls-card-shadow)] md:p-7">
+              <div className="grid gap-3">
+                <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-medium text-amber-700">
+                  <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  Provisioning in progress
+                </div>
+                <h2 className="text-[1.9rem] font-semibold leading-[1.06] tracking-[-0.04em] text-[var(--dls-text-primary)] md:text-[2.3rem]">Your worker is coming online.</h2>
+                <p className="text-[15px] leading-7 text-[var(--dls-text-secondary)]">First runs usually take around 1-2 minutes while we provision the runtime, secure access, and prepare the OpenWork connection.</p>
+              </div>
+
+              <div className="rounded-[24px] border border-[var(--dls-border)] bg-[linear-gradient(180deg,#fbfcfd_0%,#ffffff_100%)] p-5">
+                <div className="flex items-center gap-4">
+                  <span className="inline-flex h-12 w-12 animate-spin items-center justify-center rounded-full border-2 border-slate-200 border-t-slate-900" aria-hidden="true" />
+                  <div>
+                    <p className="text-[15px] font-semibold text-[var(--dls-text-primary)]">{launchBusy ? "Creating worker" : "Provisioning in progress"}</p>
+                    <p className="mt-1 text-[13px] leading-6 text-[var(--dls-text-secondary)]">{launchStatus}</p>
+                  </div>
+                </div>
+                {launchError ? <p className="mt-4 text-[13px] font-medium text-rose-600">{launchError}</p> : null}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => setStep("workspace")}
+                  disabled={!worker}
+                >
+                  Open dashboard
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl bg-[#011627] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(15,23,42,0.14)] transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => void handleLaunchWorker({ source: "onboarding_continue" })}
+                  disabled={launchBusy}
+                >
+                  {launchBusy ? "Working..." : "Retry provisioning"}
+                </button>
+              </div>
+            </div>
+
+            <div className="grid content-start gap-4 rounded-[28px] border border-[var(--dls-border)] bg-[var(--dls-hover)] p-5 md:p-6">
+              <div className="rounded-[22px] border border-white bg-white p-4 shadow-sm">
+                <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--dls-text-secondary)]">Live status</div>
+                <div className="mt-2 text-[1.1rem] font-semibold tracking-[-0.03em] text-[var(--dls-text-primary)]">{normalizeWorkerName(workerName)}</div>
+                <div className="mt-1 text-[13px] text-[var(--dls-text-secondary)]">{worker?.status ? getWorkerStatusCopy(worker.status) : "Preparing worker record"}</div>
+              </div>
+
+              {desktopContext ? (
+                <div className="grid gap-3">
+                  <a
+                    href={OPENWORK_DOWNLOAD_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-[22px] border border-slate-200 bg-white p-4 text-[14px] font-medium leading-6 text-[var(--dls-text-primary)] shadow-sm transition hover:border-slate-300"
+                  >
+                    <span className="block text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--dls-text-secondary)]">While it loads</span>
+                    <span className="mt-2 block">Download the desktop app. It is instantly available and feels closest to the full OpenWork experience.</span>
+                  </a>
+                  <a
+                    href={OPENWORK_DISCORD_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-[22px] border border-slate-200 bg-white p-4 text-[14px] font-medium leading-6 text-[var(--dls-text-primary)] shadow-sm transition hover:border-slate-300"
+                  >
+                    <span className="block text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--dls-text-secondary)]">Need help?</span>
+                    <span className="mt-2 block">Join Discord while the first run finishes. We are usually there if you want setup help or want to share what you are building.</span>
+                  </a>
+                </div>
+              ) : (
+                <div className="rounded-[22px] border border-white bg-white p-4 text-[14px] leading-6 text-[var(--dls-text-secondary)] shadow-sm">
+                  First run is warming up. This usually takes around 1-2 minutes.
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {step === "workspace" ? (
           <div className="flex h-full flex-col gap-3">
             <div className="mb-3 flex items-center justify-between rounded-[18px] border border-slate-200 bg-white p-2 lg:hidden">
               <div className="flex gap-2">
@@ -2855,7 +3269,7 @@ export function CloudControlPanel() {
                         <button
                           type="button"
                           className="w-full rounded-[12px] bg-[#1B29FF] px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-[#151FDA] disabled:cursor-not-allowed disabled:opacity-60"
-                          onClick={handleLaunchWorker}
+                          onClick={() => void handleLaunchWorker({ source: "manual" })}
                           disabled={!user || launchBusy || worker?.status === "provisioning" || workerLimitReached}
                         >
                           {launchBusy
@@ -2971,7 +3385,7 @@ export function CloudControlPanel() {
                       <button
                         type="button"
                         className="w-full rounded-[12px] bg-[#1B29FF] px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-[#151FDA] disabled:cursor-not-allowed disabled:opacity-60"
-                        onClick={handleLaunchWorker}
+                        onClick={() => void handleLaunchWorker({ source: "manual" })}
                         disabled={!user || launchBusy || worker?.status === "provisioning" || workerLimitReached}
                       >
                         {launchBusy
