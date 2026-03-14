@@ -3,18 +3,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import SkillEditorSurface from "./skill-editor-surface";
-import { composeSkillMarkdown, DEFAULT_SKILL_DESCRIPTION, DEFAULT_SKILL_NAME, parseSkillMarkdown } from "./skill-markdown";
+import { composeSkillMarkdown, DEFAULT_SKILL_NAME, normalizeSkillMarkdown, parseSkillMarkdown } from "./skill-markdown";
 import type { BusyMode, EntryLike, FilePayload, PackageResponse, PreviewItem } from "./share-home-types";
 import { getPackageStatus, getPreviewFilename } from "./share-home-state";
 
 const DEFAULT_STATUS = "Upload a single file or paste skill content below.";
-const MISSING_METADATA_ERROR = "Skills need name and description.";
 const MULTI_FILE_ERROR = "Upload or paste a single skill to continue.";
 
 const BASELINE_BODY = `# Agent Creator
 
 Any markdown body is acceptable here.
 `;
+
+const BASELINE_DOCUMENT = composeSkillMarkdown(DEFAULT_SKILL_NAME, "This is a skill I'm currently using.", BASELINE_BODY);
 
 function toneClass(item: PreviewItem | null): string {
   if (item?.tone === "agent") return "dot-agent";
@@ -43,8 +44,8 @@ async function fileToPayload(file: EntryLike): Promise<FilePayload> {
   };
 }
 
-function buildPredictedPreviewItem(skillName: string, hasBody: boolean): PreviewItem | null {
-  if (!hasBody) return null;
+function buildPredictedPreviewItem(skillName: string, hasContent: boolean): PreviewItem | null {
+  if (!hasContent) return null;
   return {
     name: skillName.trim() || DEFAULT_SKILL_NAME,
     kind: "Skill",
@@ -114,9 +115,7 @@ async function collectDroppedFiles(dataTransfer: DataTransfer | null): Promise<F
 
 export default function ShareHomeClient() {
   const [uploadedFileCount, setUploadedFileCount] = useState(0);
-  const [skillName, setSkillName] = useState(DEFAULT_SKILL_NAME);
-  const [skillDescription, setSkillDescription] = useState(DEFAULT_SKILL_DESCRIPTION);
-  const [bodyValue, setBodyValue] = useState("");
+  const [editorValue, setEditorValue] = useState("");
   const [preview, setPreview] = useState<PackageResponse | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [busyMode, setBusyMode] = useState<BusyMode>(null);
@@ -127,16 +126,13 @@ export default function ShareHomeClient() {
   const [predictedPreviewItem, setPredictedPreviewItem] = useState<PreviewItem | null>(null);
   const requestIdRef = useRef<number>(0);
 
-  const trimmedBody = useMemo(() => bodyValue.trim(), [bodyValue]);
-  const hasBody = trimmedBody.length > 0;
-  const hasRequiredMetadata = skillName.trim().length > 0 && skillDescription.trim().length > 0;
-  const generatedSkillMarkdown = useMemo(
-    () => composeSkillMarkdown(skillName, skillDescription, bodyValue),
-    [bodyValue, skillDescription, skillName],
-  );
+  const trimmedDocument = useMemo(() => editorValue.trim(), [editorValue]);
+  const hasContent = trimmedDocument.length > 0;
+  const parsedEditor = useMemo(() => parseSkillMarkdown(editorValue), [editorValue]);
+  const inferredSkillName = parsedEditor.name.trim() || DEFAULT_SKILL_NAME;
   const effectiveEntries: EntryLike[] = useMemo(
-    () => (uploadedFileCount > 1 ? [] : hasBody && hasRequiredMetadata ? [buildVirtualEntry(skillName, generatedSkillMarkdown)] : []),
-    [generatedSkillMarkdown, hasBody, hasRequiredMetadata, skillName, uploadedFileCount],
+    () => (uploadedFileCount > 1 || !hasContent ? [] : [buildVirtualEntry(inferredSkillName, editorValue)]),
+    [editorValue, hasContent, inferredSkillName, uploadedFileCount],
   );
   const busy = busyMode !== null;
   const packageStatus = useMemo(
@@ -146,12 +142,12 @@ export default function ShareHomeClient() {
   const activePreviewItem = preview?.items?.[0] ?? predictedPreviewItem;
   const previewFilename = getPreviewFilename({
     selectedEntryCount: uploadedFileCount,
-    selectedEntryName: skillName || DEFAULT_SKILL_NAME,
-    hasPastedContent: hasBody,
-    manualName: skillName,
+    selectedEntryName: inferredSkillName,
+    hasPastedContent: hasContent,
+    manualName: parsedEditor.name,
   });
-  const publishDisabled = busy || !hasBody || !hasRequiredMetadata || Boolean(errorMessage) || uploadedFileCount > 1;
-  const previewCopyValue = generatedSkillMarkdown;
+  const publishDisabled = busy || !hasContent || Boolean(errorMessage) || uploadedFileCount > 1;
+  const previewCopyValue = hasContent ? editorValue : BASELINE_DOCUMENT;
   const showSupportingFeedback =
     packageStatus.severity === "warn" ||
     packageStatus.severity === "info" ||
@@ -184,8 +180,8 @@ export default function ShareHomeClient() {
   };
 
   useEffect(() => {
-    setPredictedPreviewItem(buildPredictedPreviewItem(skillName, hasBody));
-  }, [hasBody, skillName]);
+    setPredictedPreviewItem(buildPredictedPreviewItem(inferredSkillName, hasContent));
+  }, [hasContent, inferredSkillName]);
 
   useEffect(() => {
     if (uploadedFileCount > 1) {
@@ -196,15 +192,7 @@ export default function ShareHomeClient() {
       return;
     }
 
-    if (!hasRequiredMetadata) {
-      requestIdRef.current += 1;
-      setPreview(null);
-      setWarnings([]);
-      setErrorMessage(MISSING_METADATA_ERROR);
-      return;
-    }
-
-    if (!hasBody) {
+    if (!hasContent) {
       requestIdRef.current += 1;
       setPreview(null);
       setWarnings([]);
@@ -243,7 +231,7 @@ export default function ShareHomeClient() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveEntries, hasBody, hasRequiredMetadata, uploadedFileCount]);
+  }, [effectiveEntries, hasContent, uploadedFileCount]);
 
   const assignEntries = async (files: FileList | File[] | null) => {
     const entries = Array.from(files || []).filter(Boolean);
@@ -252,14 +240,14 @@ export default function ShareHomeClient() {
     setWarnings([]);
 
     if (entries.length > 1) {
-      setBodyValue("");
+      setEditorValue("");
       setErrorMessage(MULTI_FILE_ERROR);
       setStatusMessage("Only one file can be uploaded at a time.");
       return;
     }
 
     if (!entries.length) {
-      setBodyValue("");
+      setEditorValue("");
       setErrorMessage("");
       setStatusMessage(DEFAULT_STATUS);
       return;
@@ -267,14 +255,11 @@ export default function ShareHomeClient() {
 
     try {
       const rawContent = await entries[0].text();
-      const parsed = parseSkillMarkdown(rawContent);
-      setSkillName(parsed.hasFrontmatter ? parsed.name : (current) => current || DEFAULT_SKILL_NAME);
-      setSkillDescription(parsed.hasFrontmatter ? parsed.description : (current) => current || DEFAULT_SKILL_DESCRIPTION);
-      setBodyValue(parsed.body);
+      setEditorValue(normalizeSkillMarkdown(rawContent, entries[0].name || DEFAULT_SKILL_NAME));
       setErrorMessage("");
       setStatusMessage(DEFAULT_STATUS);
     } catch {
-      setBodyValue("");
+      setEditorValue("");
       setErrorMessage("Could not read the uploaded file.");
       setStatusMessage(DEFAULT_STATUS);
     } finally {
@@ -331,28 +316,6 @@ export default function ShareHomeClient() {
 
       <div className="share-home-stack">
         <div className="package-card share-card surface-soft">
-          <div className="share-upload-row share-upload-row-metadata">
-            <label className="share-metadata-field share-metadata-field-inline">
-              <span className="share-metadata-key">name:</span>
-              <input
-                aria-label="Skill name"
-                className="share-metadata-input mono"
-                value={skillName}
-                onChange={(event) => setSkillName(event.target.value)}
-              />
-            </label>
-
-            <label className="share-metadata-field share-metadata-field-inline share-metadata-field-description">
-              <span className="share-metadata-key">description:</span>
-              <input
-                aria-label="Skill description"
-                className="share-metadata-input"
-                value={skillDescription}
-                onChange={(event) => setSkillDescription(event.target.value)}
-              />
-            </label>
-          </div>
-
           <div className="share-upload-row share-upload-row-actions">
             <label
               className={`drop-zone share-skill-drop-zone share-skill-drop-zone-compact${dropActive ? " is-dragover" : ""}`}
@@ -434,15 +397,12 @@ export default function ShareHomeClient() {
           className="share-home-preview"
           toneClassName={activePreviewItem ? toneClass(activePreviewItem) : "dot-pending"}
           filename={previewFilename}
-          skillName={skillName}
-          skillDescription={skillDescription}
-          bodyValue={bodyValue}
-          bodyPlaceholderPreview={BASELINE_BODY}
-          metadataMode="readonly"
+          documentValue={editorValue}
+          documentPlaceholderPreview={BASELINE_DOCUMENT}
           copied={previewCopied}
           onCopy={() => void copyPreviewText()}
-          onBodyChange={(value) => {
-            setBodyValue(value);
+          onDocumentChange={(value) => {
+            setEditorValue(value);
             setPreview(null);
             setWarnings([]);
             setStatusMessage(DEFAULT_STATUS);

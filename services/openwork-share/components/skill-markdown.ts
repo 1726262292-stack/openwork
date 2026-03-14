@@ -87,6 +87,17 @@ export function composeSkillMarkdown(name: string, description: string, body: st
   return normalizedBody ? `${frontmatter}\n\n${normalizedBody}\n` : `${frontmatter}\n`;
 }
 
+export function normalizeSkillMarkdown(
+  content: string,
+  fallbackName = DEFAULT_SKILL_NAME,
+  fallbackDescription = DEFAULT_SKILL_DESCRIPTION,
+): string {
+  const text = String(content ?? "").replace(/\r\n/g, "\n");
+  const parsed = parseSkillMarkdown(text);
+  if (parsed.hasFrontmatter) return text;
+  return composeSkillMarkdown(fallbackName, fallbackDescription, text);
+}
+
 export function parseSkillMarkdown(content: string): { name: string; description: string; body: string; hasFrontmatter: boolean } {
   const text = String(content ?? "").replace(/\r\n/g, "\n");
   const match = text.match(/^---\n([\s\S]*?)\n---\n?/);

@@ -6,9 +6,7 @@ import type { BundlePageProps } from "../server/_lib/types.ts";
 import { ResponsiveGrain } from "./responsive-grain";
 import ShareNav from "./share-nav";
 import SkillEditorSurface from "./skill-editor-surface";
-import { DEFAULT_SKILL_DESCRIPTION, parseSkillMarkdown } from "./skill-markdown";
-
-const OPENWORK_DEN_URL = "https://openworklabs.com/den";
+import { parseSkillMarkdown } from "./skill-markdown";
 
 function toneClass(item: { tone?: string } | null | undefined): string {
   if (item?.tone === "agent") return "dot-agent";
@@ -24,8 +22,6 @@ export default function ShareBundlePage(props: BundlePageProps) {
   const previewCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const openInAppUrl = props.openInAppDeepLink || "#";
-  const title = props.title || "OpenWork bundle";
-  const description = props.description || "OpenWork bundle ready to import.";
   const previewSelections = props.previewSelections?.length
     ? props.previewSelections
     : [
@@ -40,9 +36,7 @@ export default function ShareBundlePage(props: BundlePageProps) {
       ];
   const activeSelection = previewSelections.find((selection) => selection.id === activeSelectionId) ?? previewSelections[0];
   const parsedPreview = useMemo(() => parseSkillMarkdown(activeSelection?.text || ""), [activeSelection?.text]);
-  const previewName = parsedPreview.name || activeSelection?.name || title;
-  const previewDescription = parsedPreview.description || description || DEFAULT_SKILL_DESCRIPTION;
-  const previewBody = parsedPreview.body || activeSelection?.text || "";
+  const previewName = parsedPreview.name || activeSelection?.name || props.title || "OpenWork bundle";
 
   const copyPreview = async () => {
     if (!activeSelection?.text) return;
@@ -96,14 +90,13 @@ export default function ShareBundlePage(props: BundlePageProps) {
             <section className="hero-layout hero-layout-share">
               <div className="hero-copy">
                 <span className="eyebrow">{props.typeLabel}</span>
-                <h1>{title}</h1>
-                <p className="hero-body">{description}</p>
+                <h1>Skill share</h1>
                 <div className="button-row share-bundle-actions">
-                  <a className="button-primary" href={openInAppUrl}>
-                    Open in OpenWork app
-                  </a>
-                  <a className="button-secondary" href={OPENWORK_DEN_URL} target="_blank" rel="noreferrer">
-                    Open in an OpenWork den
+                  <button className="button-primary" type="button" onClick={() => void copyPreview()}>
+                    {previewCopied ? "Copied to clipboard" : "Copy to clipboard"}
+                  </button>
+                  <a className="button-secondary" href={openInAppUrl}>
+                    Open in OpenWork
                   </a>
                 </div>
               </div>
@@ -151,11 +144,8 @@ export default function ShareBundlePage(props: BundlePageProps) {
               <SkillEditorSurface
                 className="share-bundle-editor"
                 toneClassName={toneClass(activeSelection)}
-                filename="skill.md"
-                skillName={previewName}
-                skillDescription={previewDescription}
-                bodyValue={previewBody}
-                metadataMode="readonly"
+                filename={previewName}
+                documentValue={activeSelection?.text || ""}
                 readOnly={true}
                 copied={previewCopied}
                 onCopy={() => void copyPreview()}

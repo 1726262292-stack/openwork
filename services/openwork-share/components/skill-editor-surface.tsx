@@ -3,7 +3,7 @@
 import { useMemo, type ReactNode } from "react";
 
 import { highlightSyntax } from "./share-preview-syntax";
-import { DEFAULT_SKILL_DESCRIPTION, DEFAULT_SKILL_NAME, yamlValue } from "./skill-markdown";
+import { DEFAULT_SKILL_NAME } from "./skill-markdown";
 
 function CopyIcon() {
   return (
@@ -31,37 +31,27 @@ export default function SkillEditorSurface({
   className,
   toneClassName,
   filename,
-  skillName,
-  skillDescription,
-  bodyValue,
-  bodyPlaceholderPreview = "",
-  metadataMode = "readonly",
+  documentValue,
+  documentPlaceholderPreview = "",
   readOnly = false,
   copied,
   onCopy,
-  onSkillNameChange,
-  onSkillDescriptionChange,
-  onBodyChange,
+  onDocumentChange,
   headerActions,
 }: {
   className?: string;
   toneClassName?: string;
   filename?: string;
-  skillName: string;
-  skillDescription: string;
-  bodyValue: string;
-  bodyPlaceholderPreview?: string;
-  metadataMode?: "readonly" | "editable";
+  documentValue: string;
+  documentPlaceholderPreview?: string;
   readOnly?: boolean;
   copied: boolean;
   onCopy: () => void;
-  onSkillNameChange?: (value: string) => void;
-  onSkillDescriptionChange?: (value: string) => void;
-  onBodyChange?: (value: string) => void;
+  onDocumentChange?: (value: string) => void;
   headerActions?: ReactNode;
 }) {
-  const displayBody = bodyValue || bodyPlaceholderPreview;
-  const highlightedBody = useMemo(() => highlightSyntax(displayBody), [displayBody]);
+  const displayDocument = documentValue || documentPlaceholderPreview;
+  const highlightedDocument = useMemo(() => highlightSyntax(displayDocument), [displayDocument]);
   const rootClassName = ["preview-panel", className].filter(Boolean).join(" ");
 
   return (
@@ -87,50 +77,17 @@ export default function SkillEditorSurface({
           </div>
         </div>
 
-        {metadataMode === "editable" ? (
-          <div className="share-frontmatter-editor">
-            <div className="share-metadata-grid">
-              <label className="share-metadata-field">
-                <span className="share-metadata-key">name:</span>
-                <input
-                  aria-label="Skill name"
-                  className="share-metadata-input mono"
-                  value={skillName}
-                  onChange={(event) => onSkillNameChange?.(event.target.value)}
-                />
-              </label>
-
-              <label className="share-metadata-field">
-                <span className="share-metadata-key">description:</span>
-                <input
-                  aria-label="Skill description"
-                  className="share-metadata-input"
-                  value={skillDescription}
-                  onChange={(event) => onSkillDescriptionChange?.(event.target.value)}
-                />
-              </label>
-            </div>
-          </div>
-        ) : (
-          <div className="share-frontmatter-preview mono">
-            <span>---</span>
-            <span>name: {yamlValue(skillName || DEFAULT_SKILL_NAME)}</span>
-            <span>description: {yamlValue(skillDescription || DEFAULT_SKILL_DESCRIPTION)}</span>
-            <span>---</span>
-          </div>
-        )}
-
         <div className="preview-editor-wrap">
           <pre
             className="preview-highlight"
             aria-hidden="true"
-            dangerouslySetInnerHTML={{ __html: `${highlightedBody}\n` }}
+            dangerouslySetInnerHTML={{ __html: `${highlightedDocument}\n` }}
           />
           {readOnly ? null : (
             <textarea
               className="preview-editor"
-              value={bodyValue}
-              onChange={(event) => onBodyChange?.(event.target.value)}
+              value={documentValue}
+              onChange={(event) => onDocumentChange?.(event.target.value)}
               placeholder=""
               spellCheck={false}
             />
@@ -138,7 +95,7 @@ export default function SkillEditorSurface({
         </div>
 
         <div className="preview-footer">
-          <span>{countLabel(bodyValue)}</span>
+          <span>{countLabel(documentValue || displayDocument)}</span>
         </div>
       </div>
     </aside>
