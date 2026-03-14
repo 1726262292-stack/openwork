@@ -156,8 +156,7 @@ export type SettingsViewProps = {
   openDebugShareLink: (rawUrl: string) => Promise<{ ok: boolean; message: string }>;
 };
 
-const FEEDBACK_FORM_URL =
-  "https://github.com/different-ai/openwork/issues/new?template=feature.yml&title=%5BFeedback%5D+";
+const FEEDBACK_EMAIL_URL = "mailto:benjamin@openworklabs.com?subject=OpenWork%20Feedback";
 const DISCORD_INVITE_URL = "https://discord.gg/VEhNQXxYMB";
 const BUG_REPORT_URL = "https://github.com/different-ai/openwork/issues/new?template=bug.yml";
 
@@ -1234,7 +1233,7 @@ export default function SettingsView(props: SettingsViewProps) {
                   <Button
                     variant="secondary"
                     class="h-9 rounded-xl bg-blue-10 px-4 text-xs font-semibold text-white hover:bg-blue-11"
-                    onClick={() => openExternalLink(FEEDBACK_FORM_URL)}
+                    onClick={() => openExternalLink(FEEDBACK_EMAIL_URL)}
                   >
                     <MessageCircle size={14} />
                     Send feedback
