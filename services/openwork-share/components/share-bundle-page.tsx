@@ -37,6 +37,7 @@ export default function ShareBundlePage(props: BundlePageProps) {
   const activeSelection = previewSelections.find((selection) => selection.id === activeSelectionId) ?? previewSelections[0];
   const parsedPreview = useMemo(() => parseSkillMarkdown(activeSelection?.text || ""), [activeSelection?.text]);
   const previewName = parsedPreview.name || activeSelection?.name || props.title || "OpenWork bundle";
+  const showBundleSidebar = previewSelections.length > 1;
 
   const copyPreview = async () => {
     if (!activeSelection?.text) return;
@@ -102,44 +103,29 @@ export default function ShareBundlePage(props: BundlePageProps) {
               </div>
             </section>
 
-            <section className="share-bundle-stack">
-              <article className="result-card share-install-card">
-                <div className="share-inline-steps">
-                  <div className="share-inline-step">
-                    <span className="step-bullet">01</span>
-                    <span>Open the bundle in OpenWork</span>
+            <section className={`share-bundle-stack${showBundleSidebar ? " has-sidebar" : ""}`}>
+              {showBundleSidebar ? (
+                <article className="bundle-compact-strip surface-soft">
+                  <div className="bundle-strip-header">Skills:</div>
+                  <div className="bundle-strip-list" aria-label="Skills">
+                    {previewSelections.map((selection) => {
+                      const isActive = selection.id === activeSelection?.id;
+                      return (
+                        <button
+                          key={selection.id}
+                          type="button"
+                          className={`bundle-strip-chip${isActive ? " is-active" : ""}`}
+                          onClick={() => setActiveSelectionId(selection.id)}
+                          disabled={isActive}
+                        >
+                          <span className={`preview-filename-dot ${toneClass(selection)}`} />
+                          {selection.name}
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div className="share-inline-step">
-                    <span className="step-bullet">02</span>
-                    <span>Choose the destination worker</span>
-                  </div>
-                  <div className="share-inline-step">
-                    <span className="step-bullet">03</span>
-                    <span>Happy OpenWorking!</span>
-                  </div>
-                </div>
-              </article>
-
-              <article className="bundle-compact-strip surface-soft">
-                <div className="bundle-strip-header">Skills:</div>
-                <div className="bundle-strip-list" aria-label="Skills">
-                  {previewSelections.map((selection) => {
-                    const isActive = selection.id === activeSelection?.id;
-                    return (
-                      <button
-                        key={selection.id}
-                        type="button"
-                        className={`bundle-strip-chip${isActive ? " is-active" : ""}`}
-                        onClick={() => setActiveSelectionId(selection.id)}
-                        disabled={isActive}
-                      >
-                        <span className={`preview-filename-dot ${toneClass(selection)}`} />
-                        {selection.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </article>
+                </article>
+              ) : null}
 
               <SkillEditorSurface
                 className="share-bundle-editor"

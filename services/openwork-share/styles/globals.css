@@ -399,6 +399,11 @@ a {
   margin-top: 26px;
 }
 
+.share-bundle-stack.has-sidebar {
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  align-items: start;
+}
+
 .share-bundle-grid {
   align-items: stretch;
 }
@@ -1428,6 +1433,7 @@ a {
 }
 
 .bundle-compact-strip {
+  align-self: start;
   padding: 8px 12px;
   border-radius: 24px;
 }
@@ -1441,11 +1447,9 @@ a {
 }
 
 .bundle-strip-list {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 8px;
-  align-items: center;
-  min-height: 40px;
+  align-items: stretch;
 }
 
 .bundle-strip-chip {
@@ -1461,6 +1465,8 @@ a {
   font-size: 12px;
   color: var(--ow-ink);
   cursor: pointer;
+  width: 100%;
+  justify-content: flex-start;
   transition: border-color 300ms var(--ow-ease), background-color 300ms var(--ow-ease), transform 300ms var(--ow-ease);
 }
 
@@ -1479,31 +1485,6 @@ button.bundle-strip-chip {
   background: rgba(225, 239, 255, 0.96);
   border-color: rgba(37, 99, 235, 0.42);
   cursor: default;
-}
-
-.share-install-card {
-  display: grid;
-  gap: 16px;
-}
-
-.share-install-card .eyebrow {
-  margin-bottom: 0;
-}
-
-.share-inline-steps {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.share-inline-step {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 12px;
-  align-items: start;
-  padding: 12px 0;
-  color: var(--ow-ink);
-  line-height: 1.5;
 }
 
 .step-list {
@@ -1847,10 +1828,6 @@ button.included-item {
     width: 100%;
   }
 
-  .share-inline-steps {
-    grid-template-columns: 1fr;
-  }
-
   .included-list {
     grid-template-columns: 1fr;
   }
@@ -1878,6 +1855,10 @@ button.included-item {
 
 @media (max-width: 720px) {
   .share-upload-grid-compact {
+    grid-template-columns: 1fr;
+  }
+
+  .share-bundle-stack.has-sidebar {
     grid-template-columns: 1fr;
   }
 
