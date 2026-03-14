@@ -62,6 +62,7 @@ export default {
   "share_skill_destination.no_workers": "No workers are ready yet. Create one or connect a remote worker to install this skill.",
   "share_skill_destination.new_destination": "New destination",
   "share_skill_destination.selection_ready": "Ready to add",
+  "share_skill_destination.selected_badge": "Selected",
   "share_skill_destination.selected_hint": "Selected. Review the destination below, then confirm.",
   "share_skill_destination.footer_idle": "Choose a worker to continue.",
   "share_skill_destination.footer_selected": "Selected worker:",

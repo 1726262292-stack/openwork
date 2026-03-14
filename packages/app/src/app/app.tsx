@@ -5789,23 +5789,68 @@ export default function App() {
 
       try {
         const { getCurrent, onOpenUrl } = await import("@tauri-apps/plugin-deep-link");
-        const consumeUrls = (urls: string[] | null | undefined) => {
+        const recentDeepLinkEvents = new Map<string, number>();
+        let lastObservedDeepLinkSignature: string | null = null;
+
+        const consumeUrls = (
+          urls: string[] | null | undefined,
+          source: "event" | "current" = "event",
+        ) => {
           if (!Array.isArray(urls)) {
             return;
           }
-          for (const url of urls) {
+
+          const normalized = urls.map((url) => url.trim()).filter(Boolean);
+          if (normalized.length === 0) {
+            return;
+          }
+
+          const signature = normalized.join("\n");
+          if (source === "current" && signature === lastObservedDeepLinkSignature) {
+            return;
+          }
+          lastObservedDeepLinkSignature = signature;
+
+          const now = Date.now();
+          for (const [url, seenAt] of recentDeepLinkEvents) {
+            if (now - seenAt > 1500) {
+              recentDeepLinkEvents.delete(url);
+            }
+          }
+
+          for (const url of normalized) {
+            const seenAt = recentDeepLinkEvents.get(url) ?? 0;
+            if (now - seenAt < 1500) {
+              continue;
+            }
+            recentDeepLinkEvents.set(url, now);
             if (queueRemoteConnectDeepLink(url) || queueSharedBundleDeepLink(url)) {
               break;
             }
           }
         };
 
-        consumeUrls(await getCurrent());
+        const syncCurrentDeepLinks = async () => {
+          consumeUrls(await getCurrent(), "current");
+        };
+
+        await syncCurrentDeepLinks();
         const unlisten = await onOpenUrl((urls) => {
-          consumeUrls(urls);
+          consumeUrls(urls, "event");
         });
+        const handleWindowFocus = () => {
+          void syncCurrentDeepLinks().catch(() => undefined);
+        };
+        const handleVisibilityChange = () => {
+          if (document.visibilityState !== "visible") return;
+          void syncCurrentDeepLinks().catch(() => undefined);
+        };
+        window.addEventListener("focus", handleWindowFocus);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
         onCleanup(() => {
           unlisten();
+          window.removeEventListener("focus", handleWindowFocus);
+          document.removeEventListener("visibilitychange", handleVisibilityChange);
         });
       } catch {
         // ignore
