@@ -680,6 +680,10 @@ body {
     animation: ow-soft-orb-pulse 1.8s ease-in-out infinite;
 }
 
+.ow-soft-disabled-cta {
+    animation: ow-soft-cta-breathe 2.4s ease-in-out infinite;
+}
+
 @keyframes ow-soft-dot-pulse {
     0%,
     100% {
@@ -720,6 +724,19 @@ body {
     50% {
         transform: scale(1.08);
         opacity: 1;
+    }
+}
+
+@keyframes ow-soft-cta-breathe {
+    0%,
+    100% {
+        opacity: 0.72;
+        transform: translateY(0);
+    }
+
+    50% {
+        opacity: 1;
+        transform: translateY(-0.5px);
     }
 }
 
@@ -1203,7 +1220,8 @@ body {
 
     .ow-soft-pulse-dot,
     .ow-soft-pulse-ring,
-    .ow-soft-pulse-orb {
+    .ow-soft-pulse-orb,
+    .ow-soft-disabled-cta {
         animation: none;
     }
 

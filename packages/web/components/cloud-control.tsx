@@ -3494,18 +3494,35 @@ export function CloudControlPanel() {
                                 href={openworkAppConnectUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className={`shrink-0 rounded-[16px] px-6 py-3 text-base font-semibold shadow-[0_12px_24px_rgba(15,23,42,0.14)] transition ${
+                                className={`shrink-0 rounded-[16px] px-6 py-3 text-base font-semibold transition ${
                                   selectedStatusMeta.bucket === "ready"
-                                    ? "bg-slate-900 text-white hover:bg-black"
-                                    : "pointer-events-none cursor-not-allowed bg-slate-200 text-slate-500 shadow-none"
+                                    ? "bg-slate-900 text-white shadow-[0_12px_24px_rgba(15,23,42,0.14)] hover:bg-black"
+                                    : "pointer-events-none cursor-not-allowed border border-slate-200 bg-white text-slate-400"
                                 }`}
                                 aria-disabled={selectedStatusMeta.bucket !== "ready"}
                               >
-                                Open in Web
+                                <span className={`inline-flex items-center gap-2 ${selectedStatusMeta.bucket !== "ready" ? "ow-soft-disabled-cta" : ""}`}>
+                                  {selectedStatusMeta.bucket !== "ready" ? (
+                                    <span className="relative inline-flex h-2.5 w-2.5">
+                                      <span className="ow-soft-pulse-ring absolute inset-0 rounded-full bg-amber-400/40" />
+                                      <span className="ow-soft-pulse-orb relative h-2.5 w-2.5 rounded-full bg-amber-500" />
+                                    </span>
+                                  ) : null}
+                                  <span>{selectedStatusMeta.bucket === "ready" ? "Open in Web" : "Preparing worker"}</span>
+                                </span>
                               </a>
                             ) : null}
                           </div>
-                          <p className="mb-6 text-sm text-slate-500">{getWorkerStatusCopy(selectedWorkerStatus)}</p>
+                          <p className="mb-2 text-sm text-slate-500">{getWorkerStatusCopy(selectedWorkerStatus)}</p>
+                          {selectedStatusMeta.bucket !== "ready" && openworkAppConnectUrl ? (
+                            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50/80 px-3 py-1.5 text-xs font-medium text-amber-800">
+                              <span className="relative inline-flex h-2 w-2">
+                                <span className="ow-soft-pulse-ring absolute inset-0 rounded-full bg-amber-400/40" />
+                                <span className="ow-soft-pulse-orb relative h-2 w-2 rounded-full bg-amber-500" />
+                              </span>
+                              Browser access is being prepared - this button will light up automatically.
+                            </div>
+                          ) : null}
                           {isSelectedWorkerFailed ? (
                             <button
                               type="button"
