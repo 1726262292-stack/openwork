@@ -16,8 +16,8 @@ pkgbase = openwork
 	depends = librsvg
 	noextract = openwork-0.11.159.deb
 	source_x86_64 = openwork-0.11.159.deb::https://github.com/different-ai/openwork/releases/download/v0.11.159/openwork-desktop-linux-amd64.deb
-	sha256sums_x86_64 = 70656693d7a2e334cdab6aea9e9bddf344d878ca5775b73e211ac576bebb3a23
+	sha256sums_x86_64 = db4f1fe28c77129985b917353dd958c49b50ca03ac0ed13ca031f0408809b84a
 	source_aarch64 = openwork-0.11.159.deb::https://github.com/different-ai/openwork/releases/download/v0.11.159/openwork-desktop-linux-arm64.deb
-	sha256sums_aarch64 = 66c78bd1cfe90a96492b7df45f2c8a286fa7d2df9f9cfbcfb493dba644e3f312
+	sha256sums_aarch64 = 5a718d215f1aba6811bc4699d73636f4715aa70c0da35ad7e206d304d1f5a918
 
 pkgname = openwork
