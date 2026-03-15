@@ -53,7 +53,7 @@ function ActivityPanel() {
           Running
         </div>
 
-        <div className="relative space-y-3 pl-8 before:absolute before:bottom-2 before:left-[9px] before:top-1 before:w-px before:bg-white/10 before:content-[\"\"]">
+        <div className="relative space-y-3 pl-8 before:absolute before:bottom-2 before:left-[9px] before:top-1 before:w-px before:bg-white/10 before:content-['']">
           {activityEntries.map((entry) => (
             <div key={`${entry.time}-${entry.source}`} className="relative rounded-[1.1rem] border border-white/8 bg-white/6 px-3 py-3 shadow-[0_18px_34px_-28px_rgba(15,23,42,0.75)]">
               <span className={`absolute -left-8 top-[0.3rem] h-2.5 w-2.5 rounded-full ${entry.tone}`} />
