@@ -3155,9 +3155,7 @@ export function CloudControlPanel() {
                         </button>
                         <button
                           type="button"
-                          className={`w-full rounded-[14px] px-3 py-2.5 text-left text-sm font-medium transition ${
-                            shellView === "billing" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"
-                          }`}
+                          className="w-full rounded-[14px] px-3 py-2.5 text-left text-sm font-medium text-slate-500 transition hover:bg-slate-50"
                           onClick={() => setShellView("billing")}
                         >
                           Billing
