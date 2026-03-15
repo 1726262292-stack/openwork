@@ -753,6 +753,7 @@ jobs:
 
       - name: Publish openwork-orchestrator
         if: steps.npm-auth.outputs.enabled == 'true' && steps.npm-versions.outputs.publish_orchestrator == 'true'
+        working-directory: packages/orchestrator
         env:
           GH_TOKEN: ${{ github.token }}
           ORCHESTRATOR_VERSION: ${{ steps.package-versions.outputs.orchestrator }}
@@ -765,14 +766,14 @@ jobs:
             exit 1
           fi
           # Linux ARM build is temporarily disabled in GitHub Actions.
-          bun packages/orchestrator/script/build.ts \
-            --outdir packages/orchestrator/dist/bin \
+          bun script/build.ts \
+            --outdir dist/bin \
             --filename openwork \
             --target bun-darwin-arm64 \
             --target bun-darwin-x64 \
             --target bun-linux-x64 \
             --target bun-windows-x64
-          node packages/orchestrator/scripts/publish-npm.mjs
+          node scripts/publish-npm.mjs
 
   aur-publish:
     name: Publish AUR
