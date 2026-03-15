@@ -4,6 +4,7 @@ import { formatBytes, formatRelativeTime, isTauriRuntime, isWindowsPlatform } fr
 
 import Button from "../components/button";
 import { usePlatform } from "../context/platform";
+import { FEEDBACK_EMAIL_URL } from "../lib/feedback";
 import {
   ArrowUpRight,
   CircleAlert,
@@ -156,7 +157,6 @@ export type SettingsViewProps = {
   openDebugShareLink: (rawUrl: string) => Promise<{ ok: boolean; message: string }>;
 };
 
-const FEEDBACK_EMAIL_URL = "mailto:benjamin@openworklabs.com?subject=OpenWork%20Feedback";
 const DISCORD_INVITE_URL = "https://discord.gg/VEhNQXxYMB";
 const BUG_REPORT_URL = "https://github.com/different-ai/openwork/issues/new?template=bug.yml";
 

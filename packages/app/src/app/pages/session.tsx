@@ -38,6 +38,8 @@ import {
   type OpenworkServerInfo,
   type WorkspaceInfo,
 } from "../lib/tauri";
+import { usePlatform } from "../context/platform";
+import { FEEDBACK_EMAIL_URL } from "../lib/feedback";
 import { createWorkspaceShellLayout } from "../lib/workspace-shell-layout";
 
 import {
@@ -330,6 +332,7 @@ const COMMAND_PALETTE_THINKING_OPTIONS = [
 ] as const;
 
 export default function SessionView(props: SessionViewProps) {
+  const platform = usePlatform();
   let messagesEndEl: HTMLDivElement | undefined;
   let bottomVisibilityEl: HTMLDivElement | undefined;
   let chatContainerEl: HTMLDivElement | undefined;
@@ -401,6 +404,12 @@ export default function SessionView(props: SessionViewProps) {
     startLeftSidebarResize,
     toggleRightSidebar,
   } = createWorkspaceShellLayout({ expandedRightWidth: 280 });
+
+  const openFeedback = () => {
+    const resolved = FEEDBACK_EMAIL_URL.trim();
+    if (!resolved) return;
+    platform.openLink(resolved);
+  };
 
   createEffect(() => {
     if (!isTauriRuntime()) {
@@ -4490,6 +4499,7 @@ export default function SessionView(props: SessionViewProps) {
             openworkServerStatus={props.openworkServerStatus}
             developerMode={props.developerMode}
             settingsOpen={false}
+            onSendFeedback={openFeedback}
             onOpenSettings={props.toggleSettings}
             onOpenMessaging={openConfig}
             onOpenProviders={openProviderAuth}

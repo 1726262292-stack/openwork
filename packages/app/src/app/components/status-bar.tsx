@@ -1,5 +1,5 @@
 import { Show, createMemo } from "solid-js";
-import { Settings } from "lucide-solid";
+import { MessageCircle, Settings } from "lucide-solid";
 
 import type { OpenworkServerStatus } from "../lib/openwork-server";
 import type { McpStatusMap } from "../types";
@@ -9,6 +9,7 @@ type StatusBarProps = {
   openworkServerStatus: OpenworkServerStatus;
   developerMode: boolean;
   settingsOpen: boolean;
+  onSendFeedback: () => void;
   onOpenSettings: () => void;
   onOpenMessaging: () => void;
   onOpenProviders: () => Promise<void> | void;
@@ -101,15 +102,27 @@ export default function StatusBar(props: StatusBarProps) {
           <span class="truncate text-dls-secondary">{statusCopy().detail}</span>
         </div>
 
-        <button
-          type="button"
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
-          onClick={props.onOpenSettings}
-          title={props.settingsOpen ? "Back to previous screen" : "Settings"}
-          aria-label={props.settingsOpen ? "Back to previous screen" : "Settings"}
-        >
-          <Settings class="h-4 w-4" />
-        </button>
+        <div class="flex items-center gap-1.5">
+          <button
+            type="button"
+            class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
+            onClick={props.onSendFeedback}
+            title="Send feedback"
+            aria-label="Send feedback"
+          >
+            <MessageCircle class="h-4 w-4" />
+            <span class="text-[11px] font-medium">Feedback</span>
+          </button>
+          <button
+            type="button"
+            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
+            onClick={props.onOpenSettings}
+            title={props.settingsOpen ? "Back to previous screen" : "Settings"}
+            aria-label={props.settingsOpen ? "Back to previous screen" : "Settings"}
+          >
+            <Settings class="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
   );

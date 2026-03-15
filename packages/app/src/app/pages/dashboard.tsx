@@ -23,6 +23,8 @@ import {
   isWindowsPlatform,
   normalizeDirectoryPath,
 } from "../utils";
+import { usePlatform } from "../context/platform";
+import { FEEDBACK_EMAIL_URL } from "../lib/feedback";
 import { createWorkspaceShellLayout } from "../lib/workspace-shell-layout";
 import {
   buildOpenworkConnectInviteUrl,
@@ -335,6 +337,7 @@ type SkillsSetBundleV1 = {
 };
 
 export default function DashboardView(props: DashboardViewProps) {
+  const platform = usePlatform();
   const title = createMemo(() => {
     switch (props.tab) {
       case "scheduled":
@@ -408,7 +411,13 @@ export default function DashboardView(props: DashboardViewProps) {
     rightSidebarWidth,
     startLeftSidebarResize,
     toggleRightSidebar,
-  } = createWorkspaceShellLayout({ expandedRightWidth: 224 });
+  } = createWorkspaceShellLayout({ expandedRightWidth: 280 });
+
+  const openFeedback = () => {
+    const resolved = FEEDBACK_EMAIL_URL.trim();
+    if (!resolved) return;
+    platform.openLink(resolved);
+  };
 
   const handleProviderAuthSelect = async (providerId: string): Promise<ProviderOAuthStartResult> => {
     if (providerAuthActionBusy()) {
@@ -1494,6 +1503,7 @@ export default function DashboardView(props: DashboardViewProps) {
           openworkServerStatus={props.openworkServerStatus}
           developerMode={props.developerMode}
           settingsOpen={props.tab === "settings"}
+          onSendFeedback={openFeedback}
           onOpenSettings={props.toggleSettings}
           onOpenMessaging={openConfig}
           onOpenProviders={() => props.openProviderAuthModal()}
