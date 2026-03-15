@@ -8,6 +8,11 @@ const ADMIN_ALLOWLIST_SEEDS = [
     email: "ben@openworklabs.com",
     note: "Seeded internal admin",
   },
+  {
+    id: "admin-berk-openworklabs-com",
+    email: "berk@openworklabs.com",
+    note: "Seeded internal admin",
+  },
 ] as const
 
 const MANAGED_ADMIN_ALLOWLIST_IDS = [
