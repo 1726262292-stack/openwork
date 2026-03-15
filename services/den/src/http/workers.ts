@@ -36,7 +36,6 @@ const token = () => randomBytes(32).toString("hex")
 
 type WorkerRow = typeof WorkerTable.$inferSelect
 type WorkerInstanceRow = typeof WorkerInstanceTable.$inferSelect
-type OrgMembershipRow = typeof OrgMembershipTable.$inferSelect
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -240,40 +239,6 @@ async function getOrgId(userId: string) {
   return membership[0].org_id
 }
 
-async function getOrgMembership(userId: string): Promise<OrgMembershipRow | null> {
-  const rows = await db
-    .select()
-    .from(OrgMembershipTable)
-    .where(eq(OrgMembershipTable.user_id, userId))
-    .limit(1)
-
-  return rows[0] ?? null
-}
-
-function canAccessWorker(membership: OrgMembershipRow, worker: WorkerRow, userId: string) {
-  return membership.role === "owner" || worker.created_by_user_id === userId
-}
-
-async function getAuthorizedWorker(userId: string, workerId: string) {
-  const membership = await getOrgMembership(userId)
-  if (!membership) {
-    return { membership: null, worker: null }
-  }
-
-  const rows = await db
-    .select()
-    .from(WorkerTable)
-    .where(and(eq(WorkerTable.id, workerId), eq(WorkerTable.org_id, membership.org_id)))
-    .limit(1)
-
-  const worker = rows[0] ?? null
-  if (!worker || !canAccessWorker(membership, worker, userId)) {
-    return { membership, worker: null }
-  }
-
-  return { membership, worker }
-}
-
 async function countUserCloudWorkers(userId: string) {
   const rows = await db
     .select({ id: WorkerTable.id })
@@ -400,8 +365,8 @@ workersRouter.get("/", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
-  const membership = await getOrgMembership(session.user.id)
-  if (!membership) {
+  const orgId = await getOrgId(session.user.id)
+  if (!orgId) {
     res.json({ workers: [] })
     return
   }
@@ -415,14 +380,7 @@ workersRouter.get("/", asyncRoute(async (req, res) => {
   const rows = await db
     .select()
     .from(WorkerTable)
-    .where(
-      membership.role === "owner"
-        ? eq(WorkerTable.org_id, membership.org_id)
-        : and(
-            eq(WorkerTable.org_id, membership.org_id),
-            eq(WorkerTable.created_by_user_id, session.user.id),
-          ),
-    )
+    .where(eq(WorkerTable.org_id, orgId))
     .orderBy(desc(WorkerTable.created_at))
     .limit(parsed.data.limit)
 
@@ -546,6 +504,7 @@ workersRouter.post("/", asyncRoute(async (req, res) => {
       session.user.id,
     ),
     tokens: {
+      host: hostToken,
       client: clientToken,
     },
     instance: null,
@@ -633,16 +592,27 @@ workersRouter.get("/:id", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
-  const { worker } = await getAuthorizedWorker(session.user.id, req.params.id)
-  if (!worker) {
+  const orgId = await getOrgId(session.user.id)
+  if (!orgId) {
     res.status(404).json({ error: "worker_not_found" })
     return
   }
 
-  const instance = await getLatestWorkerInstance(worker.id)
+  const rows = await db
+    .select()
+    .from(WorkerTable)
+    .where(and(eq(WorkerTable.id, req.params.id), eq(WorkerTable.org_id, orgId)))
+    .limit(1)
+
+  if (rows.length === 0) {
+    res.status(404).json({ error: "worker_not_found" })
+    return
+  }
+
+  const instance = await getLatestWorkerInstance(rows[0].id)
 
   res.json({
-    worker: toWorkerResponse(worker, session.user.id),
+    worker: toWorkerResponse(rows[0], session.user.id),
     instance: toInstanceResponse(instance),
   })
 }))
@@ -651,8 +621,19 @@ workersRouter.post("/:id/tokens", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
-  const { worker } = await getAuthorizedWorker(session.user.id, req.params.id)
-  if (!worker) {
+  const orgId = await getOrgId(session.user.id)
+  if (!orgId) {
+    res.status(404).json({ error: "worker_not_found" })
+    return
+  }
+
+  const rows = await db
+    .select()
+    .from(WorkerTable)
+    .where(eq(WorkerTable.id, req.params.id))
+    .limit(1)
+
+  if (rows.length === 0 || rows[0].org_id !== orgId) {
     res.status(404).json({ error: "worker_not_found" })
     return
   }
@@ -660,12 +641,13 @@ workersRouter.post("/:id/tokens", asyncRoute(async (req, res) => {
   const tokenRows = await db
     .select()
     .from(WorkerTokenTable)
-    .where(and(eq(WorkerTokenTable.worker_id, worker.id), isNull(WorkerTokenTable.revoked_at)))
+    .where(and(eq(WorkerTokenTable.worker_id, rows[0].id), isNull(WorkerTokenTable.revoked_at)))
     .orderBy(asc(WorkerTokenTable.created_at))
 
+  const hostToken = tokenRows.find((entry) => entry.scope === "host")?.token ?? null
   const clientToken = tokenRows.find((entry) => entry.scope === "client")?.token ?? null
 
-  if (!clientToken) {
+  if (!hostToken || !clientToken) {
     res.status(409).json({
       error: "worker_tokens_unavailable",
       message: "Worker tokens are missing for this worker. Launch a new worker and try again.",
@@ -673,11 +655,12 @@ workersRouter.post("/:id/tokens", asyncRoute(async (req, res) => {
     return
   }
 
-  const instance = await getLatestWorkerInstance(worker.id)
-  const connect = await resolveConnectUrlFromCandidates(worker.id, instance?.url ?? null, clientToken)
+  const instance = await getLatestWorkerInstance(rows[0].id)
+  const connect = await resolveConnectUrlFromCandidates(rows[0].id, instance?.url ?? null, clientToken)
 
   res.json({
     tokens: {
+      host: hostToken,
       client: clientToken,
     },
     connect: connect ?? (instance?.url ? { openworkUrl: instance.url, workspaceId: null } : null),
@@ -688,14 +671,25 @@ workersRouter.get("/:id/runtime", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
-  const { worker } = await getAuthorizedWorker(session.user.id, req.params.id)
-  if (!worker) {
+  const orgId = await getOrgId(session.user.id)
+  if (!orgId) {
+    res.status(404).json({ error: "worker_not_found" })
+    return
+  }
+
+  const rows = await db
+    .select()
+    .from(WorkerTable)
+    .where(and(eq(WorkerTable.id, req.params.id), eq(WorkerTable.org_id, orgId)))
+    .limit(1)
+
+  if (rows.length === 0) {
     res.status(404).json({ error: "worker_not_found" })
     return
   }
 
   const runtime = await fetchWorkerRuntimeJson({
-    workerId: worker.id,
+    workerId: rows[0].id,
     path: "/runtime/versions",
   })
 
@@ -706,14 +700,25 @@ workersRouter.post("/:id/runtime/upgrade", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
-  const { worker } = await getAuthorizedWorker(session.user.id, req.params.id)
-  if (!worker) {
+  const orgId = await getOrgId(session.user.id)
+  if (!orgId) {
+    res.status(404).json({ error: "worker_not_found" })
+    return
+  }
+
+  const rows = await db
+    .select()
+    .from(WorkerTable)
+    .where(and(eq(WorkerTable.id, req.params.id), eq(WorkerTable.org_id, orgId)))
+    .limit(1)
+
+  if (rows.length === 0) {
     res.status(404).json({ error: "worker_not_found" })
     return
   }
 
   const runtime = await fetchWorkerRuntimeJson({
-    workerId: worker.id,
+    workerId: rows[0].id,
     path: "/runtime/upgrade",
     method: "POST",
     body: req.body ?? {},
@@ -726,11 +731,24 @@ workersRouter.delete("/:id", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
-  const { worker } = await getAuthorizedWorker(session.user.id, req.params.id)
-  if (!worker) {
+  const orgId = await getOrgId(session.user.id)
+  if (!orgId) {
     res.status(404).json({ error: "worker_not_found" })
     return
   }
+
+  const rows = await db
+    .select()
+    .from(WorkerTable)
+    .where(and(eq(WorkerTable.id, req.params.id), eq(WorkerTable.org_id, orgId)))
+    .limit(1)
+
+  if (rows.length === 0) {
+    res.status(404).json({ error: "worker_not_found" })
+    return
+  }
+
+  const worker = rows[0]
   const instance = await getLatestWorkerInstance(worker.id)
 
   if (worker.destination === "cloud") {
