@@ -24,14 +24,6 @@
   },
   "bundle": {
     "createUpdaterArtifacts": true,
-    "linux": {
-      "rpm": {
-        "compression": {
-          "type": "gzip",
-          "level": 1
-        }
-      }
-    },
     "macOS": {
       "entitlements": "./entitlements.plist"
     },

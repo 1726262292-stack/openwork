@@ -27,12 +27,7 @@ const targets = [
   { id: "linux-x64", bun: "bun-linux-x64", os: "linux", cpu: "x64" },
   { id: "linux-arm64", bun: "bun-linux-arm64", os: "linux", cpu: "arm64" },
   { id: "windows-x64", bun: "bun-windows-x64", os: "win32", cpu: "x64" },
-].filter((target) => {
-  if (process.env.ORCHESTRATOR_DISABLE_LINUX_ARM64 === "1" && target.id === "linux-arm64") {
-    return false
-  }
-  return true
-})
+]
 
 function run(cmd, args, cwd) {
   const res = spawnSync(cmd, args, { cwd, stdio: "inherit" })
