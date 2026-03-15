@@ -756,6 +756,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ORCHESTRATOR_VERSION: ${{ steps.package-versions.outputs.orchestrator }}
+          ORCHESTRATOR_DISABLE_LINUX_ARM64: "1"
         run: |
           set -euo pipefail
           tag="openwork-orchestrator-v${ORCHESTRATOR_VERSION}"
@@ -763,7 +764,14 @@ jobs:
             echo "openwork-orchestrator sidecar release $tag not found. Publish sidecars before openwork-orchestrator." >&2
             exit 1
           fi
-          pnpm --filter openwork-orchestrator build:bin:all
+          # Linux ARM build is temporarily disabled in GitHub Actions.
+          bun packages/orchestrator/script/build.ts \
+            --outdir packages/orchestrator/dist/bin \
+            --filename openwork \
+            --target bun-darwin-arm64 \
+            --target bun-darwin-x64 \
+            --target bun-linux-x64 \
+            --target bun-windows-x64
           node packages/orchestrator/scripts/publish-npm.mjs
 
   aur-publish:
