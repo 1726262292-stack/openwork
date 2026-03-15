@@ -228,8 +228,8 @@ jobs:
     name: Build + Publish (${{ matrix.target }})
     needs: [resolve-release, verify-release]
     if: needs.resolve-release.outputs.build_tauri == 'true'
-    # Set OPENWORK_LINUX_X64_RUNNER_LABEL to route only the Linux x86_64 build to a larger runner.
-    runs-on: ${{ matrix.target == 'x86_64-unknown-linux-gnu' && vars.OPENWORK_LINUX_X64_RUNNER_LABEL != '' && vars.OPENWORK_LINUX_X64_RUNNER_LABEL || matrix.platform }}
+    # Set OPENWORK_LINUX_X64_RUNNER_LABEL to route Linux release builds to a larger runner.
+    runs-on: ${{ matrix.os_type == 'linux' && vars.OPENWORK_LINUX_X64_RUNNER_LABEL != '' && vars.OPENWORK_LINUX_X64_RUNNER_LABEL || matrix.platform }}
     timeout-minutes: 360
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
@@ -275,7 +275,7 @@ jobs:
           echo "Effective runs-on: ${EFFECTIVE_RUNS_ON}"
         env:
           RUNNER_LABEL: ${{ vars.OPENWORK_LINUX_X64_RUNNER_LABEL }}
-          EFFECTIVE_RUNS_ON: ${{ matrix.target == 'x86_64-unknown-linux-gnu' && vars.OPENWORK_LINUX_X64_RUNNER_LABEL != '' && vars.OPENWORK_LINUX_X64_RUNNER_LABEL || matrix.platform }}
+          EFFECTIVE_RUNS_ON: ${{ matrix.os_type == 'linux' && vars.OPENWORK_LINUX_X64_RUNNER_LABEL != '' && vars.OPENWORK_LINUX_X64_RUNNER_LABEL || matrix.platform }}
 
       - name: Enable git long paths (Windows)
         if: matrix.os_type == 'windows'
