@@ -32,7 +32,7 @@ async function seedAdminAllowlist() {
       })
   }
 
-  const activeSeedIds = new Set(ADMIN_ALLOWLIST_SEEDS.map((entry) => entry.id))
+  const activeSeedIds = new Set<string>(ADMIN_ALLOWLIST_SEEDS.map((entry) => entry.id))
   const staleSeedIds = MANAGED_ADMIN_ALLOWLIST_IDS.filter((id) => !activeSeedIds.has(id))
 
   if (staleSeedIds.length > 0) {
