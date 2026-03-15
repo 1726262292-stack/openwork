@@ -380,9 +380,9 @@ export default function WorkspaceSessionList(props: Props) {
                         class="flex h-6.5 w-6.5 shrink-0 items-center justify-center rounded-full"
                         style={{ "background-color": workspaceSwatchColor(workspace().id || workspaceLabel(workspace())) }}
                       />
-                      <div class="min-w-0">
+                      <div class="min-w-0 flex gap-3">
                         <div class="truncate text-[14px] font-normal text-dls-text">{workspaceLabel(workspace())}</div>
-                        <div class={`mt-0.5 truncate text-[12px] ${statusTone()}`}>{statusLabel()}</div>
+                        <div class={`truncate text-[12px] ${statusTone()}`}>{statusLabel()}</div>
                       </div>
                     </div>
 
@@ -528,7 +528,7 @@ export default function WorkspaceSessionList(props: Props) {
                   </Show>
                 </div>
 
-                <div class="ml-6 mt-1 space-y-1 border-l-2 border-dls-border pl-3.5">
+                <div class="ml-3 mt-1 space-y-1 border-l-2 border-dls-border">
                   <Show
                     when={isWorkspaceExpanded(workspace().id)}
                     fallback={
