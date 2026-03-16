@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
 import ShareBundlePage from "../../../components/share-bundle-page";
 import { getBundlePageProps } from "../../../server/b/get-bundle-page-props.ts";
@@ -12,6 +13,31 @@ async function loadBundlePageProps(id: string) {
     id,
     requestLike: buildRequestLike({ headers: requestHeaders })
   });
+}
+
+type BundlePageSearchParams = Record<string, string | string[] | undefined>;
+
+function firstQueryValue(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? String(value[0] ?? "") : String(value ?? "");
+}
+
+function wantsJsonBundleResponse(requestHeaders: Headers, searchParams: BundlePageSearchParams): boolean {
+  const format = firstQueryValue(searchParams.format).trim().toLowerCase();
+  if (format === "json") return true;
+
+  const accept = String(requestHeaders.get("accept") ?? "").toLowerCase();
+  return accept.includes("application/json") && !accept.includes("text/html");
+}
+
+function buildBundleDataUrl(id: string, searchParams: BundlePageSearchParams): string {
+  const query = new URLSearchParams();
+  const download = firstQueryValue(searchParams.download).trim();
+  if (download) {
+    query.set("download", download);
+  }
+
+  const suffix = query.toString();
+  return `/b/${encodeURIComponent(id)}/data${suffix ? `?${suffix}` : ""}`;
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -75,9 +101,24 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   };
 }
 
-export default async function BundlePage({ params }: { params: Promise<{ id: string }> }) {
-  const routeParams = await params;
-  const props = await loadBundlePageProps(routeParams?.id);
+export default async function BundlePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<BundlePageSearchParams>;
+}) {
+  const [routeParams, resolvedSearchParams, requestHeaders] = await Promise.all([params, searchParams, headers()]);
+  const id = String(routeParams?.id ?? "").trim();
+
+  if (id && wantsJsonBundleResponse(requestHeaders, resolvedSearchParams ?? {})) {
+    redirect(buildBundleDataUrl(id, resolvedSearchParams ?? {}));
+  }
+
+  const props = await getBundlePageProps({
+    id,
+    requestLike: buildRequestLike({ headers: requestHeaders })
+  });
   const stars = await getGithubStars();
   return <ShareBundlePage {...props} stars={stars} />;
 }

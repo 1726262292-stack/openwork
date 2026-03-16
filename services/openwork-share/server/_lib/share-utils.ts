@@ -131,11 +131,12 @@ export function buildBundleUrls(req: RequestLike, id: string): BundleUrls {
   const encodedId = encodeURIComponent(id);
   const origin = buildRootUrl(req);
   const path = `/b/${encodedId}`;
+  const dataPath = `${path}/data`;
 
   return {
     shareUrl: `${origin}${path}`,
-    jsonUrl: `${origin}${path}?format=json`,
-    downloadUrl: `${origin}${path}?format=json&download=1`,
+    jsonUrl: `${origin}${dataPath}`,
+    downloadUrl: `${origin}${dataPath}?download=1`,
   };
 }
 

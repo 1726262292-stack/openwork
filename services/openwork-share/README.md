@@ -32,7 +32,8 @@ It keeps the existing bundle APIs, but the public share surface now runs as a si
   - Returns raw JSON for API/programmatic requests:
     - send `Accept: application/json`, or
     - append `?format=json`.
-  - Supports `?format=json&download=1` to download the bundle as a file.
+  - The canonical raw endpoint is `/b/:id/data`.
+  - Supports `/b/:id/data?download=1` and the legacy `?format=json&download=1` compatibility path.
 
 ## Bundle Types
 
@@ -111,6 +112,9 @@ pnpm --dir services/openwork-share test
 curl -i "http://localhost:3000/b/<id>" -H "Accept: text/html"
 
 # Machine-readable payload (OpenWork parser path)
+curl -i "http://localhost:3000/b/<id>/data"
+
+# Legacy compatibility path
 curl -i "http://localhost:3000/b/<id>?format=json"
 ```
 

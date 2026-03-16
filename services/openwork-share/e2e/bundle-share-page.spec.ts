@@ -26,6 +26,18 @@ test("shows a read-only shared skill page with OpenWork import actions", async (
 
   const shareUrl = page.url();
 
+  const jsonResponse = await page.request.get(shareUrl, {
+    headers: { Accept: "application/json" },
+  });
+  expect(jsonResponse.ok()).toBeTruthy();
+  expect(jsonResponse.headers()["content-type"] ?? "").toContain("application/json");
+  const bundleJson = await jsonResponse.json();
+  expect(bundleJson).toMatchObject({
+    schemaVersion: 1,
+    type: "skill",
+    name: "agent-creator",
+  });
+
   await expect(page.getByText("Bundle details")).toHaveCount(0);
   await expect(page.getByText("Raw endpoints")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /save changes/i })).toHaveCount(0);
@@ -41,6 +53,11 @@ test("shows a read-only shared skill page with OpenWork import actions", async (
   const openInAppHref = await page.getByRole("link", { name: /^open in openwork$/i }).getAttribute("href");
   expect(openInAppHref).toBeTruthy();
   expect(openInAppHref ?? "").toContain("openwork://import-bundle?");
+
+  const openInAppLink = page.getByRole("link", { name: /^open in openwork$/i });
+  await openInAppLink.dispatchEvent("pointerdown");
+  const refreshedOpenInAppHref = await openInAppLink.getAttribute("href");
+  expect(refreshedOpenInAppHref ?? "").toContain("ow_nonce=");
 
   const deepLinkQuery = new URL((openInAppHref ?? "").replace("openwork://import-bundle?", "https://example.test/?"));
   expect(deepLinkQuery.searchParams.get("ow_bundle")).toBe(shareUrl);

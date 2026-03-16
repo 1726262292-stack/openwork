@@ -25,8 +25,8 @@ test("wantsDownload only enables on download=1", () => {
 test("buildBundleUrls uses forwarded origin", () => {
   const urls = buildBundleUrls(makeReq({ host: "example.test" }), "01ABC");
   assert.equal(urls.shareUrl, "https://example.test/b/01ABC");
-  assert.equal(urls.jsonUrl, "https://example.test/b/01ABC?format=json");
-  assert.equal(urls.downloadUrl, "https://example.test/b/01ABC?format=json&download=1");
+  assert.equal(urls.jsonUrl, "https://example.test/b/01ABC/data");
+  assert.equal(urls.downloadUrl, "https://example.test/b/01ABC/data?download=1");
 });
 
 test("renderBundlePage includes machine-readable metadata and escaped json script", () => {
@@ -48,7 +48,7 @@ test("renderBundlePage includes machine-readable metadata and escaped json scrip
   assert.match(html, /data-openwork-share="true"/);
   assert.match(html, /data-openwork-bundle-type="skill"/);
   assert.match(html, /meta name="openwork:bundle-id" content="01TEST"/);
-  assert.match(html, /\?format=json/);
+  assert.match(html, /\/b\/01TEST\/data/);
   assert.match(html, /openwork:\/\/import-bundle\?/);
   assert.match(html, /ow_bundle=https%3A%2F%2Fshare\.openwork\.software%2Fb%2F01TEST/);
   assert.match(html, /ow_intent=new_worker/);

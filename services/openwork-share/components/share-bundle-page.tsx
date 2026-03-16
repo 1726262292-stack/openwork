@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type MouseEvent } from "react";
+import { useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 
 import type { BundlePageProps } from "../server/_lib/types.ts";
 import ShareNav from "./share-nav";
@@ -120,17 +120,43 @@ export default function ShareBundlePage(props: BundlePageProps & { stars?: strin
     }, 800);
   };
 
+  const buildOpenInAppLaunchUrl = () => {
+    if (!openInAppUrl || openInAppUrl === "#") return openInAppUrl;
+
+    try {
+      const url = new URL(openInAppUrl);
+      const nonce = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.round(Math.random() * 1_000_000_000)}`;
+      url.searchParams.set("ow_nonce", nonce);
+      return url.toString();
+    } catch {
+      return openInAppUrl;
+    }
+  };
+
+  const refreshOpenInAppHref = (anchor: HTMLAnchorElement) => {
+    const launchUrl = buildOpenInAppLaunchUrl();
+    if (launchUrl) {
+      anchor.href = launchUrl;
+    }
+    return launchUrl;
+  };
+
   const openInOpenWork = (event: MouseEvent<HTMLAnchorElement>) => {
     if (!openInAppUrl || openInAppUrl === "#") return;
     event.preventDefault();
 
-    try {
-      const url = new URL(openInAppUrl);
-      url.searchParams.set("ow_nonce", `${Date.now()}`);
-      window.location.assign(url.toString());
-    } catch {
-      window.location.assign(openInAppUrl);
-    }
+    window.location.assign(refreshOpenInAppHref(event.currentTarget));
+  };
+
+  const prepareOpenInOpenWork = (event: PointerEvent<HTMLAnchorElement> | MouseEvent<HTMLAnchorElement>) => {
+    refreshOpenInAppHref(event.currentTarget);
+  };
+
+  const prepareOpenInOpenWorkFromKeyboard = (event: KeyboardEvent<HTMLAnchorElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    refreshOpenInAppHref(event.currentTarget);
   };
 
   const actionButtons = (
@@ -138,7 +164,14 @@ export default function ShareBundlePage(props: BundlePageProps & { stars?: strin
       <button className="button-primary" type="button" onClick={() => void copyPreview()}>
         {previewCopied ? "Copied to clipboard" : "Copy to clipboard"}
       </button>
-      <a className="button-secondary" href={openInAppUrl} onClick={openInOpenWork}>
+      <a
+        className="button-secondary"
+        href={openInAppUrl}
+        onPointerDown={prepareOpenInOpenWork}
+        onMouseDown={prepareOpenInOpenWork}
+        onKeyDown={prepareOpenInOpenWorkFromKeyboard}
+        onClick={openInOpenWork}
+      >
         Open in OpenWork
       </a>
     </>
