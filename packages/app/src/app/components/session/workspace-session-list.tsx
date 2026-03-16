@@ -380,9 +380,9 @@ export default function WorkspaceSessionList(props: Props) {
                         class="flex h-6.5 w-6.5 shrink-0 items-center justify-center rounded-full"
                         style={{ "background-color": workspaceSwatchColor(workspace().id || workspaceLabel(workspace())) }}
                       />
-                      <div class="min-w-0 flex gap-3">
-                        <div class="truncate text-[14px] font-normal text-dls-text">{workspaceLabel(workspace())}</div>
-                        <div class={`truncate text-[12px] ${statusTone()}`}>{statusLabel()}</div>
+                      <div class="min-w-0 flex items-baseline gap-3">
+                        <div class="min-w-0 flex-1 truncate text-[14px] font-normal text-dls-text">{workspaceLabel(workspace())}</div>
+                        <div class={`shrink-0 whitespace-nowrap text-[12px] ${statusTone()}`}>{statusLabel()}</div>
                       </div>
                     </div>
 
