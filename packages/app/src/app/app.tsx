@@ -36,7 +36,6 @@ import SharedSkillDestinationModal from "./components/shared-skill-destination-m
 import SharedBundleImportModal from "./components/shared-bundle-import-modal";
 import RenameWorkspaceModal from "./components/rename-workspace-modal";
 import McpAuthModal from "./components/mcp-auth-modal";
-import ReloadWorkspaceToast from "./components/reload-workspace-toast";
 import StatusToast from "./components/status-toast";
 import OnboardingView from "./pages/onboarding";
 import DashboardView from "./pages/dashboard";
@@ -6774,7 +6773,7 @@ export default function App() {
     mcpStatus: mcpStatus(),
     skills: skills(),
     skillsStatus: skillsStatus(),
-    showSkillReloadBanner: false,
+    showSkillReloadBanner: reloadRequired() && reloadTrigger()?.type === "skill",
     reloadBannerTitle: reloadCopy().title,
     reloadBannerBody: reloadCopy().body,
     reloadBannerBlocked: activeReloadBlockingSessions().length > 0,
@@ -7273,26 +7272,6 @@ export default function App() {
           />
         </div>
 
-        <div class="pointer-events-auto">
-          <ReloadWorkspaceToast
-            open={reloadRequired() && reloadTrigger()?.type === "skill"}
-            title={reloadCopy().title}
-            description={reloadCopy().body}
-            trigger={reloadTrigger()}
-            error={reloadError()}
-            reloadLabel={activeReloadBlockingSessions().length > 0 ? "Reload & Stop Tasks" : "Reload now"}
-            dismissLabel="Later"
-            busy={reloadBusy()}
-            canReload={canReloadWorkspace()}
-            hasActiveRuns={activeReloadBlockingSessions().length > 0}
-            onReload={() => {
-              void (activeReloadBlockingSessions().length > 0
-                ? forceStopActiveSessionsAndReload()
-                : reloadWorkspaceEngineAndResume());
-            }}
-            onDismiss={clearReloadRequired}
-          />
-        </div>
       </div>
 
       <RenameWorkspaceModal
