@@ -124,7 +124,7 @@ export function buildRootUrl(req: RequestLike): string {
 
 export function buildOgImageUrl(req: RequestLike, targetId = "root"): string {
   const origin = buildRootUrl(req);
-  return `${origin}/api/og/${encodeURIComponent(targetId)}`;
+  return `${origin}/og/${encodeURIComponent(targetId)}`;
 }
 
 export function buildBundleUrls(req: RequestLike, id: string): BundleUrls {
@@ -167,18 +167,6 @@ export function buildOpenInAppUrls(shareUrl: string, options: { label?: string }
       openInWebAppUrl: `${DEFAULT_OPENWORK_APP_URL}?${query.toString()}`,
     };
   }
-}
-
-export function wantsJsonResponse(req: RequestLike): boolean {
-  const format = String(req.query?.format ?? "").trim().toLowerCase();
-  if (format === "json") return true;
-  if (format === "html") return false;
-
-  const accept = String(req.headers?.accept ?? "").toLowerCase();
-  if (!accept) return true;
-  if (accept.includes("application/json")) return true;
-  if (accept.includes("text/html") || accept.includes("application/xhtml+xml")) return false;
-  return true;
 }
 
 export function wantsDownload(req: RequestLike): boolean {
