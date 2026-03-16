@@ -4,7 +4,7 @@ import { applyEdits, modify } from "jsonc-parser";
 import { join } from "@tauri-apps/api/path";
 import { currentLocale, t } from "../../i18n";
 
-import type { Client, HubSkillCard, PluginScope, ReloadReason, ReloadTrigger, SkillCard } from "../types";
+import type { Client, HubSkillCard, HubSkillRepo, PluginScope, ReloadReason, ReloadTrigger, SkillCard } from "../types";
 import { addOpencodeCacheHint, isTauriRuntime } from "../utils";
 import skillCreatorTemplate from "../data/skill-creator.md?raw";
 import {
@@ -26,6 +26,7 @@ import {
   type OpencodeConfigFile,
 } from "../lib/tauri";
 import type {
+  OpenworkHubRepo,
   OpenworkServerCapabilities,
   OpenworkServerClient,
   OpenworkServerStatus,
@@ -60,6 +61,49 @@ export function createExtensionsStore(options: {
 
   const formatSkillPath = (location: string) => location.replace(/[/\\]SKILL\.md$/i, "");
 
+  const DEFAULT_HUB_REPO: HubSkillRepo = {
+    owner: "different-ai",
+    repo: "openwork-hub",
+    ref: "main",
+  };
+
+  const [hubRepo, setHubRepoSignal] = createSignal<HubSkillRepo>(DEFAULT_HUB_REPO);
+  const [customHubRepos, setCustomHubRepos] = createSignal<HubSkillRepo[]>([]);
+
+  const normalizeHubRepo = (input?: Partial<HubSkillRepo> | null): HubSkillRepo => {
+    const owner = input?.owner?.trim() || DEFAULT_HUB_REPO.owner;
+    const repo = input?.repo?.trim() || DEFAULT_HUB_REPO.repo;
+    const ref = input?.ref?.trim() || DEFAULT_HUB_REPO.ref;
+    return { owner, repo, ref };
+  };
+
+  const hubRepoKey = (repo: HubSkillRepo) => `${repo.owner}/${repo.repo}@${repo.ref}`;
+
+  const isDefaultHubRepo = (repo: HubSkillRepo) =>
+    repo.owner === DEFAULT_HUB_REPO.owner &&
+    repo.repo === DEFAULT_HUB_REPO.repo &&
+    repo.ref === DEFAULT_HUB_REPO.ref;
+
+  const normalizeHubRepoList = (items: unknown[]): HubSkillRepo[] => {
+    const seen = new Set<string>();
+    const next: HubSkillRepo[] = [];
+    for (const item of items) {
+      if (!item || typeof item !== "object") continue;
+      const record = item as Record<string, unknown>;
+      const normalized = normalizeHubRepo({
+        owner: typeof record.owner === "string" ? record.owner : undefined,
+        repo: typeof record.repo === "string" ? record.repo : undefined,
+        ref: typeof record.ref === "string" ? record.ref : undefined,
+      });
+      if (isDefaultHubRepo(normalized)) continue;
+      const key = hubRepoKey(normalized);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      next.push(normalized);
+    }
+    return next;
+  };
+
   const [pluginScope, setPluginScope] = createSignal<PluginScope>("project");
   const [pluginConfig, setPluginConfig] = createSignal<OpencodeConfigFile | null>(null);
   const [pluginConfigPath, setPluginConfigPath] = createSignal<string | null>(null);
@@ -81,10 +125,81 @@ export function createExtensionsStore(options: {
   let skillsLoaded = false;
   let hubSkillsLoaded = false;
   let skillsRoot = "";
-  let hubSkillsRoot = "";
+  let hubSkillsLoadKey = "";
+
+  const HUB_REPOS_STORAGE_KEY = "openwork.skills.hubRepos.v1";
+
+  const persistHubRepos = () => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        HUB_REPOS_STORAGE_KEY,
+        JSON.stringify({ selected: hubRepo(), custom: customHubRepos() }),
+      );
+    } catch {
+      // ignore
+    }
+  };
+
+  const setHubRepo = (repoInput: Partial<HubSkillRepo>, optionsOverride?: { remember?: boolean }) => {
+    const next = normalizeHubRepo(repoInput);
+    setHubRepoSignal(next);
+    hubSkillsLoaded = false;
+    if (optionsOverride?.remember === false) return;
+    if (!isDefaultHubRepo(next)) {
+      setCustomHubRepos((prev) => {
+        const seen = new Set<string>();
+        const merged = [next, ...prev];
+        const deduped: HubSkillRepo[] = [];
+        for (const item of merged) {
+          const key = hubRepoKey(item);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          deduped.push(item);
+        }
+        return deduped;
+      });
+    }
+    persistHubRepos();
+  };
+
+  const addCustomHubRepo = (repoInput: Partial<HubSkillRepo>) => {
+    const next = normalizeHubRepo(repoInput);
+    setHubRepo(next);
+  };
+
+  const removeCustomHubRepo = (repoInput: Partial<HubSkillRepo>) => {
+    const target = normalizeHubRepo(repoInput);
+    const targetKey = hubRepoKey(target);
+    setCustomHubRepos((prev) => prev.filter((item) => hubRepoKey(item) !== targetKey));
+    if (hubRepoKey(hubRepo()) === targetKey) {
+      setHubRepoSignal(DEFAULT_HUB_REPO);
+      hubSkillsLoaded = false;
+    }
+    persistHubRepos();
+  };
+
+  if (typeof window !== "undefined") {
+    try {
+      const raw = window.localStorage.getItem(HUB_REPOS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { selected?: unknown; custom?: unknown[] };
+        const custom = Array.isArray(parsed?.custom) ? normalizeHubRepoList(parsed.custom) : [];
+        setCustomHubRepos(custom);
+        if (parsed?.selected && typeof parsed.selected === "object") {
+          const selected = normalizeHubRepo(parsed.selected as Partial<HubSkillRepo>);
+          setHubRepoSignal(selected);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   async function refreshHubSkills(optionsOverride?: { force?: boolean }) {
     const root = options.activeWorkspaceRoot().trim();
+    const repo = hubRepo();
+    const loadKey = `${root}::${hubRepoKey(repo)}`;
     const openworkClient = options.openworkServerClient();
     const openworkCapabilities = options.openworkServerCapabilities();
     const canUseOpenworkServer =
@@ -93,7 +208,7 @@ export function createExtensionsStore(options: {
       openworkCapabilities?.hub?.skills?.read &&
       typeof (openworkClient as any).listHubSkills === "function";
 
-    if (root !== hubSkillsRoot) {
+    if (loadKey !== hubSkillsLoadKey) {
       hubSkillsLoaded = false;
     }
 
@@ -107,7 +222,13 @@ export function createExtensionsStore(options: {
       setHubSkillsStatus(null);
 
       if (canUseOpenworkServer) {
-        const response = await (openworkClient as any).listHubSkills();
+        const response = await (openworkClient as any).listHubSkills({
+          repo: {
+            owner: repo.owner,
+            repo: repo.repo,
+            ref: repo.ref,
+          },
+        });
         if (refreshHubSkillsAborted) return;
         const next: HubSkillCard[] = Array.isArray(response?.items)
           ? response.items.map((entry: any) => ({
@@ -120,14 +241,17 @@ export function createExtensionsStore(options: {
         setHubSkills(next);
         if (!next.length) setHubSkillsStatus("No hub skills found.");
         hubSkillsLoaded = true;
-        hubSkillsRoot = root;
+        hubSkillsLoadKey = loadKey;
         return;
       }
 
       // Browser fallback: fetch directly from GitHub (public catalog).
-      const listingRes = await fetch("https://api.github.com/repos/different-ai/openwork-hub/contents/skills?ref=main", {
+      const listingRes = await fetch(
+        `https://api.github.com/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/contents/skills?ref=${encodeURIComponent(repo.ref)}`,
+        {
         headers: { Accept: "application/vnd.github+json" },
-      });
+        },
+      );
       if (!listingRes.ok) {
         throw new Error(`Failed to fetch hub catalog (${listingRes.status})`);
       }
@@ -140,7 +264,7 @@ export function createExtensionsStore(options: {
 
       const next: HubSkillCard[] = dirs.map((dirName) => ({
         name: dirName,
-        source: { owner: "different-ai", repo: "openwork-hub", ref: "main", path: `skills/${dirName}` },
+        source: { owner: repo.owner, repo: repo.repo, ref: repo.ref, path: `skills/${dirName}` },
       }));
 
       if (refreshHubSkillsAborted) return;
@@ -148,7 +272,7 @@ export function createExtensionsStore(options: {
       setHubSkills(sorted);
       if (!sorted.length) setHubSkillsStatus("No hub skills found.");
       hubSkillsLoaded = true;
-      hubSkillsRoot = root;
+      hubSkillsLoadKey = loadKey;
     } catch (e) {
       if (refreshHubSkillsAborted) return;
       setHubSkills([]);
@@ -161,6 +285,7 @@ export function createExtensionsStore(options: {
   async function installHubSkill(name: string): Promise<{ ok: boolean; message: string }> {
     const trimmed = name.trim();
     if (!trimmed) return { ok: false, message: "Skill name is required." };
+    const repo = hubRepo();
 
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const openworkClient = options.openworkServerClient();
@@ -185,7 +310,16 @@ export function createExtensionsStore(options: {
     setSkillsStatus(null);
 
     try {
-      const result = await (openworkClient as any).installHubSkill(openworkWorkspaceId, trimmed);
+      const repoOverride: OpenworkHubRepo | undefined = isDefaultHubRepo(repo)
+        ? undefined
+        : {
+            owner: repo.owner,
+            repo: repo.repo,
+            ref: repo.ref,
+          };
+      const result = await (openworkClient as any).installHubSkill(openworkWorkspaceId, trimmed, {
+        ...(repoOverride ? { repo: repoOverride } : {}),
+      });
       await refreshSkills({ force: true });
       await refreshHubSkills({ force: true });
       if (!result?.ok) {
@@ -1107,6 +1241,8 @@ export function createExtensionsStore(options: {
     skillsStatus,
     hubSkills,
     hubSkillsStatus,
+    hubRepo,
+    customHubRepos,
     pluginScope,
     setPluginScope,
     pluginConfig,
@@ -1122,6 +1258,9 @@ export function createExtensionsStore(options: {
     isPluginInstalledByName,
     refreshSkills,
     refreshHubSkills,
+    setHubRepo,
+    addCustomHubRepo,
+    removeCustomHubRepo,
     refreshPlugins,
     addPlugin,
     removePlugin,

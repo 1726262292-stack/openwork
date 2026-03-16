@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 
-import type { HubSkillCard, SkillCard } from "../types";
+import type { HubSkillCard, HubSkillRepo, SkillCard } from "../types";
 
 import Button from "../components/button";
 import { Copy, Edit2, FolderOpen, Link2, Loader2, Package, Plus, RefreshCw, Search, Share2, Sparkles, Trash2, Upload } from "lucide-solid";
@@ -39,9 +39,14 @@ export type SkillsViewProps = {
   skillsStatus: string | null;
   hubSkills: HubSkillCard[];
   hubSkillsStatus: string | null;
+  hubRepo: HubSkillRepo;
+  customHubRepos: HubSkillRepo[];
   importLocalSkill: () => void;
   installSkillCreator: () => Promise<InstallResult>;
   installHubSkill: (name: string) => Promise<InstallResult>;
+  setHubRepo: (repo: Partial<HubSkillRepo>) => void;
+  addCustomHubRepo: (repo: Partial<HubSkillRepo>) => void;
+  removeCustomHubRepo: (repo: Partial<HubSkillRepo>) => void;
   revealSkillsFolder: () => void;
   uninstallSkill: (name: string) => void;
   readSkill: (name: string) => Promise<{ name: string; path: string; content: string } | null>;
@@ -61,6 +66,11 @@ export default function SkillsView(props: SkillsViewProps) {
   const [uninstallTarget, setUninstallTarget] = createSignal<SkillCard | null>(null);
   const uninstallOpen = createMemo(() => uninstallTarget() != null);
   const [searchQuery, setSearchQuery] = createSignal("");
+  const [customRepoOpen, setCustomRepoOpen] = createSignal(false);
+  const [customRepoOwner, setCustomRepoOwner] = createSignal("");
+  const [customRepoName, setCustomRepoName] = createSignal("");
+  const [customRepoRef, setCustomRepoRef] = createSignal("main");
+  const [customRepoError, setCustomRepoError] = createSignal<string | null>(null);
 
   const [shareTarget, setShareTarget] = createSignal<SkillCard | null>(null);
   const shareOpen = createMemo(() => shareTarget() != null);
@@ -113,6 +123,47 @@ export default function SkillsView(props: SkillsViewProps) {
       if (!taken.has(candidate)) return candidate;
     }
     return `${trimmed}-${Date.now()}`;
+  };
+
+  const hubRepoKey = (repo: HubSkillRepo) => `${repo.owner}/${repo.repo}@${repo.ref}`;
+  const defaultHubRepoKey = "different-ai/openwork-hub@main";
+
+  const activeHubRepoLabel = createMemo(
+    () => `${props.hubRepo.owner}/${props.hubRepo.repo}@${props.hubRepo.ref}`,
+  );
+
+  const isDefaultHubRepo = createMemo(() => hubRepoKey(props.hubRepo) === defaultHubRepoKey);
+
+  const selectHubRepo = (repo: HubSkillRepo) => {
+    props.setHubRepo(repo);
+    props.refreshHubSkills({ force: true });
+  };
+
+  const openCustomRepoModal = () => {
+    if (props.busy) return;
+    setCustomRepoOpen(true);
+    setCustomRepoOwner(props.hubRepo.owner);
+    setCustomRepoName(props.hubRepo.repo);
+    setCustomRepoRef(props.hubRepo.ref || "main");
+    setCustomRepoError(null);
+  };
+
+  const closeCustomRepoModal = () => {
+    setCustomRepoOpen(false);
+    setCustomRepoError(null);
+  };
+
+  const saveCustomRepo = () => {
+    const owner = customRepoOwner().trim();
+    const repo = customRepoName().trim();
+    const ref = customRepoRef().trim() || "main";
+    if (!owner || !repo) {
+      setCustomRepoError("Owner and repo are required.");
+      return;
+    }
+    props.addCustomHubRepo({ owner, repo, ref });
+    props.refreshHubSkills({ force: true });
+    closeCustomRepoModal();
   };
 
   const filteredSkills = createMemo(() => {
@@ -720,20 +771,90 @@ export default function SkillsView(props: SkillsViewProps) {
       <div class="space-y-4">
         <div class="flex items-center justify-between gap-3">
           <h3 class="text-[11px] font-bold text-dls-secondary uppercase tracking-widest">Install skills</h3>
-          <button
-            type="button"
-            onClick={() => props.refreshHubSkills({ force: true })}
-            disabled={props.busy}
-            class={`flex items-center gap-1.5 text-xs font-medium transition-colors ${
-              props.busy
-                ? "text-dls-secondary"
-                : "text-dls-secondary hover:text-dls-text"
-            }`}
-            title="Refresh hub catalog"
-          >
-            <RefreshCw size={14} />
-            Refresh hub
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={openCustomRepoModal}
+              disabled={props.busy}
+              class={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                props.busy
+                  ? "border-dls-border bg-dls-hover text-dls-secondary"
+                  : "border-dls-border bg-dls-surface text-dls-text hover:bg-dls-active"
+              }`}
+              title="Add custom GitHub repo"
+            >
+              <Plus size={14} />
+              Add custom git repo
+            </button>
+            <button
+              type="button"
+              onClick={() => props.refreshHubSkills({ force: true })}
+              disabled={props.busy}
+              class={`flex items-center gap-1.5 text-xs font-medium transition-colors ${
+                props.busy
+                  ? "text-dls-secondary"
+                  : "text-dls-secondary hover:text-dls-text"
+              }`}
+              title="Refresh hub catalog"
+            >
+              <RefreshCw size={14} />
+              Refresh hub
+            </button>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <div class="text-xs text-dls-secondary">
+            Source: <span class="font-mono text-dls-text">{activeHubRepoLabel()}</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => selectHubRepo({ owner: "different-ai", repo: "openwork-hub", ref: "main" })}
+              class={`rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+                isDefaultHubRepo()
+                  ? "border-dls-border bg-dls-active text-dls-text"
+                  : "border-dls-border bg-dls-surface text-dls-secondary hover:text-dls-text"
+              }`}
+              disabled={props.busy}
+            >
+              different-ai/openwork-hub@main
+            </button>
+            <For each={props.customHubRepos}>
+              {(repo) => {
+                const key = hubRepoKey(repo);
+                const active = key === activeHubRepoLabel();
+                return (
+                  <div class="inline-flex items-center rounded-md border border-dls-border bg-dls-surface">
+                    <button
+                      type="button"
+                      onClick={() => selectHubRepo(repo)}
+                      class={`px-2 py-1 text-[11px] font-medium transition-colors ${
+                        active
+                          ? "bg-dls-active text-dls-text"
+                          : "text-dls-secondary hover:text-dls-text"
+                      }`}
+                      disabled={props.busy}
+                    >
+                      {key}
+                    </button>
+                    <button
+                      type="button"
+                      class="px-1.5 py-1 text-[11px] text-dls-secondary hover:text-red-11"
+                      onClick={() => {
+                        props.removeCustomHubRepo(repo);
+                        props.refreshHubSkills({ force: true });
+                      }}
+                      disabled={props.busy}
+                      title="Remove saved repo"
+                    >
+                      x
+                    </button>
+                  </div>
+                );
+              }}
+            </For>
+          </div>
         </div>
 
         <Show when={props.hubSkillsStatus}>
@@ -1138,6 +1259,73 @@ export default function SkillsView(props: SkillsViewProps) {
                     );
                   }}
                 </Show>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      <Show when={customRepoOpen()}>
+        <div class="fixed inset-0 z-50 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4">
+          <div class="bg-dls-surface border border-dls-border w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden">
+            <div class="p-6 space-y-4">
+              <div>
+                <h3 class="text-lg font-semibold text-dls-text">Add custom GitHub repo</h3>
+                <p class="text-sm text-dls-secondary mt-1">
+                  Skills are loaded from <span class="font-mono">skills/&lt;name&gt;/SKILL.md</span>.
+                </p>
+              </div>
+
+              <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label class="space-y-1">
+                  <div class="text-xs font-semibold uppercase tracking-widest text-dls-secondary">Owner</div>
+                  <input
+                    type="text"
+                    value={customRepoOwner()}
+                    onInput={(e) => setCustomRepoOwner(e.currentTarget.value)}
+                    placeholder="different-ai"
+                    class="w-full bg-dls-hover border border-dls-border rounded-lg px-3 py-2 text-xs font-mono text-dls-text focus:outline-none"
+                    spellcheck={false}
+                  />
+                </label>
+                <label class="space-y-1">
+                  <div class="text-xs font-semibold uppercase tracking-widest text-dls-secondary">Repo</div>
+                  <input
+                    type="text"
+                    value={customRepoName()}
+                    onInput={(e) => setCustomRepoName(e.currentTarget.value)}
+                    placeholder="openwork-hub"
+                    class="w-full bg-dls-hover border border-dls-border rounded-lg px-3 py-2 text-xs font-mono text-dls-text focus:outline-none"
+                    spellcheck={false}
+                  />
+                </label>
+              </div>
+
+              <label class="space-y-1">
+                <div class="text-xs font-semibold uppercase tracking-widest text-dls-secondary">Ref (branch/tag/commit)</div>
+                <input
+                  type="text"
+                  value={customRepoRef()}
+                  onInput={(e) => setCustomRepoRef(e.currentTarget.value)}
+                  placeholder="main"
+                  class="w-full bg-dls-hover border border-dls-border rounded-lg px-3 py-2 text-xs font-mono text-dls-text focus:outline-none"
+                  spellcheck={false}
+                />
+              </label>
+
+              <Show when={customRepoError()}>
+                <div class="rounded-xl border border-red-7/20 bg-red-1/40 px-4 py-3 text-xs text-red-12">
+                  {customRepoError()}
+                </div>
+              </Show>
+
+              <div class="flex justify-end gap-2">
+                <Button variant="outline" onClick={closeCustomRepoModal} disabled={props.busy}>
+                  {translate("common.cancel")}
+                </Button>
+                <Button variant="secondary" onClick={saveCustomRepo} disabled={props.busy}>
+                  Save and load
+                </Button>
               </div>
             </div>
           </div>
