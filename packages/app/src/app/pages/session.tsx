@@ -218,7 +218,9 @@ export type SessionViewProps = {
   prompt: string;
   setPrompt: (value: string) => void;
   selectedSessionModelLabel: string;
-  openSessionModelPicker: () => void;
+  openSessionModelPicker: (options?: {
+    returnFocusTarget?: "none" | "composer";
+  }) => void;
   modelVariantLabel: string;
   modelVariant: string | null;
   setModelVariant: (value: string) => void;
@@ -252,8 +254,10 @@ export type SessionViewProps = {
     apiKey: string,
   ) => Promise<string | void>;
   refreshProviders: () => Promise<unknown>;
-  openProviderAuthModal: () => Promise<void>;
-  closeProviderAuthModal: () => void;
+  openProviderAuthModal: (options?: {
+    returnFocusTarget?: "none" | "composer";
+  }) => Promise<void>;
+  closeProviderAuthModal: (options?: { restorePromptFocus?: boolean }) => void;
   providerAuthModalOpen: boolean;
   providerAuthBusy: boolean;
   providerAuthError: string | null;
@@ -361,6 +365,8 @@ export default function SessionView(props: SessionViewProps) {
   const [renameSessionId, setRenameSessionId] = createSignal<string | null>(null);
   const [renameTitle, setRenameTitle] = createSignal("");
   const [renameBusy, setRenameBusy] = createSignal(false);
+  const [renameReturnFocusToComposer, setRenameReturnFocusToComposer] =
+    createSignal(false);
 
   const [deleteSessionOpen, setDeleteSessionOpen] = createSignal(false);
   const [deleteSessionId, setDeleteSessionId] = createSignal<string | null>(null);
@@ -2599,6 +2605,11 @@ export default function SessionView(props: SessionViewProps) {
     });
   };
 
+  const closeCommandPaletteAndFocusComposer = () => {
+    closeCommandPalette();
+    focusComposer();
+  };
+
   const openCommandPalette = (mode: CommandPaletteMode = "root") => {
     setCommandPaletteMode(mode);
     setCommandPaletteQuery("");
@@ -2832,21 +2843,35 @@ export default function SessionView(props: SessionViewProps) {
     return next !== sessionTitleForId(renameSessionId()).trim();
   });
 
-  const openRenameModal = () => {
+  const finishRenameModal = (
+    restoreComposerFocus = renameReturnFocusToComposer(),
+  ) => {
+    setRenameModalOpen(false);
+    setRenameSessionId(null);
+    setRenameReturnFocusToComposer(false);
+    if (restoreComposerFocus) {
+      focusComposer();
+    }
+  };
+
+  const openRenameModal = (options?: { returnFocusToComposer?: boolean }) => {
     const sessionId = props.selectedSessionId;
     if (!sessionId) {
       setToastMessage("No session selected");
+      if (options?.returnFocusToComposer) {
+        focusComposer();
+      }
       return;
     }
     setRenameSessionId(sessionId);
     setRenameTitle(sessionTitleForId(sessionId));
+    setRenameReturnFocusToComposer(options?.returnFocusToComposer === true);
     setRenameModalOpen(true);
   };
 
   const closeRenameModal = () => {
     if (renameBusy()) return;
-    setRenameModalOpen(false);
-    setRenameSessionId(null);
+    finishRenameModal();
   };
 
   const submitRename = async () => {
@@ -2857,8 +2882,7 @@ export default function SessionView(props: SessionViewProps) {
     setRenameBusy(true);
     try {
       await props.renameSession(sessionId, next);
-      setRenameModalOpen(false);
-      setRenameSessionId(null);
+      finishRenameModal();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : props.safeStringify(error);
@@ -3619,7 +3643,7 @@ export default function SessionView(props: SessionViewProps) {
         meta: "Rename",
         action: () => {
           closeCommandPalette();
-          openRenameModal();
+          openRenameModal({ returnFocusToComposer: true });
         },
       },
       {
@@ -3641,7 +3665,7 @@ export default function SessionView(props: SessionViewProps) {
         meta: "Open",
         action: () => {
           closeCommandPalette();
-          props.openSessionModelPicker();
+          props.openSessionModelPicker({ returnFocusTarget: "composer" });
         },
       },
       {
@@ -3651,13 +3675,16 @@ export default function SessionView(props: SessionViewProps) {
         meta: "Open",
         action: () => {
           closeCommandPalette();
-          void props.openProviderAuthModal().catch((error) => {
-            const message =
-              error instanceof Error
-                ? error.message
-                : "Failed to load providers";
-            setToastMessage(message);
-          });
+          void props
+            .openProviderAuthModal({ returnFocusTarget: "composer" })
+            .catch((error) => {
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : "Failed to load providers";
+              setToastMessage(message);
+              focusComposer();
+            });
         },
       },
       {
@@ -3724,7 +3751,7 @@ export default function SessionView(props: SessionViewProps) {
       meta: activeVariant === option.value ? "Current" : undefined,
       action: () => {
         props.setModelVariant(option.value);
-        closeCommandPalette();
+        closeCommandPaletteAndFocusComposer();
         setToastMessage(`Thinking set to ${option.label}.`);
       },
     }));
@@ -4610,7 +4637,7 @@ export default function SessionView(props: SessionViewProps) {
               onStop={cancelRun}
               onDraftChange={handleDraftChange}
               selectedModelLabel={props.selectedSessionModelLabel || "Model"}
-              onModelClick={props.openSessionModelPicker}
+              onModelClick={() => props.openSessionModelPicker()}
               modelVariantLabel={props.modelVariantLabel}
               modelVariant={props.modelVariant}
               onModelVariantChange={props.setModelVariant}
@@ -4898,7 +4925,7 @@ export default function SessionView(props: SessionViewProps) {
         onSubmitApiKey={handleProviderAuthApiKey}
         onSubmitOAuth={handleProviderAuthOAuth}
         onRefreshProviders={props.refreshProviders}
-        onClose={props.closeProviderAuthModal}
+        onClose={() => props.closeProviderAuthModal()}
       />
 
       <RenameSessionModal
