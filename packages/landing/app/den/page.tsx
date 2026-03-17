@@ -9,12 +9,14 @@ export const metadata = {
 
 export default async function Den() {
   const github = await getGithubData();
+  const cal = process.env.NEXT_PUBLIC_CAL_URL || "/enterprise#book";
 
   return (
     <LandingDen
       stars={github.stars}
       downloadHref={github.downloads.macos}
       getStartedHref="https://app.openwork.software"
+      callHref={cal}
     />
   );
 }

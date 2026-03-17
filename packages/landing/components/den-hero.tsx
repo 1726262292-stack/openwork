@@ -8,7 +8,7 @@ import { SlackGlyph, TelegramGlyph } from "./den-icons";
 
 type DenHeroProps = {
   stars: string;
-  getStartedHref: string;
+  callHref: string;
 };
 
 export function DenHero(props: DenHeroProps) {
@@ -38,10 +38,10 @@ export function DenHero(props: DenHeroProps) {
 
         <div className="mt-8 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-5">
           <a
-            href={props.getStartedHref}
+            href={props.callHref}
             className="doc-button min-w-[290px] justify-center px-8 text-[1.08rem] font-semibold"
           >
-            Deploy your first worker
+            Contact sales
           </a>
           <div className="flex flex-col text-[0.98rem] text-gray-500 sm:max-w-[14rem]">
             <span className="font-semibold text-gray-700">$50/mo per worker</span>
