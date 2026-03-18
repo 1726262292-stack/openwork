@@ -114,30 +114,7 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="rounded-[12px] border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={() => void refreshBilling({ includeCheckout: true })}
-            disabled={billingBusy || billingCheckoutBusy || billingSubscriptionBusy || resuming}
-          >
-            {billingCheckoutBusy ? "Refreshing checkout..." : "Refresh billing"}
-          </button>
-          <button
-            type="button"
-            className="rounded-[12px] bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:bg-black"
-            onClick={() => router.push("/dashboard")}
-          >
-            Go to dashboard
-          </button>
-          <button
-            type="button"
-            className="rounded-[12px] border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
-            onClick={() => void signOut()}
-          >
-            Log out
-          </button>
-        </div>
+        
       </div>
 
       {billingError ? (
