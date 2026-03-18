@@ -1266,6 +1266,11 @@ export function CloudControlPanel() {
   const billingSubscription = billingSummary?.subscription ?? null;
   const billingPrice = billingSummary?.price ?? null;
   const runtimeUpgradeCount = runtimeSnapshot?.services.filter((item) => item.upgradeAvailable).length ?? 0;
+  const onboardingPaywallRequired = Boolean(
+    signupOnboardingActive &&
+    !worker &&
+    (checkoutUrl || (billingSummary?.featureGateEnabled && !billingSummary.hasActivePlan))
+  );
 
   function appendEvent(level: EventLevel, label: string, detail: string) {
     setEvents((current) => {
@@ -3084,6 +3089,41 @@ export function CloudControlPanel() {
                 {launchError ? <p className="mt-4 text-[13px] font-medium text-rose-600">{launchError}</p> : null}
               </div>
 
+              {onboardingPaywallRequired ? (
+                <div className="rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4 text-[13px] text-amber-900">
+                  <p className="font-semibold">Step 2 requires a Den Cloud plan.</p>
+                  <p className="mt-1">Complete checkout to unlock worker provisioning.</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {effectiveCheckoutUrl ? (
+                      <a
+                        href={effectiveCheckoutUrl}
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-center rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+                      >
+                        Continue to checkout
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+                        onClick={() => void refreshBilling({ includeCheckout: true })}
+                        disabled={billingBusy || billingCheckoutBusy}
+                      >
+                        Fetch checkout link
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+                      onClick={() => void refreshBilling({ quiet: true })}
+                      disabled={billingBusy || billingCheckoutBusy}
+                    >
+                      I already paid
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <button
                   type="button"
@@ -3093,14 +3133,14 @@ export function CloudControlPanel() {
                 >
                   Open dashboard
                 </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center rounded-2xl bg-[#011627] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(15,23,42,0.14)] transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => void handleLaunchWorker({ source: "onboarding_continue" })}
-                  disabled={launchBusy}
-                >
-                  {launchBusy ? "Working..." : "Retry provisioning"}
-                </button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center rounded-2xl bg-[#011627] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(15,23,42,0.14)] transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => void handleLaunchWorker({ source: "onboarding_continue" })}
+                    disabled={launchBusy || onboardingPaywallRequired}
+                  >
+                    {launchBusy ? "Working..." : onboardingPaywallRequired ? "Complete checkout to continue" : "Retry provisioning"}
+                  </button>
               </div>
             </div>
 
