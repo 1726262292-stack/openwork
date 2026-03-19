@@ -16,8 +16,7 @@ English | [简体中文](./README_ZH.md) | [日本語](./TRANSLATIONS.md) | [Ti�
    <p align="center">
     <a href="https://openwork.software/docs"><img src="https://img.shields.io/badge/docs.sciphi.ai-3F16E4" alt="Docs"></a>
     <a href="https://discord.gg/VEhNQXxYMB"><img src="https://img.shields.io/badge/discord-join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
-    <a href="https://github.com/different-ai/openwork/"><img src="https://img.shields.io/github/stars/different-ai/openwork
-" alt="Github Stars"></a>
+    <a href="https://github.com/different-ai/openwork/"><img src="https://img.shields.io/github/stars/different-ai/openwork" alt="Github Stars"></a>
     <a href="https://github.com/different-ai/openwork/pulse"><img src="https://img.shields.io/github/commit-activity/w/different-ai/openwork" alt="Commits-per-week"></a>
     <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-purple.svg" alt="License: MIT"></a>
   </p>
