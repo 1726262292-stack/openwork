@@ -6,6 +6,7 @@ import { bootstrapTheme } from "./app/theme";
 import "./app/index.css";
 import AppEntry from "./app/entry";
 import { PlatformProvider, type Platform } from "./app/context/platform";
+import { nativeDeepLinkEvent, pushPendingDeepLinks } from "./app/lib/deep-link-bridge";
 import { getOpenWorkDeployment } from "./app/lib/openwork-deployment";
 import { isTauriRuntime } from "./app/utils";
 import { initLocale } from "./i18n";
@@ -20,6 +21,56 @@ if (!root) {
 }
 
 root.dataset.openworkDeployment = getOpenWorkDeployment();
+
+let deepLinkBridgeStarted = false;
+
+function startDeepLinkBridge() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (deepLinkBridgeStarted) {
+    return;
+  }
+
+  deepLinkBridgeStarted = true;
+
+  if (!isTauriRuntime()) {
+    pushPendingDeepLinks(window, [window.location.href]);
+    return;
+  }
+
+  void (async () => {
+    try {
+      const [{ getCurrent, onOpenUrl }, { listen }] = await Promise.all([
+        import("@tauri-apps/plugin-deep-link"),
+        import("@tauri-apps/api/event"),
+      ]);
+
+      const startUrls = await getCurrent().catch(() => null);
+      if (Array.isArray(startUrls)) {
+        pushPendingDeepLinks(window, startUrls);
+      }
+
+      await onOpenUrl((urls) => {
+        pushPendingDeepLinks(window, urls);
+      }).catch(() => undefined);
+
+      await listen<string[]>(
+        nativeDeepLinkEvent,
+        (event) => {
+          if (Array.isArray(event.payload)) {
+            pushPendingDeepLinks(window, event.payload);
+          }
+        },
+      ).catch(() => undefined);
+    } catch {
+      // ignore
+    }
+  })();
+}
+
+startDeepLinkBridge();
 
 const RouterComponent = isTauriRuntime() ? HashRouter : Router;
 

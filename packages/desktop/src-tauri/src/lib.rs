@@ -57,8 +57,10 @@ use openwork_server::manager::OpenworkServerManager;
 use orchestrator::manager::OrchestratorManager;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use workspace::watch::WorkspaceWatchState;
+
+const NATIVE_DEEP_LINK_EVENT: &str = "openwork:deep-link-native";
 
 #[cfg(target_os = "macos")]
 fn set_dev_app_name() {
@@ -77,9 +79,41 @@ fn set_dev_app_name() {
 #[cfg(not(target_os = "macos"))]
 fn set_dev_app_name() {}
 
+fn forwarded_deep_links(args: &[String]) -> Vec<String> {
+    args.iter()
+        .skip(1)
+        .filter_map(|arg| {
+            let trimmed = arg.trim();
+            if trimmed.starts_with("openwork://")
+                || trimmed.starts_with("openwork-dev://")
+                || trimmed.starts_with("https://")
+                || trimmed.starts_with("http://")
+            {
+                Some(trimmed.to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn emit_native_deep_links(app_handle: &AppHandle, urls: Vec<String>) {
+    if urls.is_empty() {
+        return;
+    }
+
+    let _ = app_handle.emit(NATIVE_DEEP_LINK_EVENT, urls);
+}
+
+fn emit_forwarded_deep_links(app_handle: &AppHandle, args: &[String]) {
+    let urls = forwarded_deep_links(args);
+    emit_native_deep_links(app_handle, urls);
+}
+
 fn show_main_window(app_handle: &AppHandle) {
     if let Some(window) = app_handle.get_webview_window("main") {
         let _ = window.show();
+        let _ = window.unminimize();
         let _ = window.set_focus();
     }
 }
@@ -107,6 +141,10 @@ fn stop_managed_services(app_handle: &tauri::AppHandle) {
 
 pub fn run() {
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            show_main_window(app);
+            emit_forwarded_deep_links(app, &args);
+        }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
@@ -235,6 +273,12 @@ pub fn run() {
         } if label == "main" => {
             api.prevent_close();
             hide_main_window(&app_handle);
+        }
+        #[cfg(target_os = "macos")]
+        RunEvent::Opened { urls } => {
+            let urls = urls.into_iter().map(|url| url.to_string()).collect::<Vec<_>>();
+            show_main_window(&app_handle);
+            emit_native_deep_links(&app_handle, urls);
         }
         #[cfg(target_os = "macos")]
         RunEvent::Reopen {
