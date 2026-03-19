@@ -9,19 +9,26 @@ import {
 import type { JSX } from "solid-js";
 import type { Part, Session } from "@opencode-ai/sdk/v2/client";
 import {
+  BookOpen,
   Check,
   ChevronDown,
   ChevronRight,
   CircleAlert,
   Copy,
-  Eye,
   File,
-  FileEdit,
   FolderSearch,
-  Pencil,
+  Globe,
+  List,
+  ListTodo,
+  MessageCircleQuestion,
+  PenLine,
   Search,
-  Sparkles,
+  SquareCheck,
+  SquarePen,
   Terminal,
+  Wrench,
+  Workflow,
+  Zap,
 } from "lucide-solid";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 
@@ -30,10 +37,13 @@ import {
   type MessageGroup,
   type MessageWithParts,
   type StepGroupMode,
+  type TodoItem,
 } from "../../types";
 import {
+  formatToolLabel,
   groupMessageParts,
   isUserVisiblePart,
+  safeStringify,
   summarizeStep,
 } from "../../utils";
 import PartView from "../part-view";
@@ -194,28 +204,43 @@ function explorationStatus(parts: Part[]) {
   return pending ? "exploring" : "explored";
 }
 
-/** Icon for a given tool category */
-function ToolIcon(props: { category: string; size?: number }) {
-  const s = () => props.size ?? 12;
-  switch (props.category) {
+/** Icon for a given tool */
+function ToolIcon(props: { tool?: string; class?: string }) {
+  switch ((props.tool ?? "").toLowerCase()) {
+    case "bash":
+      return <Terminal class={props.class} />;
     case "read":
-      return <Eye size={s()} />;
-    case "edit":
-      return <Pencil size={s()} />;
-    case "write":
-      return <FileEdit size={s()} />;
-    case "search":
-      return <Search size={s()} />;
-    case "terminal":
-      return <Terminal size={s()} />;
+      return <BookOpen class={props.class} />;
+    case "list":
+    case "list_files":
+      return <List class={props.class} />;
     case "glob":
-      return <FolderSearch size={s()} />;
+      return <FolderSearch class={props.class} />;
+    case "grep":
+    case "search":
+      return <Search class={props.class} />;
     case "task":
-      return <Sparkles size={s()} />;
+      return <Workflow class={props.class} />;
+    case "todowrite":
+      return <SquareCheck class={props.class} />;
+    case "todoread":
+      return <ListTodo class={props.class} />;
+    case "edit":
+      return <SquarePen class={props.class} />;
+    case "write":
+      return <PenLine class={props.class} />;
+    case "apply_patch":
+      return <Wrench class={props.class} />;
+    case "webfetch":
+      return <Globe class={props.class} />;
     case "skill":
-      return <Sparkles size={s()} />;
+      return <Zap class={props.class} />;
+    case "question":
+      return <MessageCircleQuestion class={props.class} />;
+    case "reasoning":
+      return <Zap class={props.class} />;
     default:
-      return <File size={s()} />;
+      return <Zap class={props.class} />;
   }
 }
 
@@ -402,6 +427,153 @@ function toolHeadline(part: Part) {
   }
 
   return "";
+}
+
+type StepBodyField = {
+  label: string;
+  value: string;
+};
+
+type StepBodyBlock = {
+  label?: string;
+  value: string;
+  tone?: "default" | "error";
+};
+
+type StepBody = {
+  fields: StepBodyField[];
+  blocks: StepBodyBlock[];
+  todos: TodoItem[];
+};
+
+function trimBodyText(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.replace(/\r\n/g, "\n").trim();
+}
+
+function firstMeaningfulLine(value: string): string {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) ?? "";
+}
+
+function getStepDisclosureId(part: Part): string {
+  const record = part as { id?: string | number; callID?: string | number; messageID?: string | number };
+  const raw = record.id ?? record.callID ?? record.messageID;
+  if (typeof raw === "string" && raw.trim()) return `step:${raw.trim()}`;
+  if (typeof raw === "number") return `step:${String(raw)}`;
+  return "";
+}
+
+function getStepBody(part: Part): StepBody {
+  if (part.type === "reasoning") {
+    const text = trimBodyText((part as { text?: string }).text);
+    if (!text) return { fields: [], blocks: [], todos: [] };
+    return { fields: [], blocks: [{ value: text }], todos: [] };
+  }
+
+  if (part.type !== "tool") {
+    return { fields: [], blocks: [], todos: [] };
+  }
+
+  const record = part as any;
+  const tool = typeof record.tool === "string" ? record.tool.toLowerCase() : "";
+  const state = record.state ?? {};
+  const input = state.input && typeof state.input === "object" ? (state.input as Record<string, unknown>) : {};
+  const fields: StepBodyField[] = [];
+  const blocks: StepBodyBlock[] = [];
+
+  const pick = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = input[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+      if (typeof value === "number" || typeof value === "boolean") return String(value);
+    }
+    return "";
+  };
+
+  const pushField = (label: string, value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    fields.push({ label, value: trimmed });
+  };
+
+  const error = trimBodyText(state.error);
+  const output = trimBodyText(state.output);
+  const command = pick("command", "cmd");
+
+  if (tool === "todowrite" || tool === "todoread") {
+    const todos = Array.isArray(input.todos)
+      ? input.todos.filter((item): item is TodoItem => {
+          if (!item || typeof item !== "object") return false;
+          const content = (item as { content?: unknown }).content;
+          return typeof content === "string" && content.trim().length > 0;
+        })
+      : [];
+    return { fields: [], blocks: [], todos };
+  }
+
+  if (tool === "bash") {
+    if (command) {
+      const content = output ? `$ ${command}\n${output}` : `$ ${command}`;
+      blocks.push({ value: content });
+    } else if (output) {
+      blocks.push({ value: output });
+    }
+    if (error && error !== output) {
+      blocks.push({ label: "Error", value: error, tone: "error" });
+    }
+    return { fields, blocks, todos: [] };
+  }
+
+  if (tool === "grep" || tool === "search") {
+    pushField("pattern", pick("pattern", "query"));
+    pushField("path", pick("path"));
+    pushField("include", pick("include"));
+  } else if (tool === "glob") {
+    pushField("pattern", pick("pattern"));
+    pushField("path", pick("path"));
+  } else if (tool === "read") {
+    pushField("file", pick("filePath", "path", "file"));
+    pushField("offset", pick("offset"));
+    pushField("limit", pick("limit"));
+  } else if (tool === "list" || tool === "list_files") {
+    pushField("path", pick("path"));
+  } else if (tool === "webfetch") {
+    pushField("url", pick("url"));
+    pushField("format", pick("format"));
+  } else if (tool === "edit" || tool === "write") {
+    pushField("file", pick("filePath", "path", "file"));
+  } else if (tool === "apply_patch") {
+    const patch = trimBodyText(input.patchText);
+    if (patch) blocks.push({ value: patch });
+  }
+
+  if (output) {
+    blocks.push({ value: output });
+  }
+
+  if (error && error !== output) {
+    blocks.push({ label: "Error", value: error, tone: "error" });
+  }
+
+  if (!fields.length && !blocks.length && Object.keys(input).length > 0) {
+    blocks.push({ label: "Input", value: safeStringify(input) });
+  }
+
+  return { fields, blocks, todos: [] };
+}
+
+function hasExpandableStepBody(part: Part): boolean {
+  const body = getStepBody(part);
+  return body.fields.length > 0 || body.blocks.length > 0 || body.todos.length > 0;
+}
+
+function isErrorStep(part: Part): boolean {
+  if (part.type !== "tool") return false;
+  const state = (part as any).state ?? {};
+  return state.status === "error" || trimBodyText(state.error).length > 0;
 }
 
 export default function MessageList(props: MessageListProps) {
@@ -902,36 +1074,147 @@ export default function MessageList(props: MessageListProps) {
     groupMode?: StepGroupMode;
   }) => {
     const summary = createMemo(() => summarizeStep(rowProps.part));
-    const headline = createMemo(() => {
-      const fromTool = toolHeadline(rowProps.part);
-      if (fromTool) return fromTool;
-      const title = summary().title?.trim() ?? "";
-      const detail = summary().detail?.trim() ?? "";
-      if (title && detail && detail.toLowerCase() !== title.toLowerCase()) {
-        return `${title} - ${detail}`;
-      }
-      return detail || title || "Updates progress";
-    });
     const task = createMemo(() => getTaskStepInfo(rowProps.part));
-
-    if (rowProps.part.type === "reasoning") {
-      return (
-        <div class="flex items-start gap-3 text-[14px] text-gray-9">
-          <ChevronRight size={14} class="mt-[2px] shrink-0 text-gray-7" />
-          <div class="min-w-0 leading-relaxed">
-            <span>{headline()}</span>
-          </div>
-        </div>
-      );
-    }
+    const toolName = createMemo(() => {
+      if (rowProps.part.type !== "tool") return "reasoning";
+      return typeof (rowProps.part as any).tool === "string"
+        ? String((rowProps.part as any).tool)
+        : "tool";
+    });
+    const disclosureId = createMemo(() => getStepDisclosureId(rowProps.part));
+    const body = createMemo(() => getStepBody(rowProps.part));
+    const hasDisclosure = createMemo(() => {
+      if (task().isTask && task().sessionId) return true;
+      return hasExpandableStepBody(rowProps.part);
+    });
+    const open = createMemo(() => {
+      const id = disclosureId();
+      return Boolean(id) && hasDisclosure() && isStepsExpanded(id);
+    });
+    const label = createMemo(() => {
+      if (rowProps.part.type !== "tool") return summary().title?.trim() || "Thinking";
+      return formatToolLabel(toolName());
+    });
+    const headline = createMemo(() => {
+      if (rowProps.part.type === "reasoning") {
+        return summary().detail?.trim() || summary().title?.trim() || "Thinking";
+      }
+      return summary().detail?.trim() || toolHeadline(rowProps.part) || summary().title?.trim() || "Updates progress";
+    });
+    const displayHeadline = createMemo(() => {
+      const base = headline();
+      if (!isErrorStep(rowProps.part)) return base;
+      return base.startsWith("ERROR:") ? base : `ERROR: ${base || firstMeaningfulLine(trimBodyText((rowProps.part as any)?.state?.error)) || "Tool failed"}`;
+    });
+    const toggleDisclosure = () => {
+      const id = disclosureId();
+      if (!id || !hasDisclosure()) return;
+      toggleSteps(id);
+    };
 
     return (
       <div class="flex items-start gap-3 text-[14px] text-gray-9">
-        <ChevronRight size={14} class="mt-[2px] shrink-0 text-gray-7" />
         <div class="min-w-0 flex-1 leading-relaxed">
-          <span>{headline()}</span>
-          <Show when={task().isTask && task().sessionId}>
-            <SubagentThread part={rowProps.part} />
+          <Show
+            when={hasDisclosure()}
+            fallback={
+              <div class="flex min-w-0 items-start gap-2.5">
+                <div class="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-start sm:gap-2.5">
+                  <span
+                    class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-gray-5/70 bg-gray-3 text-gray-11 sm:h-6 sm:w-6"
+                    title={label()}
+                    aria-label={label()}
+                  >
+                    <ToolIcon tool={toolName()} class="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                  </span>
+                  <span class={`block min-w-0 break-words text-[13px] ${isErrorStep(rowProps.part) ? "font-medium text-red-11" : "text-gray-9"}`}>
+                    {displayHeadline()}
+                  </span>
+                </div>
+              </div>
+            }
+          >
+            <button
+              type="button"
+              class="group flex w-full min-w-0 items-start gap-2.5 text-left"
+              onClick={toggleDisclosure}
+              aria-expanded={open()}
+              aria-label={open() ? `Collapse ${label()} details` : `Expand ${label()} details`}
+            >
+              <div class="flex min-w-0 flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-start sm:gap-x-2.5 sm:gap-y-1">
+                <span
+                  class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-gray-5/70 bg-gray-3 text-gray-11 sm:h-6 sm:w-6"
+                  title={label()}
+                  aria-label={label()}
+                >
+                  <ToolIcon tool={toolName()} class="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                </span>
+                <span class={`block min-w-0 text-[13px] ${isErrorStep(rowProps.part) ? "font-medium text-red-11" : "text-gray-9"}`}>
+                  <span class="break-words [overflow-wrap:anywhere]">{displayHeadline()}</span>
+                  <span class="ml-1 inline-flex align-text-top text-gray-7 transition-colors group-hover:text-gray-10" aria-hidden="true">
+                    <ChevronRight size={14} class={`transition-transform duration-200 ${open() ? "rotate-90" : ""}`} />
+                  </span>
+                </span>
+              </div>
+            </button>
+          </Show>
+          <Show when={open() && (body().fields.length > 0 || body().blocks.length > 0 || body().todos.length > 0)}>
+            <div class="min-w-0 pt-2 sm:pl-[18px]">
+              <div class="grid min-w-0 w-full gap-2 overflow-hidden rounded-[18px] border border-gray-6/60 bg-gray-2/40 px-3 py-3">
+                <Show when={body().todos.length > 0}>
+                  <div class="grid gap-1.5 text-[12px] text-gray-10">
+                    <For each={body().todos}>
+                      {(todo) => (
+                        <div class="flex items-start gap-2">
+                          <span class="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-gray-8" />
+                          <span class="leading-5">
+                            {todo.content}
+                            <Show when={todo.status && todo.status !== "pending"}>
+                              <span class="text-gray-8"> {`(${todo.status})`}</span>
+                            </Show>
+                          </span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+                <Show when={body().fields.length > 0}>
+                  <div class="grid min-w-0 gap-1.5 text-[12px] text-gray-10">
+                    <For each={body().fields}>
+                      {(field) => (
+                        <div class="flex flex-wrap items-start gap-x-2 gap-y-1">
+                          <span class="font-medium text-gray-11">{field.label}:</span>
+                          <span class="font-mono text-[11px] text-gray-10 break-words [overflow-wrap:anywhere]">{field.value}</span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+                <Show when={body().blocks.length > 0}>
+                  <div class="grid min-w-0 gap-2">
+                    <For each={body().blocks}>
+                      {(block) => (
+                        <div class="min-w-0">
+                          <Show when={block.label}>
+                            <div class="mb-1 text-[11px] font-medium text-gray-10">{block.label}</div>
+                          </Show>
+                          <pre
+                            class={`block max-h-80 min-w-0 w-full max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded-[14px] px-3 py-2 text-[11px] leading-4 sm:text-[12px] sm:leading-5 ${block.tone === "error" ? "bg-red-1/60 text-red-12" : "bg-gray-3 text-gray-11"}`}
+                          >
+                            {block.value}
+                          </pre>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </div>
+            </div>
+          </Show>
+          <Show when={task().isTask && task().sessionId && open()}>
+            <div class="pt-2 sm:pl-[18px]">
+              <SubagentThread part={rowProps.part} />
+            </div>
           </Show>
         </div>
       </div>
