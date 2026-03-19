@@ -969,7 +969,7 @@ dependencies = [
  "foldhash 0.2.0",
  "html5ever 0.38.0",
  "precomputed-hash",
- "selectors 0.36.0",
+ "selectors 0.36.1",
  "tendril 0.5.0",
 ]
 
@@ -2773,7 +2773,7 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "openwork"
-version = "0.11.169"
+version = "0.11.170"
 dependencies = [
  "gethostname",
  "json5",
@@ -4009,9 +4009,9 @@ dependencies = [
 
 [[package]]
 name = "selectors"
-version = "0.36.0"
+version = "0.36.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "223b960be86f7d302b7168cdbab137f9bdbf7e04a90c185312fab14dff49dc5f"
+checksum = "c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c"
 dependencies = [
  "bitflags 2.11.0",
  "cssparser 0.36.0",
@@ -6709,18 +6709,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.42"
+version = "0.8.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2578b716f8a7a858b7f02d5bd870c14bf4ddbbcf3a4c05414ba6503640505e3"
+checksum = "5c5030500cb2d66bdfbb4ebc9563be6ce7005a4b5d0f26be0c523870fe372ca6"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.42"
+version = "0.8.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e6cc098ea4d3bd6246687de65af3f920c430e236bee1e3bf2e441463f08a02f"
+checksum = "a5f86989a046a79640b9d8867c823349a139367bda96549794fcc3313ce91f4e"
 dependencies = [
  "proc-macro2",
  "quote",
