@@ -132,6 +132,8 @@ const DEFAULT_APPROVAL_TIMEOUT = 30000;
 const DEFAULT_OPENCODE_USERNAME = "opencode";
 const DEFAULT_OPENCODE_HOT_RELOAD_DEBOUNCE_MS = 700;
 const DEFAULT_OPENCODE_HOT_RELOAD_COOLDOWN_MS = 1500;
+const DEFAULT_ACTIVITY_WINDOW_MS = 5 * 60_000;
+const DEFAULT_ACTIVITY_HEARTBEAT_INTERVAL_MS = 5 * 60_000;
 
 const SANDBOX_INTERNAL_OPENCODE_PORT = 4096;
 const SANDBOX_INTERNAL_OPENWORK_PORT = DEFAULT_OPENWORK_PORT;
@@ -250,6 +252,15 @@ type SidecarDiagnostics = {
   source: BinarySourcePreference;
   opencodeSource: BinarySourcePreference;
   allowExternal: boolean;
+};
+
+type WorkerActivityHeartbeatConfig = {
+  enabled: boolean;
+  workerId: string;
+  url: string;
+  token: string;
+  intervalMs: number;
+  activeWindowMs: number;
 };
 
 type RouterWorkspaceType = "local" | "remote";
@@ -1190,6 +1201,129 @@ function unwrap<T>(result: FieldsResult<T>): T {
         ? result.error
         : JSON.stringify(result.error);
   throw new Error(message || "Unknown error");
+}
+
+function parsePositiveNumberEnv(
+  value: string | undefined,
+  fallback: number,
+): number {
+  const raw = value?.trim();
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function parseSessionActivityAt(session: unknown): number | null {
+  if (!session || typeof session !== "object") return null;
+  const record = session as {
+    time?: { updated?: number; created?: number };
+  };
+  const updated = record.time?.updated;
+  if (typeof updated === "number" && Number.isFinite(updated) && updated > 0) {
+    return updated;
+  }
+  const created = record.time?.created;
+  if (typeof created === "number" && Number.isFinite(created) && created > 0) {
+    return created;
+  }
+  return null;
+}
+
+function resolveWorkerActivityHeartbeatConfig(): WorkerActivityHeartbeatConfig {
+  const enabled = (process.env.DEN_ACTIVITY_HEARTBEAT_ENABLED ?? "")
+    .trim()
+    .toLowerCase();
+  const provider = (process.env.DEN_RUNTIME_PROVIDER ?? "").trim().toLowerCase();
+  const workerId = (process.env.DEN_WORKER_ID ?? "").trim();
+  const url = (process.env.DEN_ACTIVITY_HEARTBEAT_URL ?? "").trim();
+  const token = (process.env.DEN_ACTIVITY_HEARTBEAT_TOKEN ?? "").trim();
+
+  const featureEnabled =
+    enabled === "1" || enabled === "true" || enabled === "yes";
+
+  if (!featureEnabled || provider !== "daytona" || !workerId || !url || !token) {
+    return {
+      enabled: false,
+      workerId: "",
+      url: "",
+      token: "",
+      intervalMs: DEFAULT_ACTIVITY_HEARTBEAT_INTERVAL_MS,
+      activeWindowMs: DEFAULT_ACTIVITY_WINDOW_MS,
+    };
+  }
+
+  const intervalSeconds = parsePositiveNumberEnv(
+    process.env.DEN_ACTIVITY_HEARTBEAT_INTERVAL_SECONDS,
+    DEFAULT_ACTIVITY_HEARTBEAT_INTERVAL_MS / 1000,
+  );
+  const activeWindowSeconds = parsePositiveNumberEnv(
+    process.env.DEN_ACTIVITY_WINDOW_SECONDS,
+    DEFAULT_ACTIVITY_WINDOW_MS / 1000,
+  );
+
+  return {
+    enabled: true,
+    workerId,
+    url,
+    token,
+    intervalMs: Math.round(intervalSeconds * 1000),
+    activeWindowMs: Math.round(activeWindowSeconds * 1000),
+  };
+}
+
+async function postWorkerActivityHeartbeat(input: {
+  config: WorkerActivityHeartbeatConfig;
+  opencodeClient: ReturnType<typeof createOpencodeClient>;
+  logger: Logger;
+}) {
+  if (!input.config.enabled) return;
+
+  const sessions = unwrap(await input.opencodeClient.session.list({ limit: 200 }));
+  let latestActivityAt = 0;
+  for (const session of sessions) {
+    const ts = parseSessionActivityAt(session);
+    if (ts && ts > latestActivityAt) {
+      latestActivityAt = ts;
+    }
+  }
+
+  const now = Date.now();
+  const isActiveRecently =
+    latestActivityAt > 0 && now - latestActivityAt <= input.config.activeWindowMs;
+
+  const payload = {
+    sentAt: new Date(now).toISOString(),
+    isActiveRecently,
+    lastActivityAt:
+      latestActivityAt > 0 ? new Date(latestActivityAt).toISOString() : null,
+    openSessionCount: sessions.length,
+  };
+
+  const response = await fetch(input.config.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${input.config.token}`,
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`heartbeat_failed:${response.status}`);
+  }
+
+  input.logger.debug(
+    "Worker activity heartbeat sent",
+    {
+      workerId: input.config.workerId,
+      isActiveRecently,
+      lastActivityAt: payload.lastActivityAt,
+      openSessionCount: payload.openSessionCount,
+    },
+    "openwork-orchestrator",
+  );
 }
 
 function prefixStream(
@@ -6663,6 +6797,8 @@ async function runStart(args: ParsedArgs) {
   let openworkOwnerToken: string | undefined;
   const startedAt = Date.now();
   let opencodeRouterHealthInterval: NodeJS.Timeout | null = null;
+  const workerActivityHeartbeat = resolveWorkerActivityHeartbeatConfig();
+  let workerActivityHeartbeatInterval: NodeJS.Timeout | null = null;
   const restartingServices = new Set<string>();
   const runtimeUpgradeState: RuntimeUpgradeState = {
     status: "idle",
@@ -6968,6 +7104,10 @@ async function runStart(args: ParsedArgs) {
       clearInterval(opencodeRouterHealthInterval);
       opencodeRouterHealthInterval = null;
     }
+    if (workerActivityHeartbeatInterval) {
+      clearInterval(workerActivityHeartbeatInterval);
+      workerActivityHeartbeatInterval = null;
+    }
     if (controlServer) {
       await new Promise<void>((resolve) =>
         controlServer?.close(() => resolve()),
@@ -7017,6 +7157,10 @@ async function runStart(args: ParsedArgs) {
     if (opencodeRouterHealthInterval) {
       clearInterval(opencodeRouterHealthInterval);
       opencodeRouterHealthInterval = null;
+    }
+    if (workerActivityHeartbeatInterval) {
+      clearInterval(workerActivityHeartbeatInterval);
+      workerActivityHeartbeatInterval = null;
     }
     tui?.stop();
     detachChildren();
@@ -7831,6 +7975,36 @@ async function runStart(args: ParsedArgs) {
         // In host mode, opencodeRouter is started before openwork-server so we can
         // confirm health before wiring the proxy.
       }
+    }
+
+    if (workerActivityHeartbeat.enabled && !checkOnly) {
+      logger.info(
+        "Worker activity heartbeat enabled",
+        {
+          workerId: workerActivityHeartbeat.workerId,
+          intervalMs: workerActivityHeartbeat.intervalMs,
+          activeWindowMs: workerActivityHeartbeat.activeWindowMs,
+        },
+        "openwork-orchestrator",
+      );
+      const runHeartbeat = () => {
+        void postWorkerActivityHeartbeat({
+          config: workerActivityHeartbeat,
+          opencodeClient,
+          logger,
+        }).catch((error) => {
+          logger.warn(
+            "Worker activity heartbeat failed",
+            { error: error instanceof Error ? error.message : String(error) },
+            "openwork-orchestrator",
+          );
+        });
+      };
+      runHeartbeat();
+      workerActivityHeartbeatInterval = setInterval(
+        runHeartbeat,
+        workerActivityHeartbeat.intervalMs,
+      );
     }
 
     const payload = {
