@@ -267,6 +267,8 @@ export default function WorkspaceSessionList(props: Props) {
     const session = () => row.session;
     const depth = () => row.depth;
     const isSelected = () => props.selectedSessionId === session().id;
+    const displayTitle = () =>
+      getDisplaySessionTitle(session().title, DEFAULT_SESSION_TITLE);
     const isSessionActive = () =>
       (props.sessionStatusById?.[session().id] ?? "idle") !== "idle";
     const canManageSession = () =>
@@ -300,15 +302,18 @@ export default function WorkspaceSessionList(props: Props) {
             openSession();
           }}
         >
-          <div class="mr-2.5 flex min-w-0 items-center gap-2">
+          <div class="mr-2.5 flex min-w-0 flex-1 items-center gap-2">
             <Show when={depth() > 0}>
               <span class="h-[1px] w-3 shrink-0 rounded-full bg-dls-border" />
             </Show>
             <Show when={isSessionActive()}>
               <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-9" />
             </Show>
-            <span class="truncate text-[13px] font-normal text-current">
-              {getDisplaySessionTitle(session().title, DEFAULT_SESSION_TITLE)}
+            <span
+              class="block min-w-0 truncate text-[13px] font-normal text-current"
+              title={displayTitle()}
+            >
+              {displayTitle()}
             </span>
           </div>
 
@@ -375,7 +380,7 @@ export default function WorkspaceSessionList(props: Props) {
 
   return (
     <div class="flex h-full min-h-0 flex-1 flex-col">
-      <div class="min-h-0 flex-1 overflow-y-auto pr-1">
+      <div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pr-1">
         <div class="space-y-3 pb-3">
         <For each={props.workspaceSessionGroups}>
           {(group) => {
