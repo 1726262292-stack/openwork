@@ -1205,7 +1205,7 @@ export default function DashboardView(props: DashboardViewProps) {
             </button>
           </Show>
         </div>
-        <div class="min-h-0 flex-1">
+        <div class="flex min-h-0 flex-1">
           <WorkspaceSessionList
             workspaceSessionGroups={props.workspaceSessionGroups}
             activeWorkspaceId={props.activeWorkspaceId}

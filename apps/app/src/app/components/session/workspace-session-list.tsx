@@ -374,7 +374,7 @@ export default function WorkspaceSessionList(props: Props) {
   };
 
   return (
-    <div class="flex min-h-0 flex-1 flex-col">
+    <div class="flex h-full min-h-0 flex-1 flex-col">
       <div class="min-h-0 flex-1 overflow-y-auto pr-1">
         <div class="space-y-3 pb-3">
         <For each={props.workspaceSessionGroups}>
