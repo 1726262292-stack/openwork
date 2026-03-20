@@ -272,6 +272,7 @@ export type SessionViewProps = {
   providerAuthError: string | null;
   providerAuthMethods: Record<string, ProviderAuthMethod[]>;
   providerAuthPreferredProviderId: string | null;
+  providerAuthWorkerType: "local" | "remote";
   providers: ProviderListItem[];
   providerConnectedIds: string[];
   listAgents: () => Promise<Agent[]>;
@@ -327,7 +328,7 @@ type ResolvedEmptyStateStarter = {
   title: string;
   description?: string;
   prompt?: string;
-  action?: "connect-anthropic";
+  action?: "connect-openai";
 };
 
 const INITIAL_MESSAGE_WINDOW = 140;
@@ -3916,13 +3917,13 @@ export default function SessionView(props: SessionViewProps) {
   };
 
   const openNewSessionProviderCta = () => {
-    openProviderAuth("anthropic");
+    openProviderAuth("openai");
   };
 
-  const hasAnthropicProviderConnected = createMemo(() =>
-    (props.providerConnectedIds ?? []).some((id) => id.trim().toLowerCase() === "anthropic")
+  const hasOpenAiProviderConnected = createMemo(() =>
+    (props.providerConnectedIds ?? []).some((id) => id.trim().toLowerCase() === "openai")
   );
-  const showNewSessionProviderCta = createMemo(() => !hasAnthropicProviderConnected());
+  const showNewSessionProviderCta = createMemo(() => !hasOpenAiProviderConnected());
   const emptyStatePreset = createMemo(
     () =>
       props.activeWorkspaceConfig?.workspace?.preset?.trim() ||
@@ -3961,7 +3962,7 @@ export default function SessionView(props: SessionViewProps) {
       if (!title) continue;
       if (kind === "action") {
         if (!action) continue;
-        if (action === "connect-anthropic" && !showNewSessionProviderCta()) {
+        if (action === "connect-openai" && !showNewSessionProviderCta()) {
           continue;
         }
         resolved.push({
@@ -4003,7 +4004,7 @@ export default function SessionView(props: SessionViewProps) {
   };
   const handleEmptyStateStarter = (starter: ResolvedEmptyStateStarter) => {
     if (starter.kind === "action") {
-      if (starter.action === "connect-anthropic") {
+      if (starter.action === "connect-openai") {
         openNewSessionProviderCta();
       }
       return;
@@ -5062,6 +5063,7 @@ export default function SessionView(props: SessionViewProps) {
         submitting={providerAuthActionBusy()}
         error={props.providerAuthError}
         preferredProviderId={props.providerAuthPreferredProviderId}
+        workerType={props.providerAuthWorkerType}
         providers={props.providers}
         connectedProviderIds={props.providerConnectedIds}
         authMethods={props.providerAuthMethods}
