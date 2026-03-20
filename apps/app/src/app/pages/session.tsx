@@ -452,7 +452,7 @@ export default function SessionView(props: SessionViewProps) {
     workspace.openworkWorkspaceName?.trim() ||
     workspace.name?.trim() ||
     workspace.path?.trim() ||
-    "Worker";
+    "Workspace";
   const todoList = createMemo(() =>
     props.todos.filter((todo) => todo.content.trim()),
   );
@@ -1535,7 +1535,7 @@ export default function SessionView(props: SessionViewProps) {
 
   const revealArtifact = async (file: string) => {
     if (props.activeWorkspaceDisplay.workspaceType === "remote") {
-      setToastMessage("Reveal is unavailable for remote workers.");
+      setToastMessage("Reveal is unavailable for remote workspaces.");
       return;
     }
     if (!isTauriRuntime()) {
@@ -1557,7 +1557,7 @@ export default function SessionView(props: SessionViewProps) {
         },
       );
       if (!result.ok && result.reason === "missing-root") {
-        setToastMessage("Pick a worker to reveal files.");
+        setToastMessage("Pick a workspace to reveal files.");
         return;
       }
       if (!result.ok) {
@@ -1599,7 +1599,7 @@ export default function SessionView(props: SessionViewProps) {
           return;
         }
         if (localResult.reason === "missing-root" && !isRemoteWorkspace) {
-          setToastMessage("Pick a worker to open files.");
+          setToastMessage("Pick a workspace to open files.");
           return;
         }
         if (!isRemoteWorkspace) {
@@ -1609,7 +1609,7 @@ export default function SessionView(props: SessionViewProps) {
       }
 
       if (!isRemoteWorkspace) {
-        setToastMessage("Pick a worker to open files.");
+        setToastMessage("Pick a workspace to open files.");
         return;
       }
 
@@ -1862,7 +1862,7 @@ export default function SessionView(props: SessionViewProps) {
     if (!trimmed) return;
 
     if (props.activeWorkspaceDisplay.workspaceType === "remote") {
-      setToastMessage("File open is unavailable for remote workers.");
+      setToastMessage("File open is unavailable for remote workspaces.");
       return;
     }
 
@@ -1881,7 +1881,7 @@ export default function SessionView(props: SessionViewProps) {
         },
       );
       if (!result.ok && result.reason === "missing-root") {
-        setToastMessage("Pick a worker to open files.");
+        setToastMessage("Pick a workspace to open files.");
         return;
       }
       if (!result.ok) {
@@ -3272,7 +3272,7 @@ export default function SessionView(props: SessionViewProps) {
 
   const shareServiceDisabledReason = createMemo(() => {
     const ws = shareWorkspace();
-    if (!ws) return "Select a worker first.";
+    if (!ws) return "Select a workspace first.";
     if (ws.workspaceType === "remote" && ws.remoteType !== "openwork") {
       return "Share service links are available for OpenWork workers.";
     }
@@ -3304,7 +3304,7 @@ export default function SessionView(props: SessionViewProps) {
   }> => {
     const ws = shareWorkspace();
     if (!ws) {
-      throw new Error("Select a worker first.");
+      throw new Error("Select a workspace first.");
     }
 
     if (ws.workspaceType !== "remote") {
@@ -3332,7 +3332,7 @@ export default function SessionView(props: SessionViewProps) {
 
       if (!workspaceId) {
         throw new Error(
-          "Could not resolve this worker on the local OpenWork host.",
+          "Could not resolve this workspace on the local OpenWork host.",
         );
       }
 
@@ -3386,7 +3386,7 @@ export default function SessionView(props: SessionViewProps) {
     }
 
     if (!workspaceId) {
-      throw new Error("Could not resolve this worker on the OpenWork host.");
+      throw new Error("Could not resolve this workspace on the OpenWork host.");
     }
 
     return { client, workspaceId, workspace: ws };
@@ -3620,7 +3620,7 @@ export default function SessionView(props: SessionViewProps) {
       {
         id: "new-session",
         title: "Create new session",
-        detail: "Start a fresh task in the current worker",
+        detail: "Start a fresh task in the current workspace",
         meta: "Create",
         action: () => {
           closeCommandPalette();
@@ -3653,7 +3653,7 @@ export default function SessionView(props: SessionViewProps) {
       {
         id: "sessions",
         title: "Search sessions",
-        detail: `${totalSessionCount().toLocaleString()} available across workers`,
+        detail: `${totalSessionCount().toLocaleString()} available across workspaces`,
         meta: "Jump",
         action: () => {
           setCommandPaletteMode("sessions");
@@ -3726,7 +3726,7 @@ export default function SessionView(props: SessionViewProps) {
       detail: item.workspaceTitle,
       meta:
         item.workspaceId === props.activeWorkspaceId
-          ? "Current worker"
+          ? "Current workspace"
           : "Switch",
       action: () => {
         closeCommandPalette();
@@ -3777,7 +3777,7 @@ export default function SessionView(props: SessionViewProps) {
 
   const commandPalettePlaceholder = createMemo(() => {
     const mode = commandPaletteMode();
-    if (mode === "sessions") return "Find by session title or worker";
+    if (mode === "sessions") return "Find by session title or workspace";
     if (mode === "thinking") return "Filter thinking options";
     return "Search actions";
   });
@@ -4057,13 +4057,13 @@ export default function SessionView(props: SessionViewProps) {
     <div class="h-[100dvh] min-h-screen w-full overflow-hidden bg-[var(--dls-app-bg)] p-3 md:p-4 text-gray-12 font-sans">
       <div class="flex h-full w-full gap-3 md:gap-4">
         <aside
-          class="relative hidden lg:flex shrink-0 flex-col rounded-[24px] border border-dls-border bg-dls-sidebar p-2.5"
+          class="relative hidden lg:flex shrink-0 flex-col overflow-hidden rounded-[24px] border border-dls-border bg-dls-sidebar p-2.5"
           style={{
             width: `${leftSidebarWidth()}px`,
             "min-width": `${leftSidebarWidth()}px`,
           }}
         >
-          <div class="flex-1 overflow-y-auto">
+          <div class="shrink-0">
             <Show when={showUpdatePill()}>
               <button
                 type="button"
@@ -4098,6 +4098,8 @@ export default function SessionView(props: SessionViewProps) {
                 </Show>
               </button>
             </Show>
+          </div>
+          <div class="min-h-0 flex-1">
             <WorkspaceSessionList
               workspaceSessionGroups={props.workspaceSessionGroups}
               activeWorkspaceId={props.activeWorkspaceId}
@@ -4175,14 +4177,14 @@ export default function SessionView(props: SessionViewProps) {
 
               <span class="shrink-0 rounded-md bg-dls-hover px-2 py-1 text-[11px] font-medium text-dls-secondary">
                 {showWorkspaceSetupEmptyState()
-                  ? "Worker"
+                  ? "Workspace"
                   : props.activeWorkspaceDisplay.workspaceType === "remote"
-                    ? "Remote worker"
-                    : "Worker"}
+                    ? "Remote workspace"
+                    : "Workspace"}
               </span>
               <h1 class="truncate text-[15px] font-semibold text-dls-text">
                 {showWorkspaceSetupEmptyState()
-                  ? "Create or connect a worker"
+                  ? "Create or connect a workspace"
                   : selectedSessionTitle() || "New session"}
               </h1>
               <Show when={props.developerMode}>
@@ -4485,10 +4487,10 @@ export default function SessionView(props: SessionViewProps) {
                         <HardDrive size={24} />
                       </div>
                       <h3 class="text-2xl font-semibold text-gray-12">
-                        Set up your first worker
+                        Set up your first workspace
                       </h3>
                       <p class="mt-2 text-sm text-gray-10">
-                        OpenWork needs a local or remote worker before you can
+                        OpenWork needs a local or remote workspace before you can
                         start a session.
                       </p>
                       <div class="mt-6 grid gap-3 sm:grid-cols-2">
@@ -4497,14 +4499,14 @@ export default function SessionView(props: SessionViewProps) {
                           class="rounded-full border border-gray-7 bg-gray-12 px-5 py-3 text-sm font-semibold text-gray-1 transition-colors hover:bg-gray-11"
                           onClick={props.openCreateWorkspace}
                         >
-                          Create local worker
+                          Create local workspace
                         </button>
                         <button
                           type="button"
                           class="rounded-full border border-dls-border bg-dls-surface px-5 py-3 text-sm font-semibold text-gray-12 transition-colors hover:bg-gray-2"
                           onClick={props.openCreateRemoteWorkspace}
                         >
-                          Connect remote worker
+                          Connect remote workspace
                         </button>
                       </div>
                     </div>
@@ -4811,14 +4813,14 @@ export default function SessionView(props: SessionViewProps) {
                 ? "Session Active"
                 : props.selectedSessionId
                   ? "Session Ready"
-                  : "Session Idle"
+                  : "Ready"
             }
             statusDetail={
               showRunIndicator()
                 ? `${props.activeWorkspaceDisplay.name} is running`
                 : props.selectedSessionId
                   ? `${selectedSessionTitle() || props.activeWorkspaceDisplay.name} is ready`
-                  : "Choose a worker to begin"
+                  : "Open a session or create a task"
             }
             statusDotClass={
               showRunIndicator()
