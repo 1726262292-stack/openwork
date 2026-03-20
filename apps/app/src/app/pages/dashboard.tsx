@@ -608,7 +608,7 @@ export default function DashboardView(props: DashboardViewProps) {
   };
 
   const renderRightSidebar = (expanded: boolean, mobile = false) => (
-    <div class={`flex h-full flex-col overflow-hidden rounded-[24px] border border-dls-border bg-dls-sidebar p-3 ${mobile ? "shadow-2xl" : "transition-[width] duration-200"}`}>
+    <div class={`flex h-full w-full flex-col overflow-hidden rounded-[24px] border border-dls-border bg-dls-sidebar p-3 ${mobile ? "shadow-2xl" : "transition-[width] duration-200"}`}>
       <div class={`flex items-center pb-3 ${expanded ? "justify-end" : "justify-center"}`}>
         <button
           type="button"
@@ -633,7 +633,7 @@ export default function DashboardView(props: DashboardViewProps) {
           </Show>
         </div>
 
-        <Show when={expanded}>
+        <Show when={expanded && props.activeWorkspaceDisplay.workspaceType === "remote"}>
           <div class="rounded-[20px] border border-dls-border bg-dls-surface p-3 shadow-[var(--dls-card-shadow)]">
             <InboxPanel
               id={mobile ? "dashboard-mobile-sidebar-inbox" : "dashboard-sidebar-inbox"}
