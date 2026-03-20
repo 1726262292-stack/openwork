@@ -31,6 +31,7 @@ import {
 type Props = {
   workspaceSessionGroups: WorkspaceSessionGroup[];
   activeWorkspaceId: string;
+  developerMode: boolean;
   selectedSessionId: string | null;
   showSessionActions?: boolean;
   sessionStatusById?: Record<string, string>;
@@ -397,6 +398,7 @@ export default function WorkspaceSessionList(props: Props) {
             const statusLabel = () => {
               if (group.status === "error") return taskLoadError().label;
               if (isConnectionActionBusy()) return "Connecting";
+              if (!props.developerMode) return "";
               if (props.activeWorkspaceId === workspace().id) return "Active";
               return workspaceKindLabel(workspace());
             };
@@ -449,11 +451,13 @@ export default function WorkspaceSessionList(props: Props) {
                         <div class="min-w-0 flex-1 truncate text-[14px] font-normal text-dls-text">
                           {workspaceLabel(workspace())}
                         </div>
-                        <div
-                          class={`ml-auto whitespace-nowrap text-[12px] ${statusTone()}`}
-                        >
-                          {statusLabel()}
-                        </div>
+                        <Show when={statusLabel()}>
+                          <div
+                            class={`ml-auto whitespace-nowrap text-[12px] ${statusTone()}`}
+                          >
+                            {statusLabel()}
+                          </div>
+                        </Show>
                       </div>
                     </div>
 

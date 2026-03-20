@@ -4207,6 +4207,7 @@ export default function SessionView(props: SessionViewProps) {
             <WorkspaceSessionList
               workspaceSessionGroups={props.workspaceSessionGroups}
               activeWorkspaceId={props.activeWorkspaceId}
+              developerMode={props.developerMode}
               selectedSessionId={props.selectedSessionId}
               showSessionActions
               sessionStatusById={props.sessionStatusById}

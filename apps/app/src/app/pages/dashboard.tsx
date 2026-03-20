@@ -1209,6 +1209,7 @@ export default function DashboardView(props: DashboardViewProps) {
           <WorkspaceSessionList
             workspaceSessionGroups={props.workspaceSessionGroups}
             activeWorkspaceId={props.activeWorkspaceId}
+            developerMode={props.developerMode}
             selectedSessionId={props.selectedSessionId}
             connectingWorkspaceId={props.connectingWorkspaceId}
             workspaceConnectionStateById={props.workspaceConnectionStateById}
