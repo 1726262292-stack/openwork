@@ -109,6 +109,7 @@ import {
   defaultBlueprintCopyForPreset,
   defaultBlueprintStartersForPreset,
 } from "../lib/workspace-blueprints";
+import { DEFAULT_SESSION_TITLE, getDisplaySessionTitle } from "../lib/session-title";
 
 import MessageList from "../components/session/message-list";
 import Composer from "../components/session/composer";
@@ -486,7 +487,7 @@ export default function SessionView(props: SessionViewProps) {
       for (const session of group.sessions) {
         const sessionId = session.id?.trim() ?? "";
         if (!sessionId) continue;
-        const title = session.title?.trim() || "Untitled session";
+        const title = getDisplaySessionTitle(session.title, DEFAULT_SESSION_TITLE);
         const slug = session.slug?.trim() ?? "";
         const updatedAt = session.time?.updated ?? session.time?.created ?? 0;
         out.push({
@@ -2830,7 +2831,7 @@ export default function SessionView(props: SessionViewProps) {
     if (!id) return "";
     for (const group of props.workspaceSessionGroups) {
       const match = group.sessions.find((session) => session.id === id);
-      if (match) return match.title ?? "";
+      if (match) return getDisplaySessionTitle(match.title, DEFAULT_SESSION_TITLE);
     }
     return "";
   }
@@ -4288,7 +4289,7 @@ export default function SessionView(props: SessionViewProps) {
               <h1 class="truncate text-[15px] font-semibold text-dls-text">
                 {showWorkspaceSetupEmptyState()
                   ? "Create or connect a workspace"
-                  : selectedSessionTitle() || "New session"}
+                  : selectedSessionTitle() || DEFAULT_SESSION_TITLE}
               </h1>
               <Show when={props.developerMode}>
                 <span class="hidden text-[12px] text-dls-secondary lg:inline">
@@ -4913,7 +4914,7 @@ export default function SessionView(props: SessionViewProps) {
               showRunIndicator()
                 ? `${props.activeWorkspaceDisplay.name} is running`
                 : props.selectedSessionId
-                  ? `${selectedSessionTitle() || props.activeWorkspaceDisplay.name} is ready`
+                  ? `${selectedSessionTitle() || DEFAULT_SESSION_TITLE} is ready`
                   : "Open a session or create a task"
             }
             statusDotClass={

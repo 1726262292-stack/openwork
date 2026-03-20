@@ -16,6 +16,7 @@ import {
 
 import DesktopOnlyBadge from "../desktop-only-badge";
 import { getOpenWorkDeployment } from "../../lib/openwork-deployment";
+import { DEFAULT_SESSION_TITLE, getDisplaySessionTitle } from "../../lib/session-title";
 import type { WorkspaceInfo } from "../../lib/tauri";
 import type {
   WorkspaceConnectionState,
@@ -306,7 +307,7 @@ export default function WorkspaceSessionList(props: Props) {
               <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-9" />
             </Show>
             <span class="truncate text-[13px] font-normal text-current">
-              {session().title}
+              {getDisplaySessionTitle(session().title, DEFAULT_SESSION_TITLE)}
             </span>
           </div>
 
