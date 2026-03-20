@@ -486,6 +486,9 @@ export default function Composer(props: ComposerProps) {
   const [variantMenuOpen, setVariantMenuOpen] = createSignal(false);
   const [showInboxUploadAction, setShowInboxUploadAction] = createSignal(false);
   const activeVariant = createMemo(() => props.modelVariant ?? "none");
+  const compactModelLabel = createMemo(() =>
+    props.selectedModelLabel.length > 20 ? `${props.selectedModelLabel.slice(0, 20)}...` : props.selectedModelLabel,
+  );
   const attachmentsDisabled = createMemo(() => !props.attachmentsEnabled);
   const hasDraftContent = createMemo(() => draftText().trim().length > 0 || attachments().length > 0);
 
@@ -1919,7 +1922,8 @@ export default function Composer(props: ComposerProps) {
                           onClick={props.onModelClick}
                           disabled={props.busy}
                         >
-                          <span>{props.selectedModelLabel}</span>
+                          <span class="md:hidden">{compactModelLabel()}</span>
+                          <span class="hidden md:inline">{props.selectedModelLabel}</span>
                           <ChevronDown size={14} class="shrink-0" />
                         </button>
                         <div class="relative hidden md:block" ref={(el) => (variantPickerRef = el)}>
@@ -1973,23 +1977,25 @@ export default function Composer(props: ComposerProps) {
                               type="button"
                               disabled={!hasDraftContent()}
                               onClick={sendDraft}
-                              class={`inline-flex items-center gap-2 rounded-full p-1.5 text-[13px] font-medium transition-colors ${!hasDraftContent()
+                              class={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-[13px] font-medium transition-colors ${!hasDraftContent()
                                 ? "bg-gray-4 text-gray-10"
                                 : "bg-dls-accent text-white hover:bg-[var(--dls-accent-hover)]"
                                 }`}
                               title="Run task"
                             >
                               <ArrowUp size={16} />
+                              <span>Run task</span>
                             </button>
                           }
                         >
                           <button
                             type="button"
                             onClick={() => props.onStop()}
-                            class="inline-flex items-center gap-2 rounded-full bg-gray-12 p-1.5 text-[13px] font-medium text-gray-1 transition-colors hover:bg-gray-11"
+                            class="inline-flex items-center gap-2 rounded-full bg-gray-12 px-4 py-2.5 text-[13px] font-medium text-gray-1 transition-colors hover:bg-gray-11"
                             title="Stop"
                           >
                             <Square size={13} fill="currentColor" />
+                            <span>Stop</span>
                           </button>
                         </Show>
                       </div>
