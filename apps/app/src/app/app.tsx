@@ -1526,7 +1526,6 @@ export default function App() {
   const activeSessionStatusById = createMemo(() => sessionStatusById());
   const activeMessages = createMemo(() => messages());
   const activeTodos = createMemo(() => todos());
-  const activeArtifacts = createMemo(() => artifacts());
   const activeWorkingFiles = createMemo(() => workingFiles());
 
   const sessionActivity = (session: Session) =>
@@ -7452,7 +7451,6 @@ export default function App() {
     setExpandedStepIds: setExpandedStepIds,
     expandedSidebarSections: expandedSidebarSections(),
     setExpandedSidebarSections: setExpandedSidebarSections,
-    artifacts: activeArtifacts(),
     workingFiles: activeWorkingFiles(),
     authorizedDirs: activeAuthorizedDirs(),
     busy: busy(),

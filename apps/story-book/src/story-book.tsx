@@ -1,22 +1,22 @@
-import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type { Component, JSX } from "solid-js";
 import {
   Box,
   ChevronLeft,
   ChevronRight,
   History,
-  Maximize2,
-  Menu,
   MessageCircle,
   Redo2,
   Search,
   SlidersHorizontal,
   Undo2,
+  X,
   Zap,
 } from "lucide-solid";
 
 import Button from "../../app/src/app/components/button";
 import DenSettingsPanel from "../../app/src/app/components/den-settings-panel";
+import ShareWorkspaceModal from "../../app/src/app/components/share-workspace-modal";
 import StatusBar from "../../app/src/app/components/status-bar";
 import Composer from "../../app/src/app/components/session/composer";
 import InboxPanel from "../../app/src/app/components/session/inbox-panel";
@@ -41,6 +41,23 @@ import type {
 import { sessionMessages, storyWorkspaces } from "./mock-data";
 
 type RightRailNav = "automations" | "skills" | "extensions" | "messaging" | "advanced";
+type CommandPaletteMode = "root" | "sessions" | "thinking";
+
+const COMMAND_PALETTE_THINKING_OPTIONS = [
+  { value: "none", label: "None", detail: "Fastest responses" },
+  { value: "low", label: "Low", detail: "Light reasoning" },
+  { value: "medium", label: "Medium", detail: "Balanced depth" },
+  { value: "high", label: "High", detail: "Deeper reasoning" },
+  { value: "xhigh", label: "X-High", detail: "Maximum effort" },
+] as const;
+
+type CommandPaletteItem = {
+  id: string;
+  title: string;
+  detail?: string;
+  meta?: string;
+  action: () => void;
+};
 
 const localWorkspace = storyWorkspaces[0] ?? {
   id: "local-foundation",
@@ -144,6 +161,25 @@ const commandOptions: SlashCommandOption[] = [
   { id: "test-flow", name: "test-flow", description: "Run shell flow checks", source: "skill" },
 ];
 
+const mockShareFields = [
+  {
+    label: "Worker URL",
+    value: "https://worker.openworklabs.com/opencode",
+    hint: "Paste this into Add worker -> Connect remote.",
+  },
+  {
+    label: "Access token",
+    value: "ow_story_worker_demo_token_7f9a1b3c",
+    secret: true,
+    hint: "Mock token for reviewing the share modal UI only.",
+  },
+  {
+    label: "Workspace slug",
+    value: "ops-worker-demo",
+    hint: "Used for shareable profile links and deep-link testing.",
+  },
+] as const;
+
 function toMessageParts(id: string, role: "user" | "assistant", text: string): MessageWithParts {
   return {
     info: {
@@ -193,10 +229,22 @@ export default function StoryBookApp() {
   );
   const [composerToast, setComposerToast] = createSignal<string | null>(null);
   const [selectedAgent, setSelectedAgent] = createSignal<string | null>(null);
+  const [modelVariant, setModelVariant] = createSignal("medium");
   const [agentPickerOpen, setAgentPickerOpen] = createSignal(false);
+  const [shareWorkspaceId, setShareWorkspaceId] = createSignal<string | null>(null);
+  const [shareWorkspaceProfileBusy, setShareWorkspaceProfileBusy] = createSignal(false);
+  const [shareWorkspaceProfileUrl, setShareWorkspaceProfileUrl] = createSignal<string | null>(null);
+  const [shareSkillsSetBusy, setShareSkillsSetBusy] = createSignal(false);
+  const [shareSkillsSetUrl, setShareSkillsSetUrl] = createSignal<string | null>(null);
   const [messageRows, setMessageRows] = createSignal<MessageWithParts[]>(sessionMessages);
   const [expandedStepIds, setExpandedStepIds] = createSignal(new Set<string>());
   const [headerActionBusy, setHeaderActionBusy] = createSignal<"undo" | "redo" | "compact" | null>(null);
+  const [commandPaletteOpen, setCommandPaletteOpen] = createSignal(false);
+  const [commandPaletteMode, setCommandPaletteMode] = createSignal<CommandPaletteMode>("root");
+  const [commandPaletteQuery, setCommandPaletteQuery] = createSignal("");
+  const [commandPaletteActiveIndex, setCommandPaletteActiveIndex] = createSignal(0);
+  let commandPaletteInputEl: HTMLInputElement | undefined;
+  const commandPaletteOptionRefs: HTMLButtonElement[] = [];
 
   const {
     leftSidebarWidth,
@@ -234,6 +282,18 @@ export default function StoryBookApp() {
   const activeWorkspace = createMemo(
     () => workspaceSessionGroups.find((group) => group.workspace.id === activeWorkspaceId())?.workspace ?? localWorkspace,
   );
+  const shareWorkspace = createMemo(
+    () => storyWorkspaces.find((workspace) => workspace.id === shareWorkspaceId()) ?? null,
+  );
+  const shareWorkspaceName = createMemo(
+    () => shareWorkspace()?.displayName?.trim() || shareWorkspace()?.name?.trim() || "Workspace",
+  );
+  const shareWorkspaceDetail = createMemo(() => {
+    const workspace = shareWorkspace();
+    if (!workspace) return null;
+    if (workspace.workspaceType === "remote") return workspace.baseUrl ?? workspace.path ?? null;
+    return workspace.path ?? null;
+  });
 
   const agentLabel = createMemo(() => (selectedAgent() ? `@${selectedAgent()}` : "Auto"));
 
@@ -264,14 +324,342 @@ export default function StoryBookApp() {
     window.setTimeout(() => setHeaderActionBusy(null), 240);
   };
 
+  const openMockShareModal = (workspaceId?: string | null) => {
+    const nextId = workspaceId?.trim() || activeWorkspaceId();
+    setShareWorkspaceId(nextId);
+    setShareWorkspaceProfileUrl(null);
+    setShareSkillsSetUrl(null);
+  };
+
+  const publishMockWorkspaceProfile = () => {
+    if (shareWorkspaceProfileBusy()) return;
+    setShareWorkspaceProfileBusy(true);
+    window.setTimeout(() => {
+      const workspace = shareWorkspace();
+      const slug = (workspace?.name || "workspace").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      setShareWorkspaceProfileUrl(`https://share.openworklabs.com/workspaces/${slug || "workspace"}`);
+      setShareWorkspaceProfileBusy(false);
+    }, 260);
+  };
+
+  const publishMockSkillsSet = () => {
+    if (shareSkillsSetBusy()) return;
+    setShareSkillsSetBusy(true);
+    window.setTimeout(() => {
+      const workspace = shareWorkspace();
+      const slug = (workspace?.name || "workspace").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      setShareSkillsSetUrl(`https://share.openworklabs.com/skills/${slug || "workspace"}`);
+      setShareSkillsSetBusy(false);
+    }, 260);
+  };
+
+  const totalSessionCount = createMemo(() =>
+    workspaceSessionGroups.reduce((count, group) => count + group.sessions.length, 0),
+  );
+
+  const commandPaletteSessionOptions = createMemo(() => {
+    const out: Array<{
+      workspaceId: string;
+      sessionId: string;
+      title: string;
+      workspaceTitle: string;
+      updatedAt: number;
+      searchText: string;
+    }> = [];
+
+    for (const group of workspaceSessionGroups) {
+      const workspaceId = group.workspace.id?.trim() ?? "";
+      if (!workspaceId) continue;
+      const workspaceTitle = group.workspace.displayName?.trim() || group.workspace.name;
+      for (const session of group.sessions) {
+        const sessionId = session.id?.trim() ?? "";
+        if (!sessionId) continue;
+        const title = session.title;
+        const updatedAt = session.time?.updated ?? session.time?.created ?? 0;
+        out.push({
+          workspaceId,
+          sessionId,
+          title,
+          workspaceTitle,
+          updatedAt,
+          searchText: `${title} ${workspaceTitle}`.toLowerCase(),
+        });
+      }
+    }
+
+    out.sort((a, b) => b.updatedAt - a.updatedAt);
+    return out;
+  });
+
+  const focusCommandPaletteInput = () => {
+    queueMicrotask(() => {
+      commandPaletteInputEl?.focus();
+      commandPaletteInputEl?.select();
+    });
+  };
+
+  const openCommandPalette = (mode: CommandPaletteMode = "root") => {
+    setCommandPaletteMode(mode);
+    setCommandPaletteOpen(true);
+    setCommandPaletteQuery("");
+    setCommandPaletteActiveIndex(0);
+    focusCommandPaletteInput();
+  };
+
+  const closeCommandPalette = () => {
+    setCommandPaletteOpen(false);
+    setCommandPaletteMode("root");
+    setCommandPaletteQuery("");
+    setCommandPaletteActiveIndex(0);
+  };
+
+  const returnToCommandRoot = () => {
+    if (commandPaletteMode() === "root") return;
+    setCommandPaletteMode("root");
+    setCommandPaletteQuery("");
+    setCommandPaletteActiveIndex(0);
+    focusCommandPaletteInput();
+  };
+
+  const commandPaletteRootItems = createMemo<CommandPaletteItem[]>(() => {
+    const selectedTitle = selectedSessionTitle().trim() || "Give your selected session a clearer name";
+    const items: CommandPaletteItem[] = [
+      {
+        id: "new-session",
+        title: "Create new session",
+        detail: "Start a fresh task in the current workspace",
+        meta: "Create",
+        action: () => {
+          closeCommandPalette();
+          setComposerToast("Story-book: create new session is mocked in this shell.");
+        },
+      },
+      {
+        id: "rename-session",
+        title: "Rename current session",
+        detail: selectedTitle,
+        meta: "Rename",
+        action: () => {
+          closeCommandPalette();
+          setComposerToast("Story-book: rename session flow is mocked in this shell.");
+        },
+      },
+      {
+        id: "sessions",
+        title: "Search sessions",
+        detail: `${totalSessionCount().toLocaleString()} available across workspaces`,
+        meta: "Jump",
+        action: () => {
+          setCommandPaletteMode("sessions");
+          setCommandPaletteQuery("");
+          setCommandPaletteActiveIndex(0);
+          focusCommandPaletteInput();
+        },
+      },
+      {
+        id: "model",
+        title: "Change model",
+        detail: "Current: Claude Sonnet 4",
+        meta: "Open",
+        action: () => {
+          closeCommandPalette();
+          setComposerToast("Story-book: model picker is mocked in this shell.");
+        },
+      },
+      {
+        id: "provider",
+        title: "Connect provider",
+        detail: "Open provider connection flow",
+        meta: "Open",
+        action: () => {
+          closeCommandPalette();
+          setComposerToast("Story-book: provider connection flow is mocked in this shell.");
+        },
+      },
+      {
+        id: "settings",
+        title: "Open settings",
+        detail: "Show the real settings panel in the shell",
+        meta: "Open",
+        action: () => {
+          closeCommandPalette();
+          if (!rightSidebarExpanded()) toggleRightSidebar();
+          setRightRailNav("advanced");
+        },
+      },
+      {
+        id: "share",
+        title: "Share current workspace",
+        detail: activeWorkspace().displayName ?? activeWorkspace().name,
+        meta: "Share",
+        action: () => {
+          closeCommandPalette();
+          openMockShareModal(activeWorkspaceId());
+        },
+      },
+      {
+        id: "thinking",
+        title: "Change thinking",
+        detail: `Current: ${
+          COMMAND_PALETTE_THINKING_OPTIONS.find((option) => option.value === modelVariant())?.label ?? "Medium"
+        }`,
+        meta: "Adjust",
+        action: () => {
+          setCommandPaletteMode("thinking");
+          setCommandPaletteQuery("");
+          setCommandPaletteActiveIndex(0);
+          focusCommandPaletteInput();
+        },
+      },
+    ];
+
+    const query = commandPaletteQuery().trim().toLowerCase();
+    if (!query) return items;
+    return items.filter((item) => `${item.title} ${item.detail ?? ""}`.toLowerCase().includes(query));
+  });
+
+  const commandPaletteSessionItems = createMemo<CommandPaletteItem[]>(() => {
+    const query = commandPaletteQuery().trim().toLowerCase();
+    const candidates = query
+      ? commandPaletteSessionOptions().filter((item) => item.searchText.includes(query))
+      : commandPaletteSessionOptions();
+
+    return candidates.slice(0, 80).map((item) => ({
+      id: `session:${item.workspaceId}:${item.sessionId}`,
+      title: item.title,
+      detail: item.workspaceTitle,
+      meta: item.workspaceId === activeWorkspaceId() ? "Current workspace" : "Switch",
+      action: () => {
+        closeCommandPalette();
+        setActiveWorkspaceId(item.workspaceId);
+        setSelectedSessionId(item.sessionId);
+      },
+    }));
+  });
+
+  const commandPaletteThinkingItems = createMemo<CommandPaletteItem[]>(() => {
+    const activeVariant = (modelVariant() || "none").trim().toLowerCase();
+    const query = commandPaletteQuery().trim().toLowerCase();
+    return COMMAND_PALETTE_THINKING_OPTIONS.filter((option) => {
+      if (!query) return true;
+      return `${option.label} ${option.detail}`.toLowerCase().includes(query);
+    }).map((option) => ({
+      id: `thinking:${option.value}`,
+      title: option.label,
+      detail: option.detail,
+      meta: activeVariant === option.value ? "Current" : undefined,
+      action: () => {
+        setModelVariant(option.value);
+        closeCommandPalette();
+        setComposerToast(`Thinking set to ${option.label}.`);
+      },
+    }));
+  });
+
+  const commandPaletteItems = createMemo<CommandPaletteItem[]>(() => {
+    const mode = commandPaletteMode();
+    if (mode === "sessions") return commandPaletteSessionItems();
+    if (mode === "thinking") return commandPaletteThinkingItems();
+    return commandPaletteRootItems();
+  });
+
+  const commandPaletteTitle = createMemo(() => {
+    const mode = commandPaletteMode();
+    if (mode === "sessions") return "Search sessions";
+    if (mode === "thinking") return "Change thinking";
+    return "Quick actions";
+  });
+
+  const commandPalettePlaceholder = createMemo(() => {
+    const mode = commandPaletteMode();
+    if (mode === "sessions") return "Find by session title or workspace";
+    if (mode === "thinking") return "Filter thinking options";
+    return "Search actions";
+  });
+
+  const runCommandPaletteItem = (item: CommandPaletteItem) => {
+    closeCommandPalette();
+    item.action();
+  };
+
   createEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k")) return;
-      event.preventDefault();
-      toggleRightSidebar();
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (commandPaletteOpen()) {
+          closeCommandPalette();
+        } else {
+          openCommandPalette();
+        }
+        return;
+      }
+
+      if (!commandPaletteOpen()) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeCommandPalette();
+        return;
+      }
+
+      if (event.key === "Backspace" && !commandPaletteQuery().trim() && commandPaletteMode() !== "root") {
+        event.preventDefault();
+        returnToCommandRoot();
+        return;
+      }
+
+      const items = commandPaletteItems();
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        if (!items.length) return;
+        setCommandPaletteActiveIndex((index) => (index + 1) % items.length);
+        return;
+      }
+
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        if (!items.length) return;
+        setCommandPaletteActiveIndex((index) => (index - 1 + items.length) % items.length);
+        return;
+      }
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const item = items[commandPaletteActiveIndex()];
+        if (!item) return;
+        runCommandPaletteItem(item);
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+  });
+
+  createEffect(() => {
+    const items = commandPaletteItems();
+    const index = commandPaletteActiveIndex();
+    if (items.length === 0) {
+      setCommandPaletteActiveIndex(0);
+      return;
+    }
+    if (index >= items.length) {
+      setCommandPaletteActiveIndex(items.length - 1);
+    }
+  });
+
+  createEffect(() => {
+    if (!commandPaletteOpen()) return;
+    const index = commandPaletteActiveIndex();
+    queueMicrotask(() => {
+      commandPaletteOptionRefs[index]?.scrollIntoView({ block: "nearest" });
+    });
+  });
+
+  createEffect(() => {
+    if (!commandPaletteOpen()) return;
+    commandPaletteMode();
+    commandPaletteQuery();
+    commandPaletteOptionRefs.length = 0;
+    setCommandPaletteActiveIndex(0);
   });
 
   const renderRightRail = (expanded: boolean) => (
@@ -377,9 +765,9 @@ export default function StoryBookApp() {
               }}
               onOpenRenameSession={() => undefined}
               onOpenDeleteSession={() => undefined}
-              onOpenRenameWorkspace={() => undefined}
-              onShareWorkspace={() => undefined}
-              onRevealWorkspace={() => undefined}
+                onOpenRenameWorkspace={() => undefined}
+                onShareWorkspace={(workspaceId) => openMockShareModal(workspaceId)}
+                onRevealWorkspace={() => undefined}
               onRecoverWorkspace={() => true}
               onTestWorkspaceConnection={() => true}
               onEditWorkspaceConnection={() => undefined}
@@ -412,12 +800,11 @@ export default function StoryBookApp() {
               <button
                 type="button"
                 class="hidden items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text sm:flex"
-                onClick={toggleRightSidebar}
-                title="Menu"
-                aria-label="Menu"
+                onClick={openCommandPalette}
+                title="Open command palette"
+                aria-label="Open command palette"
               >
-                <Menu size={15} />
-                <span>Menu</span>
+                <span>Palette</span>
                 <span class="ml-1 rounded border border-dls-border px-1 text-[10px] text-gray-9">⌘K</span>
               </button>
               <button
@@ -457,18 +844,6 @@ export default function StoryBookApp() {
                 <span class="hidden lg:inline">Redo</span>
               </button>
               <div class="hidden h-4 w-px bg-dls-border sm:block" />
-              <button
-                type="button"
-                class="hidden h-9 w-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text md:flex"
-                onClick={() => runMockHeaderAction("compact", "session compaction")}
-                disabled={headerActionBusy() !== null}
-                title="Compact session context"
-                aria-label="Compact session context"
-              >
-                <Show when={headerActionBusy() === "compact"} fallback={<Maximize2 size={16} />}>
-                  <span class="h-4 w-4 animate-spin rounded-full border-2 border-gray-8 border-t-transparent" />
-                </Show>
-              </button>
             </div>
           </header>
 
@@ -552,16 +927,22 @@ export default function StoryBookApp() {
             clientConnected
             openworkServerStatus="connected"
             developerMode
-            settingsOpen={false}
+            settingsOpen={showingSettings()}
             onSendFeedback={() => undefined}
-            onOpenSettings={() => undefined}
+            onOpenSettings={() => {
+              if (showingSettings()) {
+                setRightRailNav("automations");
+                return;
+              }
+              if (!rightSidebarExpanded()) toggleRightSidebar();
+              setRightRailNav("advanced");
+            }}
             onOpenMessaging={() => undefined}
             onOpenProviders={() => undefined}
             onOpenMcp={() => undefined}
             providerConnectedIds={["anthropic", "openai"]}
             mcpStatuses={mcpStatuses}
             statusLabel="Session Ready"
-            statusDetail="Story shell mode · app components mounted with mock data"
           />
         </main>
 
@@ -575,6 +956,122 @@ export default function StoryBookApp() {
           {renderRightRail(rightSidebarExpanded())}
         </aside>
       </div>
+
+      <Show when={commandPaletteOpen()}>
+        <div
+          class="fixed inset-0 z-50 bg-gray-1/60 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
+          onClick={closeCommandPalette}
+        >
+          <div
+            class="w-full max-w-2xl mt-12 rounded-2xl border border-dls-border bg-dls-surface shadow-2xl overflow-hidden"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div class="border-b border-dls-border px-4 py-3 space-y-2">
+              <div class="flex items-center gap-2">
+                <Show when={commandPaletteMode() !== "root"}>
+                  <button
+                    type="button"
+                    class="h-8 px-2 rounded-md text-xs text-dls-secondary hover:text-dls-text hover:bg-dls-hover transition-colors"
+                    onClick={returnToCommandRoot}
+                  >
+                    Back
+                  </button>
+                </Show>
+                <Search size={14} class="text-dls-secondary shrink-0" />
+                <input
+                  ref={(el) => (commandPaletteInputEl = el)}
+                  type="text"
+                  value={commandPaletteQuery()}
+                  onInput={(event) => {
+                    setCommandPaletteQuery(event.currentTarget.value);
+                    setCommandPaletteActiveIndex(0);
+                  }}
+                  placeholder={commandPalettePlaceholder()}
+                  class="min-w-0 flex-1 bg-transparent text-sm text-dls-text placeholder:text-dls-secondary focus:outline-none"
+                  aria-label={commandPaletteTitle()}
+                />
+                <button
+                  type="button"
+                  class="h-8 w-8 flex items-center justify-center rounded-md text-dls-secondary hover:text-dls-text hover:bg-dls-hover transition-colors"
+                  onClick={closeCommandPalette}
+                  aria-label="Close quick actions"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <div class="text-[11px] text-dls-secondary">{commandPaletteTitle()}</div>
+            </div>
+
+            <div class="max-h-[56vh] overflow-y-auto p-2">
+              <Show
+                when={commandPaletteItems().length > 0}
+                fallback={<div class="px-3 py-6 text-sm text-dls-secondary text-center">No matches.</div>}
+              >
+                <For each={commandPaletteItems()}>
+                  {(item, idx) => (
+                    <button
+                      ref={(el) => {
+                        commandPaletteOptionRefs[idx()] = el;
+                      }}
+                      type="button"
+                      class={`w-full text-left rounded-xl px-3 py-2.5 transition-colors ${
+                        idx() === commandPaletteActiveIndex()
+                          ? "bg-dls-active text-dls-text"
+                          : "text-dls-text hover:bg-dls-hover"
+                      }`}
+                      onMouseEnter={() => setCommandPaletteActiveIndex(idx())}
+                      onClick={() => runCommandPaletteItem(item)}
+                    >
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                          <div class="text-sm font-medium truncate">{item.title}</div>
+                          <Show when={item.detail}>
+                            <div class="text-xs text-dls-secondary mt-1 truncate">{item.detail}</div>
+                          </Show>
+                        </div>
+                        <Show when={item.meta}>
+                          <span class="text-[10px] uppercase tracking-wide text-dls-secondary shrink-0">
+                            {item.meta}
+                          </span>
+                        </Show>
+                      </div>
+                    </button>
+                  )}
+                </For>
+              </Show>
+            </div>
+
+            <div class="border-t border-dls-border px-3 py-2 text-[11px] text-dls-secondary flex items-center justify-between gap-2">
+              <span>Arrow keys to navigate</span>
+              <span>Enter to run · Esc to close</span>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      <ShareWorkspaceModal
+        open={Boolean(shareWorkspaceId())}
+        onClose={() => setShareWorkspaceId(null)}
+        workspaceName={shareWorkspaceName()}
+        workspaceDetail={shareWorkspaceDetail()}
+        fields={[...mockShareFields]}
+        note="This is the real share modal from the app, mounted with safe mock values for shell review."
+        publisherBaseUrl="https://share.openworklabs.com"
+        onShareWorkspaceProfile={publishMockWorkspaceProfile}
+        shareWorkspaceProfileBusy={shareWorkspaceProfileBusy()}
+        shareWorkspaceProfileUrl={shareWorkspaceProfileUrl()}
+        shareWorkspaceProfileError={null}
+        shareWorkspaceProfileDisabledReason={null}
+        onShareSkillsSet={publishMockSkillsSet}
+        onOpenSingleSkillShare={() => setComposerToast("Story-book: single skill share is mocked in this shell.")}
+        shareSkillsSetBusy={shareSkillsSetBusy()}
+        shareSkillsSetUrl={shareSkillsSetUrl()}
+        shareSkillsSetError={null}
+        shareSkillsSetDisabledReason={null}
+        onExportConfig={() => setComposerToast("Story-book: export config is mocked in this shell.")}
+        exportDisabledReason={null}
+        onOpenBots={() => setComposerToast("Story-book: bots sharing flow is mocked in this shell.")}
+      />
     </div>
   );
 }

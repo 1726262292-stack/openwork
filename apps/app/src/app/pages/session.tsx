@@ -11,7 +11,6 @@ import {
 } from "solid-js";
 import type { Agent, Part, Session } from "@opencode-ai/sdk/v2/client";
 import type {
-  ArtifactItem,
   DashboardTab,
   ComposerDraft,
   MessageGroup,
@@ -32,8 +31,6 @@ import type {
 } from "../types";
 
 import {
-  obsidianIsAvailable,
-  openInObsidian,
   readObsidianMirrorFile,
   writeObsidianMirrorFile,
   type EngineInfo,
@@ -118,7 +115,6 @@ import type { SidebarSectionState } from "../components/session/sidebar";
 import FlyoutItem from "../components/flyout-item";
 import MobileSidebarDrawer from "../components/mobile-sidebar-drawer";
 import QuestionModal from "../components/question-modal";
-import ArtifactsPanel from "../components/session/artifacts-panel";
 import InboxPanel from "../components/session/inbox-panel";
 
 export type SessionViewProps = {
@@ -201,7 +197,6 @@ export type SessionViewProps = {
   setExpandedSidebarSections: (
     updater: (current: SidebarSectionState) => SidebarSectionState,
   ) => SidebarSectionState;
-  artifacts: ArtifactItem[];
   workingFiles: string[];
   authorizedDirs: string[];
   activePlugins: string[];
@@ -413,7 +408,6 @@ export default function SessionView(props: SessionViewProps) {
   const [messageWindowExpanded, setMessageWindowExpanded] = createSignal(false);
   const [initialAnchorPending, setInitialAnchorPending] = createSignal(false);
 
-  const [obsidianAvailable, setObsidianAvailable] = createSignal(false);
   const [mobileRightSidebarOpen, setMobileRightSidebarOpen] = createSignal(false);
 
   // In Session view the right sidebar is navigation-only; never pre-highlight a
@@ -434,25 +428,6 @@ export default function SessionView(props: SessionViewProps) {
     if (!resolved) return;
     platform.openLink(resolved);
   };
-
-  createEffect(() => {
-    if (!isTauriRuntime()) {
-      setObsidianAvailable(false);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const available = await obsidianIsAvailable();
-        if (!cancelled) setObsidianAvailable(available);
-      } catch {
-        if (!cancelled) setObsidianAvailable(false);
-      }
-    })();
-    onCleanup(() => {
-      cancelled = true;
-    });
-  });
 
   const agentLabel = createMemo(
     () => props.selectedSessionAgent ?? "Default agent",
@@ -884,38 +859,6 @@ export default function SessionView(props: SessionViewProps) {
     () => Boolean(props.selectedSessionId) && hasUserMessages(),
   );
 
-  const touchedFiles = createMemo(() => {
-    const out: string[] = [];
-    const seen = new Set<string>();
-    const add = (value: string) => {
-      const normalized = String(value ?? "")
-        .trim()
-        .replace(/[\\/]+/g, "/");
-      if (!normalized) return;
-      const key = normalized.toLowerCase();
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push(normalized);
-    };
-
-    const artifacts = props.artifacts;
-    for (let idx = artifacts.length - 1; idx >= 0; idx -= 1) {
-      const item = artifacts[idx];
-      add(item?.path ?? item?.name ?? "");
-      if (out.length >= 48) break;
-    }
-
-    if (out.length === 0) {
-      const working = props.workingFiles;
-      for (let idx = working.length - 1; idx >= 0; idx -= 1) {
-        add(working[idx] ?? "");
-        if (out.length >= 48) break;
-      }
-    }
-
-    return out;
-  });
-
   const resolveLocalFileCandidates = async (file: string) => {
     const trimmed = normalizeLocalFilePath(file).trim();
     if (!trimmed) return [];
@@ -978,7 +921,7 @@ export default function SessionView(props: SessionViewProps) {
 
   const runLocalFileAction = async (
     file: string,
-    mode: "open" | "reveal" | "obsidian",
+    mode: "open" | "reveal",
     action: (candidate: string) => Promise<void>,
   ) => {
     const candidates = await resolveLocalFileCandidates(file);
@@ -1542,97 +1485,6 @@ export default function SessionView(props: SessionViewProps) {
   onCleanup(() => {
     void resetRemoteFileSync();
   });
-
-  const revealArtifact = async (file: string) => {
-    if (props.activeWorkspaceDisplay.workspaceType === "remote") {
-      setToastMessage("Reveal is unavailable for remote workspaces.");
-      return;
-    }
-    if (!isTauriRuntime()) {
-      setToastMessage("Reveal is available in the desktop app.");
-      return;
-    }
-    try {
-      const { openPath, revealItemInDir } =
-        await import("@tauri-apps/plugin-opener");
-      const result = await runLocalFileAction(
-        file,
-        "reveal",
-        async (candidate) => {
-          if (isWindowsPlatform()) {
-            await openPath(candidate);
-            return;
-          }
-          await revealItemInDir(candidate);
-        },
-      );
-      if (!result.ok && result.reason === "missing-root") {
-        setToastMessage("Pick a workspace to reveal files.");
-        return;
-      }
-      if (!result.ok) {
-        setToastMessage(result.reason);
-        return;
-      }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unable to reveal file";
-      setToastMessage(message);
-    }
-  };
-
-  const openArtifactInObsidian = async (file: string) => {
-    if (!/\.(md|mdx|markdown)$/i.test(file)) return;
-    if (!obsidianAvailable()) {
-      setToastMessage("Obsidian is not available on this system.");
-      return;
-    }
-    if (!isTauriRuntime()) {
-      setToastMessage("Open in Obsidian is available in the desktop app.");
-      return;
-    }
-
-    const isRemoteWorkspace =
-      props.activeWorkspaceDisplay.workspaceType === "remote";
-    const preferLocalOpen = !isRemoteWorkspace || isSandboxWorkspace();
-
-    try {
-      if (preferLocalOpen) {
-        const localResult = await runLocalFileAction(
-          file,
-          "obsidian",
-          async (candidate) => {
-            await openInObsidian(candidate);
-          },
-        );
-        if (localResult.ok) {
-          return;
-        }
-        if (localResult.reason === "missing-root" && !isRemoteWorkspace) {
-          setToastMessage("Pick a workspace to open files.");
-          return;
-        }
-        if (!isRemoteWorkspace) {
-          setToastMessage(localResult.reason);
-          return;
-        }
-      }
-
-      if (!isRemoteWorkspace) {
-        setToastMessage("Pick a workspace to open files.");
-        return;
-      }
-
-      const mirrored = await mirrorRemoteArtifactForObsidian(file);
-      await openInObsidian(mirrored);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Unable to open file in Obsidian";
-      setToastMessage(message);
-    }
-  };
 
   const revealWorkspaceInFinder = async (workspaceId: string) => {
     const workspace =
@@ -4142,18 +3994,6 @@ export default function SessionView(props: SessionViewProps) {
           </div>
         </Show>
 
-        <Show when={expanded}>
-          <div class="rounded-[20px] border border-dls-border bg-dls-surface p-3 shadow-[var(--dls-card-shadow)]">
-            <ArtifactsPanel
-              id={mobile ? "mobile-sidebar-artifacts" : "sidebar-artifacts"}
-              files={touchedFiles()}
-              workspaceRoot={props.activeWorkspaceRoot}
-              onRevealArtifact={revealArtifact}
-              onOpenInObsidian={openArtifactInObsidian}
-              obsidianAvailable={obsidianAvailable()}
-            />
-          </div>
-        </Show>
       </div>
     </div>
   );
@@ -4911,13 +4751,6 @@ export default function SessionView(props: SessionViewProps) {
                 : props.selectedSessionId
                   ? "Session Ready"
                   : "Ready"
-            }
-            statusDetail={
-              showRunIndicator()
-                ? `${props.activeWorkspaceDisplay.name} is running`
-                : props.selectedSessionId
-                  ? `${selectedSessionTitle() || DEFAULT_SESSION_TITLE} is ready`
-                  : "Open a session or create a task"
             }
             statusDotClass={
               showRunIndicator()
