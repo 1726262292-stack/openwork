@@ -815,6 +815,12 @@ export default function SettingsView(props: SettingsViewProps) {
         return "Model";
       case "advanced":
         return "Advanced";
+      case "appearance":
+        return "Appearance";
+      case "updates":
+        return "Updates";
+      case "recovery":
+        return "Recovery";
       case "debug":
         return "Debug";
       default:
@@ -822,10 +828,16 @@ export default function SettingsView(props: SettingsViewProps) {
     }
   };
 
-  const availableTabs = createMemo<SettingsTab[]>(() => {
-    const tabs: SettingsTab[] = ["general", "den", "model", "advanced"];
+  const workspaceTabs = createMemo<SettingsTab[]>(() => ["general", "den", "model", "advanced"]);
+
+  const globalTabs = createMemo<SettingsTab[]>(() => {
+    const tabs: SettingsTab[] = ["appearance", "updates", "recovery"];
     if (props.developerMode) tabs.push("debug");
     return tabs;
+  });
+
+  const availableTabs = createMemo<SettingsTab[]>(() => {
+    return [...workspaceTabs(), ...globalTabs()];
   });
 
   const activeTab = createMemo<SettingsTab>(() => {
@@ -1268,57 +1280,98 @@ export default function SettingsView(props: SettingsViewProps) {
     "inline-flex items-center gap-1.5 rounded-md border border-red-7/35 bg-red-3/25 px-3 py-1.5 text-xs font-medium text-red-11 transition-colors duration-150 hover:border-red-7/50 hover:bg-red-3/45 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-7/35 disabled:cursor-not-allowed disabled:opacity-60";
 
   return (
-    <section class="space-y-6">
-      <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-2xl border border-gray-6/40 bg-gray-1/40 px-3 py-2">
-        <div class="flex flex-wrap gap-2">
-          <For each={availableTabs()}>
-            {(tab) => (
-              <button
-                class={`px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
-                  activeTab() === tab
-                    ? "bg-gray-12/10 text-white border-gray-6/30"
-                    : "text-gray-10 border-gray-6/50 hover:text-gray-12 hover:bg-gray-2/40"
-                }`}
-                onClick={() => props.setSettingsTab(tab)}
-              >
-                {tabLabel(tab)}
-              </button>
-            )}
-          </For>
-        </div>
-        <Show when={showUpdateToolbar()}>
-          <div class="flex flex-wrap items-center gap-2">
-            <div
-              class={`text-xs px-2 py-1 rounded-full border flex items-center gap-2 ${updateToolbarTone()}`}
-              title={updateToolbarTitle()}
-            >
-              <Show when={updateToolbarSpinning()}>
-                <RefreshCcw size={12} class="animate-spin" />
-              </Show>
-              <span class="tabular-nums whitespace-nowrap">
-                {updateToolbarLabel()}
-              </span>
-            </div>
-            <Show when={updateToolbarActionLabel()}>
-              <Button
-                variant="outline"
-                class="text-xs h-8 py-0 px-3 rounded-full border-gray-6/60 bg-gray-1/70 hover:bg-gray-2/70"
-                onClick={handleUpdateToolbarAction}
-                disabled={updateToolbarDisabled()}
-                title={
-                  updateState() === "ready" && props.anyActiveRuns
-                    ? "Stop active runs to update"
-                    : ""
-                }
-              >
-                {updateToolbarActionLabel()}
-              </Button>
-            </Show>
+    <section class="space-y-6 md:grid md:grid-cols-[220px_minmax(0,1fr)] md:gap-8 md:space-y-0">
+      <aside class="space-y-6 md:sticky md:top-4 md:self-start">
+        <div class="rounded-[24px] border border-dls-border bg-dls-sidebar p-3 shadow-[var(--dls-card-shadow)]">
+          <div class="mb-2 px-2 text-[11px] font-medium uppercase tracking-[0.18em] text-gray-8">
+            Workspace
           </div>
-        </Show>
-      </div>
+          <div class="space-y-1">
+            <For each={workspaceTabs()}>
+              {(tab) => (
+                <button
+                  type="button"
+                  class={`flex w-full items-center justify-between rounded-[16px] border px-3 py-2.5 text-left text-[13px] font-medium transition-colors ${
+                    activeTab() === tab
+                      ? "border-dls-border bg-dls-surface text-dls-text shadow-[var(--dls-card-shadow)]"
+                      : "border-transparent text-gray-10 hover:border-dls-border hover:bg-dls-surface hover:text-dls-text"
+                  }`}
+                  onClick={() => props.setSettingsTab(tab)}
+                >
+                  <span>{tabLabel(tab)}</span>
+                </button>
+              )}
+            </For>
+          </div>
+        </div>
 
-      <Switch>
+        <div class="rounded-[24px] border border-dls-border bg-dls-sidebar p-3 shadow-[var(--dls-card-shadow)]">
+          <div class="mb-2 px-2 text-[11px] font-medium uppercase tracking-[0.18em] text-gray-8">
+            Global
+          </div>
+          <div class="space-y-1">
+            <For each={globalTabs()}>
+              {(tab) => (
+                <button
+                  type="button"
+                  class={`flex w-full items-center justify-between rounded-[16px] border px-3 py-2.5 text-left text-[13px] font-medium transition-colors ${
+                    activeTab() === tab
+                      ? "border-dls-border bg-dls-surface text-dls-text shadow-[var(--dls-card-shadow)]"
+                      : "border-transparent text-gray-10 hover:border-dls-border hover:bg-dls-surface hover:text-dls-text"
+                  }`}
+                  onClick={() => props.setSettingsTab(tab)}
+                >
+                  <span>{tabLabel(tab)}</span>
+                </button>
+              )}
+            </For>
+          </div>
+        </div>
+      </aside>
+
+      <div class="min-w-0 space-y-6">
+        <div class="flex flex-col gap-3 rounded-[28px] border border-dls-border bg-dls-surface px-5 py-4 shadow-[var(--dls-card-shadow)] md:flex-row md:items-center md:justify-between">
+          <div>
+            <div class="text-[11px] font-medium uppercase tracking-[0.18em] text-gray-8">
+              {workspaceTabs().includes(activeTab()) ? "Workspace settings" : "Global settings"}
+            </div>
+            <h2 class="mt-1 text-lg font-semibold tracking-tight text-dls-text">
+              {tabLabel(activeTab())}
+            </h2>
+          </div>
+          <Show when={showUpdateToolbar()}>
+            <div class="flex flex-wrap items-center gap-2">
+              <div
+                class={`text-xs px-2 py-1 rounded-full border flex items-center gap-2 ${updateToolbarTone()}`}
+                title={updateToolbarTitle()}
+              >
+                <Show when={updateToolbarSpinning()}>
+                  <RefreshCcw size={12} class="animate-spin" />
+                </Show>
+                <span class="tabular-nums whitespace-nowrap">
+                  {updateToolbarLabel()}
+                </span>
+              </div>
+              <Show when={updateToolbarActionLabel()}>
+                <Button
+                  variant="outline"
+                  class="text-xs h-8 py-0 px-3 rounded-full border-gray-6/60 bg-gray-1/70 hover:bg-gray-2/70"
+                  onClick={handleUpdateToolbarAction}
+                  disabled={updateToolbarDisabled()}
+                  title={
+                    updateState() === "ready" && props.anyActiveRuns
+                      ? "Stop active runs to update"
+                      : ""
+                  }
+                >
+                  {updateToolbarActionLabel()}
+                </Button>
+              </Show>
+            </div>
+          </Show>
+        </div>
+
+        <Switch>
         <Match when={activeTab() === "general"}>
           <div class="space-y-6">
             <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-4">
@@ -1411,76 +1464,6 @@ export default function SettingsView(props: SettingsViewProps) {
               </div>
             </div>
 
-              <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-4">
-                <div>
-                  <div class="text-sm font-medium text-gray-12">Appearance</div>
-                <div class="text-xs text-gray-9">
-                  Match the system or force light/dark mode.
-                </div>
-              </div>
-
-              <div class="flex flex-wrap gap-2">
-                <Button
-                  variant={
-                    props.themeMode === "system" ? "secondary" : "outline"
-                  }
-                  class="text-xs h-8 py-0 px-3"
-                  onClick={() => props.setThemeMode("system")}
-                  disabled={props.busy}
-                >
-                  System
-                </Button>
-                <Button
-                  variant={
-                    props.themeMode === "light" ? "secondary" : "outline"
-                  }
-                  class="text-xs h-8 py-0 px-3"
-                  onClick={() => props.setThemeMode("light")}
-                  disabled={props.busy}
-                >
-                  Light
-                </Button>
-                <Button
-                  variant={props.themeMode === "dark" ? "secondary" : "outline"}
-                  class="text-xs h-8 py-0 px-3"
-                  onClick={() => props.setThemeMode("dark")}
-                  disabled={props.busy}
-                >
-                  Dark
-                </Button>
-              </div>
-
-              <div class="space-y-2">
-                <div class="text-xs font-medium text-gray-11">
-                  {translate("settings.language")}
-                </div>
-                <div class="text-xs text-gray-9">
-                  {translate("settings.language.description")}
-                </div>
-                <div class="flex flex-wrap gap-2">
-                  <For each={LANGUAGE_OPTIONS}>
-                    {(option) => (
-                      <Button
-                        variant={
-                          props.language === option.value
-                            ? "secondary"
-                            : "outline"
-                        }
-                        class="text-xs h-8 py-0 px-3"
-                        onClick={() => props.setLanguage(option.value)}
-                        disabled={props.busy}
-                      >
-                        {option.nativeName}
-                      </Button>
-                    )}
-                  </For>
-                </div>
-              </div>
-
-                <div class="text-xs text-gray-8">
-                  System mode follows your OS preference automatically.
-                </div>
-              </div>
 
               <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-4">
                 <div>
@@ -1673,6 +1656,109 @@ export default function SettingsView(props: SettingsViewProps) {
                 </div>
               </div>
             </div>
+          </div>
+        </Match>
+
+        <Match when={activeTab() === "appearance"}>
+          <div class="space-y-6">
+              <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-4">
+                <div>
+                  <div class="text-sm font-medium text-gray-12">Appearance</div>
+                <div class="text-xs text-gray-9">
+                  Match the system or force light/dark mode.
+                </div>
+              </div>
+
+              <div class="flex flex-wrap gap-2">
+                <Button
+                  variant={
+                    props.themeMode === "system" ? "secondary" : "outline"
+                  }
+                  class="text-xs h-8 py-0 px-3"
+                  onClick={() => props.setThemeMode("system")}
+                  disabled={props.busy}
+                >
+                  System
+                </Button>
+                <Button
+                  variant={
+                    props.themeMode === "light" ? "secondary" : "outline"
+                  }
+                  class="text-xs h-8 py-0 px-3"
+                  onClick={() => props.setThemeMode("light")}
+                  disabled={props.busy}
+                >
+                  Light
+                </Button>
+                <Button
+                  variant={props.themeMode === "dark" ? "secondary" : "outline"}
+                  class="text-xs h-8 py-0 px-3"
+                  onClick={() => props.setThemeMode("dark")}
+                  disabled={props.busy}
+                >
+                  Dark
+                </Button>
+              </div>
+
+              <div class="space-y-2">
+                <div class="text-xs font-medium text-gray-11">
+                  {translate("settings.language")}
+                </div>
+                <div class="text-xs text-gray-9">
+                  {translate("settings.language.description")}
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <For each={LANGUAGE_OPTIONS}>
+                    {(option) => (
+                      <Button
+                        variant={
+                          props.language === option.value
+                            ? "secondary"
+                            : "outline"
+                        }
+                        class="text-xs h-8 py-0 px-3"
+                        onClick={() => props.setLanguage(option.value)}
+                        disabled={props.busy}
+                      >
+                        {option.nativeName}
+                      </Button>
+                    )}
+                  </For>
+                </div>
+              </div>
+
+                <div class="text-xs text-gray-8">
+                  System mode follows your OS preference automatically.
+                </div>
+              </div>
+            <Show when={isTauriRuntime()}>
+              <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
+                <div>
+                  <div class="text-sm font-medium text-gray-12">Appearance</div>
+                  <div class="text-xs text-gray-10">
+                    Customize window appearance.
+                  </div>
+                </div>
+
+                <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                  <div class="min-w-0">
+                    <div class="text-sm text-gray-12">Hide titlebar</div>
+                    <div class="text-xs text-gray-7">
+                      Hide the window titlebar. Useful for tiling window
+                      managers on Linux (Hyprland, i3, sway).
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    class="text-xs h-8 py-0 px-3 shrink-0"
+                    onClick={props.toggleHideTitlebar}
+                    disabled={props.busy}
+                  >
+                    {props.hideTitlebar ? "On" : "Off"}
+                  </Button>
+                </div>
+              </div>
+            </Show>
           </div>
         </Match>
 
@@ -2035,63 +2121,13 @@ export default function SettingsView(props: SettingsViewProps) {
               </Show>
             </div>
 
-            <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-4">
-              <div>
-                <div class="text-sm font-medium text-gray-12">
-                  {translate("settings.migration_recovery_label")}
-                </div>
-                <div class="text-xs text-gray-9">
-                  {translate("settings.migration_recovery_hint")}
-                </div>
-              </div>
-              <div class="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="secondary"
-                  class="text-xs h-8 py-0 px-3"
-                  onClick={props.repairOpencodeMigration}
-                  disabled={
-                    webDeployment() ||
-                    props.busy ||
-                    props.migrationRepairBusy ||
-                    !props.migrationRepairAvailable
-                  }
-                  title={
-                    webDeployment()
-                      ? "Migration repair requires the desktop app."
-                      : (props.migrationRepairUnavailableReason ?? "")
-                  }
-                >
-                  {props.migrationRepairBusy
-                    ? translate("settings.fixing_migration")
-                    : translate("settings.fix_migration")}
-                </Button>
-              </div>
 
-              <Show when={props.migrationRepairUnavailableReason}>
-                {(reason) => (
-                  <div class="text-xs text-amber-11">{reason()}</div>
-                )}
-              </Show>
-              <Show when={props.migrationRepairBusy}>
-                <div class="text-xs text-gray-10">
-                  {translate("status.repairing_migration")}
-                </div>
-              </Show>
-              <Show when={props.migrationRepairResult}>
-                {(result) => (
-                  <div
-                    class={`rounded-xl border px-3 py-2 text-xs ${
-                      result().ok
-                        ? "border-green-7/30 bg-green-2/30 text-green-12"
-                        : "border-red-7/30 bg-red-2/30 text-red-12"
-                    }`}
-                  >
-                    {result().message}
-                  </div>
-                )}
-              </Show>
-            </div>
 
+          </div>
+        </Match>
+
+        <Match when={activeTab() === "updates"}>
+          <div class="space-y-6">
             <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
               <div class="flex items-start justify-between gap-4">
                 <div>
@@ -2284,35 +2320,182 @@ export default function SettingsView(props: SettingsViewProps) {
                 </div>
               </Show>
             </div>
+          </div>
+        </Match>
 
-            <Show when={isTauriRuntime()}>
-              <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
-                <div>
-                  <div class="text-sm font-medium text-gray-12">Appearance</div>
-                  <div class="text-xs text-gray-10">
-                    Customize window appearance.
-                  </div>
+        <Match when={activeTab() === "recovery"}>
+          <div class="space-y-6">
+            <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-4">
+              <div>
+                <div class="text-sm font-medium text-gray-12">
+                  {translate("settings.migration_recovery_label")}
                 </div>
-
-                <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                  <div class="min-w-0">
-                    <div class="text-sm text-gray-12">Hide titlebar</div>
-                    <div class="text-xs text-gray-7">
-                      Hide the window titlebar. Useful for tiling window
-                      managers on Linux (Hyprland, i3, sway).
-                    </div>
-                  </div>
-                  <Button
-                    variant="outline"
-                    class="text-xs h-8 py-0 px-3 shrink-0"
-                    onClick={props.toggleHideTitlebar}
-                    disabled={props.busy}
-                  >
-                    {props.hideTitlebar ? "On" : "Off"}
-                  </Button>
+                <div class="text-xs text-gray-9">
+                  {translate("settings.migration_recovery_hint")}
                 </div>
               </div>
-            </Show>
+              <div class="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="secondary"
+                  class="text-xs h-8 py-0 px-3"
+                  onClick={props.repairOpencodeMigration}
+                  disabled={
+                    webDeployment() ||
+                    props.busy ||
+                    props.migrationRepairBusy ||
+                    !props.migrationRepairAvailable
+                  }
+                  title={
+                    webDeployment()
+                      ? "Migration repair requires the desktop app."
+                      : (props.migrationRepairUnavailableReason ?? "")
+                  }
+                >
+                  {props.migrationRepairBusy
+                    ? translate("settings.fixing_migration")
+                    : translate("settings.fix_migration")}
+                </Button>
+              </div>
+
+              <Show when={props.migrationRepairUnavailableReason}>
+                {(reason) => (
+                  <div class="text-xs text-amber-11">{reason()}</div>
+                )}
+              </Show>
+              <Show when={props.migrationRepairBusy}>
+                <div class="text-xs text-gray-10">
+                  {translate("status.repairing_migration")}
+                </div>
+              </Show>
+              <Show when={props.migrationRepairResult}>
+                {(result) => (
+                  <div
+                    class={`rounded-xl border px-3 py-2 text-xs ${
+                      result().ok
+                        ? "border-green-7/30 bg-green-2/30 text-green-12"
+                        : "border-red-7/30 bg-red-2/30 text-red-12"
+                    }`}
+                  >
+                    {result().message}
+                  </div>
+                )}
+              </Show>
+            </div>
+                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
+                  <div class="text-sm font-medium text-gray-12">
+                    Workspace config
+                  </div>
+                  <div class="text-xs text-gray-10">
+                    Reveal or reset `.opencode/openwork.json` defaults for this
+                    app workspace.
+                  </div>
+                  <div class="text-[11px] text-gray-7 font-mono break-all">
+                    {workspaceConfigPath() || "No active local workspace."}
+                  </div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      class="text-xs h-8 py-0 px-3"
+                      onClick={revealWorkspaceConfig}
+                      disabled={
+                        !isTauriRuntime() ||
+                        revealConfigBusy() ||
+                        !workspaceConfigPath()
+                      }
+                      title={
+                        !isTauriRuntime()
+                          ? "Reveal config requires the desktop app"
+                          : ""
+                      }
+                    >
+                      <FolderOpen size={13} class="mr-1.5" />
+                      {revealConfigBusy() ? "Opening..." : "Reveal config"}
+                    </Button>
+                    <Button
+                      variant="danger"
+                      class="text-xs h-8 py-0 px-3"
+                      onClick={resetAppConfigDefaults}
+                      disabled={resetConfigBusy() || props.anyActiveRuns}
+                      title={
+                        props.anyActiveRuns
+                          ? "Stop active runs before resetting config"
+                          : ""
+                      }
+                    >
+                      {resetConfigBusy()
+                        ? "Resetting..."
+                        : "Reset config defaults"}
+                    </Button>
+                  </div>
+                  <Show when={configActionStatus()}>
+                    {(status) => (
+                      <div class="text-xs text-gray-10">{status()}</div>
+                    )}
+                  </Show>
+                </div>
+                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div class="min-w-0">
+                    <div class="text-sm text-gray-12">OpenCode cache</div>
+                    <div class="text-xs text-gray-7">
+                      Repairs cached data used to start the engine. Safe to run.
+                    </div>
+                    <Show when={props.cacheRepairResult}>
+                      <div class="text-xs text-gray-11 mt-2">
+                        {props.cacheRepairResult}
+                      </div>
+                    </Show>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    class="text-xs h-8 py-0 px-3 shrink-0"
+                    onClick={props.repairOpencodeCache}
+                    disabled={props.cacheRepairBusy || !isTauriRuntime()}
+                    title={
+                      isTauriRuntime()
+                        ? ""
+                        : "Cache repair requires the desktop app"
+                    }
+                  >
+                    {props.cacheRepairBusy ? "Repairing cache" : "Repair cache"}
+                  </Button>
+                </div>
+                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div class="min-w-0">
+                    <div class="text-sm text-gray-12">
+                      OpenWork Docker containers
+                    </div>
+                    <div class="text-xs text-gray-7">
+                      Force-remove Docker containers launched by OpenWork
+                      (sandbox + local dev stacks).
+                    </div>
+                    <Show when={props.dockerCleanupResult}>
+                      <div class="text-xs text-gray-11 mt-2">
+                        {props.dockerCleanupResult}
+                      </div>
+                    </Show>
+                  </div>
+                  <Button
+                    variant="danger"
+                    class="text-xs h-8 py-0 px-3 shrink-0"
+                    onClick={props.cleanupOpenworkDockerContainers}
+                    disabled={
+                      props.dockerCleanupBusy ||
+                      props.anyActiveRuns ||
+                      !isTauriRuntime()
+                    }
+                    title={
+                      !isTauriRuntime()
+                        ? "Docker cleanup requires the desktop app"
+                        : props.anyActiveRuns
+                          ? "Stop active runs before cleanup"
+                          : ""
+                    }
+                  >
+                    {props.dockerCleanupBusy
+                      ? "Removing containers..."
+                      : "Delete containers"}
+                  </Button>
+                </div>
           </div>
         </Match>
 
@@ -2429,123 +2612,8 @@ export default function SettingsView(props: SettingsViewProps) {
                   </div>
                 </div>
 
-                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
-                  <div class="text-sm font-medium text-gray-12">
-                    Workspace config
-                  </div>
-                  <div class="text-xs text-gray-10">
-                    Reveal or reset `.opencode/openwork.json` defaults for this
-                    app workspace.
-                  </div>
-                  <div class="text-[11px] text-gray-7 font-mono break-all">
-                    {workspaceConfigPath() || "No active local workspace."}
-                  </div>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <Button
-                      variant="outline"
-                      class="text-xs h-8 py-0 px-3"
-                      onClick={revealWorkspaceConfig}
-                      disabled={
-                        !isTauriRuntime() ||
-                        revealConfigBusy() ||
-                        !workspaceConfigPath()
-                      }
-                      title={
-                        !isTauriRuntime()
-                          ? "Reveal config requires the desktop app"
-                          : ""
-                      }
-                    >
-                      <FolderOpen size={13} class="mr-1.5" />
-                      {revealConfigBusy() ? "Opening..." : "Reveal config"}
-                    </Button>
-                    <Button
-                      variant="danger"
-                      class="text-xs h-8 py-0 px-3"
-                      onClick={resetAppConfigDefaults}
-                      disabled={resetConfigBusy() || props.anyActiveRuns}
-                      title={
-                        props.anyActiveRuns
-                          ? "Stop active runs before resetting config"
-                          : ""
-                      }
-                    >
-                      {resetConfigBusy()
-                        ? "Resetting..."
-                        : "Reset config defaults"}
-                    </Button>
-                  </div>
-                  <Show when={configActionStatus()}>
-                    {(status) => (
-                      <div class="text-xs text-gray-10">{status()}</div>
-                    )}
-                  </Show>
-                </div>
 
-                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                  <div class="min-w-0">
-                    <div class="text-sm text-gray-12">OpenCode cache</div>
-                    <div class="text-xs text-gray-7">
-                      Repairs cached data used to start the engine. Safe to run.
-                    </div>
-                    <Show when={props.cacheRepairResult}>
-                      <div class="text-xs text-gray-11 mt-2">
-                        {props.cacheRepairResult}
-                      </div>
-                    </Show>
-                  </div>
-                  <Button
-                    variant="secondary"
-                    class="text-xs h-8 py-0 px-3 shrink-0"
-                    onClick={props.repairOpencodeCache}
-                    disabled={props.cacheRepairBusy || !isTauriRuntime()}
-                    title={
-                      isTauriRuntime()
-                        ? ""
-                        : "Cache repair requires the desktop app"
-                    }
-                  >
-                    {props.cacheRepairBusy ? "Repairing cache" : "Repair cache"}
-                  </Button>
-                </div>
 
-                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                  <div class="min-w-0">
-                    <div class="text-sm text-gray-12">
-                      OpenWork Docker containers
-                    </div>
-                    <div class="text-xs text-gray-7">
-                      Force-remove Docker containers launched by OpenWork
-                      (sandbox + local dev stacks).
-                    </div>
-                    <Show when={props.dockerCleanupResult}>
-                      <div class="text-xs text-gray-11 mt-2">
-                        {props.dockerCleanupResult}
-                      </div>
-                    </Show>
-                  </div>
-                  <Button
-                    variant="danger"
-                    class="text-xs h-8 py-0 px-3 shrink-0"
-                    onClick={props.cleanupOpenworkDockerContainers}
-                    disabled={
-                      props.dockerCleanupBusy ||
-                      props.anyActiveRuns ||
-                      !isTauriRuntime()
-                    }
-                    title={
-                      !isTauriRuntime()
-                        ? "Docker cleanup requires the desktop app"
-                        : props.anyActiveRuns
-                          ? "Stop active runs before cleanup"
-                          : ""
-                    }
-                  >
-                    {props.dockerCleanupBusy
-                      ? "Removing containers..."
-                      : "Delete containers"}
-                  </Button>
-                </div>
 
                 <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
                   <div class="text-sm font-medium text-gray-12">Startup</div>
@@ -3488,6 +3556,7 @@ export default function SettingsView(props: SettingsViewProps) {
           </Show>
         </Match>
       </Switch>
+      </div>
     </section>
   );
 }

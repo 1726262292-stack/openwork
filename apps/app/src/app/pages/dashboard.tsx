@@ -1561,6 +1561,7 @@ export default function DashboardView(props: DashboardViewProps) {
           openworkServerStatus={props.openworkServerStatus}
           developerMode={props.developerMode}
           settingsOpen={props.tab === "settings"}
+          showSettingsButton={false}
           onSendFeedback={openFeedback}
           onOpenSettings={props.toggleSettings}
           onOpenMessaging={openConfig}

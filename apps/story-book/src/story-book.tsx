@@ -929,6 +929,7 @@ export default function StoryBookApp() {
             openworkServerStatus="connected"
             developerMode
             settingsOpen={showingSettings()}
+            showSettingsButton={false}
             onSendFeedback={() => undefined}
             onOpenSettings={() => {
               if (showingSettings()) {

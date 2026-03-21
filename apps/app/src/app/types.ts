@@ -155,7 +155,15 @@ export type DashboardTab =
   | "config"
   | "settings";
 
-export type SettingsTab = "general" | "den" | "model" | "advanced" | "debug";
+export type SettingsTab =
+  | "general"
+  | "den"
+  | "model"
+  | "advanced"
+  | "appearance"
+  | "updates"
+  | "recovery"
+  | "debug";
 
 export type WorkspacePreset = "starter" | "automation" | "minimal";
 
