@@ -1,3 +1,6 @@
+import type { Part } from "@opencode-ai/sdk/v2/client";
+
+import type { MessageWithParts } from "../../app/src/app/types";
 import type { WorkspaceInfo } from "../../app/src/app/lib/tauri";
 
 export type StoryScreen = "session" | "settings" | "components" | "onboarding";
@@ -6,15 +9,6 @@ export type StoryStep = {
   label: string;
   detail: string;
   state: "done" | "active" | "queued";
-};
-
-export type StoryMessage = {
-  role: "user" | "assistant";
-  title: string;
-  detail: string;
-  body: string[];
-  steps?: StoryStep[];
-  tags?: string[];
 };
 
 export const storyWorkspaces: WorkspaceInfo[] = [
@@ -56,71 +50,159 @@ export const progressItems = [
   { label: "Capture PR screenshots", done: false },
 ];
 
-export const sessionMessages: StoryMessage[] = [
-  {
-    role: "user",
-    title: "Prompt",
-    detail: "Design review",
-    body: [
-      "Build a faithful story-book for the OpenWork app so we can iterate on the shell, session timeline, settings cards, and onboarding without touching the live runtime.",
-    ],
-    tags: ["/design-review", "@openwork", "3 surfaces"],
-  },
-  {
-    role: "assistant",
-    title: "OpenWork",
-    detail: "Core shell recreation",
-    body: [
-      "The story-book should preserve the current app DNA: restrained chrome, pale shell surfaces, dense operational cards, and a strong bottom status rail.",
-      "I recreated the main session surface with mock workspaces, timeline steps, artifacts, and a composer so design changes can happen in one isolated place.",
-    ],
-    steps: [
-      {
-        label: "Audit current shell",
-        detail: "left rail widths, center reading column, right utility rail",
-        state: "done",
-      },
-      {
-        label: "Rebuild with mocked data",
-        detail: "session transcript, queue state, artifacts, composer",
-        state: "done",
-      },
-      {
-        label: "Layer design states",
-        detail: "settings, onboarding, component primitives",
-        state: "active",
-      },
-    ],
-    tags: ["Session", "Mocked data", "Operational UI"],
-  },
-  {
-    role: "assistant",
-    title: "Artifacts",
-    detail: "Design deliverables",
-    body: [
-      "The gallery keeps the real tokens and primitive buttons from apps/app, but swaps runtime state for stable mocked snapshots.",
-    ],
-    steps: [
-      {
-        label: "Token fidelity",
-        detail: "shared colors, typography, radii, shadows",
-        state: "done",
-      },
-      {
-        label: "Scenario coverage",
-        detail: "session, settings, components, onboarding",
-        state: "queued",
-      },
-    ],
-    tags: ["Design system", "Reusable shell"],
-  },
-];
+const baseTime = Date.now() - 12 * 60 * 1000;
 
-export const artifactItems = [
-  { title: "Session shell", detail: "Primary flow with activity, tools, and composer" },
-  { title: "Settings cards", detail: "Runtime, provider, and update states" },
-  { title: "Onboarding canvas", detail: "First-run decisions and worker connect" },
-  { title: "Primitive kit", detail: "Buttons, chips, inputs, and status rail" },
+function messageInfo(
+  id: string,
+  role: "user" | "assistant",
+  createdOffsetMs: number,
+): MessageWithParts["info"] {
+  return {
+    id,
+    sessionID: "story-shell-session",
+    role,
+    time: {
+      created: baseTime + createdOffsetMs,
+      ...(role === "assistant"
+        ? { completed: baseTime + createdOffsetMs + 20_000 }
+        : {}),
+    },
+  } as MessageWithParts["info"];
+}
+
+function toolPart(
+  tool: string,
+  status: "completed" | "running" | "pending" | "error",
+  input: Record<string, unknown>,
+  extras: Record<string, unknown> = {},
+): Part {
+  return {
+    type: "tool",
+    tool,
+    state: {
+      status,
+      input,
+      ...extras,
+    },
+  } as Part;
+}
+
+export const sessionMessages: MessageWithParts[] = [
+  {
+    info: messageInfo("sb-msg-1", "user", 0),
+    parts: [
+      {
+        type: "text",
+        text:
+          "Build a faithful story-book for the OpenWork app so we can iterate on the shell, session timeline, settings cards, and onboarding without touching the live runtime. Also make the mocked transcript feel closer to a real OpenWork session, including tool activity.",
+      } as Part,
+    ],
+  },
+  {
+    info: messageInfo("sb-msg-2", "assistant", 25_000),
+    parts: [
+      {
+        type: "text",
+        text:
+          "I audited the live session surface first so the mock keeps the same shell proportions, transcript rhythm, and action rail behavior.",
+      } as Part,
+      toolPart(
+        "read",
+        "completed",
+        {
+          filePath: "apps/app/src/app/pages/session.tsx",
+          offset: 4246,
+          limit: 220,
+        },
+        {
+          output: "Reviewed the live session header, command strip, and transcript layout bindings.",
+        },
+      ),
+      toolPart(
+        "grep",
+        "completed",
+        {
+          pattern: "tool|Command\\+K|compactSessionHistory|MessageList",
+          path: "apps/app/src/app",
+        },
+        {
+          output: "Found the real message timeline and tool summary helpers in message-list.tsx and utils/index.ts.",
+        },
+      ),
+      {
+        type: "reasoning",
+        text:
+          "Thinking: the mock should not invent a separate timeline widget. The fastest way to reach parity is to feed richer fake parts into the exact same MessageList surface the app already uses.",
+      } as Part,
+      {
+        type: "text",
+        text:
+          "That keeps the story-book useful for UI decisions while avoiding a parallel rendering path that could drift from the real app.",
+      } as Part,
+    ],
+  },
+  {
+    info: messageInfo("sb-msg-3", "assistant", 70_000),
+    parts: [
+      {
+        type: "text",
+        text:
+          "I then mocked a more realistic execution pass so the story transcript shows the same kinds of steps users see in production.",
+      } as Part,
+      toolPart(
+        "apply_patch",
+        "completed",
+        {
+          filePath: "apps/story-book/src/story-book.tsx",
+        },
+        {
+          output: "Success. Updated the following files: M apps/story-book/src/story-book.tsx",
+        },
+      ),
+      toolPart(
+        "bash",
+        "completed",
+        {
+          command: "pnpm --filter story-book build",
+          description: "Build story-book app to verify compile",
+        },
+        {
+          output:
+            "vite v6.4.1 building for production...\n✓ 1966 modules transformed.\n✓ built in 2.95s",
+        },
+      ),
+      toolPart(
+        "task",
+        "completed",
+        {
+          description: "Review session tool-call fidelity",
+          subagent_type: "explore",
+        },
+        {
+          metadata: {
+            sessionId: "story-subagent-session",
+          },
+          output:
+            "Subagent reviewed the session transcript surface and recommended using the live MessageList grouping semantics.",
+        },
+      ),
+      {
+        type: "text",
+        text:
+          "The result is still mocked data, but the transcript now exercises the real tool-call affordances: exploration summaries, individual action rows, and post-action assistant copy.",
+      } as Part,
+    ],
+  },
+  {
+    info: messageInfo("sb-msg-4", "assistant", 105_000),
+    parts: [
+      {
+        type: "text",
+        text:
+          "Next pass, we can add a few alternate transcript scenarios here too: running tools, failed commands, and a nested subagent thread with its own mini timeline.",
+      } as Part,
+    ],
+  },
 ];
 
 export const settingsTabs = ["General", "Cloud", "Model", "Advanced", "Debug"] as const;

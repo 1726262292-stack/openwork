@@ -18,7 +18,6 @@ import {
 import Button from "../../app/src/app/components/button";
 import DenSettingsPanel from "../../app/src/app/components/den-settings-panel";
 import StatusBar from "../../app/src/app/components/status-bar";
-import ArtifactsPanel from "../../app/src/app/components/session/artifacts-panel";
 import Composer from "../../app/src/app/components/session/composer";
 import InboxPanel from "../../app/src/app/components/session/inbox-panel";
 import MessageList from "../../app/src/app/components/session/message-list";
@@ -140,13 +139,6 @@ const workingFiles = [
   "apps/app/src/app/components/session/inbox-panel.tsx",
 ];
 
-const artifactFiles = [
-  "apps/story-book/pr/mock-shell-wireframe.md",
-  "apps/story-book/pr/right-rail-context.png",
-  "apps/story-book/pr/status-bar-provider-state.png",
-  "apps/story-book/pr/session-layout-notes.md",
-];
-
 const commandOptions: SlashCommandOption[] = [
   { id: "design-review", name: "design-review", description: "Open a design review pass", source: "command" },
   { id: "test-flow", name: "test-flow", description: "Run shell flow checks", source: "skill" },
@@ -162,14 +154,6 @@ function toMessageParts(id: string, role: "user" | "assistant", text: string): M
     } as MessageWithParts["info"],
     parts: [{ type: "text", text } as MessageWithParts["parts"][number]],
   };
-}
-
-function initialStoryMessages(): MessageWithParts[] {
-  return sessionMessages.map((message, index) => {
-    const header = `${message.title}${message.detail ? ` - ${message.detail}` : ""}`;
-    const body = [header, ...message.body].filter(Boolean).join("\n\n");
-    return toMessageParts(`sb-msg-${index + 1}`, message.role, body);
-  });
 }
 
 const RightRailButton: Component<{
@@ -210,7 +194,7 @@ export default function StoryBookApp() {
   const [composerToast, setComposerToast] = createSignal<string | null>(null);
   const [selectedAgent, setSelectedAgent] = createSignal<string | null>(null);
   const [agentPickerOpen, setAgentPickerOpen] = createSignal(false);
-  const [messageRows, setMessageRows] = createSignal<MessageWithParts[]>(initialStoryMessages());
+  const [messageRows, setMessageRows] = createSignal<MessageWithParts[]>(sessionMessages);
   const [expandedStepIds, setExpandedStepIds] = createSignal(new Set<string>());
   const [headerActionBusy, setHeaderActionBusy] = createSignal<"undo" | "redo" | "compact" | null>(null);
 
@@ -355,16 +339,6 @@ export default function StoryBookApp() {
             />
           </div>
         </Show>
-
-        <Show when={expanded}>
-          <div class="rounded-[20px] border border-dls-border bg-dls-surface p-3 shadow-[var(--dls-card-shadow)]">
-            <ArtifactsPanel
-              id="sidebar-artifacts"
-              files={artifactFiles}
-              workspaceRoot="/Users/benjaminshafii/openwork-enterprise/_repos/openwork"
-            />
-          </div>
-        </Show>
       </div>
     </div>
   );
@@ -426,9 +400,6 @@ export default function StoryBookApp() {
         <main class="min-w-0 flex-1 flex flex-col overflow-hidden rounded-[24px] border border-dls-border bg-dls-surface shadow-[var(--dls-shell-shadow)]">
           <header class="z-10 flex h-12 shrink-0 items-center justify-between border-b border-dls-border bg-dls-surface px-4 md:px-6">
             <div class="flex min-w-0 items-center gap-3">
-              <span class="shrink-0 rounded-md bg-dls-hover px-2 py-1 text-[11px] font-medium text-dls-secondary">
-                {activeWorkspace().workspaceType === "remote" ? "Remote workspace" : "Workspace"}
-              </span>
               <h1 class="truncate text-[15px] font-semibold text-dls-text">
                 {showingSettings() ? "Settings" : selectedSessionTitle()}
               </h1>
