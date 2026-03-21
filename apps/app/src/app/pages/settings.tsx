@@ -29,6 +29,9 @@ import {
   Cpu,
   Download,
   FolderOpen,
+  FolderLock,
+  FolderSearch,
+  Folder,
   HardDrive,
   LifeBuoy,
   MessageCircle,
@@ -1497,12 +1500,13 @@ export default function SettingsView(props: SettingsViewProps) {
 
 
               <div class={`${settingsPanelClass} space-y-4`}>
-                <div>
-                  <div class="text-sm font-medium text-gray-12">
+                <div class="space-y-1">
+                  <div class="flex items-center gap-2 text-sm font-semibold text-gray-12">
+                    <FolderLock size={16} class="text-gray-10" />
                     Authorized folders
                   </div>
-                  <div class="text-xs text-gray-9">
-                    Manage `permission.external_directory` for the active workspace through the OpenWork server.
+                  <div class="text-xs text-gray-9 leading-relaxed max-w-[65ch]">
+                    Grant this workspace access to read and edit files in directories outside of its root.
                   </div>
                 </div>
 
@@ -1515,86 +1519,11 @@ export default function SettingsView(props: SettingsViewProps) {
                     </div>
                   }
                 >
-                  <div class="space-y-4">
-                    <div class="text-[11px] text-gray-8">
-                      Enter a server-side folder path manually for remote-safe editing. Desktop folder picking is a convenience for local workspaces only.
-                    </div>
+                  <div class="flex flex-col overflow-hidden rounded-xl border border-gray-5/60 bg-white/50 shadow-sm dark:bg-gray-1/50">
                     <Show when={props.authorizedFoldersHint}>
                       {(hint) => (
-                        <div class={`${settingsPanelSoftClass} px-3 py-2 text-xs text-gray-10`}>
+                        <div class="bg-gray-2/60 px-3 py-2 text-[11px] text-gray-10 border-b border-gray-5/40">
                           {hint()}
-                        </div>
-                      )}
-                    </Show>
-
-                    <form
-                      class="space-y-3"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void props.addAuthorizedFolder();
-                      }}
-                    >
-                      <TextInput
-                        value={props.authorizedFolderDraft}
-                        onInput={(event) =>
-                          props.setAuthorizedFolderDraft(event.currentTarget.value)
-                        }
-                        placeholder={
-                          props.activeWorkspaceType === "remote"
-                            ? "/workspace/shared"
-                            : props.activeWorkspaceRoot || "/Users/example/shared"
-                        }
-                        disabled={
-                          props.authorizedFoldersLoading ||
-                          props.authorizedFoldersSaving ||
-                          !props.authorizedFoldersEditable
-                        }
-                        label="Folder path"
-                        hint="Saved as an allow rule in opencode.json/opencode.jsonc."
-                      />
-
-                      <div class="flex flex-wrap items-center gap-2">
-                        <Button
-                          type="submit"
-                          variant="secondary"
-                          class="text-xs h-8 py-0 px-3"
-                          disabled={
-                            props.authorizedFoldersLoading ||
-                            props.authorizedFoldersSaving ||
-                            !props.authorizedFoldersEditable ||
-                            !props.authorizedFolderDraft.trim()
-                          }
-                        >
-                          {props.authorizedFoldersSaving ? "Saving..." : "Add folder"}
-                        </Button>
-                        <Show when={canPickAuthorizedFolder()}>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            class="text-xs h-8 py-0 px-3"
-                            onClick={() => void props.pickAuthorizedFolder()}
-                            disabled={
-                              props.authorizedFoldersLoading ||
-                              props.authorizedFoldersSaving ||
-                              !props.authorizedFoldersEditable
-                            }
-                          >
-                            <FolderOpen size={13} class="mr-1.5" />
-                            Choose folder
-                          </Button>
-                        </Show>
-                      </div>
-                    </form>
-
-                    <Show when={props.authorizedFoldersStatus}>
-                      {(status) => (
-                        <div class="text-xs text-gray-10">{status()}</div>
-                      )}
-                    </Show>
-                    <Show when={props.authorizedFoldersError}>
-                      {(error) => (
-                        <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">
-                          {error()}
                         </div>
                       )}
                     </Show>
@@ -1602,36 +1531,123 @@ export default function SettingsView(props: SettingsViewProps) {
                     <Show
                       when={props.authorizedFolders.length > 0}
                       fallback={
-                        <div class="rounded-xl border border-dashed border-gray-6/60 bg-gray-1/30 px-3 py-4 text-xs text-gray-9">
-                          No extra folders are authorized yet.
+                        <div class="flex flex-col items-center justify-center p-6 text-center">
+                          <div class="flex h-10 w-10 items-center justify-center rounded-full bg-blue-3/30 text-blue-11 mb-3">
+                            <Folder size={20} />
+                          </div>
+                          <div class="text-sm font-medium text-gray-11">No external folders authorized</div>
+                          <div class="text-[11px] text-gray-9 mt-1 max-w-[40ch]">
+                            Add a folder to let this workspace read and edit files outside its root directory.
+                          </div>
                         </div>
                       }
                     >
-                      <div class="space-y-2">
+                      <div class="flex flex-col divide-y divide-gray-5/40 max-h-[300px] overflow-y-auto">
                         <For each={props.authorizedFolders}>
-                          {(folder) => (
-                            <div class={`${settingsPanelSoftClass} flex items-center justify-between gap-3 px-3 py-2`}>
-                              <div class="min-w-0 text-xs text-gray-12 font-mono break-all">
-                                {folder}
+                          {(folder) => {
+                            const folderName = folder.split(/[/\\]/).filter(Boolean).pop() || folder;
+                            return (
+                              <div class="group flex items-center justify-between px-3 py-2.5 hover:bg-gray-2/50 transition-colors">
+                                <div class="flex items-center gap-3 overflow-hidden">
+                                  <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-3/30 text-blue-11">
+                                    <Folder size={15} />
+                                  </div>
+                                  <div class="flex min-w-0 flex-col">
+                                    <span class="truncate text-sm font-medium text-gray-12">{folderName}</span>
+                                    <span class="truncate font-mono text-[10px] text-gray-8">{folder}</span>
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  class="h-7 w-7 text-gray-8 hover:text-red-11 opacity-0 group-hover:opacity-100 transition-opacity p-0 shrink-0"
+                                  onClick={() => void props.removeAuthorizedFolder(folder)}
+                                  disabled={
+                                    props.authorizedFoldersLoading ||
+                                    props.authorizedFoldersSaving ||
+                                    !props.authorizedFoldersEditable
+                                  }
+                                  aria-label={`Remove ${folderName}`}
+                                >
+                                  <X size={14} />
+                                </Button>
                               </div>
-                              <Button
-                                variant="ghost"
-                                class="h-8 w-8 shrink-0 p-0 text-gray-9 hover:text-red-11"
-                                onClick={() => void props.removeAuthorizedFolder(folder)}
-                                disabled={
-                                  props.authorizedFoldersLoading ||
-                                  props.authorizedFoldersSaving ||
-                                  !props.authorizedFoldersEditable
-                                }
-                                aria-label={`Remove ${folder}`}
-                              >
-                                <X size={14} />
-                              </Button>
-                            </div>
-                          )}
+                            );
+                          }}
                         </For>
                       </div>
                     </Show>
+
+                    <Show when={props.authorizedFoldersStatus}>
+                      {(status) => (
+                        <div class="bg-blue-2/30 px-3 py-2 text-[11px] text-blue-11 border-t border-gray-5/40">
+                          {status()}
+                        </div>
+                      )}
+                    </Show>
+                    <Show when={props.authorizedFoldersError}>
+                      {(error) => (
+                        <div class="bg-red-2/30 px-3 py-2 text-[11px] text-red-11 border-t border-gray-5/40">
+                          {error()}
+                        </div>
+                      )}
+                    </Show>
+
+                    <form
+                      class="flex items-center gap-2 bg-gray-2/60 border-t border-gray-5/60 p-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void props.addAuthorizedFolder();
+                      }}
+                    >
+                      <div class="relative flex-1">
+                        <input
+                          class="w-full rounded-lg border border-gray-5/60 bg-white px-3 py-1.5 text-xs text-gray-12 placeholder:text-gray-8 focus:outline-none focus:ring-2 focus:ring-blue-7/30 dark:bg-gray-2 disabled:opacity-50"
+                          value={props.authorizedFolderDraft}
+                          onInput={(event) =>
+                            props.setAuthorizedFolderDraft(event.currentTarget.value)
+                          }
+                          onPaste={(event) => {
+                            event.preventDefault();
+                          }}
+                          placeholder="Type a folder path to authorize..."
+                          disabled={
+                            props.authorizedFoldersLoading ||
+                            props.authorizedFoldersSaving ||
+                            !props.authorizedFoldersEditable
+                          }
+                        />
+                      </div>
+                      
+                      <Show when={canPickAuthorizedFolder()}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          class="h-8 px-3 text-xs bg-white dark:bg-gray-2"
+                          onClick={() => void props.pickAuthorizedFolder()}
+                          disabled={
+                            props.authorizedFoldersLoading ||
+                            props.authorizedFoldersSaving ||
+                            !props.authorizedFoldersEditable
+                          }
+                        >
+                          <FolderSearch size={13} class="mr-1.5" /> Browse
+                        </Button>
+                      </Show>
+                      
+                      <Button
+                        type="submit"
+                        variant="primary"
+                        class="h-8 px-3 text-xs bg-gray-12 text-gray-1 hover:bg-gray-11 dark:bg-gray-3 dark:text-gray-12 dark:hover:bg-gray-4 border border-transparent dark:border-gray-5"
+                        disabled={
+                          props.authorizedFoldersLoading ||
+                          props.authorizedFoldersSaving ||
+                          !props.authorizedFoldersEditable ||
+                          !props.authorizedFolderDraft.trim()
+                        }
+                      >
+                        {props.authorizedFoldersSaving ? "Adding..." : "Add"}
+                      </Button>
+                    </form>
                   </div>
                 </Show>
               </div>

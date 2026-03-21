@@ -376,10 +376,10 @@ export default function WorkspaceSessionList(props: Props) {
         <div
           role="button"
           tabIndex={0}
-          class={`group flex min-h-9 w-full items-center justify-between rounded-[15px] border px-3 py-2 transition-[background-color,border-color,box-shadow] ${
+          class={`group flex min-h-9 w-full items-center justify-between rounded-xl px-3 py-1.5 text-left text-[13px] transition-colors ${
             isSelected()
-              ? "border-dls-border bg-dls-surface text-dls-text shadow-[var(--dls-card-shadow)]"
-              : "border-transparent text-gray-11 hover:bg-gray-2/60"
+              ? "bg-gray-3 text-gray-12"
+              : "text-gray-10 hover:bg-gray-1/70 hover:text-gray-11"
           }`}
           style={{ "margin-left": `${Math.min(depth(), 4) * 16}px` }}
           onClick={openSession}
@@ -418,25 +418,16 @@ export default function WorkspaceSessionList(props: Props) {
               <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-9" />
             </Show>
             <span
-              class="block min-w-0 truncate text-[13px] font-normal text-current"
+              class={`block min-w-0 truncate ${
+                isSelected() ? "font-medium text-gray-12" : "font-normal text-current"
+              }`}
               title={displayTitle()}
             >
               {displayTitle()}
             </span>
-            <Show when={hasChildren() && !isExpanded()}>
-              <span class="shrink-0 rounded-full bg-gray-3 px-1.5 py-0.5 text-[10px] text-gray-10">
-                +{hiddenChildCount()}
-              </span>
-            </Show>
           </div>
 
           <div class="ml-auto flex shrink-0 items-center gap-1">
-            <Show when={session().time?.updated}>
-              <span class="whitespace-nowrap text-[11px] text-gray-9 transition-colors group-hover:text-gray-10">
-                {formatRelativeTime(session().time?.updated ?? Date.now())}
-              </span>
-            </Show>
-
             <Show when={canManageSession()}>
               <button
                 type="button"
@@ -544,10 +535,10 @@ export default function WorkspaceSessionList(props: Props) {
                   <div
                     role="button"
                     tabIndex={0}
-                    class={`w-full flex items-center justify-between rounded-[18px] border px-3.5 py-2.5 text-left transition-[background-color,border-color,box-shadow] ${
+                    class={`w-full flex items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-[13px] transition-colors ${
                       props.activeWorkspaceId === workspace().id
-                        ? "border-dls-border bg-dls-surface shadow-[var(--dls-card-shadow)]"
-                        : "border-transparent text-gray-12 hover:bg-gray-2/70"
+                        ? "bg-gray-2/70 text-gray-12"
+                        : "text-gray-10 hover:bg-gray-1/70 hover:text-gray-12"
                     } ${isConnecting() ? "opacity-75" : ""}`}
                     onClick={() => {
                       expandWorkspace(workspace().id);
@@ -564,36 +555,34 @@ export default function WorkspaceSessionList(props: Props) {
                         props.onActivateWorkspace(workspace().id),
                       );
                     }}
-                  >
-                    <div class="flex min-w-0 items-center gap-3.5">
-                      <div
-                        class="flex h-6.5 w-6.5 shrink-0 items-center justify-center rounded-full"
-                        style={{
-                          "background-color": workspaceSwatchColor(
-                            workspace().id || workspaceLabel(workspace()),
-                          ),
-                        }}
-                      />
-                      <div class="min-w-0 flex flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
-                        <div class="min-w-0 flex-1 truncate text-[14px] font-normal text-dls-text">
-                          {workspaceLabel(workspace())}
-                        </div>
-                        <Show when={statusLabel()}>
-                          <div
-                            class={`ml-auto whitespace-nowrap text-[12px] ${statusTone()}`}
-                          >
-                            {statusLabel()}
-                          </div>
-                        </Show>
-                      </div>
-                    </div>
+                   >
+                     <div class="flex min-w-0 items-center gap-3.5">
+                        <div
+                          class="flex h-5.5 w-5.5 shrink-0 items-center justify-center rounded-full"
+                         style={{
+                           "background-color": workspaceSwatchColor(
+                             workspace().id || workspaceLabel(workspace()),
+                           ),
+                         }}
+                       />
+                       <div class="min-w-0 flex-1">
+                         <div class="min-w-0 truncate text-[14px] font-normal text-dls-text">
+                           {workspaceLabel(workspace())}
+                         </div>
+                         <Show when={statusLabel()}>
+                           <div class={`mt-0.5 text-[11px] ${statusTone()}`}>
+                             {statusLabel()}
+                           </div>
+                         </Show>
+                       </div>
+                     </div>
 
-                    <div class="ml-4 flex shrink-0 items-center gap-1.5">
-                      <Show when={group.status === "loading" || isConnecting()}>
-                        <Loader2 size={14} class="animate-spin text-gray-9" />
-                      </Show>
+                     <div class="ml-4 flex shrink-0 items-center gap-1.5">
+                       <Show when={group.status === "loading" || isConnecting()}>
+                         <Loader2 size={14} class="animate-spin text-gray-9" />
+                       </Show>
 
-                      <div class="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                      <div class="hidden items-center gap-0.5 group-hover:flex group-focus-within:flex">
                         <button
                           type="button"
                           class="rounded-md p-1 text-gray-9 hover:bg-gray-3/80 hover:text-gray-11"
@@ -740,7 +729,8 @@ export default function WorkspaceSessionList(props: Props) {
                   </Show>
                 </div>
 
-                <div class="ml-3 mt-1 space-y-1 border-l-2 border-dls-border">
+                <div class="mt-3 px-1 pb-1">
+                  <div class="relative flex flex-col gap-1 pl-2.5 before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[2px] before:bg-gray-3 before:content-['']">
                   <Show
                     when={isWorkspaceExpanded(workspace().id)}
                     fallback={
@@ -857,6 +847,7 @@ export default function WorkspaceSessionList(props: Props) {
                       </div>
                     </Show>
                   </Show>
+                  </div>
                 </div>
               </div>
             );
