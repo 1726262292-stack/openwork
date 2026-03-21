@@ -679,7 +679,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                                   </div>
                                 </Show>
                                 <Show when={entry.id === "anthropic"}>
-                                  <div class="w-full h-full bg-[#E5D5C5] flex items-center justify-center text-[#191919]">
+                                  <div class="w-full h-full bg-[#F7F4EE] flex items-center justify-center text-[#191919]">
                                     <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M17.373 20.301h5.086l-9.09-15.637h-2.618l-9.213 15.637h5.086l1.644-2.821h8.423l1.082 2.821Zm-3.155-8.152H10.15l2.008-3.447h.03l2.03 3.447Z"/></svg>
                                   </div>
                                 </Show>
@@ -944,10 +944,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
           <div class="px-6 pt-4 pb-6 border-t border-gray-6/50 flex flex-col gap-3">
             <div class="min-h-[16px] text-xs text-gray-10">
               <Show when={props.submitting}>{submittingLabel()}</Show>
-            </div>
-            <div class="text-xs text-gray-9">
-              OAuth opens in your browser. API keys are stored locally by OpenCode (not in your repo). Use{" "}
-              <span class="font-mono">/models</span> to pick a default.
             </div>
             <Button variant="ghost" onClick={handleClose} disabled={actionDisabled()}>
               Close
