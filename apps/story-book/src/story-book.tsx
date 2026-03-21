@@ -168,15 +168,16 @@ const mockShareFields = [
     hint: "Paste this into Add worker -> Connect remote.",
   },
   {
-    label: "Access token",
-    value: "ow_story_worker_demo_token_7f9a1b3c",
+    label: "Password",
+    value: "ow_story_worker_owner_password_7f9a1b3c",
     secret: true,
-    hint: "Mock token for reviewing the share modal UI only.",
+    hint: "Use when the remote client must answer permission prompts.",
   },
   {
-    label: "Workspace slug",
-    value: "ops-worker-demo",
-    hint: "Used for shareable profile links and deep-link testing.",
+    label: "Collaborator token",
+    value: "ow_story_worker_collab_token_1c4d2e8a",
+    secret: true,
+    hint: "Routine access when you do not need owner-only actions.",
   },
 ] as const;
 

@@ -7,7 +7,6 @@ import {
   on,
   onCleanup,
   onMount,
-  type JSX,
 } from "solid-js";
 import type { Agent, Part, Session } from "@opencode-ai/sdk/v2/client";
 import type {
@@ -43,24 +42,17 @@ import { createWorkspaceShellLayout } from "../lib/workspace-shell-layout";
 
 import {
   AlertTriangle,
-  Box,
-  ChevronLeft,
-  ChevronRight,
   Check,
   Circle,
   HardDrive,
-  History,
   ListTodo,
   Loader2,
   Menu,
-  MessageCircle,
-  Maximize2,
   Minimize2,
   RefreshCcw,
   Redo2,
   Search,
   Shield,
-  SlidersHorizontal,
   Undo2,
   X,
   Zap,
@@ -76,7 +68,6 @@ import ProviderAuthModal, {
 import ShareWorkspaceModal from "../components/share-workspace-modal";
 import StatusBar from "../components/status-bar";
 import {
-  buildOpenworkConnectInviteUrl,
   buildOpenworkWorkspaceBaseUrl,
   createOpenworkServerClient,
   OpenworkServerError,
@@ -115,7 +106,7 @@ import type { SidebarSectionState } from "../components/session/sidebar";
 import FlyoutItem from "../components/flyout-item";
 import MobileSidebarDrawer from "../components/mobile-sidebar-drawer";
 import QuestionModal from "../components/question-modal";
-import InboxPanel from "../components/session/inbox-panel";
+import WorkspaceRightSidebar from "../components/workspace-right-sidebar";
 
 export type SessionViewProps = {
   selectedSessionId: string | null;
@@ -3021,25 +3012,9 @@ export default function SessionView(props: SessionViewProps) {
       const url = mountedUrl || hostUrl;
       const ownerToken = props.openworkServerHostInfo?.ownerToken?.trim() || "";
       const collaboratorToken = props.openworkServerHostInfo?.clientToken?.trim() || "";
-      const inviteToken = ownerToken || collaboratorToken;
-      const inviteUrl = buildOpenworkConnectInviteUrl({
-        workspaceUrl: url,
-        token: inviteToken,
-      });
       return [
         {
-          label: "OpenWork invite link",
-          value: inviteUrl,
-          secret: true,
-          placeholder: !isTauriRuntime()
-            ? "Desktop app required"
-            : "Starting server...",
-          hint: ownerToken
-            ? "One link that prefills the worker URL and owner token for permission prompts."
-            : "One link that prefills the worker URL and collaborator token.",
-        },
-        {
-          label: "OpenWork worker URL",
+          label: "Worker URL",
           value: url,
           placeholder: !isTauriRuntime()
             ? "Desktop app required"
@@ -3051,13 +3026,13 @@ export default function SessionView(props: SessionViewProps) {
               : undefined,
         },
         {
-          label: "Owner token",
+          label: "Password",
           value: ownerToken,
           secret: true,
           placeholder: isTauriRuntime() ? "-" : "Desktop app required",
           hint: mountedUrl
             ? "Use on phones or laptops connecting to this worker."
-            : "Use on phones or laptops connecting to this host when the remote client must answer permission prompts.",
+            : "Use when the remote client must answer permission prompts.",
         },
         {
           label: "Collaborator token",
@@ -3080,27 +3055,17 @@ export default function SessionView(props: SessionViewProps) {
         ws.openworkToken?.trim() ||
         props.openworkServerSettings.token?.trim() ||
         "";
-      const inviteUrl = buildOpenworkConnectInviteUrl({
-        workspaceUrl: url,
-        token,
-      });
       return [
         {
-          label: "OpenWork invite link",
-          value: inviteUrl,
-          secret: true,
-          hint: "One link that prefills worker URL and token.",
-        },
-        {
-          label: "OpenWork worker URL",
+          label: "Worker URL",
           value: url,
         },
         {
-          label: "Connected token",
+          label: "Password",
           value: token,
           secret: true,
           placeholder: token ? undefined : "Set token in workspace settings",
-          hint: "This worker is currently connected with this token.",
+          hint: "This workspace is currently connected with this password.",
         },
       ];
     }
@@ -3868,136 +3833,6 @@ export default function SessionView(props: SessionViewProps) {
     }
     applyStarterPrompt(starter.prompt);
   };
-  const rightSidebarNavButton = (
-    label: string,
-    icon: any,
-    active: boolean,
-    onClick: () => void,
-    options?: {
-      disabled?: boolean;
-      badge?: JSX.Element;
-      disabledTitle?: string;
-      expanded?: boolean;
-      onSelect?: () => void;
-    },
-  ) => {
-    const expanded = options?.expanded ?? rightSidebarExpanded();
-    return (
-      <button
-        type="button"
-        disabled={options?.disabled}
-        class={`w-full border text-[13px] font-medium transition-[background-color,border-color,box-shadow,color] ${
-          options?.disabled
-            ? "cursor-not-allowed border-transparent text-gray-8 opacity-70"
-            : active
-              ? "border-dls-border bg-dls-surface text-dls-text shadow-[var(--dls-card-shadow)]"
-              : "border-transparent text-gray-10 hover:border-dls-border hover:bg-dls-surface hover:text-dls-text"
-        } ${
-          expanded
-            ? "flex min-h-11 items-center justify-start gap-2.5 rounded-[16px] px-3.5"
-            : "flex h-12 items-center justify-center rounded-[16px] px-0"
-        }`}
-        onClick={() => {
-          onClick();
-          options?.onSelect?.();
-        }}
-        title={options?.disabled ? options.disabledTitle ?? label : label}
-        aria-label={options?.disabled ? `${label}. ${options.disabledTitle ?? "Desktop only."}` : label}
-      >
-        {icon}
-        <Show when={expanded}>
-          <span class="flex min-w-0 flex-1 items-center gap-2">
-            <span class="truncate">{label}</span>
-            {options?.badge}
-          </span>
-        </Show>
-      </button>
-    );
-  };
-
-  const renderRightSidebar = (expanded: boolean, mobile = false) => (
-    <div class={`flex h-full w-full flex-col overflow-hidden rounded-[24px] border border-dls-border bg-dls-sidebar p-3 ${mobile ? "shadow-2xl" : "transition-[width] duration-200"}`}>
-      <div class={`flex items-center pb-3 ${expanded ? "justify-end" : "justify-center"}`}>
-        <button
-          type="button"
-          class="flex h-10 w-10 items-center justify-center rounded-[16px] text-gray-10 transition-colors hover:bg-dls-surface hover:text-dls-text"
-          onClick={mobile ? () => setMobileRightSidebarOpen(false) : toggleRightSidebar}
-          title={mobile ? "Close sidebar" : rightSidebarExpanded() ? "Collapse sidebar" : "Expand sidebar"}
-          aria-label={mobile ? "Close sidebar" : rightSidebarExpanded() ? "Collapse sidebar" : "Expand sidebar"}
-        >
-          <Show when={mobile} fallback={<Show when={expanded} fallback={<ChevronLeft size={18} />}><ChevronRight size={18} /></Show>}>
-            <X size={18} />
-          </Show>
-        </button>
-      </div>
-      <div class={`flex-1 overflow-y-auto ${expanded ? "space-y-5 pt-1" : "space-y-3 pt-1"}`}>
-        <div class="space-y-1 mb-2">
-          {rightSidebarNavButton(
-            "Automations",
-            <History size={18} />,
-            showRightSidebarSelection() && props.tab === "scheduled",
-            () => {
-              props.setTab("scheduled");
-              props.setView("dashboard");
-            },
-            mobile ? { expanded, onSelect: () => setMobileRightSidebarOpen(false) } : { expanded },
-          )}
-          {rightSidebarNavButton(
-            "Skills",
-            <Zap size={18} />,
-            showRightSidebarSelection() && props.tab === "skills",
-            () => {
-              props.setTab("skills");
-              props.setView("dashboard");
-            },
-            mobile ? { expanded, onSelect: () => setMobileRightSidebarOpen(false) } : { expanded },
-          )}
-          {rightSidebarNavButton(
-            "Extensions",
-            <Box size={18} />,
-            showRightSidebarSelection() && (props.tab === "mcp" || props.tab === "plugins"),
-            () => {
-              props.setTab("mcp");
-              props.setView("dashboard");
-            },
-            mobile ? { expanded, onSelect: () => setMobileRightSidebarOpen(false) } : { expanded },
-          )}
-          {rightSidebarNavButton(
-            "Messaging",
-            <MessageCircle size={18} />,
-            showRightSidebarSelection() && props.tab === "identities",
-            () => {
-              props.setTab("identities");
-              props.setView("dashboard");
-            },
-            mobile ? { expanded, onSelect: () => setMobileRightSidebarOpen(false) } : { expanded },
-          )}
-          <Show when={props.developerMode}>
-            {rightSidebarNavButton(
-              "Advanced",
-              <SlidersHorizontal size={18} />,
-              showRightSidebarSelection() && props.tab === "config",
-              openConfig,
-              mobile ? { expanded, onSelect: () => setMobileRightSidebarOpen(false) } : { expanded },
-            )}
-          </Show>
-        </div>
-
-        <Show when={expanded && props.activeWorkspaceDisplay.workspaceType === "remote"}>
-          <div class="rounded-[20px] border border-dls-border bg-dls-surface p-3 shadow-[var(--dls-card-shadow)]">
-            <InboxPanel
-              id={mobile ? "mobile-sidebar-inbox" : "sidebar-inbox"}
-              client={props.openworkServerClient}
-              workspaceId={props.openworkServerWorkspaceId}
-              onToast={(message) => setToastMessage(message)}
-            />
-          </div>
-        </Show>
-
-      </div>
-    </div>
-  );
-
   return (
     <div class="h-[100dvh] min-h-screen w-full overflow-hidden bg-[var(--dls-app-bg)] p-3 md:p-4 text-gray-12 font-sans">
       <div class="flex h-full w-full gap-3 md:gap-4">
@@ -4232,21 +4067,6 @@ export default function SessionView(props: SessionViewProps) {
                 aria-label="Open sidebar"
               >
                 <Menu size={16} />
-              </button>
-              <button
-                type="button"
-                class="hidden h-9 w-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-60 md:flex"
-                onClick={compactSessionHistory}
-                disabled={!canCompactSession() || historyActionBusy() !== null}
-                title="Compact session context"
-                aria-label="Compact session context"
-              >
-                <Show
-                  when={historyActionBusy() === "compact"}
-                  fallback={<Maximize2 size={16} />}
-                >
-                  <Loader2 size={16} class="animate-spin" />
-                </Show>
               </button>
             </div>
           </header>
@@ -4739,6 +4559,7 @@ export default function SessionView(props: SessionViewProps) {
             developerMode={props.developerMode}
             settingsOpen={false}
             onSendFeedback={openFeedback}
+            showSettingsButton={false}
             onOpenSettings={props.toggleSettings}
             onOpenMessaging={openConfig}
             onOpenProviders={openProviderAuth}
@@ -4775,14 +4596,68 @@ export default function SessionView(props: SessionViewProps) {
             "min-width": `${rightSidebarWidth()}px`,
           }}
         >
-          {renderRightSidebar(rightSidebarExpanded())}
+          <WorkspaceRightSidebar
+            expanded={rightSidebarExpanded()}
+            showSelection={showRightSidebarSelection()}
+            tab={props.tab}
+            developerMode={props.developerMode}
+            activeWorkspaceLabel={props.activeWorkspaceDisplay.displayName || props.activeWorkspaceDisplay.name || "Workspace"}
+            activeWorkspaceType={props.activeWorkspaceDisplay.workspaceType}
+            openworkServerClient={props.openworkServerClient}
+            openworkServerWorkspaceId={props.openworkServerWorkspaceId}
+            inboxId="sidebar-inbox"
+            onToggleExpanded={toggleRightSidebar}
+            onOpenAutomations={() => {
+              props.setTab("scheduled");
+              props.setView("dashboard");
+            }}
+            onOpenSkills={() => {
+              props.setTab("skills");
+              props.setView("dashboard");
+            }}
+            onOpenExtensions={() => {
+              props.setTab("mcp");
+              props.setView("dashboard");
+            }}
+            onOpenAdvanced={openConfig}
+            onOpenSettings={() => openSettings("general")}
+            onInboxToast={(message) => setToastMessage(message)}
+          />
         </aside>
 
         <MobileSidebarDrawer
           open={mobileRightSidebarOpen()}
           onClose={() => setMobileRightSidebarOpen(false)}
         >
-          {renderRightSidebar(true, true)}
+          <WorkspaceRightSidebar
+            expanded
+            mobile
+            showSelection={showRightSidebarSelection()}
+            tab={props.tab}
+            developerMode={props.developerMode}
+            activeWorkspaceLabel={props.activeWorkspaceDisplay.displayName || props.activeWorkspaceDisplay.name || "Workspace"}
+            activeWorkspaceType={props.activeWorkspaceDisplay.workspaceType}
+            openworkServerClient={props.openworkServerClient}
+            openworkServerWorkspaceId={props.openworkServerWorkspaceId}
+            inboxId="mobile-sidebar-inbox"
+            onToggleExpanded={toggleRightSidebar}
+            onCloseMobile={() => setMobileRightSidebarOpen(false)}
+            onOpenAutomations={() => {
+              props.setTab("scheduled");
+              props.setView("dashboard");
+            }}
+            onOpenSkills={() => {
+              props.setTab("skills");
+              props.setView("dashboard");
+            }}
+            onOpenExtensions={() => {
+              props.setTab("mcp");
+              props.setView("dashboard");
+            }}
+            onOpenAdvanced={openConfig}
+            onOpenSettings={() => openSettings("general")}
+            onInboxToast={(message) => setToastMessage(message)}
+          />
         </MobileSidebarDrawer>
       </div>
 
