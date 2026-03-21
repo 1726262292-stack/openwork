@@ -379,29 +379,28 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
     }
   };
 
-  const settingsPanelClass = "rounded-[28px] border border-dls-border bg-dls-surface p-5 md:p-6";
+  const settingsPanelClass = "rounded-2xl border border-dls-border bg-dls-surface p-5 md:p-6";
+  const settingsPanelSoftClass = "rounded-2xl border border-dls-border bg-dls-surface/50 p-4";
 
   return (
     <div class="space-y-6">
-      <div class="relative overflow-hidden rounded-[32px] border border-sky-100 bg-[#FAFAFA] p-7 shadow-sm">
-        <div class="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-sky-100/60 blur-3xl" />
-        <div class="pointer-events-none absolute -bottom-10 left-4 h-32 w-32 rounded-full bg-cyan-100/60 blur-3xl" />
-        <div class="relative flex flex-col gap-5">
-          <div class="flex items-center justify-between">
-            <div class="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white px-3.5 py-1.5 text-[13px] font-medium text-sky-700 shadow-sm">
-              <Cloud size={14} class="text-sky-600" />
+      <div class={`${settingsPanelClass} space-y-4`}>
+        <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div class="space-y-4">
+            <div class="inline-flex items-center gap-2 rounded-full border border-dls-border bg-dls-surface px-2.5 py-1 text-[11px] font-medium text-dls-text shadow-sm">
+              <Cloud size={12} class="text-sky-500" />
               OpenWork Den
             </div>
-            <div class={`inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-[13px] font-medium shadow-sm bg-white border-gray-200 text-gray-600`}>
-              <span class={`h-2.5 w-2.5 rounded-full ${summaryTone() === "ready" ? "bg-green-500" : summaryTone() === "warning" ? "bg-amber-500" : summaryTone() === "error" ? "bg-red-500" : "bg-gray-300"}`} />
-              {summaryLabel()}
+            <div>
+              <div class="text-[15px] font-semibold text-dls-text">Sign in, pick an org, and open Den workers from Settings.</div>
+              <div class="mt-1.5 max-w-[60ch] text-[13px] leading-relaxed text-dls-secondary">Sign in to OpenWork Den to keep your tasks alive even when your computer sleeps.</div>
             </div>
           </div>
-
-          <div class="pt-1">
-            <div class="text-[17px] font-semibold tracking-tight text-gray-900">Sign in, pick an org, and open Den workers from Settings.</div>
-            <div class="mt-2 max-w-[65ch] text-[14px] leading-relaxed text-gray-500">Sign in to OpenWork Den to keep your tasks alive even when your computer sleeps.</div>
+          <div class="inline-flex items-center gap-2 rounded-full border border-dls-border px-2.5 py-1 text-[11px] font-medium shadow-sm bg-dls-surface text-dls-secondary">
+            <span class={`h-2 w-2 rounded-full ${summaryTone() === "ready" ? "bg-green-500" : summaryTone() === "warning" ? "bg-amber-500" : summaryTone() === "error" ? "bg-red-500" : "bg-gray-300"}`} />
+            {summaryLabel()}
           </div>
+        </div>
 
           <Show
             when={props.developerMode}
@@ -445,8 +444,8 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
       <Show when={!isSignedIn()}>
         <div class={`${settingsPanelClass} space-y-4`}>
           <div class="space-y-2">
-            <div class="text-sm font-medium text-gray-12">Sign in to OpenWork Den</div>
-            <div class="max-w-[54ch] text-sm text-gray-10">Sign in to OpenWork Den to keep your tasks alive even when your computer sleeps.</div>
+            <div class="text-sm font-medium text-dls-text">Sign in to OpenWork Den</div>
+            <div class="max-w-[54ch] text-sm text-dls-secondary">Sign in to OpenWork Den to keep your tasks alive even when your computer sleeps.</div>
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
@@ -462,7 +461,7 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
 
           <Show when={authError()}>
             {(value) => <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">{value()}</div>}</Show>
-          <div class="rounded-xl border border-gray-6/60 bg-gray-1/40 p-4 text-sm text-gray-10">
+          <div class={`${settingsPanelSoftClass} text-sm text-gray-10`}>
             Finish auth in your browser and OpenWork will reconnect here automatically.
           </div>
         </div>
@@ -472,15 +471,15 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
         <div class="space-y-6">
           <div class={`${settingsPanelClass} space-y-4`}>
             <div>
-              <div class="text-sm font-medium text-gray-12">Den Account</div>
-              <div class="text-xs text-gray-9 mt-1">Manage your connected account and organization.</div>
+              <div class="text-sm font-medium text-dls-text">Den Account</div>
+              <div class="text-xs text-dls-secondary mt-1">Manage your connected account and organization.</div>
             </div>
 
             <div class="flex flex-col gap-3">
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+              <div class="flex items-center justify-between bg-dls-surface/50 p-3 rounded-xl border border-dls-border gap-3">
                 <div class="min-w-0">
-                  <div class="text-sm font-medium text-gray-12 truncate">{user()?.name || user()?.email}</div>
-                  <div class="text-xs text-gray-9 truncate">{user()?.email}</div>
+                  <div class="text-sm font-medium text-dls-text truncate">{user()?.name || user()?.email}</div>
+                  <div class="text-xs text-dls-secondary truncate">{user()?.email}</div>
                 </div>
                 <Button variant="outline" class="text-xs h-8 px-3 shrink-0" onClick={() => void signOut()} disabled={authBusy() || sessionBusy()}>
                   <LogOut size={13} class="mr-1.5" />
@@ -488,10 +487,10 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
                 </Button>
               </div>
 
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+              <div class="flex items-center justify-between bg-dls-surface/50 p-3 rounded-xl border border-dls-border gap-3">
                 <div class="min-w-0">
-                  <div class="text-sm font-medium text-gray-12">Active org</div>
-                  <div class="text-xs text-gray-9 truncate">Workers are scoped to the selected org.</div>
+                  <div class="text-sm font-medium text-dls-text">Active org</div>
+                  <div class="text-xs text-dls-secondary truncate">Workers are scoped to the selected org.</div>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
                   <select
@@ -526,14 +525,14 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
           <div class={`${settingsPanelClass} space-y-4`}>
             <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
-                <div class="flex items-center gap-2 text-sm font-medium text-gray-12">
-                  <Server size={15} class="text-gray-11" />
+                <div class="flex items-center gap-2 text-sm font-medium text-dls-text">
+                  <Server size={15} class="text-dls-secondary" />
                   Den workers
                 </div>
-                <div class="text-xs text-gray-9 mt-1">Open workers directly into OpenWork using the same remote-connect flow the app already uses elsewhere.</div>
+                <div class="text-xs text-dls-secondary mt-1">Open workers directly into OpenWork using the same remote-connect flow the app already uses elsewhere.</div>
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                <div class="inline-flex items-center gap-1.5 rounded-full border border-gray-6/60 bg-gray-1/60 px-2.5 py-1 text-[11px] font-medium text-gray-11">
+                <div class="inline-flex items-center gap-1.5 rounded-full border border-dls-border bg-dls-surface/50 px-2.5 py-1 text-[11px] font-medium text-dls-secondary">
                   <Users size={12} />
                   {activeOrg()?.name || "No org selected"}
                 </div>
@@ -549,7 +548,7 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
             </Show>
 
             <Show when={!workersBusy() && workers().length === 0}>
-              <div class="rounded-xl border border-dashed border-gray-6/60 bg-gray-1/40 px-4 py-6 text-sm text-gray-10 text-center">
+              <div class={`${settingsPanelSoftClass} border-dashed text-sm text-dls-secondary text-center py-6`}>
                 No cloud workers are visible for this org yet. Create one in Den, then refresh this tab.
               </div>
             </Show>
@@ -559,10 +558,10 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
                 {(worker) => {
                   const status = createMemo(() => workerStatusMeta(worker.status));
                   return (
-                    <div class="flex items-center justify-between rounded-xl border border-gray-6/60 bg-gray-1/50 p-3 hover:bg-gray-2/50 transition-colors">
+                    <div class="flex items-center justify-between rounded-xl border border-dls-border bg-dls-surface/50 p-3 hover:bg-dls-hover transition-colors">
                       <div class="min-w-0 space-y-1">
                         <div class="flex flex-wrap items-center gap-2">
-                          <div class="text-sm font-medium text-gray-12 truncate">{worker.workerName}</div>
+                          <div class="text-sm font-medium text-dls-text truncate">{worker.workerName}</div>
                           <div class={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium shrink-0 ${statusBadgeClass(status().tone)}`}>
                             {status().label}
                           </div>
@@ -572,7 +571,7 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
                             </div>
                           </Show>
                         </div>
-                        <div class="text-xs text-gray-9 truncate">
+                        <div class="text-xs text-dls-secondary truncate">
                           {worker.provider ? `${worker.provider} worker` : "Cloud worker"}
                           <Show when={worker.instanceUrl}>
                             {(value) => <span> · {value()}</span>}
