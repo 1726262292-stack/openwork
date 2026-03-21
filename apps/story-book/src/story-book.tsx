@@ -1,31 +1,22 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type { Component, JSX } from "solid-js";
-import "@radix-ui/colors/gray.css";
-import "@radix-ui/colors/gray-alpha.css";
-import "@radix-ui/colors/blue.css";
-import "@radix-ui/colors/blue-alpha.css";
-import "@radix-ui/colors/orange.css";
-import "@radix-ui/colors/orange-alpha.css";
-import "@radix-ui/colors/red.css";
-import "@radix-ui/colors/red-alpha.css";
 import {
   Box,
   ChevronLeft,
   ChevronRight,
-  Command,
   History,
-  Layers3,
+  Maximize2,
+  Menu,
   MessageCircle,
-  Moon,
+  Redo2,
   Search,
   SlidersHorizontal,
-  Sun,
+  Undo2,
   Zap,
 } from "lucide-solid";
 
 import Button from "../../app/src/app/components/button";
 import DenSettingsPanel from "../../app/src/app/components/den-settings-panel";
-import OpenWorkLogo from "../../app/src/app/components/openwork-logo";
 import StatusBar from "../../app/src/app/components/status-bar";
 import ArtifactsPanel from "../../app/src/app/components/session/artifacts-panel";
 import Composer from "../../app/src/app/components/session/composer";
@@ -51,8 +42,6 @@ import type {
 import { sessionMessages, storyWorkspaces } from "./mock-data";
 
 type RightRailNav = "automations" | "skills" | "extensions" | "messaging" | "advanced";
-
-const themeModes: ThemeMode[] = ["system", "light", "dark"];
 
 const localWorkspace = storyWorkspaces[0] ?? {
   id: "local-foundation",
@@ -214,7 +203,7 @@ export default function StoryBookApp() {
   const [activeWorkspaceId, setActiveWorkspaceId] = createSignal(localWorkspace.id);
   const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>("sb-session-shell");
   const [rightRailNav, setRightRailNav] = createSignal<RightRailNav>("automations");
-  const [themeMode, setThemeMode] = createSignal<ThemeMode>(getInitialThemeMode());
+  const [themeMode] = createSignal<ThemeMode>(getInitialThemeMode());
   const [composerPrompt, setComposerPrompt] = createSignal(
     "Use this mock shell to design layout changes before touching the live session runtime.",
   );
@@ -223,6 +212,7 @@ export default function StoryBookApp() {
   const [agentPickerOpen, setAgentPickerOpen] = createSignal(false);
   const [messageRows, setMessageRows] = createSignal<MessageWithParts[]>(initialStoryMessages());
   const [expandedStepIds, setExpandedStepIds] = createSignal(new Set<string>());
+  const [headerActionBusy, setHeaderActionBusy] = createSignal<"undo" | "redo" | "compact" | null>(null);
 
   const {
     leftSidebarWidth,
@@ -257,6 +247,9 @@ export default function StoryBookApp() {
     return "New session";
   });
   const showingSettings = createMemo(() => rightRailNav() === "advanced");
+  const activeWorkspace = createMemo(
+    () => workspaceSessionGroups.find((group) => group.workspace.id === activeWorkspaceId())?.workspace ?? localWorkspace,
+  );
 
   const agentLabel = createMemo(() => (selectedAgent() ? `@${selectedAgent()}` : "Auto"));
 
@@ -279,6 +272,23 @@ export default function StoryBookApp() {
     ]);
     setComposerPrompt("");
   };
+
+  const runMockHeaderAction = (action: "undo" | "redo" | "compact", label: string) => {
+    if (headerActionBusy()) return;
+    setHeaderActionBusy(action);
+    setComposerToast(`Story-book: ${label} is mocked in this shell.`);
+    window.setTimeout(() => setHeaderActionBusy(null), 240);
+  };
+
+  createEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k")) return;
+      event.preventDefault();
+      toggleRightSidebar();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+  });
 
   const renderRightRail = (expanded: boolean) => (
     <div class="flex h-full w-full flex-col overflow-hidden rounded-[24px] border border-dls-border bg-dls-sidebar p-3 transition-[width] duration-200">
@@ -416,55 +426,78 @@ export default function StoryBookApp() {
         <main class="min-w-0 flex-1 flex flex-col overflow-hidden rounded-[24px] border border-dls-border bg-dls-surface shadow-[var(--dls-shell-shadow)]">
           <header class="z-10 flex h-12 shrink-0 items-center justify-between border-b border-dls-border bg-dls-surface px-4 md:px-6">
             <div class="flex min-w-0 items-center gap-3">
-              <OpenWorkLogo size={18} />
               <span class="shrink-0 rounded-md bg-dls-hover px-2 py-1 text-[11px] font-medium text-dls-secondary">
-                Workspace
+                {activeWorkspace().workspaceType === "remote" ? "Remote workspace" : "Workspace"}
               </span>
               <h1 class="truncate text-[15px] font-semibold text-dls-text">
                 {showingSettings() ? "Settings" : selectedSessionTitle()}
               </h1>
+              <span class="hidden truncate text-[13px] text-dls-secondary lg:inline">
+                {activeWorkspace().displayName ?? activeWorkspace().name}
+              </span>
             </div>
 
             <div class="flex items-center gap-1.5 text-gray-10">
               <button
                 type="button"
-                class="flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-gray-2/70 hover:text-dls-text"
-                title="Search conversation"
+                class="hidden items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text sm:flex"
+                onClick={toggleRightSidebar}
+                title="Menu"
+                aria-label="Menu"
+              >
+                <Menu size={15} />
+                <span>Menu</span>
+                <span class="ml-1 rounded border border-dls-border px-1 text-[10px] text-gray-9">⌘K</span>
+              </button>
+              <button
+                type="button"
+                class="flex h-9 w-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text"
+                onClick={() => setComposerToast("Story-book: search is mocked in this shell.")}
+                title="Search conversation (Ctrl/Cmd+F)"
                 aria-label="Search conversation"
               >
                 <Search size={16} />
               </button>
+              <div class="hidden h-4 w-px bg-dls-border sm:block" />
               <button
                 type="button"
-                class="hidden h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-gray-2/70 hover:text-dls-text sm:flex"
-                title="Command palette"
-                aria-label="Command palette"
+                class="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => runMockHeaderAction("undo", "undo")}
+                disabled={headerActionBusy() !== null}
+                title="Undo last message"
+                aria-label="Undo last message"
               >
-                <Command size={16} />
+                <Show when={headerActionBusy() === "undo"} fallback={<Undo2 size={16} />}>
+                  <span class="h-4 w-4 animate-spin rounded-full border-2 border-gray-8 border-t-transparent" />
+                </Show>
+                <span class="hidden lg:inline">Revert</span>
               </button>
-              <div class="hidden items-center gap-1 sm:flex">
-                <For each={themeModes}>
-                  {(mode) => (
-                    <button
-                      type="button"
-                      onClick={() => setThemeMode(mode)}
-                      class={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors ${
-                        themeMode() === mode
-                          ? "border-dls-border bg-dls-hover text-dls-text"
-                          : "border-transparent text-dls-secondary hover:bg-gray-2/70 hover:text-dls-text"
-                      }`}
-                    >
-                      <Show
-                        when={mode === "light"}
-                        fallback={<Show when={mode === "dark"} fallback={<Layers3 size={12} />}><Moon size={12} /></Show>}
-                      >
-                        <Sun size={12} />
-                      </Show>
-                      <span class="capitalize">{mode}</span>
-                    </button>
-                  )}
-                </For>
-              </div>
+              <button
+                type="button"
+                class="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => runMockHeaderAction("redo", "redo")}
+                disabled={headerActionBusy() !== null}
+                title="Redo last reverted message"
+                aria-label="Redo last reverted message"
+              >
+                <Show when={headerActionBusy() === "redo"} fallback={<Redo2 size={16} />}>
+                  <span class="h-4 w-4 animate-spin rounded-full border-2 border-gray-8 border-t-transparent" />
+                </Show>
+                <span class="hidden lg:inline">Redo</span>
+              </button>
+              <div class="hidden h-4 w-px bg-dls-border sm:block" />
+              <button
+                type="button"
+                class="hidden h-9 w-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text md:flex"
+                onClick={() => runMockHeaderAction("compact", "session compaction")}
+                disabled={headerActionBusy() !== null}
+                title="Compact session context"
+                aria-label="Compact session context"
+              >
+                <Show when={headerActionBusy() === "compact"} fallback={<Maximize2 size={16} />}>
+                  <span class="h-4 w-4 animate-spin rounded-full border-2 border-gray-8 border-t-transparent" />
+                </Show>
+              </button>
             </div>
           </header>
 
