@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import { ArrowUpRight, Cloud, LogOut, RefreshCcw, Server, Users } from "lucide-solid";
+
 import Button from "./button";
 import TextInput from "./text-input";
 import {
@@ -51,7 +52,9 @@ function workerStatusMeta(status: string) {
       return { label: "Stopped", tone: "neutral" as const, canOpen: false };
     default:
       return {
-        label: normalized ? `${normalized.slice(0, 1).toUpperCase()}${normalized.slice(1)}` : "Unknown",
+        label: normalized
+          ? `${normalized.slice(0, 1).toUpperCase()}${normalized.slice(1)}`
+          : "Unknown",
         tone: "neutral" as const,
         canOpen: normalized === "ready",
       };
@@ -61,7 +64,9 @@ function workerStatusMeta(status: string) {
 export default function DenSettingsPanel(props: DenSettingsPanelProps) {
   const platform = usePlatform();
   const initial = readDenSettings();
-  const initialBaseUrl = props.developerMode ? initial.baseUrl || DEFAULT_DEN_BASE_URL : DEFAULT_DEN_BASE_URL;
+  const initialBaseUrl = props.developerMode
+    ? initial.baseUrl || DEFAULT_DEN_BASE_URL
+    : DEFAULT_DEN_BASE_URL;
 
   const [baseUrl, setBaseUrl] = createSignal(initialBaseUrl);
   const [baseUrlDraft, setBaseUrlDraft] = createSignal(initialBaseUrl);
@@ -73,8 +78,14 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
   const [orgsBusy, setOrgsBusy] = createSignal(false);
   const [workersBusy, setWorkersBusy] = createSignal(false);
   const [openingWorkerId, setOpeningWorkerId] = createSignal<string | null>(null);
-  const [user, setUser] = createSignal<{ id: string; email: string; name: string | null } | null>(null);
-  const [orgs, setOrgs] = createSignal<Array<{ id: string; name: string; slug: string; role: "owner" | "member" }>>([]);
+  const [user, setUser] = createSignal<{
+    id: string;
+    email: string;
+    name: string | null;
+  } | null>(null);
+  const [orgs, setOrgs] = createSignal<
+    Array<{ id: string; name: string; slug: string; role: "owner" | "member" }>
+  >([]);
   const [workers, setWorkers] = createSignal<
     Array<{
       workerId: string;
@@ -92,7 +103,9 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
   const [workersError, setWorkersError] = createSignal<string | null>(null);
 
   const activeOrg = createMemo(() => orgs().find((org) => org.id === activeOrgId()) ?? null);
-  const client = createMemo(() => createDenClient({ baseUrl: baseUrl(), token: authToken() }));
+  const client = createMemo(() =>
+    createDenClient({ baseUrl: baseUrl(), token: authToken() }),
+  );
   const isSignedIn = createMemo(() => Boolean(user() && authToken().trim()));
 
   const summaryTone = createMemo(() => {
@@ -101,7 +114,7 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
     if (isSignedIn()) return "ready" as const;
     return "neutral" as const;
   });
-  
+
   const summaryLabel = createMemo(() => {
     if (authError()) return "Needs attention";
     if (sessionBusy()) return "Checking session";
@@ -137,7 +150,11 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
       target.searchParams.set("desktopScheme", "openwork");
     }
     platform.openLink(target.toString());
-    setStatusMessage(mode === "sign-up" ? "Finish account creation in your browser to connect OpenWork." : "Finish signing in in your browser to connect OpenWork.");
+    setStatusMessage(
+      mode === "sign-up"
+        ? "Finish account creation in your browser to connect OpenWork."
+        : "Finish signing in in your browser to connect OpenWork.",
+    );
     setAuthError(null);
   };
 
@@ -172,7 +189,6 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
     }
 
     const resolved = resolveDenBaseUrls(normalized);
-
     setBaseUrlError(null);
     if (resolved.baseUrl === baseUrl()) {
       setBaseUrlDraft(resolved.baseUrl);
@@ -192,9 +208,7 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
     }
 
     setOrgsBusy(true);
-    if (!quiet) {
-      setOrgsError(null);
-    }
+    if (!quiet) setOrgsError(null);
 
     try {
       const response = await client().listOrgs();
@@ -204,11 +218,12 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
       const next = response.orgs.some((org) => org.id === current) ? current : fallback;
       setActiveOrgId(next);
       if (!quiet && response.orgs.length > 0) {
-        setStatusMessage(`Loaded ${response.orgs.length} org${response.orgs.length === 1 ? "" : "s"}.`);
+        setStatusMessage(
+          `Loaded ${response.orgs.length} org${response.orgs.length === 1 ? "" : "s"}.`,
+        );
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load orgs.";
-      setOrgsError(message);
+      setOrgsError(error instanceof Error ? error.message : "Failed to load orgs.");
     } finally {
       setOrgsBusy(false);
     }
@@ -222,9 +237,7 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
     }
 
     setWorkersBusy(true);
-    if (!quiet) {
-      setWorkersError(null);
-    }
+    if (!quiet) setWorkersError(null);
 
     try {
       const nextWorkers = await client().listWorkers(orgId, 20);
@@ -237,8 +250,7 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
         );
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load workers.";
-      setWorkersError(message);
+      setWorkersError(error instanceof Error ? error.message : "Failed to load workers.");
     } finally {
       setWorkersBusy(false);
     }
@@ -273,12 +285,12 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
         } else {
           clearSessionState();
         }
-        setAuthError(error instanceof Error ? error.message : "No active Den session found.");
+        setAuthError(
+          error instanceof Error ? error.message : "No active Den session found.",
+        );
       })
       .finally(() => {
-        if (!cancelled) {
-          setSessionBusy(false);
-        }
+        if (!cancelled) setSessionBusy(false);
       });
 
     return () => {
@@ -287,22 +299,22 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
   });
 
   createEffect(() => {
-    if (!user()) {
-      return;
-    }
+    if (!user()) return;
     void refreshOrgs(true);
   });
 
   createEffect(() => {
-    if (!user() || !activeOrgId().trim()) {
-      return;
-    }
+    if (!user() || !activeOrgId().trim()) return;
     void refreshWorkers(true);
   });
 
   createEffect(() => {
     const handler = (event: Event) => {
-      const customEvent = event as CustomEvent<{ status?: string; email?: string | null; message?: string | null }>;
+      const customEvent = event as CustomEvent<{
+        status?: string;
+        email?: string | null;
+        message?: string | null;
+      }>;
       const nextSettings = readDenSettings();
       setBaseUrl(nextSettings.baseUrl || DEFAULT_DEN_BASE_URL);
       setBaseUrlDraft(nextSettings.baseUrl || DEFAULT_DEN_BASE_URL);
@@ -316,18 +328,26 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
             : "Connected OpenWork Den.",
         );
       } else if (customEvent.detail?.status === "error") {
-        setAuthError(customEvent.detail.message?.trim() || "Failed to finish OpenWork Den sign-in.");
+        setAuthError(
+          customEvent.detail.message?.trim() ||
+            "Failed to finish OpenWork Den sign-in.",
+        );
       }
     };
 
-    window.addEventListener("openwork-den-session-updated", handler as EventListener);
-    return () => window.removeEventListener("openwork-den-session-updated", handler as EventListener);
+    window.addEventListener(
+      "openwork-den-session-updated",
+      handler as EventListener,
+    );
+    return () =>
+      window.removeEventListener(
+        "openwork-den-session-updated",
+        handler as EventListener,
+      );
   });
 
   const signOut = async () => {
-    if (authBusy()) {
-      return;
-    }
+    if (authBusy()) return;
 
     setAuthBusy(true);
     try {
@@ -335,12 +355,14 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
         await client().signOut();
       }
     } catch {
-      // Ignore remote sign-out failures and clear local state anyway.
+      // ignore remote sign out failures
     } finally {
       setAuthBusy(false);
     }
 
-    clearSignedInState("Signed out and cleared your OpenWork Den session on this device.");
+    clearSignedInState(
+      "Signed out and cleared your OpenWork Den session on this device.",
+    );
   };
 
   const handleOpenWorker = async (workerId: string, workerName: string) => {
@@ -356,9 +378,12 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
     try {
       const tokens = await client().getWorkerTokens(workerId, orgId);
       const openworkUrl = tokens.openworkUrl?.trim() ?? "";
-      const accessToken = tokens.ownerToken?.trim() || tokens.clientToken?.trim() || "";
+      const accessToken =
+        tokens.ownerToken?.trim() || tokens.clientToken?.trim() || "";
       if (!openworkUrl || !accessToken) {
-        throw new Error("Worker is not ready to open yet. Try again after provisioning finishes.");
+        throw new Error(
+          "Worker is not ready to open yet. Try again after provisioning finishes.",
+        );
       }
 
       const ok = await props.connectRemoteWorkspace({
@@ -373,79 +398,112 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
 
       setStatusMessage(`Opened ${workerName} in OpenWork.`);
     } catch (error) {
-      setWorkersError(error instanceof Error ? error.message : `Failed to open ${workerName}.`);
+      setWorkersError(
+        error instanceof Error ? error.message : `Failed to open ${workerName}.`,
+      );
     } finally {
       setOpeningWorkerId(null);
     }
   };
 
-  const settingsPanelClass = "rounded-2xl border border-dls-border bg-dls-surface p-5 md:p-6";
-  const settingsPanelSoftClass = "rounded-2xl border border-dls-border bg-dls-surface/50 p-4";
+  const settingsPanelClass =
+    "rounded-[28px] border border-dls-border bg-dls-surface p-5 md:p-6";
+  const settingsPanelSoftClass =
+    "rounded-2xl border border-gray-6/60 bg-gray-1/40 p-4";
 
   return (
     <div class="space-y-6">
       <div class={`${settingsPanelClass} space-y-4`}>
         <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div class="space-y-4">
+          <div class="space-y-2">
             <div class="inline-flex items-center gap-2 rounded-full border border-dls-border bg-dls-surface px-2.5 py-1 text-[11px] font-medium text-dls-text shadow-sm">
-              <Cloud size={12} class="text-sky-500" />
+              <Cloud size={12} class="text-dls-secondary" />
               OpenWork Den
             </div>
             <div>
-              <div class="text-[15px] font-semibold text-dls-text">Sign in, pick an org, and open Den workers from Settings.</div>
-              <div class="mt-1.5 max-w-[60ch] text-[13px] leading-relaxed text-dls-secondary">Sign in to OpenWork Den to keep your tasks alive even when your computer sleeps.</div>
+              <div class="text-sm font-medium text-dls-text">
+                Sign in, pick an org, and open Den workers from Settings.
+              </div>
+              <div class="mt-1 max-w-[60ch] text-xs text-dls-secondary">
+                Sign in to OpenWork Den to keep your tasks alive even when your
+                computer sleeps.
+              </div>
             </div>
           </div>
-          <div class="inline-flex items-center gap-2 rounded-full border border-dls-border px-2.5 py-1 text-[11px] font-medium shadow-sm bg-dls-surface text-dls-secondary">
-            <span class={`h-2 w-2 rounded-full ${summaryTone() === "ready" ? "bg-green-500" : summaryTone() === "warning" ? "bg-amber-500" : summaryTone() === "error" ? "bg-red-500" : "bg-gray-300"}`} />
+          <div class="inline-flex items-center gap-2 rounded-full border border-dls-border bg-dls-surface px-2.5 py-1 text-[11px] font-medium text-dls-secondary shadow-sm">
+            <span
+              class={`h-2 w-2 rounded-full ${summaryTone() === "ready" ? "bg-green-500" : summaryTone() === "warning" ? "bg-amber-500" : summaryTone() === "error" ? "bg-red-500" : "bg-gray-400"}`}
+            />
             {summaryLabel()}
           </div>
         </div>
 
-          <Show
-            when={props.developerMode}
-            fallback={<></>}
-          >
-            <>
-              <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end mt-4">
-                <TextInput
-                  label="Den control plane URL"
-                  value={baseUrlDraft()}
-                  onInput={(event) => setBaseUrlDraft(event.currentTarget.value)}
-                  placeholder={DEFAULT_DEN_BASE_URL}
-                  hint="Developer mode only. Use this to target a local or self-hosted Den control plane. Changing it signs you out so the app can re-hydrate against the new control plane."
-                  disabled={authBusy() || sessionBusy()}
-                />
-                <div class="flex flex-wrap items-center gap-2">
-                  <Button variant="outline" class="h-9 px-3 text-xs" onClick={() => setBaseUrlDraft(baseUrl())} disabled={authBusy() || sessionBusy()}>
-                    Reset
-                  </Button>
-                  <Button variant="secondary" class="h-9 px-3 text-xs" onClick={applyBaseUrl} disabled={authBusy() || sessionBusy()}>
-                    Save URL
-                  </Button>
-                  <Button variant="outline" class="h-9 px-3 text-xs" onClick={openControlPlane}>
-                    Open in browser
-                    <ArrowUpRight size={13} />
-                  </Button>
-                </div>
-              </div>
+        <Show when={props.developerMode}>
+          <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+            <TextInput
+              label="Den control plane URL"
+              value={baseUrlDraft()}
+              onInput={(event) => setBaseUrlDraft(event.currentTarget.value)}
+              placeholder={DEFAULT_DEN_BASE_URL}
+              hint="Developer mode only. Use this to target a local or self-hosted Den control plane. Changing it signs you out so the app can re-hydrate against the new control plane."
+              disabled={authBusy() || sessionBusy()}
+            />
+            <div class="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                class="h-9 px-3 text-xs"
+                onClick={() => setBaseUrlDraft(baseUrl())}
+                disabled={authBusy() || sessionBusy()}
+              >
+                Reset
+              </Button>
+              <Button
+                variant="secondary"
+                class="h-9 px-3 text-xs"
+                onClick={applyBaseUrl}
+                disabled={authBusy() || sessionBusy()}
+              >
+                Save URL
+              </Button>
+              <Button
+                variant="outline"
+                class="h-9 px-3 text-xs"
+                onClick={openControlPlane}
+              >
+                Open in browser
+                <ArrowUpRight size={13} />
+              </Button>
+            </div>
+          </div>
+        </Show>
 
-              <Show when={baseUrlError()}>
-                {(value) => <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">{value()}</div>}
-              </Show>
-            </>
-          </Show>
-          <Show when={statusMessage() && !authError() && !workersError() && !orgsError()}>
-            {(value) => <div class="rounded-xl border border-gray-6/60 bg-gray-1/60 px-3 py-2 text-xs text-gray-11">{value()}</div>}
-          </Show>
-        </div>
+        <Show when={baseUrlError()}>
+          {(value) => (
+            <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">
+              {value()}
+            </div>
+          )}
+        </Show>
+
+        <Show when={statusMessage() && !authError() && !workersError() && !orgsError()}>
+          {(value) => (
+            <div class="rounded-xl border border-gray-6/60 bg-gray-1/60 px-3 py-2 text-xs text-gray-11">
+              {value()}
+            </div>
+          )}
+        </Show>
       </div>
 
       <Show when={!isSignedIn()}>
         <div class={`${settingsPanelClass} space-y-4`}>
           <div class="space-y-2">
-            <div class="text-sm font-medium text-dls-text">Sign in to OpenWork Den</div>
-            <div class="max-w-[54ch] text-sm text-dls-secondary">Sign in to OpenWork Den to keep your tasks alive even when your computer sleeps.</div>
+            <div class="text-sm font-medium text-dls-text">
+              Sign in to OpenWork Den
+            </div>
+            <div class="max-w-[54ch] text-sm text-dls-secondary">
+              Sign in to OpenWork Den to keep your tasks alive even when your
+              computer sleeps.
+            </div>
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
@@ -453,16 +511,27 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
               Sign in
               <ArrowUpRight size={13} />
             </Button>
-            <Button variant="outline" class="text-xs h-9 px-3" onClick={() => openBrowserAuth("sign-up")}>
+            <Button
+              variant="outline"
+              class="text-xs h-9 px-3"
+              onClick={() => openBrowserAuth("sign-up")}
+            >
               Create account
               <ArrowUpRight size={13} />
             </Button>
           </div>
 
           <Show when={authError()}>
-            {(value) => <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">{value()}</div>}</Show>
+            {(value) => (
+              <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">
+                {value()}
+              </div>
+            )}
+          </Show>
+
           <div class={`${settingsPanelSoftClass} text-sm text-gray-10`}>
-            Finish auth in your browser and OpenWork will reconnect here automatically.
+            Finish auth in your browser and OpenWork will reconnect here
+            automatically.
           </div>
         </div>
       </Show>
@@ -472,33 +541,48 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
           <div class={`${settingsPanelClass} space-y-4`}>
             <div>
               <div class="text-sm font-medium text-dls-text">Den Account</div>
-              <div class="text-xs text-dls-secondary mt-1">Manage your connected account and organization.</div>
+              <div class="mt-1 text-xs text-dls-secondary">
+                Manage your connected account and organization.
+              </div>
             </div>
 
             <div class="flex flex-col gap-3">
-              <div class="flex items-center justify-between bg-dls-surface/50 p-3 rounded-xl border border-dls-border gap-3">
+              <div class="flex flex-col gap-3 rounded-xl border border-gray-6/60 bg-gray-1/40 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div class="min-w-0">
-                  <div class="text-sm font-medium text-dls-text truncate">{user()?.name || user()?.email}</div>
-                  <div class="text-xs text-dls-secondary truncate">{user()?.email}</div>
+                  <div class="truncate text-sm font-medium text-dls-text">
+                    {user()?.name || user()?.email}
+                  </div>
+                  <div class="truncate text-xs text-dls-secondary">
+                    {user()?.email}
+                  </div>
                 </div>
-                <Button variant="outline" class="text-xs h-8 px-3 shrink-0" onClick={() => void signOut()} disabled={authBusy() || sessionBusy()}>
+                <Button
+                  variant="outline"
+                  class="h-8 px-3 text-xs shrink-0"
+                  onClick={() => void signOut()}
+                  disabled={authBusy() || sessionBusy()}
+                >
                   <LogOut size={13} class="mr-1.5" />
                   {authBusy() ? "Signing out..." : "Sign out"}
                 </Button>
               </div>
 
-              <div class="flex items-center justify-between bg-dls-surface/50 p-3 rounded-xl border border-dls-border gap-3">
+              <div class="flex flex-col gap-3 rounded-xl border border-gray-6/60 bg-gray-1/40 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div class="min-w-0">
                   <div class="text-sm font-medium text-dls-text">Active org</div>
-                  <div class="text-xs text-dls-secondary truncate">Workers are scoped to the selected org.</div>
+                  <div class="truncate text-xs text-dls-secondary">
+                    Workers are scoped to the selected org.
+                  </div>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
                   <select
-                    class="rounded-lg border border-dls-border bg-dls-surface px-3 py-1.5 text-xs text-dls-text shadow-sm focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)] max-w-[200px]"
+                    class="max-w-[220px] rounded-lg border border-dls-border bg-dls-surface px-3 py-1.5 text-xs text-dls-text shadow-sm focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)]"
                     value={activeOrgId()}
                     onChange={(event) => {
                       setActiveOrgId(event.currentTarget.value);
-                      setStatusMessage(`Switched to ${activeOrg()?.name ?? "the selected org"}.`);
+                      setStatusMessage(
+                        `Switched to ${activeOrg()?.name ?? "the selected org"}.`,
+                      );
                     }}
                     disabled={orgsBusy() || orgs().length === 0}
                   >
@@ -510,7 +594,12 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
                       )}
                     </For>
                   </select>
-                  <Button variant="outline" class="text-xs h-8 px-3" onClick={() => void refreshOrgs()} disabled={orgsBusy()}>
+                  <Button
+                    variant="outline"
+                    class="h-8 px-3 text-xs"
+                    onClick={() => void refreshOrgs()}
+                    disabled={orgsBusy()}
+                  >
                     <RefreshCcw size={13} class={orgsBusy() ? "animate-spin" : ""} />
                   </Button>
                 </div>
@@ -518,7 +607,11 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
             </div>
 
             <Show when={orgsError()}>
-              {(value) => <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">{value()}</div>}
+              {(value) => (
+                <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">
+                  {value()}
+                </div>
+              )}
             </Show>
           </div>
 
@@ -529,14 +622,22 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
                   <Server size={15} class="text-dls-secondary" />
                   Den workers
                 </div>
-                <div class="text-xs text-dls-secondary mt-1">Open workers directly into OpenWork using the same remote-connect flow the app already uses elsewhere.</div>
+                <div class="mt-1 text-xs text-dls-secondary">
+                  Open workers directly into OpenWork using the same
+                  remote-connect flow the app already uses elsewhere.
+                </div>
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                <div class="inline-flex items-center gap-1.5 rounded-full border border-dls-border bg-dls-surface/50 px-2.5 py-1 text-[11px] font-medium text-dls-secondary">
+                <div class="inline-flex items-center gap-1.5 rounded-full border border-gray-6/60 bg-gray-1/40 px-2.5 py-1 text-[11px] font-medium text-gray-11">
                   <Users size={12} />
                   {activeOrg()?.name || "No org selected"}
                 </div>
-                <Button variant="outline" class="text-xs h-8 px-3" onClick={() => void refreshWorkers()} disabled={workersBusy() || !activeOrgId().trim()}>
+                <Button
+                  variant="outline"
+                  class="h-8 px-3 text-xs"
+                  onClick={() => void refreshWorkers()}
+                  disabled={workersBusy() || !activeOrgId().trim()}
+                >
                   <RefreshCcw size={13} class={workersBusy() ? "animate-spin" : ""} />
                   Refresh
                 </Button>
@@ -544,51 +645,60 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
             </div>
 
             <Show when={workersError()}>
-              {(value) => <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">{value()}</div>}
+              {(value) => (
+                <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">
+                  {value()}
+                </div>
+              )}
             </Show>
 
             <Show when={!workersBusy() && workers().length === 0}>
-              <div class={`${settingsPanelSoftClass} border-dashed text-sm text-dls-secondary text-center py-6`}>
-                No cloud workers are visible for this org yet. Create one in Den, then refresh this tab.
+              <div class={`${settingsPanelSoftClass} border-dashed py-6 text-center text-sm text-dls-secondary`}>
+                No cloud workers are visible for this org yet. Create one in
+                Den, then refresh this tab.
               </div>
             </Show>
 
-            <div class="space-y-3">
+            <div class="space-y-1">
               <For each={workers()}>
                 {(worker) => {
                   const status = createMemo(() => workerStatusMeta(worker.status));
                   return (
-                    <div class="flex items-center justify-between rounded-xl border border-dls-border bg-dls-surface/50 p-3 hover:bg-dls-hover transition-colors">
-                      <div class="min-w-0 space-y-1">
+                    <div class="flex items-center justify-between rounded-xl px-3 py-2 text-left text-[13px] transition-colors hover:bg-gray-2/60">
+                      <div class="min-w-0 pr-4">
                         <div class="flex flex-wrap items-center gap-2">
-                          <div class="text-sm font-medium text-dls-text truncate">{worker.workerName}</div>
-                          <div class={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium shrink-0 ${statusBadgeClass(status().tone)}`}>
+                          <span class="truncate font-medium text-dls-text">
+                            {worker.workerName}
+                          </span>
+                          <span
+                            class={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${statusBadgeClass(status().tone)}`}
+                          >
                             {status().label}
-                          </div>
+                          </span>
                           <Show when={worker.isMine}>
-                            <div class="inline-flex items-center rounded-full border border-gray-6/60 bg-gray-1/60 px-2 py-0.5 text-[10px] font-medium text-gray-11 shrink-0">
+                            <span class="inline-flex items-center rounded-full border border-gray-6/60 bg-gray-1/40 px-2 py-0.5 text-[10px] font-medium text-gray-11">
                               Mine
-                            </div>
+                            </span>
                           </Show>
                         </div>
-                        <div class="text-xs text-dls-secondary truncate">
+                        <div class="mt-0.5 truncate text-[11px] text-dls-secondary">
                           {worker.provider ? `${worker.provider} worker` : "Cloud worker"}
                           <Show when={worker.instanceUrl}>
                             {(value) => <span> · {value()}</span>}
                           </Show>
                         </div>
                       </div>
-                      <div class="ml-3 shrink-0">
-                        <Button
-                          variant="secondary"
-                          class="text-xs h-8 px-4"
-                          onClick={() => void handleOpenWorker(worker.workerId, worker.workerName)}
-                          disabled={openingWorkerId() !== null || !status().canOpen}
-                          title={!status().canOpen ? "This worker is not ready to open yet." : undefined}
-                        >
-                          {openingWorkerId() === worker.workerId ? "Opening..." : "Open"}
-                        </Button>
-                      </div>
+                      <Button
+                        variant="secondary"
+                        class="h-8 px-4 text-xs shrink-0"
+                        onClick={() =>
+                          void handleOpenWorker(worker.workerId, worker.workerName)
+                        }
+                        disabled={openingWorkerId() !== null || !status().canOpen}
+                        title={!status().canOpen ? "This worker is not ready to open yet." : undefined}
+                      >
+                        {openingWorkerId() === worker.workerId ? "Opening..." : "Open"}
+                      </Button>
                     </div>
                   );
                 }}
