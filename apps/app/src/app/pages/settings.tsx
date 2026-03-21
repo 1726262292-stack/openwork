@@ -1278,11 +1278,42 @@ export default function SettingsView(props: SettingsViewProps) {
     "inline-flex items-center gap-1.5 rounded-md border border-dls-border bg-dls-surface px-3 py-1.5 text-xs font-medium text-dls-secondary shadow-sm transition-colors duration-150 hover:bg-dls-hover hover:text-dls-text focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.25)] disabled:cursor-not-allowed disabled:opacity-60";
   const compactDangerActionClass =
     "inline-flex items-center gap-1.5 rounded-md border border-red-7/35 bg-red-3/25 px-3 py-1.5 text-xs font-medium text-red-11 transition-colors duration-150 hover:border-red-7/50 hover:bg-red-3/45 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-7/35 disabled:cursor-not-allowed disabled:opacity-60";
+  const settingsRailClass =
+    "rounded-[24px] border border-dls-border bg-dls-sidebar p-3";
+  const settingsPanelClass =
+    "rounded-[28px] border border-dls-border bg-dls-surface p-5 md:p-6";
+  const settingsPanelSoftClass =
+    "rounded-2xl border border-gray-6/60 bg-gray-1/40 p-4";
+
+  const tabDescription = (tab: SettingsTab) => {
+    switch (tab) {
+      case "den":
+        return "Manage your OpenWork Cloud connection, hosted workers, and workspace access.";
+      case "model":
+        return "Tune the default model, runtime behavior, and assistant output settings.";
+      case "advanced":
+        return "Inspect runtime health, connection state, and developer-facing controls.";
+      case "appearance":
+        return "Adjust how OpenWork looks across desktop, system theme, and app chrome.";
+      case "updates":
+        return "Keep the app current with quiet background checks and install controls.";
+      case "recovery":
+        return "Repair migration state, reset workspace defaults, and recover local settings.";
+      case "debug":
+        return "Review runtime diagnostics, logs, and low-level debugging utilities.";
+      default:
+        return "Connect providers, authorize folders, and control the active OpenWork workspace.";
+    }
+  };
+
+  const activeTabGroup = createMemo(() =>
+    workspaceTabs().includes(activeTab()) ? "Workspace" : "Global",
+  );
 
   return (
     <section class="space-y-6 md:grid md:grid-cols-[220px_minmax(0,1fr)] md:gap-8 md:space-y-0">
       <aside class="space-y-6 md:sticky md:top-4 md:self-start">
-        <div class="rounded-[24px] border border-dls-border bg-dls-sidebar p-3 shadow-[var(--dls-card-shadow)]">
+        <div class={settingsRailClass}>
           <div class="mb-2 px-2 text-[11px] font-medium uppercase tracking-[0.18em] text-gray-8">
             Workspace
           </div>
@@ -1291,10 +1322,10 @@ export default function SettingsView(props: SettingsViewProps) {
               {(tab) => (
                 <button
                   type="button"
-                  class={`flex w-full items-center justify-between rounded-[16px] border px-3 py-2.5 text-left text-[13px] font-medium transition-colors ${
+                  class={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-[13px] font-medium transition-colors ${
                     activeTab() === tab
-                      ? "border-dls-border bg-dls-surface text-dls-text shadow-[var(--dls-card-shadow)]"
-                      : "border-transparent text-gray-10 hover:border-dls-border hover:bg-dls-surface hover:text-dls-text"
+                      ? "bg-dls-surface text-dls-text shadow-sm"
+                      : "text-gray-10 hover:bg-dls-surface/50 hover:text-dls-text"
                   }`}
                   onClick={() => props.setSettingsTab(tab)}
                 >
@@ -1305,7 +1336,7 @@ export default function SettingsView(props: SettingsViewProps) {
           </div>
         </div>
 
-        <div class="rounded-[24px] border border-dls-border bg-dls-sidebar p-3 shadow-[var(--dls-card-shadow)]">
+        <div class={settingsRailClass}>
           <div class="mb-2 px-2 text-[11px] font-medium uppercase tracking-[0.18em] text-gray-8">
             Global
           </div>
@@ -1314,10 +1345,10 @@ export default function SettingsView(props: SettingsViewProps) {
               {(tab) => (
                 <button
                   type="button"
-                  class={`flex w-full items-center justify-between rounded-[16px] border px-3 py-2.5 text-left text-[13px] font-medium transition-colors ${
+                  class={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-[13px] font-medium transition-colors ${
                     activeTab() === tab
-                      ? "border-dls-border bg-dls-surface text-dls-text shadow-[var(--dls-card-shadow)]"
-                      : "border-transparent text-gray-10 hover:border-dls-border hover:bg-dls-surface hover:text-dls-text"
+                      ? "bg-dls-surface text-dls-text shadow-sm"
+                      : "text-gray-10 hover:bg-dls-surface/50 hover:text-dls-text"
                   }`}
                   onClick={() => props.setSettingsTab(tab)}
                 >
@@ -1330,19 +1361,19 @@ export default function SettingsView(props: SettingsViewProps) {
       </aside>
 
       <div class="min-w-0 space-y-6">
-        <div class="flex flex-col gap-3 rounded-[28px] border border-dls-border bg-dls-surface px-5 py-4 shadow-[var(--dls-card-shadow)] md:flex-row md:items-center md:justify-between">
-          <div>
-            <div class="text-[11px] font-medium uppercase tracking-[0.18em] text-gray-8">
-              {workspaceTabs().includes(activeTab()) ? "Workspace settings" : "Global settings"}
-            </div>
-            <h2 class="mt-1 text-lg font-semibold tracking-tight text-dls-text">
+        <div class={`${settingsPanelClass} flex flex-col gap-3 md:flex-row md:items-center md:justify-between`}>
+          <div class="space-y-1">
+            <h2 class="text-lg font-semibold tracking-tight text-gray-12">
               {tabLabel(activeTab())}
             </h2>
+            <p class="text-sm text-gray-9">
+              {tabDescription(activeTab())}
+            </p>
           </div>
           <Show when={showUpdateToolbar()}>
-            <div class="flex flex-wrap items-center gap-2">
+            <div class="mt-4 flex flex-wrap items-center gap-2 md:mt-0 md:justify-end">
               <div
-                class={`text-xs px-2 py-1 rounded-full border flex items-center gap-2 ${updateToolbarTone()}`}
+                class={`rounded-full border px-3 py-1.5 text-xs shadow-sm flex items-center gap-2 ${updateToolbarTone()}`}
                 title={updateToolbarTitle()}
               >
                 <Show when={updateToolbarSpinning()}>
@@ -1374,7 +1405,7 @@ export default function SettingsView(props: SettingsViewProps) {
         <Switch>
         <Match when={activeTab() === "general"}>
           <div class="space-y-6">
-            <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-4">
+            <div class={`${settingsPanelClass} space-y-4`}>
               <div class="flex items-start justify-between gap-4">
                 <div>
                   <div class="flex items-center gap-2">
@@ -1411,7 +1442,7 @@ export default function SettingsView(props: SettingsViewProps) {
                 <div class="space-y-2">
                   <For each={connectedProviders()}>
                     {(provider) => (
-                      <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-6/60 bg-gray-1/40 px-3 py-2">
+                      <div class={`${settingsPanelSoftClass} flex flex-wrap items-center justify-between gap-3 px-3 py-2`}>
                         <div class="min-w-0">
                           <div class="text-sm font-medium text-gray-12 truncate">
                             {provider.name}
@@ -1448,7 +1479,7 @@ export default function SettingsView(props: SettingsViewProps) {
                 </div>
               </Show>
               <Show when={providerDisconnectStatus()}>
-                <div class="rounded-xl border border-gray-6/60 bg-gray-1/40 px-3 py-2 text-xs text-gray-10">
+                <div class={`${settingsPanelSoftClass} px-3 py-2 text-xs text-gray-10`}>
                   {providerDisconnectStatus()}
                 </div>
               </Show>
@@ -1465,7 +1496,7 @@ export default function SettingsView(props: SettingsViewProps) {
             </div>
 
 
-              <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-4">
+              <div class={`${settingsPanelClass} space-y-4`}>
                 <div>
                   <div class="text-sm font-medium text-gray-12">
                     Authorized folders
@@ -1478,7 +1509,7 @@ export default function SettingsView(props: SettingsViewProps) {
                 <Show
                   when={props.authorizedFoldersAvailable}
                   fallback={
-                    <div class="rounded-xl border border-gray-6/60 bg-gray-1/40 px-3 py-3 text-xs text-gray-10">
+                    <div class={`${settingsPanelSoftClass} px-3 py-3 text-xs text-gray-10`}>
                       {props.authorizedFoldersHint ??
                         "Connect to a writable OpenWork server workspace to edit authorized folders."}
                     </div>
@@ -1490,7 +1521,7 @@ export default function SettingsView(props: SettingsViewProps) {
                     </div>
                     <Show when={props.authorizedFoldersHint}>
                       {(hint) => (
-                        <div class="rounded-xl border border-gray-6/60 bg-gray-1/40 px-3 py-2 text-xs text-gray-10">
+                        <div class={`${settingsPanelSoftClass} px-3 py-2 text-xs text-gray-10`}>
                           {hint()}
                         </div>
                       )}
@@ -1579,7 +1610,7 @@ export default function SettingsView(props: SettingsViewProps) {
                       <div class="space-y-2">
                         <For each={props.authorizedFolders}>
                           {(folder) => (
-                            <div class="flex items-center justify-between gap-3 rounded-xl border border-gray-6/60 bg-gray-1/40 px-3 py-2">
+                            <div class={`${settingsPanelSoftClass} flex items-center justify-between gap-3 px-3 py-2`}>
                               <div class="min-w-0 text-xs text-gray-12 font-mono break-all">
                                 {folder}
                               </div>
@@ -1661,7 +1692,7 @@ export default function SettingsView(props: SettingsViewProps) {
 
         <Match when={activeTab() === "appearance"}>
           <div class="space-y-6">
-              <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-4">
+              <div class={`${settingsPanelClass} space-y-4`}>
                 <div>
                   <div class="text-sm font-medium text-gray-12">Appearance</div>
                 <div class="text-xs text-gray-9">
@@ -1856,7 +1887,7 @@ export default function SettingsView(props: SettingsViewProps) {
 
         <Match when={activeTab() === "advanced"}>
           <div class="space-y-6">
-            <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-4">
+            <div class={`${settingsPanelClass} space-y-4`}>
               <div>
                 <div class="text-sm font-medium text-gray-12">Runtime</div>
                 <div class="text-xs text-gray-9">
@@ -1865,7 +1896,7 @@ export default function SettingsView(props: SettingsViewProps) {
               </div>
 
               <div class="grid gap-3 sm:grid-cols-2">
-                <div class="rounded-xl border border-gray-6/60 bg-gray-1/40 p-4 space-y-3">
+                <div class={`${settingsPanelSoftClass} p-4 space-y-3`}>
                   <div class="flex items-start gap-3">
                     <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-6/60 bg-gray-1/70 text-gray-12">
                       <Cpu size={18} />
@@ -1887,7 +1918,7 @@ export default function SettingsView(props: SettingsViewProps) {
                   </div>
                 </div>
 
-                <div class="rounded-xl border border-gray-6/60 bg-gray-1/40 p-4 space-y-3">
+                <div class={`${settingsPanelSoftClass} p-4 space-y-3`}>
                   <div class="flex items-start gap-3">
                     <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-6/60 bg-gray-1/70 text-gray-12">
                       <Server size={18} />
@@ -1914,7 +1945,7 @@ export default function SettingsView(props: SettingsViewProps) {
               </div>
             </div>
 
-            <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-3">
+            <div class={`${settingsPanelClass} space-y-3`}>
               <div class="text-sm font-medium text-gray-12">Developer mode</div>
               <div class="text-xs text-gray-9">
                 Enables debug tools, diagnostics, and the Developer tab.
@@ -1969,7 +2000,7 @@ export default function SettingsView(props: SettingsViewProps) {
                 </Show>
 
                 <Show when={props.developerMode}>
-                  <div class="rounded-xl border border-gray-6/60 bg-gray-1/40 p-4 space-y-3">
+                  <div class={`${settingsPanelSoftClass} p-4 space-y-3`}>
                     <div class="flex items-start justify-between gap-3">
                       <div>
                           <div class="text-sm font-medium text-gray-12">
@@ -2039,7 +2070,7 @@ export default function SettingsView(props: SettingsViewProps) {
               </Show>
             </div>
 
-            <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-3">
+            <div class={`${settingsPanelClass} space-y-3`}>
               <div class="text-sm font-medium text-gray-12">Connection</div>
               <div class="text-xs text-gray-9">{props.headerStatus}</div>
               <div class="text-xs text-gray-8 font-mono break-all">
@@ -2128,7 +2159,7 @@ export default function SettingsView(props: SettingsViewProps) {
 
         <Match when={activeTab() === "updates"}>
           <div class="space-y-6">
-            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
+            <div class={`${settingsPanelClass} space-y-3`}>
               <div class="flex items-start justify-between gap-4">
                 <div>
                   <div class="text-sm font-medium text-gray-12">Updates</div>
@@ -2325,7 +2356,7 @@ export default function SettingsView(props: SettingsViewProps) {
 
         <Match when={activeTab() === "recovery"}>
           <div class="space-y-6">
-            <div class="bg-gray-2/30 border border-gray-7/60 rounded-2xl p-5 space-y-4">
+            <div class={`${settingsPanelClass} space-y-4`}>
               <div>
                 <div class="text-sm font-medium text-gray-12">
                   {translate("settings.migration_recovery_label")}
@@ -2381,7 +2412,7 @@ export default function SettingsView(props: SettingsViewProps) {
                 )}
               </Show>
             </div>
-                <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-3">
+                <div class={`${settingsPanelClass} space-y-3`}>
                   <div class="text-sm font-medium text-gray-12">
                     Workspace config
                   </div>

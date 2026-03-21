@@ -3956,13 +3956,6 @@ export default function SessionView(props: SessionViewProps) {
                 </button>
               </Show>
 
-              <span class="shrink-0 rounded-md bg-dls-hover px-2 py-1 text-[11px] font-medium text-dls-secondary">
-                {showWorkspaceSetupEmptyState()
-                  ? "Workspace"
-                  : props.activeWorkspaceDisplay.workspaceType === "remote"
-                    ? "Remote workspace"
-                    : "Workspace"}
-              </span>
               <h1 class="truncate text-[15px] font-semibold text-dls-text">
                 {showWorkspaceSetupEmptyState()
                   ? "Create or connect a workspace"

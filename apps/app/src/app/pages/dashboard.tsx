@@ -1157,15 +1157,7 @@ export default function DashboardView(props: DashboardViewProps) {
                 </Show>
               </button>
             </Show>
-            <span class="shrink-0 rounded-md bg-dls-hover px-2 py-1 text-[11px] font-medium text-dls-secondary">
-              {props.activeWorkspaceDisplay.workspaceType === "remote"
-                ? "Remote workspace"
-                : "Workspace"}
-            </span>
             <h1 class="truncate text-[15px] font-semibold text-dls-text">{title()}</h1>
-            <span class="hidden truncate text-[13px] text-dls-secondary lg:inline">
-              {props.activeWorkspaceDisplay.name}
-            </span>
             <Show when={props.developerMode}>
               <span class="hidden text-[12px] text-dls-secondary lg:inline">{props.headerStatus}</span>
             </Show>
