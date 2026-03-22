@@ -11,8 +11,6 @@ const MOCK_BILLING = process.env.NEXT_PUBLIC_DEN_MOCK_BILLING === "1";
 const MOCK_CHECKOUT_URL = (process.env.NEXT_PUBLIC_DEN_MOCK_CHECKOUT_URL ?? "").trim() || null;
 const TRIAL_DAYS = 14;
 
-const desktopAppPoints = ["Run Den locally for free.", "Keep prompts and sessions on your machine.", "Upgrade to Den Cloud later if you need hosted workers."];
-
 export function CheckoutScreen({ customerSessionToken }: { customerSessionToken: string | null }) {
   const router = useRouter();
   const handledReturnRef = useRef(false);
@@ -114,17 +112,9 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
   const showLoading = resuming || (billingBusy && !billingSummary && !MOCK_BILLING);
   const checkoutHref = effectiveCheckoutUrl ?? MOCK_CHECKOUT_URL ?? null;
   const accountEmail = user?.email ?? (mockMode ? "test@example.com" : null);
-  const planStatusDetail = !billingSummary?.featureGateEnabled
-    ? "Cloud billing gates are disabled in this environment."
-    : billingSummary.hasActivePlan
-      ? "Your account can launch cloud workers right now."
-      : `Start your ${TRIAL_DAYS}-day Den Cloud trial to unlock hosted worker launches.`;
   const planAmountLabel = billingPrice && billingPrice.amount !== null
-    ? `${formatMoneyMinor(billingPrice.amount, billingPrice.currency)} ${formatRecurringInterval(billingPrice.recurringInterval, billingPrice.recurringIntervalCount)}`
-    : "Current plan amount is unavailable.";
-  const trialFootnote = billingPrice && billingPrice.amount !== null
-    ? `Then ${planAmountLabel}. Cancel before the trial ends and you will not be charged.`
-    : `Cancel before day ${TRIAL_DAYS} and you will not be charged.`;
+    ? `${formatMoneyMinor(billingPrice.amount, billingPrice.currency)}/${billingPrice.recurringInterval}`
+    : "$50.00/month";
 
   return (
     <section className="mx-auto flex w-full max-w-[74rem] flex-col gap-6 px-1 py-2 lg:px-3 lg:py-6">
@@ -134,11 +124,8 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
             {onboardingPending ? "Finish setup" : "Den access"}
           </p>
           <h1 className="max-w-[12ch] text-[2.5rem] font-semibold leading-[0.95] tracking-[-0.06em] text-[var(--dls-text-primary)] md:text-[3.4rem]">
-            Choose how you want to start with Den.
+            Choose how to run Den
           </h1>
-          <p className="max-w-[44rem] text-[15px] leading-7 text-[var(--dls-text-secondary)]">
-            Start a {TRIAL_DAYS}-day Den Cloud trial for hosted workers, or download the desktop app and run locally for free.
-          </p>
         </div>
 
         {billingError ? (
@@ -149,49 +136,45 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
 
         {billingSummary ? (
           <div className="grid gap-4 lg:grid-cols-2">
-            <article className="grid gap-5 rounded-[28px] border border-[#d7e3ee] bg-[linear-gradient(180deg,#ffffff_0%,#f4f8fc_100%)] p-5 md:p-6">
+            <article className="flex flex-col gap-5 rounded-[28px] border border-[#d7e3ee] bg-[linear-gradient(180deg,#ffffff_0%,#f4f8fc_100%)] p-5 md:p-6">
               <div className="grid gap-2">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--dls-text-secondary)]">Den Cloud</div>
                 <h2 className="text-[2rem] font-semibold leading-[0.98] tracking-[-0.05em] text-[var(--dls-text-primary)]">
-                  Try Den Cloud free for {TRIAL_DAYS} days
+                  Den Cloud
                 </h2>
                 <p className="text-[14px] leading-7 text-[var(--dls-text-secondary)]">
-                  Launch a hosted Den worker now. After signup, we bring you right back here and continue setup automatically.
+                  Zero setup. Run hosted workers instantly.
                 </p>
               </div>
 
               <div className="grid gap-3">
-                <div className="rounded-2xl border border-white/80 bg-white px-4 py-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
-                  Hosted worker access with a real {TRIAL_DAYS}-day trial.
+                <div className="flex items-start gap-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
+                  <span className="mt-2 block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--dls-text-secondary)] opacity-60"></span>
+                  {TRIAL_DAYS}-day free trial
                 </div>
-                <div className="rounded-2xl border border-white/80 bg-white px-4 py-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
-                  {planStatusDetail}
-                </div>
-                <div className="rounded-2xl border border-white/80 bg-white px-4 py-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
-                  {trialFootnote}
+                <div className="flex items-start gap-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
+                  <span className="mt-2 block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--dls-text-secondary)] opacity-60"></span>
+                  {planAmountLabel} after trial
                 </div>
               </div>
 
               {checkoutHref ? (
-                <div className="grid gap-3">
+                <div className="mt-auto pt-4">
                   <a
                     href={checkoutHref}
                     rel="noreferrer"
-                    className="inline-flex items-center justify-center gap-2 rounded-full bg-[#011627] px-5 py-3 text-sm font-semibold text-white transition hover:bg-black"
+                    className="flex w-full items-center justify-center gap-2 rounded-full bg-[#011627] px-5 py-3 text-sm font-semibold text-white transition hover:bg-black"
                   >
-                    Try Den Cloud free
-                    <span aria-hidden="true">-&gt;</span>
+                    Start free trial
                   </a>
-                  <p className="text-[12px] leading-5 text-[var(--dls-text-secondary)]">No extra setup steps here. Start the trial and we handle the return flow.</p>
                 </div>
               ) : (
-                <div className="grid gap-3">
-                  <div className="rounded-2xl border border-[var(--dls-border)] bg-white px-4 py-4 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
+                <div className="mt-auto grid gap-3 pt-4">
+                  <div className="rounded-2xl border border-[var(--dls-border)] bg-white px-4 py-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
                     We are still preparing your trial link.
                   </div>
                   <button
                     type="button"
-                    className="inline-flex items-center justify-center rounded-full border border-[var(--dls-border)] bg-white px-5 py-3 text-sm font-medium text-[var(--dls-text-primary)] transition hover:bg-[var(--dls-hover)]"
+                    className="flex w-full items-center justify-center rounded-full border border-[var(--dls-border)] bg-white px-5 py-3 text-sm font-medium text-[var(--dls-text-primary)] transition hover:bg-[var(--dls-hover)]"
                     onClick={() => void refreshBilling({ includeCheckout: true, quiet: false })}
                     disabled={billingBusy || billingCheckoutBusy}
                   >
@@ -201,39 +184,42 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
               )}
             </article>
 
-            <article className="grid gap-5 rounded-[28px] border border-[var(--dls-border)] bg-[var(--dls-sidebar)] p-5 md:p-6">
+            <article className="flex flex-col gap-5 rounded-[28px] border border-[var(--dls-border)] bg-[var(--dls-sidebar)] p-5 md:p-6">
               <div className="grid gap-2">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--dls-text-secondary)]">Desktop app</div>
                 <h2 className="text-[2rem] font-semibold leading-[0.98] tracking-[-0.05em] text-[var(--dls-text-primary)]">
-                  Download the desktop app
+                  Desktop App
                 </h2>
                 <p className="text-[14px] leading-7 text-[var(--dls-text-secondary)]">
-                  Use Den locally for free today, then come back to Den Cloud whenever you want hosted workers.
+                  Run locally for free.
                 </p>
               </div>
 
               <div className="grid gap-3">
-                {desktopAppPoints.map((point) => (
-                  <div key={point} className="rounded-2xl border border-[var(--dls-border)] bg-white px-4 py-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
-                    {point}
-                  </div>
-                ))}
+                <div className="flex items-start gap-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
+                  <span className="mt-2 block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--dls-text-secondary)] opacity-60"></span>
+                  Keep data on your machine
+                </div>
+                <div className="flex items-start gap-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
+                  <span className="mt-2 block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--dls-text-secondary)] opacity-60"></span>
+                  Add Cloud workers anytime
+                </div>
               </div>
 
-              <div className="grid gap-3">
+              <div className="mt-auto pt-4">
                 <a
                   href="/"
-                  className="inline-flex items-center justify-center gap-2 rounded-full border border-[var(--dls-border)] bg-white px-5 py-3 text-sm font-medium text-[var(--dls-text-primary)] transition hover:bg-[var(--dls-hover)]"
+                  className="flex w-full items-center justify-center gap-2 rounded-full border border-[var(--dls-border)] bg-white px-5 py-3 text-sm font-medium text-[var(--dls-text-primary)] transition hover:bg-[var(--dls-hover)]"
                 >
-                  Download desktop app
+                  Download app
                 </a>
-                <p className="text-[12px] leading-5 text-[var(--dls-text-secondary)]">
-                  Best if you want a free local setup first. Account email: {accountEmail ?? "No email on file"}.
-                </p>
               </div>
             </article>
           </div>
         ) : null}
+
+        <p className="mt-2 text-center text-[13px] leading-5 text-[var(--dls-text-secondary)]">
+          Logged in as {accountEmail ?? "unknown"}
+        </p>
       </div>
     </section>
   );
