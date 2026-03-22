@@ -3,8 +3,6 @@ import { Show, createEffect, createMemo, createSignal } from "solid-js";
 import { Globe, X } from "lucide-solid";
 import { t, currentLocale } from "../../i18n";
 
-import TextInput from "./text-input";
-
 export default function CreateRemoteWorkspaceModal(props: {
   open: boolean;
   onClose: () => void;
@@ -48,6 +46,10 @@ export default function CreateRemoteWorkspaceModal(props: {
     if (submitting()) return false;
     return openworkHostUrl().trim().length > 0;
   });
+  const fieldLabelClass = "px-0.5 text-[13px] font-medium text-dls-text";
+  const fieldHintClass = "px-0.5 text-[12px] leading-5 text-dls-secondary";
+  const fieldInputClass =
+    "w-full rounded-xl border border-dls-border bg-dls-surface px-4 py-3 text-sm text-dls-text outline-none transition placeholder:text-dls-secondary focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.12)]";
 
   createEffect(() => {
     if (props.open) {
@@ -66,7 +68,7 @@ export default function CreateRemoteWorkspaceModal(props: {
   });
 
   const content = (
-    <div class="flex max-h-[90vh] w-full max-w-[560px] flex-col overflow-hidden rounded-[24px] border border-dls-border bg-dls-surface">
+    <div class="flex max-h-[90vh] w-full max-w-[520px] flex-col overflow-hidden rounded-[24px] border border-dls-border bg-dls-surface">
       <div class="flex items-start justify-between gap-4 border-b border-dls-border bg-dls-surface px-6 py-5">
         <div class="min-w-0">
           <h3 class="text-[18px] font-semibold text-dls-text">{title()}</h3>
@@ -84,31 +86,34 @@ export default function CreateRemoteWorkspaceModal(props: {
       </div>
 
       <div class="flex-1 overflow-y-auto px-6 py-6">
-        <div class="grid gap-5">
-          <div class="flex items-center gap-3 rounded-xl border border-dls-border bg-dls-sidebar px-4 py-4">
-            <div class="flex h-11 w-11 items-center justify-center rounded-xl border border-dls-border bg-dls-surface text-dls-text">
-              <Globe size={18} />
+        <div class="rounded-xl border border-dls-border bg-dls-sidebar px-5 py-4">
+          <div class="mb-4 flex items-start gap-3">
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dls-border bg-dls-surface text-dls-text">
+              <Globe size={17} />
             </div>
             <div class="min-w-0">
-              <div class="text-[15px] font-semibold text-dls-text">{translate("dashboard.remote_workspace_title")}</div>
-              <div class="text-xs text-dls-secondary">{translate("dashboard.remote_workspace_hint")}</div>
+              <div class="text-[15px] font-semibold text-dls-text">Remote server details</div>
+              <div class="mt-1 text-[13px] leading-6 text-dls-secondary">Use the URL your OpenWork server shared with you. Add a token only if the server needs one.</div>
             </div>
           </div>
 
-          <div class="grid gap-4 rounded-xl border border-dls-border bg-dls-sidebar p-4">
-            <TextInput
-              ref={inputRef}
-              label={translate("dashboard.openwork_host_label")}
-              placeholder={translate("dashboard.openwork_host_placeholder")}
-              value={openworkHostUrl()}
-              onInput={(event) => setOpenworkHostUrl(event.currentTarget.value)}
-              hint={translate("dashboard.openwork_host_hint")}
-              disabled={submitting()}
-              class="rounded-xl border border-dls-border bg-dls-surface px-3.5 py-3 shadow-none"
-            />
+          <div class="grid gap-4">
+            <label class="grid gap-2">
+              <span class={fieldLabelClass}>{translate("dashboard.openwork_host_label")}</span>
+              <input
+                ref={inputRef}
+                type="url"
+                value={openworkHostUrl()}
+                onInput={(event) => setOpenworkHostUrl(event.currentTarget.value)}
+                placeholder={translate("dashboard.openwork_host_placeholder")}
+                disabled={submitting()}
+                class={fieldInputClass}
+              />
+              <span class={fieldHintClass}>{translate("dashboard.openwork_host_hint")}</span>
+            </label>
 
             <label class="grid gap-2">
-              <div class="text-xs font-medium text-dls-secondary">{translate("dashboard.openwork_host_token_label")}</div>
+              <span class={fieldLabelClass}>{translate("dashboard.openwork_host_token_label")}</span>
               <div class="flex items-center gap-2 rounded-xl border border-dls-border bg-dls-surface p-1.5">
                 <input
                   type={openworkTokenVisible() ? "text" : "password"}
@@ -120,33 +125,42 @@ export default function CreateRemoteWorkspaceModal(props: {
                 />
                 <button
                   type="button"
-                  class="rounded-lg border border-dls-border bg-dls-surface px-3 py-2 text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover disabled:cursor-not-allowed disabled:opacity-50"
+                  class="rounded-lg border border-dls-border bg-dls-surface px-3 py-2 text-xs font-medium text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={() => setOpenworkTokenVisible((prev) => !prev)}
                   disabled={submitting()}
                 >
                   {openworkTokenVisible() ? translate("common.hide") : translate("common.show")}
                 </button>
               </div>
-              <div class="text-xs text-dls-secondary">{translate("dashboard.openwork_host_token_hint")}</div>
+              <span class={fieldHintClass}>{translate("dashboard.openwork_host_token_hint")}</span>
             </label>
 
-            <TextInput
-              label={translate("dashboard.remote_directory_label")}
-              placeholder={translate("dashboard.remote_directory_placeholder")}
-              value={directory()}
-              onInput={(event) => setDirectory(event.currentTarget.value)}
-              hint={translate("dashboard.remote_directory_hint")}
-              disabled={submitting()}
-              class="rounded-xl border border-dls-border bg-dls-surface px-3.5 py-3 shadow-none"
-            />
-            <TextInput
-              label={translate("dashboard.remote_display_name_label")}
-              placeholder={translate("dashboard.remote_display_name_placeholder")}
-              value={displayName()}
-              onInput={(event) => setDisplayName(event.currentTarget.value)}
-              disabled={submitting()}
-              class="rounded-xl border border-dls-border bg-dls-surface px-3.5 py-3 shadow-none"
-            />
+            <div class="grid gap-4 md:grid-cols-2">
+              <label class="grid gap-2">
+                <span class={fieldLabelClass}>{translate("dashboard.remote_directory_label")}</span>
+                <input
+                  type="text"
+                  value={directory()}
+                  onInput={(event) => setDirectory(event.currentTarget.value)}
+                  placeholder={translate("dashboard.remote_directory_placeholder")}
+                  disabled={submitting()}
+                  class={fieldInputClass}
+                />
+                <span class={fieldHintClass}>{translate("dashboard.remote_directory_hint")}</span>
+              </label>
+
+              <label class="grid gap-2">
+                <span class={fieldLabelClass}>{translate("dashboard.remote_display_name_label")}</span>
+                <input
+                  type="text"
+                  value={displayName()}
+                  onInput={(event) => setDisplayName(event.currentTarget.value)}
+                  placeholder={translate("dashboard.remote_display_name_placeholder")}
+                  disabled={submitting()}
+                  class={fieldInputClass}
+                />
+              </label>
+            </div>
           </div>
         </div>
       </div>
