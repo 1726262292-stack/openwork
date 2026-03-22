@@ -1011,6 +1011,7 @@ export default function StoryBookApp() {
               onModelClick={() => openModelPicker("session")}
               modelVariantLabel={`${selectedBehavior().title} · ${selectedBehavior().label}`}
               modelVariant={modelVariant()}
+              modelBehaviorOptions={selectedBehavior().options}
               onModelVariantChange={(value) => setModelVariant(value)}
               agentLabel={agentLabel()}
               selectedAgent={selectedAgent()}

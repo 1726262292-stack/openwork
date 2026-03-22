@@ -35,7 +35,8 @@ type ComposerProps = {
   onModelClick: () => void;
   modelVariantLabel: string;
   modelVariant: string | null;
-  onModelVariantChange: (value: string) => void;
+  modelBehaviorOptions?: { value: string | null; label: string }[];
+  onModelVariantChange: (value: string | null) => void;
   agentLabel: string;
   selectedAgent: string | null;
   agentPickerOpen: boolean;
@@ -444,6 +445,7 @@ export default function Composer(props: ComposerProps) {
   let editorRef: HTMLDivElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
   let inboxFileInputRef: HTMLInputElement | undefined;
+  let variantPickerRef: HTMLDivElement | undefined;
   let mentionSearchRun = 0;
   let suppressPromptSync = false;
   let pasteCounter = 0;
@@ -476,6 +478,7 @@ export default function Composer(props: ComposerProps) {
   const [historySnapshot, setHistorySnapshot] = createSignal<ComposerDraft | null>(null);
   const [historyIndex, setHistoryIndex] = createSignal({ prompt: -1, shell: -1 });
   const [history, setHistory] = createSignal({ prompt: [] as ComposerDraft[], shell: [] as ComposerDraft[] });
+  const [variantMenuOpen, setVariantMenuOpen] = createSignal(false);
   const [showInboxUploadAction, setShowInboxUploadAction] = createSignal(false);
   const compactModelLabel = createMemo(() =>
     props.selectedModelLabel.length > 20 ? `${props.selectedModelLabel.slice(0, 20)}...` : props.selectedModelLabel,
@@ -1540,6 +1543,17 @@ export default function Composer(props: ComposerProps) {
     setSlashQuery("");
   });
   createEffect(() => {
+    if (!variantMenuOpen()) return;
+    const handler = (event: MouseEvent) => {
+      if (!variantPickerRef) return;
+      if (variantPickerRef.contains(event.target as Node)) return;
+      setVariantMenuOpen(false);
+    };
+    window.addEventListener("mousedown", handler);
+    onCleanup(() => window.removeEventListener("mousedown", handler));
+  });
+
+  createEffect(() => {
     const handler = () => {
       editorRef?.focus();
     };
@@ -1764,7 +1778,7 @@ export default function Composer(props: ComposerProps) {
                       onClick={handleEditorClick}
                       class="bg-transparent border-none p-0 pb-8 pr-4 text-gray-12 focus:ring-0 text-[15px] leading-relaxed resize-none min-h-[24px] max-h-40 overflow-y-auto outline-none relative z-10"
                     />
-                    <div class="mt-4 flex items-center px-1 pb-1">
+                    <div class="mt-2 flex items-center px-1 pb-1">
                       <div class="flex min-w-0 items-center gap-1.5 text-gray-10 sm:gap-2.5">
                         <input
                           ref={inboxFileInputRef}
@@ -1810,139 +1824,182 @@ export default function Composer(props: ComposerProps) {
                         >
                           <Paperclip size={16} />
                         </button>
-
-                        <div class="relative hidden md:block" ref={(el) => props.setAgentPickerRef(el)}>
-                          <button
-                            type="button"
-                            class="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-medium text-gray-11 transition-colors hover:bg-gray-3 hover:text-gray-12"
-                            onClick={props.onToggleAgentPicker}
-                            disabled={props.busy}
-                            aria-expanded={props.agentPickerOpen}
-                            title="Agent"
-                          >
-                            <AtSign size={14} />
-                            <span class="max-w-[140px] truncate">{props.agentLabel}</span>
-                            <ChevronDown size={14} />
-                          </button>
-
-                          <Show when={props.agentPickerOpen}>
-                            <div class="absolute left-0 bottom-full z-40 mb-2 w-64 overflow-hidden rounded-[18px] border border-dls-border bg-dls-surface shadow-[var(--dls-shell-shadow)]">
-                              <div class="border-b border-dls-border px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-10">
-                                Agent
-                              </div>
-
-                              <div class="p-2 space-y-1 max-h-64 overflow-y-auto" onMouseDown={(event: MouseEvent) => event.preventDefault()}>
-                                <Show
-                                  when={!props.agentPickerBusy}
-                                  fallback={
-                                    <div class="px-3 py-2 text-xs text-gray-10">Loading agents...</div>
-                                  }
-                                >
-                                  <Show when={!props.agentPickerError}>
-                                    <button
-                                      type="button"
-                                      class={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors ${!props.selectedAgent
-                                        ? "bg-gray-2 text-gray-12"
-                                        : "text-gray-11 hover:bg-gray-2/70"
-                                         }`}
-                                      onMouseDown={(event: MouseEvent) => {
-                                        event.preventDefault();
-                                        props.onSelectAgent(null);
-                                      }}
-                                    >
-                                      <span>Default agent</span>
-                                      <Show when={!props.selectedAgent}>
-                                        <Check size={14} class="text-gray-10" />
-                                      </Show>
-                                    </button>
-
-                                    <For each={props.agentOptions}>
-                                      {(agent: Agent) => {
-                                        const active = () => props.selectedAgent === agent.name;
-                                        return (
-                                          <button
-                                            type="button"
-                                            class={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors ${active()
-                                              ? "bg-gray-2 text-gray-12"
-                                              : "text-gray-11 hover:bg-gray-2/70"
-                                               }`}
-                                            onMouseDown={(event: MouseEvent) => {
-                                              event.preventDefault();
-                                              props.onSelectAgent(agent.name);
-                                            }}
-                                          >
-                                            <span class="truncate">@{agent.name}</span>
-                                            <Show when={active()}>
-                                              <Check size={14} class="text-gray-10" />
-                                            </Show>
-                                          </button>
-                                        );
-                                      }}
-                                    </For>
-                                  </Show>
-
-                                  <Show when={props.agentPickerError}>
-                                    <div class="px-3 py-2 text-xs text-red-11">
-                                      {props.agentPickerError}
-                                    </div>
-                                  </Show>
-                                </Show>
-                              </div>
-                            </div>
-                          </Show>
-                        </div>
-
-                        <button
-                          type="button"
-                          class="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-medium text-gray-11 transition-colors hover:bg-gray-3 hover:text-gray-12"
-                          onClick={props.onModelClick}
-                          disabled={props.busy}
-                        >
-                          <span class="md:hidden truncate">{compactModelLabel()}</span>
-                          <span class="hidden min-w-0 md:flex md:flex-col md:items-start">
-                            <span class="truncate leading-tight">{props.selectedModelLabel}</span>
-                            <span class="truncate text-[11px] font-normal text-gray-9 leading-tight">
-                              {props.modelVariantLabel}
-                            </span>
-                          </span>
-                          <ChevronDown size={14} class="shrink-0 ml-0.5" />
-                        </button>
-                      </div>
-                      <div class="ml-auto flex shrink-0 items-center gap-3 text-gray-10">
-                        <Show
-                          when={props.isStreaming}
-                          fallback={
-                            <button
-                              type="button"
-                              disabled={!hasDraftContent()}
-                              onClick={sendDraft}
-                              class={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-[13px] font-medium transition-colors ${!hasDraftContent()
-                                ? "bg-gray-4 text-gray-10"
-                                : "bg-dls-accent text-white hover:bg-[var(--dls-accent-hover)]"
-                                }`}
-                              title="Run task"
-                            >
-                              <ArrowUp size={16} />
-                              <span>Run task</span>
-                            </button>
-                          }
-                        >
-                          <button
-                            type="button"
-                            onClick={() => props.onStop()}
-                            class="inline-flex items-center gap-2 rounded-full bg-gray-12 px-4 py-2.5 text-[13px] font-medium text-gray-1 transition-colors hover:bg-gray-11"
-                            title="Stop"
-                          >
-                            <Square size={13} fill="currentColor" />
-                            <span>Stop</span>
-                          </button>
-                        </Show>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        <div class="mt-2 flex items-center justify-between px-1">
+          <div class="flex items-center gap-1.5 text-gray-10 sm:gap-2.5 overflow-x-auto no-scrollbar">
+            <div class="relative hidden md:block" ref={(el) => props.setAgentPickerRef(el)}>
+              <button
+                type="button"
+                class="flex items-center gap-1.5 rounded-full border border-dls-border bg-dls-surface px-3 py-1.5 text-[12px] font-medium text-gray-11 transition-colors hover:bg-gray-3 hover:text-gray-12"
+                onClick={props.onToggleAgentPicker}
+                disabled={props.busy}
+                aria-expanded={props.agentPickerOpen}
+                title="Agent"
+              >
+                <AtSign size={13} />
+                <span class="max-w-[140px] truncate">{props.agentLabel}</span>
+                <ChevronDown size={13} />
+              </button>
+
+              <Show when={props.agentPickerOpen}>
+                <div class="absolute left-0 bottom-full z-40 mb-2 w-64 overflow-hidden rounded-[18px] border border-dls-border bg-dls-surface shadow-[var(--dls-shell-shadow)]">
+                  <div class="border-b border-dls-border px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-10">
+                    Agent
+                  </div>
+
+                  <div class="p-2 space-y-1 max-h-64 overflow-y-auto" onMouseDown={(event: MouseEvent) => event.preventDefault()}>
+                    <Show
+                      when={!props.agentPickerBusy}
+                      fallback={
+                        <div class="px-3 py-2 text-xs text-gray-10">Loading agents...</div>
+                      }
+                    >
+                      <Show when={!props.agentPickerError}>
+                        <button
+                          type="button"
+                          class={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors ${!props.selectedAgent
+                            ? "bg-gray-2 text-gray-12"
+                            : "text-gray-11 hover:bg-gray-2/70"
+                              }`}
+                          onMouseDown={(event: MouseEvent) => {
+                            event.preventDefault();
+                            props.onSelectAgent(null);
+                          }}
+                        >
+                          <span>Default agent</span>
+                          <Show when={!props.selectedAgent}>
+                            <Check size={14} class="text-gray-10" />
+                          </Show>
+                        </button>
+
+                        <For each={props.agentOptions}>
+                          {(agent: Agent) => {
+                            const active = () => props.selectedAgent === agent.name;
+                            return (
+                              <button
+                                type="button"
+                                class={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors ${active()
+                                  ? "bg-gray-2 text-gray-12"
+                                  : "text-gray-11 hover:bg-gray-2/70"
+                                    }`}
+                                onMouseDown={(event: MouseEvent) => {
+                                  event.preventDefault();
+                                  props.onSelectAgent(agent.name);
+                                }}
+                              >
+                                <span class="truncate">@{agent.name}</span>
+                                <Show when={active()}>
+                                  <Check size={14} class="text-gray-10" />
+                                </Show>
+                              </button>
+                            );
+                          }}
+                        </For>
+                      </Show>
+
+                      <Show when={props.agentPickerError}>
+                        <div class="px-3 py-2 text-xs text-red-11">
+                          {props.agentPickerError}
+                        </div>
+                      </Show>
+                    </Show>
+                  </div>
+                </div>
+              </Show>
+            </div>
+
+            <button
+              type="button"
+              class="flex min-w-0 items-center gap-1.5 rounded-full border border-dls-border bg-dls-surface px-3 py-1.5 text-[12px] font-medium text-gray-11 transition-colors hover:bg-gray-3 hover:text-gray-12"
+              onClick={props.onModelClick}
+              disabled={props.busy}
+            >
+              <span class="truncate leading-tight">{props.selectedModelLabel}</span>
+              <ChevronDown size={13} class="shrink-0 ml-0.5" />
+            </button>
+
+            <Show when={(props.modelBehaviorOptions?.length ?? 0) > 0}>
+              <div class="relative hidden md:block" ref={(el) => (variantPickerRef = el)}>
+                <button
+                  type="button"
+                  class="flex items-center gap-1.5 rounded-full border border-dls-border bg-dls-surface px-3 py-1.5 text-[12px] font-medium text-gray-11 transition-colors hover:bg-gray-3 hover:text-gray-12"
+                  onClick={() => setVariantMenuOpen(!variantMenuOpen())}
+                  disabled={props.busy}
+                  aria-expanded={variantMenuOpen()}
+                >
+                  <span class="truncate leading-tight font-mono">{props.modelVariantLabel}</span>
+                  <ChevronDown size={13} class="shrink-0 ml-0.5" />
+                </button>
+                <Show when={variantMenuOpen()}>
+                  <div class="absolute left-0 bottom-full z-40 mb-2 w-48 overflow-hidden rounded-[18px] border border-dls-border bg-dls-surface shadow-[var(--dls-shell-shadow)]">
+                    <div class="border-b border-dls-border px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-10">
+                      Behavior
+                    </div>
+                    <div class="p-2 space-y-1">
+                      <For each={props.modelBehaviorOptions}>
+                        {(option) => (
+                          <button
+                            type="button"
+                            class={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors ${props.modelVariant === option.value
+                              ? "bg-gray-2 text-gray-12"
+                              : "text-gray-11 hover:bg-gray-2/70"
+                                }`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              props.onModelVariantChange(option.value);
+                              setVariantMenuOpen(false);
+                            }}
+                          >
+                            <span>{option.label}</span>
+                            <Show when={props.modelVariant === option.value}>
+                              <Check size={14} class="text-gray-10" />
+                            </Show>
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+              </div>
+            </Show>
+          </div>
+
+          <div class="ml-auto flex shrink-0 items-center pl-2">
+            <Show
+              when={props.isStreaming}
+              fallback={
+                <button
+                  type="button"
+                  disabled={!hasDraftContent()}
+                  onClick={sendDraft}
+                  class={`inline-flex items-center justify-center rounded-full h-8 w-8 text-[13px] font-medium transition-colors ${!hasDraftContent()
+                    ? "bg-gray-4 text-gray-10"
+                    : "bg-dls-accent text-white hover:bg-[var(--dls-accent-hover)]"
+                    }`}
+                  title="Run task"
+                >
+                  <ArrowUp size={15} />
+                </button>
+              }
+            >
+              <button
+                type="button"
+                onClick={() => props.onStop()}
+                class="inline-flex items-center justify-center rounded-full bg-gray-12 h-8 w-8 text-[13px] font-medium text-gray-1 transition-colors hover:bg-gray-11"
+                title="Stop"
+              >
+                <Square size={12} fill="currentColor" />
+              </button>
+            </Show>
           </div>
         </div>
       </div>

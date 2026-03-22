@@ -217,7 +217,8 @@ export type SessionViewProps = {
   }) => void;
   modelVariantLabel: string;
   modelVariant: string | null;
-  setModelVariant: (value: string) => void;
+  modelBehaviorOptions?: { value: string | null; label: string }[];
+  setModelVariant: (value: string | null) => void;
   activePermission: PendingPermission | null;
   showTryNotionPrompt: boolean;
   onTryNotionPrompt: () => void;
@@ -4461,6 +4462,7 @@ export default function SessionView(props: SessionViewProps) {
               onModelClick={() => props.openSessionModelPicker()}
               modelVariantLabel={props.modelVariantLabel}
               modelVariant={props.modelVariant}
+              modelBehaviorOptions={props.modelBehaviorOptions}
               onModelVariantChange={props.setModelVariant}
               agentLabel={agentLabel()}
               selectedAgent={props.selectedSessionAgent}

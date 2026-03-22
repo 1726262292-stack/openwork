@@ -10,11 +10,12 @@
 
 ### Composer preview
 
-![Composer model button](./screenshots/model-behavior-composer-story-book.png)
+![Composer model button](./screenshots/model-behavior-composer-refactored.png)
 
 Verified:
-- The active model and its reasoning profile are clearly displayed right above the input.
-- Added provider icons (OpenAI, Anthropic, or 2-letter fallbacks) for quick visual scanning.
+- The active model and its reasoning profile are separated into two dropdowns.
+- The Agent, Model, and Thinking dropdowns, along with the Run button, are moved underneath the composer text area with `mt-2`.
+- The attachment button remains inside the composer context at the bottom left.
 
 ### Settings preview
 
