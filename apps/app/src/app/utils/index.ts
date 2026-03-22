@@ -974,7 +974,7 @@ export function summarizeStep(part: Part): { title: string; detail?: string; isS
     }
 
     headline = headline.replace(/^thinking[:\s-]*/i, "").trim();
-    const title = `Thinking: ${truncateStepText(headline || "reviewing context", 96)}`;
+    const title = truncateStepText(headline || "Thinking", 96);
     return { title, detail: detail || undefined, toolCategory: "tool" };
   }
 

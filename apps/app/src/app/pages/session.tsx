@@ -1941,17 +1941,6 @@ export default function SessionView(props: SessionViewProps) {
       }
     }
     if (part.type === "reasoning") {
-      const text = cleanReasoning(
-        typeof (part as any).text === "string" ? (part as any).text : "",
-      );
-      const first = text
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .find(Boolean);
-      if (first) {
-        const clipped = first.length > 56 ? `${first.slice(0, 53)}...` : first;
-        return `Thinking: ${clipped}`;
-      }
       return "Thinking";
     }
     if (part.type === "text") {
@@ -1965,6 +1954,15 @@ export default function SessionView(props: SessionViewProps) {
     if (status) return status;
     if (runPhase() === "thinking") return "Thinking";
     return null;
+  });
+
+  const showFooterRunStatus = createMemo(() => {
+    if (!showRunIndicator()) return false;
+    const part = latestRunPart();
+    if (part?.type === "reasoning" && props.showThinking) {
+      return false;
+    }
+    return true;
   });
 
   const runProgressSignature = createMemo(() => {
@@ -4329,7 +4327,7 @@ export default function SessionView(props: SessionViewProps) {
                       scrollMessageIntoViewById = handler;
                     }}
                     footer={
-                      showRunIndicator() ? (
+                      showRunIndicator() && showFooterRunStatus() ? (
                         <div class="flex justify-start pl-2">
                           <div class="w-full max-w-[68ch]">
                             <div
