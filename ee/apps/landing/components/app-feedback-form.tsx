@@ -26,6 +26,8 @@ type SubmitState = "idle" | "loading" | "success" | "error";
 const INITIAL_MESSAGE = "";
 
 export function AppFeedbackForm(props: Props) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [message, setMessage] = useState(INITIAL_MESSAGE);
   const [state, setState] = useState<SubmitState>("idle");
   const [errorMessage, setErrorMessage] = useState("");
@@ -49,6 +51,8 @@ export function AppFeedbackForm(props: Props) {
   );
 
   const reset = () => {
+    setName("");
+    setEmail("");
     setMessage(INITIAL_MESSAGE);
     setState("idle");
     setErrorMessage("");
@@ -56,7 +60,21 @@ export function AppFeedbackForm(props: Props) {
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
     const trimmed = message.trim();
+    if (!trimmedName) {
+      setState("error");
+      setErrorMessage("Please add your name so we know who sent this.");
+      return;
+    }
+
+    if (!trimmedEmail) {
+      setState("error");
+      setErrorMessage("Please add your email so we can follow up.");
+      return;
+    }
+
     if (!trimmed) {
       setState("error");
       setErrorMessage("Please describe the issue before sending feedback.");
@@ -73,6 +91,8 @@ export function AppFeedbackForm(props: Props) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          name: trimmedName,
+          email: trimmedEmail,
           message: trimmed,
           context: props.prefill,
         }),
@@ -113,8 +133,8 @@ export function AppFeedbackForm(props: Props) {
             Tell us what broke, felt rough, or needs polish.
           </h1>
           <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-slate-600">
-            Your note goes to the OpenWork team with the app version and runtime
-            details already attached.
+            Your note goes to the OpenWork team with your contact details, app
+            version, and runtime context already attached.
           </p>
 
           {state === "success" ? (
@@ -138,6 +158,39 @@ export function AppFeedbackForm(props: Props) {
             </div>
           ) : (
             <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Your name
+                  </label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="Jane Doe"
+                    className="w-full rounded-[1.2rem] border border-slate-200 bg-white px-4 py-3 text-[15px] text-[#011627] outline-none transition focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+                    disabled={state === "loading"}
+                    autoComplete="name"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Your email
+                  </label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="jane@company.com"
+                    className="w-full rounded-[1.2rem] border border-slate-200 bg-white px-4 py-3 text-[15px] text-[#011627] outline-none transition focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+                    disabled={state === "loading"}
+                    autoComplete="email"
+                    required
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="mb-2 block text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                   What happened?
