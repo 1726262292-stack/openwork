@@ -128,35 +128,9 @@ function SkeletonBar({ widthClass }: { widthClass: string }) {
 function ProvisioningGraphic({ ready }: { ready: boolean }) {
   return (
     <div className="relative overflow-hidden rounded-[22px] border border-[var(--dls-border)] bg-[var(--dls-sidebar)] p-6">
-      <div className="pointer-events-none absolute -right-8 -top-8 text-slate-900/5" aria-hidden="true">
-        <CubeIcon className="h-44 w-44" />
-      </div>
-
-      <div className="relative z-10 flex flex-col items-center justify-center gap-6">
-        <div className="flex items-center gap-6">
-          <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-[var(--dls-border)] bg-[var(--dls-surface)]">
-            <CubeIcon className="h-6 w-6 text-[var(--dls-text-secondary)]" />
-          </div>
-
-          <div className="flex w-32 flex-col gap-2">
-            <div className="h-1.5 overflow-hidden rounded-full bg-[var(--dls-border)]">
-              <div className={`h-full w-1/2 rounded-full ${ready ? "bg-emerald-400" : "animate-[pulse_1.5s_ease-in-out_infinite] bg-amber-400"}`} />
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-[var(--dls-border)]">
-              <div className={`h-full w-2/3 rounded-full ${ready ? "bg-emerald-300" : "animate-[pulse_1.5s_ease-in-out_0.4s_infinite] bg-amber-300"}`} />
-            </div>
-          </div>
-
-          <div className="relative flex h-14 w-14 items-center justify-center rounded-xl border border-[var(--dls-border)] bg-[var(--dls-surface)]">
-            <MonitorIcon className={ready ? "h-6 w-6 text-emerald-500" : "h-6 w-6 text-amber-500"} />
-            <span className={`absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white ${ready ? "bg-emerald-500" : "animate-pulse bg-amber-500"}`} />
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 text-sm font-medium text-[var(--dls-text-secondary)]">
-          <RefreshIcon className={ready ? "h-4 w-4 text-emerald-500" : "h-4 w-4 animate-spin text-amber-500"} />
-          <span>{ready ? "Connection details are ready to use." : "Allocating resources and configuring your worker..."}</span>
-        </div>
+      <div className="flex items-center justify-center gap-2 text-sm font-medium text-[var(--dls-text-secondary)]">
+        <RefreshIcon className={ready ? "h-4 w-4 text-emerald-500" : "h-4 w-4 animate-spin text-amber-500"} />
+        <span>{ready ? "Connection details are ready to use." : "Allocating resources and configuring your worker..."}</span>
       </div>
     </div>
   );
@@ -354,10 +328,6 @@ export function DashboardScreen() {
               </div>
 
               <div className="relative overflow-hidden rounded-[28px] border border-[var(--dls-border)] bg-[var(--dls-surface)] p-6 md:rounded-[32px] md:p-10">
-                <div className="pointer-events-none absolute -right-10 -top-10 text-slate-900/[0.03]" aria-hidden="true">
-                  <CubeIcon className="h-[15rem] w-[15rem]" />
-                </div>
-
                 <div className="relative z-10 flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
                   <div className="flex max-w-xl flex-col gap-6">
                     <div className="flex items-center gap-3">
