@@ -15,6 +15,7 @@ import {
 } from "lucide-solid";
 
 import Button from "../../app/src/app/components/button";
+import CreateWorkspaceModal from "../../app/src/app/components/create-workspace-modal";
 import DenSettingsPanel from "../../app/src/app/components/den-settings-panel";
 import ModelPickerModal from "../../app/src/app/components/model-picker-modal";
 import ShareWorkspaceModal from "../../app/src/app/components/share-workspace-modal";
@@ -41,6 +42,7 @@ import type {
   ProviderListItem,
   SlashCommandOption,
   WorkspaceConnectionState,
+  WorkspacePreset,
   WorkspaceSessionGroup,
 } from "../../app/src/app/types";
 import { sessionMessages, storyWorkspaces } from "./mock-data";
@@ -289,6 +291,9 @@ export default function StoryBookApp() {
   const [modelPickerOpen, setModelPickerOpen] = createSignal(false);
   const [modelPickerTarget, setModelPickerTarget] = createSignal<"default" | "session">("session");
   const [modelPickerQuery, setModelPickerQuery] = createSignal("");
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = createSignal(false);
+  const [createWorkspaceSubmitting, setCreateWorkspaceSubmitting] = createSignal(false);
+  const [mockFolderPickCount, setMockFolderPickCount] = createSignal(0);
   const [agentPickerOpen, setAgentPickerOpen] = createSignal(false);
   const [shareWorkspaceId, setShareWorkspaceId] = createSignal<string | null>(null);
   const [shareWorkspaceProfileBusy, setShareWorkspaceProfileBusy] = createSignal(false);
@@ -420,6 +425,33 @@ export default function StoryBookApp() {
     setModelPickerTarget(target);
     setModelPickerQuery("");
     setModelPickerOpen(true);
+  };
+
+  const openMockCreateWorkspaceModal = () => {
+    setCreateWorkspaceSubmitting(false);
+    setCreateWorkspaceOpen(true);
+  };
+
+  const pickMockWorkspaceFolder = async () => {
+    const folders = [
+      "/Users/demo/OpenWork/client-foundation",
+      "/Users/demo/OpenWork/automation-lab",
+      "/Users/demo/OpenWork/starter-sandbox",
+    ];
+    const next = folders[mockFolderPickCount() % folders.length] ?? folders[0];
+    setMockFolderPickCount((count) => count + 1);
+    await new Promise((resolve) => window.setTimeout(resolve, 180));
+    return next;
+  };
+
+  const confirmMockWorkspaceCreate = (preset: WorkspacePreset, folder: string | null) => {
+    if (!folder || createWorkspaceSubmitting()) return;
+    setCreateWorkspaceSubmitting(true);
+    window.setTimeout(() => {
+      setCreateWorkspaceSubmitting(false);
+      setCreateWorkspaceOpen(false);
+      setComposerToast(`Story-book: create workspace is mocked with preset \"${preset}\" at ${folder}.`);
+    }, 320);
   };
 
   const applyStoryModelSelection = (next: ModelRef) => {
@@ -566,6 +598,16 @@ export default function StoryBookApp() {
         action: () => {
           closeCommandPalette();
           setComposerToast("Story-book: create new session is mocked in this shell.");
+        },
+      },
+      {
+        id: "workspace",
+        title: "Create workspace",
+        detail: "Open the real workspace-creation modal in the shell",
+        meta: "Open",
+        action: () => {
+          closeCommandPalette();
+          openMockCreateWorkspaceModal();
         },
       },
       {
@@ -871,7 +913,7 @@ export default function StoryBookApp() {
               onTestWorkspaceConnection={() => true}
               onEditWorkspaceConnection={() => undefined}
               onForgetWorkspace={() => undefined}
-              onOpenCreateWorkspace={() => undefined}
+              onOpenCreateWorkspace={() => openMockCreateWorkspaceModal()}
               onOpenCreateRemoteWorkspace={() => undefined}
               onImportWorkspaceConfig={() => undefined}
             />
@@ -1196,6 +1238,17 @@ export default function StoryBookApp() {
         onExportConfig={() => setComposerToast("Story-book: export config is mocked in this shell.")}
         exportDisabledReason={null}
         onOpenBots={() => setComposerToast("Story-book: bots sharing flow is mocked in this shell.")}
+      />
+
+      <CreateWorkspaceModal
+        open={createWorkspaceOpen()}
+        onClose={() => {
+          if (createWorkspaceSubmitting()) return;
+          setCreateWorkspaceOpen(false);
+        }}
+        onConfirm={confirmMockWorkspaceCreate}
+        onPickFolder={pickMockWorkspaceFolder}
+        submitting={createWorkspaceSubmitting()}
       />
 
       <ModelPickerModal
