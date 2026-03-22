@@ -1778,7 +1778,7 @@ export default function Composer(props: ComposerProps) {
                       onClick={handleEditorClick}
                       class="bg-transparent border-none p-0 pb-8 pr-4 text-gray-12 focus:ring-0 text-[15px] leading-relaxed resize-none min-h-[24px] max-h-40 overflow-y-auto outline-none relative z-10"
                     />
-                    <div class="mt-2 flex items-center px-1 pb-1">
+                    <div class="mt-2 flex min-h-9 items-center justify-between px-1 pb-1">
                       <div class="flex min-w-0 items-center gap-1.5 text-gray-10 sm:gap-2.5">
                         <input
                           ref={inboxFileInputRef}
@@ -1824,6 +1824,36 @@ export default function Composer(props: ComposerProps) {
                         >
                           <Paperclip size={16} />
                         </button>
+                      </div>
+                      <div class="ml-auto flex shrink-0 items-center pl-2">
+                        <Show
+                          when={props.isStreaming}
+                          fallback={
+                            <button
+                              type="button"
+                              disabled={!hasDraftContent()}
+                              onClick={sendDraft}
+                              class={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-medium transition-colors ${!hasDraftContent()
+                                ? "bg-gray-4 text-gray-10"
+                                : "bg-dls-accent text-white hover:bg-[var(--dls-accent-hover)]"
+                                }`}
+                              title="Run task"
+                            >
+                              <ArrowUp size={15} />
+                              <span>Run task</span>
+                            </button>
+                          }
+                        >
+                          <button
+                            type="button"
+                            onClick={() => props.onStop()}
+                            class="inline-flex items-center gap-2 rounded-full bg-gray-12 px-4 py-2 text-[13px] font-medium text-gray-1 transition-colors hover:bg-gray-11"
+                            title="Stop"
+                          >
+                            <Square size={12} fill="currentColor" />
+                            <span>Stop</span>
+                          </button>
+                        </Show>
                       </div>
                     </div>
                   </div>
@@ -1976,34 +2006,6 @@ export default function Composer(props: ComposerProps) {
             </Show>
           </div>
 
-          <div class="ml-auto flex shrink-0 items-center pl-2">
-            <Show
-              when={props.isStreaming}
-              fallback={
-                <button
-                  type="button"
-                  disabled={!hasDraftContent()}
-                  onClick={sendDraft}
-                  class={`inline-flex items-center justify-center rounded-full h-8 w-8 text-[13px] font-medium transition-colors ${!hasDraftContent()
-                    ? "bg-gray-4 text-gray-10"
-                    : "bg-dls-accent text-white hover:bg-[var(--dls-accent-hover)]"
-                    }`}
-                  title="Run task"
-                >
-                  <ArrowUp size={15} />
-                </button>
-              }
-            >
-              <button
-                type="button"
-                onClick={() => props.onStop()}
-                class="inline-flex items-center justify-center rounded-full bg-gray-12 h-8 w-8 text-[13px] font-medium text-gray-1 transition-colors hover:bg-gray-11"
-                title="Stop"
-              >
-                <Square size={12} fill="currentColor" />
-              </button>
-            </Show>
-          </div>
         </div>
       </div>
     </div>
