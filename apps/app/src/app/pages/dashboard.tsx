@@ -264,6 +264,8 @@ export type DashboardViewProps = {
   toggleAutoCompactContext: () => void;
   hideTitlebar: boolean;
   toggleHideTitlebar: () => void;
+  opencodeEnableExa: boolean;
+  toggleOpencodeEnableExa: () => void;
   modelVariantLabel: string;
   editModelVariant: () => void;
   language: Language;
@@ -1387,6 +1389,8 @@ export default function DashboardView(props: DashboardViewProps) {
                   setEngineCustomBinPath={props.setEngineCustomBinPath}
                   engineRuntime={props.engineRuntime}
                   setEngineRuntime={props.setEngineRuntime}
+                  opencodeEnableExa={props.opencodeEnableExa}
+                  toggleOpencodeEnableExa={props.toggleOpencodeEnableExa}
                   isWindows={props.isWindows}
                   defaultModelLabel={props.defaultModelLabel}
                   defaultModelRef={props.defaultModelRef}

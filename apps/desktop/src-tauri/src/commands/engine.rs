@@ -185,6 +185,7 @@ pub fn engine_restart(
     orchestrator_manager: State<OrchestratorManager>,
     openwork_manager: State<OpenworkServerManager>,
     opencode_router_manager: State<OpenCodeRouterManager>,
+    opencode_enable_exa: Option<bool>,
 ) -> Result<EngineInfo, String> {
     let (project_dir, runtime) = {
         let state = manager.inner.lock().expect("engine mutex poisoned");
@@ -207,6 +208,7 @@ pub fn engine_restart(
         project_dir,
         None,
         None,
+        opencode_enable_exa,
         Some(runtime),
         Some(workspace_paths),
     )
@@ -307,6 +309,7 @@ pub fn engine_start(
     project_dir: String,
     prefer_sidecar: Option<bool>,
     opencode_bin_path: Option<String>,
+    opencode_enable_exa: Option<bool>,
     runtime: Option<EngineRuntime>,
     workspace_paths: Option<Vec<String>>,
 ) -> Result<EngineInfo, String> {
@@ -415,6 +418,7 @@ pub fn engine_start(
             opencode_port: Some(port),
             opencode_username: opencode_username.clone(),
             opencode_password: opencode_password.clone(),
+            opencode_enable_exa: opencode_enable_exa.unwrap_or(false),
             cors: Some("*".to_string()),
         };
 

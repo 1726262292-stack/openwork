@@ -137,6 +137,7 @@ export function createWorkspaceStore(options: {
   refreshPlugins: () => Promise<void>;
   engineSource: () => "path" | "sidecar" | "custom";
   engineCustomBinPath?: () => string;
+  opencodeEnableExa?: () => boolean;
   setEngineSource: (value: "path" | "sidecar" | "custom") => void;
   setView: (value: any) => void;
   setTab: (value: any) => void;
@@ -1156,6 +1157,7 @@ export function createWorkspaceStore(options: {
             preferSidecar: options.engineSource() === "sidecar",
             opencodeBinPath:
               options.engineSource() === "custom" ? options.engineCustomBinPath?.().trim() || null : null,
+            opencodeEnableExa: options.opencodeEnableExa?.() ?? false,
             runtime,
             workspacePaths: resolveWorkspacePaths(),
           });
@@ -2615,6 +2617,7 @@ export function createWorkspaceStore(options: {
         preferSidecar: options.engineSource() === "sidecar",
         opencodeBinPath:
           options.engineSource() === "custom" ? options.engineCustomBinPath?.().trim() || null : null,
+        opencodeEnableExa: options.opencodeEnableExa?.() ?? false,
         runtime: resolveEngineRuntime(),
         workspacePaths: resolveWorkspacePaths(),
       });
@@ -2786,6 +2789,7 @@ export function createWorkspaceStore(options: {
         preferSidecar: options.engineSource() === "sidecar",
         opencodeBinPath:
           options.engineSource() === "custom" ? options.engineCustomBinPath?.().trim() || null : null,
+        opencodeEnableExa: options.opencodeEnableExa?.() ?? false,
         runtime,
         workspacePaths: resolveWorkspacePaths(),
       });

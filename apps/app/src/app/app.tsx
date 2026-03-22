@@ -928,6 +928,7 @@ export default function App() {
   const [engineCustomBinPath, setEngineCustomBinPath] = createSignal("");
 
   const [engineRuntime, setEngineRuntime] = createSignal<EngineRuntime>("openwork-orchestrator");
+  const [opencodeEnableExa, setOpencodeEnableExa] = createSignal(false);
 
   const [baseUrl, setBaseUrl] = createSignal("http://127.0.0.1:4096");
   const [clientDirectory, setClientDirectory] = createSignal("");
@@ -3014,6 +3015,7 @@ export default function App() {
     refreshPlugins,
     engineSource,
     engineCustomBinPath,
+    opencodeEnableExa,
     setEngineSource,
     setView,
     setTab,
@@ -6225,6 +6227,13 @@ export default function App() {
           setEngineRuntime(storedEngineRuntime);
         }
 
+        const storedOpencodeEnableExa = window.localStorage.getItem(
+          "openwork.opencodeEnableExa"
+        );
+        if (storedOpencodeEnableExa === "0" || storedOpencodeEnableExa === "1") {
+          setOpencodeEnableExa(storedOpencodeEnableExa === "1");
+        }
+
         const storedDefaultModel = window.localStorage.getItem(MODEL_PREF_KEY);
         const parsedDefaultModel = parseModelRef(storedDefaultModel);
         if (parsedDefaultModel) {
@@ -6781,6 +6790,18 @@ export default function App() {
     if (typeof window === "undefined") return;
     try {
       window.localStorage.setItem(
+        "openwork.opencodeEnableExa",
+        opencodeEnableExa() ? "1" : "0"
+      );
+    } catch {
+      // ignore
+    }
+  });
+
+  createEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
         MODEL_PREF_KEY,
         formatModelRef(defaultModel())
       );
@@ -7301,6 +7322,8 @@ export default function App() {
       setEngineCustomBinPath,
       engineRuntime: engineRuntime(),
       setEngineRuntime,
+      opencodeEnableExa: opencodeEnableExa(),
+      toggleOpencodeEnableExa: () => setOpencodeEnableExa((v) => !v),
       isWindows: isWindowsPlatform(),
       toggleDeveloperMode: () => setDeveloperMode((v) => !v),
       developerMode: developerMode(),
