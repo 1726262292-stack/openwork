@@ -833,7 +833,7 @@ export default function MessageList(props: MessageListProps) {
       <div class="text-[14px] text-gray-9">
         <button
           type="button"
-          class="flex w-full items-start gap-2 text-left transition-colors hover:text-dls-text disabled:cursor-default"
+          class="flex w-full items-start justify-between gap-2 text-left transition-colors hover:text-dls-text disabled:cursor-default"
           aria-expanded={expandable() ? expanded() : undefined}
           disabled={!expandable()}
           onClick={() => {
@@ -841,15 +841,15 @@ export default function MessageList(props: MessageListProps) {
             toggleSteps(rowProps.id);
           }}
         >
+          <div class="min-w-0 flex-1 leading-relaxed">
+            <span>{headline()}</span>
+          </div>
           <Show when={expandable()} fallback={<span class="mt-[2px] w-[14px] shrink-0" />}>
             <ChevronDown
               size={14}
               class={`mt-[2px] shrink-0 text-gray-8 transition-transform ${expanded() ? "" : "-rotate-90"}`}
             />
           </Show>
-          <div class="min-w-0 flex-1 leading-relaxed">
-            <span>{headline()}</span>
-          </div>
         </button>
         <Show when={expanded()}>
           <div class="mt-3 ml-[22px] space-y-3">
@@ -865,9 +865,9 @@ export default function MessageList(props: MessageListProps) {
                 <pre class="overflow-x-auto rounded-[16px] border border-dls-border/70 bg-dls-surface px-4 py-3 text-[12px] leading-6 text-gray-10">{formatStructuredValue(toolOutput())}</pre>
               </div>
             </Show>
-          <Show when={task().isTask && task().sessionId}>
-            <SubagentThread part={rowProps.part} />
-          </Show>
+            <Show when={task().isTask && task().sessionId}>
+              <SubagentThread part={rowProps.part} />
+            </Show>
           </div>
         </Show>
       </div>
