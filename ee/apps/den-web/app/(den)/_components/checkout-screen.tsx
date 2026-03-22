@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { formatMoneyMinor, formatRecurringInterval } from "../_lib/den-flow";
+import { formatMoneyMinor } from "../_lib/den-flow";
 import { useDenFlow } from "../_providers/den-flow-provider";
 
 // For local layout testing (no deploy needed)
@@ -111,14 +111,13 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
   const billingPrice = billingSummary?.price ?? null;
   const showLoading = resuming || (billingBusy && !billingSummary && !MOCK_BILLING);
   const checkoutHref = effectiveCheckoutUrl ?? MOCK_CHECKOUT_URL ?? null;
-  const accountEmail = user?.email ?? (mockMode ? "test@example.com" : null);
   const planAmountLabel = billingPrice && billingPrice.amount !== null
     ? `${formatMoneyMinor(billingPrice.amount, billingPrice.currency)}/${billingPrice.recurringInterval}`
     : "$50.00/month";
 
   return (
     <section className="mx-auto flex w-full max-w-[74rem] flex-col gap-6 px-1 py-2 lg:px-3 lg:py-6">
-      <div className="grid gap-4 rounded-[32px] border border-[var(--dls-border)] bg-[var(--dls-surface)] p-6 shadow-[0_28px_80px_-44px_rgba(15,23,42,0.32)] md:p-8">
+      <div className="grid gap-5 rounded-[32px] border border-slate-200/80 bg-white p-6 md:p-8">
         <div className="grid gap-3 border-b border-[var(--dls-border)] pb-5">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--dls-text-secondary)]">
             {onboardingPending ? "Finish setup" : "Den access"}
@@ -136,7 +135,7 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
 
         {billingSummary ? (
           <div className="grid gap-4 lg:grid-cols-2">
-            <article className="flex flex-col gap-5 rounded-[28px] border border-[#d7e3ee] bg-[linear-gradient(180deg,#ffffff_0%,#f4f8fc_100%)] p-5 md:p-6">
+            <article className="flex flex-col gap-5 rounded-[28px] border border-slate-200 bg-white p-5 md:p-6">
               <div className="grid gap-2">
                 <h2 className="text-[2rem] font-semibold leading-[0.98] tracking-[-0.05em] text-[var(--dls-text-primary)]">
                   Den Cloud
@@ -148,11 +147,11 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
 
               <div className="grid gap-3">
                 <div className="flex items-start gap-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
-                  <span className="mt-2 block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--dls-text-secondary)] opacity-60"></span>
+                  <span className="mt-2 block h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300"></span>
                   {TRIAL_DAYS}-day free trial
                 </div>
                 <div className="flex items-start gap-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
-                  <span className="mt-2 block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--dls-text-secondary)] opacity-60"></span>
+                  <span className="mt-2 block h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300"></span>
                   {planAmountLabel} after trial
                 </div>
               </div>
@@ -169,12 +168,12 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
                 </div>
               ) : (
                 <div className="mt-auto grid gap-3 pt-4">
-                  <div className="rounded-2xl border border-[var(--dls-border)] bg-white px-4 py-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
                     We are still preparing your trial link.
                   </div>
                   <button
                     type="button"
-                    className="flex w-full items-center justify-center rounded-full border border-[var(--dls-border)] bg-white px-5 py-3 text-sm font-medium text-[var(--dls-text-primary)] transition hover:bg-[var(--dls-hover)]"
+                    className="flex w-full items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-[var(--dls-text-primary)] transition hover:bg-slate-50"
                     onClick={() => void refreshBilling({ includeCheckout: true, quiet: false })}
                     disabled={billingBusy || billingCheckoutBusy}
                   >
@@ -184,7 +183,7 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
               )}
             </article>
 
-            <article className="flex flex-col gap-5 rounded-[28px] border border-[var(--dls-border)] bg-[var(--dls-sidebar)] p-5 md:p-6">
+            <article className="flex flex-col gap-5 rounded-[28px] border border-slate-200 bg-slate-50 p-5 md:p-6">
               <div className="grid gap-2">
                 <h2 className="text-[2rem] font-semibold leading-[0.98] tracking-[-0.05em] text-[var(--dls-text-primary)]">
                   Desktop App
@@ -196,11 +195,11 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
 
               <div className="grid gap-3">
                 <div className="flex items-start gap-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
-                  <span className="mt-2 block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--dls-text-secondary)] opacity-60"></span>
+                  <span className="mt-2 block h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300"></span>
                   Keep data on your machine
                 </div>
                 <div className="flex items-start gap-3 text-[14px] leading-6 text-[var(--dls-text-secondary)]">
-                  <span className="mt-2 block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--dls-text-secondary)] opacity-60"></span>
+                  <span className="mt-2 block h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300"></span>
                   Add Cloud workers anytime
                 </div>
               </div>
@@ -208,7 +207,7 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
               <div className="mt-auto pt-4">
                 <a
                   href="/"
-                  className="flex w-full items-center justify-center gap-2 rounded-full border border-[var(--dls-border)] bg-white px-5 py-3 text-sm font-medium text-[var(--dls-text-primary)] transition hover:bg-[var(--dls-hover)]"
+                  className="flex w-full items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-[var(--dls-text-primary)] transition hover:bg-slate-100"
                 >
                   Download app
                 </a>
@@ -216,10 +215,6 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
             </article>
           </div>
         ) : null}
-
-        <p className="mt-2 text-center text-[13px] leading-5 text-[var(--dls-text-secondary)]">
-          Logged in as {accountEmail ?? "unknown"}
-        </p>
       </div>
     </section>
   );
