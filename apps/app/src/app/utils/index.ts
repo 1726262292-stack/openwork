@@ -691,12 +691,12 @@ function buildToolTitle(state: any, toolName: string): string {
 
   if (lower === "read") {
     const target = file("filePath", "path", "file");
-    return target ? `Read ${target}` : "Read file";
+    return target ? `Reviewed ${target}` : "Reviewed file";
   }
 
   if (lower === "edit") {
     const target = file("filePath", "path", "file");
-    return target ? `Edit ${target}` : "Edit file";
+    return target ? `Updated ${target}` : "Updated file";
   }
 
   if (lower === "write") {
@@ -710,12 +710,12 @@ function buildToolTitle(state: any, toolName: string): string {
 
   if (lower === "list" || lower === "list_files") {
     const target = file("path");
-    return target ? `List ${target}` : "List files";
+    return target ? `Reviewed ${target}` : "Reviewed files";
   }
 
   if (lower === "grep" || lower === "glob" || lower === "search") {
     const pattern = pick("pattern", "query");
-    return pattern ? `Search ${truncateStepText(pattern, 44)}` : "Search code";
+    return pattern ? `Searched ${truncateStepText(pattern, 44)}` : "Searched code";
   }
 
   if (lower === "bash") {
@@ -732,9 +732,17 @@ function buildToolTitle(state: any, toolName: string): string {
     return "Task";
   }
 
+  if (lower === "todowrite") {
+    return "Update todo list";
+  }
+
+  if (lower === "todoread") {
+    return "Read todo list";
+  }
+
   if (lower === "webfetch") {
     const url = pick("url");
-    return url ? `Fetch ${truncateStepText(url, 44)}` : "Fetch web page";
+    return url ? `Checked ${truncateStepText(url, 44)}` : "Checked web page";
   }
 
   if (lower === "skill") {
@@ -747,7 +755,9 @@ function buildToolTitle(state: any, toolName: string): string {
     return truncateStepText(isPathLike(stateTitle) ? normalizePathToken(stateTitle) : stateTitle, 56);
   }
 
-  const fallback = normalizeStepText(toolName).replace(/[_-]+/g, " ");
+  const fallback = normalizeStepText(toolName)
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
   return fallback || "Tool";
 }
 
@@ -782,6 +792,10 @@ function buildToolDetail(state: any, toolName: string): string | undefined {
     if (description) return truncateStepText(description, 80);
     const agent = formatAgentLabel(pick("subagent_type"));
     if (agent) return `${agent} agent`;
+  }
+
+  if (lower === "todowrite" || lower === "todoread") {
+    return undefined;
   }
 
   if (lower === "webfetch") {
