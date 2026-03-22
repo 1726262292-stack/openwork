@@ -74,6 +74,9 @@ type PolarProduct = {
   prices?: PolarProductPrice[]
 }
 
+const CHECKOUT_TRIAL_INTERVAL = "day"
+const CHECKOUT_TRIAL_INTERVAL_COUNT = 14
+
 export type CloudWorkerAccess =
   | {
       allowed: true
@@ -287,6 +290,9 @@ async function createCheckoutSession(input: CloudAccessInput): Promise<string> {
     products: [env.polar.productId],
     success_url: env.polar.successUrl,
     return_url: env.polar.returnUrl,
+    allow_trial: true,
+    trial_interval: CHECKOUT_TRIAL_INTERVAL,
+    trial_interval_count: CHECKOUT_TRIAL_INTERVAL_COUNT,
     external_customer_id: input.userId,
     customer_email: input.email,
     customer_name: input.name,
