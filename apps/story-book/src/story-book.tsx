@@ -354,7 +354,10 @@ export default function StoryBookApp() {
     return workspace.path ?? null;
   });
 
-  const agentLabel = createMemo(() => (selectedAgent() ? `@${selectedAgent()}` : "Auto"));
+  const agentLabel = createMemo(() => {
+    const name = selectedAgent() ?? "Default agent";
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  });
 
   const selectedStoryModel = createMemo(
     () => storyModels.find((entry) => entry.ref.providerID === selectedModel().providerID && entry.ref.modelID === selectedModel().modelID)

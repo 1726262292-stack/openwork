@@ -1844,7 +1844,6 @@ export default function Composer(props: ComposerProps) {
                 aria-expanded={props.agentPickerOpen}
                 title="Agent"
               >
-                <AtSign size={13} />
                 <span class="max-w-[140px] truncate">{props.agentLabel}</span>
                 <ChevronDown size={13} />
               </button>
@@ -1895,7 +1894,7 @@ export default function Composer(props: ComposerProps) {
                                   props.onSelectAgent(agent.name);
                                 }}
                               >
-                                <span class="truncate">@{agent.name}</span>
+                                <span class="truncate">{agent.name.charAt(0).toUpperCase() + agent.name.slice(1)}</span>
                                 <Show when={active()}>
                                   <Check size={14} class="text-gray-10" />
                                 </Show>

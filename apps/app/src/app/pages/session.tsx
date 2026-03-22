@@ -413,9 +413,10 @@ export default function SessionView(props: SessionViewProps) {
     platform.openLink(resolved);
   };
 
-  const agentLabel = createMemo(
-    () => props.selectedSessionAgent ?? "Default agent",
-  );
+  const agentLabel = createMemo(() => {
+    const name = props.selectedSessionAgent ?? "Default agent";
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  });
   const workspaceLabel = (workspace: WorkspaceInfo) =>
     workspace.displayName?.trim() ||
     workspace.openworkWorkspaceName?.trim() ||
