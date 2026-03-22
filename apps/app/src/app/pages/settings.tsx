@@ -20,7 +20,7 @@ import Button from "../components/button";
 import DenSettingsPanel from "../components/den-settings-panel";
 import TextInput from "../components/text-input";
 import { usePlatform } from "../context/platform";
-import { FEEDBACK_EMAIL_URL } from "../lib/feedback";
+import { buildFeedbackUrl } from "../lib/feedback";
 import { getOpenWorkDeployment } from "../lib/openwork-deployment";
 import {
   ArrowUpRight,
@@ -1678,7 +1678,24 @@ export default function SettingsView(props: SettingsViewProps) {
                   <Button
                     variant="secondary"
                     class="h-9 rounded-xl bg-blue-10 px-4 text-xs font-semibold text-white hover:bg-blue-11"
-                    onClick={() => openExternalLink(FEEDBACK_EMAIL_URL)}
+                    onClick={() =>
+                      openExternalLink(
+                        buildFeedbackUrl({
+                          entrypoint: "settings-feedback-card",
+                          deployment: getOpenWorkDeployment(),
+                          appVersion: props.appVersion,
+                          openworkServerVersion:
+                            props.openworkServerDiagnostics?.version ?? null,
+                          opencodeVersion:
+                            props.orchestratorStatus?.binaries?.opencode
+                              ?.actualVersion ?? null,
+                          orchestratorVersion:
+                            props.orchestratorStatus?.cliVersion ?? null,
+                          opencodeRouterVersion:
+                            props.opencodeRouterInfo?.version ?? null,
+                        }),
+                      )
+                    }
                   >
                     <MessageCircle size={14} />
                     Send feedback

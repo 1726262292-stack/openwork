@@ -33,11 +33,14 @@ import {
   readObsidianMirrorFile,
   writeObsidianMirrorFile,
   type EngineInfo,
+  type OpenCodeRouterInfo,
   type OpenworkServerInfo,
+  type OrchestratorStatus,
   type WorkspaceInfo,
 } from "../lib/tauri";
 import { usePlatform } from "../context/platform";
-import { FEEDBACK_EMAIL_URL } from "../lib/feedback";
+import { buildFeedbackUrl } from "../lib/feedback";
+import { getOpenWorkDeployment } from "../lib/openwork-deployment";
 import { createWorkspaceShellLayout } from "../lib/workspace-shell-layout";
 
 import {
@@ -76,6 +79,7 @@ import {
 import type {
   OpenworkFileSession,
   OpenworkServerClient,
+  OpenworkServerDiagnostics,
   OpenworkServerSettings,
   OpenworkServerStatus,
   OpenworkWorkspaceExport,
@@ -136,10 +140,15 @@ export type SessionViewProps = {
   clientConnected: boolean;
   openworkServerStatus: OpenworkServerStatus;
   openworkServerClient: OpenworkServerClient | null;
+  openworkServerDiagnostics: OpenworkServerDiagnostics | null;
   openworkServerSettings: OpenworkServerSettings;
   openworkServerHostInfo: OpenworkServerInfo | null;
   openworkServerWorkspaceId: string | null;
   engineInfo: EngineInfo | null;
+  engineDoctorVersion: string | null;
+  orchestratorStatus: OrchestratorStatus | null;
+  opencodeRouterInfo: OpenCodeRouterInfo | null;
+  appVersion: string | null;
   stopHost: () => void;
   headerStatus: string;
   busyHint: string | null;
@@ -408,7 +417,18 @@ export default function SessionView(props: SessionViewProps) {
   } = createWorkspaceShellLayout({ expandedRightWidth: 280 });
 
   const openFeedback = () => {
-    const resolved = FEEDBACK_EMAIL_URL.trim();
+    const resolved = buildFeedbackUrl({
+      entrypoint: "session-status-bar",
+      deployment: getOpenWorkDeployment(),
+      appVersion: props.appVersion,
+      openworkServerVersion: props.openworkServerDiagnostics?.version ?? null,
+      opencodeVersion:
+        props.orchestratorStatus?.binaries?.opencode?.actualVersion ??
+        props.engineDoctorVersion ??
+        null,
+      orchestratorVersion: props.orchestratorStatus?.cliVersion ?? null,
+      opencodeRouterVersion: props.opencodeRouterInfo?.version ?? null,
+    });
     if (!resolved) return;
     platform.openLink(resolved);
   };
