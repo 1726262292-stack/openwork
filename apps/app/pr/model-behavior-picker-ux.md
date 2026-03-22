@@ -33,7 +33,8 @@ Verified:
 Verified:
 - The picker explains each model's reasoning pattern (`Reasoning effort`, `Extended thinking`, `Built-in reasoning`).
 - The active model exposes inline behavior options on its card.
-- Switching from Claude to GPT-5 updated the composer label from `Extended thinking · Maximum` to `Reasoning effort · Provider default`.
+- Removed the old heavy pill styling and "BEHAVIOR FOR THIS MODEL" label, replacing it with a flat, structurally consistent list of options that aligns with `DESIGN-LANGUAGE.md`.
+- Fixed an issue where the inline behavior buttons in the picker list were previously structured as `<button>` elements inside another `<button>`, causing click events to be swallowed or trigger the parent selection incorrectly. They are now reliably clickable inside a `<div role="button">`.
 
 ## Validation
 
