@@ -118,17 +118,11 @@ export default function CreateWorkspaceModal(props: {
       </div>
 
       <div class={`flex-1 overflow-y-auto px-6 py-6 transition-opacity duration-300 ${provisioning() ? "pointer-events-none opacity-40" : "opacity-100"}`}>
-        <div class="rounded-xl bg-gray-2/50 p-4">
+        <div class="rounded-xl border border-dls-border bg-dls-sidebar px-5 py-4">
           <div class="mb-1 flex items-center justify-between gap-3">
-            <div class="text-[15px] font-medium text-dls-text">Workspace folder</div>
-            <Show when={hasSelectedFolder()}>
-              <div class="flex items-center gap-1.5 rounded border border-[rgba(var(--dls-accent-rgb),0.2)] bg-[rgba(var(--dls-accent-rgb),0.05)] px-2 py-1">
-                <div class="h-1.5 w-1.5 rounded-full bg-dls-accent" />
-                <span class="text-[10px] font-bold tracking-wider text-dls-accent">SELECTED</span>
-              </div>
-            </Show>
+            <div class="text-[15px] font-semibold text-dls-text">Workspace folder</div>
           </div>
-          <div class="mb-4 text-[13px] text-dls-secondary">
+          <div class="mb-4 text-[13px] text-gray-11">
             <Show when={hasSelectedFolder()} fallback={translate("dashboard.choose_folder_next")}>
               <span class="font-mono text-xs">{selectedFolder()}</span>
             </Show>
@@ -138,7 +132,7 @@ export default function CreateWorkspaceModal(props: {
             ref={pickFolderRef}
             onClick={handlePickFolder}
             disabled={pickingFolder() || submitting()}
-            class="flex items-center gap-2 rounded-full border border-dls-border bg-dls-surface px-4 py-2 text-center text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover disabled:cursor-wait disabled:opacity-70"
+            class="flex items-center gap-2 rounded-full border border-dls-border bg-dls-surface px-4 py-2 text-center text-xs font-medium text-dls-text transition-colors hover:border-gray-8 hover:bg-gray-2 disabled:cursor-wait disabled:opacity-70"
           >
             <Show when={pickingFolder()} fallback={<FolderPlus size={14} />}>
               <Loader2 size={14} class="animate-spin" />
