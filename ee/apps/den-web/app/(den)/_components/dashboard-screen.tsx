@@ -263,7 +263,7 @@ export function DashboardScreen() {
   const showConnectionHint = !openworkDeepLink || !hasWorkspaceScopedUrl;
 
   return (
-    <section className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-[32px] border border-[var(--dls-border)] bg-[var(--dls-surface)] md:min-h-[calc(100vh-8.5rem)] md:flex-row">
+    <section className="flex flex-1 w-full flex-col overflow-hidden bg-[var(--dls-surface)] md:flex-row">
       <aside className="order-2 w-full shrink-0 border-t border-[var(--dls-border)] bg-[var(--dls-sidebar)] md:order-1 md:w-[296px] md:border-r md:border-t-0">
         <div className="flex h-full flex-col justify-between gap-4 p-4 md:gap-6 md:p-6">
           <div className="flex flex-col gap-4 md:gap-6">
