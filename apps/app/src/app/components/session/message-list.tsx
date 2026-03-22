@@ -404,6 +404,26 @@ function toolHeadline(part: Part) {
   return "";
 }
 
+function toolCategory(part?: Part) {
+  if (!part || part.type !== "tool") return "default";
+
+  const tool =
+    typeof (part as any).tool === "string"
+      ? String((part as any).tool).toLowerCase()
+      : "";
+
+  if (tool === "bash") return "terminal";
+  if (tool === "read") return "read";
+  if (tool === "edit") return "edit";
+  if (tool === "write" || tool === "apply_patch") return "write";
+  if (tool === "grep" || tool === "search") return "search";
+  if (tool === "glob" || tool === "list" || tool === "list_files") return "glob";
+  if (tool === "task") return "task";
+  if (tool === "skill") return "skill";
+
+  return "default";
+}
+
 export default function MessageList(props: MessageListProps) {
   const [copyingId, setCopyingId] = createSignal<string | null>(null);
   let previousMessagePartCountById = new Map<string, number>();
@@ -966,6 +986,69 @@ export default function MessageList(props: MessageListProps) {
     isInline?: boolean;
   }) => {
     const useInnerTimelineScroll = () => !Boolean(props.isStreaming);
+    const allParts = createMemo(() =>
+      containerProps.stepGroups.flatMap((group) => group.parts),
+    );
+    const latestPart = createMemo(() => latestStepPart(containerProps.stepGroups));
+    const latestToolState = createMemo(() => {
+      const part = latestPart();
+      if (!part || part.type !== "tool") return undefined;
+      return (part as any).state ?? {};
+    });
+    const hasPendingWork = createMemo(() =>
+      containerProps.stepGroups.some((group) =>
+        group.parts.some((part) => {
+          if (part.type !== "tool") return false;
+          const status = ((part as any).state ?? {}).status;
+          return status === "running" || status === "pending";
+        }),
+      ),
+    );
+    const expanded = createMemo(
+      () =>
+        hasPendingWork() ||
+        isStepsExpanded(containerProps.id, containerProps.relatedIds ?? []),
+    );
+    const summaryLabel = createMemo(() => {
+      const latest = latestPart();
+      if (latest) {
+        const headline = toolHeadline(latest);
+        if (headline) return headline;
+
+        const summary = summarizeStep(latest);
+        const title = summary.title?.trim() ?? "";
+        const detail = summary.detail?.trim() ?? "";
+        if (title && detail && detail.toLowerCase() !== title.toLowerCase()) {
+          return `${title} - ${detail}`;
+        }
+        if (detail || title) return detail || title;
+      }
+
+      const exploration = summarizeExploration(allParts());
+      const explorationLabel = formatExplorationSummary(exploration);
+      return explorationLabel === "context activity" ? "Execution steps" : explorationLabel;
+    });
+    const statusLabel = createMemo(() => {
+      const latest = latestPart();
+      if (latest?.type === "tool") {
+        const status = latestToolState()?.status;
+        if (typeof status === "string" && status.trim()) return compactText(status, 18);
+      }
+
+      const label = explorationStatus(allParts());
+      return label === "exploring" ? "Running" : "Completed";
+    });
+    const statusTone = createMemo(() => {
+      const latest = latestPart();
+      if (latest?.type === "tool") {
+        return statusDotClass(latestToolState()?.status);
+      }
+      return hasPendingWork() ? statusDotClass("running") : statusDotClass("completed");
+    });
+    const countLabel = createMemo(() => {
+      const count = allParts().length;
+      return `${count} step${count === 1 ? "" : "s"}`;
+    });
 
     return (
       <div
@@ -977,18 +1060,48 @@ export default function MessageList(props: MessageListProps) {
             : ""
         }
       >
-        <div
-          class={`ml-4 flex flex-col gap-4 ${!isNestedVariant() && useInnerTimelineScroll() ? "max-h-[420px] overflow-y-auto pr-1" : ""}`}
-        >
-          <For each={containerProps.stepGroups}>
-            {(group) => (
-              <StepsList
-                parts={group.parts}
-                isUser={containerProps.isUser}
-                groupMode={group.mode}
-              />
-            )}
-          </For>
+        <div class="ml-4 rounded-[20px] border border-dls-border/70 bg-dls-surface/70 shadow-[var(--dls-card-shadow)]">
+          <button
+            type="button"
+            class="flex w-full items-center gap-3 rounded-[20px] px-4 py-3 text-left transition-colors hover:bg-dls-hover/60"
+            aria-expanded={expanded()}
+            onClick={() => toggleSteps(containerProps.id, containerProps.relatedIds ?? [])}
+          >
+            <span class={`h-2.5 w-2.5 shrink-0 rounded-full ${statusTone()}`} />
+            <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-dls-border bg-dls-sidebar text-gray-10">
+              <ToolIcon category={toolCategory(latestPart())} size={14} />
+            </span>
+            <div class="min-w-0 flex-1">
+              <div class="truncate text-[13px] font-medium text-dls-text">{summaryLabel()}</div>
+              <div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-9">
+                <span>{statusLabel()}</span>
+                <span aria-hidden="true">·</span>
+                <span>{countLabel()}</span>
+              </div>
+            </div>
+            <ChevronDown
+              size={14}
+              class={`shrink-0 text-gray-8 transition-transform ${expanded() ? "" : "-rotate-90"}`}
+            />
+          </button>
+
+          <Show when={expanded()}>
+            <div
+              class={`border-t border-dls-border/60 px-4 py-4 ${!isNestedVariant() && useInnerTimelineScroll() ? "max-h-[420px] overflow-y-auto pr-3" : ""}`}
+            >
+              <div class="flex flex-col gap-4">
+                <For each={containerProps.stepGroups}>
+                  {(group) => (
+                    <StepsList
+                      parts={group.parts}
+                      isUser={containerProps.isUser}
+                      groupMode={group.mode}
+                    />
+                  )}
+                </For>
+              </div>
+            </div>
+          </Show>
         </div>
       </div>
     );
