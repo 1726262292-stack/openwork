@@ -410,14 +410,18 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
     "rounded-[28px] border border-dls-border bg-dls-surface p-5 md:p-6";
   const settingsPanelSoftClass =
     "rounded-2xl border border-gray-6/60 bg-gray-1/40 p-4";
+  const headerBadgeClass =
+    "inline-flex min-h-8 items-center gap-2 rounded-xl border border-gray-6/60 bg-gray-1/40 px-3 text-[13px] font-medium text-dls-text";
+  const headerStatusBadgeClass =
+    "inline-flex h-8 items-center justify-center gap-2 rounded-xl border border-gray-6/60 bg-gray-1/40 px-3 text-[13px] leading-none font-medium text-dls-secondary";
 
   return (
     <div class="space-y-6">
       <div class={`${settingsPanelClass} space-y-4`}>
         <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div class="space-y-2">
-            <div class="inline-flex items-center gap-2 rounded-full border border-dls-border bg-dls-surface px-2.5 py-1 text-[11px] font-medium text-dls-text shadow-sm">
-              <Cloud size={12} class="text-dls-secondary" />
+            <div class={headerBadgeClass}>
+              <Cloud size={13} class="text-dls-secondary" />
               OpenWork Den
             </div>
             <div>
@@ -430,7 +434,7 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
               </div>
             </div>
           </div>
-          <div class="inline-flex items-center gap-2 rounded-full border border-dls-border bg-dls-surface px-2.5 py-1 text-[11px] font-medium text-dls-secondary shadow-sm">
+          <div class={headerStatusBadgeClass}>
             <span
               class={`h-2 w-2 rounded-full ${summaryTone() === "ready" ? "bg-green-500" : summaryTone() === "warning" ? "bg-amber-500" : summaryTone() === "error" ? "bg-red-500" : "bg-gray-400"}`}
             />
