@@ -69,7 +69,6 @@ import {
   Loader2,
   Menu,
   MessageCircle,
-  MoreHorizontal,
   Plus,
   SlidersHorizontal,
   Zap,
@@ -1178,7 +1177,7 @@ export default function DashboardView(props: DashboardViewProps) {
               <span class="hidden text-[12px] text-dls-secondary lg:inline">{props.busyHint}</span>
             </Show>
           </div>
-          <div class="flex items-center gap-1.5 text-gray-10">
+          <div class="flex items-center text-gray-10">
             <button
               type="button"
               class="flex h-9 w-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text md:hidden"
@@ -1187,27 +1186,6 @@ export default function DashboardView(props: DashboardViewProps) {
               aria-label="Open sidebar"
             >
               <Menu size={16} />
-            </button>
-            <button
-              type="button"
-              class="hidden items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text md:flex"
-              onClick={toggleRightSidebar}
-              title="Menu"
-              aria-label="Menu"
-            >
-              <Menu size={15} />
-              <span>Menu</span>
-              <span class="ml-1 rounded border border-dls-border px-1 text-[10px] text-gray-9">⌘K</span>
-            </button>
-            <div class="hidden h-4 w-px bg-dls-border md:block" />
-            <button
-              type="button"
-              class="flex h-9 w-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text"
-              onClick={props.toggleSettings}
-              title="More"
-              aria-label="More"
-            >
-              <MoreHorizontal size={16} />
             </button>
           </div>
         </header>
