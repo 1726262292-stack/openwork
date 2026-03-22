@@ -1,13 +1,9 @@
 "use client";
 
-import { Star } from "lucide-react";
 import { DenActivityPanel } from "./den-activity-panel";
 import { SlackGlyph, TelegramGlyph } from "./den-icons";
 
-
-
 type DenHeroProps = {
-  stars: string;
   getStartedHref: string;
 };
 
@@ -50,48 +46,6 @@ export function DenHero(props: DenHeroProps) {
           <div className="flex flex-col text-[0.98rem] text-gray-500 sm:max-w-[14rem]">
             <span className="font-semibold text-gray-700">$50/mo per worker</span>
             <span>Free for a limited time</span>
-          </div>
-        </div>
-
-        <div className="mt-6 flex flex-wrap items-center gap-2.5">
-
-
-          <span className="landing-chip inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-medium text-gray-700">
-            Open source
-          </span>
-
-          <span className="landing-chip inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-medium text-gray-700">
-            50+ Integrations and LLMs
-          </span>
-
-          <a
-            href="https://github.com/different-ai/openwork"
-            target="_blank"
-            rel="noreferrer"
-            className="group flex flex-row items-stretch overflow-hidden rounded-[6px] border border-[#d0d7de] text-[13px] font-medium text-[#24292f] shadow-[0_1px_0_rgba(27,31,36,0.04)] transition-all hover:border-gray-400"
-          >
-            <div className="flex items-center gap-1.5 bg-[#f6f8fa] px-3 py-1.5 transition-colors group-hover:bg-[#f3f4f6]">
-              <Star size={15} strokeWidth={2} className="text-[#57606a]" />
-              <span className="font-semibold">Star</span>
-            </div>
-            <div className="flex items-center border-l border-[#d0d7de] bg-white px-3 py-1.5 font-semibold transition-colors group-hover:text-[#0969da]">
-              {props.stars || "11.5k"}
-            </div>
-          </a>
-
-
-
-
-          <div className="mr-2 flex items-center gap-2 opacity-80">
-            <span className="text-[13px] font-medium text-gray-500">Backed by</span>
-            <div className="flex items-center gap-1.5">
-              <div className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] bg-[#ff6600] text-[11px] font-bold leading-none text-white">
-                Y
-              </div>
-              <span className="text-[13px] font-semibold tracking-tight text-gray-600">
-                Combinator
-              </span>
-            </div>
           </div>
         </div>
       </div>
