@@ -389,6 +389,7 @@ export default function StoryBookApp() {
         behaviorOptions: behavior.options,
         isFree: false,
         isConnected: entry.isConnected,
+        isRecommended: entry.title.includes("GPT-5") || entry.title.includes("Claude") || entry.title.includes("DeepSeek"),
       };
     }),
   );

@@ -348,6 +348,7 @@ export type ModelOption = {
   disabled?: boolean;
   isFree: boolean;
   isConnected: boolean;
+  isRecommended?: boolean;
 };
 
 export type SelectedSessionSnapshot = {

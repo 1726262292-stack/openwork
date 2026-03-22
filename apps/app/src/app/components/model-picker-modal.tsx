@@ -56,12 +56,17 @@ export default function ModelPickerModal(props: ModelPickerModalProps) {
     }));
   });
 
-  const renderedItems = createMemo<RenderedItem[]>(() => [
-    ...props.filteredOptions
-      .filter((opt) => opt.isConnected)
-      .map((opt) => ({ kind: "model" as const, opt })),
-    ...otherProviderLinks().map((item) => ({ kind: "provider" as const, ...item })),
-  ]);
+  const renderedItems = createMemo<RenderedItem[]>(() => {
+    const models = props.filteredOptions.filter((opt) => opt.isConnected);
+    const recommended = models.filter((opt) => opt.isRecommended);
+    const others = models.filter((opt) => !opt.isRecommended);
+
+    return [
+      ...recommended.map((opt) => ({ kind: "model" as const, opt })),
+      ...others.map((opt) => ({ kind: "model" as const, opt })),
+      ...otherProviderLinks().map((item) => ({ kind: "provider" as const, ...item })),
+    ];
+  });
 
   const activeModelIndex = createMemo(() => {
     const list = renderedItems();
@@ -75,9 +80,15 @@ export default function ModelPickerModal(props: ModelPickerModalProps) {
     );
   });
 
-  const enabledOptions = createMemo(() =>
+  const recommendedOptions = createMemo(() =>
     renderedItems().flatMap((item, index) =>
-      item.kind === "model" ? [{ opt: item.opt, index }] : [],
+      item.kind === "model" && item.opt.isRecommended ? [{ opt: item.opt, index }] : [],
+    ),
+  );
+
+  const otherEnabledOptions = createMemo(() =>
+    renderedItems().flatMap((item, index) =>
+      item.kind === "model" && !item.opt.isRecommended ? [{ opt: item.opt, index }] : [],
     ),
   );
 
@@ -334,12 +345,21 @@ export default function ModelPickerModal(props: ModelPickerModalProps) {
             </div>
 
             <div class="mt-4 space-y-4 overflow-y-auto pr-1 -mr-1 min-h-0">
-              <Show when={enabledOptions().length > 0}>
+              <Show when={recommendedOptions().length > 0}>
                 <section class="space-y-2">
                   <div class="px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-9">
-                    Connected models
+                    Recommended
                   </div>
-                  <For each={enabledOptions()}>{({ opt, index }) => renderOption(opt, index)}</For>
+                  <For each={recommendedOptions()}>{({ opt, index }) => renderOption(opt, index)}</For>
+                </section>
+              </Show>
+
+              <Show when={otherEnabledOptions().length > 0}>
+                <section class="space-y-2">
+                  <div class="px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-9">
+                    Other connected models
+                  </div>
+                  <For each={otherEnabledOptions()}>{({ opt, index }) => renderOption(opt, index)}</For>
                 </section>
               </Show>
 

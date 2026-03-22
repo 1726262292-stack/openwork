@@ -1898,9 +1898,8 @@ export default function Composer(props: ComposerProps) {
                           onClick={props.onModelClick}
                           disabled={props.busy}
                         >
-                          <ProviderIcon providerId={props.selectedProviderID} size={16} class="text-gray-11" />
-                          <span class="md:hidden truncate ml-0.5">{compactModelLabel()}</span>
-                          <span class="hidden min-w-0 md:flex md:flex-col md:items-start ml-0.5">
+                          <span class="md:hidden truncate">{compactModelLabel()}</span>
+                          <span class="hidden min-w-0 md:flex md:flex-col md:items-start">
                             <span class="truncate leading-tight">{props.selectedModelLabel}</span>
                             <span class="truncate text-[11px] font-normal text-gray-9 leading-tight">
                               {props.modelVariantLabel}

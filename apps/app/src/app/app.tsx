@@ -1790,7 +1790,7 @@ export default function App() {
       const model = selectedSessionModel();
       const agent = selectedSessionAgent();
       const parts = await buildPromptParts(resolvedDraft);
-      const selectedVariant = sanitizeModelVariantForRef(model, modelVariant()) ?? undefined;
+      const selectedVariant = sanitizeModelVariantForRef(model, getVariantFor(model)) ?? undefined;
       const reasoningEffort = resolveCodexReasoningEffort(model.modelID, selectedVariant ?? null);
       const requestVariant = reasoningEffort ? undefined : selectedVariant;
       const promptOverrides = reasoningEffort
@@ -1923,7 +1923,7 @@ export default function App() {
       sessionID,
       messageCount: visible.length,
       model: modelLabel,
-      variant: sanitizeModelVariantForRef(model, modelVariant()) ?? null,
+      variant: sanitizeModelVariantForRef(model, getVariantFor(model)) ?? null,
     });
 
     try {
@@ -2944,7 +2944,19 @@ export default function App() {
   const [showThinking, setShowThinking] = createSignal(false);
   const [hideTitlebar, setHideTitlebar] = createSignal(false);
   const [autoCompactContext, setAutoCompactContext] = createSignal(false);
-  const [modelVariant, setModelVariant] = createSignal<string | null>(null);
+  const [modelVariantMap, setModelVariantMap] = createSignal<Record<string, string>>({});
+  const modelVariant = () => getVariantFor(selectedSessionModel());
+  const getVariantFor = (ref: ModelRef) => modelVariantMap()[`${ref.providerID}/${ref.modelID}`] ?? null;
+  const updateModelVariant = (ref: ModelRef, value: string | null) => {
+    const key = `${ref.providerID}/${ref.modelID}`;
+    setModelVariantMap((prev) => {
+      const next = { ...prev };
+      if (value) next[key] = value;
+      else delete next[key];
+      return next;
+    });
+  };
+  const setModelVariant = (value: string | null) => updateModelVariant(selectedSessionModel(), value);
   const [autoCompactingSessionId, setAutoCompactingSessionId] = createSignal<string | null>(null);
   const [authorizedFolders, setAuthorizedFolders] = createSignal<string[]>([]);
   const [authorizedFolderDraft, setAuthorizedFolderDraft] = createSignal("");
@@ -5197,13 +5209,26 @@ export default function App() {
     modelPickerTarget() === "default" ? defaultModel() : selectedSessionModel()
   );
 
+  const isHeroModel = (id: string) => {
+    const check = id.toLowerCase();
+    if (check.includes("gpt-5")) return true;
+    if (check.includes("opus-4")) return true;
+    if (check.includes("claude-3-7-sonnet")) return true;
+    if (check.includes("claude-3-5-sonnet")) return true;
+    if (check.includes("gpt-4o") && !check.includes("mini") && !check.includes("audio")) return true;
+    if (check.includes("o3-mini")) return true;
+    if (check.includes("o1") && !check.includes("mini")) return true;
+    if (check.includes("deepseek-r1")) return true;
+    return false;
+  };
+
   const modelOptions = createMemo<ModelOption[]>(() => {
     const allProviders = providers();
     const defaults = providerDefaults();
     const currentDefault = defaultModel();
 
     if (!allProviders.length) {
-      const behavior = getModelBehaviorCopy(DEFAULT_MODEL, modelVariant());
+      const behavior = getModelBehaviorCopy(DEFAULT_MODEL, getVariantFor(DEFAULT_MODEL));
       return [
         {
           providerID: DEFAULT_MODEL.providerID,
@@ -5214,7 +5239,7 @@ export default function App() {
           behaviorTitle: behavior.title,
           behaviorLabel: behavior.label,
           behaviorDescription: behavior.description,
-          behaviorValue: normalizeModelBehaviorValue(modelVariant()),
+          behaviorValue: normalizeModelBehaviorValue(getVariantFor(DEFAULT_MODEL)),
           behaviorOptions: behavior.options,
           isFree: true,
           isConnected: false,
@@ -5244,8 +5269,9 @@ export default function App() {
         const isFree = model.cost?.input === 0 && model.cost?.output === 0;
         const isDefault =
           provider.id === currentDefault.providerID && model.id === currentDefault.modelID;
-        const behavior = getModelBehaviorSummary(provider.id, model, modelVariant());
-        const behaviorValue = sanitizeModelBehaviorValue(provider.id, model, modelVariant());
+        const ref = { providerID: provider.id, modelID: model.id };
+        const behavior = getModelBehaviorSummary(provider.id, model, getVariantFor(ref));
+        const behaviorValue = sanitizeModelBehaviorValue(provider.id, model, getVariantFor(ref));
         const footerBits: string[] = [];
         if (defaultModelID === model.id || isDefault) {
           footerBits.push(t("settings.model_default", currentLocale()));
@@ -5268,6 +5294,7 @@ export default function App() {
           disabled: !isConnected,
           isFree,
           isConnected,
+          isRecommended: isHeroModel(model.id),
         });
       }
     }
@@ -5336,8 +5363,6 @@ export default function App() {
 
   function applyModelSelection(next: ModelRef) {
     const restorePromptFocus = modelPickerTarget() === "session";
-    const nextVariant = sanitizeModelVariantForRef(next, modelVariant());
-    setModelVariant(nextVariant);
 
     if (modelPickerTarget() === "default") {
       setDefaultModelExplicit(true);
@@ -6256,7 +6281,16 @@ export default function App() {
 
         const storedVariant = window.localStorage.getItem(VARIANT_PREF_KEY);
         if (storedVariant && storedVariant.trim()) {
-          setModelVariant(normalizeModelBehaviorValue(storedVariant));
+          try {
+            const parsed = JSON.parse(storedVariant);
+            if (typeof parsed === "object" && parsed !== null) {
+              setModelVariantMap(parsed);
+            } else {
+              setModelVariantMap({ [`${DEFAULT_MODEL.providerID}/${DEFAULT_MODEL.modelID}`]: normalizeModelBehaviorValue(storedVariant)! });
+            }
+          } catch {
+            setModelVariantMap({ [`${DEFAULT_MODEL.providerID}/${DEFAULT_MODEL.modelID}`]: normalizeModelBehaviorValue(storedVariant)! });
+          }
         }
 
         const storedUpdateAutoCheck = window.localStorage.getItem(
@@ -6820,9 +6854,9 @@ export default function App() {
   createEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const value = modelVariant();
-      if (value) {
-        window.localStorage.setItem(VARIANT_PREF_KEY, value);
+      const map = modelVariantMap();
+      if (Object.keys(map).length > 0) {
+        window.localStorage.setItem(VARIANT_PREF_KEY, JSON.stringify(map));
       } else {
         window.localStorage.removeItem(VARIANT_PREF_KEY);
       }
@@ -7241,7 +7275,7 @@ export default function App() {
       toggleAutoCompactContext: () => setAutoCompactContext((v) => !v),
       hideTitlebar: hideTitlebar(),
       toggleHideTitlebar: () => setHideTitlebar((v) => !v),
-      modelVariantLabel: getModelBehaviorCopy(defaultModel(), modelVariant()).label,
+      modelVariantLabel: getModelBehaviorCopy(defaultModel(), getVariantFor(defaultModel())).label,
       editModelVariant: openDefaultModelPicker,
       updateAutoCheck: updateAutoCheck(),
       toggleUpdateAutoCheck: () => setUpdateAutoCheck((v) => !v),
@@ -7414,9 +7448,9 @@ export default function App() {
     selectedSessionModelLabel: selectedSessionModelLabel(),
     selectedProviderID: selectedSessionModel().providerID,
     openSessionModelPicker: openSessionModelPicker,
-    modelVariantLabel: getModelBehaviorCopy(selectedSessionModel(), modelVariant()).label,
-    modelVariant: modelVariant(),
-    setModelVariant: (value: string) => setModelVariant(value),
+    modelVariantLabel: getModelBehaviorCopy(selectedSessionModel(), getVariantFor(selectedSessionModel())).label,
+    modelVariant: getVariantFor(selectedSessionModel()),
+    setModelVariant: (value: string) => updateModelVariant(selectedSessionModel(), value),
     activePlugins: sidebarPluginList(),
     activePluginStatus: sidebarPluginStatus(),
     mcpServers: mcpServers(),
@@ -7665,8 +7699,7 @@ export default function App() {
         current={modelPickerCurrent()}
         onSelect={applyModelSelection}
         onBehaviorChange={(model, value) => {
-          if (!modelEquals(modelPickerCurrent(), model)) return;
-          setModelVariant(sanitizeModelVariantForRef(model, value));
+          updateModelVariant(model, sanitizeModelVariantForRef(model, value));
         }}
         onOpenSettings={openSettingsFromModelPicker}
         onClose={closeModelPicker}
