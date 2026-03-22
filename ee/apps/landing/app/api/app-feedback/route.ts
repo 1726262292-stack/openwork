@@ -15,6 +15,8 @@ type FeedbackContext = {
 };
 
 type FeedbackPayload = {
+  name?: string;
+  email?: string;
   message?: string;
   context?: FeedbackContext;
 };
@@ -86,6 +88,23 @@ export async function POST(request: Request) {
   }
 
   const message = sanitizeValue(payload.message, 5000);
+  const name = sanitizeValue(payload.name, 120);
+  const email = sanitizeValue(payload.email, 240);
+
+  if (!name) {
+    return NextResponse.json(
+      { error: "Please include your name so we know who sent this." },
+      { status: 400 },
+    );
+  }
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return NextResponse.json(
+      { error: "Please include a valid email so we can follow up." },
+      { status: 400 },
+    );
+  }
+
   if (!message) {
     return NextResponse.json(
       { error: "Please include a short message before sending feedback." },
@@ -102,6 +121,8 @@ export async function POST(request: Request) {
       internalEmail,
       transactionalId,
       message,
+      name,
+      email,
       context,
     });
     return NextResponse.json({ ok: true });
@@ -117,6 +138,8 @@ export async function POST(request: Request) {
       transactionalId,
       email: internalEmail,
       dataVariables: {
+        name,
+        email,
         message,
         source: context.source || "openwork-app",
         entrypoint: context.entrypoint || "unknown",
