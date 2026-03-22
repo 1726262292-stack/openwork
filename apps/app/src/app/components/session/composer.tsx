@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
 import fuzzysort from "fuzzysort";
+import ProviderIcon from "../provider-icon";
 import { ArrowUp, AtSign, Check, ChevronDown, File as FileIcon, Paperclip, Square, Terminal, X, Zap } from "lucide-solid";
 
 import type { ComposerAttachment, ComposerDraft, ComposerPart, PromptMode, SlashCommandOption } from "../../types";
@@ -29,6 +30,7 @@ type ComposerProps = {
   onSend: (draft: ComposerDraft) => void;
   onStop: () => void;
   onDraftChange: (draft: ComposerDraft) => void;
+  selectedProviderID: string;
   selectedModelLabel: string;
   onModelClick: () => void;
   modelVariantLabel: string;
@@ -209,14 +211,6 @@ const MOBILE_VIEW_MEDIA_QUERY = "(max-width: 767px)";
 
 const isMobileViewport = () =>
   typeof window !== "undefined" && window.matchMedia(MOBILE_VIEW_MEDIA_QUERY).matches;
-
-const MODEL_VARIANT_OPTIONS = [
-  { value: "none", label: "None" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "X-High" },
-];
 
 const partsToText = (parts: ComposerPart[]) =>
   parts
@@ -450,7 +444,6 @@ export default function Composer(props: ComposerProps) {
   let editorRef: HTMLDivElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
   let inboxFileInputRef: HTMLInputElement | undefined;
-  let variantPickerRef: HTMLDivElement | undefined;
   let mentionSearchRun = 0;
   let suppressPromptSync = false;
   let pasteCounter = 0;
@@ -483,9 +476,7 @@ export default function Composer(props: ComposerProps) {
   const [historySnapshot, setHistorySnapshot] = createSignal<ComposerDraft | null>(null);
   const [historyIndex, setHistoryIndex] = createSignal({ prompt: -1, shell: -1 });
   const [history, setHistory] = createSignal({ prompt: [] as ComposerDraft[], shell: [] as ComposerDraft[] });
-  const [variantMenuOpen, setVariantMenuOpen] = createSignal(false);
   const [showInboxUploadAction, setShowInboxUploadAction] = createSignal(false);
-  const activeVariant = createMemo(() => props.modelVariant ?? "none");
   const compactModelLabel = createMemo(() =>
     props.selectedModelLabel.length > 20 ? `${props.selectedModelLabel.slice(0, 20)}...` : props.selectedModelLabel,
   );
@@ -1548,20 +1539,6 @@ export default function Composer(props: ComposerProps) {
     setSlashOpen(false);
     setSlashQuery("");
   });
-
-
-
-  createEffect(() => {
-    if (!variantMenuOpen()) return;
-    const handler = (event: MouseEvent) => {
-      if (!variantPickerRef) return;
-      if (variantPickerRef.contains(event.target as Node)) return;
-      setVariantMenuOpen(false);
-    };
-    window.addEventListener("mousedown", handler);
-    onCleanup(() => window.removeEventListener("mousedown", handler));
-  });
-
   createEffect(() => {
     const handler = () => {
       editorRef?.focus();
@@ -1917,57 +1894,20 @@ export default function Composer(props: ComposerProps) {
 
                         <button
                           type="button"
-
                           class="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-medium text-gray-11 transition-colors hover:bg-gray-3 hover:text-gray-12"
                           onClick={props.onModelClick}
                           disabled={props.busy}
                         >
-                          <span class="md:hidden">{compactModelLabel()}</span>
-                          <span class="hidden md:inline">{props.selectedModelLabel}</span>
-                          <ChevronDown size={14} class="shrink-0" />
+                          <ProviderIcon providerId={props.selectedProviderID} size={16} class="text-gray-11" />
+                          <span class="md:hidden truncate ml-0.5">{compactModelLabel()}</span>
+                          <span class="hidden min-w-0 md:flex md:flex-col md:items-start ml-0.5">
+                            <span class="truncate leading-tight">{props.selectedModelLabel}</span>
+                            <span class="truncate text-[11px] font-normal text-gray-9 leading-tight">
+                              {props.modelVariantLabel}
+                            </span>
+                          </span>
+                          <ChevronDown size={14} class="shrink-0 ml-0.5" />
                         </button>
-                        <div class="relative hidden md:block" ref={(el) => (variantPickerRef = el)}>
-                          <button
-                            type="button"
-                            class="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-medium text-gray-11 transition-colors hover:bg-gray-3 hover:text-gray-12"
-                            onClick={() => setVariantMenuOpen((open) => !open)}
-                            disabled={props.busy}
-                            aria-expanded={variantMenuOpen()}
-                          >
-                            <span>Thinking</span>
-                            <span class="font-mono text-gray-11">{props.modelVariantLabel}</span>
-                            <ChevronDown size={14} />
-                          </button>
-                          <Show when={variantMenuOpen()}>
-                            <div class="absolute left-0 bottom-full z-40 mb-2 w-48 overflow-hidden rounded-[18px] border border-dls-border bg-dls-surface shadow-[var(--dls-shell-shadow)]">
-                              <div class="border-b border-dls-border px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-10">
-                                Thinking effort
-                              </div>
-                              <div class="p-2 space-y-1">
-                                <For each={MODEL_VARIANT_OPTIONS}>
-                                  {(option) => (
-                                    <button
-                                      type="button"
-                                      class={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors ${activeVariant() === option.value
-                                        ? "bg-gray-2 text-gray-12"
-                                        : "text-gray-11 hover:bg-gray-2/70"
-                                         }`}
-                                      onClick={() => {
-                                        props.onModelVariantChange(option.value);
-                                        setVariantMenuOpen(false);
-                                      }}
-                                    >
-                                      <span>{option.label}</span>
-                                      <Show when={activeVariant() === option.value}>
-                                        <span class="text-[10px] uppercase tracking-wider text-gray-10">Active</span>
-                                      </Show>
-                                    </button>
-                                  )}
-                                </For>
-                              </div>
-                            </div>
-                          </Show>
-                        </div>
                       </div>
                       <div class="ml-auto flex shrink-0 items-center gap-3 text-gray-10">
                         <Show

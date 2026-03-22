@@ -4,6 +4,7 @@ import { CheckCircle2, Circle, Search, X } from "lucide-solid";
 import { t, currentLocale } from "../../i18n";
 
 import Button from "./button";
+import ProviderIcon from "./provider-icon";
 import { modelEquals } from "../utils";
 import type { ModelOption, ModelRef } from "../types";
 
@@ -16,6 +17,7 @@ export type ModelPickerModalProps = {
   target: "default" | "session";
   current: ModelRef;
   onSelect: (model: ModelRef) => void;
+  onBehaviorChange: (model: ModelRef, value: string | null) => void;
   onOpenSettings: () => void;
   onClose: (options?: { restorePromptFocus?: boolean }) => void;
 };
@@ -198,10 +200,14 @@ export default function ModelPickerModal(props: ModelPickerModalProps) {
           });
         }}
       >
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <div class="text-sm font-medium text-gray-12 flex items-center gap-2">
+        <div class="flex items-start gap-3">
+          <ProviderIcon providerId={opt.providerID} size={18} class="mt-0.5 text-gray-12" />
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium text-gray-12 flex items-center justify-between gap-2">
               <span class="truncate">{opt.title}</span>
+              <Show when={active()} fallback={<Circle size={14} class="text-gray-10" />}>
+                <CheckCircle2 size={14} class="text-green-11" />
+              </Show>
             </div>
             <div class="mt-1 flex items-center gap-3 text-xs text-gray-10">
               <span class="truncate">{opt.description ?? opt.providerID}</span>
@@ -212,11 +218,37 @@ export default function ModelPickerModal(props: ModelPickerModalProps) {
             <Show when={opt.footer}>
               <div class="text-[11px] text-gray-7 mt-2">{opt.footer}</div>
             </Show>
-          </div>
-
-          <div class="pt-0.5 text-gray-10">
-            <Show when={active()} fallback={<Circle size={14} />}>
-              <CheckCircle2 size={14} class="text-green-11" />
+            <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-gray-8">
+              <span class="rounded-full border border-gray-6/70 bg-gray-1/70 px-2 py-0.5 font-medium text-gray-11">
+                {opt.behaviorTitle}
+              </span>
+              <span class="text-gray-10">{opt.behaviorLabel}</span>
+            </div>
+            <Show when={active() && (opt.behaviorOptions?.length ?? 0) > 0}>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <For each={opt.behaviorOptions}>
+                  {(option) => (
+                    <button
+                      type="button"
+                      class={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                        opt.behaviorValue === option.value
+                          ? "border-gray-8 bg-gray-12 text-gray-1"
+                          : "border-gray-6/70 bg-gray-1/80 text-gray-11 hover:bg-gray-2"
+                      }`}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        props.onBehaviorChange(
+                          { providerID: opt.providerID, modelID: opt.modelID },
+                          option.value,
+                        );
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  )}
+                </For>
+              </div>
             </Show>
           </div>
         </div>
@@ -242,10 +274,11 @@ export default function ModelPickerModal(props: ModelPickerModalProps) {
         props.onOpenSettings();
       }}
     >
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
+      <div class="flex items-center gap-3">
+        <ProviderIcon providerId={provider.providerID} size={18} class="text-gray-12" />
+        <div class="flex-1 min-w-0">
           <div class="text-sm font-medium text-gray-12 truncate">{provider.title}</div>
-          <div class="mt-1 text-xs text-gray-10">Click to setup provider</div>
+          <div class="mt-1 text-xs text-gray-10">Connect this provider to browse and save models</div>
         </div>
         <div class="flex items-center gap-3 shrink-0">
           <div class="text-[11px] text-gray-7">
@@ -264,10 +297,12 @@ export default function ModelPickerModal(props: ModelPickerModalProps) {
             <div class="flex items-start justify-between gap-4">
               <div>
                 <h3 class="text-lg font-semibold text-gray-12">
-                  {props.target === "default" ? translate("settings.default_model") : translate("settings.session_model")}
+                  {props.target === "default" ? "Default model" : "Chat model"}
                 </h3>
                 <p class="text-sm text-gray-11 mt-1">
-                  {props.target === "default" ? translate("settings.model_description_default") : translate("settings.model_description_session")}
+                  {props.target === "default"
+                    ? "Choose the default model for new chats. If a model supports reasoning profiles, configure them on its card."
+                    : "Choose the model for this chat. If a model supports reasoning profiles, configure them on its card."}
                 </p>
               </div>
               <Button
@@ -302,7 +337,7 @@ export default function ModelPickerModal(props: ModelPickerModalProps) {
               <Show when={enabledOptions().length > 0}>
                 <section class="space-y-2">
                   <div class="px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-9">
-                    Enabled Providers
+                    Connected models
                   </div>
                   <For each={enabledOptions()}>{({ opt, index }) => renderOption(opt, index)}</For>
                 </section>
@@ -311,7 +346,7 @@ export default function ModelPickerModal(props: ModelPickerModalProps) {
               <Show when={otherOptions().length > 0}>
                 <section class="space-y-2">
                   <div class="px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-9">
-                    Other Providers
+                    More providers
                   </div>
                   <For each={otherOptions()}>
                     {(provider) => renderProviderLink(provider, provider.index)}
