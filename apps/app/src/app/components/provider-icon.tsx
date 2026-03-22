@@ -1,14 +1,14 @@
 import { JSX } from "solid-js";
 
 type ProviderIconProps = {
-  providerId: string;
+  providerId?: string | null;
   class?: string;
   size?: number;
 };
 
 export default function ProviderIcon(props: ProviderIconProps) {
   const size = () => props.size ?? 16;
-  const normalizedId = () => props.providerId.trim().toLowerCase();
+  const normalizedId = () => props.providerId?.trim().toLowerCase() ?? "";
 
   const isAnthropic = () => normalizedId() === "anthropic";
   const isOpenAI = () => normalizedId() === "openai";
