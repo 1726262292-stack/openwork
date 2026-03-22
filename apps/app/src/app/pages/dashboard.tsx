@@ -25,7 +25,7 @@ import {
   normalizeDirectoryPath,
 } from "../utils";
 import { usePlatform } from "../context/platform";
-import { FEEDBACK_EMAIL_URL } from "../lib/feedback";
+import { buildFeedbackUrl } from "../lib/feedback";
 import { getOpenWorkDeployment } from "../lib/openwork-deployment";
 import { createWorkspaceShellLayout } from "../lib/workspace-shell-layout";
 import {
@@ -453,7 +453,18 @@ export default function DashboardView(props: DashboardViewProps) {
   } = createWorkspaceShellLayout({ expandedRightWidth: 280 });
 
   const openFeedback = () => {
-    const resolved = FEEDBACK_EMAIL_URL.trim();
+    const resolved = buildFeedbackUrl({
+      entrypoint: "dashboard-status-bar",
+      deployment: getOpenWorkDeployment(),
+      appVersion: props.appVersion,
+      openworkServerVersion: props.openworkServerDiagnostics?.version ?? null,
+      opencodeVersion:
+        props.orchestratorStatus?.binaries?.opencode?.actualVersion ??
+        props.engineDoctorVersion ??
+        null,
+      orchestratorVersion: props.orchestratorStatus?.cliVersion ?? null,
+      opencodeRouterVersion: props.opencodeRouterInfo?.version ?? null,
+    });
     if (!resolved) return;
     platform.openLink(resolved);
   };
