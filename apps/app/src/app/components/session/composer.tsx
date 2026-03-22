@@ -1833,12 +1833,12 @@ export default function Composer(props: ComposerProps) {
           </div>
         </div>
 
-        <div class="mt-2 flex items-center justify-between px-1">
-          <div class="flex items-center gap-1.5 text-gray-10 sm:gap-2.5 overflow-x-auto no-scrollbar">
-            <div class="relative hidden md:block" ref={(el) => props.setAgentPickerRef(el)}>
+        <div class="mt-1 flex items-center justify-between px-1">
+          <div class="flex flex-wrap items-center gap-1.5 text-gray-10 sm:gap-2.5">
+            <div class="relative" ref={(el) => props.setAgentPickerRef(el)}>
               <button
                 type="button"
-                class="flex items-center gap-1.5 rounded-full border border-dls-border bg-dls-surface px-3 py-1.5 text-[12px] font-medium text-gray-11 transition-colors hover:bg-gray-3 hover:text-gray-12"
+                class="flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-medium text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12"
                 onClick={props.onToggleAgentPicker}
                 disabled={props.busy}
                 aria-expanded={props.agentPickerOpen}
@@ -1918,7 +1918,7 @@ export default function Composer(props: ComposerProps) {
 
             <button
               type="button"
-              class="flex min-w-0 items-center gap-1.5 rounded-full border border-dls-border bg-dls-surface px-3 py-1.5 text-[12px] font-medium text-gray-11 transition-colors hover:bg-gray-3 hover:text-gray-12"
+              class="flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-medium text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12"
               onClick={props.onModelClick}
               disabled={props.busy}
             >
@@ -1927,15 +1927,19 @@ export default function Composer(props: ComposerProps) {
             </button>
 
             <Show when={(props.modelBehaviorOptions?.length ?? 0) > 0}>
-              <div class="relative hidden md:block" ref={(el) => (variantPickerRef = el)}>
+              <div class="relative" ref={(el) => (variantPickerRef = el)}>
                 <button
                   type="button"
-                  class="flex items-center gap-1.5 rounded-full border border-dls-border bg-dls-surface px-3 py-1.5 text-[12px] font-medium text-gray-11 transition-colors hover:bg-gray-3 hover:text-gray-12"
-                  onClick={() => setVariantMenuOpen(!variantMenuOpen())}
+                  class="flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-medium text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setVariantMenuOpen(!variantMenuOpen());
+                  }}
                   disabled={props.busy}
                   aria-expanded={variantMenuOpen()}
                 >
-                  <span class="truncate leading-tight font-mono">{props.modelVariantLabel}</span>
+                  <span class="truncate leading-tight">{props.modelVariantLabel}</span>
                   <ChevronDown size={13} class="shrink-0 ml-0.5" />
                 </button>
                 <Show when={variantMenuOpen()}>

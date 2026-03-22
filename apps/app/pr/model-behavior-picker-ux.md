@@ -11,11 +11,13 @@
 ### Composer preview
 
 ![Composer model button](./screenshots/model-behavior-composer-refactored.png)
+![Composer thinking dropdown](./screenshots/model-behavior-composer-dropdown.png)
 
 Verified:
 - The active model and its reasoning profile are separated into two dropdowns.
-- The Agent, Model, and Thinking dropdowns, along with the Run button, are moved underneath the composer text area with `mt-2`.
+- The Agent, Model, and Thinking dropdowns, along with the Run button, are moved underneath the composer text area with `mt-1`.
 - The attachment button remains inside the composer context at the bottom left.
+- Fixed a bug where the thinking dropdown menu was invisible because of `overflow-x-auto no-scrollbar` clipping the absolute popup.
 
 ### Settings preview
 

@@ -239,16 +239,16 @@ export default function ModelPickerModal(props: ModelPickerModalProps) {
             </Show>
             <Show when={active() && (opt.behaviorOptions?.length ?? 0) > 0}>
               <div class="mt-3 flex items-center gap-2" onKeyDown={(e) => e.stopPropagation()}>
-                <span class="text-[10px] font-medium text-gray-9 mr-1">{opt.behaviorTitle}:</span>
-                <div class="flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                <span class="text-[11px] font-medium text-gray-10 mr-1">{opt.behaviorTitle}:</span>
+                <div class="flex flex-wrap items-center gap-3" onClick={(e) => e.stopPropagation()}>
                   <For each={opt.behaviorOptions}>
                     {(option) => (
                       <button
                         type="button"
-                        class={`rounded-md text-[11px] px-2 py-0.5 transition-colors ${
+                        class={`text-[11px] transition-colors ${
                           opt.behaviorValue === option.value
-                            ? "bg-gray-12 text-gray-1 font-medium"
-                            : "text-gray-11 hover:bg-gray-4 hover:text-gray-12"
+                            ? "text-gray-12 font-semibold"
+                            : "text-gray-10 hover:text-gray-12"
                         }`}
                         onClick={(event) => {
                           event.preventDefault();
