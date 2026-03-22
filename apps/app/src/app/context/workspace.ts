@@ -186,6 +186,8 @@ export function createWorkspaceStore(options: {
   const DEFAULT_CONNECT_HEALTH_TIMEOUT_MS = 12_000;
   const LOCAL_BOOT_CONNECT_HEALTH_TIMEOUT_MS = 180_000;
   const LONG_BOOT_CONNECT_REASONS = new Set(["host-start", "bootstrap-local"]);
+  const INITIAL_WORKSPACE_SETUP_COMPLETE_KEY = "openwork.initialWorkspaceSetupComplete";
+  const LEGACY_ONBOARDING_COMPLETE_KEY = "openwork.onboardingComplete";
   const DB_MIGRATE_UNSUPPORTED_PATTERNS = [
     /unknown(?:\s+sub)?command\s+['"`]?db['"`]?/i,
     /unrecognized(?:\s+sub)?command\s+['"`]?db['"`]?/i,
@@ -302,9 +304,24 @@ export function createWorkspaceStore(options: {
   let lastEngineReconnectAt = 0;
   let reconnectingEngine = false;
 
+  const readInitialWorkspaceSetupComplete = () => {
+    if (typeof window === "undefined") return false;
+    try {
+      return (
+        window.localStorage.getItem(INITIAL_WORKSPACE_SETUP_COMPLETE_KEY) === "1" ||
+        window.localStorage.getItem(LEGACY_ONBOARDING_COMPLETE_KEY) === "1"
+      );
+    } catch {
+      return false;
+    }
+  };
+
   const [projectDir, setProjectDir] = createSignal("");
   const [workspaces, setWorkspaces] = createSignal<WorkspaceInfo[]>([]);
-  const [activeWorkspaceId, setActiveWorkspaceId] = createSignal<string>("starter");
+  const [activeWorkspaceId, setActiveWorkspaceId] = createSignal<string>("");
+  const [initialWorkspaceSetupComplete, setInitialWorkspaceSetupComplete] = createSignal(
+    readInitialWorkspaceSetupComplete(),
+  );
 
   const syncActiveWorkspaceId = (id: string) => {
     setActiveWorkspaceId(id);
@@ -327,6 +344,9 @@ export function createWorkspaceStore(options: {
   const [migrationRepairResult, setMigrationRepairResult] = createSignal<MigrationRepairResult | null>(null);
 
   const activeWorkspaceInfo = createMemo(() => workspaces().find((w) => w.id === activeWorkspaceId()) ?? null);
+  const firstRunWorkspaceSetup = createMemo(
+    () => isTauriRuntime() && !initialWorkspaceSetupComplete() && workspaces().length === 0,
+  );
   const activeWorkspaceDisplay = createMemo<WorkspaceDisplay>(() => {
     const ws = activeWorkspaceInfo();
     if (!ws) {
@@ -2864,9 +2884,11 @@ export function createWorkspaceStore(options: {
   }
 
   function markOnboardingComplete() {
+    setInitialWorkspaceSetupComplete(true);
     if (typeof window === "undefined") return;
     try {
-      window.localStorage.setItem("openwork.onboardingComplete", "1");
+      window.localStorage.setItem(INITIAL_WORKSPACE_SETUP_COMPLETE_KEY, "1");
+      window.localStorage.setItem(LEGACY_ONBOARDING_COMPLETE_KEY, "1");
     } catch {
       // ignore
     }
@@ -2973,13 +2995,8 @@ export function createWorkspaceStore(options: {
 
   async function bootstrapOnboarding() {
     const startupPref = readStartupPreference();
-    const onboardingComplete = (() => {
-      try {
-        return window.localStorage.getItem("openwork.onboardingComplete") === "1";
-      } catch {
-        return false;
-      }
-    })();
+    const onboardingComplete = readInitialWorkspaceSetupComplete();
+    setInitialWorkspaceSetupComplete(onboardingComplete);
 
     if (isTauriRuntime()) {
       try {
@@ -3078,6 +3095,12 @@ export function createWorkspaceStore(options: {
       return;
     }
 
+    if (firstRunWorkspaceSetup()) {
+      options.setStartupPreference("local");
+      options.setOnboardingStep("local");
+      return;
+    }
+
     if (startupPref === "local") {
       options.setOnboardingStep("local");
       return;
@@ -3095,6 +3118,10 @@ export function createWorkspaceStore(options: {
   }
 
   function onBackToWelcome() {
+    if (firstRunWorkspaceSetup()) {
+      markOnboardingComplete();
+      clearStartupPreference();
+    }
     options.setStartupPreference(null);
     options.setOnboardingStep("welcome");
   }

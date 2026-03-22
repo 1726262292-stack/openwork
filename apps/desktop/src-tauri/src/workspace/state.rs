@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use tauri::Manager;
 
-use crate::types::{WorkspaceInfo, WorkspaceState, WorkspaceType, WORKSPACE_STATE_VERSION};
+use crate::types::{WorkspaceState, WORKSPACE_STATE_VERSION};
 
 pub fn stable_workspace_id(path: &str) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -48,35 +48,6 @@ pub fn save_workspace_state(app: &tauri::AppHandle, state: &WorkspaceState) -> R
     )
     .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
     Ok(())
-}
-
-pub fn ensure_starter_workspace(app: &tauri::AppHandle) -> Result<WorkspaceInfo, String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to resolve app data dir: {e}"))?;
-    let starter_dir = data_dir.join("workspaces").join("starter");
-    fs::create_dir_all(&starter_dir)
-        .map_err(|e| format!("Failed to create starter workspace: {e}"))?;
-
-    Ok(WorkspaceInfo {
-        id: stable_workspace_id(starter_dir.to_string_lossy().as_ref()),
-        name: "Starter".to_string(),
-        path: starter_dir.to_string_lossy().to_string(),
-        preset: "starter".to_string(),
-        workspace_type: WorkspaceType::Local,
-        remote_type: None,
-        base_url: None,
-        directory: None,
-        display_name: None,
-        openwork_host_url: None,
-        openwork_token: None,
-        openwork_workspace_id: None,
-        openwork_workspace_name: None,
-        sandbox_backend: None,
-        sandbox_run_id: None,
-        sandbox_container_name: None,
-    })
 }
 
 pub fn stable_workspace_id_for_remote(base_url: &str, directory: Option<&str>) -> String {
