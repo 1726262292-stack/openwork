@@ -195,7 +195,11 @@ const ensureLinuxDesktopDependencies = () => {
 };
 
 const runUiDevServer = () => {
-  const child = spawn(pnpmCmd, [...pnpmArgs, "-w", "dev:ui"], {
+  const uiArgs =
+    process.platform === "win32"
+      ? [...pnpmArgs, "--filter", "@openwork/app", "dev:windows"]
+      : [...pnpmArgs, "-w", "dev:ui"];
+  const child = spawn(pnpmCmd, uiArgs, {
     stdio: "inherit",
     shell: process.platform === "win32",
     detached: process.platform !== "win32",
@@ -203,6 +207,7 @@ const runUiDevServer = () => {
       ...process.env,
       // Make sure vite sees the intended port.
       PORT: String(port),
+      OPENWORK_DEV_MODE: process.env.OPENWORK_DEV_MODE || "1",
     },
   });
 

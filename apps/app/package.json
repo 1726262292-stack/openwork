@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "OPENWORK_DEV_MODE=1 vite",
+    "dev:windows": "vite",
     "build": "vite build",
     "dev:web": "OPENWORK_DEV_MODE=1 vite",
     "build:web": "vite build",
