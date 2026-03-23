@@ -1984,6 +1984,37 @@ export default function SettingsView(props: SettingsViewProps) {
             </div>
 
             <div class={`${settingsPanelClass} space-y-3`}>
+              <div>
+                <div class="text-sm font-medium text-gray-12">OpenCode</div>
+                <div class="text-xs text-gray-9">
+                  Runtime options for the local engine and orchestrator bridge.
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm text-gray-12">Enable Exa web search</div>
+                  <div class="text-xs text-gray-7">
+                    Applies when OpenWork Orchestrator launches OpenCode. Off by
+                    default until the integration is fully rolled out.
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  class="text-xs h-8 py-0 px-3 shrink-0"
+                  onClick={props.toggleOpencodeEnableExa}
+                  disabled={props.busy}
+                >
+                  {props.opencodeEnableExa ? "On" : "Off"}
+                </Button>
+              </div>
+
+              <div class="text-[11px] text-gray-7">
+                Restart OpenCode or the orchestrator after changing this setting.
+              </div>
+            </div>
+
+            <div class={`${settingsPanelClass} space-y-3`}>
               <div class="text-sm font-medium text-gray-12">Developer mode</div>
               <div class="text-xs text-gray-9">
                 Enables debug tools, diagnostics, and the Developer tab.
@@ -2889,27 +2920,6 @@ export default function SettingsView(props: SettingsViewProps) {
                         </div>
                       </div>
                     </Show>
-
-                    <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                      <div class="min-w-0">
-                        <div class="text-sm text-gray-12">Enable Exa web search</div>
-                        <div class="text-xs text-gray-7">
-                          Advanced. Applies when OpenWork Orchestrator launches OpenCode. Off by default until the integration is fully rolled out.
-                        </div>
-                      </div>
-                      <Button
-                        variant="outline"
-                        class="text-xs h-8 py-0 px-3 shrink-0"
-                        onClick={props.toggleOpencodeEnableExa}
-                        disabled={props.busy}
-                      >
-                        {props.opencodeEnableExa ? "On" : "Off"}
-                      </Button>
-                    </div>
-
-                    <div class="text-[11px] text-gray-7">
-                      Restart OpenCode or the orchestrator after changing this setting.
-                    </div>
                   </div>
                 </Show>
 
