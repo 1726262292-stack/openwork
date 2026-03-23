@@ -123,7 +123,7 @@ export function createWorkspaceStore(options: {
   setBusy: (value: boolean) => void;
   setBusyLabel: (value: string | null) => void;
   setBusyStartedAt: (value: number | null) => void;
-  loadSessions: (scopeRoot?: string, options?: { preserveExistingOnEmpty?: boolean }) => Promise<void>;
+  loadSessions: (scopeRoot?: string) => Promise<void>;
   refreshPendingPermissions: () => Promise<void>;
   selectedSessionId: () => string | null;
   selectSession: (id: string) => Promise<void>;
@@ -1451,10 +1451,7 @@ export function createWorkspaceStore(options: {
         const targetRoot = context?.targetRoot ?? (resolvedDirectory || activeWorkspaceRoot().trim());
         wsDebug("connect:loadSessions", { targetRoot, resolvedDirectory });
         const sessionsAt = Date.now();
-        const preserveExistingOnEmpty =
-          Boolean(context?.workspaceId?.trim()) &&
-          context?.workspaceId?.trim() === activeWorkspaceId().trim();
-        await options.loadSessions(targetRoot, { preserveExistingOnEmpty });
+        await options.loadSessions(targetRoot);
         connectMetrics.loadSessionsMs = Date.now() - sessionsAt;
         wsDebug("connect:loadSessions:done", { ms: Date.now() - sessionsAt });
         const pendingPermissionsAt = Date.now();

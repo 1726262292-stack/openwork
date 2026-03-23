@@ -1547,11 +1547,8 @@ export default function App() {
       });
 
   const [sessionsLoaded, setSessionsLoaded] = createSignal(false);
-  const loadSessionsWithReady = async (
-    scopeRoot?: string,
-    options?: { preserveExistingOnEmpty?: boolean },
-  ) => {
-    await loadSessions(scopeRoot, options);
+  const loadSessionsWithReady = async (scopeRoot?: string) => {
+    await loadSessions(scopeRoot);
     setSessionsLoaded(true);
   };
 
