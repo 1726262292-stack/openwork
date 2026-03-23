@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "OPENWORK_DEV_MODE=1 OPENWORK_DATA_DIR=\"$HOME/.openwork/openwork-orchestrator-dev\" tauri dev --config src-tauri/tauri.dev.conf.json --config \"{\\\"build\\\":{\\\"devUrl\\\":\\\"http://localhost:${PORT:-5173}\\\"}}\"",
     "dev:windows": "node ./scripts/dev-windows.mjs",
+    "dev:windows:x64": "node ./scripts/dev-windows.mjs x64",
     "build": "tauri build",
     "prepare:sidecar": "node ./scripts/prepare-sidecar.mjs"
   },
