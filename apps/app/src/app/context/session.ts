@@ -674,7 +674,7 @@ export function createSessionStore(options: {
     return Boolean(messageLoadBusyBySession()[id]);
   });
 
-  async function loadSessions(scopeRoot?: string) {
+  async function loadSessions(scopeRoot?: string, loadOptions?: { preserveExistingOnEmpty?: boolean }) {
     const c = options.client();
     if (!c) return;
 
@@ -723,6 +723,23 @@ export function createSessionStore(options: {
       })),
     });
     sessionDebug("sessions:load:filtered", { root: root || null, count: filtered.length });
+
+    if (loadOptions?.preserveExistingOnEmpty && filtered.length === 0) {
+      const current = store.sessions;
+      const currentRoot = root || normalizeDirectoryPath(options.activeWorkspaceRoot());
+      const currentSessionsMatchRoot =
+        Boolean(currentRoot) &&
+        current.length > 0 &&
+        current.every((session) => normalizeDirectoryPath(session.directory) === currentRoot);
+      if (currentSessionsMatchRoot) {
+        sessionDebug("sessions:load:preserved", {
+          root: currentRoot,
+          currentCount: current.length,
+        });
+        return;
+      }
+    }
+
     rememberSessions(filtered);
     setStore("sessions", reconcile(sortSessionsByActivity(filtered), { key: "id" }));
   }
