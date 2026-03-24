@@ -16,11 +16,10 @@
     "tabs": [
       {
         "tab": "Product",
-        "pages": [
-          "quickstart",
+        "groups": [
           {
             "group": "Quickstart",
-            "pages": []
+            "pages": ["quickstart"]
           }
         ]
       }
