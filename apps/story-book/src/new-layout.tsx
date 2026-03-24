@@ -1340,9 +1340,11 @@ export default function NewLayoutApp() {
               <h1 class="truncate text-[15px] font-semibold text-dls-text">
                 {showingSettings() ? "Settings" : selectedSessionTitle()}
               </h1>
-              <span class="hidden truncate text-[13px] text-dls-secondary lg:inline">
-                {activeWorkspace().displayName ?? activeWorkspace().name}
-              </span>
+              <Show when={showingSettings()}>
+                <span class="hidden truncate text-[13px] text-dls-secondary lg:inline">
+                  {activeWorkspace().displayName ?? activeWorkspace().name}
+                </span>
+              </Show>
             </div>
 
             <div class="flex items-center gap-1.5 text-gray-10">

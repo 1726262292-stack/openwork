@@ -1169,6 +1169,11 @@ export default function DashboardView(props: DashboardViewProps) {
               </button>
             </Show>
             <h1 class="truncate text-[15px] font-semibold text-dls-text">{title()}</h1>
+            <Show when={props.tab === "settings"}>
+              <span class="hidden truncate text-[13px] text-dls-secondary lg:inline">
+                {workspaceLabel(props.activeWorkspaceDisplay)}
+              </span>
+            </Show>
             <Show when={props.developerMode}>
               <span class="hidden text-[12px] text-dls-secondary lg:inline">{props.headerStatus}</span>
             </Show>

@@ -3972,6 +3972,9 @@ export default function SessionView(props: SessionViewProps) {
                   ? "Create or connect a workspace"
                   : selectedSessionTitle() || DEFAULT_SESSION_TITLE}
               </h1>
+              <span class="hidden truncate text-[13px] text-dls-secondary lg:inline">
+                {props.activeWorkspaceDisplay.displayName || props.activeWorkspaceDisplay.name || "Workspace"}
+              </span>
               <Show when={props.developerMode}>
                 <span class="hidden text-[12px] text-dls-secondary lg:inline">
                   {props.headerStatus}
