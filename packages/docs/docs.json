@@ -18,9 +18,11 @@
         "tab": "Start here",
         "pages": [
           "get-started",
-          "computer-use-copied-1",
+          "sharing-ow-setup",
+          "how-to-connect-chat-gpt",
+          "how-to-connect-a-custom-provider",
+          "how-to-connect-mcps",
           "computer-use",
-          "computer-use-copied-2",
           "missing-docs"
         ]
       }
