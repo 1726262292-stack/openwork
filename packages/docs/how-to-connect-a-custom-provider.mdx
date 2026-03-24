@@ -3,13 +3,34 @@ title: "Adding a custom LLM provider or model"
 description: "How to connect a custom provider with openwork"
 ---
 
-### Advanced Feature
-
 Because `Openwork` is built on `Opencode` primitives, we support everything that you could modify in `.opencode.json`, like adding a [model](https://opencode.ai/docs/models/). However, our recommendation is to add it to `/path-to-your-workspace/.config/opencode/opencode.json` instead of modifying `~/.config/opencode/opencode.json`.
 
 The reason for this is that you may want to support different models and permissions across several workspaces, specially when sharing it with a team.
 
-We've also built a custom skill `https://share.openwork.software/b/01KKZHV7CX178KH4FB5XGCM4XW` that you can import in Openwork following [this guide](/importing-a-skill)
+Inside `/path-to-your-workspace/.config/opencode/opencode.json`:
+```
+{
+  "provider": {
+    "my-api": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "My model",
+      "options": {
+        "baseURL": "https://your API address/v1"
+      },
+      "models": {
+        "model-name": {
+          "name": "Model name"
+        }
+      }
+    }
+  }
+}
+```
+
+We've also built a [custom skill](https://share.openwork.software/b/01KKZHV7CX178KH4FB5XGCM4XW) that you can import in Openwork following [this guide](/importing-a-skill). 
+
+The following tutorial covers how to [import a custom provider using the skill](https://x.com/getopenwork/status/2034129039317995908?s=20).
+
 
 main way to connect a custom provider two ways to connect a custom provider with Openwork.
 
