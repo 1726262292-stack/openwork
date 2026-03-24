@@ -2546,6 +2546,12 @@ export default function App() {
       throw new Error("Provider ID is required");
     }
 
+    const provider = providers().find((entry) => entry.id === resolved) as
+      | (ProviderListItem & { source?: string })
+      | undefined;
+    const canDisableProvider =
+      provider?.source === "config" || provider?.source === "custom";
+
     const removeProviderAuth = async () => {
       const authClient = c.auth as unknown as {
         remove?: (options: { providerID: string }) => Promise<unknown>;
@@ -2573,9 +2579,42 @@ export default function App() {
       throw new Error("Provider auth removal is not supported by this client.");
     };
 
+    const disableProvider = async () => {
+      const config = unwrap(await c.config.get());
+      const disabledProviders = Array.isArray(config.disabled_providers)
+        ? config.disabled_providers
+        : [];
+      if (disabledProviders.includes(resolved)) {
+        return false;
+      }
+
+      const result = await c.config.update({
+        config: {
+          ...config,
+          disabled_providers: [...disabledProviders, resolved],
+        },
+      });
+      assertNoClientError(result);
+      return true;
+    };
+
     try {
       await removeProviderAuth();
-      const updated = await refreshProviders({ dispose: true });
+      let updated = await refreshProviders({ dispose: true });
+      if (
+        canDisableProvider &&
+        Array.isArray(updated?.connected) &&
+        updated.connected.includes(resolved)
+      ) {
+        const disabled = await disableProvider();
+        updated = await refreshProviders({ dispose: true });
+        if (!Array.isArray(updated?.connected) || !updated.connected.includes(resolved)) {
+          return disabled
+            ? `Disconnected ${resolved} and disabled it in OpenCode config.`
+            : `Disconnected ${resolved}.`;
+        }
+      }
+
       if (Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
         return `Removed stored credentials for ${resolved}, but the worker still reports it as connected. Clear any remaining API key or OAuth credentials and restart the worker to fully disconnect.`;
       }

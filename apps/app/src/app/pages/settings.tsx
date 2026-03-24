@@ -1674,7 +1674,7 @@ export default function SettingsView(props: SettingsViewProps) {
                             const folderName = folder.split(/[/\\]/).filter(Boolean).pop() || folder;
                             return (
                               <div class={`flex items-center justify-between px-3 py-2.5 transition-colors ${
-                                isWorkspaceRoot ? "bg-blue-2/20" : "group hover:bg-gray-2/50"
+                                isWorkspaceRoot ? "bg-blue-2/20" : "hover:bg-gray-2/50"
                               }`}>
                                 <div class="flex items-center gap-3 overflow-hidden">
                                   <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-3/30 text-blue-11">
@@ -1702,7 +1702,7 @@ export default function SettingsView(props: SettingsViewProps) {
                                 >
                                   <Button
                                     variant="ghost"
-                                    class="h-7 w-7 text-gray-8 hover:text-red-11 opacity-0 group-hover:opacity-100 transition-opacity p-0 shrink-0"
+                                    class="h-7 w-7 text-gray-8 hover:text-red-11 p-0 shrink-0"
                                     onClick={() => void props.removeAuthorizedFolder(folder)}
                                     disabled={
                                       props.authorizedFoldersLoading ||
