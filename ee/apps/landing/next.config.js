@@ -6,6 +6,11 @@ const nextConfig = {
   async redirects() {
     return [
       {
+        source: "/docs",
+        destination: "https://openworklabs.com/docs/quickstart",
+        permanent: false,
+      },
+      {
         source: "/introduction",
         destination: "/docs",
         permanent: false,
