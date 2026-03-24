@@ -20,7 +20,15 @@ export function toSessionTransportDirectory(input?: string | null) {
   const trimmed = (input ?? "").trim();
   if (!trimmed) return "";
 
-  if (/^(?:[a-zA-Z]:[\\/]|\\\\|\\\\\?\\)/.test(trimmed)) {
+  if (/^\\\\\?\\UNC\\/i.test(trimmed)) {
+    return `\\${trimmed.slice(7)}`;
+  }
+
+  if (/^\\\\\?\\[a-zA-Z]:[\\/]/.test(trimmed)) {
+    return trimmed.slice(4);
+  }
+
+  if (/^(?:[a-zA-Z]:[\\/]|\\\\)/.test(trimmed)) {
     return trimmed;
   }
 

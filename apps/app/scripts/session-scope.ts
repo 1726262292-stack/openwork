@@ -106,7 +106,10 @@ try {
     assert.equal(resolveScopedClientDirectory({ workspaceType: "local", directory: winRoot }), transport);
 
     const uncRoot = String.raw`\\?\UNC\server\share\starter`;
-    assert.equal(toSessionTransportDirectory(uncRoot), uncRoot);
+    assert.equal(toSessionTransportDirectory(uncRoot), String.raw`\\server\share\starter`);
+
+    const verbatimDriveRoot = String.raw`\\?\C:\Users\Test\OpenWork\starter`;
+    assert.equal(toSessionTransportDirectory(verbatimDriveRoot), String.raw`C:\Users\Test\OpenWork\starter`);
   });
 
   await step("route guard only redirects when the loaded scope matches", () => {
