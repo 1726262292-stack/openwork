@@ -17,7 +17,26 @@ export function resolveScopedClientDirectory(input: {
 }
 
 export function toSessionTransportDirectory(input?: string | null) {
-  return normalizeDirectoryQueryPath(input);
+  const trimmed = (input ?? "").trim();
+  if (!trimmed) return "";
+
+  if (/^(?:[a-zA-Z]:[\\/]|\\\\|\\\\\?\\)/.test(trimmed)) {
+    return trimmed;
+  }
+
+  return normalizeDirectoryQueryPath(trimmed);
+}
+
+export function describeDirectoryScope(input?: string | null) {
+  const raw = input ?? "";
+  const trimmed = raw.trim();
+  const transport = toSessionTransportDirectory(trimmed);
+  const normalized = normalizeDirectoryPath(trimmed);
+  return {
+    raw: trimmed || null,
+    transport: transport || null,
+    normalized: normalized || null,
+  };
 }
 
 export function scopedRootsMatch(a?: string | null, b?: string | null) {

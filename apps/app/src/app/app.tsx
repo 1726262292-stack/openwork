@@ -162,6 +162,7 @@ import {
   sanitizeModelBehaviorValue,
 } from "./lib/model-behavior";
 import {
+  describeDirectoryScope,
   shouldApplyScopedSessionLoad,
   shouldRedirectMissingSessionAfterScopedLoad,
   toSessionTransportDirectory,
@@ -3057,6 +3058,30 @@ export default function App() {
     Record<string, string | null>
   >({});
 
+  const logWorkspaceScopeSnapshot = (label: string, extra?: Record<string, unknown>) => {
+    if (!developerMode()) return;
+    const activeWorkspace = workspaceStore.activeWorkspaceInfo();
+    const activeWorkspaceId = workspaceStore.activeWorkspaceId().trim();
+    const activeWorkspaceRoot = workspaceStore.activeWorkspaceRoot().trim();
+    const engineInfo = workspaceStore.engine();
+    const map = readSessionByWorkspace();
+    wsDebug(label, {
+      activeWorkspaceId: activeWorkspaceId || null,
+      activeWorkspaceType: activeWorkspace?.workspaceType ?? null,
+      activeWorkspacePath: activeWorkspace?.path?.trim() ?? null,
+      activeWorkspaceDirectory: activeWorkspace?.directory?.trim() ?? null,
+      activeWorkspaceRoot: activeWorkspaceRoot || null,
+      activeWorkspaceScope: describeDirectoryScope(activeWorkspaceRoot),
+      clientDirectory: clientDirectory().trim() || null,
+      clientDirectoryScope: describeDirectoryScope(clientDirectory().trim()),
+      engineProjectDir: engineInfo?.projectDir?.trim() ?? null,
+      engineProjectScope: describeDirectoryScope(engineInfo?.projectDir?.trim() ?? null),
+      lastSessionForActiveWorkspace: activeWorkspaceId ? map[activeWorkspaceId] ?? null : null,
+      lastSessionMapKeys: Object.keys(map),
+      ...extra,
+    });
+  };
+
   const pruneSidebarSessionState = (workspaceIds: Set<string>) => {
     setSidebarSessionsByWorkspaceId((prev) => {
       let changed = false;
@@ -3173,11 +3198,17 @@ export default function App() {
       const start = Date.now();
       let directory = config.directory;
       let c = createClient(config.baseUrl, directory || undefined, config.auth);
+      wsDebug("sidebar:list:start", {
+        id,
+        directory: directory || null,
+        directoryScope: describeDirectoryScope(directory),
+        workspacePath: workspaceStore.workspaces().find((entry) => entry.id === id)?.path?.trim() ?? null,
+      });
 
       if (!directory) {
         try {
           const pathInfo = unwrap(await c.path.get());
-          const discovered = normalizeDirectoryQueryPath(pathInfo.directory ?? "");
+          const discovered = toSessionTransportDirectory(pathInfo.directory ?? "");
           if (discovered) {
             directory = discovered;
             c = createClient(config.baseUrl, directory, config.auth);
@@ -3198,9 +3229,16 @@ export default function App() {
         id,
         baseUrl: config.baseUrl,
         directory: directory || null,
+        directoryScope: describeDirectoryScope(directory),
         queryDirectory: queryDirectory ?? null,
+        queryScope: describeDirectoryScope(queryDirectory),
         count: list.length,
         ms: Date.now() - start,
+        sessionDirectories: list.slice(0, 10).map((session) => ({
+          id: session.id,
+          directory: session.directory,
+          directoryScope: describeDirectoryScope(session.directory),
+        })),
       });
       if (sidebarRefreshSeqByWorkspaceId[id] !== seq) return;
 
@@ -6209,9 +6247,14 @@ export default function App() {
 
       let rawResult: Awaited<ReturnType<typeof c.session.create>>;
       try {
+        const directory = toSessionTransportDirectory(workspaceStore.activeWorkspaceRoot().trim()) || undefined;
+        logWorkspaceScopeSnapshot("session:create:scope", {
+          transportDirectory: directory ?? null,
+          transportScope: describeDirectoryScope(directory ?? null),
+        });
         mark("session:create:start");
         rawResult = await c.session.create({
-          directory: toSessionTransportDirectory(workspaceStore.activeWorkspaceRoot().trim()) || undefined,
+          directory,
         });
         mark("session:create:ok");
       } catch (createErr) {
