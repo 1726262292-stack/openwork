@@ -1394,7 +1394,18 @@ export default function NewLayoutApp() {
                 </Show>
                 <span class="hidden lg:inline">Redo</span>
               </button>
-              <div class="hidden h-4 w-px bg-dls-border sm:block" />
+              <Show when={showingSettings()}>
+                <div class="hidden h-4 w-px bg-dls-border sm:block" />
+                <button
+                  type="button"
+                  class="flex h-9 w-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text"
+                  onClick={() => setShowingSettings(false)}
+                  title="Close settings"
+                  aria-label="Close settings"
+                >
+                  <X size={18} />
+                </button>
+              </Show>
             </div>
           </header>
 

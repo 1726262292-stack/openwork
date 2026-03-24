@@ -68,6 +68,7 @@ import {
   MessageCircle,
   Plus,
   SlidersHorizontal,
+  X,
   Zap,
 } from "lucide-solid";
 import type { Language } from "../../i18n";
@@ -1182,7 +1183,17 @@ export default function DashboardView(props: DashboardViewProps) {
             </Show>
           </div>
           <div class="flex items-center text-gray-10">
-            <div class="hidden md:block" />
+            <Show when={props.tab === "settings"}>
+              <button
+                type="button"
+                class="flex h-9 w-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text"
+                onClick={props.toggleSettings}
+                title="Close settings"
+                aria-label="Close settings"
+              >
+                <X size={18} />
+              </button>
+            </Show>
           </div>
         </header>
 

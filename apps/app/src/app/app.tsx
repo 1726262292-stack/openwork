@@ -6718,7 +6718,14 @@ export default function App() {
 
   const addAuthorizedFolder = async () => {
     const normalized = normalizeAuthorizedFolderPath(authorizedFolderDraft());
+    const workspaceRoot = normalizeAuthorizedFolderPath(workspaceStore.activeWorkspaceRoot().trim());
     if (!normalized) return;
+    if (workspaceRoot && normalized === workspaceRoot) {
+      setAuthorizedFolderDraft("");
+      setAuthorizedFoldersStatus("Workspace root is already available.");
+      setAuthorizedFoldersError(null);
+      return;
+    }
     if (authorizedFolders().includes(normalized)) {
       setAuthorizedFolderDraft("");
       setAuthorizedFoldersStatus("Folder is already authorized.");
@@ -6743,8 +6750,15 @@ export default function App() {
       const selection = await pickDirectory({ title: t("onboarding.authorize_folder", currentLocale()) });
       const folder = typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
       const normalized = normalizeAuthorizedFolderPath(folder);
+      const workspaceRoot = normalizeAuthorizedFolderPath(workspaceStore.activeWorkspaceRoot().trim());
       if (!normalized) return;
       setAuthorizedFolderDraft(normalized);
+      if (workspaceRoot && normalized === workspaceRoot) {
+        setAuthorizedFolderDraft("");
+        setAuthorizedFoldersStatus("Workspace root is already available.");
+        setAuthorizedFoldersError(null);
+        return;
+      }
       if (authorizedFolders().includes(normalized)) {
         setAuthorizedFoldersStatus("Folder is already authorized.");
         setAuthorizedFoldersError(null);

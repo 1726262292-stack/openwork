@@ -334,6 +334,11 @@ export default function SettingsView(props: SettingsViewProps) {
   const canPickAuthorizedFolder = createMemo(
     () => isTauriRuntime() && props.authorizedFoldersEditable && props.activeWorkspaceType === "local",
   );
+  const workspaceRootFolder = createMemo(() => props.activeWorkspaceRoot.trim());
+  const visibleAuthorizedFolders = createMemo(() => {
+    const root = workspaceRootFolder();
+    return root ? [root, ...props.authorizedFolders] : props.authorizedFolders;
+  });
 
   const openExternalLink = (url: string) => {
     const resolved = url.trim();
@@ -1649,7 +1654,7 @@ export default function SettingsView(props: SettingsViewProps) {
                     </Show>
 
                     <Show
-                      when={props.authorizedFolders.length > 0}
+                      when={visibleAuthorizedFolders().length > 0}
                       fallback={
                         <div class="flex flex-col items-center justify-center p-6 text-center">
                           <div class="flex h-10 w-10 items-center justify-center rounded-full bg-blue-3/30 text-blue-11 mb-3">
@@ -1663,33 +1668,52 @@ export default function SettingsView(props: SettingsViewProps) {
                       }
                     >
                       <div class="flex flex-col divide-y divide-gray-5/40 max-h-[300px] overflow-y-auto">
-                        <For each={props.authorizedFolders}>
+                        <For each={visibleAuthorizedFolders()}>
                           {(folder) => {
+                            const isWorkspaceRoot = folder === workspaceRootFolder();
                             const folderName = folder.split(/[/\\]/).filter(Boolean).pop() || folder;
                             return (
-                              <div class="group flex items-center justify-between px-3 py-2.5 hover:bg-gray-2/50 transition-colors">
+                              <div class={`flex items-center justify-between px-3 py-2.5 transition-colors ${
+                                isWorkspaceRoot ? "bg-blue-2/20" : "group hover:bg-gray-2/50"
+                              }`}>
                                 <div class="flex items-center gap-3 overflow-hidden">
                                   <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-3/30 text-blue-11">
                                     <Folder size={15} />
                                   </div>
                                   <div class="flex min-w-0 flex-col">
-                                    <span class="truncate text-sm font-medium text-gray-12">{folderName}</span>
+                                    <div class="flex items-center gap-2">
+                                      <span class="truncate text-sm font-medium text-gray-12">{folderName}</span>
+                                      <Show when={isWorkspaceRoot}>
+                                        <span class="rounded-full border border-blue-7/30 bg-blue-3/25 px-2 py-0.5 text-[10px] font-medium text-blue-11">
+                                          Workspace root
+                                        </span>
+                                      </Show>
+                                    </div>
                                     <span class="truncate font-mono text-[10px] text-gray-8">{folder}</span>
                                   </div>
                                 </div>
-                                <Button
-                                  variant="ghost"
-                                  class="h-7 w-7 text-gray-8 hover:text-red-11 opacity-0 group-hover:opacity-100 transition-opacity p-0 shrink-0"
-                                  onClick={() => void props.removeAuthorizedFolder(folder)}
-                                  disabled={
-                                    props.authorizedFoldersLoading ||
-                                    props.authorizedFoldersSaving ||
-                                    !props.authorizedFoldersEditable
+                                <Show
+                                  when={!isWorkspaceRoot}
+                                  fallback={
+                                    <span class="shrink-0 text-[10px] font-medium text-gray-8">
+                                      Always available
+                                    </span>
                                   }
-                                  aria-label={`Remove ${folderName}`}
                                 >
-                                  <X size={14} />
-                                </Button>
+                                  <Button
+                                    variant="ghost"
+                                    class="h-7 w-7 text-gray-8 hover:text-red-11 opacity-0 group-hover:opacity-100 transition-opacity p-0 shrink-0"
+                                    onClick={() => void props.removeAuthorizedFolder(folder)}
+                                    disabled={
+                                      props.authorizedFoldersLoading ||
+                                      props.authorizedFoldersSaving ||
+                                      !props.authorizedFoldersEditable
+                                    }
+                                    aria-label={`Remove ${folderName}`}
+                                  >
+                                    <X size={14} />
+                                  </Button>
+                                </Show>
                               </div>
                             );
                           }}
@@ -1793,9 +1817,9 @@ export default function SettingsView(props: SettingsViewProps) {
                 </div>
 
                 <div class="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="secondary"
-                    class="h-9 rounded-xl bg-blue-10 px-4 text-xs font-semibold text-white hover:bg-blue-11"
+                  <button
+                    type="button"
+                    class="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-transparent bg-blue-9 px-4 text-xs font-semibold text-blue-1 transition-colors duration-150 active:scale-[0.98] hover:bg-blue-10 focus:outline-none focus:ring-2 focus:ring-blue-7/30"
                     onClick={() =>
                       openExternalLink(
                         buildFeedbackUrl({
@@ -1818,7 +1842,7 @@ export default function SettingsView(props: SettingsViewProps) {
                     <MessageCircle size={14} />
                     Send feedback
                     <ArrowUpRight size={13} />
-                  </Button>
+                  </button>
 
                   <button
                     type="button"

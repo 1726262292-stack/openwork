@@ -4065,24 +4065,18 @@ export default function SessionView(props: SessionViewProps) {
                 </Show>
                 <span class="hidden lg:inline">Redo</span>
               </button>
-              <div class="hidden h-4 w-px bg-dls-border sm:block" />
-              <button
-                type="button"
-                class="flex h-9 w-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text md:hidden"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  if (commandPaletteOpen()) {
-                    closeCommandPalette();
-                    return;
-                  }
-                  window.setTimeout(() => openCommandPalette(), 0);
-                }}
-                title="Quick actions"
-                aria-label="Quick actions"
-              >
-                <Menu size={16} />
-              </button>
+              <Show when={props.tab === "settings"}>
+                <div class="hidden h-4 w-px bg-dls-border sm:block" />
+                <button
+                  type="button"
+                  class="flex h-9 w-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text"
+                  onClick={props.toggleSettings}
+                  title="Close settings"
+                  aria-label="Close settings"
+                >
+                  <X size={18} />
+                </button>
+              </Show>
             </div>
           </header>
 
