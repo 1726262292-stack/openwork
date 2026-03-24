@@ -19,7 +19,6 @@ import type {
 } from "../types";
 import {
   addOpencodeCacheHint,
-  normalizeDirectoryQueryPath,
   modelFromUserMessage,
   normalizeDirectoryPath,
   normalizeEvent,
@@ -29,6 +28,7 @@ import {
 import { unwrap } from "../lib/opencode";
 import { abortSessionSafe } from "../lib/opencode-session";
 import { finishPerf, perfNow, recordPerfLog } from "../lib/perf-log";
+import { describeDirectoryScope, toSessionTransportDirectory } from "../lib/session-scope";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "../types";
 
 export type SessionModelState = {
@@ -778,19 +778,26 @@ export function createSessionStore(options: {
     // IMPORTANT: OpenCode's session.list() supports server-side filtering by directory.
     // Use it to avoid fetching every session across every workspace root.
     //
-    // Note: We intentionally normalize slashes + trailing separators but do NOT
-    // lowercase on Windows for the query value because the server does strict
-    // string equality against the stored session.directory.
-    const queryDirectory = normalizeDirectoryQueryPath(scopeRoot) || undefined;
+    // Note: Use the same transport path format we send for create/delete so the
+    // server-side strict directory equality checks hit the same stored value.
+    const queryDirectory = toSessionTransportDirectory(scopeRoot) || undefined;
 
     sessionDebug("sessions:load:request", {
       scopeRoot: scopeRoot ?? null,
+      scopeScope: describeDirectoryScope(scopeRoot),
       queryDirectory: queryDirectory ?? null,
+      queryScope: describeDirectoryScope(queryDirectory),
       activeWorkspaceRoot: options.activeWorkspaceRoot?.() ?? null,
+      activeWorkspaceScope: describeDirectoryScope(options.activeWorkspaceRoot?.() ?? null),
     });
 
     const start = Date.now();
-    sessionDebug("sessions:load:start", { scopeRoot: scopeRoot ?? null, queryDirectory: queryDirectory ?? null });
+    sessionDebug("sessions:load:start", {
+      scopeRoot: scopeRoot ?? null,
+      scopeScope: describeDirectoryScope(scopeRoot),
+      queryDirectory: queryDirectory ?? null,
+      queryScope: describeDirectoryScope(queryDirectory),
+    });
     const list = unwrap(await c.session.list({ directory: queryDirectory, roots: true }));
     sessionDebug("sessions:load:response", {
       count: list.length,
@@ -798,6 +805,7 @@ export function createSessionStore(options: {
         id: session.id,
         title: session.title,
         directory: session.directory,
+        directoryScope: describeDirectoryScope(session.directory),
         parentID: session.parentID,
       })),
     });

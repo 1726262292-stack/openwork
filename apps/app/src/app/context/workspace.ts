@@ -21,7 +21,7 @@ import {
   writeStartupPreference,
 } from "../utils";
 import { unwrap } from "../lib/opencode";
-import { resolveScopedClientDirectory } from "../lib/session-scope";
+import { describeDirectoryScope, resolveScopedClientDirectory } from "../lib/session-scope";
 import {
   buildOpenworkWorkspaceBaseUrl,
   createOpenworkServerClient,
@@ -1334,9 +1334,17 @@ export function createWorkspaceStore(options: {
       wsDebug("connect:start", {
         baseUrl: nextBaseUrl,
         directory: directory ?? null,
+        directoryScope: describeDirectoryScope(directory),
         reason: context?.reason ?? null,
         workspaceType: context?.workspaceType ?? null,
         targetRoot: context?.targetRoot ?? null,
+        targetRootScope: describeDirectoryScope(context?.targetRoot),
+        workspaceId: context?.workspaceId ?? null,
+        activeWorkspaceId: activeWorkspaceId() || null,
+        activeWorkspaceRoot: activeWorkspaceRoot().trim() || null,
+        activeWorkspaceScope: describeDirectoryScope(activeWorkspaceRoot().trim()),
+        projectDir: projectDir().trim() || null,
+        clientDirectory: options.clientDirectory().trim() || null,
         healthTimeoutMs: resolveConnectHealthTimeoutMs(context?.reason),
         quiet: connectOptions?.quiet ?? false,
         navigate: connectOptions?.navigate ?? true,
@@ -1378,6 +1386,8 @@ export function createWorkspaceStore(options: {
           ms: Date.now() - connectStart,
           version: health.version,
           timeoutMs: healthTimeoutMs,
+          resolvedDirectory: resolvedDirectory || null,
+          resolvedDirectoryScope: describeDirectoryScope(resolvedDirectory),
         });
 
         if (context?.workspaceType === "remote" && !resolvedDirectory) {
@@ -1456,7 +1466,14 @@ export function createWorkspaceStore(options: {
         })();
 
         const targetRoot = context?.targetRoot ?? (resolvedDirectory || activeWorkspaceRoot().trim());
-        wsDebug("connect:loadSessions", { targetRoot, resolvedDirectory });
+        wsDebug("connect:loadSessions", {
+          targetRoot,
+          targetRootScope: describeDirectoryScope(targetRoot),
+          resolvedDirectory,
+          resolvedDirectoryScope: describeDirectoryScope(resolvedDirectory),
+          activeWorkspaceId: activeWorkspaceId() || null,
+          activeWorkspaceRoot: activeWorkspaceRoot().trim() || null,
+        });
         const sessionsAt = Date.now();
         await options.loadSessions(targetRoot);
         connectMetrics.loadSessionsMs = Date.now() - sessionsAt;
