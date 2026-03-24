@@ -96,6 +96,7 @@ export type SettingsViewProps = {
   openworkServerUrl: string;
   openworkReconnectBusy: boolean;
   reconnectOpenworkServer: () => Promise<boolean>;
+  openworkServerSettings: OpenworkServerSettings;
   openworkServerHostInfo: OpenworkServerInfo | null;
   openworkServerCapabilities: OpenworkServerCapabilities | null;
   openworkServerDiagnostics: OpenworkServerDiagnostics | null;
@@ -747,7 +748,10 @@ export default function SettingsView(props: SettingsViewProps) {
     setOpenworkServerRestarting(true);
     setOpenworkServerRestartError(null);
     try {
-      await openworkServerRestart();
+      await openworkServerRestart({
+        remoteAccessEnabled:
+          props.openworkServerSettings.remoteAccessEnabled === true,
+      });
       await props.reconnectOpenworkServer();
     } catch (e) {
       setOpenworkServerRestartError(e instanceof Error ? e.message : String(e));
@@ -761,7 +765,11 @@ export default function SettingsView(props: SettingsViewProps) {
     setOpencodeRestarting(true);
     setOpencodeRestartError(null);
     try {
-      await engineRestart({ opencodeEnableExa: props.opencodeEnableExa });
+      await engineRestart({
+        opencodeEnableExa: props.opencodeEnableExa,
+        openworkRemoteAccess:
+          props.openworkServerSettings.remoteAccessEnabled === true,
+      });
       await props.reconnectOpenworkServer();
     } catch (e) {
       setOpencodeRestartError(e instanceof Error ? e.message : String(e));
@@ -1521,7 +1529,7 @@ export default function SettingsView(props: SettingsViewProps) {
                     </div>
                   }
                 >
-                  <div class="flex flex-col overflow-hidden rounded-xl border border-gray-5/60 bg-white/50 shadow-sm dark:bg-gray-1/50">
+                  <div class="flex flex-col overflow-hidden rounded-xl border border-gray-5/60 bg-gray-1/50 shadow-sm">
                     <Show when={props.authorizedFoldersHint}>
                       {(hint) => (
                         <div class="bg-gray-2/60 px-3 py-2 text-[11px] text-gray-10 border-b border-gray-5/40">
@@ -1603,7 +1611,7 @@ export default function SettingsView(props: SettingsViewProps) {
                     >
                       <div class="relative flex-1">
                         <input
-                          class="w-full rounded-lg border border-gray-5/60 bg-white px-3 py-1.5 text-xs text-gray-12 placeholder:text-gray-8 focus:outline-none focus:ring-2 focus:ring-blue-7/30 dark:bg-gray-2 disabled:opacity-50"
+                          class="w-full rounded-lg border border-gray-5/60 bg-gray-1 px-3 py-1.5 text-xs text-gray-12 placeholder:text-gray-8 focus:outline-none focus:ring-2 focus:ring-blue-7/30 disabled:opacity-50"
                           value={props.authorizedFolderDraft}
                           onInput={(event) =>
                             props.setAuthorizedFolderDraft(event.currentTarget.value)
@@ -1624,7 +1632,7 @@ export default function SettingsView(props: SettingsViewProps) {
                         <Button
                           type="button"
                           variant="outline"
-                          class="h-8 px-3 text-xs bg-white dark:bg-gray-2"
+                          class="h-8 px-3 text-xs bg-gray-1 hover:bg-gray-2"
                           onClick={() => void props.pickAuthorizedFolder()}
                           disabled={
                             props.authorizedFoldersLoading ||
@@ -1639,7 +1647,7 @@ export default function SettingsView(props: SettingsViewProps) {
                       <Button
                         type="submit"
                         variant="primary"
-                        class="h-8 px-3 text-xs bg-gray-12 text-gray-1 hover:bg-gray-11 dark:bg-gray-3 dark:text-gray-12 dark:hover:bg-gray-4 border border-transparent dark:border-gray-5"
+                        class="h-8 px-3 text-xs bg-gray-3 text-gray-12 hover:bg-gray-4 border border-gray-5/60"
                         disabled={
                           props.authorizedFoldersLoading ||
                           props.authorizedFoldersSaving ||
@@ -1980,6 +1988,37 @@ export default function SettingsView(props: SettingsViewProps) {
                     {openworkStatusLabel()}
                   </div>
                 </div>
+              </div>
+            </div>
+
+            <div class={`${settingsPanelClass} space-y-3`}>
+              <div>
+                <div class="text-sm font-medium text-gray-12">OpenCode</div>
+                <div class="text-xs text-gray-9">
+                  Runtime options for the local engine and orchestrator bridge.
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm text-gray-12">Enable Exa web search</div>
+                  <div class="text-xs text-gray-7">
+                    Applies when OpenWork Orchestrator launches OpenCode. Off by
+                    default until the integration is fully rolled out.
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  class="text-xs h-8 py-0 px-3 shrink-0"
+                  onClick={props.toggleOpencodeEnableExa}
+                  disabled={props.busy}
+                >
+                  {props.opencodeEnableExa ? "On" : "Off"}
+                </Button>
+              </div>
+
+              <div class="text-[11px] text-gray-7">
+                Restart OpenCode or the orchestrator after changing this setting.
               </div>
             </div>
 
@@ -2889,27 +2928,6 @@ export default function SettingsView(props: SettingsViewProps) {
                         </div>
                       </div>
                     </Show>
-
-                    <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                      <div class="min-w-0">
-                        <div class="text-sm text-gray-12">Enable Exa web search</div>
-                        <div class="text-xs text-gray-7">
-                          Advanced. Applies when OpenWork Orchestrator launches OpenCode. Off by default until the integration is fully rolled out.
-                        </div>
-                      </div>
-                      <Button
-                        variant="outline"
-                        class="text-xs h-8 py-0 px-3 shrink-0"
-                        onClick={props.toggleOpencodeEnableExa}
-                        disabled={props.busy}
-                      >
-                        {props.opencodeEnableExa ? "On" : "Off"}
-                      </Button>
-                    </div>
-
-                    <div class="text-[11px] text-gray-7">
-                      Restart OpenCode or the orchestrator after changing this setting.
-                    </div>
                   </div>
                 </Show>
 

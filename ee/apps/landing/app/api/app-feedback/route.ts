@@ -1,4 +1,7 @@
-import { NextResponse } from "next/server";
+import { buildResponseHeaders, jsonResponse, rateLimitFormRequest, validateAntiSpamFields, validateTrustedOrigin, verifyFormBotProtection } from "../_lib/security";
+
+import { getFeedbackEmailConfig } from "./config";
+import { buildFeedbackEmailVariables } from "./template";
 
 type FeedbackContext = {
   source?: string;
@@ -18,11 +21,12 @@ type FeedbackPayload = {
   name?: string;
   email?: string;
   message?: string;
+  website?: string;
+  startedAt?: number | string;
   context?: FeedbackContext;
 };
 
 const LOOPS_TRANSACTIONAL_API_URL = "https://app.loops.so/api/v1/transactional";
-const DEFAULT_INTERNAL_FEEDBACK_EMAIL = "team@openworklabs.com";
 
 function sanitizeValue(value: unknown, maxLength = 240) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
@@ -63,28 +67,56 @@ function formatDiagnosticsSummary(context: ReturnType<typeof sanitizeContext>) {
 }
 
 export async function POST(request: Request) {
+  const originCheck = validateTrustedOrigin(request);
+  if (!originCheck.ok) {
+    return jsonResponse(request, { error: originCheck.error }, originCheck.status);
+  }
+
+  const rateLimit = rateLimitFormRequest(request, "app-feedback");
+  if (!rateLimit.ok) {
+    return new Response(JSON.stringify({ error: "Feedback form is temporarily rate limited." }), {
+      status: 429,
+      headers: {
+        ...buildResponseHeaders(request),
+        "X-Retry-After": String(rateLimit.retryAfterSeconds),
+      },
+    });
+  }
+
+  const botProtection = await verifyFormBotProtection();
+  if (!botProtection.ok) {
+    return jsonResponse(request, { error: botProtection.error }, botProtection.status);
+  }
+
   const apiKey = process.env.LOOPS_API_KEY?.trim();
-  const transactionalId =
-    process.env.LOOPS_TRANSACTIONAL_ID_APP_FEEDBACK?.trim();
-  const internalEmail =
-    process.env.LOOPS_INTERNAL_FEEDBACK_EMAIL?.trim() ||
-    DEFAULT_INTERNAL_FEEDBACK_EMAIL;
+  const { internalEmail, templateName, transactionalId } =
+    getFeedbackEmailConfig(process.env);
 
   if (!apiKey || !transactionalId) {
-    return NextResponse.json(
-      { error: "App feedback is not configured on this deployment." },
-      { status: 500 },
+    return jsonResponse(
+      request,
+      { error: `${templateName} is not configured on this deployment.` },
+      500,
     );
   }
 
   let payload: FeedbackPayload;
   try {
-    payload = (await request.json()) as FeedbackPayload;
+    const raw = await request.text();
+    if (raw.length > 8000) {
+      return jsonResponse(request, { error: "Request payload is too large." }, 413);
+    }
+    payload = JSON.parse(raw) as FeedbackPayload;
   } catch {
-    return NextResponse.json(
+    return jsonResponse(request,
       { error: "Invalid request payload." },
-      { status: 400 },
+      400,
     );
+  }
+
+  const antiSpam = validateAntiSpamFields(payload);
+  if (!antiSpam.ok) {
+    return jsonResponse(request, { error: antiSpam.error }, antiSpam.status);
   }
 
   const message = sanitizeValue(payload.message, 5000);
@@ -92,40 +124,49 @@ export async function POST(request: Request) {
   const email = sanitizeValue(payload.email, 240);
 
   if (!name) {
-    return NextResponse.json(
+    return jsonResponse(request,
       { error: "Please include your name so we know who sent this." },
-      { status: 400 },
+      400,
     );
   }
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return NextResponse.json(
+    return jsonResponse(request,
       { error: "Please include a valid email so we can follow up." },
-      { status: 400 },
+      400,
     );
   }
 
   if (!message) {
-    return NextResponse.json(
+    return jsonResponse(request,
       { error: "Please include a short message before sending feedback." },
-      { status: 400 },
+      400,
     );
   }
 
   const context = sanitizeContext(payload.context);
   const diagnosticsSummary = formatDiagnosticsSummary(context);
   const submittedAt = new Date().toISOString();
+  const templateVariables = buildFeedbackEmailVariables({
+    name,
+    email,
+    message,
+    submittedAt,
+    context,
+  });
 
   if (process.env.NODE_ENV === "development") {
     console.log("[DEV] Skipping Loops app feedback email", {
       internalEmail,
+      templateName,
       transactionalId,
       message,
       name,
       email,
       context,
+      templateVariables,
     });
-    return NextResponse.json({ ok: true });
+    return jsonResponse(request, { ok: true });
   }
 
   const response = await fetch(LOOPS_TRANSACTIONAL_API_URL, {
@@ -138,6 +179,7 @@ export async function POST(request: Request) {
       transactionalId,
       email: internalEmail,
       dataVariables: {
+        ...templateVariables,
         name,
         email,
         message,
@@ -171,8 +213,8 @@ export async function POST(request: Request) {
       // Ignore invalid upstream error bodies.
     }
 
-    return NextResponse.json({ error: detail }, { status: 502 });
+    return jsonResponse(request, { error: detail }, 502);
   }
 
-  return NextResponse.json({ ok: true });
+  return jsonResponse(request, { ok: true });
 }

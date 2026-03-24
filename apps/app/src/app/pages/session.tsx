@@ -146,6 +146,9 @@ export type SessionViewProps = {
   openworkServerDiagnostics: OpenworkServerDiagnostics | null;
   openworkServerSettings: OpenworkServerSettings;
   openworkServerHostInfo: OpenworkServerInfo | null;
+  shareRemoteAccessBusy: boolean;
+  shareRemoteAccessError: string | null;
+  saveShareRemoteAccess: (enabled: boolean) => Promise<void>;
   openworkServerWorkspaceId: string | null;
   engineInfo: EngineInfo | null;
   engineDoctorVersion: string | null;
@@ -341,6 +344,47 @@ const MAIN_THREAD_LAG_WARN_MS = 180;
 
 type CommandPaletteMode = "root" | "sessions";
 
+function describePermissionRequest(permission: PendingPermission | null) {
+  if (!permission) {
+    return {
+      title: "Permission Required",
+      message: "OpenCode is requesting permission to continue.",
+      permissionLabel: "",
+      scopeLabel: "Scope",
+      scopeValue: "",
+      isDoomLoop: false,
+      note: null as string | null,
+    };
+  }
+
+  const patterns = permission.patterns.filter((pattern) => pattern.trim().length > 0);
+  if (permission.permission === "doom_loop") {
+    const tool =
+      permission.metadata && typeof permission.metadata === "object" && typeof permission.metadata.tool === "string"
+        ? permission.metadata.tool
+        : null;
+    return {
+      title: "Doom Loop Detected",
+      message: "OpenCode detected repeated tool calls with identical input and is asking whether it should continue after repeated failures.",
+      permissionLabel: "Doom Loop",
+      scopeLabel: tool ? "Tool" : "Repeated call",
+      scopeValue: tool ?? (patterns.length ? patterns.join(", ") : "Repeated tool call"),
+      isDoomLoop: true,
+      note: "Reject to stop the loop, or allow if you want the agent to keep trying.",
+    };
+  }
+
+  return {
+    title: "Permission Required",
+    message: "OpenCode is requesting permission to continue.",
+    permissionLabel: permission.permission,
+    scopeLabel: "Scope",
+    scopeValue: patterns.join(", "),
+    isDoomLoop: false,
+    note: null as string | null,
+  };
+}
+
 export default function SessionView(props: SessionViewProps) {
   const platform = usePlatform();
   let messagesEndEl: HTMLDivElement | undefined;
@@ -362,6 +406,9 @@ export default function SessionView(props: SessionViewProps) {
   const topInitializedSessionIds = new Set<string>();
 
   const [toastMessage, setToastMessage] = createSignal<string | null>(null);
+  const activePermissionPresentation = createMemo(() =>
+    describePermissionRequest(props.activePermission),
+  );
   const [providerAuthActionBusy, setProviderAuthActionBusy] =
     createSignal(false);
   const [renameModalOpen, setRenameModalOpen] = createSignal(false);
@@ -3007,6 +3054,9 @@ export default function SessionView(props: SessionViewProps) {
     }
 
     if (ws.workspaceType !== "remote") {
+      if (props.openworkServerHostInfo?.remoteAccessEnabled !== true) {
+        return [];
+      }
       const hostUrl =
         props.openworkServerHostInfo?.connectUrl?.trim() ||
         props.openworkServerHostInfo?.lanUrl?.trim() ||
@@ -4816,6 +4866,14 @@ export default function SessionView(props: SessionViewProps) {
         workspaceName={shareWorkspaceName()}
         workspaceDetail={shareWorkspaceDetail()}
         fields={shareFields()}
+        remoteAccess={shareWorkspace()?.workspaceType === "local"
+          ? {
+              enabled: props.openworkServerHostInfo?.remoteAccessEnabled === true,
+              busy: props.shareRemoteAccessBusy,
+              error: props.shareRemoteAccessError,
+              onSave: props.saveShareRemoteAccess,
+            }
+          : undefined}
         note={shareNote()}
         publisherBaseUrl={DEFAULT_OPENWORK_PUBLISHER_BASE_URL}
         onShareWorkspaceProfile={publishWorkspaceProfileLink}
@@ -4852,14 +4910,16 @@ export default function SessionView(props: SessionViewProps) {
             <div class="p-6">
               <div class="flex items-start gap-4 mb-4">
                 <div class="p-3 bg-amber-7/10 rounded-full text-amber-6">
-                  <Shield size={24} />
+                  <Show when={activePermissionPresentation().isDoomLoop} fallback={<Shield size={24} />}>
+                    <RefreshCcw size={24} />
+                  </Show>
                 </div>
                 <div>
                   <h3 class="text-lg font-semibold text-gray-12">
-                    Permission Required
+                    {activePermissionPresentation().title}
                   </h3>
                   <p class="text-sm text-gray-11 mt-1">
-                    OpenCode is requesting permission to continue.
+                    {activePermissionPresentation().message}
                   </p>
                 </div>
               </div>
@@ -4869,15 +4929,21 @@ export default function SessionView(props: SessionViewProps) {
                   Permission
                 </div>
                 <div class="text-sm text-gray-12 font-mono">
-                  {props.activePermission?.permission}
+                  {activePermissionPresentation().permissionLabel}
                 </div>
 
+                <Show when={activePermissionPresentation().note}>
+                  <p class="mt-2 text-sm text-gray-11">
+                    {activePermissionPresentation().note}
+                  </p>
+                </Show>
+
                 <div class="text-xs text-gray-10 uppercase tracking-wider mt-4 mb-2 font-semibold">
-                  Scope
+                  {activePermissionPresentation().scopeLabel}
                 </div>
                 <div class="flex items-center gap-2 text-sm font-mono text-amber-12 bg-amber-1/30 px-2 py-1 rounded border border-amber-7/20">
                   <HardDrive size={12} />
-                  {props.activePermission?.patterns.join(", ")}
+                  {activePermissionPresentation().scopeValue}
                 </div>
 
                 <Show

@@ -1,3 +1,5 @@
+const { withBotId } = require("botid/next/config");
+
 /** @type {import('next').NextConfig} */
 const mintlifyOrigin = "https://differentai.mintlify.app";
 
@@ -5,6 +7,11 @@ const nextConfig = {
   reactStrictMode: true,
   async redirects() {
     return [
+      {
+        source: "/docs",
+        destination: "https://openworklabs.com/docs/quickstart",
+        permanent: false,
+      },
       {
         source: "/introduction",
         destination: "/docs",
@@ -102,4 +109,4 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+module.exports = withBotId(nextConfig);
