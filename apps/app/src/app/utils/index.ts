@@ -197,7 +197,12 @@ export function formatBytes(bytes: number) {
 export function normalizeDirectoryQueryPath(input?: string | null) {
   const trimmed = (input ?? "").trim();
   if (!trimmed) return "";
-  const unified = trimmed.replace(/\\/g, "/");
+  const withoutVerbatim = /^\\\\\?\\UNC\\/i.test(trimmed)
+    ? `\\${trimmed.slice(7)}`
+    : /^\\\\\?\\[a-zA-Z]:[\\/]/.test(trimmed)
+      ? trimmed.slice(4)
+      : trimmed;
+  const unified = withoutVerbatim.replace(/\\/g, "/");
   const withoutTrailing = unified.replace(/\/+$/, "");
   return withoutTrailing || "/";
 }

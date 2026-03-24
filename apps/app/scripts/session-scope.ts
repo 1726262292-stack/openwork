@@ -9,6 +9,7 @@ Object.defineProperty(globalThis, "navigator", {
 });
 
 const {
+  describeDirectoryScope,
   resolveScopedClientDirectory,
   scopedRootsMatch,
   shouldApplyScopedSessionLoad,
@@ -107,9 +108,11 @@ try {
 
     const uncRoot = String.raw`\\?\UNC\server\share\starter`;
     assert.equal(toSessionTransportDirectory(uncRoot), String.raw`\\server\share\starter`);
+    assert.equal(describeDirectoryScope(uncRoot).normalized, "//server/share/starter");
 
     const verbatimDriveRoot = String.raw`\\?\C:\Users\Test\OpenWork\starter`;
     assert.equal(toSessionTransportDirectory(verbatimDriveRoot), String.raw`C:\Users\Test\OpenWork\starter`);
+    assert.equal(describeDirectoryScope(verbatimDriveRoot).normalized, "c:/users/test/openwork/starter");
   });
 
   await step("route guard only redirects when the loaded scope matches", () => {
