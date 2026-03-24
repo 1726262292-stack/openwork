@@ -59,6 +59,12 @@
       }
     ]
   },
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/introduction"
+    }
+  ],
   "navbar": {
     "primary": {
       "type": "button",
