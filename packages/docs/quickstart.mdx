@@ -8,28 +8,29 @@ description: "Install OpenWork and run your first worker"
 ### Step 1: Install OpenWork
 
 <AccordionGroup>
-  <Accordion icon="download" title="Desktop app (recommended)">
-    Download the latest release from:
-    `https://openwork.software/download`
+  <Accordion title="Desktop app (recommended)" icon="download">
+    Download the latest release from: `https://openwork.software/download`
 
     Start with macOS if you want the fastest path.
   </Accordion>
-  <Accordion icon="terminal" title="CLI host (openwrk)">
+
+  <Accordion title="CLI host (openwrk)" icon="terminal">
     ```bash
     npm install -g openwrk
     openwrk start --workspace /path/to/workspace --approval auto
     ```
 
-    This runs OpenCode + OpenWork server + optional router without desktop UI.
+    This runs OpenCode \+ OpenWork server \+ optional router without desktop UI.
   </Accordion>
 </AccordionGroup>
 
 ### Step 2: Create your first worker
 
-<Accordion icon="folder-plus" title="Set up one clean worker">
+<Accordion title="Set up one clean worker" icon="folder-plus">
   Use one worker per business domain.
 
   Suggested first worker names:
+
   - `agency-core`
   - `client-a`
   - `client-b`
@@ -39,8 +40,9 @@ description: "Install OpenWork and run your first worker"
 
 ### Step 3: Connect and run one task
 
-<Accordion icon="play" title="Run one visible workflow">
+<Accordion title="Run one visible workflow" icon="play">
   Start with a deterministic workflow:
+
   - competitor research
   - daily report
   - weekly summary
@@ -50,11 +52,12 @@ description: "Install OpenWork and run your first worker"
 
 ### Step 4: Share with your team
 
-<Accordion icon="share-2" title="Use worker URL + token, or invite link">
+<Accordion title="Use worker URL + token, or invite link" icon="share-2">
   Open worker actions in OpenWork and share:
+
   - `OpenWork worker URL`
   - `Access token`
-  - `OpenWork invite link` (prefills URL + token)
+  - `OpenWork invite link` (prefills URL \+ token)
 
   The invite link is best for fast teammate onboarding.
 </Accordion>
@@ -72,3 +75,5 @@ openwrk status --openwork-url http://127.0.0.1:8787 --opencode-url http://127.0.
 - Use `/tutorials/automations-repeatable-jobs` to add reliable recurring outputs.
 - Use `/tutorials/worker-isolation` before onboarding more teammates.
 - Use `/tutorials/share-worker-invite-link` to remove copy/paste friction.
+
+The end
