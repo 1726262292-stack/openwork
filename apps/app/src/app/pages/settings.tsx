@@ -539,27 +539,20 @@ export default function SettingsView(props: SettingsViewProps) {
   const [openworkRestartError, setOpenworkRestartError] = createSignal<
     string | null
   >(null);
-  const providerConnectedCount = createMemo(
-    () => (props.providerConnectedIds ?? []).length,
-  );
   const providerAvailableCount = createMemo(
     () => (props.providers ?? []).length,
   );
   const connectedProviders = createMemo(() => {
-    const connectedIds = props.providerConnectedIds ?? [];
-    if (!connectedIds.length) return [] as { id: string; name: string }[];
-    const providersById = new Map(
-      (props.providers ?? []).map((provider) => [provider.id, provider]),
-    );
-    return connectedIds
-      .map((id) => {
-        const provider = providersById.get(id);
-        const label =
-          provider?.name?.trim() || provider?.id?.trim() || id.trim();
-        return { id, name: label || id };
-      })
+    const connected = new Set(props.providerConnectedIds ?? []);
+    return (props.providers ?? [])
+      .filter((provider) => connected.has(provider.id))
+      .map((provider) => ({
+        id: provider.id,
+        name: provider.name?.trim() || provider.id.trim() || provider.id,
+      }))
       .filter((entry) => entry.id.trim());
   });
+  const providerConnectedCount = createMemo(() => connectedProviders().length);
   const providerStatusLabel = createMemo(() => {
     if (!providerAvailableCount()) return "Unavailable";
     if (!providerConnectedCount()) return "Not connected";
@@ -1702,7 +1695,7 @@ export default function SettingsView(props: SettingsViewProps) {
                                 >
                                   <Button
                                     variant="ghost"
-                                    class="h-7 w-7 text-gray-8 hover:text-red-11 p-0 shrink-0"
+                                    class="h-7 w-7 shrink-0 rounded-full border border-gray-6/70 bg-gray-3/60 p-0 text-gray-12 shadow-sm hover:border-red-7/40 hover:bg-red-3/20 hover:text-red-11 focus:ring-red-7/30"
                                     onClick={() => void props.removeAuthorizedFolder(folder)}
                                     disabled={
                                       props.authorizedFoldersLoading ||
@@ -1711,7 +1704,7 @@ export default function SettingsView(props: SettingsViewProps) {
                                     }
                                     aria-label={`Remove ${folderName}`}
                                   >
-                                    <X size={14} />
+                                    <X size={16} class="text-current" />
                                   </Button>
                                 </Show>
                               </div>

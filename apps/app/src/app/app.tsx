@@ -2414,7 +2414,7 @@ export default function App() {
 
     const activeClient = client() ?? c;
     try {
-      const updated = unwrap(await activeClient.provider.list());
+      const updated = filterProviderState(unwrap(await activeClient.provider.list()));
       globalSync.set("provider", updated);
       return updated;
     } catch {
@@ -2422,11 +2422,11 @@ export default function App() {
         const fallback = unwrap(await activeClient.config.providers());
         const mapped = mapConfigProvidersToList(fallback.providers);
         const previousConnected = providerConnectedIds();
-        const next = {
+        const next = filterProviderState({
           all: mapped,
           connected: previousConnected.filter((id) => mapped.some((provider) => provider.id === id)),
           default: fallback.default,
-        };
+        });
         globalSync.set("provider", next);
         return next;
       } catch {
@@ -2588,13 +2588,20 @@ export default function App() {
         return false;
       }
 
-      const result = await c.config.update({
-        config: {
-          ...config,
-          disabled_providers: [...disabledProviders, resolved],
-        },
-      });
-      assertNoClientError(result);
+      const next = [...disabledProviders, resolved];
+      globalSync.set("config", "disabled_providers", next);
+      try {
+        const result = await c.config.update({
+          config: {
+            ...config,
+            disabled_providers: next,
+          },
+        });
+        assertNoClientError(result);
+      } catch (error) {
+        globalSync.set("config", "disabled_providers", disabledProviders);
+        throw error;
+      }
       return true;
     };
 
@@ -2607,7 +2614,10 @@ export default function App() {
         updated.connected.includes(resolved)
       ) {
         const disabled = await disableProvider();
-        updated = await refreshProviders({ dispose: true });
+        if (disabled) {
+          updated = filterProviderState(updated);
+          globalSync.set("provider", updated);
+        }
         if (!Array.isArray(updated?.connected) || !updated.connected.includes(resolved)) {
           return disabled
             ? `Disconnected ${resolved} and disabled it in OpenCode config.`
@@ -2618,6 +2628,7 @@ export default function App() {
       if (Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
         return `Removed stored credentials for ${resolved}, but the worker still reports it as connected. Clear any remaining API key or OAuth credentials and restart the worker to fully disconnect.`;
       }
+      removeProviderFromState(resolved);
       return `Disconnected ${resolved}`;
     } catch (error) {
       const message = describeProviderError(error, "Failed to disconnect provider");
@@ -2829,6 +2840,32 @@ export default function App() {
   };
   const setProviderConnectedIds = (value: string[]) => {
     globalSync.set("provider", "connected", value);
+  };
+
+  const filterProviderState = (value: {
+    all: ProviderListItem[];
+    connected: string[];
+    default: Record<string, string>;
+  }) => {
+    const disabled = new Set((globalSync.data.config.disabled_providers ?? []).map((id) => id.trim()));
+    if (!disabled.size) return value;
+    return {
+      all: value.all.filter((provider) => !disabled.has(provider.id)),
+      connected: value.connected.filter((id) => !disabled.has(id)),
+      default: Object.fromEntries(
+        Object.entries(value.default).filter(([id]) => !disabled.has(id)),
+      ),
+    };
+  };
+
+  const removeProviderFromState = (providerId: string) => {
+    const resolved = providerId.trim();
+    if (!resolved) return;
+    setProviders(providers().filter((provider) => provider.id !== resolved));
+    setProviderConnectedIds(providerConnectedIds().filter((id) => id !== resolved));
+    setProviderDefaults(
+      Object.fromEntries(Object.entries(providerDefaults()).filter(([id]) => id !== resolved)),
+    );
   };
 
   const [defaultModel, setDefaultModel] = createSignal<ModelRef>(DEFAULT_MODEL);
