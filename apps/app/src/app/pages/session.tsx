@@ -109,14 +109,13 @@ import Composer from "../components/session/composer";
 import WorkspaceSessionList from "../components/session/workspace-session-list";
 import type { SidebarSectionState } from "../components/session/sidebar";
 import FlyoutItem from "../components/flyout-item";
-import MobileSidebarDrawer from "../components/mobile-sidebar-drawer";
 import QuestionModal from "../components/question-modal";
-import WorkspaceRightSidebar from "../components/workspace-right-sidebar";
 
 export type SessionViewProps = {
   selectedSessionId: string | null;
   setView: (view: View, sessionId?: string) => void;
   tab: DashboardTab;
+  settingsTab: SettingsTab;
   setTab: (tab: DashboardTab) => void;
   setSettingsTab: (tab: SettingsTab) => void;
   toggleSettings: () => void;
@@ -451,19 +450,11 @@ export default function SessionView(props: SessionViewProps) {
   const [messageWindowExpanded, setMessageWindowExpanded] = createSignal(false);
   const [initialAnchorPending, setInitialAnchorPending] = createSignal(false);
 
-  const [mobileRightSidebarOpen, setMobileRightSidebarOpen] = createSignal(false);
-
-  // In Session view the right sidebar is navigation-only; never pre-highlight a
-  // dashboard tab here so first-run feels chat-first rather than Automations-first.
-  const showRightSidebarSelection = createMemo(() => false);
   let commandPaletteInputEl: HTMLInputElement | undefined;
   const commandPaletteOptionRefs: HTMLButtonElement[] = [];
   const {
     leftSidebarWidth,
-    rightSidebarExpanded,
-    rightSidebarWidth,
     startLeftSidebarResize,
-    toggleRightSidebar,
   } = createWorkspaceShellLayout({ expandedRightWidth: 280 });
 
   const openFeedback = () => {
@@ -3743,8 +3734,7 @@ export default function SessionView(props: SessionViewProps) {
   };
 
   const openMcp = () => {
-    props.setTab("mcp");
-    props.setView("dashboard");
+    openSettings("extensions");
   };
 
   const openProviderAuth = (preferredProviderId?: string) => {
@@ -4076,9 +4066,17 @@ export default function SessionView(props: SessionViewProps) {
               <button
                 type="button"
                 class="flex h-9 w-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text md:hidden"
-                onClick={() => setMobileRightSidebarOpen(true)}
-                title="Open sidebar"
-                aria-label="Open sidebar"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (commandPaletteOpen()) {
+                    closeCommandPalette();
+                    return;
+                  }
+                  window.setTimeout(() => openCommandPalette(), 0);
+                }}
+                title="Quick actions"
+                aria-label="Quick actions"
               >
                 <Menu size={16} />
               </button>
@@ -4604,9 +4602,9 @@ export default function SessionView(props: SessionViewProps) {
             developerMode={props.developerMode}
             settingsOpen={false}
             onSendFeedback={openFeedback}
-            showSettingsButton={false}
+            showSettingsButton={true}
             onOpenSettings={props.toggleSettings}
-            onOpenMessaging={openConfig}
+            onOpenMessaging={() => openSettings("messaging")}
             onOpenProviders={openProviderAuth}
             onOpenMcp={openMcp}
             providerConnectedIds={props.providerConnectedIds}
@@ -4633,85 +4631,6 @@ export default function SessionView(props: SessionViewProps) {
             statusPulse={showRunIndicator()}
           />
         </main>
-
-        <aside
-          class="hidden shrink-0 md:flex"
-          style={{
-            width: `${rightSidebarWidth()}px`,
-            "min-width": `${rightSidebarWidth()}px`,
-          }}
-        >
-          <WorkspaceRightSidebar
-            expanded={rightSidebarExpanded()}
-            showSelection={showRightSidebarSelection()}
-            tab={props.tab}
-            developerMode={props.developerMode}
-            activeWorkspaceLabel={props.activeWorkspaceDisplay.displayName || props.activeWorkspaceDisplay.name || "Workspace"}
-            activeWorkspaceType={props.activeWorkspaceDisplay.workspaceType}
-            openworkServerClient={props.openworkServerClient}
-            openworkServerWorkspaceId={props.openworkServerWorkspaceId}
-            inboxId="sidebar-inbox"
-            onToggleExpanded={toggleRightSidebar}
-            onOpenAutomations={() => {
-              props.setTab("scheduled");
-              props.setView("dashboard");
-            }}
-            onOpenSkills={() => {
-              props.setTab("skills");
-              props.setView("dashboard");
-            }}
-            onOpenExtensions={() => {
-              props.setTab("mcp");
-              props.setView("dashboard");
-            }}
-            onOpenMessaging={() => {
-              props.setTab("identities");
-              props.setView("dashboard");
-            }}
-            onOpenAdvanced={openConfig}
-            onOpenSettings={() => openSettings("general")}
-            onInboxToast={(message) => setToastMessage(message)}
-          />
-        </aside>
-
-        <MobileSidebarDrawer
-          open={mobileRightSidebarOpen()}
-          onClose={() => setMobileRightSidebarOpen(false)}
-        >
-          <WorkspaceRightSidebar
-            expanded
-            mobile
-            showSelection={showRightSidebarSelection()}
-            tab={props.tab}
-            developerMode={props.developerMode}
-            activeWorkspaceLabel={props.activeWorkspaceDisplay.displayName || props.activeWorkspaceDisplay.name || "Workspace"}
-            activeWorkspaceType={props.activeWorkspaceDisplay.workspaceType}
-            openworkServerClient={props.openworkServerClient}
-            openworkServerWorkspaceId={props.openworkServerWorkspaceId}
-            inboxId="mobile-sidebar-inbox"
-            onToggleExpanded={toggleRightSidebar}
-            onCloseMobile={() => setMobileRightSidebarOpen(false)}
-            onOpenAutomations={() => {
-              props.setTab("scheduled");
-              props.setView("dashboard");
-            }}
-            onOpenSkills={() => {
-              props.setTab("skills");
-              props.setView("dashboard");
-            }}
-            onOpenExtensions={() => {
-              props.setTab("mcp");
-              props.setView("dashboard");
-            }}
-            onOpenMessaging={() => {
-              props.setTab("identities");
-              props.setView("dashboard");
-            }}
-            onOpenAdvanced={openConfig}
-            onOpenSettings={() => openSettings("general")}
-            onInboxToast={(message) => setToastMessage(message)}
-          />
-        </MobileSidebarDrawer>
       </div>
 
       <Show when={commandPaletteOpen()}>

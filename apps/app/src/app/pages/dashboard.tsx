@@ -59,15 +59,12 @@ import ProviderAuthModal, {
 } from "../components/provider-auth-modal";
 import ShareWorkspaceModal from "../components/share-workspace-modal";
 import WorkspaceSessionList from "../components/session/workspace-session-list";
-import MobileSidebarDrawer from "../components/mobile-sidebar-drawer";
 import WebUnavailableSurface from "../components/web-unavailable-surface";
-import WorkspaceRightSidebar from "../components/workspace-right-sidebar";
 import {
   Box,
   Circle,
   History,
   Loader2,
-  Menu,
   MessageCircle,
   Plus,
   SlidersHorizontal,
@@ -378,7 +375,6 @@ type SkillsSetBundleV1 = {
 export default function DashboardView(props: DashboardViewProps) {
   const platform = usePlatform();
   const webDeployment = createMemo(() => getOpenWorkDeployment() === "web");
-  const [mobileRightSidebarOpen, setMobileRightSidebarOpen] = createSignal(false);
   const title = createMemo(() => {
     switch (props.tab) {
       case "scheduled":
@@ -448,10 +444,7 @@ export default function DashboardView(props: DashboardViewProps) {
   const [shareWorkspaceId, setShareWorkspaceId] = createSignal<string | null>(null);
   const {
     leftSidebarWidth,
-    rightSidebarExpanded,
-    rightSidebarWidth,
     startLeftSidebarResize,
-    toggleRightSidebar,
   } = createWorkspaceShellLayout({ expandedRightWidth: 280 });
 
   const openFeedback = () => {
@@ -1184,19 +1177,11 @@ export default function DashboardView(props: DashboardViewProps) {
             </Show>
           </div>
           <div class="flex items-center text-gray-10">
-            <button
-              type="button"
-              class="flex h-9 w-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text md:hidden"
-              onClick={() => setMobileRightSidebarOpen(true)}
-              title="Open sidebar"
-              aria-label="Open sidebar"
-            >
-              <Menu size={16} />
-            </button>
+            <div class="hidden md:block" />
           </div>
         </header>
 
-        <div class="mx-auto w-full max-w-[1100px] space-y-10 p-6 md:p-10">
+        <div class={props.tab === "settings" ? "w-full space-y-10 p-6 md:p-10" : "mx-auto w-full max-w-[1100px] space-y-10 p-6 md:p-10"}>
           <Switch>
             <Match when={props.tab === "scheduled"}>
               <WebUnavailableSurface unavailable={webDeployment()}>
@@ -1359,6 +1344,7 @@ export default function DashboardView(props: DashboardViewProps) {
                   disconnectProvider={props.disconnectProvider}
                   openworkServerStatus={props.openworkServerStatus}
                   openworkServerUrl={props.openworkServerUrl}
+                  openworkServerClient={props.openworkServerClient}
                   openworkReconnectBusy={props.openworkReconnectBusy}
                   reconnectOpenworkServer={props.reconnectOpenworkServer}
                   openworkServerSettings={props.openworkServerSettings}
@@ -1456,6 +1442,75 @@ export default function DashboardView(props: DashboardViewProps) {
                   notionBusy={props.notionBusy}
                   connectNotion={props.connectNotion}
                   openDebugDeepLink={props.openDebugDeepLink}
+                  scheduledJobs={props.scheduledJobs}
+                  scheduledJobsSource={props.scheduledJobsSource}
+                  scheduledJobsSourceReady={props.scheduledJobsSourceReady}
+                  scheduledJobsStatus={props.scheduledJobsStatus}
+                  scheduledJobsBusy={props.scheduledJobsBusy}
+                  scheduledJobsUpdatedAt={props.scheduledJobsUpdatedAt}
+                  refreshScheduledJobs={props.refreshScheduledJobs}
+                  deleteScheduledJob={props.deleteScheduledJob}
+                  newTaskDisabled={props.newTaskDisabled}
+                  schedulerPluginInstalled={props.schedulerPluginInstalled}
+                  refreshSkills={props.refreshSkills}
+                  refreshHubSkills={props.refreshHubSkills}
+                  skills={props.skills}
+                  skillsStatus={props.skillsStatus}
+                  hubSkills={props.hubSkills}
+                  hubSkillsStatus={props.hubSkillsStatus}
+                  hubRepo={props.hubRepo}
+                  hubRepos={props.hubRepos}
+                  skillsAccessHint={props.skillsAccessHint}
+                  canInstallSkillCreator={props.canInstallSkillCreator}
+                  canUseDesktopTools={props.canUseDesktopTools}
+                  importLocalSkill={props.importLocalSkill}
+                  installSkillCreator={props.installSkillCreator}
+                  installHubSkill={props.installHubSkill}
+                  setHubRepo={props.setHubRepo}
+                  addHubRepo={props.addHubRepo}
+                  removeHubRepo={props.removeHubRepo}
+                  revealSkillsFolder={props.revealSkillsFolder}
+                  uninstallSkill={props.uninstallSkill}
+                  readSkill={props.readSkill}
+                  saveSkill={props.saveSkill}
+                  refreshPlugins={props.refreshPlugins}
+                  refreshMcpServers={props.refreshMcpServers}
+                  pluginsAccessHint={props.pluginsAccessHint}
+                  canEditPlugins={props.canEditPlugins}
+                  canUseGlobalPluginScope={props.canUseGlobalPluginScope}
+                  pluginScope={props.pluginScope}
+                  setPluginScope={props.setPluginScope}
+                  pluginConfigPath={props.pluginConfigPath}
+                  pluginList={props.pluginList}
+                  pluginInput={props.pluginInput}
+                  setPluginInput={props.setPluginInput}
+                  pluginStatus={props.pluginStatus}
+                  activePluginGuide={props.activePluginGuide}
+                  setActivePluginGuide={props.setActivePluginGuide}
+                  isPluginInstalled={props.isPluginInstalled}
+                  suggestedPlugins={props.suggestedPlugins}
+                  addPlugin={props.addPlugin}
+                  removePlugin={props.removePlugin}
+                  mcpServers={props.mcpServers}
+                  mcpStatus={props.mcpStatus}
+                  mcpLastUpdatedAt={props.mcpLastUpdatedAt}
+                  mcpStatuses={props.mcpStatuses}
+                  mcpConnectingName={props.mcpConnectingName}
+                  selectedMcp={props.selectedMcp}
+                  setSelectedMcp={props.setSelectedMcp}
+                  quickConnect={props.quickConnect}
+                  connectMcp={props.connectMcp}
+                  authorizeMcp={props.authorizeMcp}
+                  logoutMcpAuth={props.logoutMcpAuth}
+                  removeMcp={props.removeMcp}
+                  showMcpReloadBanner={props.showMcpReloadBanner}
+                  mcpReloadBlocked={props.mcpReloadBlocked}
+                  reloadMcpEngine={props.reloadMcpEngine}
+                  createSessionAndOpen={props.createSessionAndOpen}
+                  setPrompt={props.setPrompt}
+                  canReloadWorkspace={props.canReloadWorkspace}
+                  reloadWorkspaceEngine={props.reloadWorkspaceEngine}
+                  reloadBusy={props.reloadBusy}
                   connectRemoteWorkspace={props.connectRemoteWorkspace}
               />
 
@@ -1562,12 +1617,12 @@ export default function DashboardView(props: DashboardViewProps) {
           openworkServerStatus={props.openworkServerStatus}
           developerMode={props.developerMode}
           settingsOpen={props.tab === "settings"}
-          showSettingsButton={false}
+          showSettingsButton={true}
           onSendFeedback={openFeedback}
           onOpenSettings={props.toggleSettings}
-          onOpenMessaging={openConfig}
+          onOpenMessaging={() => openSettings("messaging")}
           onOpenProviders={() => props.openProviderAuthModal()}
-          onOpenMcp={() => props.setTab("mcp")}
+          onOpenMcp={() => openSettings("extensions")}
           providerConnectedIds={props.providerConnectedIds}
           mcpStatuses={props.mcpStatuses}
         />
@@ -1623,57 +1678,6 @@ export default function DashboardView(props: DashboardViewProps) {
           </div>
         </nav>
       </main>
-
-      <aside
-        class="hidden shrink-0 md:flex"
-        style={{
-          width: `${rightSidebarWidth()}px`,
-          "min-width": `${rightSidebarWidth()}px`,
-        }}
-      >
-        <WorkspaceRightSidebar
-          expanded={rightSidebarExpanded()}
-          tab={props.tab}
-          developerMode={props.developerMode}
-          activeWorkspaceLabel={props.activeWorkspaceDisplay.displayName || props.activeWorkspaceDisplay.name || "Workspace"}
-          activeWorkspaceType={props.activeWorkspaceDisplay.workspaceType}
-          openworkServerClient={props.openworkServerClient}
-          openworkServerWorkspaceId={props.openworkServerWorkspaceId}
-          inboxId="dashboard-sidebar-inbox"
-          onToggleExpanded={toggleRightSidebar}
-          onOpenAutomations={() => props.setTab("scheduled")}
-          onOpenSkills={() => props.setTab("skills")}
-          onOpenExtensions={() => props.setTab("mcp")}
-          onOpenMessaging={() => props.setTab("identities")}
-          onOpenAdvanced={openConfig}
-          onOpenSettings={() => openSettings("general")}
-        />
-      </aside>
-
-      <MobileSidebarDrawer
-        open={mobileRightSidebarOpen()}
-        onClose={() => setMobileRightSidebarOpen(false)}
-      >
-        <WorkspaceRightSidebar
-          expanded
-          mobile
-          tab={props.tab}
-          developerMode={props.developerMode}
-          activeWorkspaceLabel={props.activeWorkspaceDisplay.displayName || props.activeWorkspaceDisplay.name || "Workspace"}
-          activeWorkspaceType={props.activeWorkspaceDisplay.workspaceType}
-          openworkServerClient={props.openworkServerClient}
-          openworkServerWorkspaceId={props.openworkServerWorkspaceId}
-          inboxId="dashboard-mobile-sidebar-inbox"
-          onToggleExpanded={toggleRightSidebar}
-          onCloseMobile={() => setMobileRightSidebarOpen(false)}
-          onOpenAutomations={() => props.setTab("scheduled")}
-          onOpenSkills={() => props.setTab("skills")}
-          onOpenExtensions={() => props.setTab("mcp")}
-          onOpenMessaging={() => props.setTab("identities")}
-          onOpenAdvanced={openConfig}
-          onOpenSettings={() => openSettings("general")}
-        />
-      </MobileSidebarDrawer>
       </div>
 
     </div>

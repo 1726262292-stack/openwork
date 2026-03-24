@@ -7626,6 +7626,7 @@ export default function App() {
     selectedSessionId: activeSessionId(),
     setView,
     tab: tab(),
+    settingsTab: settingsTab(),
     setTab,
     setSettingsTab,
     toggleSettings: () => toggleSettingsView("general"),

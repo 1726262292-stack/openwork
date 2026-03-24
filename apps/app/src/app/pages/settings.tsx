@@ -19,9 +19,15 @@ import {
 import Button from "../components/button";
 import DenSettingsPanel from "../components/den-settings-panel";
 import TextInput from "../components/text-input";
+import WebUnavailableSurface from "../components/web-unavailable-surface";
+import type { McpDirectoryInfo } from "../constants";
 import { usePlatform } from "../context/platform";
 import { buildFeedbackUrl } from "../lib/feedback";
 import { getOpenWorkDeployment } from "../lib/openwork-deployment";
+import ExtensionsView from "./extensions";
+import IdentitiesView from "./identities";
+import ScheduledTasksView from "./scheduled";
+import SkillsView from "./skills";
 import {
   ArrowUpRight,
   CircleAlert,
@@ -43,13 +49,22 @@ import {
   Zap,
 } from "lucide-solid";
 import type {
+  HubSkillCard,
+  HubSkillRepo,
+  McpServerEntry,
+  McpStatusMap,
   OpencodeConnectStatus,
+  PluginScope,
   ProviderListItem,
+  ScheduledJob,
   SettingsTab,
+  SkillCard,
   StartupPreference,
+  SuggestedPlugin,
 } from "../types";
 import type {
   OpenworkAuditEntry,
+  OpenworkServerClient,
   OpenworkServerCapabilities,
   OpenworkServerDiagnostics,
   OpenworkServerSettings,
@@ -94,6 +109,7 @@ export type SettingsViewProps = {
   disconnectProvider: (providerId: string) => Promise<string | void>;
   openworkServerStatus: OpenworkServerStatus;
   openworkServerUrl: string;
+  openworkServerClient: OpenworkServerClient | null;
   openworkReconnectBusy: boolean;
   reconnectOpenworkServer: () => Promise<boolean>;
   openworkServerSettings: OpenworkServerSettings;
@@ -158,6 +174,9 @@ export type SettingsViewProps = {
   downloadUpdate: () => void;
   installUpdateAndRestart: () => void;
   anyActiveRuns: boolean;
+  canReloadWorkspace: boolean;
+  reloadWorkspaceEngine: () => Promise<void>;
+  reloadBusy: boolean;
   onResetStartupPreference: () => void;
   openResetModal: (mode: "onboarding" | "all") => void;
   resetModalBusy: boolean;
@@ -202,6 +221,72 @@ export type SettingsViewProps = {
   openDebugDeepLink: (
     rawUrl: string,
   ) => Promise<{ ok: boolean; message: string }>;
+  scheduledJobs: ScheduledJob[];
+  scheduledJobsSource: "local" | "remote";
+  scheduledJobsSourceReady: boolean;
+  scheduledJobsStatus: string | null;
+  scheduledJobsBusy: boolean;
+  scheduledJobsUpdatedAt: number | null;
+  refreshScheduledJobs: (options?: { force?: boolean }) => void;
+  deleteScheduledJob: (name: string) => Promise<void> | void;
+  newTaskDisabled: boolean;
+  schedulerPluginInstalled: boolean;
+  refreshSkills: (options?: { force?: boolean }) => void;
+  refreshHubSkills: (options?: { force?: boolean }) => void;
+  skills: SkillCard[];
+  skillsStatus: string | null;
+  hubSkills: HubSkillCard[];
+  hubSkillsStatus: string | null;
+  hubRepo: HubSkillRepo | null;
+  hubRepos: HubSkillRepo[];
+  skillsAccessHint?: string | null;
+  canInstallSkillCreator: boolean;
+  canUseDesktopTools: boolean;
+  importLocalSkill: () => void;
+  installSkillCreator: () => Promise<{ ok: boolean; message: string }>;
+  installHubSkill: (name: string) => Promise<{ ok: boolean; message: string }>;
+  setHubRepo: (repo: Partial<HubSkillRepo> | null) => void;
+  addHubRepo: (repo: Partial<HubSkillRepo>) => void;
+  removeHubRepo: (repo: Partial<HubSkillRepo>) => void;
+  revealSkillsFolder: () => void;
+  uninstallSkill: (name: string) => void;
+  readSkill: (name: string) => Promise<{ name: string; path: string; content: string } | null>;
+  saveSkill: (input: { name: string; content: string; description?: string }) => void;
+  refreshPlugins: (scopeOverride?: PluginScope) => void;
+  refreshMcpServers: () => void;
+  pluginsAccessHint?: string | null;
+  canEditPlugins: boolean;
+  canUseGlobalPluginScope: boolean;
+  pluginScope: PluginScope;
+  setPluginScope: (scope: PluginScope) => void;
+  pluginConfigPath: string | null;
+  pluginList: string[];
+  pluginInput: string;
+  setPluginInput: (value: string) => void;
+  pluginStatus: string | null;
+  activePluginGuide: string | null;
+  setActivePluginGuide: (value: string | null) => void;
+  isPluginInstalled: (name: string, aliases?: string[]) => boolean;
+  suggestedPlugins: SuggestedPlugin[];
+  addPlugin: (pluginNameOverride?: string) => void;
+  removePlugin: (pluginName: string) => void;
+  mcpServers: McpServerEntry[];
+  mcpStatus: string | null;
+  mcpLastUpdatedAt: number | null;
+  mcpStatuses: McpStatusMap;
+  mcpConnectingName: string | null;
+  selectedMcp: string | null;
+  setSelectedMcp: (value: string | null) => void;
+  quickConnect: McpDirectoryInfo[];
+  connectMcp: (entry: McpDirectoryInfo) => void;
+  authorizeMcp: (entry: McpServerEntry) => void;
+  logoutMcpAuth: (name: string) => Promise<void> | void;
+  removeMcp: (name: string) => void;
+  showMcpReloadBanner: boolean;
+  mcpReloadBlocked: boolean;
+  reloadMcpEngine: () => void;
+  createSessionAndOpen: () => void;
+  setPrompt: (value: string) => void;
   connectRemoteWorkspace: (input: {
     openworkHostUrl?: string | null;
     openworkToken?: string | null;
@@ -826,6 +911,14 @@ export default function SettingsView(props: SettingsViewProps) {
         return "Cloud";
       case "model":
         return "Model";
+      case "automations":
+        return "Automations";
+      case "skills":
+        return "Skills";
+      case "extensions":
+        return "Extensions";
+      case "messaging":
+        return "Messaging";
       case "advanced":
         return "Advanced";
       case "appearance":
@@ -841,7 +934,16 @@ export default function SettingsView(props: SettingsViewProps) {
     }
   };
 
-  const workspaceTabs = createMemo<SettingsTab[]>(() => ["general", "den", "model", "advanced"]);
+  const workspaceTabs = createMemo<SettingsTab[]>(() => [
+    "general",
+    "den",
+    "model",
+    "automations",
+    "skills",
+    "extensions",
+    "messaging",
+    "advanced",
+  ]);
 
   const globalTabs = createMemo<SettingsTab[]>(() => {
     const tabs: SettingsTab[] = ["appearance", "updates", "recovery"];
@@ -1304,6 +1406,14 @@ export default function SettingsView(props: SettingsViewProps) {
         return "Manage your OpenWork Cloud connection, hosted workers, and workspace access.";
       case "model":
         return "Tune the default model, runtime behavior, and assistant output settings.";
+      case "automations":
+        return "Create and manage scheduled automations inside workspace settings.";
+      case "skills":
+        return "Browse, edit, and install skills without leaving settings.";
+      case "extensions":
+        return "Manage MCP apps and OpenCode plugins for this workspace.";
+      case "messaging":
+        return "Configure router identities and inbox behavior from workspace settings.";
       case "advanced":
         return "Inspect runtime health, connection state, and developer-facing controls.";
       case "appearance":
@@ -1834,6 +1944,125 @@ export default function SettingsView(props: SettingsViewProps) {
               </div>
             </Show>
           </div>
+        </Match>
+
+        <Match when={activeTab() === "automations"}>
+          <WebUnavailableSurface unavailable={webDeployment()}>
+            <ScheduledTasksView
+              jobs={props.scheduledJobs}
+              source={props.scheduledJobsSource}
+              sourceReady={props.scheduledJobsSourceReady}
+              status={props.scheduledJobsStatus}
+              busy={props.scheduledJobsBusy}
+              lastUpdatedAt={props.scheduledJobsUpdatedAt}
+              refreshJobs={props.refreshScheduledJobs}
+              deleteJob={props.deleteScheduledJob}
+              isWindows={props.isWindows}
+              activeWorkspaceRoot={props.activeWorkspaceRoot}
+              createSessionAndOpen={props.createSessionAndOpen}
+              setPrompt={props.setPrompt}
+              newTaskDisabled={props.newTaskDisabled}
+              schedulerInstalled={props.schedulerPluginInstalled}
+              canEditPlugins={props.canEditPlugins}
+              addPlugin={props.addPlugin}
+              reloadWorkspaceEngine={props.reloadWorkspaceEngine}
+              reloadBusy={props.reloadBusy}
+              canReloadWorkspace={props.canReloadWorkspace}
+            />
+          </WebUnavailableSurface>
+        </Match>
+
+        <Match when={activeTab() === "skills"}>
+          <WebUnavailableSurface unavailable={webDeployment()}>
+            <SkillsView
+              workspaceName={props.activeWorkspaceRoot.trim() || "Workspace"}
+              busy={props.busy}
+              canInstallSkillCreator={props.canInstallSkillCreator}
+              canUseDesktopTools={props.canUseDesktopTools}
+              accessHint={props.skillsAccessHint}
+              refreshSkills={props.refreshSkills}
+              refreshHubSkills={props.refreshHubSkills}
+              skills={props.skills}
+              skillsStatus={props.skillsStatus}
+              hubSkills={props.hubSkills}
+              hubSkillsStatus={props.hubSkillsStatus}
+              hubRepo={props.hubRepo}
+              hubRepos={props.hubRepos}
+              importLocalSkill={props.importLocalSkill}
+              installSkillCreator={props.installSkillCreator}
+              installHubSkill={props.installHubSkill}
+              setHubRepo={props.setHubRepo}
+              addHubRepo={props.addHubRepo}
+              removeHubRepo={props.removeHubRepo}
+              revealSkillsFolder={props.revealSkillsFolder}
+              uninstallSkill={props.uninstallSkill}
+              readSkill={props.readSkill}
+              saveSkill={props.saveSkill}
+              createSessionAndOpen={props.createSessionAndOpen}
+              setPrompt={props.setPrompt}
+            />
+          </WebUnavailableSurface>
+        </Match>
+
+        <Match when={activeTab() === "extensions"}>
+          <WebUnavailableSurface unavailable={webDeployment()}>
+            <ExtensionsView
+              initialSection="all"
+              busy={props.busy}
+              activeWorkspaceRoot={props.activeWorkspaceRoot}
+              isRemoteWorkspace={props.activeWorkspaceType === "remote"}
+              refreshMcpServers={props.refreshMcpServers}
+              mcpServers={props.mcpServers}
+              mcpStatus={props.mcpStatus}
+              mcpLastUpdatedAt={props.mcpLastUpdatedAt}
+              mcpStatuses={props.mcpStatuses}
+              mcpConnectingName={props.mcpConnectingName}
+              selectedMcp={props.selectedMcp}
+              setSelectedMcp={props.setSelectedMcp}
+              quickConnect={props.quickConnect}
+              connectMcp={props.connectMcp}
+              authorizeMcp={props.authorizeMcp}
+              logoutMcpAuth={props.logoutMcpAuth}
+              removeMcp={props.removeMcp}
+              showMcpReloadBanner={props.showMcpReloadBanner}
+              reloadBlocked={props.mcpReloadBlocked}
+              reloadMcpEngine={props.reloadMcpEngine}
+              canEditPlugins={props.canEditPlugins}
+              canUseGlobalScope={props.canUseGlobalPluginScope}
+              accessHint={props.pluginsAccessHint}
+              pluginScope={props.pluginScope}
+              setPluginScope={props.setPluginScope}
+              pluginConfigPath={props.pluginConfigPath}
+              pluginList={props.pluginList}
+              pluginInput={props.pluginInput}
+              setPluginInput={props.setPluginInput}
+              pluginStatus={props.pluginStatus}
+              activePluginGuide={props.activePluginGuide}
+              setActivePluginGuide={props.setActivePluginGuide}
+              isPluginInstalled={props.isPluginInstalled}
+              suggestedPlugins={props.suggestedPlugins}
+              refreshPlugins={props.refreshPlugins}
+              addPlugin={props.addPlugin}
+              removePlugin={props.removePlugin}
+            />
+          </WebUnavailableSurface>
+        </Match>
+
+        <Match when={activeTab() === "messaging"}>
+          <WebUnavailableSurface unavailable={webDeployment()}>
+            <IdentitiesView
+              busy={props.busy}
+              openworkServerStatus={props.openworkServerStatus}
+              openworkServerUrl={props.openworkServerUrl}
+              openworkServerClient={props.openworkServerClient}
+              openworkReconnectBusy={props.openworkReconnectBusy}
+              reconnectOpenworkServer={props.reconnectOpenworkServer}
+              restartLocalServer={props.restartLocalServer}
+              openworkServerWorkspaceId={props.openworkServerWorkspaceId}
+              activeWorkspaceRoot={props.activeWorkspaceRoot}
+              developerMode={props.developerMode}
+            />
+          </WebUnavailableSurface>
         </Match>
 
         <Match when={activeTab() === "den"}>
