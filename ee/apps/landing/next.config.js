@@ -1,3 +1,5 @@
+const { withBotId } = require("botid/next/config");
+
 /** @type {import('next').NextConfig} */
 const mintlifyOrigin = "https://differentai.mintlify.app";
 
@@ -107,4 +109,4 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+module.exports = withBotId(nextConfig);
