@@ -32,10 +32,10 @@ export type WorkspaceSessionGroup = {
   error?: string | null;
 };
 
-export type PlaceholderAssistantMessage = {
+export type PlaceholderMessageInfo = {
   id: string;
   sessionID: string;
-  role: "assistant";
+  role: "assistant" | "user";
   time: {
     created: number;
     completed?: number;
@@ -61,7 +61,11 @@ export type PlaceholderAssistantMessage = {
   };
 };
 
-export type MessageInfo = Message | PlaceholderAssistantMessage;
+export type PlaceholderAssistantMessage = PlaceholderMessageInfo & {
+  role: "assistant";
+};
+
+export type MessageInfo = Message | PlaceholderMessageInfo;
 
 export type MessageWithParts = {
   info: MessageInfo;
@@ -194,6 +198,30 @@ export type WorkspaceBlueprintStarter = {
   action?: WorkspaceBlueprintStarterAction | null;
 };
 
+export type WorkspaceBlueprintSessionMessageRole = "assistant" | "user";
+
+export type WorkspaceBlueprintSessionMessage = {
+  role?: WorkspaceBlueprintSessionMessageRole | null;
+  text?: string | null;
+};
+
+export type WorkspaceBlueprintSessionTemplate = {
+  id?: string | null;
+  title?: string | null;
+  messages?: WorkspaceBlueprintSessionMessage[] | null;
+  openOnFirstLoad?: boolean | null;
+};
+
+export type WorkspaceBlueprintMaterializedSession = {
+  templateId?: string | null;
+  sessionId?: string | null;
+};
+
+export type WorkspaceBlueprintMaterializedSessions = {
+  hydratedAt?: number | null;
+  items?: WorkspaceBlueprintMaterializedSession[] | null;
+};
+
 export type WorkspaceBlueprintEmptyState = {
   title?: string | null;
   body?: string | null;
@@ -202,6 +230,10 @@ export type WorkspaceBlueprintEmptyState = {
 
 export type WorkspaceBlueprint = {
   emptyState?: WorkspaceBlueprintEmptyState | null;
+  sessions?: WorkspaceBlueprintSessionTemplate[] | null;
+  materialized?: {
+    sessions?: WorkspaceBlueprintMaterializedSessions | null;
+  } | null;
 };
 
 export type WorkspaceOpenworkConfig = {

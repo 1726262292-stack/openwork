@@ -1,4 +1,11 @@
-import type { WorkspaceBlueprint, WorkspaceBlueprintStarter, WorkspaceOpenworkConfig } from "../types";
+import type {
+  WorkspaceBlueprint,
+  WorkspaceBlueprintMaterializedSession,
+  WorkspaceBlueprintSessionMessage,
+  WorkspaceBlueprintSessionTemplate,
+  WorkspaceBlueprintStarter,
+  WorkspaceOpenworkConfig,
+} from "../types";
 import { parseTemplateFrontmatter } from "../utils";
 
 import browserSetupTemplate from "../data/commands/browser-setup.md?raw";
@@ -12,6 +19,93 @@ export const DEFAULT_EMPTY_STATE_COPY = {
   title: "What do you want to do?",
   body: "Pick a starting point or just type below.",
 };
+
+const DEFAULT_WELCOME_BLUEPRINT_MESSAGES: WorkspaceBlueprintSessionMessage[] = [
+  {
+    role: "assistant",
+    text:
+      "Hi welcome to OpenWork!\n\nPeople use us to write .csv files on their computer, connect to their chrome and automate repetitive tasks, sync contacts to notion.\n\nBut the only limit is your imagniation.\n\nWhat would you want to do?",
+  },
+];
+
+export function defaultBlueprintSessionsForPreset(_preset: string): WorkspaceBlueprintSessionTemplate[] {
+  return [
+    {
+      id: "welcome-to-openwork",
+      title: "Welcome to OpenWork",
+      messages: DEFAULT_WELCOME_BLUEPRINT_MESSAGES,
+      openOnFirstLoad: true,
+    },
+  ];
+}
+
+function normalizeSessionMessage(value: unknown): WorkspaceBlueprintSessionMessage | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const text = typeof record.text === "string" ? record.text.trim() : "";
+  if (!text) return null;
+  const role = String(record.role ?? "assistant").trim().toLowerCase() === "user" ? "user" : "assistant";
+  return { role, text };
+}
+
+function normalizeSessionTemplate(value: unknown, index: number): WorkspaceBlueprintSessionTemplate | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const title = typeof record.title === "string" ? record.title.trim() : "";
+  const id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : `template-session-${index + 1}`;
+  const messages = Array.isArray(record.messages)
+    ? record.messages.map(normalizeSessionMessage).filter((item): item is WorkspaceBlueprintSessionMessage => Boolean(item))
+    : [];
+  if (!title && messages.length === 0) return null;
+  return {
+    id,
+    title: title || null,
+    messages,
+    openOnFirstLoad: record.openOnFirstLoad === true,
+  };
+}
+
+function normalizeMaterializedSession(value: unknown): WorkspaceBlueprintMaterializedSession | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const sessionId = typeof record.sessionId === "string" ? record.sessionId.trim() : "";
+  const templateId = typeof record.templateId === "string" ? record.templateId.trim() : "";
+  if (!sessionId || !templateId) return null;
+  return { sessionId, templateId };
+}
+
+function normalizeBlueprint(value: unknown): WorkspaceBlueprint | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as WorkspaceBlueprint & Record<string, unknown>;
+  const sessions = Array.isArray(candidate.sessions)
+    ? candidate.sessions
+        .map((session, index) => normalizeSessionTemplate(session, index))
+        .filter((item): item is WorkspaceBlueprintSessionTemplate => Boolean(item))
+    : null;
+  const materializedSessions = Array.isArray(candidate.materialized?.sessions?.items)
+    ? candidate.materialized?.sessions?.items
+        .map(normalizeMaterializedSession)
+        .filter((item): item is WorkspaceBlueprintMaterializedSession => Boolean(item))
+    : null;
+
+  return {
+    emptyState: candidate.emptyState ?? null,
+    sessions,
+    materialized: candidate.materialized
+      ? {
+          sessions: candidate.materialized.sessions
+            ? {
+                hydratedAt:
+                  typeof candidate.materialized.sessions.hydratedAt === "number"
+                    ? candidate.materialized.sessions.hydratedAt
+                    : null,
+                items: materializedSessions,
+              }
+            : null,
+        }
+      : null,
+  };
+}
 
 export function defaultBlueprintStartersForPreset(preset: string): WorkspaceBlueprintStarter[] {
   switch (preset.trim().toLowerCase()) {
@@ -89,7 +183,20 @@ export function buildDefaultWorkspaceBlueprint(preset: string): WorkspaceBluepri
       body: copy.body,
       starters: defaultBlueprintStartersForPreset(preset),
     },
+    sessions: defaultBlueprintSessionsForPreset(preset),
   };
+}
+
+export function blueprintSessions(config: WorkspaceOpenworkConfig | null | undefined): WorkspaceBlueprintSessionTemplate[] {
+  return Array.isArray(config?.blueprint?.sessions)
+    ? config!.blueprint!.sessions!.filter((item): item is WorkspaceBlueprintSessionTemplate => Boolean(item))
+    : [];
+}
+
+export function blueprintMaterializedSessions(config: WorkspaceOpenworkConfig | null | undefined): WorkspaceBlueprintMaterializedSession[] {
+  return Array.isArray(config?.blueprint?.materialized?.sessions?.items)
+    ? config!.blueprint!.materialized!.sessions!.items!.filter((item): item is WorkspaceBlueprintMaterializedSession => Boolean(item))
+    : [];
 }
 
 export function normalizeWorkspaceOpenworkConfig(
@@ -116,7 +223,7 @@ export function normalizeWorkspaceOpenworkConfig(
     authorizedRoots: Array.isArray(candidate.authorizedRoots)
       ? candidate.authorizedRoots.filter((item): item is string => typeof item === "string")
       : [],
-    blueprint: candidate.blueprint ?? null,
+    blueprint: normalizeBlueprint(candidate.blueprint),
     reload: candidate.reload ?? null,
   };
 }

@@ -35,6 +35,7 @@ import CreateRemoteWorkspaceModal from "./components/create-remote-workspace-mod
 import CreateWorkspaceModal from "./components/create-workspace-modal";
 import SharedSkillDestinationModal from "./components/shared-skill-destination-modal";
 import SharedBundleImportModal from "./components/shared-bundle-import-modal";
+import StartWithTemplateModal from "./components/start-with-template-modal";
 import RenameWorkspaceModal from "./components/rename-workspace-modal";
 import McpAuthModal from "./components/mcp-auth-modal";
 import StatusToast from "./components/status-toast";
@@ -81,6 +82,8 @@ import {
   providerPriorityRank,
 } from "./utils/providers";
 import {
+  blueprintMaterializedSessions,
+  blueprintSessions,
   buildDefaultWorkspaceBlueprint,
   normalizeWorkspaceOpenworkConfig,
 } from "./lib/workspace-blueprints";
@@ -90,6 +93,7 @@ import type {
   DashboardTab,
   MessageWithParts,
   PlaceholderAssistantMessage,
+  PlaceholderMessageInfo,
   StartupPreference,
   EngineRuntime,
   ModelOption,
@@ -290,6 +294,12 @@ type SharedBundleCreateWorkerRequest = {
   defaultPreset: WorkspacePreset;
 };
 
+type SharedTemplateStartRequest = {
+  request: SharedBundleDeepLink;
+  bundle: SharedWorkspaceProfileBundleV1;
+  defaultPreset: WorkspacePreset;
+};
+
 type SharedSkillDestinationRequest = {
   request: SharedBundleDeepLink;
   bundle: SharedSkillBundleV1;
@@ -390,6 +400,22 @@ function readTemplateFileItem(value: unknown): { path: string; content: string }
   const content = typeof record.content === "string" ? record.content : "";
   if (!path) return null;
   return { path, content };
+}
+
+function readWorkspacePreset(value: unknown): WorkspacePreset {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "automation" || normalized === "minimal") {
+    return normalized;
+  }
+  return "starter";
+}
+
+function defaultPresetFromTemplateBundle(bundle: SharedWorkspaceProfileBundleV1): WorkspacePreset {
+  const openwork = bundle.workspace?.openwork;
+  if (!openwork || typeof openwork !== "object") return "starter";
+  const workspace = (openwork as Record<string, unknown>).workspace;
+  if (!workspace || typeof workspace !== "object") return "starter";
+  return readWorkspacePreset((workspace as Record<string, unknown>).preset);
 }
 
 function parseSharedBundle(value: unknown): SharedBundleV1 {
@@ -2053,6 +2079,77 @@ export default function App() {
     };
   };
 
+  const SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX = "blueprint-seed:";
+
+  const createSyntheticBlueprintSeedMessage = (
+    sessionID: string,
+    index: number,
+    seed: { role?: "assistant" | "user" | null; text?: string | null },
+  ): MessageWithParts => {
+    const messageId = `${SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX}${sessionID}:${index}`;
+    const role = seed.role === "user" ? "user" : "assistant";
+    const text = seed.text?.trim() ?? "";
+    const createdAt = Math.max(1, index + 1);
+    const info: PlaceholderMessageInfo = {
+      id: messageId,
+      sessionID,
+      role,
+      time: { created: createdAt, completed: createdAt },
+      parentID: index > 0 ? `${SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX}${sessionID}:${index - 1}` : "",
+      modelID: "",
+      providerID: "",
+      mode: "",
+      agent: "",
+      path: { cwd: "", root: "" },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    };
+
+    return {
+      info,
+      parts: [
+        {
+          id: `${messageId}:text`,
+          sessionID,
+          messageID: messageId,
+          type: "text",
+          text,
+        } as Part,
+      ],
+    };
+  };
+
+  const blueprintSeedMessagesForSelectedSession = createMemo(() => {
+    const sessionID = selectedSessionId();
+    if (!sessionID) return [];
+
+    const materialized = blueprintMaterializedSessions(resolvedActiveWorkspaceConfig());
+    const match = materialized.find((item) => item.sessionId?.trim() === sessionID);
+    if (!match?.templateId) return [];
+
+    const template = blueprintSessions(resolvedActiveWorkspaceConfig()).find(
+      (entry) => entry.id?.trim() === match.templateId,
+    );
+
+    return Array.isArray(template?.messages)
+      ? template!.messages!.filter((entry) => entry?.text?.trim())
+      : [];
+  });
+
+  const insertSyntheticBlueprintSeedMessages = (
+    list: MessageWithParts[],
+    sessionID: string | null,
+    seeds: Array<{ role?: "assistant" | "user" | null; text?: string | null }>,
+  ) => {
+    if (!sessionID || seeds.length === 0) return list;
+    const existingIds = new Set(list.map((message) => messageIdFromInfo(message)));
+    const synthetic = seeds
+      .map((seed, index) => createSyntheticBlueprintSeedMessage(sessionID, index, seed))
+      .filter((message) => !existingIds.has(messageIdFromInfo(message)));
+    if (!synthetic.length) return list;
+    return [...synthetic, ...list];
+  };
+
   const insertSyntheticSessionErrors = (
     list: MessageWithParts[],
     sessionID: string | null,
@@ -2100,16 +2197,21 @@ export default function App() {
   const visibleMessages = createMemo(() => {
     const sessionID = selectedSessionId();
     const errorTurns = sessionStore.selectedSessionErrorTurns();
+    const blueprintSeeds = blueprintSeedMessagesForSelectedSession();
     const list = messages().filter((message) => {
       const id = messageIdFromInfo(message);
-      return !id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX);
+      return !id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX) && !id.startsWith(SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX);
     });
     const revert = selectedSession()?.revert?.messageID ?? null;
     const visible = !revert ? list : list.filter((message) => {
       const id = messageIdFromInfo(message);
       return Boolean(id) && id < revert;
     });
-    return insertSyntheticSessionErrors(visible, sessionID, errorTurns);
+    return insertSyntheticSessionErrors(
+      insertSyntheticBlueprintSeedMessages(visible, sessionID, blueprintSeeds),
+      sessionID,
+      errorTurns,
+    );
   });
 
   const restorePromptFromUserMessage = (message: MessageWithParts) => {
@@ -3888,6 +3990,7 @@ export default function App() {
     const { client, workspaceId } = await waitForSharedBundleImportTarget(20_000, target);
     const { payload, importedSkillsCount } = buildImportPayloadFromBundle(bundle);
     await client.importWorkspace(workspaceId, payload);
+    await refreshActiveWorkspaceServerConfig(workspaceId);
     await refreshSkills({ force: true });
     await refreshHubSkills({ force: true });
     if (importedSkillsCount > 0) {
@@ -3937,6 +4040,34 @@ export default function App() {
 
     if (!ok) {
       throw new Error("Failed to create a worker from this share link.");
+    }
+  };
+
+  const startWorkspaceFromTemplate = async (folder: string | null) => {
+    const request = sharedTemplateStartRequest();
+    if (!request || sharedTemplateStartBusy()) return false;
+
+    setSharedTemplateStartBusy(true);
+
+    try {
+      const ok = await workspaceStore.createWorkspaceFlow(request.defaultPreset, folder);
+      if (!ok) return false;
+
+      const imported = await importSharedBundleIntoActiveWorker(
+        request.request,
+        {
+          localRoot: workspaceStore.activeWorkspaceRoot().trim(),
+        },
+        request.bundle,
+      );
+
+      if (!imported) return false;
+
+      setSharedTemplateStartRequest(null);
+      setError(null);
+      return true;
+    } finally {
+      setSharedTemplateStartBusy(false);
     }
   };
 
@@ -3998,17 +4129,18 @@ export default function App() {
       return { mode: "choice" as const, bundle };
     }
 
-    if (request.intent === "new_worker" && isTauriRuntime()) {
+    if (bundle.type === "workspace-profile" && request.intent === "new_worker" && isTauriRuntime()) {
       setView("dashboard");
       setTab("scheduled");
       setError(null);
-      setSharedBundleCreateWorkerRequest({
+      setSharedBundleCreateWorkerRequest(null);
+      setSharedBundleImportChoice(null);
+      setSharedTemplateStartRequest({
         request,
         bundle,
-        defaultPreset: "automation",
+        defaultPreset: defaultPresetFromTemplateBundle(bundle),
       });
-      workspaceStore.setCreateWorkspaceOpen(true);
-      return { mode: "new_worker_modal" as const, bundle };
+      return { mode: "start_with_template_modal" as const, bundle };
     }
 
     if (request.intent === "import_current") {
@@ -4271,6 +4403,9 @@ export default function App() {
   const [pendingDenAuthDeepLink, setPendingDenAuthDeepLink] = createSignal<DenAuthDeepLink | null>(null);
   const [processingDenAuthDeepLink, setProcessingDenAuthDeepLink] = createSignal(false);
   const [pendingSharedBundleInvite, setPendingSharedBundleInvite] = createSignal<SharedBundleDeepLink | null>(null);
+  const [sharedTemplateStartRequest, setSharedTemplateStartRequest] =
+    createSignal<SharedTemplateStartRequest | null>(null);
+  const [sharedTemplateStartBusy, setSharedTemplateStartBusy] = createSignal(false);
   const [sharedBundleCreateWorkerRequest, setSharedBundleCreateWorkerRequest] =
     createSignal<SharedBundleCreateWorkerRequest | null>(null);
   const [sharedSkillDestinationRequest, setSharedSkillDestinationRequest] =
@@ -4316,6 +4451,10 @@ export default function App() {
   const createWorkspaceDefaultPreset = createMemo<WorkspacePreset>(() =>
     sharedBundleCreateWorkerRequest()?.defaultPreset ?? "starter"
   );
+  const sharedTemplateStartItems = createMemo(() => {
+    const request = sharedTemplateStartRequest();
+    return request ? describeSharedBundleImport(request.bundle).items : [];
+  });
 
   const sharedSkillDestinationWorkspaces = createMemo(() => {
     const activeId = workspaceStore.activeWorkspaceId();
@@ -4486,6 +4625,7 @@ export default function App() {
       setSharedSkillDestinationBusyId(null);
       setSharedBundleImportError(null);
       setSharedBundleImportChoice(null);
+      setSharedTemplateStartRequest(null);
       setSharedBundleCreateWorkerRequest(null);
 
       try {
@@ -4494,8 +4634,8 @@ export default function App() {
         switch (result.mode) {
           case "choice":
             return { ok: true, message: "Opened the share import chooser." };
-          case "new_worker_modal":
-            return { ok: true, message: "Opened the new worker import flow." };
+          case "start_with_template_modal":
+            return { ok: true, message: "Opened the template start flow." };
           case "blocked_import_current":
           case "blocked_new_worker":
             return { ok: false, message: error() || "The share link needs more worker setup before it can open." };
@@ -5262,6 +5402,30 @@ export default function App() {
   const resolvedActiveWorkspaceConfig = createMemo(
     () => activeWorkspaceServerConfig() ?? workspaceStore.workspaceConfig(),
   );
+  const refreshActiveWorkspaceServerConfig = async (
+    workspaceIdOverride?: string | null,
+  ): Promise<WorkspaceOpenworkConfig | null> => {
+    const client = openworkServerClient();
+    const workspaceId = (workspaceIdOverride ?? openworkServerWorkspaceId() ?? "").trim();
+    if (!client || !workspaceId) return null;
+
+    const workspace = activeWorkspaceDisplay();
+    const config = await client.getConfig(workspaceId);
+    const normalized = normalizeWorkspaceOpenworkConfig(
+      config.openwork,
+      workspace.preset,
+    );
+    const next = normalized.blueprint
+      ? normalized
+      : {
+          ...normalized,
+          blueprint: buildDefaultWorkspaceBlueprint(
+            normalized.workspace?.preset ?? workspace.preset ?? "starter",
+          ),
+        };
+    setActiveWorkspaceServerConfig(next);
+    return next;
+  };
   const activePermissionMemo = createMemo(() => activePermission());
   const migrationRepairUnavailableReason = createMemo<string | null>(() => {
     if (workspaceStore.canRepairOpencodeMigration()) return null;
@@ -5343,6 +5507,62 @@ export default function App() {
     onCleanup(() => {
       cancelled = true;
     });
+  });
+
+  const [blueprintSessionMaterializeBusyByWorkspaceId, setBlueprintSessionMaterializeBusyByWorkspaceId] =
+    createSignal<Record<string, boolean>>({});
+  const [blueprintSessionMaterializeAttemptedByWorkspaceId, setBlueprintSessionMaterializeAttemptedByWorkspaceId] =
+    createSignal<Record<string, boolean>>({});
+
+  createEffect(() => {
+    const workspaceId = (openworkServerWorkspaceId() ?? "").trim();
+    const client = openworkServerClient();
+    const connected = openworkServerStatus() === "connected";
+    const root = workspaceStore.activeWorkspaceRoot().trim();
+    const config = resolvedActiveWorkspaceConfig();
+    const templates = blueprintSessions(config);
+    const materialized = blueprintMaterializedSessions(config);
+    const currentSessions = sessions();
+
+    if (!workspaceId || !client || !connected) return;
+    if (!root) return;
+    if (!sessionsLoaded()) return;
+    if (creatingSession()) return;
+    if (selectedSessionId()) return;
+    if (!templates.length) return;
+    if (materialized.length > 0) return;
+    if (currentSessions.length > 0) return;
+    if (blueprintSessionMaterializeBusyByWorkspaceId()[workspaceId]) return;
+    if (blueprintSessionMaterializeAttemptedByWorkspaceId()[workspaceId]) return;
+
+    setBlueprintSessionMaterializeBusyByWorkspaceId((current) => ({
+      ...current,
+      [workspaceId]: true,
+    }));
+
+    void (async () => {
+      try {
+        const result = await client.materializeBlueprintSessions(workspaceId);
+        setBlueprintSessionMaterializeAttemptedByWorkspaceId((current) => ({
+          ...current,
+          [workspaceId]: true,
+        }));
+        await refreshActiveWorkspaceServerConfig(workspaceId);
+        await loadSessionsWithReady(root || undefined);
+        if (result.openSessionId) {
+          await selectSession(result.openSessionId);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : safeStringify(error);
+        setError(addOpencodeCacheHint(message));
+      } finally {
+        setBlueprintSessionMaterializeBusyByWorkspaceId((current) => {
+          const next = { ...current };
+          delete next[workspaceId];
+          return next;
+        });
+      }
+    })();
   });
 
   const [appVersion, setAppVersion] = createSignal<string | null>(null);
@@ -8105,6 +8325,22 @@ export default function App() {
         }}
         onSelectWorker={(workspaceId) => {
           void importSharedBundleIntoExistingWorkspace(workspaceId);
+        }}
+      />
+
+      <StartWithTemplateModal
+        open={Boolean(sharedTemplateStartRequest())}
+        templateName={sharedTemplateStartRequest()?.bundle.name?.trim() || "this template"}
+        description={sharedTemplateStartRequest()?.bundle.description ?? ""}
+        items={sharedTemplateStartItems()}
+        busy={sharedTemplateStartBusy()}
+        onClose={() => {
+          if (sharedTemplateStartBusy()) return;
+          setSharedTemplateStartRequest(null);
+        }}
+        onPickFolder={workspaceStore.pickWorkspaceFolder}
+        onConfirm={(folder) => {
+          void startWorkspaceFromTemplate(folder);
         }}
       />
 

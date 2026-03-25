@@ -453,6 +453,13 @@ export type OpenworkWorkspaceExport = {
   files?: Array<{ path: string; content: string }>;
 };
 
+export type OpenworkBlueprintSessionsMaterializeResult = {
+  ok: boolean;
+  created: Array<{ templateId: string; sessionId: string; title: string }>;
+  existing: Array<{ templateId: string; sessionId: string }>;
+  openSessionId: string | null;
+};
+
 export type OpenworkArtifactItem = {
   id: string;
   name?: string;
@@ -1273,6 +1280,17 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         body: payload,
         timeoutMs: timeouts.workspaceImport,
       }),
+    materializeBlueprintSessions: (workspaceId: string) =>
+      requestJson<OpenworkBlueprintSessionsMaterializeResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/blueprint/sessions/materialize`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          timeoutMs: timeouts.workspaceImport,
+        },
+      ),
     publishBundle: (payload: unknown, bundleType: "skill" | "workspace-profile" | "skills-set", options?: { name?: string; baseUrl?: string | null; timeoutMs?: number }) =>
       requestJson<{ url: string }>(baseUrl, "/share/bundles/publish", {
         token,
