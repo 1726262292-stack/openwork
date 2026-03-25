@@ -357,6 +357,19 @@ export default function McpView(props: McpViewProps) {
         </div>
       </Show>
 
+      <div class="rounded-2xl border border-blue-6/30 bg-[linear-gradient(180deg,rgba(59,130,246,0.08),rgba(59,130,246,0.03))] px-5 py-5 sm:px-6">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div class="space-y-1">
+            <div class="text-base font-semibold text-dls-text">{tr("mcp.add_modal_title")}</div>
+            <div class="text-sm text-dls-secondary">{tr("mcp.custom_app_cta_hint")}</div>
+          </div>
+          <Button variant="secondary" onClick={() => setAddMcpModalOpen(true)}>
+            <Plus size={14} />
+            {tr("mcp.add_modal_title")}
+          </Button>
+        </div>
+      </div>
+
       {/* ── Available apps (Quick Connect) ───────────── */}
       <div class="space-y-4">
         <div class="flex items-center justify-between">
@@ -764,12 +777,6 @@ export default function McpView(props: McpViewProps) {
               <div class="text-xs text-red-11">{configError()}</div>
             </Show>
 
-            <div class="border-t border-dls-border pt-4">
-              <Button variant="secondary" onClick={() => setAddMcpModalOpen(true)}>
-                <Plus size={14} />
-                {tr("mcp.add_modal_title")}
-              </Button>
-            </div>
           </div>
         </Show>
       </div>

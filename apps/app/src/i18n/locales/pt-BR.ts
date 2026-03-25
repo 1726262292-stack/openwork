@@ -461,17 +461,20 @@ export default {
   "mcp.remove_modal_message": "Tem certeza que deseja remover {server}? Você pode adicioná-lo de volta a qualquer momento.",
 
   // Add MCP Modal
-  "mcp.add_modal_title": "Adicionar Servidor MCP",
+  "mcp.add_modal_title": "Adicionar App Personalizado",
   "mcp.add_modal_subtitle": "Conecte um servidor MCP personalizado por URL ou comando local.",
+  "mcp.custom_app_cta_hint": "Conecte seu próprio servidor MCP, ferramenta interna ou app hospedado.",
   "mcp.server_type": "Tipo",
   "mcp.type_remote": "Remoto (URL)",
   "mcp.type_local_cmd": "Local (comando)",
   "mcp.server_command": "Comando",
   "mcp.server_command_placeholder": "npx -y @modelcontextprotocol/server-sequential-thinking",
   "mcp.server_command_hint": "O comando shell para iniciar o servidor.",
-  "mcp.oauth_optional_label": "Requer login OAuth",
+  "mcp.sign_in_section_label": "Login",
+  "mcp.oauth_optional_label": "Este app exige login",
+  "mcp.oauth_optional_hint": "Usa OAuth no navegador para conectar sua conta.",
   "mcp.remote_workspace_url_hint": "Workers remotos conectam mais rápido com servidores MCP baseados em URL.",
-  "mcp.add_server_button": "Adicionar servidor",
+  "mcp.add_server_button": "Adicionar app",
   "mcp.name_required": "Digite um nome para o servidor.",
   "mcp.url_or_command_required": "Digite uma URL para servidores remotos ou um comando para servidores locais.",
 

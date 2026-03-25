@@ -460,17 +460,20 @@ export default {
   "mcp.remove_modal_message": "{server} を削除してもよろしいですか？後で再度追加できます。",
 
   // Add MCP Modal
-  "mcp.add_modal_title": "MCPサーバーを追加",
+  "mcp.add_modal_title": "カスタムアプリを追加",
   "mcp.add_modal_subtitle": "URLまたはローカルコマンドでカスタムMCPサーバーを接続します。",
+  "mcp.custom_app_cta_hint": "独自のMCPサーバー、社内ツール、またはホスト型アプリを接続します。",
   "mcp.server_type": "タイプ",
   "mcp.type_remote": "リモート（URL）",
   "mcp.type_local_cmd": "ローカル（コマンド）",
   "mcp.server_command": "コマンド",
   "mcp.server_command_placeholder": "npx -y @modelcontextprotocol/server-sequential-thinking",
   "mcp.server_command_hint": "サーバーを起動するシェルコマンド。",
-  "mcp.oauth_optional_label": "OAuthサインインが必要",
+  "mcp.sign_in_section_label": "サインイン",
+  "mcp.oauth_optional_label": "このアプリはサインインが必要です",
+  "mcp.oauth_optional_hint": "ブラウザでOAuthを使ってアカウントに接続します。",
   "mcp.remote_workspace_url_hint": "リモートワーカーはURLベースのMCPサーバーとの接続が最も速いです。",
-  "mcp.add_server_button": "サーバーを追加",
+  "mcp.add_server_button": "アプリを追加",
   "mcp.name_required": "サーバー名を入力してください。",
   "mcp.url_or_command_required": "リモートの場合はURL、ローカルの場合はコマンドを入力してください。",
 

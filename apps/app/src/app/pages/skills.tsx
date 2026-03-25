@@ -30,6 +30,7 @@ const OPENWORK_DEFAULT_SKILL_NAMES = new Set([
 export type SkillsViewProps = {
   workspaceName: string;
   busy: boolean;
+  showHeader?: boolean;
   canInstallSkillCreator: boolean;
   canUseDesktopTools: boolean;
   accessHint?: string | null;
@@ -543,10 +544,12 @@ export default function SkillsView(props: SkillsViewProps) {
         </div>
       </Show>
 
-      <div class="space-y-2">
-        <h2 class="text-3xl font-bold text-dls-text">{translate("skills.title")}</h2>
-        <p class="text-sm text-dls-secondary">{translate("skills.subtitle")}</p>
-      </div>
+      <Show when={props.showHeader !== false}>
+        <div class="space-y-2">
+          <h2 class="text-3xl font-bold text-dls-text">{translate("skills.title")}</h2>
+          <p class="text-sm text-dls-secondary">{translate("skills.subtitle")}</p>
+        </div>
+      </Show>
 
       <div class="rounded-2xl border border-dls-border bg-dls-surface px-5 py-5 shadow-[0_8px_26px_rgba(17,24,39,0.05)]">
         <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">

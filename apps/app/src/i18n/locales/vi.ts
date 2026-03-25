@@ -439,17 +439,20 @@ export default {
   "mcp.remove_modal_message": "Bạn có chắc muốn xóa {server}? Bạn luôn có thể thêm lại sau.",
 
   // Add MCP Modal
-  "mcp.add_modal_title": "Thêm MCP Server",
+  "mcp.add_modal_title": "Thêm ứng dụng tùy chỉnh",
   "mcp.add_modal_subtitle": "Kết nối MCP server tùy chỉnh bằng URL hoặc lệnh nội bộ.",
+  "mcp.custom_app_cta_hint": "Kết nối MCP server, công cụ nội bộ hoặc ứng dụng được lưu trữ của riêng bạn.",
   "mcp.server_type": "Loại",
   "mcp.type_remote": "Từ xa (URL)",
   "mcp.type_local_cmd": "Nội bộ (lệnh)",
   "mcp.server_command": "Lệnh",
   "mcp.server_command_placeholder": "npx -y @modelcontextprotocol/server-sequential-thinking",
   "mcp.server_command_hint": "Lệnh shell để khởi động server.",
-  "mcp.oauth_optional_label": "Yêu cầu đăng nhập OAuth",
+  "mcp.sign_in_section_label": "Đăng nhập",
+  "mcp.oauth_optional_label": "Ứng dụng này yêu cầu đăng nhập",
+  "mcp.oauth_optional_hint": "Dùng OAuth trong trình duyệt để kết nối tài khoản của bạn.",
   "mcp.remote_workspace_url_hint": "Worker từ xa kết nối nhanh nhất với MCP server dạng URL.",
-  "mcp.add_server_button": "Thêm server",
+  "mcp.add_server_button": "Thêm ứng dụng",
   "mcp.name_required": "Vui lòng nhập tên server.",
   "mcp.url_or_command_required": "Nhập URL cho server từ xa hoặc lệnh cho server nội bộ.",
 

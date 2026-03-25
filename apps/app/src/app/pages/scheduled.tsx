@@ -43,6 +43,7 @@ export type ScheduledTasksViewProps = {
   reloadWorkspaceEngine: () => Promise<void>;
   reloadBusy: boolean;
   canReloadWorkspace: boolean;
+  showHeader?: boolean;
 };
 
 const toRelative = (value?: string | null) => {
@@ -673,17 +674,19 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
         </button>
       </div>
 
-      <div class="pt-8 text-center">
-        <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-4 bg-gray-1 shadow-sm">
-          <Terminal size={28} class="text-gray-9" />
-        </div>
-        <div class="flex items-center justify-center gap-2">
-          <h2 class="text-2xl font-semibold text-gray-12">Automations</h2>
-          <span class="rounded border border-gray-4 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-tight text-gray-8">
-            Beta
-          </span>
-        </div>
-        <p class="mt-2 text-sm text-gray-9">{sourceDescription()}</p>
+      <div class={`text-center ${props.showHeader !== false ? "pt-8" : "pt-2"}`}>
+        <Show when={props.showHeader !== false}>
+          <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-4 bg-gray-1 shadow-sm">
+            <Terminal size={28} class="text-gray-9" />
+          </div>
+          <div class="flex items-center justify-center gap-2">
+            <h2 class="text-2xl font-semibold text-gray-12">Automations</h2>
+            <span class="rounded border border-gray-4 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-tight text-gray-8">
+              Beta
+            </span>
+          </div>
+        </Show>
+        <p class={`text-sm text-gray-9 ${props.showHeader !== false ? "mt-2" : ""}`}>{sourceDescription()}</p>
       </div>
 
       <Show when={schedulerGateActive()}>

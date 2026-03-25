@@ -13,6 +13,7 @@ export type ExtensionsViewProps = McpViewProps &
     refreshMcpServers: () => void;
     initialSection?: ExtensionsSection;
     setDashboardTab?: (tab: "mcp" | "plugins") => void;
+    showHeader?: boolean;
   };
 
 export default function ExtensionsView(props: ExtensionsViewProps) {
@@ -59,11 +60,13 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     <section class="space-y-6 animate-in fade-in duration-300">
       <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div class="space-y-1">
-          <h2 class="text-3xl font-bold text-dls-text">Extensions</h2>
-          <p class="text-sm text-dls-secondary mt-1.5">
-            Apps (MCP) and OpenCode plugins live in one place.
-          </p>
-          <div class="mt-3 flex flex-wrap items-center gap-2">
+          <Show when={props.showHeader !== false}>
+            <h2 class="text-3xl font-bold text-dls-text">Extensions</h2>
+            <p class="text-sm text-dls-secondary mt-1.5">
+              Apps (MCP) and OpenCode plugins live in one place.
+            </p>
+          </Show>
+          <div class={`${props.showHeader === false ? "" : "mt-3"} flex flex-wrap items-center gap-2`}>
             <Show when={connectedAppsCount() > 0}>
               <div class="inline-flex items-center gap-2 rounded-full bg-green-3 px-3 py-1">
                 <div class="w-2 h-2 rounded-full bg-green-9" />

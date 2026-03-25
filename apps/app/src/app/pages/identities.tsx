@@ -36,6 +36,7 @@ export type IdentitiesViewProps = {
   openworkServerWorkspaceId: string | null;
   activeWorkspaceRoot: string;
   developerMode: boolean;
+  showHeader?: boolean;
 };
 
 const OPENCODE_ROUTER_AGENT_FILE_PATH = ".opencode/agents/opencode-router.md";
@@ -853,7 +854,9 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
       {/* ---- Header ---- */}
       <div>
         <div class="flex items-center justify-between mb-1.5">
-          <h1 class="text-lg font-bold text-gray-12 tracking-tight">Messaging channels</h1>
+          <Show when={props.showHeader !== false}>
+            <h1 class="text-lg font-bold text-gray-12 tracking-tight">Messaging channels</h1>
+          </Show>
           <div class="flex items-center gap-2">
             <Button
               variant="outline"
@@ -875,10 +878,12 @@ export default function IdentitiesView(props: IdentitiesViewProps) {
             </Button>
           </div>
         </div>
-        <p class="text-sm text-gray-9 leading-relaxed">
-          Let people reach your worker through messaging apps. Connect a channel and
-          your worker will automatically read and respond to messages.
-        </p>
+        <Show when={props.showHeader !== false}>
+          <p class="text-sm text-gray-9 leading-relaxed">
+            Let people reach your worker through messaging apps. Connect a channel and
+            your worker will automatically read and respond to messages.
+          </p>
+        </Show>
         <div class="mt-1.5 text-[11px] text-gray-8 font-mono break-all">
           Workspace scope: {scopedOpenworkBaseUrl().trim() || props.openworkServerUrl.trim() || "Not set"}
         </div>

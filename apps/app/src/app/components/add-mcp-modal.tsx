@@ -159,15 +159,21 @@ export default function AddMcpModal(props: AddMcpModalProps) {
                   value={url()}
                   onInput={(e) => setUrl(e.currentTarget.value)}
                 />
-                <label class="flex items-center gap-2 text-xs text-dls-secondary">
-                  <input
-                    type="checkbox"
-                    class="h-4 w-4 rounded border border-dls-border"
-                    checked={oauthRequired()}
-                    onChange={(event) => setOauthRequired(event.currentTarget.checked)}
-                  />
-                  {tr("mcp.oauth_optional_label")}
-                </label>
+                <div class="rounded-xl border border-dls-border bg-dls-hover/40 px-3 py-3">
+                  <div class="mb-2 text-xs font-medium text-dls-text">{tr("mcp.sign_in_section_label")}</div>
+                  <label class="flex items-start gap-2 text-xs text-dls-secondary">
+                    <input
+                      type="checkbox"
+                      class="mt-0.5 h-4 w-4 rounded border border-dls-border"
+                      checked={oauthRequired()}
+                      onChange={(event) => setOauthRequired(event.currentTarget.checked)}
+                    />
+                    <span>
+                      <span class="block text-dls-text">{tr("mcp.oauth_optional_label")}</span>
+                      <span class="mt-0.5 block text-dls-secondary">{tr("mcp.oauth_optional_hint")}</span>
+                    </span>
+                  </label>
+                </div>
               </div>
             </Show>
 

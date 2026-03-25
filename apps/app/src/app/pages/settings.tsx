@@ -2071,6 +2071,7 @@ export default function SettingsView(props: SettingsViewProps) {
         <Match when={activeTab() === "automations"}>
           <WebUnavailableSurface unavailable={webDeployment()}>
             <ScheduledTasksView
+              showHeader={false}
               jobs={props.scheduledJobs}
               source={props.scheduledJobsSource}
               sourceReady={props.scheduledJobsSourceReady}
@@ -2099,6 +2100,7 @@ export default function SettingsView(props: SettingsViewProps) {
             <SkillsView
               workspaceName={props.activeWorkspaceRoot.trim() || "Workspace"}
               busy={props.busy}
+              showHeader={false}
               canInstallSkillCreator={props.canInstallSkillCreator}
               canUseDesktopTools={props.canUseDesktopTools}
               accessHint={props.skillsAccessHint}
@@ -2130,6 +2132,7 @@ export default function SettingsView(props: SettingsViewProps) {
           <WebUnavailableSurface unavailable={webDeployment()}>
             <ExtensionsView
               initialSection="all"
+              showHeader={false}
               busy={props.busy}
               activeWorkspaceRoot={props.activeWorkspaceRoot}
               isRemoteWorkspace={props.activeWorkspaceType === "remote"}
@@ -2174,6 +2177,7 @@ export default function SettingsView(props: SettingsViewProps) {
           <WebUnavailableSurface unavailable={webDeployment()}>
             <IdentitiesView
               busy={props.busy}
+              showHeader={false}
               openworkServerStatus={props.openworkServerStatus}
               openworkServerUrl={props.openworkServerUrl}
               openworkServerClient={props.openworkServerClient}
