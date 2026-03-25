@@ -76,6 +76,7 @@ import {
 } from "./mcp";
 import {
   compareProviders,
+  filterProviderList,
   mapConfigProvidersToList,
   providerPriorityRank,
 } from "./utils/providers";
@@ -2413,8 +2414,18 @@ export default function App() {
     }
 
     const activeClient = client() ?? c;
+    let disabledProviders = globalSync.data.config.disabled_providers ?? [];
     try {
-      const updated = filterProviderState(unwrap(await activeClient.provider.list()));
+      const config = unwrap(await activeClient.config.get());
+      disabledProviders = Array.isArray(config.disabled_providers) ? config.disabled_providers : [];
+    } catch {
+      // ignore config read failures and continue with current store state
+    }
+    try {
+      const updated = filterProviderList(
+        unwrap(await activeClient.provider.list()),
+        disabledProviders,
+      );
       globalSync.set("provider", updated);
       return updated;
     } catch {
@@ -2422,11 +2433,14 @@ export default function App() {
         const fallback = unwrap(await activeClient.config.providers());
         const mapped = mapConfigProvidersToList(fallback.providers);
         const previousConnected = providerConnectedIds();
-        const next = filterProviderState({
-          all: mapped,
-          connected: previousConnected.filter((id) => mapped.some((provider) => provider.id === id)),
-          default: fallback.default,
-        });
+        const next = filterProviderList(
+          {
+            all: mapped,
+            connected: previousConnected.filter((id) => mapped.some((provider) => provider.id === id)),
+            default: fallback.default,
+          },
+          disabledProviders,
+        );
         globalSync.set("provider", next);
         return next;
       } catch {
@@ -2615,7 +2629,7 @@ export default function App() {
       ) {
         const disabled = await disableProvider();
         if (disabled) {
-          updated = filterProviderState(updated);
+          updated = filterProviderList(updated, globalSync.data.config.disabled_providers ?? []);
           globalSync.set("provider", updated);
         }
         if (!Array.isArray(updated?.connected) || !updated.connected.includes(resolved)) {
@@ -2840,22 +2854,6 @@ export default function App() {
   };
   const setProviderConnectedIds = (value: string[]) => {
     globalSync.set("provider", "connected", value);
-  };
-
-  const filterProviderState = (value: {
-    all: ProviderListItem[];
-    connected: string[];
-    default: Record<string, string>;
-  }) => {
-    const disabled = new Set((globalSync.data.config.disabled_providers ?? []).map((id) => id.trim()));
-    if (!disabled.size) return value;
-    return {
-      all: value.all.filter((provider) => !disabled.has(provider.id)),
-      connected: value.connected.filter((id) => !disabled.has(id)),
-      default: Object.fromEntries(
-        Object.entries(value.default).filter(([id]) => !disabled.has(id)),
-      ),
-    };
   };
 
   const removeProviderFromState = (providerId: string) => {

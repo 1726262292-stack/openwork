@@ -17,6 +17,7 @@ import {
 } from "../utils";
 
 import Button from "../components/button";
+import ProviderIcon from "../components/provider-icon";
 import DenSettingsPanel from "../components/den-settings-panel";
 import TextInput from "../components/text-input";
 import WebUnavailableSurface from "../components/web-unavailable-surface";
@@ -549,10 +550,22 @@ export default function SettingsView(props: SettingsViewProps) {
       .map((provider) => ({
         id: provider.id,
         name: provider.name?.trim() || provider.id.trim() || provider.id,
+        source: (provider as ProviderListItem & {
+          source?: "env" | "api" | "config" | "custom";
+        }).source,
       }))
       .filter((entry) => entry.id.trim());
   });
   const providerConnectedCount = createMemo(() => connectedProviders().length);
+  const providerSourceLabel = (source?: "env" | "api" | "config" | "custom") => {
+    if (source === "env") return "Environment";
+    if (source === "api") return "API key";
+    if (source === "config") return "Config";
+    if (source === "custom") return "Custom";
+    return null;
+  };
+  const canDisconnectProvider = (source?: "env" | "api" | "config" | "custom") =>
+    source !== "env";
   const providerStatusLabel = createMemo(() => {
     if (!providerAvailableCount()) return "Unavailable";
     if (!providerConnectedCount()) return "Not connected";
@@ -934,8 +947,6 @@ export default function SettingsView(props: SettingsViewProps) {
 
   const workspaceTabs = createMemo<SettingsTab[]>(() => [
     "general",
-    "den",
-    "model",
     "automations",
     "skills",
     "extensions",
@@ -944,7 +955,7 @@ export default function SettingsView(props: SettingsViewProps) {
   ]);
 
   const globalTabs = createMemo<SettingsTab[]>(() => {
-    const tabs: SettingsTab[] = ["appearance", "updates", "recovery"];
+    const tabs: SettingsTab[] = ["den", "appearance", "updates", "recovery"];
     if (props.developerMode) tabs.push("debug");
     return tabs;
   });
@@ -1423,7 +1434,7 @@ export default function SettingsView(props: SettingsViewProps) {
       case "debug":
         return "Review runtime diagnostics, logs, and low-level debugging utilities.";
       default:
-        return "Connect providers, authorize folders, and control the active OpenWork workspace.";
+        return "Connect providers, choose the default model, authorize folders, and control the active OpenWork workspace.";
     }
   };
 
@@ -1491,7 +1502,7 @@ export default function SettingsView(props: SettingsViewProps) {
               {tabDescription(activeTab())}
             </p>
           </div>
-          <Show when={showUpdateToolbar()}>
+          <Show when={showUpdateToolbar() && activeTab() === "general"}>
             <div class="mt-4 flex flex-wrap items-center gap-2 md:mt-0 md:justify-end">
               <div
                 class={`rounded-full border px-3 py-1.5 text-xs shadow-sm flex items-center gap-2 ${updateToolbarTone()}`}
@@ -1527,99 +1538,8 @@ export default function SettingsView(props: SettingsViewProps) {
         <Match when={activeTab() === "general"}>
           <div class="space-y-6">
             <div class={`${settingsPanelClass} space-y-4`}>
-              <div class="flex items-start justify-between gap-4">
-                <div>
-                  <div class="flex items-center gap-2">
-                    <PlugZap size={16} class="text-gray-11" />
-                    <div class="text-sm font-medium text-gray-12">
-                      Providers
-                    </div>
-                  </div>
-                  <div class="text-xs text-gray-9 mt-1">
-                    Connect services for models and tools.
-                  </div>
-                </div>
-                <div
-                  class={`text-xs px-2 py-1 rounded-full border ${providerStatusStyle()}`}
-                >
-                  {providerStatusLabel()}
-                </div>
-              </div>
-
-              <div class="flex flex-wrap items-center gap-3">
-                <Button
-                  variant="secondary"
-                  onClick={handleOpenProviderAuth}
-                  disabled={props.busy || props.providerAuthBusy}
-                >
-                  {props.providerAuthBusy
-                    ? "Loading providers..."
-                    : "Connect provider"}
-                </Button>
-                <div class="text-xs text-gray-10">{providerSummary()}</div>
-              </div>
-
-              <Show when={connectedProviders().length > 0}>
-                <div class="space-y-2">
-                  <For each={connectedProviders()}>
-                    {(provider) => (
-                      <div class={`${settingsPanelSoftClass} flex flex-wrap items-center justify-between gap-3 px-3 py-2`}>
-                        <div class="min-w-0">
-                          <div class="text-sm font-medium text-gray-12 truncate">
-                            {provider.name}
-                          </div>
-                          <div class="text-[11px] text-gray-8 font-mono truncate">
-                            {provider.id}
-                          </div>
-                        </div>
-                        <Button
-                          variant="outline"
-                          class="text-xs h-8 py-0 px-3"
-                          onClick={() =>
-                            void handleDisconnectProvider(provider.id)
-                          }
-                          disabled={
-                            props.busy ||
-                            props.providerAuthBusy ||
-                            providerDisconnectingId() !== null
-                          }
-                        >
-                          {providerDisconnectingId() === provider.id
-                            ? "Disconnecting..."
-                            : "Disconnect"}
-                        </Button>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
-
-              <Show when={providerConnectError()}>
-                <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">
-                  {providerConnectError()}
-                </div>
-              </Show>
-              <Show when={providerDisconnectStatus()}>
-                <div class={`${settingsPanelSoftClass} px-3 py-2 text-xs text-gray-10`}>
-                  {providerDisconnectStatus()}
-                </div>
-              </Show>
-              <Show when={providerDisconnectError()}>
-                <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">
-                  {providerDisconnectError()}
-                </div>
-              </Show>
-
-              <div class="text-[11px] text-gray-9">
-                API keys are stored locally by OpenCode. Set your default model
-                in the <span class="font-medium">Model</span> tab.
-              </div>
-            </div>
-
-
-              <div class={`${settingsPanelClass} space-y-4`}>
-                <div class="space-y-1">
-                  <div class="flex items-center gap-2 text-sm font-semibold text-gray-12">
+              <div class="space-y-1">
+                <div class="flex items-center gap-2 text-sm font-semibold text-gray-12">
                     <FolderLock size={16} class="text-gray-10" />
                     Authorized folders
                   </div>
@@ -1695,7 +1615,7 @@ export default function SettingsView(props: SettingsViewProps) {
                                 >
                                   <Button
                                     variant="ghost"
-                                    class="h-7 w-7 shrink-0 rounded-full border border-gray-6/70 bg-gray-3/60 p-0 text-gray-12 shadow-sm hover:border-red-7/40 hover:bg-red-3/20 hover:text-red-11 focus:ring-red-7/30"
+                                    class="h-6 w-6 shrink-0 !rounded-full !p-0 border-0 bg-transparent text-red-10 shadow-none hover:bg-red-3/15 hover:text-red-11 focus:ring-red-7/25"
                                     onClick={() => void props.removeAuthorizedFolder(folder)}
                                     disabled={
                                       props.authorizedFoldersLoading ||
@@ -1788,6 +1708,191 @@ export default function SettingsView(props: SettingsViewProps) {
                   </div>
                 </Show>
               </div>
+
+            <div class={`${settingsPanelClass} space-y-4`}>
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <div class="flex items-center gap-2">
+                    <PlugZap size={16} class="text-gray-11" />
+                    <div class="text-sm font-medium text-gray-12">
+                      Providers
+                    </div>
+                  </div>
+                  <div class="text-xs text-gray-9 mt-1">
+                    Connect services for models and tools.
+                  </div>
+                </div>
+                <div
+                  class={`text-xs px-2 py-1 rounded-full border ${providerStatusStyle()}`}
+                >
+                  {providerStatusLabel()}
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-3">
+                <Button
+                  variant="secondary"
+                  onClick={handleOpenProviderAuth}
+                  disabled={props.busy || props.providerAuthBusy}
+                >
+                  {props.providerAuthBusy
+                    ? "Loading providers..."
+                    : "Connect provider"}
+                </Button>
+                <div class="text-xs text-gray-10">{providerSummary()}</div>
+              </div>
+
+              <Show when={connectedProviders().length > 0}>
+                <div class="space-y-2">
+                  <For each={connectedProviders()}>
+                    {(provider) => (
+                      <div class={`${settingsPanelSoftClass} flex flex-wrap items-center justify-between gap-3 px-3 py-2`}>
+                        <div class="min-w-0 flex items-center gap-3">
+                          <ProviderIcon providerId={provider.id} size={18} class="text-gray-12" />
+                          <div class="min-w-0">
+                            <div class="text-sm font-medium text-gray-12 truncate">
+                              {provider.name}
+                            </div>
+                            <div class="text-[11px] text-gray-8 font-mono truncate">
+                              {provider.id}
+                            </div>
+                            <Show when={providerSourceLabel(provider.source)}>
+                              {(label) => (
+                                <div class="mt-1 text-[11px] text-gray-9 truncate">{label()}</div>
+                              )}
+                            </Show>
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          class="text-xs h-8 py-0 px-3"
+                          onClick={() =>
+                            void handleDisconnectProvider(provider.id)
+                          }
+                          disabled={
+                            props.busy ||
+                            props.providerAuthBusy ||
+                            providerDisconnectingId() !== null ||
+                            !canDisconnectProvider(provider.source)
+                          }
+                        >
+                          {providerDisconnectingId() === provider.id
+                            ? "Disconnecting..."
+                            : canDisconnectProvider(provider.source)
+                              ? "Disconnect"
+                              : "Managed by env"}
+                        </Button>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+
+              <Show when={providerConnectError()}>
+                <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">
+                  {providerConnectError()}
+                </div>
+              </Show>
+              <Show when={providerDisconnectStatus()}>
+                <div class={`${settingsPanelSoftClass} px-3 py-2 text-xs text-gray-10`}>
+                  {providerDisconnectStatus()}
+                </div>
+              </Show>
+              <Show when={providerDisconnectError()}>
+                <div class="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">
+                  {providerDisconnectError()}
+                </div>
+              </Show>
+
+              <div class="text-[11px] text-gray-9">
+                API keys are stored locally by OpenCode. Environment-backed providers
+                must be changed in the worker environment and then reloaded.
+              </div>
+            </div>
+
+            <div class={`${settingsPanelClass} space-y-4`}>
+              <div>
+                <div class="text-sm font-medium text-gray-12">Model</div>
+                <div class="text-xs text-gray-10">
+                  Pick the default chat model and review how it reasons.
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm text-gray-12 truncate">
+                    {props.defaultModelLabel}
+                  </div>
+                  <div class="text-xs text-gray-7 font-mono truncate">
+                    {props.defaultModelRef}
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  class="text-xs h-8 py-0 px-3 shrink-0"
+                  onClick={props.openDefaultModelPicker}
+                  disabled={props.busy}
+                >
+                  Change
+                </Button>
+              </div>
+
+              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm text-gray-12">Show model reasoning</div>
+                  <div class="text-xs text-gray-7">
+                    Expand reasoning traces in the UI when a model exposes them.
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  class="text-xs h-8 py-0 px-3 shrink-0"
+                  onClick={props.toggleShowThinking}
+                  disabled={props.busy}
+                >
+                  {props.showThinking ? "On" : "Off"}
+                </Button>
+              </div>
+
+              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm text-gray-12">
+                    Auto context compaction
+                  </div>
+                  <div class="text-xs text-gray-7">
+                    Automatically compact after a run completes.
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  class="text-xs h-8 py-0 px-3 shrink-0"
+                  onClick={props.toggleAutoCompactContext}
+                  disabled={props.busy}
+                >
+                  {props.autoCompactContext ? "On" : "Off"}
+                </Button>
+              </div>
+
+              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm text-gray-12">Model behavior</div>
+                  <div class="text-xs text-gray-7 truncate">
+                    Open the default model picker to choose reasoning profiles when they are available.
+                  </div>
+                  <div class="mt-1 text-xs text-gray-8 font-medium truncate">
+                    {props.modelVariantLabel}
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  class="text-xs h-8 py-0 px-3 shrink-0"
+                  onClick={props.editModelVariant}
+                  disabled={props.busy}
+                >
+                  Configure
+                </Button>
+              </div>
+            </div>
 
               <div class="relative overflow-hidden rounded-2xl border border-blue-7/30 bg-gradient-to-br from-blue-3/35 via-gray-1/75 to-cyan-3/30 p-5">
               <div class="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-blue-6/20 blur-2xl" />
@@ -2087,94 +2192,6 @@ export default function SettingsView(props: SettingsViewProps) {
             developerMode={props.developerMode}
             connectRemoteWorkspace={props.connectRemoteWorkspace}
           />
-        </Match>
-
-        <Match when={activeTab() === "model"}>
-          <div class="space-y-6">
-            <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
-              <div>
-                <div class="text-sm font-medium text-gray-12">Model</div>
-                <div class="text-xs text-gray-10">
-                  Pick the default chat model and review how it reasons.
-                </div>
-              </div>
-
-              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                <div class="min-w-0">
-                  <div class="text-sm text-gray-12 truncate">
-                    {props.defaultModelLabel}
-                  </div>
-                  <div class="text-xs text-gray-7 font-mono truncate">
-                    {props.defaultModelRef}
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  class="text-xs h-8 py-0 px-3 shrink-0"
-                  onClick={props.openDefaultModelPicker}
-                  disabled={props.busy}
-                >
-                  Change
-                </Button>
-              </div>
-
-              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                <div class="min-w-0">
-                  <div class="text-sm text-gray-12">Show model reasoning</div>
-                  <div class="text-xs text-gray-7">
-                    Expand reasoning traces in the UI when a model exposes them.
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  class="text-xs h-8 py-0 px-3 shrink-0"
-                  onClick={props.toggleShowThinking}
-                  disabled={props.busy}
-                >
-                  {props.showThinking ? "On" : "Off"}
-                </Button>
-              </div>
-
-              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                <div class="min-w-0">
-                  <div class="text-sm text-gray-12">
-                    Auto context compaction
-                  </div>
-                  <div class="text-xs text-gray-7">
-                    Automatically compact after a run completes.
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  class="text-xs h-8 py-0 px-3 shrink-0"
-                  onClick={props.toggleAutoCompactContext}
-                  disabled={props.busy}
-                >
-                  {props.autoCompactContext ? "On" : "Off"}
-                </Button>
-              </div>
-
-              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                <div class="min-w-0">
-                  <div class="text-sm text-gray-12">Model behavior</div>
-                  <div class="text-xs text-gray-7 truncate">
-                    Open the default model picker to choose reasoning profiles when they are available.
-                  </div>
-                  <div class="mt-1 text-xs text-gray-8 font-medium truncate">
-                    {props.modelVariantLabel}
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  class="text-xs h-8 py-0 px-3 shrink-0"
-                  onClick={props.editModelVariant}
-                  disabled={props.busy}
-                >
-                  Configure
-                </Button>
-              </div>
-            </div>
-          </div>
         </Match>
 
         <Match when={activeTab() === "advanced"}>
@@ -2648,9 +2665,9 @@ export default function SettingsView(props: SettingsViewProps) {
                               >
                                 Install & Restart
                               </Button>
-                            </Show>
-                          </div>
-                        </div>
+                </Show>
+              </div>
+            </div>
 
                         <Show
                           when={updateState() === "available" && updateNotes()}

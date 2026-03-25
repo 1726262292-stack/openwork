@@ -96,3 +96,18 @@ export const mapConfigProvidersToList = (providers: ConfigProvider[]): ProviderL
       models,
     };
   });
+
+export const filterProviderList = (
+  value: ProviderListResponse,
+  disabledProviders: string[],
+): ProviderListResponse => {
+  const disabled = new Set(disabledProviders.map((id) => id.trim()).filter(Boolean));
+  if (!disabled.size) return value;
+  return {
+    all: value.all.filter((provider) => !disabled.has(provider.id)),
+    connected: value.connected.filter((id) => !disabled.has(id)),
+    default: Object.fromEntries(
+      Object.entries(value.default).filter(([id]) => !disabled.has(id)),
+    ),
+  };
+};

@@ -15,7 +15,7 @@ import type {
   UpdateHandle,
 } from "./types";
 import { addOpencodeCacheHint, isTauriRuntime, safeStringify } from "./utils";
-import { mapConfigProvidersToList } from "./utils/providers";
+import { filterProviderList, mapConfigProvidersToList } from "./utils/providers";
 import { createUpdaterState } from "./context/updater";
 import {
   resetOpenworkState,
@@ -314,18 +314,32 @@ export function createSystemState(options: {
       }
 
       await waitForHealthy(nextClient, { timeoutMs: 12_000 });
+      let disabledProviders: string[] = [];
+      try {
+        const config = unwrap(await nextClient.config.get());
+        disabledProviders = Array.isArray(config.disabled_providers) ? config.disabled_providers : [];
+      } catch {
+        // ignore config read failures and continue with provider discovery
+      }
 
       try {
-        const providerList = unwrap(await nextClient.provider.list());
+        const providerList = filterProviderList(
+          unwrap(await nextClient.provider.list()),
+          disabledProviders,
+        );
         options.setProviders(providerList.all);
         options.setProviderDefaults(providerList.default);
         options.setProviderConnectedIds(providerList.connected);
       } catch {
         try {
           const cfg = unwrap(await nextClient.config.providers());
-          options.setProviders(mapConfigProvidersToList(cfg.providers));
-          options.setProviderDefaults(cfg.default);
-          options.setProviderConnectedIds([]);
+          const providerList = filterProviderList(
+            { all: mapConfigProvidersToList(cfg.providers), default: cfg.default, connected: [] },
+            disabledProviders,
+          );
+          options.setProviders(providerList.all);
+          options.setProviderDefaults(providerList.default);
+          options.setProviderConnectedIds(providerList.connected);
         } catch {
           options.setProviders([]);
           options.setProviderDefaults({});

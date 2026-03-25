@@ -439,7 +439,6 @@ export default function NewLayoutApp() {
 
   const workspaceTabs = createMemo<SettingsTab[]>(() => [
     "general",
-    "den",
     "model",
     "automations",
     "skills",
@@ -447,7 +446,7 @@ export default function NewLayoutApp() {
     "messaging",
     "advanced",
   ]);
-  const globalTabs = createMemo<SettingsTab[]>(() => ["appearance", "updates", "recovery", "debug"]);
+  const globalTabs = createMemo<SettingsTab[]>(() => ["den", "appearance", "updates", "recovery", "debug"]);
 
   const tabLabel = (tab: SettingsTab) => {
     switch (tab) {

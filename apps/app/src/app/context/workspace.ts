@@ -67,7 +67,7 @@ import {
 import { waitForHealthy, createClient, type OpencodeAuth } from "../lib/opencode";
 import type { OpencodeConnectStatus, ProviderListItem } from "../types";
 import { t, currentLocale } from "../../i18n";
-import { mapConfigProvidersToList } from "../utils/providers";
+import { filterProviderList, mapConfigProvidersToList } from "../utils/providers";
 
 export type WorkspaceStore = ReturnType<typeof createWorkspaceStore>;
 
@@ -1421,20 +1421,28 @@ export function createWorkspaceStore(options: {
         const providersPromise = (async () => {
           const providersAt = Date.now();
           wsDebug("connect:providers:start", { baseUrl: nextBaseUrl });
+          let disabledProviders: string[] = [];
+          try {
+            const config = unwrap(await nextClient.config.get());
+            disabledProviders = Array.isArray(config.disabled_providers) ? config.disabled_providers : [];
+          } catch {
+            // ignore config read failures and continue with provider discovery
+          }
           try {
             const providerList = unwrap(await nextClient.provider.list());
-            wsDebug("connect:providers:done", {
-              ms: Date.now() - providersAt,
-              source: "provider.list",
-              available: providerList.all?.length ?? 0,
-              connected: providerList.connected?.length ?? 0,
-            });
-            return {
-              providers: providerList.all,
-              defaults: providerList.default,
-              connectedIds: providerList.connected,
-            };
-          } catch (error) {
+              wsDebug("connect:providers:done", {
+                ms: Date.now() - providersAt,
+                source: "provider.list",
+                available: providerList.all?.length ?? 0,
+                connected: providerList.connected?.length ?? 0,
+              });
+              const next = filterProviderList(providerList, disabledProviders);
+              return {
+                providers: next.all,
+                defaults: next.default,
+                connectedIds: next.connected,
+              };
+            } catch (error) {
             const message = error instanceof Error ? error.message : safeStringify(error);
             wsDebug("connect:providers:fallback", { ms: Date.now() - providersAt, message });
             try {
@@ -1446,10 +1454,14 @@ export function createWorkspaceStore(options: {
                 available: mapped.length,
                 connected: 0,
               });
+              const next = filterProviderList(
+                { all: mapped, connected: [], default: cfg.default },
+                disabledProviders,
+              );
               return {
-                providers: mapped,
-                defaults: cfg.default,
-                connectedIds: [],
+                providers: next.all,
+                defaults: next.default,
+                connectedIds: next.connected,
               };
             } catch (fallbackError) {
               const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : safeStringify(fallbackError);
