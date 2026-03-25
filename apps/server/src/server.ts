@@ -6,6 +6,7 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
 import { ApprovalService } from "./approvals.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
+import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp } from "./mcp.js";
 import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
 import { installHubSkill, listHubSkills } from "./skill-hub.js";
@@ -5136,7 +5137,7 @@ async function requireApproval(
 }
 
 async function exportWorkspace(workspace: WorkspaceInfo) {
-  const opencode = await readOpencodeConfig(workspace.path);
+  const opencode = sanitizePortableOpencodeConfig(await readOpencodeConfig(workspace.path));
   const openwork = sanitizeOpenworkTemplateConfig(await readOpenworkConfig(workspace.path));
   const skills = await listSkills(workspace.path, false);
   const commands = await listCommands(workspace.path, "workspace");
@@ -5176,10 +5177,11 @@ async function importWorkspace(workspace: WorkspaceInfo, payload: Record<string,
   const files = payload.files;
 
   if (opencode) {
+    const sanitizedOpencode = sanitizePortableOpencodeConfig(opencode);
     if (modes.opencode === "replace") {
-      await writeJsoncFile(opencodeConfigPath(workspace.path), opencode);
+      await writeJsoncFile(opencodeConfigPath(workspace.path), sanitizedOpencode);
     } else {
-      await updateJsoncTopLevel(opencodeConfigPath(workspace.path), opencode);
+      await updateJsoncTopLevel(opencodeConfigPath(workspace.path), sanitizedOpencode);
     }
   }
 

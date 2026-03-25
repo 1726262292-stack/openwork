@@ -12,6 +12,18 @@ const DEFAULT_PUBLISHER_BASE_URL = String(process.env.OPENWORK_PUBLISHER_BASE_UR
 const DEFAULT_PUBLISHER_ORIGIN = String(process.env.OPENWORK_PUBLISHER_REQUEST_ORIGIN ?? "").trim() || "https://app.openwork.software";
 const ALLOWED_BUNDLE_TYPES = new Set(["skill", "skills-set", "workspace-profile"]);
 
+export function normalizeSharedBundleFetchUrl(input: URL): URL {
+  const url = new URL(input.toString());
+  const segments = url.pathname.split("/").filter(Boolean);
+  if (segments[0] === "b" && segments[1] && segments.length === 2) {
+    url.pathname = `/b/${segments[1]}/data`;
+    url.searchParams.delete("format");
+  } else if (segments[0] === "b" && segments[1] && segments[2] === "data") {
+    url.searchParams.delete("format");
+  }
+  return url;
+}
+
 function normalizeBaseUrl(input: unknown): string {
   const trimmed = String(input ?? "").trim();
   if (!trimmed) {
@@ -96,6 +108,8 @@ export async function fetchSharedBundle(bundleUrl: unknown, options?: { timeoutM
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw new ApiError(400, "invalid_bundle_url", "Shared bundle URL must use http(s)");
   }
+
+  url = normalizeSharedBundleFetchUrl(url);
 
   if (!url.searchParams.has("format")) {
     url.searchParams.set("format", "json");

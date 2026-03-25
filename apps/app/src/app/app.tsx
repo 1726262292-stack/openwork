@@ -498,6 +498,14 @@ async function fetchSharedBundle(bundleUrl: string, serverClient?: OpenworkServe
     throw new Error("Shared bundle URL must use http(s).");
   }
 
+  const segments = targetUrl.pathname.split("/").filter(Boolean);
+  if (segments[0] === "b" && segments[1] && segments.length === 2) {
+    targetUrl.pathname = `/b/${segments[1]}/data`;
+    targetUrl.searchParams.delete("format");
+  } else if (segments[0] === "b" && segments[1] && segments[2] === "data") {
+    targetUrl.searchParams.delete("format");
+  }
+
   if (!targetUrl.searchParams.has("format")) {
     targetUrl.searchParams.set("format", "json");
   }

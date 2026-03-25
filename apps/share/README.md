@@ -48,8 +48,9 @@ It keeps the existing bundle APIs, but the public share surface now runs as a si
 
 - Skill markdown from `.opencode/skills/<name>/SKILL.md`
 - Agent markdown from `.opencode/agents/*.md`
+- Tool definitions from `.opencode/tools/*`
 - Command markdown from `.opencode/commands/*.md`
-- `opencode.json` / `opencode.jsonc` (only `mcp` and `agent` sections are exported)
+- `opencode.json` / `opencode.jsonc` (portable project keys only: `agent`, `command`, `instructions`, `mcp`, `permission`, `plugin`, `share`, `tools`, `watcher`)
 - `openwork.json`
 
 The packager rejects files that appear to contain secrets in shareable config.
