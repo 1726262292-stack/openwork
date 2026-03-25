@@ -3,21 +3,25 @@ title: "Connecting you slack with your workspace"
 description: "Learn how to connect your slack with your workspace"
 ---
 
-In order to connect `slack` with your openwork `workspace`, you will need:
+In order to connect `slack` with your openwork `workspace`, you will need the following:
 
-1. Valid slack permissions
+1. Valid slack admin permissions to add an app
 2. Create a simple slack app
 3. Connect said slack app with your workspace
 
-This is one of the most relevant and meaningful applications of Openwork, and we use it daily ourselves. Disclaimer: _We recommend setting the slackbot with a remote workspace instead of in your local machine._ _We use this setup ourselfs in order to ensure there's hardware isolation between what our ai can see and the files in our machine._ _This prevents leaking private and confidential data in the event of an external attack that could exploit this connection._
+This is one of the most relevant and meaningful applications of Openwork, and we use it daily ourselves.
 
-First, of all, you'll need to have valid slack permissions to add an app into your slack.
+> **Disclaimer:** We recommend setting the slackbot with a remote workspace instead of in your local machine to ensure there's `hardware isolation` between the remote workspace the ai can access and your local machine.
 
-Then, go to [Create new app](https://api.slack.com/apps?new_app=1) in Slack. What you need to obtain are the `xoxb` (bot) and `xapp` (Websocket) tokens to paste into Openwork. For more guidelines, questions and instructions regarding slack, please follow their [own documentation.](https://docs.slack.dev/tools/bolt-python/building-an-app)
+## Having the right slack permissions
+
+You should either be a slack `owner`, `admin` or have the right level of approval to be able to add an app into slack. 
 
 ## Creating a slack app
 
-1. Create the App Manifest: Go to `api.slack.com/apps` → `Create New App` → `From a manifest` → pick your workspace. **Note: Sharing a template manifest at the end of this tutorial for you to copy directly**
+Go to [Create new app](https://api.slack.com/apps?new_app=1) in Slack. What you need to obtain are the `xoxb` (bot) and `xapp` (Websocket) tokens to paste into Openwork. For more guidelines, questions and instructions regarding slack, please follow [own slack's own documentation.](https://docs.slack.dev/tools/bolt-python/building-an-app)
+
+1. Create the App Manifest: Go to `api.slack.com/apps` → `Create New App` → `From a manifest` → pick your workspace.
 2. Install to Workspace & Grab Tokens After creating the app:
 
 - Install App — `sidebar` → `Install App` → `Install to Workspace` → authorize.
@@ -28,6 +32,8 @@ Then, go to [Create new app](https://api.slack.com/apps?new_app=1) in Slack. Wha
 - Sidebar → `Basic Information` → scroll to `App-Level Tokens`.
 - Click Generate Token and Scopes → add scope `connections:write` → name it anything → Generate.
 - This gives you the `xapp-` token that we use to open the websocket connection.
+
+> Note: We're sharing a `template manifest` at the end of this tutorial for you to use directly
 
 ## Connecting the slackbot with the workspace
 
