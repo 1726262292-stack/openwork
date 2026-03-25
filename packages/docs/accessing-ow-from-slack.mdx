@@ -1,0 +1,50 @@
+---
+title: "Connecting you slack with your workspace"
+description: "Learn how to connect your slack with your workspace"
+---
+
+In order to connect `slack` with your openwork `workspace`, you will need:
+  1. Valid slack permissions
+  2. Create a simple slack app
+  3. Connect said slack app with your workspace 
+
+This is one of the most relevant and meaningful applications of Openwork, and we use it daily ourselves. 
+Disclaimer: _We recommend setting the slackbot with a remote workspace instead of in your local machine._
+_We use this setup ourselfs in order to ensure there's hardware isolation between what our ai can see and the files in our machine._
+_This prevents leaking private and confidential data in the event of an external attack that could exploit this connection._
+
+First, of all, you'll need to have valid slack permissions to add an app into your slack. 
+
+Then, go to [Create new app](https://api.slack.com/apps?new_app=1) in Slack. What you need to obtain are the `xoxb` (bot) and `xapp` (Websocket) tokens to paste into Openwork.
+For more guidelines, questions and instructions regarding slack, please follow their [own documentation.](https://docs.slack.dev/tools/bolt-python/building-an-app)
+
+## Creating a slack app
+
+1. Create the App Manifest: Go to `api.slack.com/apps` → `Create New App` → `From a manifest` → pick your workspace.
+__Note: Sharing a template manifest at the end of this tutorial for you to copy directly__
+
+2. Install to Workspace & Grab Tokens
+After creating the app:
+  - Install App — `sidebar` → `Install App` → `Install to Workspace` → authorize.
+  - Copy the Bot token (`xoxb-...`) — shown right on the "Install App" page after authorization.
+
+3. Generate an App-Level Token (for Socket Mode)
+  - Sidebar → `Basic Information` → scroll to `App-Level Tokens`.
+  - Click Generate Token and Scopes → add scope `connections:write` → name it anything → Generate.
+  - This gives you the `xapp-` token that we use to open the websocket connection.
+ 
+
+## Connecting the slackbot with the workspace
+Now, once you have both of these tokens, you can directly paste them into the app.
+
+<Frame>
+  ![Add Remote Workspace dialog in OpenWork desktop app](/images/get-started-add-remote-workspace.png)
+</Frame>
+
+## Send test message
+Test the bot by sending a message. It should respond instantly indicating that a new session has been initiatied and then send the actual response afterwards. 
+For now, you will have to use `@slack-bot-name` every time you want to talk to it. 
+
+<Frame>
+  ![Add Remote Workspace dialog in OpenWork desktop app](/images/get-started-add-remote-workspace.png)
+</Frame>
