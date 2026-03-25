@@ -1982,7 +1982,7 @@ export default function SessionView(props: SessionViewProps) {
       return "Thinking";
     }
     if (part.type === "text") {
-      return "Gathering thoughts";
+      return null;
     }
     return null;
   };
@@ -4389,10 +4389,10 @@ export default function SessionView(props: SessionViewProps) {
                     }}
                     footer={
                       showRunIndicator() && showFooterRunStatus() ? (
-                        <div class="flex justify-start pl-2">
-                          <div class="w-full max-w-[68ch]">
+                        <div class="flex justify-start">
+                          <div class="w-full max-w-[760px]">
                             <div
-                              class={`ml-3 mt-3 flex items-center gap-2 text-xs py-1 ${runPhase() === "error" ? "text-red-11" : "text-gray-9"}`}
+                              class={`mt-3 flex items-center gap-2 py-1 text-xs ${runPhase() === "error" ? "text-red-11" : "text-gray-9"}`}
                               role="status"
                               aria-live="polite"
                             >
