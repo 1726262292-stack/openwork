@@ -18,13 +18,18 @@
         "tab": "Start here",
         "pages": [
           "get-started",
-          "sharing-ow-setup",
-          "how-to-connect-chat-gpt",
-          "how-to-connect-a-custom-provider",
-          "accessing-ow-from-slack",
-          "importing-a-skill",
-          "how-to-connect-mcps",
-          "computer-use",
+          {
+            "group": "Tutorials",
+            "pages": [
+              "sharing-ow-setup",
+              "how-to-connect-a-custom-provider",
+              "how-to-connect-mcps",
+              "accessing-ow-from-slack",
+              "importing-a-skill",
+              "computer-use",
+              "how-to-connect-chat-gpt"
+            ]
+          },
           "missing-docs"
         ]
       }
