@@ -24,8 +24,13 @@ package() {
 
   # Extract the internal data archive directly to the cwd.
   bsdtar -O -xf "${pkgname}-${pkgver}.deb" 'data.tar*' | bsdtar -C "${pkgdir}" -xf -
-}
 
+  # The upstream .deb includes /usr/bin/opencode, but the AUR package should
+  # not claim the global CLI name. OpenWork uses its bundled copy under
+  # /opt/openwork/ at runtime, while opencode-bin should remain the owner of
+  # /usr/bin/opencode when users install the standalone CLI.
+  rm -f "${pkgdir}/usr/bin/opencode"
+}
 # .deb Internal Structure Reference:
 # └── openwork-desktop-linux-amd64.deb
 #     ├── debian-binary
