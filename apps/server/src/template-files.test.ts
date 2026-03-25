@@ -27,11 +27,15 @@ describe("template files", () => {
     const workspaceRoot = await makeWorkspace();
     await mkdir(join(workspaceRoot, ".opencode", "agents"), { recursive: true });
     await mkdir(join(workspaceRoot, ".opencode", "plugins"), { recursive: true });
+    await mkdir(join(workspaceRoot, ".opencode", "tools"), { recursive: true });
+    await mkdir(join(workspaceRoot, ".opencode", "node_modules", "demo"), { recursive: true });
     await mkdir(join(workspaceRoot, ".opencode", "skills", "demo"), { recursive: true });
     await mkdir(join(workspaceRoot, ".opencode", "commands"), { recursive: true });
 
     await writeFile(join(workspaceRoot, ".opencode", "agents", "openwork.md"), "# agent\n", "utf8");
     await writeFile(join(workspaceRoot, ".opencode", "plugins", "router.json"), '{"enabled":true}\n', "utf8");
+    await writeFile(join(workspaceRoot, ".opencode", "tools", "database.ts"), "export default {};\n", "utf8");
+    await writeFile(join(workspaceRoot, ".opencode", "node_modules", "demo", "index.js"), "export default 1;\n", "utf8");
     await writeFile(join(workspaceRoot, ".opencode", "skills", "demo", "SKILL.md"), "# skill\n", "utf8");
     await writeFile(join(workspaceRoot, ".opencode", "commands", "demo.md"), "# command\n", "utf8");
     await writeFile(join(workspaceRoot, ".opencode", "openwork.json"), '{"version":1}\n', "utf8");
@@ -43,6 +47,7 @@ describe("template files", () => {
     expect(files).toEqual([
       { path: ".opencode/agents/openwork.md", content: "# agent\n" },
       { path: ".opencode/plugins/router.json", content: '{"enabled":true}\n' },
+      { path: ".opencode/tools/database.ts", content: "export default {};\n" },
     ]);
   });
 
@@ -50,19 +55,24 @@ describe("template files", () => {
     const workspaceRoot = await makeWorkspace();
     const planned = planTemplateFiles(workspaceRoot, [
       { path: ".opencode/agents/demo.md", content: "hello\n" },
+      { path: ".opencode/tools/demo.ts", content: "export default {};\n" },
     ]);
 
     expect(planned[0]?.absolutePath.endsWith("/.opencode/agents/demo.md")).toBe(true);
+    expect(planned[1]?.absolutePath.endsWith("/.opencode/tools/demo.ts")).toBe(true);
 
     await writeTemplateFiles(workspaceRoot, [
       { path: ".opencode/agents/demo.md", content: "hello\n" },
+      { path: ".opencode/tools/demo.ts", content: "export default {};\n" },
     ]);
 
     const contents = await readFile(join(workspaceRoot, ".opencode", "agents", "demo.md"), "utf8");
+    const toolContents = await readFile(join(workspaceRoot, ".opencode", "tools", "demo.ts"), "utf8");
     expect(contents).toBe("hello\n");
+    expect(toolContents).toBe("export default {};\n");
   });
 
-  test("rejects env files and path traversal", async () => {
+  test("rejects non-allowlisted template files and path traversal", async () => {
     const workspaceRoot = await makeWorkspace();
 
     expect(() =>
@@ -70,7 +80,19 @@ describe("template files", () => {
     ).toThrow(/not allowed/i);
 
     expect(() =>
+      planTemplateFiles(workspaceRoot, [{ path: ".opencode/package.json", content: "{}" }]),
+    ).toThrow(/not allowed/i);
+
+    expect(() =>
+      planTemplateFiles(workspaceRoot, [{ path: ".opencode/openwork.json", content: "{}" }]),
+    ).toThrow(/not allowed/i);
+
+    expect(() =>
       planTemplateFiles(workspaceRoot, [{ path: "../outside.md", content: "oops" }]),
     ).toThrow(/invalid/i);
+
+    expect(() =>
+      planTemplateFiles(workspaceRoot, [{ path: ".opencode/node_modules/demo/index.js", content: "oops" }]),
+    ).toThrow(/not allowed/i);
   });
 });

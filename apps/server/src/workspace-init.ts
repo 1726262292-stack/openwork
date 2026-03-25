@@ -129,11 +129,51 @@ type WorkspaceOpenworkConfig = {
     preset?: string | null;
   } | null;
   authorizedRoots: string[];
+  blueprint?: Record<string, unknown> | null;
   reload?: {
     auto?: boolean;
     resume?: boolean;
   } | null;
 };
+
+function buildDefaultWorkspaceBlueprint(_preset: string): Record<string, unknown> {
+  return {
+    emptyState: {
+      title: "What do you want to do?",
+      body: "Pick a starting point or just type below.",
+      starters: [
+        {
+          id: "starter-connect-openai",
+          kind: "action",
+          title: "Connect ChatGPT",
+          description: "Add your OpenAi provider so ChatGPT models are ready in new sessions.",
+          action: "connect-openai",
+        },
+        {
+          id: "starter-browser",
+          kind: "session",
+          title: "Automate your browser",
+          description: "Set up browser actions and run reliable web tasks from OpenWork.",
+          prompt: "Set up browser actions and show me how to automate repetitive work in OpenWork.",
+        },
+      ],
+    },
+    sessions: [
+      {
+        id: "welcome-to-openwork",
+        title: "Welcome to OpenWork",
+        openOnFirstLoad: true,
+        messages: [
+          {
+            role: "assistant",
+            text:
+              "Hi welcome to OpenWork!\n\nPeople use us to write .csv files on their computer, connect to their chrome and automate repetitive tasks, sync contacts to notion.\n\nBut the only limit is your imagniation.\n\nWhat would you want to do?",
+          },
+        ],
+      },
+    ],
+  };
+}
 
 function normalizePreset(preset: string | null | undefined): string {
   const trimmed = preset?.trim() ?? "";
@@ -254,6 +294,7 @@ async function ensureWorkspaceOpenworkConfig(workspaceRoot: string, preset: stri
       preset,
     },
     authorizedRoots: [workspaceRoot],
+    blueprint: buildDefaultWorkspaceBlueprint(preset),
     reload: null,
   };
   await ensureDir(join(workspaceRoot, ".opencode"));

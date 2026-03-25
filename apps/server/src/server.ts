@@ -6,6 +6,7 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
 import { ApprovalService } from "./approvals.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
+import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp } from "./mcp.js";
 import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
 import { installHubSkill, listHubSkills } from "./skill-hub.js";
@@ -25,6 +26,12 @@ import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
 import { TOY_UI_CSS, TOY_UI_FAVICON_SVG, TOY_UI_HTML, TOY_UI_JS, cssResponse, htmlResponse, jsResponse, svgResponse } from "./toy-ui.js";
 import { FileSessionStore } from "./file-sessions.js";
+import {
+  applyMaterializedBlueprintSessions,
+  normalizeBlueprintSessionTemplates,
+  readMaterializedBlueprintSessions,
+  sanitizeOpenworkTemplateConfig,
+} from "./blueprint-sessions.js";
 import { fetchSharedBundle, publishSharedBundle } from "./share-bundles.js";
 import { listTemplateFiles, planTemplateFiles, writeTemplateFiles } from "./template-files.js";
 import pkg from "../package.json" with { type: "json" };
@@ -3929,6 +3936,25 @@ function createRoutes(
     return jsonResponse({ ok: true });
   });
 
+  addRoute(routes, "POST", "/workspace/:id/blueprint/sessions/materialize", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const result = await materializeBlueprintSessions(workspace);
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "blueprint.sessions.materialize",
+      target: "workspace",
+      summary: result.created.length
+        ? `Materialized ${result.created.length} template starter session${result.created.length === 1 ? "" : "s"}`
+        : "Checked template starter sessions",
+      timestamp: Date.now(),
+    });
+    return jsonResponse(result);
+  });
+
   addRoute(routes, "POST", "/share/bundles/publish", "client", async (ctx) => {
     requireClientScope(ctx, "viewer");
     const body = await readJsonBody(ctx.request);
@@ -5111,8 +5137,8 @@ async function requireApproval(
 }
 
 async function exportWorkspace(workspace: WorkspaceInfo) {
-  const opencode = await readOpencodeConfig(workspace.path);
-  const openwork = await readOpenworkConfig(workspace.path);
+  const opencode = sanitizePortableOpencodeConfig(await readOpencodeConfig(workspace.path));
+  const openwork = sanitizeOpenworkTemplateConfig(await readOpenworkConfig(workspace.path));
   const skills = await listSkills(workspace.path, false);
   const commands = await listCommands(workspace.path, "workspace");
   const files = await listTemplateFiles(workspace.path);
@@ -5151,18 +5177,20 @@ async function importWorkspace(workspace: WorkspaceInfo, payload: Record<string,
   const files = payload.files;
 
   if (opencode) {
+    const sanitizedOpencode = sanitizePortableOpencodeConfig(opencode);
     if (modes.opencode === "replace") {
-      await writeJsoncFile(opencodeConfigPath(workspace.path), opencode);
+      await writeJsoncFile(opencodeConfigPath(workspace.path), sanitizedOpencode);
     } else {
-      await updateJsoncTopLevel(opencodeConfigPath(workspace.path), opencode);
+      await updateJsoncTopLevel(opencodeConfigPath(workspace.path), sanitizedOpencode);
     }
   }
 
   if (openwork) {
+    const sanitizedOpenwork = sanitizeOpenworkTemplateConfig(openwork);
     if (modes.openwork === "replace") {
-      await writeOpenworkConfig(workspace.path, openwork, false);
+      await writeOpenworkConfig(workspace.path, sanitizedOpenwork, false);
     } else {
-      await writeOpenworkConfig(workspace.path, openwork, true);
+      await writeOpenworkConfig(workspace.path, sanitizedOpenwork, true);
     }
   }
 
@@ -5214,4 +5242,54 @@ async function importWorkspace(workspace: WorkspaceInfo, payload: Record<string,
   if (Array.isArray(files) && files.length > 0) {
     await writeTemplateFiles(workspace.path, files, { replace: modes.files === "replace" });
   }
+}
+
+async function materializeBlueprintSessions(workspace: WorkspaceInfo): Promise<{
+  ok: boolean;
+  created: Array<{ templateId: string; sessionId: string; title: string }>;
+  existing: Array<{ templateId: string; sessionId: string }>;
+  openSessionId: string | null;
+}> {
+  const openwork = await readOpenworkConfig(workspace.path);
+  const templates = normalizeBlueprintSessionTemplates(openwork);
+  if (!templates.length) {
+    return { ok: true, created: [], existing: [], openSessionId: null };
+  }
+
+  const existing = readMaterializedBlueprintSessions(openwork);
+  if (existing.length > 0) {
+    const preferredTemplate = templates.find((template) => template.openOnFirstLoad) ?? templates[0] ?? null;
+    const openSessionId = preferredTemplate
+      ? existing.find((item) => item.templateId === preferredTemplate.id)?.sessionId ?? existing[0]?.sessionId ?? null
+      : existing[0]?.sessionId ?? null;
+    return { ok: true, created: [], existing, openSessionId };
+  }
+
+  const created: Array<{ templateId: string; sessionId: string; title: string }> = [];
+  for (const template of templates) {
+    const result = await fetchOpencodeJson(workspace, "/session", {
+      method: "POST",
+      body: template.title ? { title: template.title } : undefined,
+    });
+    const sessionId = typeof result?.id === "string" ? result.id.trim() : "";
+    if (!sessionId) {
+      throw new ApiError(502, "opencode_failed", "OpenCode session did not return an id");
+    }
+    created.push({ templateId: template.id, sessionId, title: template.title });
+  }
+
+  const now = Date.now();
+  const nextOpenwork = applyMaterializedBlueprintSessions(
+    openwork,
+    created.map(({ templateId, sessionId }) => ({ templateId, sessionId })),
+    now,
+  );
+  await writeOpenworkConfig(workspace.path, nextOpenwork, false);
+
+  const preferredTemplate = templates.find((template) => template.openOnFirstLoad) ?? templates[0] ?? null;
+  const openSessionId = preferredTemplate
+    ? created.find((item) => item.templateId === preferredTemplate.id)?.sessionId ?? created[0]?.sessionId ?? null
+    : created[0]?.sessionId ?? null;
+
+  return { ok: true, created, existing: [], openSessionId };
 }

@@ -13,18 +13,9 @@ export type PlannedTemplateFile = TemplateFile & {
   absolutePath: string;
 };
 
-const RESERVED_TEMPLATE_EXACT_PATHS = new Set([
-  ".opencode/openwork.json",
-  ".opencode/openwork.jsonc",
-  ".opencode/opencode.db",
-]);
+const ALLOWED_TEMPLATE_PREFIXES = [".opencode/agents/", ".opencode/plugins/", ".opencode/tools/"];
 
-const RESERVED_TEMPLATE_PREFIXES = [
-  ".opencode/commands/",
-  ".opencode/skills/",
-];
-
-const RESERVED_TEMPLATE_SEGMENTS = new Set([".DS_Store", "Thumbs.db"]);
+const RESERVED_TEMPLATE_SEGMENTS = new Set([".DS_Store", "Thumbs.db", "node_modules"]);
 
 function normalizeTemplatePath(input: unknown): string {
   const normalized = String(input ?? "")
@@ -56,22 +47,20 @@ function isEnvFilePath(path: string): boolean {
     .some((segment) => /^\.env(?:\..+)?$/i.test(segment));
 }
 
-function isReservedTemplatePath(path: string): boolean {
-  if (RESERVED_TEMPLATE_EXACT_PATHS.has(path)) return true;
-  if (RESERVED_TEMPLATE_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
-
+function hasReservedTemplateSegment(path: string): boolean {
   const segments = path.split("/");
-  if (segments.some((segment) => RESERVED_TEMPLATE_SEGMENTS.has(segment))) return true;
+  return segments.some((segment) => RESERVED_TEMPLATE_SEGMENTS.has(segment));
+}
 
-  const name = segments[segments.length - 1] ?? "";
-  return /(?:\.db(?:-shm|-wal)?|\.sqlite(?:-shm|-wal)?)$/i.test(name);
+function isAllowedTemplatePrefix(path: string): boolean {
+  return ALLOWED_TEMPLATE_PREFIXES.some((prefix) => path.startsWith(prefix));
 }
 
 export function isAllowedTemplateFilePath(input: unknown): boolean {
   const path = normalizeTemplatePath(input);
-  if (!path.startsWith(".opencode/")) return false;
+  if (!isAllowedTemplatePrefix(path)) return false;
   if (isEnvFilePath(path)) return false;
-  if (isReservedTemplatePath(path)) return false;
+  if (hasReservedTemplateSegment(path)) return false;
   return true;
 }
 
