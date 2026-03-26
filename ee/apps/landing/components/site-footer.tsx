@@ -23,13 +23,13 @@ export function SiteFooter() {
             Docs
           </Link>
           <Link href="/download" className="transition-colors hover:text-gray-800">
-            Download
+            Desktop
+          </Link>
+          <Link href="/den" className="transition-colors hover:text-gray-800">
+            Cloud
           </Link>
           <Link href="/enterprise" className="transition-colors hover:text-gray-800">
             Enterprise
-          </Link>
-          <Link href="/den" className="transition-colors hover:text-gray-800">
-            Den
           </Link>
           <div>© 2026 OpenWork Project.</div>
         </div>
