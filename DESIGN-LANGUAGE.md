@@ -149,12 +149,13 @@ Borders are one of the main structure tools in OpenWork.
 - `border-gray-200`
 - `border-gray-300` for stronger but still soft selection
 - low-alpha white borders for translucent landing shells
+- soft shell borders like `#eceef1` for app sidebars and large rounded utility panels
 
 Selection should usually feel like:
 
-- soft gray border
-- white fill
-- tiny shadow
+- soft neutral fill
+- darker text
+- optional tiny border or tiny shadow only when needed
 
 not:
 
@@ -216,6 +217,7 @@ OpenWork should have a small set of radii and use them consistently.
 - **Small controls / rows / compact cards:** `rounded-xl`
 - **Medium panels / embedded demos:** `rounded-2xl`
 - **Large showcase wrappers:** `rounded-3xl` or `rounded-[2.5rem]`
+- **Sidebar/app shell wrappers:** `rounded-[2rem]` to `rounded-[2.5rem]`
 
 ### Rules
 
@@ -268,6 +270,97 @@ If paired with an active state (like a selected workflow descriptor), the copy m
 - ultra-light weights
 - loud uppercase body copy
 - dense paragraphs without breathing room
+
+---
+
+## 7.5 Copy Direction
+
+OpenWork copy should feel as disciplined as the UI.
+
+### General tone
+
+- concise
+- product-led
+- operational
+- calm
+- confident without overselling
+
+### Good copy behavior
+
+- lead with the main user value, not the implementation detail
+- prefer one clear idea per sentence
+- keep interface copy shorter than marketing copy
+- make support text explain utility, not restate the headline in different words
+
+### Avoid
+
+- repetitive copy that says the same thing three ways
+- enterprise filler words like "provisioned setups" when a simpler phrase exists
+- admin-heavy or billing-heavy framing when the main value is team workflow
+- overdescribing secondary features
+
+### Preferred OpenWork Cloud framing
+
+For OpenWork Cloud, the primary story is:
+
+1. share setup across the team/org
+2. keep everything in sync
+3. background agents are secondary / alpha
+4. custom LLM providers are tertiary / coming soon
+
+Do not make the product read like:
+
+- a billing page first
+- a hosting toggle first
+- an equal split between desktop and Cloud
+
+It should read like:
+
+- team setup sharing first
+- operational consistency second
+- advanced/cloud extensions after that
+
+### Preferred terminology
+
+Use:
+
+- **OpenWork Cloud**
+- **Shared setups**
+- **Shared templates**
+- **Custom LLM providers**
+- **Background agents**
+
+Prefer:
+
+- "Manage your team’s setup, invite teammates, and keep everything in sync."
+- "Create and update shared templates your team can use right away."
+- "Standardize provider access for your team."
+
+Avoid:
+
+- "Den" in user-facing copy
+- "Provisioned setups"
+- "Configured setups"
+- "Choose how to run..." when the real goal is to explain team value
+
+### Hierarchy rules for product pages
+
+For sign-in, checkout, and dashboard copy:
+
+- headline should state the core team value
+- subcopy should explain the workflow benefit in one sentence
+- supporting bullets/cards should not compete equally with the main value
+- desktop should often appear as a fallback or secondary path, not a co-equal hero choice
+
+### Docs CTA language
+
+When linking to supporting documentation, prefer short utility labels:
+
+- **Learn how**
+- **How sharing works**
+- **Read the guide**
+
+These should feel like helpful follow-through, not a second headline.
 
 ---
 
@@ -372,6 +465,15 @@ Inactive tab/pill should look like:
 - create heavy segmented controls with thick strokes
 - use loud fills for tabs
 
+### Flat selected row pattern
+
+For app navigation, especially dashboard sidebars:
+
+- selected state should usually be a soft gray fill (`bg-gray-100` / `bg-slate-100` family)
+- selected items should not default to white floating pills inside a white or near-white shell
+- rely on fill + text weight before adding chrome
+- hover state should usually be one step lighter than selected, not a different visual language
+
 ---
 
 ## 10. Lists and Row Systems
@@ -395,12 +497,32 @@ Good signals:
 - `font-medium`
 - subtle background tint
 - tiny status accent if needed
+- rounded-2xl row inside a softer outer shell when the list is acting as a primary sidebar
 
 Bad signals:
 
 - white card floating above white page
 - hard selected outline
 - large shadows on list rows
+
+### 10.1a Sidebar shell pattern
+
+Use for app/dashboard sidebars when the sidebar itself should feel like a calm standalone object.
+
+Pattern:
+
+- outer shell uses a near-white neutral background, not pure white
+- shell gets a large radius (`rounded-[2rem]` range)
+- shell uses a faint border, often enough without any visible shadow
+- internal rows stay flatter than the outer shell
+- selected row uses a soft gray fill, not a stronger border treatment
+- footer actions may appear as floating white pills/cards inside the shell if they need separation
+
+This is the right pattern for:
+
+- workspace sidebars
+- Cloud dashboard sidebars
+- utility navigation that should feel product-like rather than admin-like
 
 ### 10.2 Text-led preview list
 
@@ -490,7 +612,7 @@ Selection should usually be shown through one or more of:
 
 - darker text
 - stronger opacity
-- white fill
+- soft neutral fill
 - soft gray border
 - tiny shadow
 
@@ -502,6 +624,14 @@ Selection should **not** usually be shown through:
 - thick stroke
 
 OpenWork selection should feel confident, not loud.
+
+When a selected item sits inside a soft app shell, prefer:
+
+- tinted gray fill first
+- then weight and text color
+- then at most a tiny white badge or tiny control shadow for supporting UI
+
+Avoid making the selected state look like a separate floating card unless the interface is explicitly using segmented pills.
 
 ---
 
@@ -605,6 +735,15 @@ If something looks “designed” before it looks “useful,” it is probably w
 - subtle hover tint
 - selected row uses fill/weight, not loud chrome
 
+### App sidebar shell
+
+- large rounded outer shell
+- faint neutral background
+- subtle border
+- flat internal rows
+- selected row uses soft gray fill
+- floating footer action can be white if it needs separation from the shell
+
 ### Landing shell
 
 - reserved for hero/showcase moments
@@ -640,6 +779,7 @@ Use these as implementation references:
 - Landing button + shell primitives: `_repos/openwork/ee/apps/landing/app/globals.css`
 - Landing hero and selector patterns: `_repos/openwork/ee/apps/landing/components/landing-home.tsx`
 - Landing demo list rhythm: `_repos/openwork/ee/apps/landing/components/landing-app-demo-panel.tsx`
+- Cloud dashboard sidebar shell + selected state: `_repos/openwork/ee/apps/den-web/app/(den)/o/[orgSlug]/dashboard/_components/org-dashboard-shell.tsx`
 - App workspace/session list rhythm: `_repos/openwork/apps/app/src/app/components/session/workspace-session-list.tsx`
 
 When in doubt, prefer the calmer version.
