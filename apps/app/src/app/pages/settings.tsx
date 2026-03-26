@@ -147,6 +147,7 @@ export type SettingsViewProps = {
   toggleShowThinking: () => void;
   autoCompactContext: boolean;
   toggleAutoCompactContext: () => void;
+  autoCompactContextBusy: boolean;
   hideTitlebar: boolean;
   toggleHideTitlebar: () => void;
   modelVariantLabel: string;
@@ -283,9 +284,6 @@ export type SettingsViewProps = {
   authorizeMcp: (entry: McpServerEntry) => void;
   logoutMcpAuth: (name: string) => Promise<void> | void;
   removeMcp: (name: string) => void;
-  showMcpReloadBanner: boolean;
-  mcpReloadBlocked: boolean;
-  reloadMcpEngine: () => void;
   createSessionAndOpen: () => void;
   setPrompt: (value: string) => void;
   connectRemoteWorkspace: (input: {
@@ -1888,25 +1886,6 @@ export default function SettingsView(props: SettingsViewProps) {
 
               <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
                 <div class="min-w-0">
-                  <div class="text-sm text-gray-12">
-                    Auto context compaction
-                  </div>
-                  <div class="text-xs text-gray-7">
-                    Automatically compact after a run completes.
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  class="text-xs h-8 py-0 px-3 shrink-0"
-                  onClick={props.toggleAutoCompactContext}
-                  disabled={props.busy}
-                >
-                  {props.autoCompactContext ? "On" : "Off"}
-                </Button>
-              </div>
-
-              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-                <div class="min-w-0">
                   <div class="text-sm text-gray-12">Model behavior</div>
                   <div class="text-xs text-gray-7 truncate">
                     Open the default model picker to choose reasoning profiles when they are available.
@@ -1922,6 +1901,23 @@ export default function SettingsView(props: SettingsViewProps) {
                   disabled={props.busy}
                 >
                   Configure
+                </Button>
+              </div>
+
+              <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm text-gray-12">Auto context compaction</div>
+                  <div class="text-xs text-gray-7">
+                    Controls OpenCode <code>compaction.auto</code> for this workspace. Reload the engine after changing it.
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  class="text-xs h-8 py-0 px-3 shrink-0"
+                  onClick={props.toggleAutoCompactContext}
+                  disabled={props.busy || props.autoCompactContextBusy}
+                >
+                  {props.autoCompactContext ? "On" : "Off"}
                 </Button>
               </div>
             </div>
@@ -2181,9 +2177,6 @@ export default function SettingsView(props: SettingsViewProps) {
               authorizeMcp={props.authorizeMcp}
               logoutMcpAuth={props.logoutMcpAuth}
               removeMcp={props.removeMcp}
-              showMcpReloadBanner={props.showMcpReloadBanner}
-              reloadBlocked={props.mcpReloadBlocked}
-              reloadMcpEngine={props.reloadMcpEngine}
               canEditPlugins={props.canEditPlugins}
               canUseGlobalScope={props.canUseGlobalPluginScope}
               accessHint={props.pluginsAccessHint}

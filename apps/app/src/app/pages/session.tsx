@@ -19,6 +19,7 @@ import type {
   PendingPermission,
   PendingQuestion,
   ProviderListItem,
+  SessionCompactionState,
   SettingsTab,
   SkillCard,
   TodoItem,
@@ -45,7 +46,6 @@ import { getOpenWorkDeployment } from "../lib/openwork-deployment";
 import { createWorkspaceShellLayout } from "../lib/workspace-shell-layout";
 
 import {
-  AlertTriangle,
   Check,
   Circle,
   FolderOpen,
@@ -191,6 +191,7 @@ export type SessionViewProps = {
   busyLabel: string | null;
   developerMode: boolean;
   showThinking: boolean;
+  sessionCompactionState: SessionCompactionState | null;
   groupMessageParts: (parts: Part[], messageId: string) => MessageGroup[];
   summarizeStep: (part: Part) => { title: string; detail?: string };
   expandedStepIds: Set<string>;
@@ -210,17 +211,6 @@ export type SessionViewProps = {
   mcpStatus: string | null;
   skills: SkillCard[];
   skillsStatus: string | null;
-  showSkillReloadBanner: boolean;
-  reloadBannerTitle: string;
-  reloadBannerBody: string;
-  reloadBannerBlocked: boolean;
-  reloadBannerActiveCount: number;
-  canReloadWorkspace: boolean;
-  reloadWorkspaceEngine: () => Promise<void>;
-  forceStopActiveConversations: () => Promise<void>;
-  dismissReloadBanner: () => void;
-  reloadBusy: boolean;
-  reloadError: string | null;
   busy: boolean;
   prompt: string;
   setPrompt: (value: string) => void;
@@ -1914,6 +1904,37 @@ export default function SessionView(props: SessionViewProps) {
   });
 
   const showRunIndicator = createMemo(() => runPhase() !== "idle");
+  const showCompactionIndicator = createMemo(
+    () => props.sessionCompactionState?.running === true,
+  );
+  const compactionStatusDetail = createMemo(() => {
+    if (!showCompactionIndicator()) return "";
+    return props.sessionCompactionState?.mode === "auto"
+      ? "OpenCode is auto-compacting this session"
+      : "OpenCode is compacting this session";
+  });
+
+  createEffect(
+    on(
+      () => props.sessionCompactionState?.startedAt ?? null,
+      (startedAt, previous) => {
+        if (!startedAt || startedAt === previous) return;
+        if (props.sessionCompactionState?.mode === "manual") return;
+        setToastMessage("OpenCode started compacting the session context.");
+      },
+    ),
+  );
+
+  createEffect(
+    on(
+      () => props.sessionCompactionState?.finishedAt ?? null,
+      (finishedAt, previous) => {
+        if (!finishedAt || finishedAt === previous) return;
+        if (props.sessionCompactionState?.mode === "manual") return;
+        setToastMessage("OpenCode finished compacting the session context.");
+      },
+    ),
+  );
 
   const latestRunPart = createMemo<Part | null>(() => {
     if (!showRunIndicator()) return null;
@@ -4244,96 +4265,6 @@ export default function SessionView(props: SessionViewProps) {
             </div>
           </Show>
 
-          <Show when={props.showSkillReloadBanner}>
-            <div class="border-b border-dls-border/70 bg-dls-surface animate-in fade-in slide-in-from-top-3 duration-300">
-              <div class="flex min-h-[104px] items-start gap-3 px-4 py-5 sm:px-6 lg:px-10">
-                <div
-                  class={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
-                    props.reloadBannerBlocked
-                      ? "border-amber-6/40 bg-amber-4/80 text-amber-11"
-                      : "border-sky-6/40 bg-sky-4/80 text-sky-11"
-                  }`.trim()}
-                >
-                  <RefreshCcw size={18} class={props.reloadBusy ? "animate-spin" : ""} />
-                </div>
-
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0">
-                      <div class="flex items-center gap-2">
-                        <span class="truncate text-sm font-semibold text-gray-12">{props.reloadBannerTitle}</span>
-                        <Show when={props.reloadBannerBlocked}>
-                          <span class="inline-flex items-center gap-1 rounded-full bg-amber-4 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-11">
-                            Active tasks
-                          </span>
-                        </Show>
-                      </div>
-
-                      <div class="mt-1 space-y-1 text-sm leading-relaxed text-gray-10">
-                        <div>
-                          <Show
-                            when={props.reloadBannerBlocked}
-                            fallback={
-                              <Show when={props.reloadError} fallback={props.reloadBannerBody}>
-                                <span class="font-medium text-red-11">{props.reloadError}</span>
-                              </Show>
-                            }
-                          >
-                            <span class="font-medium text-amber-11">Reloading will stop active tasks.</span>
-                          </Show>
-                        </div>
-
-                        <Show when={props.reloadBannerBlocked}>
-                          <div class="flex items-start gap-2 rounded-2xl border border-amber-6/40 bg-amber-3/70 px-3 py-2 text-xs text-amber-11">
-                            <AlertTriangle size={14} class="mt-0.5 shrink-0" />
-                            <span>
-                              {`Reloading stops ${props.reloadBannerActiveCount} active conversation${props.reloadBannerActiveCount === 1 ? "" : "s"}.`}
-                            </span>
-                          </div>
-                        </Show>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={props.dismissReloadBanner}
-                      class="rounded-full p-1 text-gray-9 transition hover:bg-gray-3 hover:text-gray-12"
-                      aria-label="Dismiss reload prompt"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-
-                  <div class="mt-3 flex flex-wrap items-center gap-2">
-                    <Button
-                      variant={props.reloadBannerBlocked ? "danger" : "primary"}
-                      class="rounded-full px-3 py-1.5 text-xs"
-                      disabled={!props.canReloadWorkspace || props.reloadBusy}
-                      onClick={() =>
-                        void (props.reloadBannerBlocked
-                          ? props.forceStopActiveConversations()
-                          : props.reloadWorkspaceEngine())
-                      }
-                    >
-                      {props.reloadBusy
-                        ? "Reloading..."
-                        : props.reloadBannerBlocked
-                          ? "Reload & Stop Tasks"
-                          : "Reload now"}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      class="rounded-full px-3 py-1.5 text-xs"
-                      onClick={props.dismissReloadBanner}
-                    >
-                      Later
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </Show>
-
           <div class="flex-1 flex overflow-hidden">
             <div class="relative min-w-0 flex-1 overflow-hidden bg-dls-surface">
               <div
@@ -4711,25 +4642,32 @@ export default function SessionView(props: SessionViewProps) {
             providerConnectedIds={props.providerConnectedIds}
             mcpStatuses={props.mcpStatuses}
             statusLabel={
-              showRunIndicator()
+              showCompactionIndicator()
+                ? "Compacting Context"
+                : showRunIndicator()
                 ? "Session Active"
                 : props.selectedSessionId
                   ? "Session Ready"
                   : "Ready"
             }
+            statusDetail={showCompactionIndicator() ? compactionStatusDetail() : undefined}
             statusDotClass={
-              showRunIndicator()
+              showCompactionIndicator()
+                ? "bg-blue-9"
+                : showRunIndicator()
                 ? "bg-green-9"
                 : props.selectedSessionId
                   ? "bg-green-9"
                   : "bg-gray-8"
             }
             statusPingClass={
-              showRunIndicator()
+              showCompactionIndicator()
+                ? "bg-blue-9/35 animate-ping"
+                : showRunIndicator()
                 ? "bg-green-9/45 animate-ping"
                 : "bg-green-9/35"
             }
-            statusPulse={showRunIndicator()}
+            statusPulse={showCompactionIndicator() || showRunIndicator()}
           />
         </main>
       </div>
