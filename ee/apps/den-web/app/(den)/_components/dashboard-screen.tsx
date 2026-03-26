@@ -558,7 +558,7 @@ export function DashboardScreen({ showSidebar = true }: { showSidebar?: boolean 
                   <p className="text-[15px] leading-relaxed text-[var(--dls-text-secondary)]">
                     {billingSummary?.featureGateEnabled
                       ? billingSummary.hasActivePlan
-                        ? "Your account has an active Den Cloud plan."
+                        ? "Your account has an active OpenWork Cloud plan."
                         : "Your account needs billing before the next launch."
                       : "Billing gates are disabled in this environment."}
                   </p>

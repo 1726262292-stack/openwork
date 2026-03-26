@@ -1,7 +1,5 @@
-// import { DashboardScreen } from "../../../_components/dashboard-screen";
-import { TemplatesDashboardScreen } from "./_components/templates-dashboard-screen";
+import { DashboardOverviewScreen } from "./_components/dashboard-overview-screen";
 
 export default function OrgDashboardPage() {
-  // return <DashboardScreen showSidebar={false} />;
-  return <TemplatesDashboardScreen />;
+  return <DashboardOverviewScreen />;
 }

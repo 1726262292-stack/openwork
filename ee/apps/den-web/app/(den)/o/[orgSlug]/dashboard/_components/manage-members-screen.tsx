@@ -180,13 +180,12 @@ export function ManageMembersScreen() {
       <div className="den-frame p-6 md:p-8 lg:p-10">
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
           <div>
-            <p className="den-eyebrow">Manage members</p>
+            <p className="den-eyebrow">OpenWork Cloud</p>
             <h1 className="mt-2 text-[2.4rem] font-semibold leading-[0.95] tracking-[-0.06em] text-[var(--dls-text-primary)]">
-              {activeOrg.name}
+              Members
             </h1>
             <p className="mt-3 max-w-2xl text-[15px] leading-7 text-[var(--dls-text-secondary)]">
-              Invite people, adjust roles, and keep access clean without turning
-              the page into an admin maze.
+              Invite teammates, adjust roles, and keep access clean without turning this into an admin maze.
             </p>
           </div>
           <div className="den-frame-inset rounded-[1.25rem] px-4 py-3 text-sm text-[var(--dls-text-secondary)]">

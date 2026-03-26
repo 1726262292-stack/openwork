@@ -95,14 +95,14 @@ export function AuthScreen() {
   const panelTitle = verificationRequired
     ? "Verify your email."
     : authMode === "sign-up"
-      ? "Create your Den account."
-      : "Sign in to Den.";
+      ? "Create your Cloud account."
+      : "Sign in to Cloud.";
 
   const panelCopy = verificationRequired
     ? "Enter the six-digit code from your inbox to finish setup."
     : authMode === "sign-up"
       ? "Start with email, GitHub, or Google."
-      : "Welcome back. Pick up where your workers left off.";
+      : "Welcome back. Keep your team setup in sync across Cloud and desktop.";
 
   return (
     <section className="den-page flex w-full items-center py-4 lg:min-h-[calc(100vh-2.5rem)]">
@@ -110,28 +110,27 @@ export function AuthScreen() {
         <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]">
           <div className="den-frame-soft flex flex-col justify-between gap-10 p-7 md:p-10 lg:p-12">
             <div className="grid gap-6">
-              <span className="den-kicker w-fit">OpenWork Den</span>
+              <span className="den-kicker w-fit">OpenWork Cloud</span>
               <div className="grid gap-4">
-                <h1 className="den-title-xl max-w-[10ch]">Run workers that stay on.</h1>
+                <h1 className="den-title-xl max-w-[12ch]">Share your OpenWork setup with your team.</h1>
                 <p className="den-copy max-w-[40rem]">
-                  Launch hosted workers, share the same setup with your team,
-                  and reconnect from desktop or web when you need it.
+                  Provision shared setups, invite your org, and keep background agents available when you need them.
                 </p>
               </div>
             </div>
 
             <div className="grid gap-6 md:grid-cols-3 lg:grid-cols-1">
               <div className="grid gap-1 border-t border-gray-200 pt-4">
-                <p className="text-base font-medium text-[var(--dls-text-primary)]">Hosted workers</p>
-                <p className="den-copy text-sm">Keep automations live after your laptop closes.</p>
+                <p className="text-base font-medium text-[var(--dls-text-primary)]">Share setup across your team and org</p>
+                <p className="den-copy text-sm">Package skills, MCPs, plugins, and config once.</p>
               </div>
               <div className="grid gap-1 border-t border-gray-200 pt-4">
-                <p className="text-base font-medium text-[var(--dls-text-primary)]">Shared setup</p>
-                <p className="den-copy text-sm">Bring the same skills, MCPs, and config into Den.</p>
+                <p className="text-base font-medium text-[var(--dls-text-primary)]">Background agents</p>
+                <p className="den-copy text-sm">Keep selected workflows running in the cloud. Alpha.</p>
               </div>
               <div className="grid gap-1 border-t border-gray-200 pt-4">
-                <p className="text-base font-medium text-[var(--dls-text-primary)]">Open anywhere</p>
-                <p className="den-copy text-sm">Reconnect from the browser or the OpenWork app.</p>
+                <p className="text-base font-medium text-[var(--dls-text-primary)]">Custom LLM providers</p>
+                <p className="den-copy text-sm">Standardize provider access for your team. Coming soon.</p>
               </div>
             </div>
           </div>
@@ -176,8 +175,7 @@ export function AuthScreen() {
                     </div>
                     <p className="text-xs leading-5 opacity-80">
                       If OpenWork does not open automatically, copy the sign-in
-                      link or one-time code and paste it into OpenWork Cloud
-                      settings.
+                      link or one-time code and paste it into the OpenWork desktop app.
                     </p>
                   </div>
                 ) : null}
@@ -278,8 +276,8 @@ export function AuthScreen() {
                   : verificationRequired
                     ? "Verify email"
                     : authMode === "sign-in"
-                      ? "Sign in"
-                      : "Create account"}
+                      ? "Sign in to Cloud"
+                      : "Create Cloud account"}
               </button>
 
               {verificationRequired ? (

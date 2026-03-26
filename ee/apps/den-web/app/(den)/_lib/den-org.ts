@@ -144,6 +144,22 @@ export function getManageMembersRoute(orgSlug: string): string {
   return `${getOrgDashboardRoute(orgSlug)}/manage-members`;
 }
 
+export function getMembersRoute(orgSlug: string): string {
+  return `${getOrgDashboardRoute(orgSlug)}/members`;
+}
+
+export function getSharedSetupsRoute(orgSlug: string): string {
+  return `${getOrgDashboardRoute(orgSlug)}/shared-setups`;
+}
+
+export function getBackgroundAgentsRoute(orgSlug: string): string {
+  return `${getOrgDashboardRoute(orgSlug)}/background-agents`;
+}
+
+export function getCustomLlmProvidersRoute(orgSlug: string): string {
+  return `${getOrgDashboardRoute(orgSlug)}/custom-llm-providers`;
+}
+
 export function parseOrgListPayload(payload: unknown): {
   orgs: DenOrgSummary[];
   activeOrgId: string | null;

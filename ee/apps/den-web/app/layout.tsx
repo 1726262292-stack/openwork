@@ -18,20 +18,20 @@ const ibmPlexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://app.openworklabs.com"),
-  title: "Den Cloud Workers",
+  title: "OpenWork Cloud",
   description:
-    "Launch OpenWork cloud workers, manage Polar checkout flows, and run Den from app.openworklabs.com with the same positioning as the landing page.",
+    "Share your OpenWork setup with your team, manage billing, and use OpenWork Cloud from app.openworklabs.com.",
   openGraph: {
-    title: "Den Cloud Workers",
+    title: "OpenWork Cloud",
     description:
-      "Always-on AI workers for you and your team, launched from app.openworklabs.com.",
+      "Share your OpenWork setup with your team and keep selected workflows available in OpenWork Cloud.",
     images: ["/opengraph-image"]
   },
   twitter: {
     card: "summary_large_image",
-    title: "Den Cloud Workers",
+    title: "OpenWork Cloud",
     description:
-      "Launch OpenWork cloud workers, manage Polar checkout flows, and operate Den from app.openworklabs.com.",
+      "Share your OpenWork setup with your team and manage OpenWork Cloud from app.openworklabs.com.",
     images: ["/opengraph-image"]
   },
   icons: {

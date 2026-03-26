@@ -1,5 +1,9 @@
-import { ManageMembersScreen } from "../_components/manage-members-screen";
+import { redirect } from "next/navigation";
 
-export default function ManageMembersPage() {
-  return <ManageMembersScreen />;
+export default function ManageMembersRedirectPage({
+  params,
+}: {
+  params: { orgSlug: string };
+}) {
+  redirect(`/o/${encodeURIComponent(params.orgSlug)}/dashboard/members`);
 }

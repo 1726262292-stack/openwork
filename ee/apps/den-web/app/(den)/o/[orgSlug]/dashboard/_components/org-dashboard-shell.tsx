@@ -6,8 +6,11 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useDenFlow } from "../../../../_providers/den-flow-provider";
 import {
   formatRoleLabel,
-  getManageMembersRoute,
+  getBackgroundAgentsRoute,
+  getCustomLlmProvidersRoute,
+  getMembersRoute,
   getOrgDashboardRoute,
+  getSharedSetupsRoute,
 } from "../../../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 
@@ -59,7 +62,10 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
 
   const navItems = [
     { href: activeOrg ? getOrgDashboardRoute(activeOrg.slug) : "#", label: "Dashboard" },
-    { href: activeOrg ? getManageMembersRoute(activeOrg.slug) : "#", label: "Manage members" },
+    { href: activeOrg ? getSharedSetupsRoute(activeOrg.slug) : "#", label: "Shared setups" },
+    { href: activeOrg ? getMembersRoute(activeOrg.slug) : "#", label: "Members" },
+    { href: activeOrg ? getBackgroundAgentsRoute(activeOrg.slug) : "#", label: "Background agents", badge: "Alpha" },
+    { href: activeOrg ? getCustomLlmProvidersRoute(activeOrg.slug) : "#", label: "Custom LLM providers", badge: "Soon" },
     { href: "/checkout", label: "Billing" },
   ];
 
@@ -69,8 +75,8 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
         <div className="flex h-full flex-col gap-5 p-4 md:p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="den-eyebrow">OpenWork Den</p>
-              <p className="mt-1 text-lg font-semibold tracking-tight text-[var(--dls-text-primary)]">Workspace</p>
+              <p className="den-eyebrow">OpenWork Cloud</p>
+              <p className="mt-1 text-lg font-semibold tracking-tight text-[var(--dls-text-primary)]">Team workspace</p>
             </div>
             {orgBusy ? <span className="text-xs text-[var(--dls-text-secondary)]">Refreshing...</span> : null}
           </div>
@@ -171,25 +177,36 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
             </div>
             <nav className="grid gap-1.5">
               {navItems.map((item) => {
-                const selected = item.href !== "#" && pathname === item.href;
+                const selected = item.href !== "#" && (pathname === item.href || pathname.startsWith(`${item.href}/`));
                 return (
                   <Link
                     key={item.label}
                     href={item.href}
-                    className={`rounded-full px-4 py-3 text-sm font-medium transition ${
+                    className={`flex items-center justify-between gap-3 rounded-full px-4 py-3 text-sm font-medium transition ${
                       selected
                         ? "bg-white text-[var(--dls-text-primary)] shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_0_rgba(0,0,0,0.04)]"
                         : "text-[var(--dls-text-secondary)] hover:text-[var(--dls-text-primary)]"
                     }`}
                   >
-                    {item.label}
+                    <span>{item.label}</span>
+                    {item.badge ? <span className="den-status-pill is-neutral">{item.badge}</span> : null}
                   </Link>
                 );
               })}
             </nav>
           </div>
 
-          <div className="mt-auto den-frame-soft grid gap-3 p-4">
+          <div className="mt-auto grid gap-3">
+            <a
+              href="https://openworklabs.com/docs"
+              target="_blank"
+              rel="noreferrer"
+              className="den-button-secondary w-full"
+            >
+              Learn how
+            </a>
+
+            <div className="den-frame-soft grid gap-3 p-4">
             <div>
               <p className="den-eyebrow">Signed in as</p>
               <p className="mt-2 break-words text-sm font-medium text-[var(--dls-text-primary)]">
@@ -204,6 +221,7 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
             >
               Log out
             </button>
+            </div>
           </div>
         </div>
       </aside>

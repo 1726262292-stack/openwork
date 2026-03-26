@@ -135,39 +135,41 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
   return (
     <section className="den-page grid gap-6 py-4 lg:py-6">
       <div className="den-frame grid gap-6 p-6 md:p-8 lg:p-10">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-col gap-4 lg:max-w-3xl">
           <div className="grid gap-3">
-            <p className="den-eyebrow">{onboardingPending ? "Finish setup" : "Billing"}</p>
-            <h1 className="den-title-xl max-w-[10ch]">Choose how to run Den.</h1>
+            <p className="den-eyebrow">OpenWork Cloud</p>
+            <h1 className="den-title-xl max-w-[12ch]">Provision shared setups for your team.</h1>
             <p className="den-copy max-w-2xl">
-              Start with hosted workers for your team, or stay local and add
-              Cloud later.
+              Share your setup across your org, launch background agents in alpha, and prepare for team-wide provider provisioning.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <span className={`den-status-pill ${billingSummary?.hasActivePlan ? "is-positive" : "is-neutral"}`}>
-              {billingSummary?.hasActivePlan ? "Active plan" : "Trial ready"}
-            </span>
-            <span className="den-kicker">{user?.email ?? "Signed in"}</span>
+          <div className="flex flex-wrap gap-3">
+            {checkoutHref ? (
+              <a href={checkoutHref} rel="noreferrer" className="den-button-primary w-full sm:w-auto">
+                Start free trial
+              </a>
+            ) : (
+              <button
+                type="button"
+                className="den-button-primary w-full sm:w-auto"
+                onClick={() => void refreshBilling({ includeCheckout: true, quiet: false })}
+                disabled={billingBusy || billingCheckoutBusy}
+              >
+                Refresh trial link
+              </button>
+            )}
+            <a href="https://openworklabs.com/download" className="den-button-secondary w-full sm:w-auto">
+              Use desktop only
+            </a>
           </div>
-        </div>
 
-        <div className="den-stat-grid">
-          <div className="den-stat-card">
-            <p className="den-stat-label">Cloud plan</p>
-            <p className="den-stat-value">{planAmountLabel}</p>
-            <p className="den-stat-copy">Hosted workers, team access, and billing in one place.</p>
-          </div>
-          <div className="den-stat-card">
-            <p className="den-stat-label">Subscription</p>
-            <p className="den-stat-value">{subscriptionStatus}</p>
-            <p className="den-stat-copy">{billingSummary?.hasActivePlan ? "Your workspace is ready to keep running." : `${TRIAL_DAYS}-day free trial before billing starts.`}</p>
-          </div>
-          <div className="den-stat-card">
-            <p className="den-stat-label">Invoices</p>
-            <p className="den-stat-value">{billingSummary?.invoices.length ?? 0}</p>
-            <p className="den-stat-copy">Past billing history appears here as soon as your plan is active.</p>
+          <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--dls-text-secondary)]">
+            <span>{TRIAL_DAYS}-day free trial</span>
+            <span aria-hidden="true">•</span>
+            <span>{planAmountLabel} after trial</span>
+            <span aria-hidden="true">•</span>
+            <span>{user?.email ?? "Signed in"}</span>
           </div>
         </div>
       </div>
@@ -176,93 +178,72 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
       {showLoading ? <div className="den-frame-soft px-5 py-4 text-sm text-[var(--dls-text-secondary)]">Refreshing access state...</div> : null}
 
       {billingSummary ? (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_360px]">
-          <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_320px]">
+          <div className="grid gap-6">
             <article className="den-frame grid gap-6 p-6 md:p-7">
               <div className="grid gap-3">
-                <span className="den-kicker w-fit">Hosted workers</span>
-                <h2 className="den-title-lg">Den Cloud</h2>
+                <span className="den-kicker w-fit">OpenWork Cloud</span>
+                <h2 className="den-title-lg">Share your setup across your team.</h2>
                 <p className="den-copy">
-                  Run workers that stay on, share access with your team, and
-                  manage billing without leaving Den.
+                  Manage your team&apos;s setup, invite teammates, and keep everything in sync.
                 </p>
               </div>
 
               <div className="grid gap-3 text-sm text-[var(--dls-text-secondary)]">
-                <div className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-300" />{TRIAL_DAYS}-day free trial</div>
-                <div className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-300" />{planAmountLabel} after trial</div>
-                <div className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-300" />Hosted workers, team access, and billing controls</div>
+                <div className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-300" />Share setup across your team and org</div>
+                <div className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-300" />Background agents in alpha for selected workflows</div>
+                <div className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-300" />Custom LLM providers for teams, coming soon</div>
               </div>
 
-              {checkoutHref ? (
-                <div className="mt-auto flex flex-wrap gap-3 pt-2">
-                  <a
-                    href={checkoutHref}
-                    rel="noreferrer"
-                    className="den-button-primary w-full sm:w-auto"
-                  >
-                    Start free trial
-                  </a>
-                  {billingSummary.portalUrl ? (
-                    <a href={billingSummary.portalUrl} rel="noreferrer" target="_blank" className="den-button-secondary w-full sm:w-auto">
-                      Open billing portal
-                    </a>
-                  ) : null}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="den-frame-inset rounded-[1.5rem] p-4">
+                  <p className="den-stat-label">Background agents</p>
+                  <p className="mt-3 text-sm text-[var(--dls-text-secondary)]">
+                    Keep selected workflows running in the background. Alpha.
+                  </p>
                 </div>
-              ) : (
-                <div className="mt-auto grid gap-3 pt-2">
-                  <div className="den-frame-inset rounded-[1.5rem] px-4 py-3 text-sm text-[var(--dls-text-secondary)]">
-                    We are still preparing your trial link.
-                  </div>
-                  <button
-                    type="button"
-                    className="den-button-secondary w-full sm:w-auto"
-                    onClick={() => void refreshBilling({ includeCheckout: true, quiet: false })}
-                    disabled={billingBusy || billingCheckoutBusy}
-                  >
-                    Refresh trial link
-                  </button>
+                <div className="den-frame-inset rounded-[1.5rem] p-4">
+                  <p className="den-stat-label">Custom LLM providers</p>
+                  <p className="mt-3 text-sm text-[var(--dls-text-secondary)]">
+                    Standardize provider access for your team. Coming soon.
+                  </p>
                 </div>
-              )}
+              </div>
             </article>
 
-            <article className="den-frame-soft grid gap-6 p-6 md:p-7">
+            <article className="den-frame-soft grid gap-5 p-6 md:p-7">
               <div className="grid gap-3">
-                <span className="den-kicker w-fit">Local-first</span>
-                <h2 className="den-title-lg">Desktop App</h2>
+                <span className="den-kicker w-fit">Desktop app</span>
+                <h2 className="den-title-lg">Stay local when you need to.</h2>
                 <p className="den-copy">
-                  Run locally for free, keep your data on your machine, and add
-                  Cloud when your team needs it.
+                  Run locally for free, keep your data on your machine, and add OpenWork Cloud when your team is ready.
                 </p>
               </div>
 
               <div className="grid gap-3 text-sm text-[var(--dls-text-secondary)]">
                 <div className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-300" />Run locally for free</div>
                 <div className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-300" />Keep data on your machine</div>
-                <div className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-300" />Add Den Cloud whenever you are ready</div>
+                <div className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-300" />Move into OpenWork Cloud later</div>
               </div>
 
               <div className="mt-auto pt-2">
-                <a href="/" className="den-button-secondary w-full sm:w-auto">
-                  Download app
+                <a href="https://openworklabs.com/download" className="den-button-secondary w-full sm:w-auto">
+                  Use desktop only
                 </a>
               </div>
             </article>
           </div>
 
-          <aside className="den-frame-soft grid h-fit gap-5 p-6 md:p-7">
+          <aside className="den-frame-soft grid h-fit gap-4 p-5 md:p-6">
             <div className="grid gap-2">
-              <p className="den-eyebrow">Billing snapshot</p>
-              <h2 className="den-title-lg">Keep billing tidy.</h2>
-              <p className="den-copy text-sm">
-                Track plan status, open the billing portal, and review invoices
-                from one place.
-              </p>
+              <p className="den-eyebrow">Billing status</p>
+              <h2 className="text-2xl font-semibold tracking-tight text-[var(--dls-text-primary)]">{subscriptionStatus}</h2>
+              <p className="den-copy text-sm">{billingSummary.hasActivePlan ? "Your Cloud plan is active." : `${TRIAL_DAYS}-day free trial before billing starts.`}</p>
             </div>
 
             <div className="den-frame-inset grid gap-3 rounded-[1.5rem] px-4 py-4">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium text-[var(--dls-text-primary)]">Plan status</span>
+                <span className="text-sm font-medium text-[var(--dls-text-primary)]">Plan</span>
                 <span className={`den-status-pill ${billingSummary.hasActivePlan ? "is-positive" : "is-neutral"}`}>
                   {subscriptionStatus}
                 </span>
@@ -278,6 +259,11 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
             </div>
 
             <div className="grid gap-3">
+              {checkoutHref && !billingSummary.hasActivePlan ? (
+                <a href={checkoutHref} rel="noreferrer" className="den-button-primary w-full">
+                  Start free trial
+                </a>
+              ) : null}
               {billingSummary.portalUrl ? (
                 <a href={billingSummary.portalUrl} rel="noreferrer" target="_blank" className="den-button-secondary w-full">
                   Open billing portal
@@ -293,38 +279,14 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
               </button>
             </div>
 
-            <div className="den-list-shell">
-              <div className="px-5 py-4">
-                <p className="den-eyebrow">Invoices</p>
-              </div>
-              {billingSummary.invoices.length === 0 ? (
-                <div className="den-list-row text-sm text-[var(--dls-text-secondary)]">
-                  Invoices will appear here once your Cloud plan begins billing.
-                </div>
-              ) : (
-                billingSummary.invoices.slice(0, 5).map((invoice) => (
-                  <div key={invoice.id} className="den-list-row">
-                    <div className="grid gap-1">
-                      <p className="text-sm font-medium text-[var(--dls-text-primary)]">
-                        {invoice.invoiceNumber ?? "Invoice"}
-                      </p>
-                      <p className="text-xs text-[var(--dls-text-secondary)]">
-                        {invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString() : "Recent"}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-[var(--dls-text-secondary)]">
-                        {invoice.totalAmount !== null ? formatMoneyMinor(invoice.totalAmount, invoice.currency) : "Pending"}
-                      </span>
-                      {invoice.invoiceUrl ? (
-                        <a href={invoice.invoiceUrl} rel="noreferrer" target="_blank" className="den-button-ghost text-sm">
-                          View
-                        </a>
-                      ) : null}
-                    </div>
-                  </div>
-                ))
-              )}
+            <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-[var(--dls-text-secondary)]">
+              {billingSummary.portalUrl ? (
+                <a href={billingSummary.portalUrl} rel="noreferrer" target="_blank" className="font-medium text-[var(--dls-text-primary)] transition hover:opacity-70">
+                  Billing portal
+                </a>
+              ) : null}
+              <span>Invoices {billingSummary.invoices.length > 0 ? `(${billingSummary.invoices.length})` : ""}</span>
+              <span>Cancel anytime</span>
             </div>
           </aside>
         </div>
