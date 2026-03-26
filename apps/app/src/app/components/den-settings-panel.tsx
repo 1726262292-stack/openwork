@@ -81,6 +81,8 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
   const [authToken, setAuthToken] = createSignal(initial.authToken?.trim() || "");
   const [activeOrgId, setActiveOrgId] = createSignal(initial.activeOrgId?.trim() || "");
   const [authBusy, setAuthBusy] = createSignal(false);
+  const [manualAuthOpen, setManualAuthOpen] = createSignal(false);
+  const [manualAuthInput, setManualAuthInput] = createSignal("");
   const [sessionBusy, setSessionBusy] = createSignal(false);
   const [orgsBusy, setOrgsBusy] = createSignal(false);
   const [workersBusy, setWorkersBusy] = createSignal(false);
@@ -164,6 +166,94 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
         : "Finish signing in in your browser to connect OpenWork.",
     );
     setAuthError(null);
+  };
+
+  const parseManualAuthInput = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    try {
+      const url = new URL(trimmed);
+      const protocol = url.protocol.toLowerCase();
+      const routeHost = url.hostname.toLowerCase();
+      const routePath = url.pathname.replace(/^\/+/, "").toLowerCase();
+      const routeSegments = routePath.split("/").filter(Boolean);
+      const routeTail = routeSegments[routeSegments.length - 1] ?? "";
+      if (
+        (protocol === "openwork:" || protocol === "openwork-dev:") &&
+        (routeHost === "den-auth" || routePath === "den-auth" || routeTail === "den-auth")
+      ) {
+        const grant = url.searchParams.get("grant")?.trim() ?? "";
+        const nextBaseUrl =
+          normalizeDenBaseUrl(url.searchParams.get("denBaseUrl")?.trim() ?? "") ?? undefined;
+        return grant ? { grant, baseUrl: nextBaseUrl } : null;
+      }
+    } catch {
+      // treat non-URL input as a raw handoff grant
+    }
+
+    return trimmed.length >= 12 ? { grant: trimmed } : null;
+  };
+
+  const submitManualAuth = async () => {
+    const parsed = parseManualAuthInput(manualAuthInput());
+    if (!parsed || authBusy()) {
+      if (!parsed) {
+        setAuthError("Paste a valid OpenWork sign-in link or one-time sign-in code.");
+      }
+      return;
+    }
+
+    const nextBaseUrl = parsed.baseUrl ?? baseUrl();
+
+    setAuthBusy(true);
+    setAuthError(null);
+    setStatusMessage("Finishing OpenWork Cloud sign-in...");
+
+    try {
+      const result = await createDenClient({ baseUrl: nextBaseUrl }).exchangeDesktopHandoff(parsed.grant);
+      if (!result.token) {
+        throw new Error("Desktop sign-in completed, but OpenWork Cloud did not return a session token.");
+      }
+
+      if (props.developerMode) {
+        setBaseUrl(nextBaseUrl);
+        setBaseUrlDraft(nextBaseUrl);
+      }
+
+      writeDenSettings({
+        baseUrl: props.developerMode ? nextBaseUrl : DEFAULT_DEN_BASE_URL,
+        authToken: result.token,
+        activeOrgId: null,
+        activeOrgSlug: null,
+        activeOrgName: null,
+      });
+
+      setManualAuthInput("");
+      setManualAuthOpen(false);
+      window.dispatchEvent(
+        new CustomEvent("openwork-den-session-updated", {
+          detail: {
+            status: "success",
+            email: result.user?.email ?? null,
+          },
+        }),
+      );
+    } catch (error) {
+      window.dispatchEvent(
+        new CustomEvent("openwork-den-session-updated", {
+          detail: {
+            status: "error",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Failed to complete OpenWork Cloud sign-in.",
+          },
+        }),
+      );
+    } finally {
+      setAuthBusy(false);
+    }
   };
 
   const clearSessionState = () => {
@@ -612,7 +702,44 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
               Create account
               <ArrowUpRight size={13} />
             </Button>
+            <Button
+              variant="outline"
+              class="text-xs h-9 px-3"
+              onClick={() => {
+                setManualAuthOpen((value) => !value);
+                setAuthError(null);
+              }}
+              disabled={authBusy() || sessionBusy()}
+            >
+              {manualAuthOpen() ? "Hide sign-in code" : "Paste sign-in code"}
+            </Button>
           </div>
+
+          <Show when={manualAuthOpen()}>
+            <div class={`${settingsPanelSoftClass} space-y-3`}>
+              <TextInput
+                label="Sign-in link or one-time code"
+                value={manualAuthInput()}
+                onInput={(event) => setManualAuthInput(event.currentTarget.value)}
+                placeholder="openwork://den-auth?... or pasted code"
+                disabled={authBusy() || sessionBusy()}
+                hint="If your browser doesn't bounce back into OpenWork automatically, paste the sign-in link or one-time code from OpenWork Cloud here."
+              />
+              <div class="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="secondary"
+                  class="text-xs h-9 px-3"
+                  onClick={() => void submitManualAuth()}
+                  disabled={authBusy() || sessionBusy() || !manualAuthInput().trim()}
+                >
+                  {authBusy() ? "Finishing..." : "Finish sign-in"}
+                </Button>
+                <div class="text-[11px] text-dls-secondary">
+                  Accepts an <span class="font-mono">openwork://den-auth</span> link or the raw one-time grant.
+                </div>
+              </div>
+            </div>
+          </Show>
 
           <Show when={authError()}>
             {(value) => (

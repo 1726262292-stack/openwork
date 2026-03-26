@@ -1,8 +1,19 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDenFlow } from "../_providers/den-flow-provider";
+
+function getDesktopGrant(url: string | null) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    const grant = parsed.searchParams.get("grant")?.trim() ?? "";
+    return grant || null;
+  } catch {
+    return null;
+  }
+}
 
 function GitHubLogo() {
   return (
@@ -29,6 +40,7 @@ function GoogleLogo() {
 export function AuthScreen() {
   const router = useRouter();
   const routingRef = useRef(false);
+  const [copiedDesktopField, setCopiedDesktopField] = useState<"link" | "code" | null>(null);
   const {
     authMode,
     setAuthMode,
@@ -55,6 +67,16 @@ export function AuthScreen() {
     beginSocialAuth,
     resolveUserLandingRoute
   } = useDenFlow();
+  const desktopGrant = getDesktopGrant(desktopRedirectUrl);
+
+  const copyDesktopValue = async (field: "link" | "code", value: string | null) => {
+    if (!value) return;
+    await navigator.clipboard.writeText(value);
+    setCopiedDesktopField(field);
+    window.setTimeout(() => {
+      setCopiedDesktopField((current) => (current === field ? null : current));
+    }, 1800);
+  };
 
   useEffect(() => {
     if (!sessionHydrated || !user || desktopAuthRequested || routingRef.current) {
@@ -93,14 +115,35 @@ export function AuthScreen() {
             <div className="rounded-[24px] border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900">
               Finish auth here and we&apos;ll bounce you back into the OpenWork desktop app automatically.
               {desktopRedirectUrl ? (
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-200 bg-white px-3 py-2 text-xs font-medium text-sky-900 transition hover:border-sky-300 hover:bg-sky-50"
-                    onClick={() => window.location.assign(desktopRedirectUrl)}
-                  >
-                    Open OpenWork
-                  </button>
+                <div className="mt-3 grid gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-200 bg-white px-3 py-2 text-xs font-medium text-sky-900 transition hover:border-sky-300 hover:bg-sky-50"
+                      onClick={() => window.location.assign(desktopRedirectUrl)}
+                    >
+                      Open OpenWork
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-200 bg-white px-3 py-2 text-xs font-medium text-sky-900 transition hover:border-sky-300 hover:bg-sky-50"
+                      onClick={() => void copyDesktopValue("link", desktopRedirectUrl)}
+                    >
+                      {copiedDesktopField === "link" ? "Copied link" : "Copy sign-in link"}
+                    </button>
+                    {desktopGrant ? (
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-200 bg-white px-3 py-2 text-xs font-medium text-sky-900 transition hover:border-sky-300 hover:bg-sky-50"
+                        onClick={() => void copyDesktopValue("code", desktopGrant)}
+                      >
+                        {copiedDesktopField === "code" ? "Copied code" : "Copy one-time code"}
+                      </button>
+                    ) : null}
+                  </div>
+                  <p className="text-xs leading-5 text-sky-900/80">
+                    If OpenWork does not open automatically, copy the sign-in link or one-time code and paste it into OpenWork Cloud settings.
+                  </p>
                 </div>
               ) : null}
             </div>
