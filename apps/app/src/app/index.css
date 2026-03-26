@@ -74,6 +74,122 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.ow-soft-shell {
+  border: 1px solid #eceef1;
+  background: #fbfbfc;
+  border-radius: 2rem;
+}
+
+.ow-soft-card {
+  border: 1px solid #eceef1;
+  background: #ffffff;
+  border-radius: 1.5rem;
+  box-shadow: 0 10px 24px -22px rgba(15, 23, 42, 0.14);
+}
+
+.ow-soft-card-quiet {
+  border: 1px solid #eceef1;
+  background: #f8fafc;
+  border-radius: 1.5rem;
+}
+
+.ow-button-primary {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: #011627;
+  color: #ffffff;
+  box-shadow: 0 8px 20px -16px rgba(1, 22, 39, 0.45);
+}
+
+.ow-button-primary:hover:not(:disabled) {
+  background: #000000;
+}
+
+.ow-button-secondary {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #011627;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.04), 0 1px 2px 0 rgba(0,0,0,0.04);
+}
+
+.ow-button-secondary:hover:not(:disabled) {
+  background: #f9fafb;
+}
+
+.ow-button-primary,
+.ow-button-secondary {
+  padding: 0.75rem 1.25rem;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background-color 150ms ease, color 150ms ease, transform 150ms ease, opacity 150ms ease;
+}
+
+.ow-button-primary:active:not(:disabled),
+.ow-button-secondary:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.ow-button-primary:disabled,
+.ow-button-secondary:disabled {
+  opacity: 0.5;
+}
+
+.ow-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 0.25rem 0.625rem;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.ow-status-pill-positive {
+  border: 1px solid rgba(16, 185, 129, 0.16);
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.ow-status-pill-warning {
+  border: 1px solid rgba(245, 158, 11, 0.16);
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.ow-status-pill-neutral {
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #6b7280;
+}
+
+.ow-icon-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.85rem;
+  background: #f4f6f8;
+  color: #011627;
+}
+
+.ow-icon-tile-muted {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.85rem;
+  background: #f1f5f9;
+  color: #6b7280;
+}
+
 /* Global clickable elements pointer */
 button,
 [role="button"],

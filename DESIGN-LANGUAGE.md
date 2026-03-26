@@ -101,6 +101,10 @@ Use for landing sections that need grouping but should still feel calm.
 - subtle edge definition
 - **no box shadow by default**
 
+This is no longer landing-only in spirit. For app surfaces like modals, package builders,
+and share flows, the same shell language is often the right starting point when the surface
+represents a workflow object instead of generic settings chrome.
+
 #### Elevated showcase shell
 
 Use only when a hero/demo needs one extra level of emphasis.
@@ -150,6 +154,10 @@ Borders are one of the main structure tools in OpenWork.
 - `border-gray-300` for stronger but still soft selection
 - low-alpha white borders for translucent landing shells
 - soft shell borders like `#eceef1` for app sidebars and large rounded utility panels
+
+Do not use a dark or high-contrast outline as the main styling for a small icon tile,
+badge shell, or compact decorative container. If the element is just carrying an icon,
+prefer a soft filled tile over an outlined chip.
 
 Selection should usually feel like:
 
@@ -563,6 +571,36 @@ If the user is just choosing between three conceptual options, don’t force eve
 - text-only list
 - opacity-driven stacked copy
 
+### Product object cards
+
+Use when the UI is presenting a reusable worker, template, integration, or packaged setup.
+
+Pattern:
+
+- soft shell or near-white card
+- generous padding
+- title first
+- one short supporting sentence
+- compact status pill in the top-right if needed
+- actions inline underneath or within the card
+
+These should feel like curated product objects, not admin rows.
+
+### Icon tiles inside cards
+
+When a card uses an icon block:
+
+- use a soft filled tile (`bg-slate-50` / similar)
+- prefer no visible border by default
+- let size, radius, and fill define the tile
+- if a muted version is needed, use a quieter fill rather than an outline
+
+Do not:
+
+- put a dark stroke around the icon tile
+- make the icon tile look like a separate outlined button unless it actually is one
+- introduce standalone black/ink borders for decorative icon wrappers
+
 ### Section composition
 
 Most sections should follow one of these layouts:
@@ -604,6 +642,16 @@ Meaning:
 - keep labels readable
 - emphasize utility over visual flourish
 
+### Packaged workflow surfaces
+
+When showing a workflow like share/package/export:
+
+- prefer a soft shell over default modal chrome
+- make the core object the hero (template, worker, integration, package)
+- reduce the number of nested bordered panels
+- use one or two strong cards, then flatter supporting sections
+- present actions as intentional product actions, not generic form controls
+
 ---
 
 ## 13. Selection States
@@ -632,6 +680,33 @@ When a selected item sits inside a soft app shell, prefer:
 - then at most a tiny white badge or tiny control shadow for supporting UI
 
 Avoid making the selected state look like a separate floating card unless the interface is explicitly using segmented pills.
+
+---
+
+## 13.5 Modal Surfaces
+
+Not every modal should look like a system dialog.
+
+For workflow modals (share, package, connect, publish, save to team):
+
+- use a large soft shell with a near-white background
+- keep the header airy and typographic
+- avoid harsh header separators unless they add real structure
+- prefer one scrollable content region inside the shell
+- use soft cards for major choices
+- reduce mini-panels and stacked utility boxes
+
+Good modal direction:
+
+- feels like a product surface
+- can contain object cards and actions
+- uses soft hierarchy and breathing room
+
+Bad modal direction:
+
+- dense settings sheet
+- too many small bordered sub-panels
+- generic dialog chrome with no product feel
 
 ---
 
@@ -696,6 +771,7 @@ Do not introduce these:
 - giant gradients behind readable text
 - decorative badges/counters with no functional meaning
 - hiding anchor labels just to show hover actions
+- outlined icon chips that read darker than the card they sit inside
 
 If something looks “designed” before it looks “useful,” it is probably wrong.
 
@@ -744,6 +820,15 @@ If something looks “designed” before it looks “useful,” it is probably w
 - selected row uses soft gray fill
 - floating footer action can be white if it needs separation from the shell
 
+### Share/package modal
+
+- soft shell modal
+- object cards for reusable templates or integrations
+- compact status pills
+- strong dark primary CTA
+- white secondary CTA with tiny ring/shadow
+- avoid form-heavy utility styling unless the step is truly form-driven
+
 ### Landing shell
 
 - reserved for hero/showcase moments
@@ -780,6 +865,7 @@ Use these as implementation references:
 - Landing hero and selector patterns: `_repos/openwork/ee/apps/landing/components/landing-home.tsx`
 - Landing demo list rhythm: `_repos/openwork/ee/apps/landing/components/landing-app-demo-panel.tsx`
 - Cloud dashboard sidebar shell + selected state: `_repos/openwork/ee/apps/den-web/app/(den)/o/[orgSlug]/dashboard/_components/org-dashboard-shell.tsx`
+- Share/package modal direction: `_repos/openwork/apps/app/src/app/components/share-workspace-modal.tsx`
 - App workspace/session list rhythm: `_repos/openwork/apps/app/src/app/components/session/workspace-session-list.tsx`
 
 When in doubt, prefer the calmer version.
