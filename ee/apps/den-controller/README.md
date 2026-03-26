@@ -25,6 +25,24 @@ That brings up:
 
 The script prints the exact URLs and `docker compose ... down` command to use for cleanup.
 
+## Faster local iteration
+
+For a quicker inner loop, run MySQL in Docker and keep the Den controller + Den web app local:
+
+From the OpenWork repo root:
+
+```bash
+pnpm dev:den-local
+```
+
+From the OpenWork enterprise root:
+
+```bash
+pnpm --dir _repos/openwork dev:den-local
+```
+
+That path reuses `scripts/dev-web-local.sh` and is usually faster than the full Docker stack because the Next.js app runs in dev mode instead of `build && start`.
+
 ## Environment
 
 - `DATABASE_URL` MySQL connection URL

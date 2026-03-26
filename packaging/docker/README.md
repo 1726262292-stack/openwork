@@ -83,6 +83,30 @@ Optional env vars (via `.env` or `export`):
 - `DEN_PROVISIONER_MODE` — `stub` or `render` (defaults to `stub`)
 - `DEN_WORKER_URL_TEMPLATE` — stub worker URL template with `{workerId}` placeholder
 
+### Faster inner-loop alternative
+
+If you are iterating on Den locally and do not need the full Dockerized web stack, use the hybrid path instead:
+
+From the OpenWork repo root:
+
+```bash
+pnpm dev:den-local
+```
+
+Or from the OpenWork enterprise root:
+
+```bash
+pnpm --dir _repos/openwork dev:den-local
+```
+
+What it does:
+- Starts only **MySQL** in Docker
+- Runs **Den controller** locally in watch mode
+- Runs **OpenWork Cloud web app** locally in Next.js dev mode
+- Reuses the existing local-dev wiring in `scripts/dev-web-local.sh`
+
+This is usually the fastest path for UI/auth/control-plane iteration because it avoids rebuilding the Docker web image on each boot.
+
 ---
 
 ## Production container
