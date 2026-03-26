@@ -68,16 +68,14 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
     { href: activeOrg ? getCustomLlmProvidersRoute(activeOrg.slug) : "#", label: "Custom LLM providers", badge: "Soon" },
     { href: "/checkout", label: "Billing" },
   ];
+  const dashboardHref = activeOrg ? getOrgDashboardRoute(activeOrg.slug) : "#";
 
   return (
-    <section className="flex min-h-screen min-h-dvh w-full bg-[var(--dls-app-bg)] p-3 md:flex-row md:p-4">
-      <aside className="w-full shrink-0 rounded-[2rem] border border-[#eceef1] bg-[#fafafa] md:w-[304px]">
-        <div className="flex h-full flex-col gap-5 p-4 md:p-5">
+    <section className="flex min-h-screen min-h-dvh w-full gap-3 bg-[var(--dls-app-bg)] p-3 md:flex-row md:gap-4 md:p-4">
+      <aside className="w-full shrink-0 rounded-[2rem] border border-[#eceef1] bg-[#fafafa] md:h-[calc(100dvh-2rem)] md:max-h-[calc(100dvh-2rem)] md:w-[304px] md:self-start">
+        <div className="flex h-full flex-col gap-5 overflow-y-auto p-4 md:p-5">
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="den-eyebrow">OpenWork Cloud</p>
-              <p className="mt-1 text-lg font-semibold tracking-tight text-[var(--dls-text-primary)]">Team workspace</p>
-            </div>
+            <p className="den-eyebrow">OpenWork Cloud</p>
             {orgBusy ? <span className="text-xs text-[var(--dls-text-secondary)]">Refreshing...</span> : null}
           </div>
 
@@ -177,7 +175,7 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
             </div>
             <nav className="grid gap-1.5">
               {navItems.map((item) => {
-                const selected = item.href !== "#" && (pathname === item.href || pathname.startsWith(`${item.href}/`));
+                const selected = item.href !== "#" && (item.href === dashboardHref ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`));
                 return (
                   <Link
                     key={item.label}
