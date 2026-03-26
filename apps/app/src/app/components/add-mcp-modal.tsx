@@ -23,6 +23,7 @@ export default function AddMcpModal(props: AddMcpModalProps) {
   const [command, setCommand] = createSignal("");
   const [oauthRequired, setOauthRequired] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [submitting, setSubmitting] = createSignal(false);
 
   const reset = () => {
     setName("");
@@ -34,11 +35,13 @@ export default function AddMcpModal(props: AddMcpModalProps) {
   };
 
   const handleClose = () => {
+    if (submitting()) return;
     reset();
     props.onClose();
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (submitting()) return;
     setError(null);
 
     const trimmedName = name().trim();
@@ -47,34 +50,46 @@ export default function AddMcpModal(props: AddMcpModalProps) {
       return;
     }
 
+    setSubmitting(true);
+
     if (serverType() === "remote") {
       const trimmedUrl = url().trim();
       if (!trimmedUrl) {
         setError(tr("mcp.url_or_command_required"));
+        setSubmitting(false);
         return;
       }
 
-      props.onAdd({
-        name: trimmedName,
-        description: "",
-        type: "remote",
-        url: trimmedUrl,
-        oauth: oauthRequired(),
-      });
+      try {
+        await Promise.resolve(props.onAdd({
+          name: trimmedName,
+          description: "",
+          type: "remote",
+          url: trimmedUrl,
+          oauth: oauthRequired(),
+        }));
+      } finally {
+        setSubmitting(false);
+      }
     } else {
       const trimmedCommand = command().trim();
       if (!trimmedCommand) {
         setError(tr("mcp.url_or_command_required"));
+        setSubmitting(false);
         return;
       }
 
-      props.onAdd({
-        name: trimmedName,
-        description: "",
-        type: "local",
-        command: trimmedCommand.split(/\s+/),
-        oauth: false,
-      });
+      try {
+        await Promise.resolve(props.onAdd({
+          name: trimmedName,
+          description: "",
+          type: "local",
+          command: trimmedCommand.split(/\s+/),
+          oauth: false,
+        }));
+      } finally {
+        setSubmitting(false);
+      }
     }
 
     handleClose();
@@ -88,7 +103,10 @@ export default function AddMcpModal(props: AddMcpModalProps) {
           onClick={handleClose}
         />
 
-        <div class="relative w-full max-w-lg bg-gray-2 border border-gray-6 rounded-2xl shadow-2xl overflow-hidden">
+        <div
+          class="relative w-full max-w-lg bg-gray-2 border border-gray-6 rounded-2xl shadow-2xl overflow-hidden"
+          onClick={(event) => event.stopPropagation()}
+        >
           {/* Header */}
           <div class="flex items-center justify-between px-6 py-4 border-b border-gray-6">
             <div>
@@ -196,11 +214,11 @@ export default function AddMcpModal(props: AddMcpModalProps) {
 
           {/* Footer */}
           <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-6 bg-gray-2/50">
-            <Button variant="ghost" onClick={handleClose}>
+            <Button variant="ghost" onClick={handleClose} disabled={submitting()}>
               {tr("mcp.auth.cancel")}
             </Button>
-            <Button variant="secondary" onClick={handleSubmit} disabled={props.busy}>
-              <Show when={props.busy} fallback={<Plus size={16} />}>
+            <Button variant="secondary" onClick={() => void handleSubmit()} disabled={props.busy || submitting()}>
+              <Show when={props.busy || submitting()} fallback={<Plus size={16} />}>
                 <Loader2 size={16} class="animate-spin" />
               </Show>
               {tr("mcp.add_server_button")}
