@@ -6,10 +6,12 @@ import {
   Copy,
   Eye,
   EyeOff,
+  FileCode2,
   FolderCode,
   MessageSquare,
   MonitorUp,
   Rocket,
+  Settings2,
   Users,
   X,
 } from "lucide-solid";
@@ -95,6 +97,23 @@ export default function ShareWorkspaceModal(props: {
   const primaryAccessFields = createMemo(() =>
     accessFields().filter((field) => !isCollaboratorField(field.label)),
   );
+  const templateIncludedItems = createMemo(() => [
+    {
+      title: "Workspace settings",
+      detail: "The shared workspace profile and default behavior.",
+      icon: Settings2,
+    },
+    {
+      title: "Included skills",
+      detail: "Custom skills saved in this workspace.",
+      icon: Rocket,
+    },
+    {
+      title: "Commands and config",
+      detail: "Reusable commands plus OpenWork/OpenCode config.",
+      icon: FileCode2,
+    },
+  ]);
 
   const primaryButtonClass = "ow-button-primary px-5 py-3";
   const secondaryButtonClass = "ow-button-secondary px-5 py-3";
@@ -227,7 +246,7 @@ export default function ShareWorkspaceModal(props: {
             type={isSecret() && !revealed() ? "password" : "text"}
             readonly
             value={field.value || field.placeholder || ""}
-            class="w-full rounded-xl border border-[#e5e7eb] bg-[#fbfbfc] py-3 pl-3 pr-20 text-[12px] font-mono text-dls-text outline-none transition-colors focus:border-[rgba(var(--dls-accent-rgb),0.45)] focus:ring-1 focus:ring-[rgba(var(--dls-accent-rgb),0.18)]"
+            class="ow-input py-3 pl-3 pr-20 text-[12px] font-mono text-dls-text"
           />
           <div class="absolute right-1 flex items-center gap-0.5">
             <Show when={isSecret()}>
@@ -294,7 +313,7 @@ export default function ShareWorkspaceModal(props: {
             type="text"
             readonly
             value={value!}
-            class="flex-1 rounded-xl border border-[#e5e7eb] bg-[#fbfbfc] px-3 py-3 text-[12px] font-mono text-gray-700 outline-none focus:border-[rgba(var(--dls-accent-rgb),0.45)] focus:ring-1 focus:ring-[rgba(var(--dls-accent-rgb),0.18)]"
+            class="ow-input flex-1 px-3 py-3 text-[12px] font-mono text-gray-700"
           />
           <button
             onClick={() => handleCopy(value ?? "", copyKey)}
@@ -315,6 +334,32 @@ export default function ShareWorkspaceModal(props: {
         </button>
       </div>
     </Show>
+  );
+
+  const renderTemplateIncludedList = () => (
+    <div class="mt-5 border-t border-[#eceef1] pt-5">
+      <div class="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
+        Included in this template
+      </div>
+      <div class="space-y-3">
+        <For each={templateIncludedItems()}>
+          {(item) => {
+            const Icon = item.icon;
+            return (
+              <div class="flex items-start gap-3">
+                <div class="ow-icon-tile-muted h-8 w-8 shrink-0 rounded-lg">
+                  <Icon size={15} />
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[13px] font-medium text-[#011627]">{item.title}</div>
+                  <div class="mt-0.5 text-[12px] leading-relaxed text-gray-500">{item.detail}</div>
+                </div>
+              </div>
+            );
+          }}
+        </For>
+      </div>
+    </div>
   );
 
   return (
@@ -448,6 +493,8 @@ export default function ShareWorkspaceModal(props: {
                     props.onShareWorkspaceProfile,
                     props.shareWorkspaceProfileDisabledReason,
                   )}
+
+                  {renderTemplateIncludedList()}
                 </div>
               </div>
             </Show>
@@ -473,7 +520,7 @@ export default function ShareWorkspaceModal(props: {
                       type="text"
                       value={teamTemplateName()}
                       onInput={(event) => setTeamTemplateName(event.currentTarget.value)}
-                      class="w-full rounded-xl border border-[#e5e7eb] bg-[#fbfbfc] px-3 py-3 text-[14px] text-dls-text outline-none transition-colors focus:border-[rgba(var(--dls-accent-rgb),0.45)] focus:ring-1 focus:ring-[rgba(var(--dls-accent-rgb),0.18)]"
+                      class="ow-input px-3 py-3 text-[14px] text-dls-text"
                       placeholder={`${props.workspaceName.trim() || "Workspace"} template`}
                     />
                   </div>
@@ -524,6 +571,8 @@ export default function ShareWorkspaceModal(props: {
                       OpenWork Cloud opens in your browser and returns here after sign-in.
                     </div>
                   </Show>
+
+                  {renderTemplateIncludedList()}
                 </div>
               </div>
             </Show>
