@@ -1,99 +1,645 @@
 # OpenWork Design Language
 
-This is the definitive visual language for OpenWork product and marketing work.
+This is the definitive visual system for OpenWork product and landing work.
 
-The goal is calm, premium, operational software: clear, flat, slightly futuristic, and trustworthy enough for real work. It is an application, not a marketing page. Readability, state clarity, and keyboard/mouse efficiency matter more than visual theater.
+OpenWork should feel like a premium work tool: calm, useful, technical, and trustworthy. The design should read as software first, not a flashy marketing site. The goal is clarity with taste, not visual noise.
 
-## Core Directives
+---
 
-1.  **No Glassmorphism:** Never use `backdrop-blur`, heavy drop shadows, or frosted glass (`bg-white/70`, `bg-white/94`) on core application UI surfaces.
-2.  **No Extraneous Chrome:** Do not add decorative counters, pills, lines, or badges unless they map directly to functional state.
-3.  **No Aggressive Gradients:** Do not use radial gradients or linear background washes behind application panels.
-4.  **Flat Hierarchy:** The app relies on very soft, low-contrast separation, mostly handled by `1px` subtle borders and flat semantic backgrounds (`bg-gray-1`, `bg-gray-2`, `bg-gray-3`).
-5.  **Preserve the Anchor:** Never hide or truncate a primary label (like a workspace name) just to reveal hover actions. Hover actions must sit in reserved space or overlay without pushing text.
+## 1. Core Design Position
 
-## Shared DNA
+OpenWork design is:
 
-### Brand Mood
+- quiet
+- premium
+- operational
+- flat-first
+- structured by typography, spacing, and borders
+- atmospheric only in controlled places
 
-*   Calm, technical, premium, useful.
-*   More "precision tool with atmosphere" than "consumer toy".
-*   Friendly, but never cute.
-*   Futuristic through restraint, flat surfacing, and structural cleanliness—not chrome overload.
+OpenWork design is **not**:
 
-### Core Palette
+- glossy
+- glassy
+- beige
+- aggressively gradient-heavy
+- border-heavy
+- shadow-led
+- decorative for its own sake
 
-The application runs on a tight monochrome grayscale with intentional accent colors.
+The basic rule:
 
-*   Base background: `bg-dls-sidebar` or `bg-gray-1`
-*   Primary ink: `text-gray-12`
-*   Secondary ink: `text-gray-10` or `text-gray-11`
-*   Subtle borders: `border-dls-border` or `border-gray-6`
-*   Soft panels: `bg-gray-1`, `bg-gray-2/60`, `bg-gray-3/70`
+> Use structure before effects.
 
-### Geometry
+If something needs emphasis, prefer this order:
 
-*   Panels and large modals: `rounded-2xl` or `rounded-[28px]` (do not use `rounded-[2rem]` for utility panels).
-*   Lists, tabs, and small cards: `rounded-xl`.
-*   Badges and accents: `rounded-full` or `rounded-md`.
-*   Avoid overly pill-shaped geometry outside of primary buttons and badges.
+1. layout
+2. spacing
+3. typography
+4. opacity
+5. background tint
+6. border
+7. shadow
 
-### Typography
+Shadow should almost never be the first tool.
 
-*   Primary UI type: a clean sans like Inter.
-*   Monospace: use for commands, file paths, versions, code snippets, and system tokens.
-*   Default hierarchy:
-    *   Eyebrows: uppercase, tracked (`tracking-[0.18em]`), small (`text-[11px]`), muted (`text-gray-8`).
-    *   Headlines: medium or semibold weight, tight tracking, moderate scale (`text-lg` or `text-[1.35rem]`).
-    *   Body: relaxed line-height, soft gray (`text-gray-10`), high legibility.
-    *   List Items: `text-[13px]`, not overly large.
+---
 
-## Application Surfaces
+## 2. The OpenWork Mood
 
-### Panels & Cards
+The product should feel like:
 
-*   Instead of floating cards, use structured boundaries.
-*   A major settings panel should use `bg-dls-surface` or `bg-gray-1/40` with a subtle `border-dls-border` (see `_repos/openwork/apps/app/src/app/pages/settings.tsx`).
-*   Secondary interior groupings should use `bg-gray-1/40` or `bg-gray-2/30` with `rounded-2xl` and a `1px` border.
+- a serious desktop tool
+- a clean command center
+- a modern open-source alternative to Claude Cowork
+- something you would trust with real workflows, team sharing, and remote workers
 
-### Interactive Rows & Lists (The Landing Pattern)
+Tone:
 
-Lists (like sessions or active configurations) should mimic the clean, flat rhythm seen in the landing demo panels (see `_repos/openwork/ee/apps/landing/components/landing-app-demo-panel.tsx`).
+- polished, but restrained
+- modern, but not trendy
+- friendly, but not cute
+- futuristic through discipline, not chrome
 
-*   **Container:** `flex items-center justify-between rounded-xl px-3 py-1.5 text-left text-[13px] transition-colors` (see `_repos/openwork/apps/app/src/app/components/session/workspace-session-list.tsx` for implementation details).
-*   **Selected State:** Use a solid, clear gray tint like `bg-gray-3` or `bg-gray-3/80` with a stronger font weight (`font-medium`). Do *not* use a white card with drop shadow.
-*   **Hover State:** Use a slightly lighter tint than the selected state, e.g., `hover:bg-gray-2/60`.
-*   **Timestamps/Metadata:** Keep them quiet. Right-aligned `text-[11px] text-gray-8` or `text-gray-9`. Do not brighten them excessively on hover.
+---
 
-### Navigation Rails
+## 3. Color + Surface Rules
 
-*   Use flat, unadorned rectangles for tabs (see left rail in `_repos/openwork/apps/app/src/app/pages/settings.tsx`).
-*   Active state: `bg-dls-surface text-dls-text shadow-sm` (keep the shadow minimal).
-*   Hover state: `hover:bg-dls-surface/50`.
-*   Do not use heavy floating dots, massive padding, or glowing active states.
+### Base page color
 
-### Hover Actions
+- Default page/background base: very light cool neutral (`#f6f9fc` or equivalent)
+- Prefer white and near-white surfaces over tinted beige panels
+- Avoid warm paper/beige backgrounds unless there is a very strong reason
 
-*   Row-level actions (like `...` or `+`) should appear on hover (`group-hover:flex`).
-*   **Crucial:** Do not use `opacity-0 group-hover:opacity-100` if it causes the primary text of the row to truncate early or jump. Prefer `hidden group-hover:flex` to naturally replace space, but ensure the title has enough room.
+### Surface hierarchy
 
-### Buttons & Controls
+Use only a few layers:
 
-*   **Primary Button:** Dark fill (`bg-[#011627]`), white text, `rounded-full`, compact horizontal padding.
-*   **Secondary/Outline Button:** Transparent background, `border-dls-border`, `text-dls-text`, hover state `bg-dls-hover` or `bg-gray-2`.
-*   **Danger Action:** Very subtle red tint `bg-red-3/25 text-red-11 border-red-7/35`.
+1. **Page background**
+2. **Primary white surface**
+3. **Soft secondary surface**
+4. **Interactive selected state**
 
-## OpenWork Landing
+Do not create lots of micro-layers.
 
-The landing page (`_repos/openwork/ee/apps/landing`) may use *slightly* more atmospheric elements (like soft grain or the occasional translucent shell), but the core UI components embedded within it (like `LandingAppDemoPanel` or `LandingCloudWorkersCard`) strictly obey the flat, structural rules outlined above.
+### Preferred surface treatments
 
-*   The landing page is the *only* place where `landing-shell` (frosted blur) is appropriate. Do not backport these utility classes into the operational desktop application.
-*   When the desktop app needs to look "premium", it achieves this through tight alignment, consistent `gray-1`/`gray-2` layering, and sharp typography—not through blurs and shadows.
+#### Flat app surface
 
-## Canonical References
+For most application UI:
 
-If you need to see exactly how these rules are applied in code, consult these specific source files:
+- white or near-white background
+- 1px subtle border
+- no visible shadow or only the smallest shadow possible
 
-*   **App Settings Panel (Ideal flat surface structure):** `_repos/openwork/apps/app/src/app/pages/settings.tsx`
-*   **App Left Rail (Ideal tab and session list rhythm):** `_repos/openwork/apps/app/src/app/components/session/workspace-session-list.tsx`
-*   **Landing Demo Shell (The origin of the clean list layout):** `_repos/openwork/ee/apps/landing/components/landing-app-demo-panel.tsx`
+#### Soft shell
+
+Use for landing sections that need grouping but should still feel calm.
+
+- `landing-shell-soft` style direction
+- near-white background
+- subtle edge definition
+- **no box shadow by default**
+
+#### Elevated showcase shell
+
+Use only when a hero/demo needs one extra level of emphasis.
+
+- may use `landing-shell`
+- still soft
+- never dark or “floating card everywhere”
+- should be rare, not the default wrapper for all sections
+
+### Background imagery
+
+Allowed only when all of the following are true:
+
+- it sits behind content, not under core text blocks directly
+- it is subtle
+- it fades away or is spatially constrained
+- it does not compete with reading
+
+Pattern/background image rules:
+
+- top-of-page background patterns should be low-opacity and fade out down the page
+- section-specific image backgrounds are allowed for showcase frames
+- content cards that sit on top of image backgrounds should still be white and legible
+- use images as atmosphere, not content
+
+---
+
+## 4. Borders
+
+Borders are one of the main structure tools in OpenWork.
+
+### Border philosophy
+
+- prefer soft gray borders
+- prefer low contrast
+- prefer consistency over emphasis
+
+### What not to do
+
+- do **not** use harsh black borders for selection
+- do **not** outline selected cards with strong dark strokes
+- do **not** stack border + heavy shadow + tint all at once
+
+### Good border usage
+
+- `border-gray-200`
+- `border-gray-300` for stronger but still soft selection
+- low-alpha white borders for translucent landing shells
+
+Selection should usually feel like:
+
+- soft gray border
+- white fill
+- tiny shadow
+
+not:
+
+- dark outline
+- glow
+- hard stroke
+
+---
+
+## 5. Shadows
+
+Shadows must be restrained.
+
+### General rule
+
+- App UI: almost flat
+- Landing UI: soft and selective
+- Selection states: tiny shadow only
+
+### Approved shadow levels
+
+#### None
+
+Default for most grouped surfaces.
+
+#### Tiny control shadow
+
+Use for active pills and secondary buttons:
+
+```css
+0 0 0 1px rgba(0,0,0,0.06),
+0 1px 2px 0 rgba(0,0,0,0.04)
+```
+
+#### Light card shadow
+
+Use sparingly for a main demo shell or one hero card.
+
+#### Strong CTA shadow
+
+Reserved for the primary CTA only.
+
+### Never do
+
+- large ambient shadows across many cards on one page
+- floaty SaaS-marketing shadows everywhere
+- using shadow as the main selected-state signal
+- glassmorphism blur shadows in the app
+
+---
+
+## 6. Geometry + Radius
+
+OpenWork should have a small set of radii and use them consistently.
+
+### Radius system
+
+- **Pills / buttons / chips:** `rounded-full`
+- **Small controls / rows / compact cards:** `rounded-xl`
+- **Medium panels / embedded demos:** `rounded-2xl`
+- **Large showcase wrappers:** `rounded-3xl` or `rounded-[2.5rem]`
+
+### Rules
+
+- Don’t mix too many different radii in one section
+- If the outer shell is very rounded, inner panels should step down cleanly
+- Pills should look intentional, not bubbly
+
+---
+
+## 7. Typography
+
+Typography does most of the hierarchy work.
+
+### General tone
+
+- clean sans-serif
+- medium weight for important labels
+- gray text for explanatory copy
+- no overly stylized headings
+
+### Hierarchy
+
+#### Eyebrows
+
+- uppercase
+- tracked
+- small (`text-[11px]`)
+- muted gray
+
+#### Headlines
+
+- medium weight
+- tight tracking
+- dark ink (`#011627` or equivalent)
+- large enough to lead, not shout
+
+#### Body
+
+- `text-sm` or `text-base`
+- relaxed line height
+- `text-gray-500` or `text-gray-600`
+
+#### Active explanatory text
+
+If paired with an active state (like a selected workflow descriptor), the copy may move from muted gray to dark ink.
+
+### Avoid
+
+- giant type jumps
+- ultra-light weights
+- loud uppercase body copy
+- dense paragraphs without breathing room
+
+---
+
+## 8. Buttons
+
+There are only a few button families in OpenWork.
+
+### 8.1 Primary button
+
+Use for the main action only.
+
+Characteristics:
+
+- dark fill (`#011627`)
+- white text
+- fully rounded pill
+- slightly stronger shadow than the rest of the system
+- feels decisive but still clean
+
+Canonical pattern: `doc-button`
+
+Use for:
+
+- Download
+- Run task
+- other main conversion/action moments
+
+### 8.2 Secondary button
+
+Use for support actions.
+
+Characteristics:
+
+- white fill
+- no hard border
+- tiny ring + small shadow
+- black/dark text
+- fully rounded pill
+
+Canonical pattern: `secondary-button`
+
+This is also the reference style for:
+
+- active segmented controls
+- selected pills inside a track
+
+### 8.3 Tertiary / text actions
+
+Use for less important actions.
+
+Characteristics:
+
+- no heavy box treatment
+- rely on text color and hover only
+
+### Button rules
+
+- Do not invent many new button styles
+- Reuse the primary and secondary button logic whenever possible
+- If a selector pill is active, it should usually resemble the secondary button family
+
+---
+
+## 9. Selectors, Tabs, and Pills
+
+This is now one of the clearest OpenWork patterns.
+
+### Track pattern
+
+Use a soft segmented track:
+
+- light border
+- subtle gray background
+- full pill radius
+- tiny inset padding
+
+Example structure:
+
+- track: `border border-gray-200 bg-gray-50/50 rounded-full p-1`
+- active item: white pill + tiny shadow
+- inactive item: muted text only
+
+### Active state
+
+Active tab/pill should look like:
+
+- white pill
+- soft ring/shadow
+- dark text
+
+### Inactive state
+
+Inactive tab/pill should look like:
+
+- no card chrome
+- muted gray text
+- stronger text on hover
+
+### Do not
+
+- use harsh dark borders for selection
+- create heavy segmented controls with thick strokes
+- use loud fills for tabs
+
+---
+
+## 10. Lists and Row Systems
+
+OpenWork has two primary list patterns.
+
+### 10.1 Operational row list
+
+Use for sessions, workspaces, activity rows, and compact app lists.
+
+Pattern:
+
+- flat container
+- rounded-xl row
+- light hover tint
+- selected row uses a subtle fill and stronger text
+- metadata remains quiet
+
+Good signals:
+
+- `font-medium`
+- subtle background tint
+- tiny status accent if needed
+
+Bad signals:
+
+- white card floating above white page
+- hard selected outline
+- large shadows on list rows
+
+### 10.2 Text-led preview list
+
+Use when a list controls a larger preview panel to the right.
+
+Pattern:
+
+- no boxed cards for each item
+- text blocks stacked vertically
+- inactive items use lower opacity
+- active item uses full opacity and darker copy
+
+This is the right pattern for:
+
+- feature explanation lists next to a demo panel
+- “build / import / ready” style narratives
+
+---
+
+## 11. Cards and Section Layouts
+
+### Explanatory cards
+
+Use only when the card itself is the unit of information.
+
+Should be:
+
+- simple
+- lightly bordered
+- white
+- softly rounded
+
+### When not to use cards
+
+If the user is just choosing between three conceptual options, don’t force every option into a boxed card. Use:
+
+- pill selector
+- text-only list
+- opacity-driven stacked copy
+
+### Section composition
+
+Most sections should follow one of these layouts:
+
+1. **Headline + supporting copy + CTA**
+2. **Selector on left + live descriptor on right**
+3. **Text list on left + preview/demo on right**
+4. **Three-column summary cards**
+
+Do not mix too many interaction models in one section.
+
+---
+
+## 12. Demo and Mockup Styling
+
+Embedded product demos should feel like software, not like illustrations.
+
+### Demo shell rules
+
+- white inner content area
+- subtle chrome
+- soft border
+- restrained shadow
+- clear spacing
+
+### If the outer frame is atmospheric
+
+Then the inner mockup must become simpler.
+
+Meaning:
+
+- image/pattern on outer background is okay
+- inner card should stay clean and white
+- do not combine colorful outer frame with complex inner effects
+
+### Content in demos
+
+- use real-looking interaction states
+- keep labels readable
+- emphasize utility over visual flourish
+
+---
+
+## 13. Selection States
+
+Selection should usually be shown through one or more of:
+
+- darker text
+- stronger opacity
+- white fill
+- soft gray border
+- tiny shadow
+
+Selection should **not** usually be shown through:
+
+- black outline
+- bright accent fill
+- glow
+- thick stroke
+
+OpenWork selection should feel confident, not loud.
+
+---
+
+## 14. Motion
+
+Motion should be tight and purposeful.
+
+### Allowed motion
+
+- pill transitions with spring
+- short opacity transitions
+- tiny translateY on primary CTA hover
+- soft content crossfades
+
+### Avoid
+
+- floaty delayed animations everywhere
+- scale-heavy hover effects
+- decorative motion on non-interactive surfaces
+
+### Timing
+
+- interactions should feel immediate
+- most transitions should live around `150ms–300ms`
+- spring motion should be controlled, not bouncy
+
+---
+
+## 15. OpenWork App vs Landing
+
+The app and the landing share one system, but not the same degree of atmosphere.
+
+### App
+
+- flatter
+- more structural
+- almost no decorative shadow
+- almost no background texture
+- strong emphasis on state clarity and density
+
+### Landing
+
+- may use soft shells
+- may use one atmospheric background image/pattern in a controlled region
+- may use more spacing and larger radii
+- still must obey the same button, border, and selection rules
+
+Landing should feel like the same product family, not a separate visual brand.
+
+---
+
+## 16. Anti-Patterns
+
+Do not introduce these:
+
+- beige canvases as default backgrounds
+- harsh black selected borders
+- random glassmorphism
+- multiple heavy shadow systems on one screen
+- over-rounded cards everywhere
+- boxed selectors when text or pills would be clearer
+- giant gradients behind readable text
+- decorative badges/counters with no functional meaning
+- hiding anchor labels just to show hover actions
+
+If something looks “designed” before it looks “useful,” it is probably wrong.
+
+---
+
+## 17. Canonical Component Patterns
+
+### Primary CTA
+
+- dark pill
+- white text
+- slight elevation
+
+### Secondary CTA / active segmented pill
+
+- white pill
+- tiny ring + tiny shadow
+- dark text
+
+### Selector track
+
+- light gray border
+- soft neutral background
+- internal padding
+- active item is white
+
+### Text-led feature list
+
+- no cards
+- stacked copy
+- inactive items at reduced opacity
+- active item at full opacity
+
+### Operational list row
+
+- rounded-xl
+- subtle hover tint
+- selected row uses fill/weight, not loud chrome
+
+### Landing shell
+
+- reserved for hero/showcase moments
+- use sparingly
+
+### Landing soft shell
+
+- flat, near-white, subtle border
+- no shadow by default
+
+---
+
+## 18. Design Decision Tests
+
+Before shipping a UI change, ask:
+
+1. Is this relying on layout and typography first, or on effects first?
+2. Is the selected state soft and obvious, rather than harsh?
+3. Are we reusing the existing primary/secondary button language?
+4. Does this section need cards, or would pills / text / opacity be cleaner?
+5. Is the shadow doing real work, or is it just decoration?
+6. Would this still feel like OpenWork if all colors were muted?
+7. Does this feel like one coherent product across app and landing?
+
+If the answer to those is not clearly yes, simplify.
+
+---
+
+## 19. Canonical References in This Repo
+
+Use these as implementation references:
+
+- Landing button + shell primitives: `_repos/openwork/ee/apps/landing/app/globals.css`
+- Landing hero and selector patterns: `_repos/openwork/ee/apps/landing/components/landing-home.tsx`
+- Landing demo list rhythm: `_repos/openwork/ee/apps/landing/components/landing-app-demo-panel.tsx`
+- App workspace/session list rhythm: `_repos/openwork/apps/app/src/app/components/session/workspace-session-list.tsx`
+
+When in doubt, prefer the calmer version.

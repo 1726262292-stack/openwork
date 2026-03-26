@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { getErrorMessage, requestJson } from "../../../../_lib/den-flow";
+import { getManageMembersRoute } from "../../../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 
 type TemplateCard = {
@@ -46,13 +48,17 @@ function asTemplateCard(value: unknown): TemplateCard | null {
 }
 
 export function TemplatesDashboardScreen() {
-  const { orgSlug, orgContext } = useOrgDashboard();
+  const { orgSlug, activeOrg, orgContext } = useOrgDashboard();
   const [templates, setTemplates] = useState<TemplateCard[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const canDelete = orgContext?.currentMember.isOwner ?? false;
+  const pendingInvitations = useMemo(
+    () => (orgContext?.invitations ?? []).filter((invitation) => invitation.status === "pending"),
+    [orgContext?.invitations],
+  );
 
   async function loadTemplates() {
     setBusy(true);
@@ -108,47 +114,122 @@ export function TemplatesDashboardScreen() {
   }, [orgSlug]);
 
   return (
-    <section className="mx-auto flex max-w-6xl flex-col gap-6 p-4 md:p-12">
-      <div className="rounded-[32px] border border-[var(--dls-border)] bg-white p-6 shadow-[var(--dls-card-shadow)] md:p-8">
-        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--dls-text-secondary)]">Workspace Templates</p>
-        <h1 className="mt-2 text-[2.4rem] font-semibold leading-[0.95] tracking-[-0.06em] text-[var(--dls-text-primary)]">Shared setup templates</h1>
-        <p className="mt-3 max-w-2xl text-[15px] leading-7 text-[var(--dls-text-secondary)]">
-          Templates created for this organization appear here. Use this as the quick place to browse and remove stale links.
-        </p>
-        <p className="mt-3 text-sm font-medium text-[var(--dls-text-secondary)]">
-          Create new templates from workspaces inside the OpenWork desktop app.
-        </p>
+    <section className="den-page flex max-w-6xl flex-col gap-6 py-4 md:py-8">
+      <div className="den-frame grid gap-6 p-6 md:p-8 lg:p-10">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="grid gap-3">
+            <p className="den-eyebrow">Den dashboard</p>
+            <h1 className="den-title-xl max-w-[11ch]">{activeOrg?.name ?? "OpenWork"}</h1>
+            <p className="den-copy max-w-2xl">
+              Share setup once, keep team access tidy, and manage the links your
+              organization actually uses.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <Link href={getManageMembersRoute(orgSlug)} className="den-button-secondary">
+              Manage members
+            </Link>
+            <Link href="/checkout" className="den-button-primary">
+              Billing
+            </Link>
+          </div>
+        </div>
+
+        <div className="den-stat-grid">
+          <div className="den-stat-card">
+            <p className="den-stat-label">Members</p>
+            <p className="den-stat-value">{orgContext?.members.length ?? 0}</p>
+            <p className="den-stat-copy">Everyone who can access this workspace.</p>
+          </div>
+          <div className="den-stat-card">
+            <p className="den-stat-label">Pending invites</p>
+            <p className="den-stat-value">{pendingInvitations.length}</p>
+            <p className="den-stat-copy">Invites waiting to be accepted.</p>
+          </div>
+          <div className="den-stat-card">
+            <p className="den-stat-label">Shared links</p>
+            <p className="den-stat-value">{templates.length}</p>
+            <p className="den-stat-copy">Setup packages created from the desktop app.</p>
+          </div>
+        </div>
       </div>
 
-      {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
+      {error ? <div className="den-notice is-error">{error}</div> : null}
 
-      {busy ? (
-        <div className="rounded-[24px] border border-[var(--dls-border)] bg-white p-6 text-sm text-[var(--dls-text-secondary)]">Loading templates...</div>
-      ) : templates.length === 0 ? (
-        <div className="rounded-[24px] border border-[var(--dls-border)] bg-white p-6 text-sm text-[var(--dls-text-secondary)]">No templates yet for this organization.</div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {templates.map((template) => (
-            <article key={template.id} className="rounded-[24px] border border-[var(--dls-border)] bg-white p-5 shadow-[var(--dls-card-shadow)]">
-              <h2 className="text-lg font-semibold text-[var(--dls-text-primary)]">{template.name}</h2>
-              <p className="mt-2 text-xs text-[var(--dls-text-secondary)]">Created by {template.creator.name} ({template.creator.email})</p>
-              <p className="mt-1 text-xs text-[var(--dls-text-secondary)]">
-                {template.createdAt ? `Created ${new Date(template.createdAt).toLocaleString()}` : "Created recently"}
-              </p>
-              {canDelete ? (
-                <button
-                  type="button"
-                  className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => void deleteTemplate(template.id)}
-                  disabled={deletingId === template.id}
-                >
-                  {deletingId === template.id ? "Deleting..." : "Delete"}
-                </button>
-              ) : null}
-            </article>
-          ))}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="den-list-shell">
+          <div className="flex flex-col gap-2 px-5 py-5 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="den-eyebrow">Shared setup links</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[var(--dls-text-primary)]">
+                Current workspace templates
+              </h2>
+            </div>
+            <p className="max-w-sm text-sm leading-relaxed text-[var(--dls-text-secondary)] md:text-right">
+              Create new links from the OpenWork desktop app. Keep only the
+              setups your team still needs.
+            </p>
+          </div>
+
+          {busy ? (
+            <div className="den-list-row text-sm text-[var(--dls-text-secondary)]">Loading templates...</div>
+          ) : templates.length === 0 ? (
+            <div className="den-list-row text-sm text-[var(--dls-text-secondary)]">
+              No shared links yet. Create one from the desktop app and it will
+              appear here.
+            </div>
+          ) : (
+            templates.map((template) => (
+              <article key={template.id} className="den-list-row">
+                <div className="grid gap-1">
+                  <h3 className="text-base font-semibold text-[var(--dls-text-primary)]">{template.name}</h3>
+                  <p className="text-sm text-[var(--dls-text-secondary)]">
+                    Created by {template.creator.name} · {template.creator.email}
+                  </p>
+                  <p className="text-xs text-[var(--dls-text-secondary)]">
+                    {template.createdAt ? `Created ${new Date(template.createdAt).toLocaleString()}` : "Created recently"}
+                  </p>
+                </div>
+
+                {canDelete ? (
+                  <button
+                    type="button"
+                    className="den-button-danger shrink-0"
+                    onClick={() => void deleteTemplate(template.id)}
+                    disabled={deletingId === template.id}
+                  >
+                    {deletingId === template.id ? "Deleting..." : "Delete"}
+                  </button>
+                ) : null}
+              </article>
+            ))
+          )}
         </div>
-      )}
+
+        <aside className="den-frame-soft grid h-fit gap-4 p-5 md:p-6">
+          <div className="grid gap-2">
+            <p className="den-eyebrow">Quick actions</p>
+            <h2 className="text-2xl font-semibold tracking-tight text-[var(--dls-text-primary)]">
+              Keep the workspace moving.
+            </h2>
+            <p className="den-copy text-sm">
+              Invite teammates, review billing, or clean up old links without
+              leaving this area.
+            </p>
+          </div>
+
+          <Link href={getManageMembersRoute(orgSlug)} className="den-button-secondary w-full">
+            Add or edit members
+          </Link>
+          <Link href="/checkout" className="den-button-secondary w-full">
+            Open billing
+          </Link>
+          <a href="https://openworklabs.com/download" className="den-button-secondary w-full">
+            Download desktop app
+          </a>
+        </aside>
+      </div>
     </section>
   );
 }

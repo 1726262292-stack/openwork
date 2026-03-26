@@ -35,7 +35,7 @@ function OrgMark({ name }: { name: string }) {
   }, [name]);
 
   return (
-    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#011627,#334155)] text-sm font-semibold uppercase tracking-[0.08em] text-white shadow-[0_18px_40px_-18px_rgba(1,22,39,0.45)]">
+    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#011627] text-sm font-semibold uppercase tracking-[0.08em] text-white">
       {initials}
     </div>
   );
@@ -59,64 +59,76 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
 
   const navItems = [
     { href: activeOrg ? getOrgDashboardRoute(activeOrg.slug) : "#", label: "Dashboard" },
-    { href: activeOrg ? getManageMembersRoute(activeOrg.slug) : "#", label: "Manage Members" },
+    { href: activeOrg ? getManageMembersRoute(activeOrg.slug) : "#", label: "Manage members" },
     { href: "/checkout", label: "Billing" },
   ];
 
   return (
-    <section className="flex min-h-screen min-h-dvh w-full overflow-hidden bg-[var(--dls-surface)] md:flex-row">
-      <aside className="w-full shrink-0 border-b border-[var(--dls-border)] bg-[var(--dls-sidebar)] md:w-[320px] md:border-b-0 md:border-r">
-        <div className="flex h-full flex-col gap-6 p-4 md:p-6">
+    <section className="flex min-h-screen min-h-dvh w-full bg-[var(--dls-app-bg)] md:flex-row">
+      <aside className="w-full shrink-0 border-b border-[var(--dls-border)] bg-white/70 md:w-[304px] md:border-b-0 md:border-r">
+        <div className="flex h-full flex-col gap-5 p-4 md:p-6">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="den-eyebrow">OpenWork Den</p>
+              <p className="mt-1 text-lg font-semibold tracking-tight text-[var(--dls-text-primary)]">Workspace</p>
+            </div>
+            {orgBusy ? <span className="text-xs text-[var(--dls-text-secondary)]">Refreshing...</span> : null}
+          </div>
+
           <div className="relative">
             <button
               type="button"
-              className="flex w-full items-center justify-between gap-3 rounded-[28px] border border-[var(--dls-border)] bg-white px-4 py-4 text-left shadow-[var(--dls-card-shadow)] transition hover:border-slate-300"
+              className="den-frame-soft flex w-full items-center justify-between gap-3 px-4 py-4 text-left"
               onClick={() => setSwitcherOpen((current) => !current)}
             >
               <div className="flex min-w-0 items-center gap-3">
                 <OrgMark name={activeOrg?.name ?? "OpenWork"} />
                 <div className="min-w-0">
-                  <p className="truncate text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--dls-text-secondary)]">Organization</p>
-                  <p className="truncate text-lg font-semibold tracking-tight text-[var(--dls-text-primary)]">{activeOrg?.name ?? "Loading..."}</p>
-                  <p className="truncate text-xs text-[var(--dls-text-secondary)]">{activeOrg ? formatRoleLabel(activeOrg.role) : "Preparing workspace"}</p>
+                  <p className="den-eyebrow">Organization</p>
+                  <p className="truncate text-base font-semibold tracking-tight text-[var(--dls-text-primary)]">
+                    {activeOrg?.name ?? "Loading..."}
+                  </p>
+                  <p className="truncate text-xs text-[var(--dls-text-secondary)]">
+                    {activeOrg ? formatRoleLabel(activeOrg.role) : "Preparing workspace"}
+                  </p>
                 </div>
               </div>
-              <span className="rounded-full border border-[var(--dls-border)] bg-[var(--dls-surface)] p-2 text-[var(--dls-text-secondary)]">
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-[var(--dls-text-secondary)] shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_0_rgba(0,0,0,0.04)]">
                 <ChevronDownIcon />
               </span>
             </button>
 
             {switcherOpen ? (
-              <div className="absolute left-0 right-0 top-[calc(100%+0.75rem)] z-30 rounded-[28px] border border-[var(--dls-border)] bg-white p-4 shadow-[0_30px_80px_-30px_rgba(15,23,42,0.28)]">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--dls-text-secondary)]">Switch organization</p>
-                  {orgBusy ? <span className="text-xs text-[var(--dls-text-secondary)]">Refreshing...</span> : null}
-                </div>
-
+              <div className="den-frame absolute left-0 right-0 top-[calc(100%+0.75rem)] z-30 grid gap-4 p-4">
                 <div className="grid gap-2">
-                  {orgDirectory.map((org) => (
-                    <button
-                      key={org.id}
-                      type="button"
-                      onClick={() => {
-                        setSwitcherOpen(false);
-                        switchOrganization(org.slug);
-                      }}
-                      className={`flex items-center justify-between rounded-2xl border px-3 py-3 text-left transition ${
-                        org.isActive ? "border-slate-300 bg-slate-50" : "border-transparent hover:border-slate-200 hover:bg-slate-50"
-                      }`}
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-[var(--dls-text-primary)]">{org.name}</span>
-                        <span className="block truncate text-xs text-[var(--dls-text-secondary)]">{formatRoleLabel(org.role)}</span>
-                      </span>
-                      {org.isActive ? <span className="rounded-full bg-slate-900 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white">Current</span> : null}
-                    </button>
-                  ))}
+                  <p className="den-eyebrow">Switch organization</p>
+                  <div className="grid gap-2">
+                    {orgDirectory.map((org) => (
+                      <button
+                        key={org.id}
+                        type="button"
+                        onClick={() => {
+                          setSwitcherOpen(false);
+                          switchOrganization(org.slug);
+                        }}
+                        className={`flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left transition ${
+                          org.isActive
+                            ? "bg-white text-[var(--dls-text-primary)] shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_0_rgba(0,0,0,0.04)]"
+                            : "bg-[var(--dls-sidebar)] text-[var(--dls-text-secondary)] hover:text-[var(--dls-text-primary)]"
+                        }`}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold">{org.name}</span>
+                          <span className="block truncate text-xs">{formatRoleLabel(org.role)}</span>
+                        </span>
+                        {org.isActive ? <span className="den-status-pill is-neutral">Current</span> : null}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <form
-                  className="mt-4 grid gap-2 rounded-2xl border border-[var(--dls-border)] bg-[var(--dls-sidebar)] p-3"
+                  className="den-frame-inset grid gap-3 rounded-[1.5rem] p-4"
                   onSubmit={async (event) => {
                     event.preventDefault();
                     setCreateError(null);
@@ -130,18 +142,18 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
                   }}
                 >
                   <label className="grid gap-2">
-                    <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--dls-text-secondary)]">Create new organization</span>
+                    <span className="den-label">Create organization</span>
                     <input
                       type="text"
                       value={orgNameDraft}
                       onChange={(event) => setOrgNameDraft(event.target.value)}
                       placeholder="Acme Labs"
-                      className="rounded-2xl border border-[var(--dls-border)] bg-white px-4 py-3 text-sm text-[var(--dls-text-primary)] outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-900/5"
+                      className="den-input"
                     />
                   </label>
                   <button
                     type="submit"
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#011627] px-4 py-3 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+                    className="den-button-primary"
                     disabled={mutationBusy === "create-organization"}
                   >
                     <PlusIcon />
@@ -153,15 +165,10 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
             ) : null}
           </div>
 
-          <div className="rounded-[28px] border border-[var(--dls-border)] bg-white p-4 shadow-[var(--dls-card-shadow)]">
-            <div className="mb-4 flex items-center gap-3">
-              <OrgMark name={activeOrg?.name ?? "OpenWork"} />
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--dls-text-secondary)]">Den workspace</p>
-                <p className="text-sm font-medium text-[var(--dls-text-secondary)]">Branding and membership controls live here.</p>
-              </div>
+          <div className="den-frame-soft grid gap-3 p-3">
+            <div className="px-2 pt-1">
+              <p className="den-eyebrow">Navigation</p>
             </div>
-
             <nav className="grid gap-1.5">
               {navItems.map((item) => {
                 const selected = item.href !== "#" && pathname === item.href;
@@ -169,10 +176,10 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
                   <Link
                     key={item.label}
                     href={item.href}
-                    className={`rounded-2xl px-4 py-3 text-sm font-medium transition ${
+                    className={`rounded-full px-4 py-3 text-sm font-medium transition ${
                       selected
-                        ? "bg-[var(--dls-active)] text-[var(--dls-text-primary)]"
-                        : "text-[var(--dls-text-secondary)] hover:bg-[var(--dls-hover)] hover:text-[var(--dls-text-primary)]"
+                        ? "bg-white text-[var(--dls-text-primary)] shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_0_rgba(0,0,0,0.04)]"
+                        : "text-[var(--dls-text-secondary)] hover:text-[var(--dls-text-primary)]"
                     }`}
                   >
                     {item.label}
@@ -182,13 +189,17 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
             </nav>
           </div>
 
-          <div className="mt-auto rounded-[28px] border border-[var(--dls-border)] bg-white p-4 shadow-[var(--dls-card-shadow)]">
-            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--dls-text-secondary)]">Signed in as</p>
-            <p className="mt-2 truncate text-sm font-medium text-[var(--dls-text-primary)]">{user?.email ?? "Unknown user"}</p>
-            {orgError ? <p className="mt-3 text-xs font-medium text-rose-600">{orgError}</p> : null}
+          <div className="mt-auto den-frame-soft grid gap-3 p-4">
+            <div>
+              <p className="den-eyebrow">Signed in as</p>
+              <p className="mt-2 break-words text-sm font-medium text-[var(--dls-text-primary)]">
+                {user?.email ?? "Unknown user"}
+              </p>
+              {orgError ? <p className="mt-3 text-xs font-medium text-rose-600">{orgError}</p> : null}
+            </div>
             <button
               type="button"
-              className="mt-4 inline-flex w-full items-center justify-center rounded-2xl border border-[var(--dls-border)] bg-[var(--dls-surface)] px-4 py-3 text-sm font-medium text-[var(--dls-text-secondary)] transition hover:bg-[var(--dls-hover)] hover:text-[var(--dls-text-primary)]"
+              className="den-button-secondary w-full"
               onClick={() => void signOut()}
             >
               Log out
