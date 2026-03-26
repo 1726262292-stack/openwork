@@ -475,9 +475,6 @@ export default function Composer(props: ComposerProps) {
   const [attachments, setAttachments] = createSignal<ComposerAttachment[]>([]);
   const [draftText, setDraftText] = createSignal(normalizeText(props.prompt));
   const [mode, setMode] = createSignal<PromptMode>("prompt");
-  const [historySnapshot, setHistorySnapshot] = createSignal<ComposerDraft | null>(null);
-  const [historyIndex, setHistoryIndex] = createSignal({ prompt: -1, shell: -1 });
-  const [history, setHistory] = createSignal({ prompt: [] as ComposerDraft[], shell: [] as ComposerDraft[] });
   const [variantMenuOpen, setVariantMenuOpen] = createSignal(false);
   const [showInboxUploadAction, setShowInboxUploadAction] = createSignal(false);
   const compactModelLabel = createMemo(() =>
@@ -670,8 +667,6 @@ export default function Composer(props: ComposerProps) {
       if (!value && current) {
         setEditorText("");
         setAttachments([]);
-        setHistoryIndex((currentIndex: { prompt: number; shell: number }) => ({ ...currentIndex, [mode()]: -1 }));
-        setHistorySnapshot(null);
         queueMicrotask(() => focusEditorEnd());
       }
       return;
@@ -697,8 +692,6 @@ export default function Composer(props: ComposerProps) {
     setEditorText(value);
     if (!value) {
       setAttachments([]);
-      setHistoryIndex((currentIndex: { prompt: number; shell: number }) => ({ ...currentIndex, [mode()]: -1 }));
-      setHistorySnapshot(null);
     }
 
     // We don't emitDraftChange here usually, to avoid loops, but if we changed text we might need to?
@@ -998,48 +991,6 @@ export default function Composer(props: ComposerProps) {
     emitDraftChange();
   };
 
-  const canNavigateHistory = () => {
-    if (!editorRef) return false;
-    const offsets = getSelectionOffsets(editorRef);
-    if (!offsets || offsets.start !== offsets.end) return false;
-    const total = readEditorText(editorRef).length;
-    return offsets.start === 0 || offsets.start === total;
-  };
-
-  const applyHistoryDraft = (draft: ComposerDraft | null) => {
-    if (!draft) return;
-    setMode(draft.mode);
-    renderParts(draft.parts, false);
-    setDraftText(draft.text);
-    setAttachments(draft.attachments ?? []);
-    props.onDraftChange(draft);
-  };
-
-  const navigateHistory = (direction: "up" | "down") => {
-    const key = mode();
-    const list = history()[key];
-    if (!list.length) return;
-    const index = historyIndex()[key];
-    const nextIndex = direction === "up" ? index + 1 : index - 1;
-    if (nextIndex < -1 || nextIndex >= list.length) return;
-
-    if (index === -1 && direction === "up") {
-      const parts = editorRef ? buildPartsFromEditor(editorRef, pasteTextById) : [];
-      const text = normalizeText(partsToText(parts));
-      const resolvedText = normalizeText(partsToResolvedText(parts));
-      setHistorySnapshot({ mode: key, parts, attachments: attachments(), text, resolvedText });
-    }
-
-    setHistoryIndex((current: { prompt: number; shell: number }) => ({ ...current, [key]: nextIndex }));
-    if (nextIndex === -1) {
-      applyHistoryDraft(historySnapshot());
-      setHistorySnapshot(null);
-      return;
-    }
-    const target = list[list.length - 1 - nextIndex];
-    applyHistoryDraft(target);
-  };
-
   const sendDraft = () => {
     // Ensure any pending debounce updates are committed before sending
     flushDraftChange();
@@ -1062,7 +1013,6 @@ export default function Composer(props: ComposerProps) {
       }
     }
 
-    recordHistory(draft);
     props.onSend(draft);
     setSlashOpen(false);
     setSlashQuery("");
@@ -1084,17 +1034,6 @@ export default function Composer(props: ComposerProps) {
       }
       focusEditorEnd();
     });
-  };
-
-  const recordHistory = (draft: ComposerDraft) => {
-    const trimmed = draft.text.trim();
-    if (!trimmed && !draft.attachments.length) return;
-    setHistory((current: { prompt: ComposerDraft[]; shell: ComposerDraft[] }) => ({
-      ...current,
-      [draft.mode]: [...current[draft.mode], { ...draft, attachments: [] }],
-    }));
-    setHistoryIndex((current: { prompt: number; shell: number }) => ({ ...current, [draft.mode]: -1 }));
-    setHistorySnapshot(null);
   };
 
   const addAttachments = async (files: File[]) => {
@@ -1481,14 +1420,6 @@ export default function Composer(props: ComposerProps) {
       setMode("prompt");
       emitDraftChange();
       return;
-    }
-
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      if (canNavigateHistory()) {
-        event.preventDefault();
-        navigateHistory(event.key === "ArrowUp" ? "up" : "down");
-        return;
-      }
     }
 
     if (event.key === "Enter") {
