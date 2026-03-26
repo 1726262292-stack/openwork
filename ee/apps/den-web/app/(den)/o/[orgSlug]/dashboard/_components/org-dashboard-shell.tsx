@@ -38,7 +38,7 @@ function OrgMark({ name }: { name: string }) {
   }, [name]);
 
   return (
-    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#011627] text-sm font-semibold uppercase tracking-[0.08em] text-white">
+    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#011627] text-xs font-semibold uppercase tracking-[0.08em] text-white">
       {initials}
     </div>
   );
@@ -70,9 +70,9 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
   ];
 
   return (
-    <section className="flex min-h-screen min-h-dvh w-full bg-[var(--dls-app-bg)] md:flex-row">
-      <aside className="w-full shrink-0 border-b border-[var(--dls-border)] bg-white/70 md:w-[304px] md:border-b-0 md:border-r">
-        <div className="flex h-full flex-col gap-5 p-4 md:p-6">
+    <section className="flex min-h-screen min-h-dvh w-full bg-[var(--dls-app-bg)] p-3 md:flex-row md:p-4">
+      <aside className="w-full shrink-0 rounded-[2rem] border border-[#eceef1] bg-[#fafafa] md:w-[304px]">
+        <div className="flex h-full flex-col gap-5 p-4 md:p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="den-eyebrow">OpenWork Cloud</p>
@@ -84,7 +84,7 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
           <div className="relative">
             <button
               type="button"
-              className="den-frame-soft flex w-full items-center justify-between gap-3 px-4 py-4 text-left"
+              className="flex w-full items-center justify-between gap-3 rounded-[1.35rem] px-3 py-3 text-left transition-colors hover:bg-[#f3f4f6]"
               onClick={() => setSwitcherOpen((current) => !current)}
             >
               <div className="flex min-w-0 items-center gap-3">
@@ -99,13 +99,13 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
                   </p>
                 </div>
               </div>
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-[var(--dls-text-secondary)] shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_0_rgba(0,0,0,0.04)]">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--dls-text-secondary)]">
                 <ChevronDownIcon />
               </span>
             </button>
 
             {switcherOpen ? (
-              <div className="den-frame absolute left-0 right-0 top-[calc(100%+0.75rem)] z-30 grid gap-4 p-4">
+              <div className="absolute left-0 right-0 top-[calc(100%+0.75rem)] z-30 grid gap-4 rounded-[1.75rem] border border-[#eceef1] bg-white p-4 shadow-[0_12px_32px_-24px_rgba(15,23,42,0.18)]">
                 <div className="grid gap-2">
                   <p className="den-eyebrow">Switch organization</p>
                   <div className="grid gap-2">
@@ -117,10 +117,10 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
                           setSwitcherOpen(false);
                           switchOrganization(org.slug);
                         }}
-                        className={`flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left transition ${
+                        className={`flex items-center justify-between gap-3 rounded-[1.2rem] px-4 py-3 text-left transition-colors ${
                           org.isActive
-                            ? "bg-white text-[var(--dls-text-primary)] shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_0_rgba(0,0,0,0.04)]"
-                            : "bg-[var(--dls-sidebar)] text-[var(--dls-text-secondary)] hover:text-[var(--dls-text-primary)]"
+                            ? "bg-[#f3f4f6] text-[var(--dls-text-primary)]"
+                            : "text-[var(--dls-text-secondary)] hover:bg-[#f6f7f8] hover:text-[var(--dls-text-primary)]"
                         }`}
                       >
                         <span className="min-w-0">
@@ -134,7 +134,7 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
                 </div>
 
                 <form
-                  className="den-frame-inset grid gap-3 rounded-[1.5rem] p-4"
+                  className="grid gap-3 rounded-[1.5rem] border border-[#eceef1] bg-[#f7f8fa] p-4"
                   onSubmit={async (event) => {
                     event.preventDefault();
                     setCreateError(null);
@@ -171,7 +171,7 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
             ) : null}
           </div>
 
-          <div className="den-frame-soft grid gap-3 p-3">
+          <div className="grid gap-3">
             <div className="px-2 pt-1">
               <p className="den-eyebrow">Navigation</p>
             </div>
@@ -182,14 +182,14 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
                   <Link
                     key={item.label}
                     href={item.href}
-                    className={`flex items-center justify-between gap-3 rounded-full px-4 py-3 text-sm font-medium transition ${
+                    className={`flex items-center justify-between gap-3 rounded-[1.2rem] px-4 py-3 text-sm transition-colors ${
                       selected
-                        ? "bg-white text-[var(--dls-text-primary)] shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_0_rgba(0,0,0,0.04)]"
-                        : "text-[var(--dls-text-secondary)] hover:text-[var(--dls-text-primary)]"
+                        ? "bg-[#f0f1f3] font-medium text-[var(--dls-text-primary)]"
+                        : "text-[var(--dls-text-secondary)] hover:bg-[#f6f7f8] hover:text-[var(--dls-text-primary)]"
                     }`}
                   >
                     <span>{item.label}</span>
-                    {item.badge ? <span className="den-status-pill is-neutral">{item.badge}</span> : null}
+                    {item.badge ? <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--dls-text-secondary)]">{item.badge}</span> : null}
                   </Link>
                 );
               })}
@@ -201,32 +201,34 @@ export function OrgDashboardShell({ children }: { children: ReactNode }) {
               href="https://openworklabs.com/docs"
               target="_blank"
               rel="noreferrer"
-              className="den-button-secondary w-full"
+              className="flex min-h-[56px] w-full items-center justify-center rounded-[1.6rem] border border-[#eceef1] bg-white px-4 text-sm font-medium text-[var(--dls-text-secondary)] shadow-[0_4px_16px_-14px_rgba(15,23,42,0.15)] transition-colors hover:text-[var(--dls-text-primary)]"
             >
               Learn how
             </a>
 
-            <div className="den-frame-soft grid gap-3 p-4">
-            <div>
-              <p className="den-eyebrow">Signed in as</p>
-              <p className="mt-2 break-words text-sm font-medium text-[var(--dls-text-primary)]">
-                {user?.email ?? "Unknown user"}
-              </p>
-              {orgError ? <p className="mt-3 text-xs font-medium text-rose-600">{orgError}</p> : null}
-            </div>
-            <button
-              type="button"
-              className="den-button-secondary w-full"
-              onClick={() => void signOut()}
-            >
-              Log out
-            </button>
+            <div className="grid gap-3 rounded-[1.6rem] border border-[#eceef1] bg-white p-4 shadow-[0_4px_16px_-14px_rgba(15,23,42,0.12)]">
+              <div>
+                <p className="den-eyebrow">Signed in as</p>
+                <p className="mt-2 break-words text-sm font-medium text-[var(--dls-text-primary)]">
+                  {user?.email ?? "Unknown user"}
+                </p>
+                {orgError ? <p className="mt-3 text-xs font-medium text-rose-600">{orgError}</p> : null}
+              </div>
+              <button
+                type="button"
+                className="flex min-h-[48px] w-full items-center justify-center rounded-[1.2rem] bg-[#f5f6f7] px-4 text-sm font-medium text-[var(--dls-text-secondary)] transition-colors hover:text-[var(--dls-text-primary)]"
+                onClick={() => void signOut()}
+              >
+                Log out
+              </button>
             </div>
           </div>
         </div>
       </aside>
 
-      <main className="min-h-screen min-h-dvh flex-1">{children}</main>
+      <main className="min-h-screen min-h-dvh flex-1 overflow-hidden rounded-[2rem] border border-[#eceef1] bg-white">
+        {children}
+      </main>
     </section>
   );
 }
