@@ -26,10 +26,10 @@ export function SiteNav(props: Props) {
   }, []);
   const callHref = props.callUrl || "/enterprise#book";
   const downloadHref = props.downloadHref || "/download";
+  const downloadPageHref = "/download";
   const mobilePrimaryHref = props.mobilePrimaryHref || downloadHref;
   const mobilePrimaryLabel = props.mobilePrimaryLabel || "Desktop";
   const callExternal = /^https?:\/\//.test(callHref);
-  const downloadExternal = /^https?:\/\//.test(downloadHref);
   const mobilePrimaryExternal = /^https?:\/\//.test(mobilePrimaryHref);
   const navItems = [
     { href: "/docs", label: "Docs", key: "docs" },
@@ -89,14 +89,12 @@ export function SiteNav(props: Props) {
               </svg>
               {props.stars}
             </a>
-            <a
-              href={downloadHref}
+            <Link
+              href={downloadPageHref}
               className="doc-button !hidden items-center gap-2 md:!inline-flex"
-              rel={downloadExternal ? "noreferrer" : undefined}
-              target={downloadExternal ? "_blank" : undefined}
             >
               Desktop <Download size={16} />
-            </a>
+            </Link>
             <button
               type="button"
               className="rounded-full p-2 text-[#011627] transition-colors hover:bg-white/70 md:hidden"

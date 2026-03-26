@@ -167,18 +167,10 @@ export function OGImageContent() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, background: "#fff", boxShadow: "0 1px 2px rgba(15, 23, 42, 0.06)", borderRadius: 12, border: "1px solid #f3f4f6" }}>
-              <div style={{ width: 24, height: 24, borderRadius: 9999, background: "linear-gradient(135deg, #c084fc, #60a5fa)", flexShrink: 0 }} />
+              <div style={{ width: 24, height: 24, borderRadius: 9999, background: "linear-gradient(135deg, #34d399, #0f9f7f)", flexShrink: 0 }} />
               <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                <div style={{ fontWeight: 500, fontSize: 14, color: "#011627", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Digital Twin</div>
-                <div style={{ fontSize: 12, color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Extended digital you</div>
-              </div>
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, borderRadius: 12, opacity: 0.7 }}>
-              <div style={{ width: 24, height: 24, borderRadius: 9999, background: "linear-gradient(135deg, #fb923c, #ef4444)", flexShrink: 0 }} />
-              <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                <div style={{ fontWeight: 500, fontSize: 14, color: "#011627", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Sales Inbound</div>
-                <div style={{ fontSize: 12, color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Qualifies leads</div>
+                <div style={{ fontWeight: 500, fontSize: 14, color: "#011627", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Sales Team</div>
+                <div style={{ fontSize: 12, color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Daily tasks</div>
               </div>
             </div>
 

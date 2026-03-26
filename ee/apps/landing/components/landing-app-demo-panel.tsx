@@ -18,14 +18,6 @@ export function LandingAppDemoPanel(props: Props) {
   return (
     <div className={["relative z-10 flex flex-col gap-4 md:flex-row", props.className].filter(Boolean).join(" ")}>
       <div className="flex w-full flex-col gap-1 rounded-xl border border-gray-100 bg-gray-50 p-2 md:w-1/3">
-        <div className="flex items-center justify-between rounded-xl bg-gray-100/90 p-3">
-          <div className="flex items-center gap-3">
-            <div className={`h-6 w-6 rounded-full ${activeFlow.activeAgent.color}`}></div>
-            <span className="text-sm font-medium">{activeFlow.activeAgent.name}</span>
-          </div>
-          <span className="text-xs text-gray-400">Active</span>
-        </div>
-
         {activeFlow.agents.map((agent) => (
           <div
             key={agent.name}
@@ -35,7 +27,7 @@ export function LandingAppDemoPanel(props: Props) {
               <div className={`h-6 w-6 rounded-full ${agent.color}`}></div>
               <span className="text-sm font-medium">{agent.name}</span>
             </div>
-            <span className="text-xs text-gray-400">{agent.desc}</span>
+            {agent.desc ? <span className="text-xs text-gray-400">{agent.desc}</span> : null}
           </div>
         ))}
 

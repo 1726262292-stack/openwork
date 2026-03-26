@@ -14,7 +14,6 @@ export function SiteFooter() {
             className="inline-flex items-center gap-3 text-gray-500 transition-colors hover:text-gray-800"
           >
             <OpenCodeLogo className="h-3 w-auto" />
-            <span>Everything from OpenCode just works.</span>
           </a>
         </div>
 

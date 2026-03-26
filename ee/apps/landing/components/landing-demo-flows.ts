@@ -31,22 +31,12 @@ export const landingDemoFlows: DemoFlow[] = [
     description:
       "Turn plain-language requests into browser actions across the tools your team already uses.",
     activeAgent: {
-      name: "Browser Operator",
-      color: "bg-[#2463eb]"
+      name: "Sales Team",
+      color: "bg-[#0f9f7f]"
     },
     agents: [
       {
-        name: "Digital Twin",
-        desc: "Extended digital you",
-        color: "bg-[#4f6ee8]"
-      },
-      {
-        name: "Sales Inbound",
-        desc: "Qualifies leads",
-        color: "bg-[#f97316]"
-      },
-      {
-        name: "Personal",
+        name: "Sales Team",
         desc: "Daily tasks",
         color: "bg-[#0f9f7f]"
       }
@@ -91,17 +81,7 @@ export const landingDemoFlows: DemoFlow[] = [
     },
     agents: [
       {
-        name: "Digital Twin",
-        desc: "Extended digital you",
-        color: "bg-[#4f6ee8]"
-      },
-      {
-        name: "Sales Inbound",
-        desc: "Qualifies leads",
-        color: "bg-[#f97316]"
-      },
-      {
-        name: "Personal",
+        name: "Sales Team",
         desc: "Daily tasks",
         color: "bg-[#0f9f7f]"
       }
@@ -145,17 +125,7 @@ export const landingDemoFlows: DemoFlow[] = [
     },
     agents: [
       {
-        name: "Digital Twin",
-        desc: "Extended digital you",
-        color: "bg-[#4f6ee8]"
-      },
-      {
-        name: "Sales Inbound",
-        desc: "Qualifies leads",
-        color: "bg-[#f97316]"
-      },
-      {
-        name: "Personal",
+        name: "Sales Team",
         desc: "Daily tasks",
         color: "bg-[#0f9f7f]"
       }
