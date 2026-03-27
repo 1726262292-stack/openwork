@@ -49,7 +49,7 @@ export default function CreateRemoteWorkspaceModal(props: {
   const fieldLabelClass = "px-0.5 text-[13px] font-medium text-dls-text";
   const fieldHintClass = "px-0.5 text-[12px] leading-5 text-dls-secondary";
   const fieldInputClass =
-    "w-full rounded-xl border border-dls-border bg-dls-surface px-4 py-3 text-sm text-dls-text outline-none transition placeholder:text-dls-secondary focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.12)]";
+    "ow-input px-4 py-3 text-sm text-dls-text placeholder:text-dls-secondary";
 
   createEffect(() => {
     if (props.open) {
@@ -68,8 +68,8 @@ export default function CreateRemoteWorkspaceModal(props: {
   });
 
   const content = (
-    <div class="flex max-h-[90vh] w-full max-w-[520px] flex-col overflow-hidden rounded-[24px] border border-dls-border bg-dls-surface">
-      <div class="flex items-start justify-between gap-4 border-b border-dls-border bg-dls-surface px-6 py-5">
+    <div class="ow-soft-shell flex max-h-[90vh] w-full max-w-[520px] flex-col overflow-hidden rounded-[24px] bg-[#fbfbfc]">
+      <div class="flex items-start justify-between gap-4 px-6 py-5">
         <div class="min-w-0">
           <h3 class="text-[18px] font-semibold text-dls-text">{title()}</h3>
           <p class="mt-1 text-sm text-dls-secondary">{subtitle()}</p>
@@ -86,9 +86,9 @@ export default function CreateRemoteWorkspaceModal(props: {
       </div>
 
       <div class="flex-1 overflow-y-auto px-6 py-6">
-        <div class="rounded-xl border border-dls-border bg-dls-sidebar px-5 py-4">
+        <div class="ow-soft-card px-5 py-4">
           <div class="mb-4 flex items-start gap-3">
-            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dls-border bg-dls-surface text-dls-text">
+            <div class="ow-icon-tile h-10 w-10 shrink-0 rounded-xl">
               <Globe size={17} />
             </div>
             <div class="min-w-0">
@@ -114,7 +114,7 @@ export default function CreateRemoteWorkspaceModal(props: {
 
             <label class="grid gap-2">
               <span class={fieldLabelClass}>{translate("dashboard.openwork_host_token_label")}</span>
-              <div class="flex items-center gap-2 rounded-xl border border-dls-border bg-dls-surface p-1.5">
+              <div class="ow-input flex items-center gap-2 p-1.5">
                 <input
                   type={openworkTokenVisible() ? "text" : "password"}
                   value={openworkToken()}
@@ -125,7 +125,7 @@ export default function CreateRemoteWorkspaceModal(props: {
                 />
                 <button
                   type="button"
-                  class="rounded-lg border border-dls-border bg-dls-surface px-3 py-2 text-xs font-medium text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-50"
+                  class="ow-button-secondary px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={() => setOpenworkTokenVisible((prev) => !prev)}
                   disabled={submitting()}
                 >
@@ -165,9 +165,9 @@ export default function CreateRemoteWorkspaceModal(props: {
         </div>
       </div>
 
-      <div class="space-y-3 border-t border-dls-border bg-dls-surface px-6 py-5">
+      <div class="space-y-3 px-6 py-5">
         <Show when={props.error}>
-          <div class="rounded-lg border border-red-6 bg-red-3/50 p-3 text-sm text-red-11">
+          <div class="rounded-lg border border-red-6/30 bg-red-3/40 p-3 text-sm text-red-11">
             {props.error}
           </div>
         </Show>
@@ -177,7 +177,7 @@ export default function CreateRemoteWorkspaceModal(props: {
               type="button"
               onClick={props.onClose}
               disabled={submitting()}
-              class="rounded-full border border-dls-border bg-dls-surface px-4 py-2 text-center text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover disabled:cursor-not-allowed disabled:opacity-50"
+              class="ow-button-secondary px-4 py-2 text-center text-xs disabled:cursor-not-allowed disabled:opacity-50"
             >
               {translate("common.cancel")}
             </button>
@@ -194,7 +194,7 @@ export default function CreateRemoteWorkspaceModal(props: {
             }
             disabled={!canSubmit()}
             title={!openworkHostUrl().trim() ? translate("dashboard.remote_base_url_required") : undefined}
-            class="rounded-full bg-dls-accent px-6 py-2 text-xs font-medium text-white transition-colors hover:bg-[var(--dls-accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+            class="ow-button-primary px-6 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
           >
             {confirmLabel()}
           </button>

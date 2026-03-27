@@ -99,8 +99,8 @@ export default function CreateWorkspaceModal(props: {
   });
 
   const content = (
-    <div class="flex max-h-[90vh] w-full max-w-[480px] flex-col overflow-hidden rounded-[24px] border border-dls-border bg-dls-surface">
-      <div class="flex items-start justify-between gap-4 border-b border-dls-border bg-dls-surface px-6 py-5">
+    <div class="ow-soft-shell flex max-h-[90vh] w-full max-w-[500px] flex-col overflow-hidden rounded-[24px] bg-[#fbfbfc]">
+      <div class="flex items-start justify-between gap-4 px-6 py-5">
         <div class="min-w-0">
           <h3 class="text-[18px] font-semibold text-dls-text">{title()}</h3>
           <p class="mt-1 text-sm text-dls-secondary">{subtitle()}</p>
@@ -118,7 +118,7 @@ export default function CreateWorkspaceModal(props: {
       </div>
 
       <div class={`flex-1 overflow-y-auto px-6 py-6 transition-opacity duration-300 ${provisioning() ? "pointer-events-none opacity-40" : "opacity-100"}`}>
-        <div class="rounded-xl border border-dls-border bg-dls-sidebar px-5 py-4">
+        <div class="ow-soft-card p-5">
           <div class="mb-1 flex items-center justify-between gap-3">
             <div class="text-[15px] font-semibold text-dls-text">Workspace folder</div>
           </div>
@@ -132,7 +132,7 @@ export default function CreateWorkspaceModal(props: {
             ref={pickFolderRef}
             onClick={handlePickFolder}
             disabled={pickingFolder() || submitting()}
-            class="flex items-center gap-2 rounded-full border border-dls-border bg-dls-surface px-4 py-2 text-center text-xs font-medium text-dls-text transition-colors hover:border-gray-8 hover:bg-gray-2 disabled:cursor-wait disabled:opacity-70"
+            class="ow-button-secondary flex items-center gap-2 px-4 py-2 text-center text-xs disabled:cursor-wait disabled:opacity-70"
           >
             <Show when={pickingFolder()} fallback={<FolderPlus size={14} />}>
               <Loader2 size={14} class="animate-spin" />
@@ -142,10 +142,10 @@ export default function CreateWorkspaceModal(props: {
         </div>
       </div>
 
-      <div class="flex flex-col gap-3 border-t border-dls-border bg-dls-surface px-6 py-5">
+      <div class="flex flex-col gap-3 px-6 py-5">
         <Show when={submitting() && progress()}>
           {(p) => (
-            <div class="rounded-xl border border-gray-6 bg-gray-2/50 px-4 py-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div class="ow-soft-card-quiet animate-in fade-in slide-in-from-bottom-2 rounded-xl px-4 py-3 duration-300">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
                   <div class="flex items-center gap-2 text-xs font-semibold text-gray-12">
@@ -159,16 +159,16 @@ export default function CreateWorkspaceModal(props: {
                 </div>
                 <button
                   type="button"
-                  class="shrink-0 rounded px-2 py-1 text-xs text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12"
+                  class="shrink-0 rounded-full px-3 py-1.5 text-xs text-gray-10 transition-colors hover:bg-white hover:text-gray-12"
                   onClick={() => setShowProgressDetails((prev) => !prev)}
                 >
                   {showProgressDetails() ? "Hide logs" : "Show logs"}
                 </button>
               </div>
 
-              <Show when={p().error}>
-                {(err) => (
-                  <div class="mt-3 rounded-lg border border-red-7/30 bg-red-2/40 px-3 py-2 text-xs text-red-11 animate-in fade-in">
+                <Show when={p().error}>
+                  {(err) => (
+                  <div class="mt-3 rounded-lg border border-red-7/20 bg-red-2/30 px-3 py-2 text-xs text-red-11 animate-in fade-in">
                     {err()}
                   </div>
                 )}
@@ -197,7 +197,7 @@ export default function CreateWorkspaceModal(props: {
                         <div class="flex min-w-0 flex-1 items-center justify-between gap-2">
                           <div class={`text-xs ${textClass()} transition-colors duration-200`.trim()}>{step.label}</div>
                           <Show when={(step.detail ?? "").trim()}>
-                            <div class="max-w-[120px] truncate rounded bg-gray-3/50 px-1.5 py-0.5 font-mono text-[10px] text-gray-9">
+                            <div class="max-w-[120px] truncate rounded-full bg-white px-2 py-0.5 font-mono text-[10px] text-gray-9 shadow-[0_0_0_1px_rgba(0,0,0,0.04)]">
                               {step.detail}
                             </div>
                           </Show>
@@ -209,7 +209,7 @@ export default function CreateWorkspaceModal(props: {
               </div>
 
               <Show when={showProgressDetails() && (p().logs?.length ?? 0) > 0}>
-                <div class="mt-3 rounded-lg border border-gray-6 bg-black/5 px-3 py-2 animate-in fade-in">
+                <div class="mt-3 rounded-lg bg-white/70 px-3 py-2 animate-in fade-in shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]">
                   <div class="mb-2 flex items-center justify-between">
                     <div class="text-[10px] font-semibold uppercase tracking-wide text-gray-10">Live Logs</div>
                   </div>
@@ -225,7 +225,7 @@ export default function CreateWorkspaceModal(props: {
         </Show>
 
         <Show when={showWorkerCallout()}>
-          <div class="rounded-xl border border-amber-7/30 bg-amber-2/40 px-4 py-3 text-xs text-amber-11">
+          <div class="rounded-xl border border-amber-7/20 bg-amber-2/30 px-4 py-3 text-xs text-amber-11">
             <div class="font-semibold text-amber-12">{translate("dashboard.sandbox_get_ready_title")}</div>
             <Show when={props.workerCtaDescription?.trim() || workerDisabledReason()}>
               <div class="mt-1 leading-relaxed text-amber-11">{workerDisabledReason() || props.workerCtaDescription?.trim()}</div>
@@ -243,7 +243,7 @@ export default function CreateWorkspaceModal(props: {
               </Show>
             </div>
             <Show when={workerDebugLines().length > 0}>
-              <details class="mt-3 rounded-lg border border-gray-6 bg-gray-2/60 px-3 py-2 text-[11px] text-gray-11">
+              <details class="mt-3 rounded-lg bg-white/70 px-3 py-2 text-[11px] text-gray-11 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]">
                 <summary class="cursor-pointer text-xs font-semibold text-gray-12">Docker debug details</summary>
                 <div class="mt-2 space-y-1 break-words font-mono">
                   <For each={workerDebugLines()}>
@@ -261,7 +261,7 @@ export default function CreateWorkspaceModal(props: {
               type="button"
               onClick={props.onClose}
               disabled={submitting()}
-              class="rounded-full border border-dls-border bg-dls-surface px-4 py-2 text-center text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover disabled:cursor-not-allowed disabled:opacity-50"
+              class="ow-button-secondary px-4 py-2 text-center text-xs disabled:cursor-not-allowed disabled:opacity-50"
             >
               {translate("common.cancel")}
             </button>
@@ -276,7 +276,7 @@ export default function CreateWorkspaceModal(props: {
                 if (workerDisabled() && workerDisabledReason()) return workerDisabledReason();
                 return undefined;
               })()}
-              class="rounded-full border border-dls-border bg-dls-surface px-4 py-2 text-center text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover disabled:cursor-not-allowed disabled:opacity-50"
+              class="ow-button-secondary px-4 py-2 text-center text-xs disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Show when={workerSubmitting()} fallback={workerLabel()}>
                 <span class="inline-flex items-center gap-2">
@@ -291,7 +291,7 @@ export default function CreateWorkspaceModal(props: {
             onClick={() => props.onConfirm(preset(), selectedFolder())}
             disabled={!selectedFolder() || submitting()}
             title={!selectedFolder() ? translate("dashboard.choose_folder_continue") : undefined}
-            class="rounded-full bg-dls-accent px-6 py-2 text-xs font-medium text-white transition-colors hover:bg-[var(--dls-accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+            class="ow-button-primary px-6 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Show when={submitting()} fallback={confirmLabel()}>
               <span class="inline-flex items-center gap-2">
