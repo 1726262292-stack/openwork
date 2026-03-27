@@ -160,6 +160,10 @@ export function getCustomLlmProvidersRoute(orgSlug: string): string {
   return `${getOrgDashboardRoute(orgSlug)}/custom-llm-providers`;
 }
 
+export function getBillingRoute(orgSlug: string): string {
+  return `${getOrgDashboardRoute(orgSlug)}/billing`;
+}
+
 export function parseOrgListPayload(payload: unknown): {
   orgs: DenOrgSummary[];
   activeOrgId: string | null;

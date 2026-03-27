@@ -2,127 +2,199 @@
 
 import Link from "next/link";
 import {
+  Bot,
+  CreditCard,
+  Cpu,
+  Monitor,
+  Share2,
+  Users,
+} from "lucide-react";
+import {
   getBackgroundAgentsRoute,
+  getBillingRoute,
   getCustomLlmProvidersRoute,
   getMembersRoute,
   getSharedSetupsRoute,
 } from "../../../../_lib/den-org";
+import { useDenFlow } from "../../../../_providers/den-flow-provider";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
-import { OPENWORK_DOCS_URL, useOrgTemplates } from "./shared-setup-data";
+import { formatTemplateTimestamp, useOrgTemplates } from "./shared-setup-data";
+
+function getGreeting(name: string | null | undefined) {
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const firstName = name?.trim().split(/\s+/)[0] ?? "there";
+  return `${greeting}, ${firstName}`;
+}
 
 export function DashboardOverviewScreen() {
   const { orgSlug, activeOrg, orgContext } = useOrgDashboard();
-  const { templates, busy, error } = useOrgTemplates(orgSlug);
-  const pendingInvitations = (orgContext?.invitations ?? []).filter((invitation) => invitation.status === "pending");
+  const { user } = useDenFlow();
+  const { templates } = useOrgTemplates(orgSlug);
+
+  const quickActions = [
+    {
+      label: "Team templates",
+      icon: Share2,
+      href: getSharedSetupsRoute(orgSlug),
+      tint: "bg-indigo-50 text-indigo-500 group-hover:bg-indigo-100",
+    },
+    {
+      label: "Members",
+      icon: Users,
+      href: getMembersRoute(orgSlug),
+      tint: "bg-cyan-50 text-cyan-600 group-hover:bg-cyan-100",
+    },
+    {
+      label: "Shared Workspace",
+      icon: Bot,
+      href: getBackgroundAgentsRoute(orgSlug),
+      tint: "bg-orange-50 text-orange-500 group-hover:bg-orange-100",
+    },
+    {
+      label: "Custom LLMs",
+      icon: Cpu,
+      href: getCustomLlmProvidersRoute(orgSlug),
+      tint: "bg-lime-50 text-lime-600 group-hover:bg-lime-100",
+    },
+    {
+      label: "Billing",
+      icon: CreditCard,
+      href: getBillingRoute(orgSlug),
+      tint: "bg-gray-100 text-gray-600 group-hover:bg-gray-200",
+    },
+    {
+      label: "Desktop app",
+      icon: Monitor,
+      href: "https://openworklabs.com/download",
+      external: true,
+      tint: "bg-fuchsia-50 text-fuchsia-600 group-hover:bg-fuchsia-100",
+    },
+  ];
 
   return (
-    <section className="den-page flex max-w-6xl flex-col gap-6 py-4 md:py-8">
-      <div className="den-frame grid gap-6 p-6 md:p-8 lg:p-10">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="grid gap-3">
-            <p className="den-eyebrow">OpenWork Cloud</p>
-            <h1 className="den-title-xl max-w-[12ch]">{activeOrg?.name ?? "OpenWork Cloud"}</h1>
-            <p className="den-copy max-w-2xl">
-              Manage your team&apos;s setup, invite teammates, and keep everything in sync.
-            </p>
-          </div>
+    <div className="mx-auto max-w-[1200px] px-6 py-8 md:px-8">
+      <p className="mb-1 text-[12px] text-gray-400">
+        {activeOrg?.name ?? "OpenWork Cloud"}
+      </p>
+      <h1 className="mb-8 text-[26px] tracking-[-0.5px] text-gray-900">
+        {getGreeting(user?.name)}
+      </h1>
 
-          <div className="flex flex-wrap gap-3">
-            <Link href={getMembersRoute(orgSlug)} className="den-button-secondary">
-              Add member
-            </Link>
-            <a href={OPENWORK_DOCS_URL} target="_blank" rel="noreferrer" className="den-button-secondary">
-              Learn how
-            </a>
-            <Link href="/checkout" className="den-button-primary">
-              Billing
-            </Link>
-          </div>
-        </div>
+      <div className="mb-10 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        {quickActions.map((action) => {
+          const content = (
+            <>
+              <div
+                className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${action.tint}`}
+              >
+                <action.icon className="h-5 w-5" strokeWidth={1.8} />
+              </div>
+              <span className="text-center text-[12px] leading-tight text-gray-700">
+                {action.label}
+              </span>
+            </>
+          );
 
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="den-stat-card">
-            <p className="den-stat-label">Members</p>
-            <p className="den-stat-value">{orgContext?.members.length ?? 0}</p>
-            <p className="den-stat-copy">People who can access this shared setup.</p>
-          </div>
-          <div className="den-stat-card">
-            <p className="den-stat-label">Shared setups</p>
-            <p className="den-stat-value">{templates.length}</p>
-            <p className="den-stat-copy">Reusable templates your team can open right away.</p>
-          </div>
-          <div className="den-stat-card">
-            <p className="den-stat-label">Pending invites</p>
-            <p className="den-stat-value">{pendingInvitations.length}</p>
-            <p className="den-stat-copy">Invitations waiting for teammates to join.</p>
-          </div>
-        </div>
+          const className =
+            "group flex min-h-[116px] flex-col items-center gap-3 rounded-2xl border border-gray-100 bg-white p-5 transition-all hover:border-gray-200 hover:shadow-[0_2px_8px_-4px_rgba(0,0,0,0.08)]";
+
+          if (action.external) {
+            return (
+              <a
+                key={action.label}
+                href={action.href}
+                target="_blank"
+                rel="noreferrer"
+                className={className}
+              >
+                {content}
+              </a>
+            );
+          }
+
+          return (
+            <Link key={action.label} href={action.href} className={className}>
+              {content}
+            </Link>
+          );
+        })}
       </div>
 
-      {error ? <div className="den-notice is-error">{error}</div> : null}
-
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="den-list-shell">
-          <div className="flex flex-col gap-2 px-5 py-5 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="den-eyebrow">Recent shared setups</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[var(--dls-text-primary)]">
-                Shared setups
-              </h2>
-            </div>
-            <p className="max-w-sm text-sm leading-relaxed text-[var(--dls-text-secondary)] md:text-right">
-              Create and update shared templates your team can use right away.
-            </p>
-          </div>
-
-          {busy ? (
-            <div className="den-list-row text-sm text-[var(--dls-text-secondary)]">Loading shared setups...</div>
-          ) : templates.length === 0 ? (
-            <div className="den-list-row text-sm text-[var(--dls-text-secondary)]">
-              No shared setups yet. Create one from the OpenWork desktop app and it will appear here.
-            </div>
-          ) : (
-            templates.slice(0, 4).map((template) => (
-              <article key={template.id} className="den-list-row">
-                <div className="grid gap-1">
-                  <h3 className="text-base font-semibold text-[var(--dls-text-primary)]">{template.name}</h3>
-                  <p className="text-sm text-[var(--dls-text-secondary)]">Created by {template.creator.name}</p>
-                  <p className="text-xs text-[var(--dls-text-secondary)]">
-                    {template.createdAt ? `Updated ${new Date(template.createdAt).toLocaleDateString()}` : "Updated recently"}
-                  </p>
-                </div>
-                <Link href={getSharedSetupsRoute(orgSlug)} className="den-button-secondary shrink-0">
-                  Open
+      <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div>
+          <h2 className="mb-4 text-[15px] tracking-[-0.2px] text-gray-900">
+            Recent templates
+          </h2>
+          <div className="space-y-1">
+            {templates.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-6 text-[13px] text-gray-500">
+                No team templates yet. Create one from the OpenWork desktop app and it will show up here.
+              </div>
+            ) : (
+              templates.slice(0, 4).map((template) => (
+                <Link
+                  key={template.id}
+                  href={getSharedSetupsRoute(orgSlug)}
+                  className="group flex items-center gap-3 rounded-xl px-4 py-3 text-left transition-all hover:bg-white hover:shadow-[0_1px_4px_rgba(0,0,0,0.04)]"
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100">
+                    <Share2 className="h-3.5 w-3.5 text-gray-400" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14px] text-gray-900">{template.name}</p>
+                    <p className="text-[12px] text-gray-400">
+                      Updated {formatTemplateTimestamp(template.createdAt, { includeTime: true })}
+                    </p>
+                  </div>
                 </Link>
-              </article>
-            ))
-          )}
+              ))
+            )}
+          </div>
+          <Link
+            href={getSharedSetupsRoute(orgSlug)}
+            className="mt-3 inline-flex px-4 py-2 text-[13px] text-gray-500 transition-colors hover:text-gray-700"
+          >
+            View all templates →
+          </Link>
         </div>
 
-        <div className="grid h-fit gap-4">
-          <article className="den-frame-soft grid gap-3 p-5 md:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <p className="den-eyebrow">Background agents</p>
-              <span className="den-status-pill is-neutral">Alpha</span>
-            </div>
-            <p className="den-copy text-sm">Keep selected workflows running in the background.</p>
-            <Link href={getBackgroundAgentsRoute(orgSlug)} className="den-button-secondary w-full">
-              Open background agents
-            </Link>
-          </article>
+        <div className="space-y-4">
+          <div className="overflow-hidden rounded-2xl border border-gray-800 bg-gray-900 p-5">
+            <h3 className="mb-2 text-[14px] text-white">Desktop app</h3>
+            <p className="mb-4 text-[13px] leading-[1.6] text-gray-300">
+              Run locally for free, keep your data on your machine, and move to shared web workflows when your team is ready.
+            </p>
+            <a
+              href="https://openworklabs.com/download"
+              className="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-[12px] text-white transition-colors hover:bg-white/10"
+            >
+              <Monitor className="h-3.5 w-3.5" />
+              Use desktop only
+            </a>
+          </div>
 
-          <article className="den-frame-soft grid gap-3 p-5 md:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <p className="den-eyebrow">Custom LLM providers</p>
-              <span className="den-status-pill is-neutral">Soon</span>
+          <div className="rounded-2xl border border-gray-100 bg-white p-5">
+            <h3 className="mb-1 text-[14px] text-gray-900">Workspace snapshot</h3>
+            <div className="mt-4 grid gap-3">
+              <div className="flex items-center justify-between text-[13px] text-gray-500">
+                <span>Members</span>
+                <span className="font-medium text-gray-900">{orgContext?.members.length ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between text-[13px] text-gray-500">
+                <span>Pending invites</span>
+                <span className="font-medium text-gray-900">
+                  {(orgContext?.invitations ?? []).filter((invitation) => invitation.status === "pending").length}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[13px] text-gray-500">
+                <span>Shared templates</span>
+                <span className="font-medium text-gray-900">{templates.length}</span>
+              </div>
             </div>
-            <p className="den-copy text-sm">Standardize provider access for your team.</p>
-            <Link href={getCustomLlmProvidersRoute(orgSlug)} className="den-button-secondary w-full">
-              Learn more
-            </Link>
-          </article>
+          </div>
         </div>
       </div>
-    </section>
+    </div>
   );
 }
