@@ -120,8 +120,6 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
     switchOrganization,
   } = useOrgDashboard();
   const [switcherOpen, setSwitcherOpen] = useState(false);
-  const [orgNameDraft, setOrgNameDraft] = useState("");
-  const [createError, setCreateError] = useState<string | null>(null);
 
   const pageTitle = getDashboardPageTitle(pathname, activeOrg?.slug ?? null);
   const feedbackHref = buildDenFeedbackUrl({
@@ -168,101 +166,98 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
     <div className="relative">
       <button
         type="button"
-        className="flex w-full items-center justify-between gap-3 rounded-2xl px-2 py-2 text-left transition-colors hover:bg-gray-50"
+        className="flex w-full items-center justify-between gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-gray-100"
         onClick={() => setSwitcherOpen((current) => !current)}
       >
         <div className="flex min-w-0 items-center gap-3">
           <OrgMark name={activeOrg?.name ?? "OpenWork"} />
           <div className="min-w-0">
-            <p className="truncate text-[15px] font-semibold tracking-[-0.2px] text-gray-900">
+            <p className="truncate text-[14px] font-medium text-gray-900">
               {activeOrg?.name ?? "Loading..."}
             </p>
-            <p className="truncate text-[12px] text-gray-400">
+            <p className="truncate text-[12px] text-gray-500">
               {activeOrg ? formatRoleLabel(activeOrg.role) : "Preparing workspace"}
             </p>
           </div>
         </div>
-        <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 shrink-0">
+          <path d="M17 3l4 4-4 4"/>
+          <path d="M3 7h18"/>
+          <path d="M7 21l-4-4 4-4"/>
+          <path d="M21 17H3"/>
+        </svg>
       </button>
 
       {switcherOpen ? (
-        <div className="absolute bottom-[calc(100%+0.75rem)] left-0 right-0 z-30 grid gap-4 rounded-[1.5rem] border border-gray-200 bg-white p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.28)]">
-          <div className="grid gap-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-400">
-              Switch organization
+        <div className="absolute bottom-[calc(100%+0.5rem)] left-0 w-[240px] z-30 grid gap-1 rounded-2xl border border-gray-200 bg-white py-2 shadow-[0_12px_24px_-12px_rgba(0,0,0,0.15)]">
+          <div className="px-3 py-1.5">
+            <p className="truncate text-[13px] font-medium text-gray-900">
+              {user?.email ?? "OpenWork user"}
             </p>
-            <div className="grid gap-1.5">
-              {orgDirectory.map((org) => (
-                <button
-                  key={org.id}
-                  type="button"
-                  onClick={() => {
-                    setSwitcherOpen(false);
-                    switchOrganization(org.slug);
-                  }}
-                  className={`flex items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition-colors ${
-                    org.isActive
-                      ? "bg-gray-100 text-gray-900"
-                      : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
-                  }`}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-medium">{org.name}</span>
-                    <span className="block truncate text-[11px] text-gray-400">
-                      {formatRoleLabel(org.role)}
+          </div>
+          
+          <div className="mx-2 h-px bg-gray-100 my-1" />
+
+          <div className="px-3 pb-1 pt-1">
+            <p className="text-[11px] font-medium text-gray-500">
+              Switch workspace
+            </p>
+          </div>
+          
+          <div className="grid gap-0.5 px-1.5">
+            {orgDirectory.map((org) => (
+              <button
+                key={org.id}
+                type="button"
+                onClick={() => {
+                  setSwitcherOpen(false);
+                  switchOrganization(org.slug);
+                }}
+                className={`flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left transition-colors ${
+                  org.isActive
+                    ? "bg-gray-50 text-gray-900"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                }`}
+              >
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <div className="min-w-0">
+                    <span className="block truncate text-[13px] font-medium tracking-[-0.1px]">{org.name}</span>
+                    <span className="block truncate text-[12px] text-gray-500">
+                      {org.role === "owner" ? "Creator plan" : "Free plan"} • 1 member
                     </span>
-                  </span>
-                  {org.isActive ? (
-                    <span className="rounded-full bg-white px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-gray-500">
-                      Current
-                    </span>
-                  ) : null}
-                </button>
-              ))}
-            </div>
+                  </div>
+                </div>
+                {org.isActive ? (
+                  <svg className="h-4 w-4 shrink-0 text-gray-900" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : null}
+              </button>
+            ))}
           </div>
 
-          <form
-            className="grid gap-3 rounded-[1.25rem] border border-gray-200 bg-gray-50 p-4"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              setCreateError(null);
-              try {
-                await createOrganization(orgNameDraft);
-                setOrgNameDraft("");
-                setSwitcherOpen(false);
-              } catch (error) {
-                setCreateError(
-                  error instanceof Error
-                    ? error.message
-                    : "Could not create organization.",
-                );
-              }
-            }}
-          >
-            <label className="grid gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-400">
-                Create organization
-              </span>
-              <input
-                type="text"
-                value={orgNameDraft}
-                onChange={(event) => setOrgNameDraft(event.target.value)}
-                placeholder="Acme Labs"
-                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-[14px] text-gray-900 outline-none transition focus:border-gray-300 focus:ring-4 focus:ring-gray-900/5"
-              />
-            </label>
-            <button
-              type="submit"
-              className="inline-flex items-center justify-center rounded-full bg-gray-900 px-4 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={mutationBusy === "create-organization"}
+          <div className="px-1.5 mt-0.5">
+            <Link
+              href="/organization"
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
+              onClick={() => setSwitcherOpen(false)}
             >
-              {mutationBusy === "create-organization" ? "Creating..." : "Create organization"}
+              <span className="text-gray-400 text-[16px] leading-none">+</span> Create or join workspace
+            </Link>
+          </div>
+
+          <div className="mx-2 h-px bg-gray-100 my-1" />
+
+          <div className="px-1.5">
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
+            >
+              <LogOut className="h-4 w-4 text-gray-400" />
+              Sign out
             </button>
-            {createError ? (
-              <p className="text-[12px] font-medium text-rose-600">{createError}</p>
-            ) : null}
-          </form>
+          </div>
         </div>
       ) : null}
     </div>
@@ -318,33 +313,15 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
             </div>
           </nav>
 
-          <div className="mt-auto border-t border-gray-100 p-3">
-            <div className="rounded-2xl bg-gray-50 p-3">
-              {orgSwitcher}
+          <div className="mt-auto p-3">
+            {orgSwitcher}
 
-              <div className="mt-3 flex items-center gap-3 border-t border-white/80 pt-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-medium tracking-[-0.1px] text-gray-900">
-                    {user?.name ?? user?.email ?? "OpenWork user"}
-                  </p>
-                  <p className="truncate text-[11px] text-gray-400">{user?.email ?? "Signed in"}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void signOut()}
-                  className="rounded-full p-2 text-gray-400 transition-colors hover:bg-white hover:text-gray-700"
-                  aria-label="Log out"
-                >
-                  <LogOut className="h-4 w-4" />
-                </button>
-              </div>
-              {orgBusy ? (
-                <p className="mt-3 text-[11px] text-gray-400">Refreshing workspace…</p>
-              ) : null}
-              {orgError ? (
-                <p className="mt-3 text-[11px] font-medium text-rose-600">{orgError}</p>
-              ) : null}
-            </div>
+            {orgBusy ? (
+              <p className="mt-3 px-2 text-[11px] text-gray-400">Refreshing workspace…</p>
+            ) : null}
+            {orgError ? (
+              <p className="mt-3 px-2 text-[11px] font-medium text-rose-600">{orgError}</p>
+            ) : null}
           </div>
         </div>
       </aside>
