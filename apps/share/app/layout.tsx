@@ -3,6 +3,7 @@ import "../styles/globals.css";
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import Script from "next/script";
+import type { ReactNode } from "react";
 import { BotIdClient } from "botid/client";
 
 import { DEFAULT_PUBLIC_BASE_URL } from "../server/_lib/share-utils.ts";
@@ -62,7 +63,7 @@ const protectedRoutes = [
   { path: "/v1/bundles", method: "POST" as const },
 ];
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <head>
