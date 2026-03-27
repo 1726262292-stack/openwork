@@ -27,6 +27,23 @@ function getGreeting(name: string | null | undefined) {
   return `${greeting}, ${firstName}`;
 }
 
+function getTemplateAccent(seed: string) {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) % 360;
+  }
+
+  const hue = hash;
+  const accent = `hsl(${hue} 82% 52%)`;
+  const accentTwo = `hsl(${(hue + 46) % 360} 84% 64%)`;
+  const background = `hsl(${hue} 90% 96%)`;
+
+  return {
+    background,
+    gradient: `radial-gradient(circle at 30% 30%, ${accentTwo} 0%, ${accent} 55%, hsl(${(hue + 140) % 360} 90% 32%) 100%)`,
+  };
+}
+
 export function DashboardOverviewScreen() {
   const { orgSlug, activeOrg, orgContext } = useOrgDashboard();
   const { user } = useDenFlow();
@@ -132,23 +149,33 @@ export function DashboardOverviewScreen() {
                 No team templates yet. Create one from the OpenWork desktop app and it will show up here.
               </div>
             ) : (
-              templates.slice(0, 4).map((template) => (
-                <Link
-                  key={template.id}
-                  href={getSharedSetupsRoute(orgSlug)}
-                  className="group flex items-center gap-3 rounded-xl px-4 py-3 text-left transition-all hover:bg-white hover:shadow-[0_1px_4px_rgba(0,0,0,0.04)]"
-                >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100">
-                    <Share2 className="h-3.5 w-3.5 text-gray-400" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[14px] text-gray-900">{template.name}</p>
-                    <p className="text-[12px] text-gray-400">
-                      Updated {formatTemplateTimestamp(template.createdAt, { includeTime: true })}
-                    </p>
-                  </div>
-                </Link>
-              ))
+              templates.slice(0, 4).map((template) => {
+                const accent = getTemplateAccent(template.name);
+
+                return (
+                  <Link
+                    key={template.id}
+                    href={getSharedSetupsRoute(orgSlug)}
+                    className="group flex items-center gap-3 rounded-xl px-4 py-3 text-left transition-all hover:bg-white hover:shadow-[0_1px_4px_rgba(0,0,0,0.04)]"
+                  >
+                    <div
+                      className="relative h-6 w-6 shrink-0 overflow-hidden rounded-full"
+                      style={{ backgroundColor: accent.background }}
+                    >
+                      <div
+                        className="absolute inset-0 opacity-90 transition-opacity group-hover:opacity-100"
+                        style={{ backgroundImage: accent.gradient }}
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[14px] text-gray-900">{template.name}</p>
+                      <p className="text-[12px] text-gray-400">
+                        Updated {formatTemplateTimestamp(template.createdAt, { includeTime: true })}
+                      </p>
+                    </div>
+                  </Link>
+                );
+              })
             )}
           </div>
           <Link
