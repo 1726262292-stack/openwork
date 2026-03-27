@@ -8896,6 +8896,7 @@ export default function App() {
         }}
         onPickFolder={workspaceStore.pickWorkspaceFolder}
         defaultPreset={createWorkspaceDefaultPreset()}
+        onConfirmRemote={(input) => workspaceStore.createRemoteWorkspaceFlow(input)}
         onConfirmTemplate={(template, preset, folder) =>
           startWorkspaceFromCloudTemplate({
             name: template.name,
@@ -9013,6 +9014,8 @@ export default function App() {
           void workspaceStore.refreshSandboxDoctor?.();
         }}
         workerSubmitting={workspaceStore.sandboxPreflightBusy?.() ?? false}
+        remoteSubmitting={busy() && busyLabel() === "status.connecting"}
+        remoteError={busyLabel() === "status.connecting" ? error() : null}
         submitting={(() => {
           const phase = workspaceStore.sandboxCreatePhase?.() ?? "idle";
           if (phase === "provisioning" || phase === "finalizing") return true;
