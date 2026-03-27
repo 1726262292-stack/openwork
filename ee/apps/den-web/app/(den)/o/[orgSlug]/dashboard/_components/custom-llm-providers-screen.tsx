@@ -26,7 +26,7 @@ export function CustomLlmProvidersScreen() {
             style={{ backgroundColor: "#1C2A30", width: "100%", height: "100%" }}
           >
             <MeshGradient
-              speed={1}
+              speed={0.1}
               distortion={0.8}
               swirl={0.1}
               grainMixer={0}

@@ -185,7 +185,7 @@ export function AuthScreen() {
                 style={{ backgroundColor: "#142033", width: "100%", height: "100%" }}
               >
                 <MeshGradient
-                  speed={0.7}
+                  speed={0.1}
                   distortion={0.8}
                   swirl={0.1}
                   grainMixer={0}
