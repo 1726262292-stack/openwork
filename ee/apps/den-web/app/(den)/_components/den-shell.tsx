@@ -1,6 +1,4 @@
-import type { ReactNode } from "react";
-
-export function DenShell({ children }: { children: ReactNode }) {
+export function DenShell({ children }: { children: React.ReactNode }) {
   return (
     <main className="relative min-h-screen w-full overflow-hidden bg-[var(--dls-app-bg)] text-[var(--dls-text-primary)]">
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>

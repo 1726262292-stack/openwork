@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import {
   Bot,
   ChevronDown,
@@ -107,7 +107,7 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
   return "Home";
 }
 
-export function OrgDashboardShell({ children }: { children: ReactNode }) {
+export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, signOut } = useDenFlow();
   const {

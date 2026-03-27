@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getWorkerStatusCopy, getWorkerStatusMeta } from "../_lib/den-flow";
@@ -142,7 +141,7 @@ function SectionBadge({
   body,
   dimmed = false
 }: {
-  icon: ReactNode;
+  icon: React.ReactNode;
   title: string;
   body: string;
   dimmed?: boolean;

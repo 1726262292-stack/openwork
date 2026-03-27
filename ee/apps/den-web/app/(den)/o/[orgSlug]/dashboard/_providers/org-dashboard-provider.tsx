@@ -6,7 +6,6 @@ import {
   useEffect,
   useMemo,
   useState,
-  type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
 import { useDenFlow } from "../../../../_providers/den-flow-provider";
@@ -46,7 +45,7 @@ export function OrgDashboardProvider({
   children,
 }: {
   orgSlug: string;
-  children: ReactNode;
+  children: React.ReactNode;
 }) {
   const router = useRouter();
   const { user, sessionHydrated, signOut, refreshWorkers, workersLoadedOnce } = useDenFlow();
