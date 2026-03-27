@@ -61,7 +61,7 @@ type Props = {
 };
 
 const MAX_SESSIONS_PREVIEW = 6;
-const COLLAPSED_SESSIONS_PREVIEW = 1;
+const COLLAPSED_SESSIONS_PREVIEW = MAX_SESSIONS_PREVIEW;
 
 type SessionListItem = WorkspaceSessionGroup["sessions"][number];
 type FlattenedSessionRow = { session: SessionListItem; depth: number };
@@ -729,29 +729,52 @@ export default function WorkspaceSessionList(props: Props) {
 
                 <div class="mt-3 px-1 pb-1">
                   <div class="relative flex flex-col gap-1 pl-2.5 before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[2px] before:bg-gray-3 before:content-['']">
-                  <Show
-                    when={isWorkspaceExpanded(workspace().id)}
-                    fallback={
-                      <Show when={group.sessions.length > 0}>
-                        <For
-                          each={previewSessions(
-                            workspace().id,
-                            group.sessions,
-                            tree,
-                            forcedExpandedSessionIds,
-                          )}
-                        >
-                          {(row) =>
-                            renderSessionRow(
+                   <Show
+                     when={isWorkspaceExpanded(workspace().id)}
+                     fallback={
+                       <Show when={group.sessions.length > 0}>
+                          <For
+                            each={previewSessions(
                               workspace().id,
-                              row,
+                              group.sessions,
                               tree,
                               forcedExpandedSessionIds,
                             )}
-                        </For>
-                      </Show>
-                    }
-                  >
+                          >
+                            {(row) =>
+                              renderSessionRow(
+                                workspace().id,
+                                row,
+                                tree,
+                                forcedExpandedSessionIds,
+                              )}
+                          </For>
+
+                          <Show
+                            when={
+                              getRootSessions(group.sessions).length >
+                              previewCount(workspace().id)
+                            }
+                          >
+                            <button
+                              type="button"
+                              class="w-full rounded-[15px] border border-transparent px-3 py-2.5 text-left text-[11px] text-gray-10 transition-colors hover:bg-gray-2/60 hover:text-gray-11"
+                              onClick={() =>
+                                showMoreSessions(
+                                  workspace().id,
+                                  getRootSessions(group.sessions).length,
+                                )
+                              }
+                            >
+                              {showMoreLabel(
+                                workspace().id,
+                                getRootSessions(group.sessions).length,
+                              )}
+                            </button>
+                          </Show>
+                        </Show>
+                      }
+                    >
                     <Show
                       when={
                         group.status === "loading" &&

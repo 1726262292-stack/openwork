@@ -170,7 +170,7 @@ export function AuthScreen() {
   return (
     <section className="den-page flex w-full items-center py-4 lg:min-h-[calc(100vh-2.5rem)]">
       <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]">
-        <div className="flex flex-col gap-6">
+        <div className="order-2 flex flex-col gap-6 lg:order-1">
           <div className="relative min-h-[300px] overflow-hidden rounded-[32px] border border-gray-100 px-7 py-8 md:px-10 md:py-10">
             <div className="absolute inset-0 z-0">
               <Dithering
@@ -191,7 +191,7 @@ export function AuthScreen() {
                   grainMixer={0}
                   grainOverlay={0}
                   frame={176868.9}
-                  colors={["#E0FCFF", "#3B82F6", "#7C3AED", "#50F7D4"]}
+                  colors={["#0F172A", "#1E40AF", "#4C1D95", "#0F766E"]}
                   style={{ width: "100%", height: "100%" }}
                 />
               </Dithering>
@@ -199,7 +199,7 @@ export function AuthScreen() {
 
             <div className="relative z-10 flex h-full flex-col justify-between gap-10">
               <div className="flex items-center gap-3">
-                <img src="/openwork-mark.svg" alt="OpenWork" className="h-9 w-auto" />
+                <img src="/openwork-logo-transparent.svg" alt="OpenWork" className="h-9 w-auto" />
                 <span className="text-[13px] font-medium text-white/80">OpenWork Cloud</span>
               </div>
 
@@ -223,23 +223,24 @@ export function AuthScreen() {
               body="Package skills, MCPs, plugins, and config once so the whole org can use the same setup."
             />
             <FeatureCard
-              title="Shared workspaces"
+              title="Cloud Hosted Agents"
               body="Keep selected workflows running in the cloud without asking each teammate to run them locally."
             />
             <FeatureCard
-              title="Provider control"
-              body="Roll into standardized model access and billing controls as your team grows into Cloud."
+              title="Custom LLM Providers"
+              body="Whether you want to use LiteLLM, Azure, or any other provider, you can use OpenWork to provision your team."
             />
           </div>
         </div>
 
-        {hasResolvedSession ? (
-          <LoadingPanel
-            title="Redirecting to your workspace."
-            body="We found your account and are sending you to the right Cloud destination now."
-          />
-        ) : (
-          <div className="rounded-[28px] border border-gray-100 bg-white p-6 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.22)] md:p-7">
+        <div className="order-1 lg:order-2">
+          {hasResolvedSession ? (
+            <LoadingPanel
+              title="Redirecting to your workspace."
+              body="We found your account and are sending you to the right Cloud destination now."
+            />
+          ) : (
+            <div className="rounded-[28px] border border-gray-100 bg-white p-6 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.22)] md:p-7">
             <div className="grid gap-2">
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
                 Account
@@ -445,7 +446,8 @@ export function AuthScreen() {
               </div>
             ) : null}
           </div>
-        )}
+          )}
+        </div>
       </div>
     </section>
   );

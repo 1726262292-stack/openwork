@@ -4159,6 +4159,30 @@ export default function App() {
     }
   };
 
+  const createWorkspaceFromBundle = async (
+    bundle: SharedWorkspaceProfileBundleV1,
+    folder: string | null,
+    defaultPreset = defaultPresetFromTemplateBundle(bundle),
+  ) => {
+    const request = {
+      bundleUrl: "",
+      intent: "new_worker" as const,
+      source: "cloud-template" as const,
+      label: bundle.name,
+    };
+
+    const ok = await workspaceStore.createWorkspaceFlow(defaultPreset, folder);
+    if (!ok) return false;
+
+    return importSharedBundleIntoActiveWorker(
+      request,
+      {
+        localRoot: workspaceStore.selectedWorkspaceRoot().trim(),
+      },
+      bundle,
+    );
+  };
+
   const importSharedSkillIntoWorkspace = async (workspaceId: string) => {
     if (sharedSkillDestinationBusyId()) return;
     const destination = sharedSkillDestinationRequest();
@@ -4791,6 +4815,34 @@ export default function App() {
       },
       bundle,
     });
+  };
+
+  const startWorkspaceFromCloudTemplate = async (input: {
+    name: string;
+    templateData: unknown;
+    folder: string | null;
+    preset?: WorkspacePreset;
+  }) => {
+    const bundle = parseSharedBundle(input.templateData);
+    if (bundle.type !== "workspace-profile") {
+      throw new Error("Only workspace templates can start a new workspace.");
+    }
+
+    setError(null);
+    setSharedSkillDestinationRequest(null);
+    setSharedBundleImportChoice(null);
+    setSharedBundleImportError(null);
+    setSharedBundleCreateWorkerRequest(null);
+    setSharedTemplateStartRequest(null);
+
+    const imported = await createWorkspaceFromBundle(
+      bundle,
+      input.folder,
+      input.preset ?? defaultPresetFromTemplateBundle(bundle),
+    );
+    if (!imported) {
+      throw new Error(`Failed to create ${input.name} from template.`);
+    }
   };
 
   const sharedBundleImportCopy = createMemo(() => {
@@ -8774,6 +8826,14 @@ export default function App() {
         }}
         onPickFolder={workspaceStore.pickWorkspaceFolder}
         defaultPreset={createWorkspaceDefaultPreset()}
+        onConfirmTemplate={(template, preset, folder) =>
+          startWorkspaceFromCloudTemplate({
+            name: template.name,
+            templateData: template.templateData,
+            folder,
+            preset,
+          })
+        }
         onConfirm={async (preset, folder) => {
           const request = sharedBundleCreateWorkerRequest();
           const ok = await workspaceStore.createWorkspaceFlow(preset, folder);

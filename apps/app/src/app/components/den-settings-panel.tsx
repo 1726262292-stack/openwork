@@ -15,6 +15,11 @@ import {
   resolveDenBaseUrls,
   writeDenSettings,
 } from "../lib/den";
+import {
+  clearDenTemplateCache,
+  loadDenTemplateCache,
+  readDenTemplateCacheSnapshot,
+} from "../lib/den-template-cache";
 import { usePlatform } from "../context/platform";
 
 type DenSettingsPanelProps = {
@@ -86,7 +91,6 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
   const [sessionBusy, setSessionBusy] = createSignal(false);
   const [orgsBusy, setOrgsBusy] = createSignal(false);
   const [workersBusy, setWorkersBusy] = createSignal(false);
-  const [templatesBusy, setTemplatesBusy] = createSignal(false);
   const [openingWorkerId, setOpeningWorkerId] = createSignal<string | null>(null);
   const [openingTemplateId, setOpeningTemplateId] = createSignal<string | null>(null);
   const [user, setUser] = createSignal<{
@@ -108,12 +112,11 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
       createdAt: string | null;
     }>
   >([]);
-  const [templates, setTemplates] = createSignal<DenTemplate[]>([]);
   const [statusMessage, setStatusMessage] = createSignal<string | null>(null);
   const [authError, setAuthError] = createSignal<string | null>(null);
   const [orgsError, setOrgsError] = createSignal<string | null>(null);
   const [workersError, setWorkersError] = createSignal<string | null>(null);
-  const [templatesError, setTemplatesError] = createSignal<string | null>(null);
+  const [templateActionError, setTemplateActionError] = createSignal<string | null>(null);
 
   const activeOrg = createMemo(() => orgs().find((org) => org.id === activeOrgId()) ?? null);
   const client = createMemo(() =>
@@ -121,6 +124,18 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
   );
   const isSignedIn = createMemo(() => Boolean(user() && authToken().trim()));
   const activeOrgName = createMemo(() => activeOrg()?.name || "No org selected");
+  const templateCacheSnapshot = createMemo(() =>
+    readDenTemplateCacheSnapshot({
+      baseUrl: baseUrl(),
+      token: authToken(),
+      orgSlug: activeOrg()?.slug ?? null,
+    }),
+  );
+  const templatesBusy = createMemo(() => templateCacheSnapshot().busy);
+  const templates = createMemo(() => templateCacheSnapshot().templates);
+  const templatesError = createMemo(
+    () => templateActionError() ?? templateCacheSnapshot().error,
+  );
 
   const summaryTone = createMemo(() => {
     if (authError() || workersError() || orgsError() || templatesError()) return "error" as const;
@@ -260,15 +275,15 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
     setUser(null);
     setOrgs([]);
     setWorkers([]);
-    setTemplates([]);
     setActiveOrgId("");
     setOrgsError(null);
     setWorkersError(null);
-    setTemplatesError(null);
+    setTemplateActionError(null);
   };
 
   const clearSignedInState = (message?: string | null) => {
     clearDenSession({ includeBaseUrls: !props.developerMode });
+    clearDenTemplateCache();
     if (!props.developerMode) {
       setBaseUrl(DEFAULT_DEN_BASE_URL);
       setBaseUrlDraft(DEFAULT_DEN_BASE_URL);
@@ -368,16 +383,20 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
   const refreshTemplates = async (quiet = false) => {
     const orgSlug = activeOrg()?.slug?.trim() ?? "";
     if (!authToken().trim() || !orgSlug) {
-      setTemplates([]);
       return;
     }
 
-    setTemplatesBusy(true);
-    if (!quiet) setTemplatesError(null);
+    setTemplateActionError(null);
 
     try {
-      const nextTemplates = await client().listTemplates(orgSlug);
-      setTemplates(nextTemplates);
+      const nextTemplates = await loadDenTemplateCache(
+        {
+          baseUrl: baseUrl(),
+          token: authToken(),
+          orgSlug,
+        },
+        { force: true },
+      );
       if (!quiet) {
         setStatusMessage(
           nextTemplates.length > 0
@@ -386,9 +405,9 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
         );
       }
     } catch (error) {
-      setTemplatesError(error instanceof Error ? error.message : "Failed to load team templates.");
-    } finally {
-      setTemplatesBusy(false);
+      if (!quiet) {
+        setTemplateActionError(error instanceof Error ? error.message : "Failed to load team templates.");
+      }
     }
   };
 
@@ -551,7 +570,7 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
     if (openingTemplateId()) return;
 
     setOpeningTemplateId(template.id);
-    setTemplatesError(null);
+    setTemplateActionError(null);
 
     try {
       await props.openCloudTemplate({
@@ -562,7 +581,7 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
       });
       setStatusMessage(`Opened ${template.name} from ${activeOrg()?.name ?? "team templates"}.`);
     } catch (error) {
-      setTemplatesError(error instanceof Error ? error.message : `Failed to open ${template.name}.`);
+      setTemplateActionError(error instanceof Error ? error.message : `Failed to open ${template.name}.`);
     } finally {
       setOpeningTemplateId(null);
     }
@@ -592,11 +611,13 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
   const headerBadgeClass =
     "inline-flex min-h-8 items-center gap-2 rounded-xl bg-[#f3f4f6] px-3 text-[13px] font-medium text-dls-text";
   const headerStatusBadgeClass =
-    "inline-flex h-8 items-center justify-center gap-2 rounded-xl bg-[#f3f4f6] px-3 text-[13px] leading-none font-medium text-dls-secondary";
+    "inline-flex min-h-10 min-w-[132px] items-center justify-center gap-2 rounded-2xl bg-[#f3f4f6] px-4 text-center text-sm font-medium text-dls-text";
   const sectionPillClass =
     "inline-flex items-center gap-1.5 rounded-full bg-[#f3f4f6] px-2.5 py-1 text-[11px] font-medium text-gray-11";
   const softNoticeClass =
     "rounded-xl bg-[#f8fafc] px-3 py-2 text-xs text-gray-11";
+  const quietControlClass =
+    "bg-white/90 text-dls-text border border-black/8 shadow-[0_1px_2px_rgba(17,24,39,0.06)]";
 
   return (
     <div class="space-y-6">
@@ -782,7 +803,7 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
                 </div>
                 <Button
                   variant="outline"
-                  class="h-8 px-3 text-xs shrink-0"
+                  class={`h-10 px-4 text-sm shrink-0 ${quietControlClass}`}
                   onClick={() => void signOut()}
                   disabled={authBusy() || sessionBusy()}
                 >
@@ -800,7 +821,7 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
                   <select
-                    class="ow-input max-w-[220px] px-3 py-1.5 text-xs text-dls-text"
+                    class={`ow-input h-10 max-w-[260px] rounded-xl px-4 py-2 text-sm font-medium text-dls-text ${quietControlClass}`}
                     value={activeOrgId()}
                     onChange={(event) => {
                       const nextId = event.currentTarget.value;
@@ -829,7 +850,7 @@ export default function DenSettingsPanel(props: DenSettingsPanelProps) {
                   </select>
                   <Button
                     variant="outline"
-                    class="h-8 px-3 text-xs"
+                    class={`h-10 px-4 text-sm ${quietControlClass}`}
                     onClick={() => void refreshOrgs()}
                     disabled={orgsBusy()}
                   >

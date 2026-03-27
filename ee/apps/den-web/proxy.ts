@@ -5,7 +5,7 @@ const POSTHOG_PROXY_PATH = "/ow";
 const POSTHOG_API_HOST = "us.i.posthog.com";
 const POSTHOG_ASSETS_HOST = "us-assets.i.posthog.com";
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const url = request.nextUrl.clone();
   const { pathname } = url;
 

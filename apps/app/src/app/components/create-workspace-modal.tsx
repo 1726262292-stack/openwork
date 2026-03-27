@@ -1,8 +1,10 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
-import { FolderPlus, Loader2, X, XCircle } from "lucide-solid";
+import { Boxes, FolderPlus, Loader2, X, XCircle } from "lucide-solid";
 import { t, currentLocale } from "../../i18n";
 import type { WorkspacePreset } from "../types";
+import { type DenTemplate, readDenSettings } from "../lib/den";
+import { loadDenTemplateCache, readDenTemplateCacheSnapshot } from "../lib/den-template-cache";
 
 import Button from "./button";
 
@@ -29,6 +31,7 @@ export default function CreateWorkspaceModal(props: {
   onWorkerRetry?: () => void;
   workerDebugLines?: string[];
   workerSubmitting?: boolean;
+  onConfirmTemplate?: (template: DenTemplate, preset: WorkspacePreset, folder: string | null) => Promise<void> | void;
   submittingProgress?: {
     runId: string;
     startedAt: number;
@@ -46,12 +49,25 @@ export default function CreateWorkspaceModal(props: {
   const [pickingFolder, setPickingFolder] = createSignal(false);
   const [showProgressDetails, setShowProgressDetails] = createSignal(false);
   const [now, setNow] = createSignal(Date.now());
+  const [cloudSettings, setCloudSettings] = createSignal(readDenSettings());
+  const [selectedTemplateId, setSelectedTemplateId] = createSignal<string | null>(null);
+  const [templateError, setTemplateError] = createSignal<string | null>(null);
 
   createEffect(() => {
     if (props.open) {
       setPreset(props.defaultPreset ?? "starter");
+      setCloudSettings(readDenSettings());
+      setSelectedTemplateId(null);
+      setTemplateError(null);
       requestAnimationFrame(() => pickFolderRef?.focus());
     }
+  });
+
+  createEffect(() => {
+    if (!props.open && !isInline()) return;
+    const handler = () => setCloudSettings(readDenSettings());
+    window.addEventListener("openwork-den-session-updated", handler as EventListener);
+    onCleanup(() => window.removeEventListener("openwork-den-session-updated", handler as EventListener));
   });
 
   const handlePickFolder = async () => {
@@ -81,6 +97,34 @@ export default function CreateWorkspaceModal(props: {
   const showWorkerCallout = () => Boolean(props.onConfirmWorker && workerDisabled() && workerDisabledReason());
   const workerDebugLines = createMemo(() => (props.workerDebugLines ?? []).map((line) => line.trim()).filter(Boolean));
   const hasSelectedFolder = createMemo(() => Boolean(selectedFolder()?.trim()));
+  const templateCacheSnapshot = createMemo(() =>
+    readDenTemplateCacheSnapshot({
+      baseUrl: cloudSettings().baseUrl,
+      token: cloudSettings().authToken,
+      orgSlug: cloudSettings().activeOrgSlug,
+    }),
+  );
+  const cloudWorkspaceTemplates = createMemo(() =>
+    templateCacheSnapshot().templates.filter((template) => {
+      const payload = template.templateData;
+      return Boolean(payload && typeof payload === "object" && (payload as { type?: unknown }).type === "workspace-profile");
+    }),
+  );
+  const showTemplateSection = createMemo(
+    () => Boolean(props.onConfirmTemplate && cloudSettings().authToken?.trim() && cloudSettings().activeOrgSlug?.trim()),
+  );
+
+  createEffect(() => {
+    if (!showTemplateSection() || (!props.open && !isInline())) return;
+    void loadDenTemplateCache(
+      {
+        baseUrl: cloudSettings().baseUrl,
+        token: cloudSettings().authToken,
+        orgSlug: cloudSettings().activeOrgSlug,
+      },
+      { force: true },
+    ).catch(() => undefined);
+  });
 
   createEffect(() => {
     if (!submitting()) {
@@ -97,6 +141,42 @@ export default function CreateWorkspaceModal(props: {
     if (!current?.startedAt) return 0;
     return Math.max(0, Math.floor((now() - current.startedAt) / 1000));
   });
+
+  const formatTemplateTimestamp = (value: string | null) => {
+    if (!value) return "Recently updated";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "Recently updated";
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(date);
+  };
+
+  const templateCreatorLabel = (template: DenTemplate) => {
+    const creator = template.creator;
+    if (!creator) return "Unknown creator";
+    return creator.name?.trim() || creator.email?.trim() || "Unknown creator";
+  };
+
+  const selectedTemplate = createMemo(
+    () => cloudWorkspaceTemplates().find((template) => template.id === selectedTemplateId()) ?? null,
+  );
+
+  const handleSubmit = async () => {
+    const template = selectedTemplate();
+    if (template && props.onConfirmTemplate) {
+      try {
+        setTemplateError(null);
+        await props.onConfirmTemplate(template, preset(), selectedFolder());
+      } catch (error) {
+        setTemplateError(error instanceof Error ? error.message : `Failed to create ${template.name}.`);
+      }
+      return;
+    }
+
+    props.onConfirm(preset(), selectedFolder());
+  };
 
   const content = (
     <div class="ow-soft-shell flex max-h-[90vh] w-full max-w-[500px] flex-col overflow-hidden rounded-[24px] bg-[#fbfbfc]">
@@ -140,6 +220,75 @@ export default function CreateWorkspaceModal(props: {
             {hasSelectedFolder() ? translate("dashboard.change") : "Select folder"}
           </button>
         </div>
+
+        <Show when={showTemplateSection()}>
+          <div class="mt-4 ow-soft-card p-5">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="flex items-center gap-2 text-[15px] font-semibold text-dls-text">
+                  <Boxes size={16} class="text-dls-secondary" />
+                  Team templates
+                </div>
+                <div class="mt-1 text-[13px] text-gray-11">
+                  Start from a template shared with {cloudSettings().activeOrgName?.trim() || "your org"}.
+                </div>
+              </div>
+              <Show when={templateCacheSnapshot().busy}>
+                <div class="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-[11px] font-medium text-dls-secondary shadow-[0_0_0_1px_rgba(0,0,0,0.04)]">
+                  <Loader2 size={12} class="animate-spin" />
+                  Syncing
+                </div>
+              </Show>
+            </div>
+
+            <Show when={templateError() || templateCacheSnapshot().error}>
+              {(value) => (
+                <div class="mt-4 rounded-xl border border-red-7/20 bg-red-2/30 px-3 py-2 text-xs text-red-11">
+                  {value()}
+                </div>
+              )}
+            </Show>
+
+            <Show when={cloudWorkspaceTemplates().length > 0} fallback={
+              <div class="mt-4 rounded-xl border border-dashed border-dls-border bg-white/60 px-4 py-4 text-sm text-dls-secondary">
+                No shared workspace templates found for this org yet.
+              </div>
+            }>
+              <div class="mt-4 space-y-2">
+                <For each={cloudWorkspaceTemplates()}>
+                  {(template) => {
+                    const selected = () => selectedTemplateId() === template.id;
+                    return (
+                      <button
+                        type="button"
+                        class={`flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left transition-all ${selected() ? "bg-[#eef4ff] shadow-[0_0_0_2px_rgba(59,130,246,0.18)]" : "bg-white/70 shadow-[0_0_0_1px_rgba(0,0,0,0.04)] hover:bg-white"}`}
+                        onClick={() => {
+                          setTemplateError(null);
+                          setSelectedTemplateId((current) => (current === template.id ? null : template.id));
+                        }}
+                      >
+                        <div class="min-w-0">
+                          <div class="flex items-center gap-2">
+                            <div class="truncate text-sm font-medium text-dls-text">{template.name}</div>
+                            <Show when={selected()}>
+                              <span class="rounded-full bg-[#dbeafe] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#1d4ed8]">
+                                Selected
+                              </span>
+                            </Show>
+                          </div>
+                          <div class="mt-1 truncate text-[11px] text-dls-secondary">
+                            by {templateCreatorLabel(template)} · {formatTemplateTimestamp(template.updatedAt ?? template.createdAt)}
+                          </div>
+                        </div>
+                        <div class={`h-4 w-4 shrink-0 rounded-full border ${selected() ? "border-[#2563eb] bg-[#2563eb] shadow-[inset_0_0_0_3px_white]" : "border-dls-border bg-white"}`} />
+                      </button>
+                    );
+                  }}
+                </For>
+              </div>
+            </Show>
+          </div>
+        </Show>
       </div>
 
       <div class="flex flex-col gap-3 px-6 py-5">
@@ -288,7 +437,7 @@ export default function CreateWorkspaceModal(props: {
           </Show>
           <button
             type="button"
-            onClick={() => props.onConfirm(preset(), selectedFolder())}
+            onClick={() => void handleSubmit()}
             disabled={!selectedFolder() || submitting()}
             title={!selectedFolder() ? translate("dashboard.choose_folder_continue") : undefined}
             class="ow-button-primary px-6 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
