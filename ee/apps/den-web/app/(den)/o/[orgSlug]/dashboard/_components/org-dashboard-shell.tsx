@@ -58,10 +58,10 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
     return "Members";
   }
   if (pathname.startsWith(getBackgroundAgentsRoute(orgSlug))) {
-    return "Agents";
+    return "Shared Workspaces";
   }
   if (pathname.startsWith(getCustomLlmProvidersRoute(orgSlug))) {
-    return "Custom LLM providers";
+    return "Custom LLMs";
   }
   if (pathname.startsWith(getBillingRoute(orgSlug)) || pathname === "/checkout") {
     return "Billing";
