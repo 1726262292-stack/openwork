@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState, type FormEvent } from "react";
+import { createContext, createElement, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   AUTH_TOKEN_STORAGE_KEY,
   DEFAULT_AUTH_NAME,
@@ -165,7 +165,7 @@ function readLocalStorage<T>(key: string): T | null {
   }
 }
 
-export function DenFlowProvider({ children }: { children: React.ReactNode }) {
+export function DenFlowProvider({ children }: { children: ReactNode }) {
   const [authMode, setAuthModeState] = useState<AuthMode>("sign-up");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -2142,7 +2142,7 @@ export function DenFlowProvider({ children }: { children: React.ReactNode }) {
     getRuntimeServiceLabel,
   };
 
-  return <DenFlowContext.Provider value={value}>{children}</DenFlowContext.Provider>;
+  return createElement(DenFlowContext.Provider, { value }, children);
 }
 
 export function useDenFlow() {
