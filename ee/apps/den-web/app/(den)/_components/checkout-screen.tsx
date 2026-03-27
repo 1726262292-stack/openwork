@@ -1,7 +1,8 @@
 "use client";
 
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { isSamePathname } from "../_lib/client-route";
 import { formatMoneyMinor } from "../_lib/den-flow";
 import { useDenFlow } from "../_providers/den-flow-provider";
 
@@ -20,10 +21,24 @@ function formatSubscriptionStatus(value: string | null | undefined) {
     .join(" ");
 }
 
+function LoadingPanel({ title, body }: { title: string; body: string }) {
+  return (
+    <section className="den-page py-4">
+      <div className="den-frame-soft grid max-w-[44rem] gap-4 p-6">
+        <h1 className="text-xl font-semibold tracking-tight text-[var(--dls-text-primary)]">{title}</h1>
+        <p className="text-sm text-[var(--dls-text-secondary)]">{body}</p>
+      </div>
+    </section>
+  );
+}
+
 export function CheckoutScreen({ customerSessionToken }: { customerSessionToken: string | null }) {
   const router = useRouter();
+  const pathname = usePathname();
   const handledReturnRef = useRef(false);
+  const redirectingRef = useRef(false);
   const [resuming, setResuming] = useState(false);
+  const [redirectMessage, setRedirectMessage] = useState<string | null>(null);
   const {
     user,
     sessionHydrated,
@@ -56,38 +71,40 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
     : realBillingSummary;
 
   useEffect(() => {
-    if (!sessionHydrated || resuming) {
+    if (!sessionHydrated || resuming || user || mockMode) {
       return;
     }
-    if (!user) {
-      if (mockMode) {
-        return;
-      }
+
+    setRedirectMessage("Redirecting to sign in...");
+    if (!isSamePathname(pathname, "/")) {
       router.replace("/");
     }
-  }, [mockMode, resuming, router, sessionHydrated, user]);
+  }, [mockMode, pathname, resuming, router, sessionHydrated, user]);
 
   useEffect(() => {
-    if (!sessionHydrated || !user || handledReturnRef.current) {
-      return;
-    }
-
-    if (!customerSessionToken) {
+    if (!sessionHydrated || !user || handledReturnRef.current || !customerSessionToken) {
       return;
     }
 
     handledReturnRef.current = true;
     setResuming(true);
-    void refreshCheckoutReturn(true).then((target) => {
-      if (target !== "/checkout") {
-        router.replace(target);
-        return;
-      }
+    setRedirectMessage("Finishing your checkout...");
 
-      router.replace("/checkout");
-      setResuming(false);
-    });
-  }, [customerSessionToken, refreshCheckoutReturn, router, sessionHydrated, user]);
+    void refreshCheckoutReturn(true)
+      .then((target) => {
+        if (target && !isSamePathname(pathname, target)) {
+          router.replace(target);
+          return;
+        }
+
+        setRedirectMessage(null);
+        setResuming(false);
+      })
+      .catch(() => {
+        setRedirectMessage(null);
+        setResuming(false);
+      });
+  }, [customerSessionToken, pathname, refreshCheckoutReturn, router, sessionHydrated, user]);
 
   useEffect(() => {
     if (!sessionHydrated || !user || resuming) {
@@ -97,38 +114,58 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
     if (!billingSummary?.hasActivePlan && !effectiveCheckoutUrl && !billingBusy && !billingCheckoutBusy) {
       void refreshBilling({ includeCheckout: true, quiet: true });
     }
-  }, [billingBusy, billingCheckoutBusy, billingSummary?.hasActivePlan, effectiveCheckoutUrl, refreshBilling, resuming, sessionHydrated, user]);
+  }, [
+    billingBusy,
+    billingCheckoutBusy,
+    billingSummary?.hasActivePlan,
+    effectiveCheckoutUrl,
+    refreshBilling,
+    resuming,
+    sessionHydrated,
+    user,
+  ]);
 
   useEffect(() => {
-    if (!sessionHydrated || !user || resuming) {
+    if (!sessionHydrated || !user || resuming || onboardingPending || mockMode || redirectingRef.current) {
       return;
     }
 
-    if (!onboardingPending) {
-      void resolveUserLandingRoute().then((target) => {
-        if (target && target !== "/checkout" && !MOCK_BILLING) {
+    redirectingRef.current = true;
+    void resolveUserLandingRoute()
+      .then((target) => {
+        if (target && !isSamePathname(pathname, target)) {
+          setRedirectMessage("Redirecting to your workspace...");
           router.replace(target);
+          return;
         }
+
+        setRedirectMessage(null);
+      })
+      .finally(() => {
+        redirectingRef.current = false;
       });
-    }
-  }, [onboardingPending, resolveUserLandingRoute, resuming, router, sessionHydrated, user]);
+  }, [mockMode, onboardingPending, pathname, resolveUserLandingRoute, resuming, router, sessionHydrated, user]);
 
   if (!sessionHydrated || (!user && !mockMode)) {
     return (
-      <section className="den-page py-4">
-        <div className="den-frame-soft grid max-w-[44rem] gap-4 p-6">
-          <p className="text-sm text-slate-500">Checking your billing session...</p>
-        </div>
-      </section>
+      <LoadingPanel
+        title="Checking your billing session..."
+        body="Loading your account and billing state before continuing."
+      />
     );
+  }
+
+  if (redirectMessage) {
+    return <LoadingPanel title="One moment." body={redirectMessage} />;
   }
 
   const billingPrice = billingSummary?.price ?? null;
   const showLoading = resuming || (billingBusy && !billingSummary && !MOCK_BILLING);
   const checkoutHref = effectiveCheckoutUrl ?? MOCK_CHECKOUT_URL ?? null;
-  const planAmountLabel = billingPrice && billingPrice.amount !== null
-    ? `${formatMoneyMinor(billingPrice.amount, billingPrice.currency)}/${billingPrice.recurringInterval}`
-    : "$50.00/month";
+  const planAmountLabel =
+    billingPrice && billingPrice.amount !== null
+      ? `${formatMoneyMinor(billingPrice.amount, billingPrice.currency)}/${billingPrice.recurringInterval}`
+      : "$50.00/month";
   const subscription = billingSummary?.subscription ?? null;
   const subscriptionStatus = formatSubscriptionStatus(subscription?.status);
 
@@ -175,7 +212,11 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
       </div>
 
       {billingError ? <div className="den-notice is-error">{billingError}</div> : null}
-      {showLoading ? <div className="den-frame-soft px-5 py-4 text-sm text-[var(--dls-text-secondary)]">Refreshing access state...</div> : null}
+      {showLoading ? (
+        <div className="den-frame-soft px-5 py-4 text-sm text-[var(--dls-text-secondary)]">
+          Refreshing access state...
+        </div>
+      ) : null}
 
       {billingSummary ? (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_320px]">
@@ -238,7 +279,9 @@ export function CheckoutScreen({ customerSessionToken }: { customerSessionToken:
             <div className="grid gap-2">
               <p className="den-eyebrow">Billing status</p>
               <h2 className="text-2xl font-semibold tracking-tight text-[var(--dls-text-primary)]">{subscriptionStatus}</h2>
-              <p className="den-copy text-sm">{billingSummary.hasActivePlan ? "Your Cloud plan is active." : `${TRIAL_DAYS}-day free trial before billing starts.`}</p>
+              <p className="den-copy text-sm">
+                {billingSummary.hasActivePlan ? "Your Cloud plan is active." : `${TRIAL_DAYS}-day free trial before billing starts.`}
+              </p>
             </div>
 
             <div className="den-frame-inset grid gap-3 rounded-[1.5rem] px-4 py-4">
