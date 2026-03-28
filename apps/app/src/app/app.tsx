@@ -4804,7 +4804,6 @@ export default function App() {
   const automationsStore = createAutomationsStore({
     selectedWorkspaceId: () => workspaceStore.selectedWorkspaceId(),
     selectedWorkspaceRoot: () => workspaceStore.selectedWorkspaceRoot(),
-    selectedWorkspaceType: () => workspaceStore.selectedWorkspaceDisplay().workspaceType,
     runtimeWorkspaceId,
     openworkServerClient,
     openworkServerStatus,
@@ -4817,7 +4816,6 @@ export default function App() {
     scheduledJobsBusy,
     scheduledJobsUpdatedAt,
     scheduledJobsSource,
-    scheduledJobsSourceReady,
     scheduledJobsPollingAvailable,
     refreshScheduledJobs,
     deleteScheduledJob,
@@ -7348,7 +7346,6 @@ export default function App() {
       stopSandbox: workspaceStore.stopSandbox,
       scheduledJobs: scheduledJobs(),
       scheduledJobsSource: scheduledJobsSource(),
-      scheduledJobsSourceReady: scheduledJobsSourceReady(),
       schedulerPluginInstalled: schedulerPluginInstalled(),
       scheduledJobsStatus: scheduledJobsStatus(),
       scheduledJobsBusy: scheduledJobsBusy(),
