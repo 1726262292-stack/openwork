@@ -2125,7 +2125,6 @@ export default function SettingsView(props: SettingsViewProps) {
             section="skills"
             skills={{
               workspaceName: props.selectedWorkspaceRoot.trim() || "Workspace",
-              selectedWorkspaceRoot: props.selectedWorkspaceRoot,
               busy: props.busy,
               showHeader: false,
               canInstallSkillCreator: props.canInstallSkillCreator,

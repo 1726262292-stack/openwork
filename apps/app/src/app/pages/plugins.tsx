@@ -1,4 +1,4 @@
-import { For, Show, createEffect } from "solid-js";
+import { For, Show } from "solid-js";
 
 import type { PluginScope } from "../types";
 
@@ -44,12 +44,6 @@ export type PluginsViewProps = {
 };
 
 export default function PluginsView(props: PluginsViewProps) {
-  createEffect(() => {
-    props.selectedWorkspaceRoot;
-    props.pluginScope;
-    props.refreshPlugins(props.pluginScope);
-  });
-
   return (
     <section class="space-y-6">
       <div class="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">

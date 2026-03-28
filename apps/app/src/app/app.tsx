@@ -5003,6 +5003,13 @@ export default function App() {
   return;
 };
 
+  createEffect(() => {
+    if (!isTauriRuntime()) return;
+    workspaceStore.selectedWorkspaceId();
+    workspaceProjectDir();
+    void refreshMcpServers();
+  });
+
   const activeAuthorizedDirs = createMemo(() => workspaceStore.authorizedDirs());
   const selectedWorkspaceDisplay = createMemo(() => workspaceStore.selectedWorkspaceDisplay());
   const resolvedActiveWorkspaceConfig = createMemo(
@@ -6400,6 +6407,8 @@ export default function App() {
           setNotionStatusDetail(t("mcp.connecting", currentLocale()));
         }
 
+        await refreshMcpServers();
+
         const storedNotionSkillInstalled = window.localStorage.getItem("openwork.notionSkillInstalled");
         if (storedNotionSkillInstalled === "1") {
           setNotionSkillInstalled(true);
@@ -6453,6 +6462,13 @@ export default function App() {
     const raw = window.localStorage.getItem(sessionModelOverridesKey(workspaceId));
     setSessionModelOverrideById(parseSessionModelOverrides(raw));
     setSessionModelOverridesReady(true);
+  });
+
+  createEffect(() => {
+    if (!isTauriRuntime()) return;
+    const projectDir = workspaceProjectDir().trim();
+    if (!projectDir) return;
+    void refreshMcpServers();
   });
 
   createEffect(() => {
