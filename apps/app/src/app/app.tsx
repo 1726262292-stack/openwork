@@ -4917,10 +4917,15 @@ export default function App() {
   };
 
   createEffect(() => {
-    scheduledJobsContextKey();
+    const _key = scheduledJobsContextKey();
     setScheduledJobs([]);
     setScheduledJobsStatus(null);
     setScheduledJobsUpdatedAt(null);
+
+    // Refetch for the new workspace context immediately.
+    // Skip the very first run (empty key = no workspace selected yet).
+    if (!_key || _key === "::") return;
+    void refreshScheduledJobs();
   });
 
   createEffect(() => {
