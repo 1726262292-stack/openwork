@@ -175,6 +175,7 @@ const fileToDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 import { createExtensionsStore } from "./context/extensions";
+import { createAutomationsStore } from "./context/automations";
 import { useGlobalSync } from "./context/global-sync";
 import { createWorkspaceStore } from "./context/workspace";
 import {
@@ -182,8 +183,6 @@ import {
   readOpencodeConfig,
   writeOpencodeConfig,
   openworkServerRestart,
-  schedulerDeleteJob,
-  schedulerListJobs,
   openworkServerInfo,
   orchestratorStatus,
   opencodeRouterInfo,
@@ -2296,10 +2295,6 @@ export default function App() {
   const [mcpStatuses, setMcpStatuses] = createSignal<McpStatusMap>({});
   const [mcpConnectingName, setMcpConnectingName] = createSignal<string | null>(null);
   const [selectedMcp, setSelectedMcp] = createSignal<string | null>(null);
-  const [scheduledJobs, setScheduledJobs] = createSignal<ScheduledJob[]>([]);
-  const [scheduledJobsStatus, setScheduledJobsStatus] = createSignal<string | null>(null);
-  const [scheduledJobsBusy, setScheduledJobsBusy] = createSignal(false);
-  const [scheduledJobsUpdatedAt, setScheduledJobsUpdatedAt] = createSignal<number | null>(null);
 
   // MCP OAuth modal state
   const [mcpAuthModalOpen, setMcpAuthModalOpen] = createSignal(false);
@@ -4804,129 +4799,29 @@ export default function App() {
     setEngineInstallLogs,
   } = workspaceStore;
 
-  // Scheduler helpers - must be defined after workspaceStore
-  const resolveOpenworkScheduler = () => {
-    const client = openworkServerClient();
-    const workspaceId = runtimeWorkspaceId();
-    if (openworkServerStatus() !== "connected" || !client || !workspaceId) return null;
-    return { client, workspaceId };
-  };
-
-  const scheduledJobsSource = createMemo<"local" | "remote">(() => {
-    return resolveOpenworkScheduler() ? "remote" : "local";
-  });
-
-  const scheduledJobsSourceReady = createMemo(() => {
-    if (scheduledJobsSource() !== "remote") return true;
-    const client = openworkServerClient();
-    const workspaceId = runtimeWorkspaceId();
-    return openworkServerStatus() === "connected" && Boolean(client && workspaceId);
-  });
-
   const schedulerPluginInstalled = createMemo(() => isPluginInstalledByName("opencode-scheduler"));
 
-  const scheduledJobsContextKey = createMemo(() => {
-    const workspaceId = workspaceStore.selectedWorkspaceId().trim();
-    const root = normalizeDirectoryPath(workspaceStore.selectedWorkspaceRoot().trim());
-    return `${scheduledJobsSource()}:${workspaceId}:${root}`;
+  const automationsStore = createAutomationsStore({
+    selectedWorkspaceId: () => workspaceStore.selectedWorkspaceId(),
+    selectedWorkspaceRoot: () => workspaceStore.selectedWorkspaceRoot(),
+    selectedWorkspaceType: () => workspaceStore.selectedWorkspaceDisplay().workspaceType,
+    runtimeWorkspaceId,
+    openworkServerClient,
+    openworkServerStatus,
+    schedulerPluginInstalled,
   });
 
-  const scheduledJobsPollingAvailable = createMemo(() => {
-    if (scheduledJobsSource() === "remote") return scheduledJobsSourceReady();
-    return isTauriRuntime() && !isWindowsPlatform() && schedulerPluginInstalled();
-  });
-
-  const refreshScheduledJobs = async (
-    options?: { force?: boolean },
-  ): Promise<"success" | "error" | "unavailable" | "skipped"> => {
-    void options;
-    if (scheduledJobsBusy()) return "skipped";
-
-    const requestContextKey = scheduledJobsContextKey();
-
-    if (scheduledJobsSource() === "remote") {
-      const scheduler = resolveOpenworkScheduler();
-      if (!scheduler) {
-        if (scheduledJobsContextKey() !== requestContextKey) return "skipped";
-        const status =
-          openworkServerStatus() === "disconnected"
-            ? "OpenWork server unavailable. Connect to sync scheduled tasks."
-            : openworkServerStatus() === "limited"
-              ? "OpenWork server needs a token to load scheduled tasks."
-              : "OpenWork server not ready.";
-        setScheduledJobsStatus(status);
-        return "unavailable";
-      }
-
-      setScheduledJobsBusy(true);
-      setScheduledJobsStatus(null);
-
-      try {
-        const response = await scheduler.client.listScheduledJobs(scheduler.workspaceId);
-        if (scheduledJobsContextKey() !== requestContextKey) return "skipped";
-        const jobs = Array.isArray(response.items) ? response.items : [];
-        setScheduledJobs(jobs);
-        setScheduledJobsUpdatedAt(Date.now());
-        return "success";
-      } catch (error) {
-        if (scheduledJobsContextKey() !== requestContextKey) return "skipped";
-        const message = error instanceof Error ? error.message : String(error);
-        setScheduledJobsStatus(message || "Failed to load scheduled tasks.");
-        return "error";
-      } finally {
-        setScheduledJobsBusy(false);
-      }
-    }
-
-    if (!isTauriRuntime()) {
-      if (scheduledJobsContextKey() !== requestContextKey) return "skipped";
-      setScheduledJobsStatus(null);
-      return "unavailable";
-    }
-
-    if (isWindowsPlatform()) {
-      if (scheduledJobsContextKey() !== requestContextKey) return "skipped";
-      setScheduledJobsStatus(null);
-      return "unavailable";
-    }
-
-    if (!schedulerPluginInstalled()) {
-      if (scheduledJobsContextKey() !== requestContextKey) return "skipped";
-      setScheduledJobsStatus(null);
-      return "unavailable";
-    }
-
-    setScheduledJobsBusy(true);
-    setScheduledJobsStatus(null);
-
-    try {
-      const root = workspaceStore.selectedWorkspaceRoot().trim();
-      const jobs = await schedulerListJobs(root || undefined);
-      if (scheduledJobsContextKey() !== requestContextKey) return "skipped";
-      setScheduledJobs(jobs);
-      setScheduledJobsUpdatedAt(Date.now());
-      return "success";
-    } catch (error) {
-      if (scheduledJobsContextKey() !== requestContextKey) return "skipped";
-      const message = error instanceof Error ? error.message : String(error);
-      setScheduledJobsStatus(message || "Failed to load scheduled tasks.");
-      return "error";
-    } finally {
-      setScheduledJobsBusy(false);
-    }
-  };
-
-  createEffect(() => {
-    const _key = scheduledJobsContextKey();
-    setScheduledJobs([]);
-    setScheduledJobsStatus(null);
-    setScheduledJobsUpdatedAt(null);
-
-    // Refetch for the new workspace context immediately.
-    // Skip the very first run (empty key = no workspace selected yet).
-    if (!_key || _key === "::") return;
-    void refreshScheduledJobs();
-  });
+  const {
+    scheduledJobs,
+    scheduledJobsStatus,
+    scheduledJobsBusy,
+    scheduledJobsUpdatedAt,
+    scheduledJobsSource,
+    scheduledJobsSourceReady,
+    scheduledJobsPollingAvailable,
+    refreshScheduledJobs,
+    deleteScheduledJob,
+  } = automationsStore;
 
   createEffect(() => {
     if (typeof window === "undefined") return;
@@ -4988,29 +4883,6 @@ export default function App() {
       window.removeEventListener("focus", handleFocus);
     });
   });
-
-  const deleteScheduledJob = async (name: string) => {
-    if (scheduledJobsSource() === "remote") {
-      const scheduler = resolveOpenworkScheduler();
-      if (!scheduler) {
-        throw new Error("OpenWork server unavailable. Connect to sync scheduled tasks.");
-      }
-      const response = await scheduler.client.deleteScheduledJob(scheduler.workspaceId, name);
-      setScheduledJobs((current) => current.filter((entry) => entry.slug !== response.job.slug));
-      return;
-    }
-
-    if (!isTauriRuntime()) {
-      throw new Error("Scheduled tasks require the desktop app.");
-    }
-    if (isWindowsPlatform()) {
-      throw new Error("Scheduler is not supported on Windows yet.");
-    }
-  const root = workspaceStore.selectedWorkspaceRoot().trim();
-  const job = await schedulerDeleteJob(name, root || undefined);
-  setScheduledJobs((current) => current.filter((entry) => entry.slug !== job.slug));
-  return;
-};
 
   createEffect(() => {
     if (!isTauriRuntime()) return;

@@ -441,16 +441,11 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
   const [schedulerInstallRequested, setSchedulerInstallRequested] = createSignal(false);
   const supported = createMemo(() => {
     if (props.source === "remote") return props.sourceReady;
-    return (
-      isTauriRuntime() &&
-      !props.isWindows &&
-      props.schedulerInstalled &&
-      !schedulerInstallRequested()
-    );
+    return isTauriRuntime() && props.schedulerInstalled && !schedulerInstallRequested();
   });
   const schedulerGateActive = createMemo(() => {
     if (props.source !== "local") return false;
-    if (!isTauriRuntime() || props.isWindows) return false;
+    if (!isTauriRuntime()) return false;
     return !props.schedulerInstalled || schedulerInstallRequested();
   });
   const schedulerGateMode = createMemo(() => (props.schedulerInstalled ? "reload" : "install"));
@@ -460,7 +455,6 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
       return props.sourceReady ? null : "OpenWork server unavailable. Connect to sync scheduled tasks.";
     }
     if (!isTauriRuntime()) return "Scheduled tasks require the desktop app.";
-    if (props.isWindows) return "Scheduler is not supported on Windows yet.";
     if (!props.schedulerInstalled || schedulerInstallRequested()) return null;
     return null;
   });

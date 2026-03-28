@@ -31,22 +31,9 @@ import type {
   OpenworkServerClient,
   OpenworkServerStatus,
 } from "../lib/openwork-server";
+import { createWorkspaceContextKey } from "./workspace-context";
 
 export type ExtensionsStore = ReturnType<typeof createExtensionsStore>;
-
-/**
- * Canonical workspace context key used to track resource freshness.
- * When this key changes, all cached resource data is considered stale.
- */
-export type WorkspaceContextKey = {
-  selectedWorkspaceId: string;
-  selectedWorkspaceRoot: string;
-  runtimeWorkspaceId: string;
-  workspaceType: "local" | "remote";
-};
-
-const buildContextKeyString = (ctx: WorkspaceContextKey) =>
-  `${ctx.selectedWorkspaceId}::${ctx.selectedWorkspaceRoot}::${ctx.runtimeWorkspaceId}::${ctx.workspaceType}`;
 
 export function createExtensionsStore(options: {
   client: () => Client | null;
@@ -69,14 +56,12 @@ export function createExtensionsStore(options: {
   const translate = (key: string) => t(key, currentLocale());
 
   // ── Workspace context tracking ──────────────────────
-  const workspaceContextKey = createMemo(() =>
-    buildContextKeyString({
-      selectedWorkspaceId: options.selectedWorkspaceId().trim(),
-      selectedWorkspaceRoot: options.selectedWorkspaceRoot().trim(),
-      runtimeWorkspaceId: (options.runtimeWorkspaceId() ?? "").trim(),
-      workspaceType: options.workspaceType(),
-    }),
-  );
+  const workspaceContextKey = createWorkspaceContextKey({
+    selectedWorkspaceId: options.selectedWorkspaceId,
+    selectedWorkspaceRoot: options.selectedWorkspaceRoot,
+    runtimeWorkspaceId: options.runtimeWorkspaceId,
+    workspaceType: options.workspaceType,
+  });
 
   // Per-resource staleness: tracks the context key each resource was last loaded for.
   const [skillsContextKey, setSkillsContextKey] = createSignal("");
