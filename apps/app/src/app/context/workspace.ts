@@ -1666,9 +1666,6 @@ export function createWorkspaceStore(options: {
         options.setBusyStartedAt(null);
       }
     }
-
-      options.refreshSkills({ force: true }).catch(() => undefined);
-      options.refreshPlugins().catch(() => undefined);
       updateWorkspaceConnectionState(id, { status: "connected", message: null });
       wsDebug("activate:local:done", { id, ms: Date.now() - activateStart });
       return true;
@@ -1889,8 +1886,6 @@ export function createWorkspaceStore(options: {
 
         clearSelectedSessionSurface();
 
-        options.refreshSkills({ force: true }).catch(() => undefined);
-        options.refreshPlugins().catch(() => undefined);
         if (navigate && !options.selectedSessionId()) {
           options.setTab("scheduled");
           options.setView("session");
