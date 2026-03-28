@@ -6469,13 +6469,6 @@ export default function App() {
   });
 
   createEffect(() => {
-    if (!isTauriRuntime()) return;
-    const projectDir = workspaceProjectDir().trim();
-    if (!projectDir) return;
-    void refreshMcpServers();
-  });
-
-  createEffect(() => {
     if (typeof window === "undefined") return;
     if (!sessionModelOverridesReady()) return;
     const workspaceId = workspaceStore.selectedWorkspaceId();
@@ -7866,9 +7859,7 @@ export default function App() {
 
       if (!id) {
         if (selectedSessionId()) {
-          setSelectedSessionId(null);
-          setMessages([]);
-          setTodos([]);
+          workspaceStore.clearSelectedSessionSurface();
         }
         return;
       }

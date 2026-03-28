@@ -1885,8 +1885,6 @@ export function createWorkspaceStore(options: {
         options.setProviderDefaults(providerState.defaults);
         options.setProviderConnectedIds(providerState.connectedIds);
 
-        clearSelectedSessionSurface();
-
         if (navigate && !options.selectedSessionId()) {
           options.setTab("scheduled");
           options.setView("session");
@@ -1954,11 +1952,7 @@ export function createWorkspaceStore(options: {
       }
     }
 
-    options.setSelectedSessionId(null);
-    options.setMessages([]);
-    options.setTodos([]);
-    options.setPendingPermissions([]);
-    options.setSessionStatusById({});
+    clearSelectedSessionSurface();
     options.setView("session");
   };
 
@@ -3985,6 +3979,7 @@ export function createWorkspaceStore(options: {
     setWorkspaceConfig,
     setWorkspaceConfigLoaded,
     setWorkspaces,
+    clearSelectedSessionSurface,
     syncSelectedWorkspaceId: syncSelectedWorkspaceId,
     switchWorkspace,
     refreshEngine,
