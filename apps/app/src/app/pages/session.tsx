@@ -109,6 +109,7 @@ import FlyoutItem from "../components/flyout-item";
 import QuestionModal from "../components/question-modal";
 
 export type SessionViewProps = {
+  booting: boolean;
   selectedSessionId: string | null;
   setView: (view: View, sessionId?: string) => void;
   tab: DashboardTab;
@@ -2754,6 +2755,7 @@ export default function SessionView(props: SessionViewProps) {
   const hasWorkspaceConfigured = createMemo(() => props.workspaces.length > 0);
   const showWorkspaceSetupEmptyState = createMemo(
     () =>
+      !props.booting &&
       !hasWorkspaceConfigured() &&
       !props.selectedSessionId &&
       props.messages.length === 0,

@@ -7175,6 +7175,7 @@ export default function App() {
   };
 
   const sessionProps = () => ({
+    booting: booting(),
     providerAuthWorkerType: (selectedWorkspaceDisplay().workspaceType === "remote" ? "remote" : "local") as
       | "remote"
       | "local",
