@@ -487,6 +487,13 @@ export default function ScheduledTasksView(props: ScheduledTasksViewProps) {
   const [lastUpdatedNow, setLastUpdatedNow] = createSignal(Date.now());
 
   createEffect(() => {
+    props.selectedWorkspaceRoot;
+    props.source;
+    props.sourceReady;
+    props.refreshJobs();
+  });
+
+  createEffect(() => {
     if (typeof window === "undefined") return;
     const interval = window.setInterval(() => setLastUpdatedNow(Date.now()), 1_000);
     onCleanup(() => window.clearInterval(interval));

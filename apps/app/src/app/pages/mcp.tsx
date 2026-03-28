@@ -41,6 +41,7 @@ export type McpViewProps = {
   busy: boolean;
   selectedWorkspaceRoot: string;
   isRemoteWorkspace: boolean;
+  refreshMcpServers: () => void;
   readConfigFile?: (scope: "project" | "global") => Promise<OpencodeConfigFile | null>;
   showHeader?: boolean;
   mcpServers: McpServerEntry[];
@@ -132,6 +133,11 @@ const serviceIconBg = (name: string) => {
 /* ── Component ──────────────────────────────────────── */
 
 export default function McpView(props: McpViewProps) {
+  createEffect(() => {
+    props.selectedWorkspaceRoot;
+    props.refreshMcpServers();
+  });
+
   const locale = () => currentLocale();
   const tr = (key: string) => t(key, locale());
   const showHeader = () => props.showHeader !== false;

@@ -1340,6 +1340,7 @@ export default function DashboardView(props: DashboardViewProps) {
                 section="skills"
                 skills={{
                   workspaceName: props.selectedWorkspaceDisplay.name,
+                  selectedWorkspaceRoot: props.selectedWorkspaceRoot,
                   busy: props.busy,
                   canInstallSkillCreator: props.canInstallSkillCreator,
                   canUseDesktopTools: props.canUseDesktopTools,

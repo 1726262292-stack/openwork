@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
 import type { HubSkillCard, HubSkillRepo, SkillCard } from "../types";
 
@@ -29,6 +29,7 @@ const OPENWORK_DEFAULT_SKILL_NAMES = new Set([
 
 export type SkillsViewProps = {
   workspaceName: string;
+  selectedWorkspaceRoot: string;
   busy: boolean;
   showHeader?: boolean;
   canInstallSkillCreator: boolean;
@@ -95,8 +96,10 @@ export default function SkillsView(props: SkillsViewProps) {
   const [installingSkillCreator, setInstallingSkillCreator] = createSignal(false);
   const [installingHubSkill, setInstallingHubSkill] = createSignal<string | null>(null);
 
-  onMount(() => {
+  createEffect(() => {
+    props.selectedWorkspaceRoot;
     props.refreshHubSkills();
+    props.refreshSkills();
   });
 
   createEffect(() => {
