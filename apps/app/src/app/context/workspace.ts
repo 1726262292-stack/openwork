@@ -140,6 +140,7 @@ export function createWorkspaceStore(options: {
   loadSessions: (scopeRoot?: string) => Promise<void>;
   refreshPendingPermissions: () => Promise<void>;
   refreshWorkspaceSessions?: (workspaceId: string) => Promise<void>;
+  readLastSessionByWorkspace?: () => Record<string, string>;
   selectedSessionId: () => string | null;
   selectSession: (id: string) => Promise<void>;
   setSelectedSessionId: (value: string | null) => void;
@@ -3752,6 +3753,18 @@ export function createWorkspaceStore(options: {
     }
   }
 
+  function restoreLastSession() {
+    const map = options.readLastSessionByWorkspace?.() ?? {};
+    const workspaceId = selectedWorkspaceId().trim();
+    if (!workspaceId) return;
+    const lastSessionId = map[workspaceId]?.trim();
+    if (!lastSessionId) return;
+    if (options.selectedSessionId() === lastSessionId) return;
+    options.setSelectedSessionId(lastSessionId);
+    options.setView("session", lastSessionId);
+    void options.selectSession(lastSessionId);
+  }
+
   async function bootstrapOnboarding() {
     const startupPref = readStartupPreference();
     if (isTauriRuntime()) {
@@ -3825,6 +3838,8 @@ export function createWorkspaceStore(options: {
       const ok = await activateWorkspace(activeWorkspace.id);
       if (!ok) {
         options.setOnboardingStep("server");
+      } else {
+        restoreLastSession();
       }
       return;
     }
@@ -3855,6 +3870,7 @@ export function createWorkspaceStore(options: {
           options.setOnboardingStep("welcome");
           return;
         }
+        restoreLastSession();
         return;
       }
 
@@ -3864,6 +3880,7 @@ export function createWorkspaceStore(options: {
         options.setOnboardingStep("local");
         return;
       }
+      restoreLastSession();
       return;
     }
 

@@ -2693,6 +2693,7 @@ export default function App() {
     loadSessions: loadSessionsWithReady,
     refreshPendingPermissions,
     refreshWorkspaceSessions: (workspaceId: string) => refreshSidebarWorkspaceSessions(workspaceId),
+    readLastSessionByWorkspace: readSessionByWorkspace,
     selectedSessionId,
     selectSession,
     setSelectedSessionId,
