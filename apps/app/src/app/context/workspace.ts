@@ -3812,6 +3812,13 @@ export function createWorkspaceStore(options: {
     }
 
     const activeWorkspace = selectedWorkspaceInfo();
+    if (isTauriRuntime() && !info?.baseUrl) {
+      const firstLocalWorkspace = workspaces().find((workspace) => workspace.workspaceType === "local");
+      if (firstLocalWorkspace?.path?.trim()) {
+        await startHost({ workspacePath: firstLocalWorkspace.path.trim(), navigate: false }).catch(() => false);
+      }
+    }
+
     if (activeWorkspace?.workspaceType === "remote") {
       options.setStartupPreference("server");
       options.setOnboardingStep("connecting");
