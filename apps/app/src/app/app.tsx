@@ -30,7 +30,6 @@ import { parse } from "jsonc-parser";
 
 import ModelPickerModal from "./components/model-picker-modal";
 import ResetModal from "./components/reset-modal";
-import WorkspaceSwitchOverlay from "./components/workspace-switch-overlay";
 import CreateRemoteWorkspaceModal from "./components/create-remote-workspace-modal";
 import CreateWorkspaceModal from "./components/create-workspace-modal";
 import SharedSkillDestinationModal from "./components/shared-skill-destination-modal";
@@ -6764,55 +6763,6 @@ export default function App() {
     return seconds > 0 ? `${label} · ${seconds}s` : label;
   });
 
-  const workspaceSwitchWorkspace = createMemo(() => {
-    const switchingId = workspaceStore.connectingWorkspaceId();
-    if (switchingId) {
-      return workspaceStore.workspaces().find((ws) => ws.id === switchingId) ?? selectedWorkspaceDisplay();
-    }
-    return selectedWorkspaceDisplay();
-  });
-
-  // Avoid flashing the full-screen switch overlay for fast workspace switches.
-  // Only show it if a switch is still in progress after a short delay.
-  const [workspaceSwitchDelayElapsed, setWorkspaceSwitchDelayElapsed] = createSignal(false);
-  createEffect(() => {
-    if (typeof window === "undefined") return;
-    const switchingId = workspaceStore.connectingWorkspaceId();
-    if (!switchingId) {
-      setWorkspaceSwitchDelayElapsed(false);
-      return;
-    }
-
-    setWorkspaceSwitchDelayElapsed(false);
-    const timer = window.setTimeout(() => setWorkspaceSwitchDelayElapsed(true), 250);
-    onCleanup(() => window.clearTimeout(timer));
-  });
-
-  const workspaceSwitchOpen = createMemo(() => {
-    if (booting()) return true;
-    if (pendingInitialSessionSelection()) return true;
-    if (workspaceStore.connectingWorkspaceId()) return workspaceSwitchDelayElapsed();
-    if (!busy() || !busyLabel()) return false;
-    const label = busyLabel();
-    return (
-      label === "status.starting_engine" ||
-      label === "status.restarting_engine"
-    );
-  });
-
-  const workspaceSwitchStatusKey = createMemo(() => {
-    if (pendingInitialSessionSelection()) return "workspace.switching_status_loading";
-    const label = busyLabel();
-    if (label === "status.connecting") return "workspace.switching_status_connecting";
-    if (label === "status.starting_engine" || label === "status.restarting_engine") {
-      return "workspace.switching_status_preparing";
-    }
-    if (label === "status.loading_session") return "workspace.switching_status_loading";
-    if (workspaceStore.connectingWorkspaceId()) return "workspace.switching_status_loading";
-    if (booting()) return "workspace.switching_status_preparing";
-    return "workspace.switching_status_preparing";
-  });
-
   const localHostLabel = createMemo(() => {
     const info = engine();
     if (info?.hostname && info?.port) {
@@ -7388,7 +7338,7 @@ export default function App() {
 
   const initialRoute = () => {
     if (typeof window === "undefined") return "/onboarding";
-    if (booting() || pendingInitialSessionSelection() || workspaceStore.workspaces().length === 0) {
+    if (workspaceStore.workspaces().length === 0) {
       return "/onboarding";
     }
     return "/session";
@@ -7477,7 +7427,7 @@ export default function App() {
       goToSession(fallback, { replace: true });
       return;
     }
-    if (booting() || pendingInitialSessionSelection() || workspaceStore.workspaces().length === 0) {
+    if (workspaceStore.workspaces().length === 0) {
       navigate("/onboarding", { replace: true });
       return;
     }
@@ -7494,15 +7444,6 @@ export default function App() {
           <DashboardView {...dashboardProps()} />
         </Match>
       </Switch>
-
-      <WorkspaceSwitchOverlay
-        open={workspaceSwitchOpen()}
-        workspace={pendingInitialSessionSelection()
-          ? (workspaceStore.workspaces().find((ws) => ws.id === pendingInitialSessionSelection()!.workspaceId)
-            ?? workspaceSwitchWorkspace())
-          : workspaceSwitchWorkspace()}
-        statusKey={workspaceSwitchStatusKey()}
-      />
 
       <ModelPickerModal
         open={modelPickerOpen()}
@@ -7789,37 +7730,6 @@ export default function App() {
           (busyLabel() === "status.creating_workspace" || busyLabel() === "status.connecting")
         }
       />
-
-      <Show when={autoConnectRemoteWorkspaceOverlayOpen()}>
-        <div class="fixed inset-0 z-[60] flex items-center justify-center bg-gray-1/60 p-4 backdrop-blur-sm animate-in fade-in duration-200">
-          <div
-            role="status"
-            aria-live="polite"
-            class="w-full max-w-lg overflow-hidden rounded-2xl border border-gray-6 bg-gray-2 shadow-2xl"
-          >
-            <div class="border-b border-gray-6 bg-gray-1 px-6 py-5">
-              <div class="inline-flex items-center rounded-full border border-gray-6 bg-gray-2 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-gray-10">
-                OpenWork Cloud
-              </div>
-              <h3 class="mt-4 text-lg font-semibold text-gray-12">Adding your worker</h3>
-              <p class="mt-1 text-sm text-gray-10">
-                Connecting your OpenWork worker now. This usually takes a moment.
-              </p>
-            </div>
-            <div class="flex items-center gap-4 px-6 py-6">
-              <div class="flex h-12 w-12 items-center justify-center rounded-2xl border border-gray-6 bg-gray-1/50">
-                <div class="h-5 w-5 rounded-full border-2 border-gray-7 border-t-gray-12 animate-spin" />
-              </div>
-              <div class="min-w-0 flex-1">
-                <div class="text-sm font-medium text-gray-12">Preparing your session</div>
-                <div class="mt-1 text-xs leading-relaxed text-gray-10">
-                  We are adding the remote worker in the background so you can land directly in the chat view.
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Show>
 
       <div class="pointer-events-none fixed right-4 top-4 z-50 flex w-[min(24rem,calc(100vw-1.5rem))] max-w-full flex-col gap-3 sm:right-6 sm:top-6">
         <div class="pointer-events-auto">
