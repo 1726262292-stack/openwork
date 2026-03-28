@@ -2306,16 +2306,18 @@ export default function App() {
   const [mcpAuthEntry, setMcpAuthEntry] = createSignal<(typeof MCP_QUICK_CONNECT)[number] | null>(null);
   const [mcpAuthNeedsReload, setMcpAuthNeedsReload] = createSignal(false);
 
+  let workspaceStore!: ReturnType<typeof createWorkspaceStore>;
+
   const extensionsStore = createExtensionsStore({
     client,
     projectDir: () => workspaceProjectDir(),
-    selectedWorkspaceId: () => workspaceStore.selectedWorkspaceId(),
-    selectedWorkspaceRoot: () => workspaceStore.selectedWorkspaceRoot(),
-    workspaceType: () => workspaceStore.selectedWorkspaceDisplay().workspaceType,
+    selectedWorkspaceId: () => workspaceStore?.selectedWorkspaceId?.() ?? "",
+    selectedWorkspaceRoot: () => workspaceStore?.selectedWorkspaceRoot?.() ?? "",
+    workspaceType: () => workspaceStore?.selectedWorkspaceDisplay?.().workspaceType ?? "local",
     openworkServerClient,
     openworkServerStatus,
     openworkServerCapabilities,
-    runtimeWorkspaceId: () => workspaceStore.runtimeWorkspaceId(),
+    runtimeWorkspaceId: () => workspaceStore?.runtimeWorkspaceId?.() ?? null,
     setBusy,
     setBusyLabel,
     setBusyStartedAt,
@@ -2654,7 +2656,7 @@ export default function App() {
     return normalized;
   };
 
-  const workspaceStore = createWorkspaceStore({
+  workspaceStore = createWorkspaceStore({
     startupPreference,
     setStartupPreference,
     onboardingStep,
