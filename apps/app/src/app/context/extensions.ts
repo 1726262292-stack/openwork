@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { createEffect, createMemo, createSignal } from "solid-js";
 
 import { applyEdits, modify } from "jsonc-parser";
 import { join } from "@tauri-apps/api/path";
@@ -34,9 +34,24 @@ import type {
 
 export type ExtensionsStore = ReturnType<typeof createExtensionsStore>;
 
+/**
+ * Canonical workspace context key used to track resource freshness.
+ * When this key changes, all cached resource data is considered stale.
+ */
+export type WorkspaceContextKey = {
+  selectedWorkspaceId: string;
+  selectedWorkspaceRoot: string;
+  runtimeWorkspaceId: string;
+  workspaceType: "local" | "remote";
+};
+
+const buildContextKeyString = (ctx: WorkspaceContextKey) =>
+  `${ctx.selectedWorkspaceId}::${ctx.selectedWorkspaceRoot}::${ctx.runtimeWorkspaceId}::${ctx.workspaceType}`;
+
 export function createExtensionsStore(options: {
   client: () => Client | null;
   projectDir: () => string;
+  selectedWorkspaceId: () => string;
   selectedWorkspaceRoot: () => string;
   workspaceType: () => "local" | "remote";
   openworkServerClient: () => OpenworkServerClient | null;
@@ -52,6 +67,36 @@ export function createExtensionsStore(options: {
 }) {
   // Translation helper that uses current language from i18n
   const translate = (key: string) => t(key, currentLocale());
+
+  // ── Workspace context tracking ──────────────────────
+  const workspaceContextKey = createMemo(() =>
+    buildContextKeyString({
+      selectedWorkspaceId: options.selectedWorkspaceId().trim(),
+      selectedWorkspaceRoot: options.selectedWorkspaceRoot().trim(),
+      runtimeWorkspaceId: (options.runtimeWorkspaceId() ?? "").trim(),
+      workspaceType: options.workspaceType(),
+    }),
+  );
+
+  // Per-resource staleness: tracks the context key each resource was last loaded for.
+  const [skillsContextKey, setSkillsContextKey] = createSignal("");
+  const [pluginsContextKey, setPluginsContextKey] = createSignal("");
+  const [hubSkillsContextKey, setHubSkillsContextKey] = createSignal("");
+
+  const skillsStale = createMemo(() => skillsContextKey() !== workspaceContextKey());
+  const pluginsStale = createMemo(() => pluginsContextKey() !== workspaceContextKey());
+  const hubSkillsStale = createMemo(() => hubSkillsContextKey() !== workspaceContextKey());
+
+  // When workspace context changes, immediately clear stale data so the UI
+  // never shows data from the previous workspace.
+  createEffect(() => {
+    const _key = workspaceContextKey();
+    // Reset in-memory cache flags so the next refresh actually fetches.
+    skillsLoaded = false;
+    hubSkillsLoaded = false;
+    skillsRoot = "";
+    hubSkillsLoadKey = "";
+  });
 
   const [skills, setSkills] = createSignal<SkillCard[]>([]);
   const [skillsStatus, setSkillsStatus] = createSignal<string | null>(null);
@@ -264,6 +309,7 @@ export function createExtensionsStore(options: {
         if (!next.length) setHubSkillsStatus("No hub skills found.");
         hubSkillsLoaded = true;
         hubSkillsLoadKey = loadKey;
+        setHubSkillsContextKey(workspaceContextKey());
         return;
       }
 
@@ -295,6 +341,7 @@ export function createExtensionsStore(options: {
       if (!sorted.length) setHubSkillsStatus("No hub skills found.");
       hubSkillsLoaded = true;
       hubSkillsLoadKey = loadKey;
+      setHubSkillsContextKey(workspaceContextKey());
     } catch (e) {
       if (refreshHubSkillsAborted) return;
       setHubSkills([]);
@@ -421,6 +468,7 @@ export function createExtensionsStore(options: {
         }
         skillsLoaded = true;
         skillsRoot = root;
+        setSkillsContextKey(workspaceContextKey());
       } catch (e) {
         if (refreshSkillsAborted) return;
         setSkills([]);
@@ -470,6 +518,7 @@ export function createExtensionsStore(options: {
         }
         skillsLoaded = true;
         skillsRoot = root;
+        setSkillsContextKey(workspaceContextKey());
       } catch (e) {
         if (refreshSkillsAborted) return;
         setSkills([]);
@@ -542,6 +591,7 @@ export function createExtensionsStore(options: {
       }
       skillsLoaded = true;
       skillsRoot = root;
+      setSkillsContextKey(workspaceContextKey());
     } catch (e) {
       if (refreshSkillsAborted) return;
       setSkills([]);
@@ -600,6 +650,7 @@ export function createExtensionsStore(options: {
         const list = configItems.map((item) => item.spec);
         setPluginList(list);
         setSidebarPluginList(list);
+        setPluginsContextKey(workspaceContextKey());
 
         if (!list.length) {
           setPluginStatus("No plugins configured yet.");
@@ -674,6 +725,7 @@ export function createExtensionsStore(options: {
       }
 
       loadPluginsFromConfig(config);
+      setPluginsContextKey(workspaceContextKey());
     } catch (e) {
       if (refreshPluginsAborted) return;
       setPluginConfig(null);
@@ -1261,6 +1313,32 @@ export function createExtensionsStore(options: {
     refreshHubSkillsAborted = true;
   }
 
+  /**
+   * Ensure skills are fresh for the current workspace context.
+   * Call this from any visible surface that needs skills data.
+   * It will only fetch if data is stale or missing.
+   */
+  function ensureSkillsFresh() {
+    if (!skillsStale()) return;
+    void refreshSkills({ force: true });
+  }
+
+  /**
+   * Ensure plugins are fresh for the current workspace context.
+   */
+  function ensurePluginsFresh(scopeOverride?: PluginScope) {
+    if (!pluginsStale()) return;
+    void refreshPlugins(scopeOverride);
+  }
+
+  /**
+   * Ensure hub skills are fresh for the current workspace context.
+   */
+  function ensureHubSkillsFresh() {
+    if (!hubSkillsStale()) return;
+    void refreshHubSkills({ force: true });
+  }
+
   return {
     skills,
     skillsStatus,
@@ -1297,5 +1375,13 @@ export function createExtensionsStore(options: {
     readSkill,
     saveSkill,
     abortRefreshes,
+    // Freshness model
+    workspaceContextKey,
+    skillsStale,
+    pluginsStale,
+    hubSkillsStale,
+    ensureSkillsFresh,
+    ensurePluginsFresh,
+    ensureHubSkillsFresh,
   };
 }

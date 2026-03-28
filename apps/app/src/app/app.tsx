@@ -2309,6 +2309,7 @@ export default function App() {
   const extensionsStore = createExtensionsStore({
     client,
     projectDir: () => workspaceProjectDir(),
+    selectedWorkspaceId: () => workspaceStore.selectedWorkspaceId(),
     selectedWorkspaceRoot: () => workspaceStore.selectedWorkspaceRoot(),
     workspaceType: () => workspaceStore.selectedWorkspaceDisplay().workspaceType,
     openworkServerClient,
