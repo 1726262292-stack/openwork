@@ -148,8 +148,7 @@ export type DashboardViewProps = {
   selectedWorkspaceId: string;
   connectingWorkspaceId: string | null;
   workspaceConnectionStateById: Record<string, WorkspaceConnectionState>;
-  selectWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
-  ensureWorkspaceActivated: (workspaceId: string) => Promise<boolean> | boolean | void;
+  switchWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   testWorkspaceConnection: (workspaceId: string) => Promise<boolean> | boolean;
   recoverWorkspace: (workspaceId: string) => Promise<boolean> | boolean;
   openCreateWorkspace: () => void;
@@ -417,7 +416,7 @@ export default function DashboardView(props: DashboardViewProps) {
 
   const openSessionFromList = (workspaceId: string, sessionId: string) => {
     void (async () => {
-      const ready = await Promise.resolve(props.ensureWorkspaceActivated(workspaceId));
+      const ready = await Promise.resolve(props.switchWorkspace(workspaceId));
       if (!ready) return;
       props.setView("session", sessionId);
     })();
@@ -427,7 +426,7 @@ export default function DashboardView(props: DashboardViewProps) {
     const id = workspaceId.trim();
     if (!id) return;
     void (async () => {
-      const ready = await Promise.resolve(props.ensureWorkspaceActivated(id));
+      const ready = await Promise.resolve(props.switchWorkspace(id));
       if (!ready) return;
       props.createSessionAndOpen();
     })();
@@ -1224,7 +1223,7 @@ export default function DashboardView(props: DashboardViewProps) {
             workspaceConnectionStateById={props.workspaceConnectionStateById}
             newTaskDisabled={props.newTaskDisabled}
             importingWorkspaceConfig={props.importingWorkspaceConfig}
-            onSelectWorkspace={props.selectWorkspace}
+            onSelectWorkspace={props.switchWorkspace}
             onOpenSession={openSessionFromList}
             onCreateTaskInWorkspace={createTaskInWorkspace}
             onOpenRenameWorkspace={props.openRenameWorkspace}

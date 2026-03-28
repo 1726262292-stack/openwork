@@ -563,7 +563,7 @@ export function createWorkspaceStore(options: {
     }
   };
 
-  async function selectWorkspace(workspaceId: string) {
+  async function applyWorkspaceSelection(workspaceId: string) {
     const id = workspaceId.trim();
     if (!id) return false;
     const workspace = workspaces().find((entry) => entry.id === id) ?? null;
@@ -587,11 +587,11 @@ export function createWorkspaceStore(options: {
     return true;
   }
 
-  async function ensureWorkspaceActivated(workspaceId: string) {
+  async function switchWorkspace(workspaceId: string) {
     const id = workspaceId.trim();
     if (!id) return false;
     if (selectedWorkspaceId() !== id) {
-      await selectWorkspace(id);
+      await applyWorkspaceSelection(id);
     }
     if (connectedWorkspaceId() === id && options.client()) {
       return true;
@@ -1191,7 +1191,7 @@ export function createWorkspaceStore(options: {
     const next = workspaces().find((w) => w.id === id) ?? null;
     if (!next) return false;
     if (selectedWorkspaceId() !== id) {
-      await selectWorkspace(id);
+      await applyWorkspaceSelection(id);
     }
     const isRemote = next.workspaceType === "remote";
     console.log("[workspace] activate", { id: next.id, type: next.workspaceType });
@@ -3986,11 +3986,10 @@ export function createWorkspaceStore(options: {
     setWorkspaceConfigLoaded,
     setWorkspaces,
     syncSelectedWorkspaceId: syncSelectedWorkspaceId,
-    selectWorkspace,
+    switchWorkspace,
     refreshEngine,
     refreshEngineDoctor,
     activateWorkspace,
-    ensureWorkspaceActivated,
     ensureRuntimeWorkspaceId,
     testWorkspaceConnection,
     connectToServer,

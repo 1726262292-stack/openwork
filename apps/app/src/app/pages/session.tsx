@@ -123,8 +123,7 @@ export type SessionViewProps = {
   selectedWorkspaceId: string;
   connectingWorkspaceId: string | null;
   workspaceConnectionStateById: Record<string, WorkspaceConnectionState>;
-  selectWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
-  ensureWorkspaceActivated: (workspaceId: string) => Promise<boolean> | boolean | void;
+  switchWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   testWorkspaceConnection: (workspaceId: string) => Promise<boolean> | boolean;
   recoverWorkspace: (workspaceId: string) => Promise<boolean> | boolean;
   editWorkspaceConnection: (workspaceId: string) => void;
@@ -3649,7 +3648,7 @@ export default function SessionView(props: SessionViewProps) {
     setPendingSessionTransition({ workspaceId, sessionId });
     const shouldFocusComposer = options?.focusComposer === true;
     void (async () => {
-      const ready = await Promise.resolve(props.ensureWorkspaceActivated(workspaceId));
+      const ready = await Promise.resolve(props.switchWorkspace(workspaceId));
       if (!ready) {
         setPendingSessionTransition((current) =>
           current?.workspaceId === workspaceId && current?.sessionId === sessionId
@@ -3669,7 +3668,7 @@ export default function SessionView(props: SessionViewProps) {
     const id = workspaceId.trim();
     if (!id) return;
     void (async () => {
-      const ready = await Promise.resolve(props.ensureWorkspaceActivated(id));
+      const ready = await Promise.resolve(props.switchWorkspace(id));
       if (!ready) return;
       props.createSessionAndOpen();
     })();
@@ -4106,7 +4105,7 @@ export default function SessionView(props: SessionViewProps) {
               workspaceConnectionStateById={props.workspaceConnectionStateById}
               newTaskDisabled={props.newTaskDisabled}
               importingWorkspaceConfig={props.importingWorkspaceConfig}
-              onSelectWorkspace={props.selectWorkspace}
+              onSelectWorkspace={props.switchWorkspace}
               onOpenSession={openSessionFromList}
               onCreateTaskInWorkspace={createTaskInWorkspace}
               onOpenRenameSession={openRenameModal}

@@ -1213,7 +1213,7 @@ export default function App() {
   const ensureSelectedWorkspaceRuntime = async () => {
     const workspaceId = workspaceStore.selectedWorkspaceId().trim();
     if (!workspaceId) return false;
-    return await workspaceStore.ensureWorkspaceActivated(workspaceId);
+    return await workspaceStore.switchWorkspace(workspaceId);
   };
 
   async function sendPrompt(draft?: ComposerDraft) {
@@ -7453,8 +7453,7 @@ export default function App() {
       selectedWorkspaceId: workspaceStore.selectedWorkspaceId(),
       connectingWorkspaceId: workspaceStore.connectingWorkspaceId(),
       workspaceConnectionStateById: workspaceStore.workspaceConnectionStateById(),
-      selectWorkspace: workspaceStore.selectWorkspace,
-      ensureWorkspaceActivated: workspaceStore.ensureWorkspaceActivated,
+      switchWorkspace: workspaceStore.switchWorkspace,
       testWorkspaceConnection: workspaceStore.testWorkspaceConnection,
       recoverWorkspace: workspaceStore.recoverWorkspace,
       openCreateWorkspace: () => workspaceStore.setCreateWorkspaceOpen(true),
@@ -7688,8 +7687,7 @@ export default function App() {
     selectedWorkspaceId: workspaceStore.selectedWorkspaceId(),
     connectingWorkspaceId: workspaceStore.connectingWorkspaceId(),
     workspaceConnectionStateById: workspaceStore.workspaceConnectionStateById(),
-    selectWorkspace: workspaceStore.selectWorkspace,
-    ensureWorkspaceActivated: workspaceStore.ensureWorkspaceActivated,
+    switchWorkspace: workspaceStore.switchWorkspace,
     testWorkspaceConnection: workspaceStore.testWorkspaceConnection,
     recoverWorkspace: workspaceStore.recoverWorkspace,
     editWorkspaceConnection: openWorkspaceConnectionSettings,
