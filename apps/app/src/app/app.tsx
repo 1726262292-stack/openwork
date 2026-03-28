@@ -7338,10 +7338,7 @@ export default function App() {
   };
 
   const initialRoute = () => {
-    if (typeof window === "undefined") return "/onboarding";
-    if (workspaceStore.workspaces().length === 0) {
-      return "/onboarding";
-    }
+    if (typeof window === "undefined") return "/session";
     return "/session";
   };
 
@@ -7426,10 +7423,6 @@ export default function App() {
     const fallback = activeSessionId();
     if (fallback) {
       goToSession(fallback, { replace: true });
-      return;
-    }
-    if (workspaceStore.workspaces().length === 0) {
-      navigate("/onboarding", { replace: true });
       return;
     }
     navigate("/session", { replace: true });
