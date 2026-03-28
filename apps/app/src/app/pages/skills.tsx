@@ -30,6 +30,7 @@ const OPENWORK_DEFAULT_SKILL_NAMES = new Set([
 export type SkillsViewProps = {
   workspaceName: string;
   busy: boolean;
+  ensureHubSkillsFresh: () => void;
   showHeader?: boolean;
   canInstallSkillCreator: boolean;
   canUseDesktopTools: boolean;
@@ -96,7 +97,7 @@ export default function SkillsView(props: SkillsViewProps) {
   const [installingHubSkill, setInstallingHubSkill] = createSignal<string | null>(null);
 
   onMount(() => {
-    props.refreshHubSkills();
+    props.ensureHubSkillsFresh();
   });
 
   createEffect(() => {

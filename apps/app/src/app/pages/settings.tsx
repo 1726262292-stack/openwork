@@ -231,6 +231,7 @@ export type SettingsViewProps = {
   schedulerPluginInstalled: boolean;
   refreshSkills: (options?: { force?: boolean }) => void;
   refreshHubSkills: (options?: { force?: boolean }) => void;
+  ensureHubSkillsFresh: () => void;
   skills: SkillCard[];
   skillsStatus: string | null;
   hubSkills: HubSkillCard[];
@@ -2132,6 +2133,7 @@ export default function SettingsView(props: SettingsViewProps) {
               accessHint: props.skillsAccessHint,
               refreshSkills: props.refreshSkills,
               refreshHubSkills: props.refreshHubSkills,
+              ensureHubSkillsFresh: props.ensureHubSkillsFresh,
               skills: props.skills,
               skillsStatus: props.skillsStatus,
               hubSkills: props.hubSkills,

@@ -189,6 +189,7 @@ export type DashboardViewProps = {
   isRemoteWorkspace: boolean;
   refreshSkills: (options?: { force?: boolean }) => void;
   refreshHubSkills: (options?: { force?: boolean }) => void;
+  ensureHubSkillsFresh: () => void;
   refreshPlugins: (scopeOverride?: PluginScope) => void;
   refreshMcpServers: () => void;
   skills: SkillCard[];
@@ -1346,6 +1347,7 @@ export default function DashboardView(props: DashboardViewProps) {
                   accessHint: props.skillsAccessHint,
                   refreshSkills: props.refreshSkills,
                   refreshHubSkills: props.refreshHubSkills,
+                  ensureHubSkillsFresh: props.ensureHubSkillsFresh,
                   skills: props.skills,
                   skillsStatus: props.skillsStatus,
                   hubSkills: props.hubSkills,
@@ -1582,6 +1584,7 @@ export default function DashboardView(props: DashboardViewProps) {
                   schedulerPluginInstalled={props.schedulerPluginInstalled}
                   refreshSkills={props.refreshSkills}
                   refreshHubSkills={props.refreshHubSkills}
+                  ensureHubSkillsFresh={props.ensureHubSkillsFresh}
                   skills={props.skills}
                   skillsStatus={props.skillsStatus}
                   hubSkills={props.hubSkills}

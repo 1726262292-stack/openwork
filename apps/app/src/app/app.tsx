@@ -2370,6 +2370,7 @@ export default function App() {
     readSkill,
     saveSkill,
     abortRefreshes,
+    ensureHubSkillsFresh,
   } = extensionsStore;
 
   const globalSync = useGlobalSync();
@@ -7488,6 +7489,7 @@ export default function App() {
       isRemoteWorkspace: workspaceStore.selectedWorkspaceDisplay().workspaceType === "remote",
       refreshSkills: (options?: { force?: boolean }) => refreshSkills(options).catch(() => undefined),
       refreshHubSkills: (options?: { force?: boolean }) => refreshHubSkills(options).catch(() => undefined),
+      ensureHubSkillsFresh,
       refreshPlugins: (scopeOverride?: PluginScope) =>
         refreshPlugins(scopeOverride).catch(() => undefined),
       skills: skills(),
