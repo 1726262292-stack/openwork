@@ -87,15 +87,24 @@ export function createExtensionsStore(options: {
   const pluginsStale = createMemo(() => pluginsContextKey() !== workspaceContextKey());
   const hubSkillsStale = createMemo(() => hubSkillsContextKey() !== workspaceContextKey());
 
-  // When workspace context changes, immediately clear stale data so the UI
-  // never shows data from the previous workspace.
+  // When workspace context changes, invalidate caches and refresh core
+  // resources (skills + plugins) that are visible across many surfaces
+  // (sidebar context panel, session view, dashboard panels).
+  // Hub skills are deferred — only refreshed when the skills panel opens.
   createEffect(() => {
-    const _key = workspaceContextKey();
+    const key = workspaceContextKey();
     // Reset in-memory cache flags so the next refresh actually fetches.
     skillsLoaded = false;
     hubSkillsLoaded = false;
     skillsRoot = "";
     hubSkillsLoadKey = "";
+
+    // Skip the very first run (empty key = no workspace selected yet).
+    if (!key || key === "::::") return;
+
+    // Refresh core resources that are needed across many surfaces.
+    void refreshSkills({ force: true });
+    void refreshPlugins();
   });
 
   const [skills, setSkills] = createSignal<SkillCard[]>([]);
