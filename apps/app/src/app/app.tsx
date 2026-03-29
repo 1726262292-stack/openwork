@@ -22,7 +22,6 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 
 import { getVersion } from "@tauri-apps/api/app";
-import { homeDir } from "@tauri-apps/api/path";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { parse } from "jsonc-parser";
 
@@ -39,7 +38,7 @@ import ReloadWorkspaceToast from "./components/reload-workspace-toast";
 import StatusToast from "./components/status-toast";
 import DashboardView from "./pages/dashboard";
 import SessionView from "./pages/session";
-import { createClient, unwrap } from "./lib/opencode";
+import { unwrap } from "./lib/opencode";
 import { createDenClient, writeDenSettings } from "./lib/den";
 import {
   abortSession as abortSessionTyped,
@@ -53,21 +52,13 @@ import {
 import { clearPerfLogs, finishPerf, perfNow, recordPerfLog } from "./lib/perf-log";
 import { deepLinkBridgeEvent, drainPendingDeepLinks, type DeepLinkBridgeDetail } from "./lib/deep-link-bridge";
 import {
-  CHROME_DEVTOOLS_MCP_ID,
   DEFAULT_MODEL,
   HIDE_TITLEBAR_PREF_KEY,
-  MCP_QUICK_CONNECT,
   MODEL_PREF_KEY,
   SESSION_MODEL_PREF_KEY,
   SUGGESTED_PLUGINS,
   VARIANT_PREF_KEY,
 } from "./constants";
-import {
-  parseMcpServersFromContent,
-  removeMcpFromConfig,
-  usesChromeDevtoolsAutoConnect,
-  validateMcpServerName,
-} from "./mcp";
 import { compareProviders, providerPriorityRank } from "./utils/providers";
 import {
   blueprintMaterializedSessions,
@@ -93,8 +84,6 @@ import type {
   View,
   WorkspaceSessionGroup,
   WorkspaceDisplay,
-  McpServerEntry,
-  McpStatusMap,
   ComposerAttachment,
   ComposerDraft,
   ComposerPart,
@@ -160,6 +149,7 @@ const fileToDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 import { createExtensionsStore } from "./context/extensions";
+import { createConnectionsStore } from "./context/connections";
 import { createAutomationsStore } from "./context/automations";
 import { createSidebarSessionsStore } from "./context/sidebar-sessions";
 import { useGlobalSync } from "./context/global-sync";
@@ -1805,17 +1795,6 @@ export default function App() {
   const [notionSkillInstalled, setNotionSkillInstalled] = createSignal(false);
   const [tryNotionPromptVisible, setTryNotionPromptVisible] = createSignal(false);
   const notionIsActive = createMemo(() => notionStatus() === "connected");
-  const [mcpServers, setMcpServers] = createSignal<McpServerEntry[]>([]);
-  const [mcpStatus, setMcpStatus] = createSignal<string | null>(null);
-  const [mcpLastUpdatedAt, setMcpLastUpdatedAt] = createSignal<number | null>(null);
-  const [mcpStatuses, setMcpStatuses] = createSignal<McpStatusMap>({});
-  const [mcpConnectingName, setMcpConnectingName] = createSignal<string | null>(null);
-  const [selectedMcp, setSelectedMcp] = createSignal<string | null>(null);
-
-  // MCP OAuth modal state
-  const [mcpAuthModalOpen, setMcpAuthModalOpen] = createSignal(false);
-  const [mcpAuthEntry, setMcpAuthEntry] = createSignal<(typeof MCP_QUICK_CONNECT)[number] | null>(null);
-  const [mcpAuthNeedsReload, setMcpAuthNeedsReload] = createSignal(false);
 
   let workspaceStore!: ReturnType<typeof createWorkspaceStore>;
 
@@ -1885,6 +1864,47 @@ export default function App() {
     abortRefreshes,
     ensureHubSkillsFresh,
   } = extensionsStore;
+
+  const connectionsStore = createConnectionsStore({
+    client,
+    setClient,
+    projectDir: () => workspaceProjectDir(),
+    selectedWorkspaceId: () => workspaceStore?.selectedWorkspaceId?.() ?? "",
+    selectedWorkspaceRoot: () => workspaceStore?.selectedWorkspaceRoot?.() ?? "",
+    workspaceType: () => workspaceStore?.selectedWorkspaceDisplay?.().workspaceType ?? "local",
+    openworkServerClient,
+    openworkServerStatus,
+    openworkServerCapabilities,
+    openworkServerBaseUrl,
+    openworkServerAuthToken: () => openworkServerAuth().token,
+    runtimeWorkspaceId: () => workspaceStore?.runtimeWorkspaceId?.() ?? null,
+    ensureRuntimeWorkspaceId: () => workspaceStore?.ensureRuntimeWorkspaceId?.(),
+    setProjectDir: (value: string) => workspaceStore?.setProjectDir?.(value),
+    developerMode,
+    markReloadRequired,
+  });
+
+  const {
+    mcpServers,
+    mcpStatus,
+    mcpLastUpdatedAt,
+    mcpStatuses,
+    mcpConnectingName,
+    selectedMcp,
+    setSelectedMcp,
+    quickConnect,
+    readMcpConfigFile,
+    refreshMcpServers,
+    connectMcp,
+    authorizeMcp,
+    logoutMcpAuth,
+    removeMcp,
+    mcpAuthModalOpen,
+    mcpAuthEntry,
+    mcpAuthNeedsReload,
+    closeMcpAuthModal,
+    completeMcpAuthModal,
+  } = connectionsStore;
 
   const globalSync = useGlobalSync();
   const providers = createMemo(() => globalSync.data.provider.all ?? []);
@@ -4002,13 +4022,6 @@ export default function App() {
     });
   });
 
-  createEffect(() => {
-    if (!isTauriRuntime()) return;
-    workspaceStore.selectedWorkspaceId();
-    workspaceProjectDir();
-    void refreshMcpServers();
-  });
-
   const activeAuthorizedDirs = createMemo(() => workspaceStore.authorizedDirs());
   const selectedWorkspaceDisplay = createMemo(() => workspaceStore.selectedWorkspaceDisplay());
   const resolvedActiveWorkspaceConfig = createMemo(
@@ -4519,541 +4532,6 @@ export default function App() {
       setNotionError(e instanceof Error ? e.message : "Failed to connect Notion.");
     } finally {
       setNotionBusy(false);
-    }
-  }
-
-  async function refreshMcpServers() {
-    const filterConfiguredStatuses = (status: McpStatusMap, entries: McpServerEntry[]) => {
-      const configured = new Set(entries.map((entry) => entry.name));
-      return Object.fromEntries(Object.entries(status).filter(([name]) => configured.has(name))) as McpStatusMap;
-    };
-
-    const projectDir = workspaceProjectDir().trim();
-    const isRemoteWorkspace = workspaceStore.selectedWorkspaceDisplay().workspaceType === "remote";
-    const isLocalWorkspace = !isRemoteWorkspace;
-    const openworkClient = openworkServerClient();
-    const openworkWorkspaceId = runtimeWorkspaceId();
-    const openworkCapabilities = resolvedOpenworkCapabilities();
-    const canUseOpenworkServer =
-      openworkServerStatus() === "connected" &&
-      openworkClient &&
-      openworkWorkspaceId &&
-      openworkCapabilities?.mcp?.read;
-
-    if (isRemoteWorkspace) {
-      if (!canUseOpenworkServer) {
-        setMcpStatus("OpenWork server unavailable. MCP config is read-only.");
-        setMcpServers([]);
-        setMcpStatuses({});
-        return;
-      }
-
-      try {
-        setMcpStatus(null);
-        const response = await openworkClient.listMcp(openworkWorkspaceId);
-        const next = response.items.map((entry) => ({
-          name: entry.name,
-          config: entry.config as McpServerEntry["config"],
-        }));
-        setMcpServers(next);
-        setMcpLastUpdatedAt(Date.now());
-
-        const activeClient = client();
-        if (activeClient && projectDir) {
-          try {
-            const status = unwrap(await activeClient.mcp.status({ directory: projectDir }));
-            setMcpStatuses(filterConfiguredStatuses(status as McpStatusMap, next));
-          } catch {
-            setMcpStatuses({});
-          }
-        } else {
-          setMcpStatuses({});
-        }
-
-        if (!next.length) {
-          setMcpStatus("No MCP servers configured yet.");
-        }
-      } catch (e) {
-        setMcpServers([]);
-        setMcpStatuses({});
-        setMcpStatus(e instanceof Error ? e.message : "Failed to load MCP servers");
-      }
-      return;
-    }
-
-    if (isLocalWorkspace && canUseOpenworkServer) {
-      try {
-        setMcpStatus(null);
-        const response = await openworkClient.listMcp(openworkWorkspaceId);
-        const next = response.items.map((entry) => ({
-          name: entry.name,
-          config: entry.config as McpServerEntry["config"],
-        }));
-        setMcpServers(next);
-        setMcpLastUpdatedAt(Date.now());
-
-        const activeClient = client();
-        if (activeClient && projectDir) {
-          try {
-            const status = unwrap(await activeClient.mcp.status({ directory: projectDir }));
-            setMcpStatuses(filterConfiguredStatuses(status as McpStatusMap, next));
-          } catch {
-            setMcpStatuses({});
-          }
-        } else {
-          setMcpStatuses({});
-        }
-
-        if (!next.length) {
-          setMcpStatus("No MCP servers configured yet.");
-        }
-      } catch (e) {
-        setMcpServers([]);
-        setMcpStatuses({});
-        setMcpStatus(e instanceof Error ? e.message : "Failed to load MCP servers");
-      }
-      return;
-    }
-
-    if (!isTauriRuntime()) {
-      setMcpStatus("MCP configuration is only available for local workspaces.");
-      setMcpServers([]);
-      setMcpStatuses({});
-      return;
-    }
-
-    if (!projectDir) {
-      setMcpStatus("Pick a workspace folder to load MCP servers.");
-      setMcpServers([]);
-      setMcpStatuses({});
-      return;
-    }
-
-    try {
-      setMcpStatus(null);
-      const config = await readOpencodeConfig("project", projectDir);
-      if (!config.exists || !config.content) {
-        setMcpServers([]);
-        setMcpStatuses({});
-        setMcpStatus("No opencode.json found yet. Create one by connecting an MCP.");
-        return;
-      }
-
-      const next = parseMcpServersFromContent(config.content);
-      setMcpServers(next);
-      setMcpLastUpdatedAt(Date.now());
-
-      const activeClient = client();
-      if (activeClient) {
-        try {
-          const status = unwrap(await activeClient.mcp.status({ directory: projectDir }));
-          setMcpStatuses(filterConfiguredStatuses(status as McpStatusMap, next));
-        } catch {
-          setMcpStatuses({});
-        }
-      }
-
-      if (!next.length) {
-        setMcpStatus("No MCP servers configured yet.");
-      }
-    } catch (e) {
-      setMcpServers([]);
-      setMcpStatuses({});
-      setMcpStatus(e instanceof Error ? e.message : "Failed to load MCP servers");
-    }
-  }
-
-  const readMcpConfigFile = async (scope: "project" | "global") => {
-    const projectDir = workspaceProjectDir().trim();
-    const openworkClient = openworkServerClient();
-    const openworkWorkspaceId = runtimeWorkspaceId();
-    const canUseOpenworkServer =
-      openworkServerStatus() === "connected" &&
-      openworkClient &&
-      openworkWorkspaceId &&
-      resolvedOpenworkCapabilities()?.config?.read;
-
-    if (canUseOpenworkServer && openworkClient && openworkWorkspaceId) {
-      return openworkClient.readOpencodeConfigFile(openworkWorkspaceId, scope);
-    }
-    if (!isTauriRuntime()) {
-      return null;
-    }
-    return readOpencodeConfig(scope, projectDir);
-  };
-
-  async function connectMcp(entry: (typeof MCP_QUICK_CONNECT)[number]) {
-    const startedAt = perfNow();
-    const isRemoteWorkspace =
-      workspaceStore.selectedWorkspaceDisplay().workspaceType === "remote" ||
-      (!isTauriRuntime() && openworkServerStatus() === "connected");
-    const projectDir = workspaceProjectDir().trim();
-    const entryType = entry.type ?? "remote";
-
-    recordPerfLog(developerMode(), "mcp.connect", "start", {
-      name: entry.name,
-      type: entryType,
-      workspaceType: isRemoteWorkspace ? "remote" : "local",
-      projectDir: projectDir || null,
-    });
-
-    const openworkClient = openworkServerClient();
-    let openworkWorkspaceId = runtimeWorkspaceId();
-    const openworkCapabilities = resolvedOpenworkCapabilities();
-    if (!openworkWorkspaceId && openworkClient && openworkServerStatus() === "connected") {
-      openworkWorkspaceId = await workspaceStore.ensureRuntimeWorkspaceId();
-    }
-    const canUseOpenworkServer =
-      openworkServerStatus() === "connected" &&
-      openworkClient &&
-      openworkWorkspaceId &&
-      openworkCapabilities?.mcp?.write;
-
-    if (isRemoteWorkspace && !canUseOpenworkServer) {
-      setMcpStatus("OpenWork server unavailable. MCP config is read-only.");
-      finishPerf(developerMode(), "mcp.connect", "blocked", startedAt, {
-        reason: "openwork-server-unavailable",
-      });
-      return;
-    }
-
-    if (!canUseOpenworkServer && !isTauriRuntime()) {
-      setMcpStatus(t("mcp.desktop_required", currentLocale()));
-      finishPerf(developerMode(), "mcp.connect", "blocked", startedAt, {
-        reason: "desktop-required",
-      });
-      return;
-    }
-
-    if (!isRemoteWorkspace && !projectDir) {
-      setMcpStatus(t("mcp.pick_workspace_first", currentLocale()));
-      finishPerf(developerMode(), "mcp.connect", "blocked", startedAt, {
-        reason: "missing-workspace",
-      });
-      return;
-    }
-
-    let activeClient = client();
-    if (!activeClient) {
-      const openworkBaseUrl = openworkServerBaseUrl().trim();
-      const auth = openworkServerAuth();
-      if (openworkBaseUrl && auth.token) {
-        const opencodeUrl = `${openworkBaseUrl.replace(/\/+$/, "")}/opencode`;
-        activeClient = createClient(opencodeUrl, undefined, { token: auth.token, mode: "openwork" });
-        setClient(activeClient);
-      }
-    }
-    if (!activeClient) {
-      setMcpStatus(t("mcp.connect_server_first", currentLocale()));
-      finishPerf(developerMode(), "mcp.connect", "blocked", startedAt, {
-        reason: "no-active-client",
-      });
-      return;
-    }
-
-    let resolvedProjectDir = projectDir;
-    if (!resolvedProjectDir) {
-      try {
-        const pathInfo = unwrap(await activeClient.path.get());
-        const discoveredRaw = normalizeDirectoryQueryPath(pathInfo.directory ?? "");
-        const discovered = discoveredRaw.replace(/^\/private\/tmp(?=\/|$)/, "/tmp");
-        if (discovered) {
-          resolvedProjectDir = discovered;
-          workspaceStore.setProjectDir(discovered);
-        }
-      } catch {
-        // ignore
-      }
-    }
-    if (!resolvedProjectDir) {
-      setMcpStatus(t("mcp.pick_workspace_first", currentLocale()));
-      finishPerf(developerMode(), "mcp.connect", "blocked", startedAt, {
-        reason: "missing-workspace-after-discovery",
-      });
-      return;
-    }
-
-    const slug = entry.id ?? entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-
-    const action = mcpServers().some((server) => server.name === slug) ? "updated" : "added";
-
-    try {
-      setMcpStatus(null);
-      setMcpConnectingName(entry.name);
-
-      let mcpEnvironment: Record<string, string> | undefined;
-
-      const mcpEntryConfig: Record<string, unknown> = {
-        type: entryType,
-        enabled: true,
-      };
-
-      if (entryType === "remote") {
-        if (!entry.url) {
-          throw new Error("Missing MCP URL.");
-        }
-        mcpEntryConfig["url"] = entry.url;
-        if (entry.oauth) {
-          mcpEntryConfig["oauth"] = {};
-        }
-      }
-
-      if (entryType === "local") {
-        if (!entry.command?.length) {
-          throw new Error("Missing MCP command.");
-        }
-        mcpEntryConfig["command"] = entry.command;
-
-        if (slug === CHROME_DEVTOOLS_MCP_ID && usesChromeDevtoolsAutoConnect(entry.command) && isTauriRuntime()) {
-          try {
-            const hostHome = (await homeDir()).replace(/[\\/]+$/, "");
-            if (hostHome) {
-              mcpEnvironment = { HOME: hostHome };
-              mcpEntryConfig["environment"] = mcpEnvironment;
-            }
-          } catch {
-            // ignore and let the MCP use the default worker environment
-          }
-        }
-      }
-
-      if (canUseOpenworkServer && openworkClient && openworkWorkspaceId) {
-        await openworkClient.addMcp(openworkWorkspaceId, {
-          name: slug,
-          config: mcpEntryConfig,
-        });
-      } else {
-        const configFile = await readOpencodeConfig("project", resolvedProjectDir);
-
-        let existingConfig: Record<string, unknown> = {};
-        if (configFile.exists && configFile.content?.trim()) {
-          try {
-            existingConfig = parse(configFile.content) ?? {};
-          } catch (parseErr) {
-            recordPerfLog(developerMode(), "mcp.connect", "config-parse-failed", {
-              error: parseErr instanceof Error ? parseErr.message : String(parseErr),
-            });
-            existingConfig = {};
-          }
-        }
-
-        if (!existingConfig["$schema"]) {
-          existingConfig["$schema"] = "https://opencode.ai/config.json";
-        }
-
-        const mcpSection = (existingConfig["mcp"] as Record<string, unknown>) ?? {};
-        existingConfig["mcp"] = mcpSection;
-        mcpSection[slug] = mcpEntryConfig;
-
-        const writeResult = await writeOpencodeConfig(
-          "project",
-          resolvedProjectDir,
-          `${JSON.stringify(existingConfig, null, 2)}\n`
-        );
-        if (!writeResult.ok) {
-          throw new Error(writeResult.stderr || writeResult.stdout || "Failed to write opencode.json");
-        }
-      }
-
-      const mcpAddConfig =
-        entryType === "remote"
-          ? {
-            type: "remote" as const,
-            url: entry.url!,
-            enabled: true,
-            ...(entry.oauth ? { oauth: {} } : {}),
-          }
-          : {
-            type: "local" as const,
-            command: entry.command!,
-            enabled: true,
-            ...(mcpEnvironment ? { environment: mcpEnvironment } : {}),
-          };
-
-      const status = unwrap(
-        await activeClient.mcp.add({
-          directory: resolvedProjectDir,
-          name: slug,
-          config: mcpAddConfig,
-        }),
-      );
-
-      setMcpStatuses(status as McpStatusMap);
-      markReloadRequired("mcp", { type: "mcp", name: slug, action });
-      await refreshMcpServers();
-
-      if (entry.oauth) {
-        setMcpAuthEntry(entry);
-        setMcpAuthNeedsReload(true);
-        setMcpAuthModalOpen(true);
-      } else {
-        setMcpStatus(t("mcp.connected", currentLocale()));
-      }
-
-      await refreshMcpServers();
-      finishPerf(developerMode(), "mcp.connect", "done", startedAt, {
-        name: entry.name,
-        type: entryType,
-        slug,
-      });
-    } catch (e) {
-      setMcpStatus(e instanceof Error ? e.message : t("mcp.connect_failed", currentLocale()));
-      finishPerf(developerMode(), "mcp.connect", "error", startedAt, {
-        name: entry.name,
-        type: entryType,
-        error: e instanceof Error ? e.message : safeStringify(e),
-      });
-    } finally {
-      setMcpConnectingName(null);
-    }
-  }
-
-  function authorizeMcp(entry: McpServerEntry) {
-    if (entry.config.type !== "remote" || entry.config.oauth === false) {
-      setMcpStatus(t("mcp.login_unavailable", currentLocale()));
-      return;
-    }
-
-    const matchingQuickConnect = MCP_QUICK_CONNECT.find((candidate) => {
-      const candidateSlug = candidate.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      return candidateSlug === entry.name || candidate.name === entry.name;
-    });
-
-    setMcpAuthEntry(
-      matchingQuickConnect ?? {
-        name: entry.name,
-        description: "",
-        type: "remote",
-        url: entry.config.url,
-        oauth: true,
-      },
-    );
-    setMcpAuthNeedsReload(false);
-    setMcpAuthModalOpen(true);
-  }
-
-  async function logoutMcpAuth(name: string) {
-    const isRemoteWorkspace =
-      workspaceStore.selectedWorkspaceDisplay().workspaceType === "remote" ||
-      (!isTauriRuntime() && openworkServerStatus() === "connected");
-    const projectDir = workspaceProjectDir().trim();
-
-    const openworkClient = openworkServerClient();
-    let openworkWorkspaceId = runtimeWorkspaceId();
-    const openworkCapabilities = resolvedOpenworkCapabilities();
-    if (!openworkWorkspaceId && openworkClient && openworkServerStatus() === "connected") {
-      openworkWorkspaceId = await workspaceStore.ensureRuntimeWorkspaceId();
-    }
-    const canUseOpenworkServer =
-      openworkServerStatus() === "connected" &&
-      openworkClient &&
-      openworkWorkspaceId &&
-      openworkCapabilities?.mcp?.write;
-
-    if (isRemoteWorkspace && !canUseOpenworkServer) {
-      setMcpStatus("OpenWork server unavailable. MCP auth is read-only.");
-      return;
-    }
-
-    if (!canUseOpenworkServer && !isTauriRuntime()) {
-      setMcpStatus(t("mcp.desktop_required", currentLocale()));
-      return;
-    }
-
-    let activeClient = client();
-    if (!activeClient) {
-      const openworkBaseUrl = openworkServerBaseUrl().trim();
-      const auth = openworkServerAuth();
-      if (openworkBaseUrl && auth.token) {
-        const opencodeUrl = `${openworkBaseUrl.replace(/\/+$/, "")}/opencode`;
-        activeClient = createClient(opencodeUrl, undefined, { token: auth.token, mode: "openwork" });
-        setClient(activeClient);
-      }
-    }
-    if (!activeClient) {
-      setMcpStatus(t("mcp.connect_server_first", currentLocale()));
-      return;
-    }
-
-    let resolvedProjectDir = projectDir;
-    if (!resolvedProjectDir) {
-      try {
-        const pathInfo = unwrap(await activeClient.path.get());
-        const discoveredRaw = normalizeDirectoryQueryPath(pathInfo.directory ?? "");
-        const discovered = discoveredRaw.replace(/^\/private\/tmp(?=\/|$)/, "/tmp");
-        if (discovered) {
-          resolvedProjectDir = discovered;
-          workspaceStore.setProjectDir(discovered);
-        }
-      } catch {
-        // ignore
-      }
-    }
-    if (!resolvedProjectDir) {
-      setMcpStatus(t("mcp.pick_workspace_first", currentLocale()));
-      return;
-    }
-
-    const safeName = validateMcpServerName(name);
-    setMcpStatus(null);
-
-    try {
-      if (canUseOpenworkServer && openworkClient && openworkWorkspaceId) {
-        await openworkClient.logoutMcpAuth(openworkWorkspaceId, safeName);
-      } else {
-        try {
-          await activeClient.mcp.disconnect({ directory: resolvedProjectDir, name: safeName });
-        } catch {
-          // ignore
-        }
-        await activeClient.mcp.auth.remove({ directory: resolvedProjectDir, name: safeName });
-      }
-
-      try {
-        const status = unwrap(await activeClient.mcp.status({ directory: resolvedProjectDir }));
-        setMcpStatuses(status as McpStatusMap);
-      } catch {
-        // ignore
-      }
-
-      await refreshMcpServers();
-      setMcpStatus(t("mcp.logout_success", currentLocale()).replace("{server}", safeName));
-    } catch (e) {
-      setMcpStatus(e instanceof Error ? e.message : t("mcp.logout_failed", currentLocale()));
-    }
-  }
-
-  async function removeMcp(name: string) {
-    try {
-      setMcpStatus(null);
-
-      const openworkClient = openworkServerClient();
-      const openworkWorkspaceId = runtimeWorkspaceId();
-      const canUseOpenworkServer =
-        openworkServerStatus() === "connected" &&
-        openworkClient &&
-        openworkWorkspaceId &&
-        resolvedOpenworkCapabilities()?.mcp?.write;
-
-      if (canUseOpenworkServer && openworkClient && openworkWorkspaceId) {
-        await openworkClient.removeMcp(openworkWorkspaceId, name);
-      } else {
-        const projectDir = workspaceProjectDir().trim();
-        if (!projectDir) {
-          setMcpStatus(t("mcp.pick_workspace_first", currentLocale()));
-          return;
-        }
-        await removeMcpFromConfig(projectDir, name);
-      }
-
-      markReloadRequired("mcp", { type: "mcp", name, action: "removed" });
-      await refreshMcpServers();
-      if (selectedMcp() === name) {
-        setSelectedMcp(null);
-      }
-      setMcpStatus(null);
-    } catch (e) {
-      setMcpStatus(e instanceof Error ? e.message : t("mcp.remove_failed", currentLocale()));
     }
   }
 
@@ -6275,7 +5753,7 @@ export default function App() {
       selectedMcp: selectedMcp(),
       setSelectedMcp,
       readConfigFile: readMcpConfigFile,
-      quickConnect: MCP_QUICK_CONNECT,
+      quickConnect,
       connectMcp,
       authorizeMcp,
       logoutMcpAuth,
@@ -6609,17 +6087,8 @@ export default function App() {
         activeSessions={activeReloadBlockingSessions()}
         isRemoteWorkspace={selectedWorkspaceDisplay().workspaceType === "remote"}
         onForceStopSession={(sessionID) => abortSession(sessionID)}
-        onClose={() => {
-          setMcpAuthModalOpen(false);
-          setMcpAuthEntry(null);
-          setMcpAuthNeedsReload(false);
-        }}
-        onComplete={async () => {
-          setMcpAuthModalOpen(false);
-          setMcpAuthEntry(null);
-          setMcpAuthNeedsReload(false);
-          await refreshMcpServers();
-        }}
+        onClose={closeMcpAuthModal}
+        onComplete={completeMcpAuthModal}
         onReloadEngine={() => reloadWorkspaceEngineAndResume()}
       />
 
