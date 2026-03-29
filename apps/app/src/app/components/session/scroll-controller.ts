@@ -4,23 +4,19 @@ import {
   createSignal,
   on,
   onCleanup,
-  onMount,
   type Accessor,
   type JSX,
 } from "solid-js";
 
-const STREAM_SCROLL_MIN_INTERVAL_MS = 90;
 const FOLLOW_LATEST_BOTTOM_GAP_PX = 96;
 
 type SessionScrollMode = "follow-latest" | "manual-browse";
 
 type SessionScrollControllerOptions = {
   selectedSessionId: Accessor<string | null>;
-  messageCount: Accessor<number>;
-  isContainerReady: Accessor<boolean>;
   renderedMessages: Accessor<unknown>;
   containerRef: Accessor<HTMLDivElement | undefined>;
-  messagesEndRef: Accessor<HTMLDivElement | undefined>;
+  contentRef: Accessor<HTMLDivElement | undefined>;
 };
 
 export function createSessionScrollController(
@@ -28,19 +24,60 @@ export function createSessionScrollController(
 ) {
   const [mode, setMode] = createSignal<SessionScrollMode>("follow-latest");
   const [topClippedMessageId, setTopClippedMessageId] = createSignal<string | null>(null);
-  const [initialAnchorPending, setInitialAnchorPending] = createSignal(false);
-  const isViewingLatest = createMemo(() => mode() === "follow-latest");
+  const isAtBottom = createMemo(() => mode() === "follow-latest");
 
-  let scrollFrame: number | undefined;
-  let pendingScrollBehavior: ScrollBehavior = "auto";
-  let lastAutoScrollAt = 0;
   let lastKnownScrollTop = 0;
-  let initialAnchorRafA: number | undefined;
-  let initialAnchorRafB: number | undefined;
-  let initialAnchorGuardTimer: ReturnType<typeof setTimeout> | undefined;
+  let programmaticScroll = false;
+  let programmaticScrollResetRafA: number | undefined;
+  let programmaticScrollResetRafB: number | undefined;
+  let observedContentHeight = 0;
 
-  const scrollToLatest = (behavior: ScrollBehavior = "auto") => {
-    options.messagesEndRef()?.scrollIntoView({ behavior, block: "end" });
+  const clearProgrammaticScrollReset = () => {
+    if (programmaticScrollResetRafA !== undefined) {
+      window.cancelAnimationFrame(programmaticScrollResetRafA);
+      programmaticScrollResetRafA = undefined;
+    }
+    if (programmaticScrollResetRafB !== undefined) {
+      window.cancelAnimationFrame(programmaticScrollResetRafB);
+      programmaticScrollResetRafB = undefined;
+    }
+  };
+
+  const releaseProgrammaticScrollSoon = () => {
+    clearProgrammaticScrollReset();
+    programmaticScrollResetRafA = window.requestAnimationFrame(() => {
+      programmaticScrollResetRafA = undefined;
+      programmaticScrollResetRafB = window.requestAnimationFrame(() => {
+        programmaticScrollResetRafB = undefined;
+        programmaticScroll = false;
+      });
+    });
+  };
+
+  const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
+    const container = options.containerRef();
+    if (!container) return;
+
+    setMode("follow-latest");
+    setTopClippedMessageId(null);
+    programmaticScroll = true;
+
+    if (behavior === "smooth") {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+      releaseProgrammaticScrollSoon();
+      return;
+    }
+
+    container.scrollTop = container.scrollHeight;
+    window.requestAnimationFrame(() => {
+      const next = options.containerRef();
+      if (!next) {
+        programmaticScroll = false;
+        return;
+      }
+      next.scrollTop = next.scrollHeight;
+      releaseProgrammaticScrollSoon();
+    });
   };
 
   const refreshTopClippedMessage = () => {
@@ -78,85 +115,14 @@ export function createSessionScrollController(
     setTopClippedMessageId(nextId);
   };
 
-  const pinToLatestNow = () => {
-    setMode("follow-latest");
-    scrollToLatest("auto");
-  };
-
-  const pinToLatestAfterLayout = () => {
-    setMode("follow-latest");
-    setTopClippedMessageId(null);
-    scrollToLatest("auto");
-    queueMicrotask(() => {
-      scrollToLatest("auto");
-    });
-    window.requestAnimationFrame(() => {
-      scrollToLatest("auto");
-      window.requestAnimationFrame(() => {
-        pinToLatestNow();
-      });
-    });
-  };
-
-  const scheduleScrollToLatest = (behavior: ScrollBehavior = "auto") => {
-    if (!isViewingLatest()) return;
-    if (behavior === "smooth") {
-      pendingScrollBehavior = "smooth";
-    }
-    if (scrollFrame !== undefined) return;
-    scrollFrame = window.requestAnimationFrame(() => {
-      scrollFrame = undefined;
-      const nextBehavior = pendingScrollBehavior;
-      pendingScrollBehavior = "auto";
-      const now = Date.now();
-      if (
-        nextBehavior === "auto" &&
-        now - lastAutoScrollAt < STREAM_SCROLL_MIN_INTERVAL_MS
-      ) {
-        return;
-      }
-      lastAutoScrollAt = now;
-      scrollToLatest(nextBehavior);
-    });
-  };
-
-  const cancelInitialAnchorFrames = () => {
-    if (initialAnchorRafA !== undefined) {
-      window.cancelAnimationFrame(initialAnchorRafA);
-      initialAnchorRafA = undefined;
-    }
-    if (initialAnchorRafB !== undefined) {
-      window.cancelAnimationFrame(initialAnchorRafB);
-      initialAnchorRafB = undefined;
-    }
-    if (initialAnchorGuardTimer) {
-      clearTimeout(initialAnchorGuardTimer);
-      initialAnchorGuardTimer = undefined;
-    }
-  };
-
-  const applyInitialBottomAnchor = (sessionId: string) => {
-    cancelInitialAnchorFrames();
-    initialAnchorGuardTimer = setTimeout(() => {
-      initialAnchorGuardTimer = undefined;
-      if (options.selectedSessionId() !== sessionId) return;
-      setInitialAnchorPending(false);
-    }, 200);
-    pinToLatestNow();
-    initialAnchorRafA = window.requestAnimationFrame(() => {
-      initialAnchorRafA = undefined;
-      pinToLatestNow();
-      initialAnchorRafB = window.requestAnimationFrame(() => {
-        initialAnchorRafB = undefined;
-        pinToLatestNow();
-        if (options.selectedSessionId() !== sessionId) return;
-        setInitialAnchorPending(false);
-      });
-    });
-  };
-
   const handleScroll: JSX.EventHandlerUnion<HTMLDivElement, Event> = (event) => {
     const container = event.currentTarget as HTMLDivElement;
+    if (programmaticScroll) {
+      lastKnownScrollTop = container.scrollTop;
+      refreshTopClippedMessage();
+      return;
+    }
+
     const bottomGap =
       container.scrollHeight - (container.scrollTop + container.clientHeight);
     if (bottomGap <= FOLLOW_LATEST_BOTTOM_GAP_PX) {
@@ -169,8 +135,7 @@ export function createSessionScrollController(
   };
 
   const jumpToLatest = (behavior: ScrollBehavior = "smooth") => {
-    setMode("follow-latest");
-    scheduleScrollToLatest(behavior);
+    scrollToBottom(behavior);
   };
 
   const jumpToStartOfMessage = (behavior: ScrollBehavior = "smooth") => {
@@ -188,43 +153,28 @@ export function createSessionScrollController(
     target.scrollIntoView({ behavior, block: "start" });
   };
 
-  const handleRunStarted = () => {
-    if (!isViewingLatest()) return;
-    pinToLatestAfterLayout();
-  };
+  createEffect(() => {
+    const content = options.contentRef();
+    if (!content) return;
 
-  const handleStreamProgress = () => {
-    if (initialAnchorPending()) return;
-    if (!isViewingLatest()) return;
-    scheduleScrollToLatest("auto");
-  };
+    observedContentHeight = content.offsetHeight;
+    const observer = new ResizeObserver(() => {
+      const nextContent = options.contentRef();
+      if (!nextContent) return;
 
-  const handleUserSentMessage = () => {
-    pinToLatestAfterLayout();
-  };
+      const nextHeight = nextContent.offsetHeight;
+      const grew = nextHeight > observedContentHeight + 1;
+      observedContentHeight = nextHeight;
 
-  onMount(() => {
-    const container = options.containerRef();
-    const sentinel = options.messagesEndRef();
-    if (!container || !sentinel) return;
+      if (grew && isAtBottom()) {
+        scrollToBottom("auto");
+        return;
+      }
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        const atBottom = Boolean(entry?.isIntersecting);
-        if (atBottom) {
-          setMode("follow-latest");
-        }
-        refreshTopClippedMessage();
-      },
-      {
-        root: container,
-        rootMargin: "0px 0px 96px 0px",
-        threshold: 0,
-      },
-    );
+      refreshTopClippedMessage();
+    });
 
-    observer.observe(sentinel);
+    observer.observe(content);
     onCleanup(() => observer.disconnect());
   });
 
@@ -232,70 +182,31 @@ export function createSessionScrollController(
     on(
       options.selectedSessionId,
       (sessionId, previousSessionId) => {
-        if (sessionId === previousSessionId) {
-          return;
-        }
-
+        if (sessionId === previousSessionId) return;
         if (!sessionId) return;
+
         setMode("follow-latest");
         setTopClippedMessageId(null);
-        setInitialAnchorPending(true);
-
-        queueMicrotask(() => {
-          applyInitialBottomAnchor(sessionId);
-        });
+        observedContentHeight = 0;
+        queueMicrotask(() => scrollToBottom("auto"));
       },
-    ),
-  );
-
-  createEffect(
-    on(
-      () =>
-        [
-          options.selectedSessionId(),
-          options.messageCount(),
-          options.isContainerReady(),
-          initialAnchorPending(),
-        ] as const,
-      ([sessionId, count, ready, pending]) => {
-        if (!pending) return;
-        if (!sessionId) {
-          setInitialAnchorPending(false);
-          return;
-        }
-        if (!ready) return;
-        if (count === 0) {
-          setInitialAnchorPending(false);
-          return;
-        }
-        queueMicrotask(() => applyInitialBottomAnchor(sessionId));
-      },
-      { defer: true },
     ),
   );
 
   createEffect(() => {
     options.renderedMessages();
-    initialAnchorPending();
     queueMicrotask(refreshTopClippedMessage);
   });
 
   onCleanup(() => {
-    cancelInitialAnchorFrames();
-    if (scrollFrame !== undefined) {
-      window.cancelAnimationFrame(scrollFrame);
-      scrollFrame = undefined;
-    }
+    clearProgrammaticScrollReset();
   });
 
   return {
-    isViewingLatest,
+    isAtBottom,
     topClippedMessageId,
-    initialAnchorPending,
     handleScroll,
-    handleRunStarted,
-    handleStreamProgress,
-    handleUserSentMessage,
+    scrollToBottom,
     jumpToLatest,
     jumpToStartOfMessage,
   };
