@@ -50,10 +50,10 @@ import Button from "../components/button";
 import ConfigView from "./config";
 import SettingsView from "./settings";
 import StatusBar from "../components/status-bar";
-import ProviderAuthModal, {
+import { ProviderAuthModal,
   type ProviderAuthMethod,
   type ProviderOAuthStartResult,
-} from "../components/provider-auth-modal";
+} from "../context/providers";
 import ShareWorkspaceModal from "../components/share-workspace-modal";
 import WorkspaceSessionList from "../components/session/workspace-session-list";
 import WorkspaceToolsPanel from "./workspace-tools-panel";

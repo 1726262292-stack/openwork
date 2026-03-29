@@ -65,10 +65,10 @@ import {
 import Button from "../components/button";
 import ConfirmModal from "../components/confirm-modal";
 import RenameSessionModal from "../components/rename-session-modal";
-import ProviderAuthModal, {
+import { ProviderAuthModal,
   type ProviderAuthMethod,
   type ProviderOAuthStartResult,
-} from "../components/provider-auth-modal";
+} from "../context/providers";
 import ShareWorkspaceModal from "../components/share-workspace-modal";
 import StatusBar from "../components/status-bar";
 import {

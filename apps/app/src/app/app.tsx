@@ -15,7 +15,6 @@ import { useLocation, useNavigate } from "@solidjs/router";
 import type {
   Agent,
   Part,
-  ProviderAuthAuthorization,
   Session,
   TextPartInput,
   FilePartInput,
@@ -41,7 +40,7 @@ import ReloadWorkspaceToast from "./components/reload-workspace-toast";
 import StatusToast from "./components/status-toast";
 import DashboardView from "./pages/dashboard";
 import SessionView from "./pages/session";
-import { createClient, unwrap, waitForHealthy, type OpencodeAuth } from "./lib/opencode";
+import { createClient, unwrap } from "./lib/opencode";
 import { createDenClient, writeDenSettings } from "./lib/den";
 import {
   abortSession as abortSessionTyped,
@@ -71,12 +70,7 @@ import {
   usesChromeDevtoolsAutoConnect,
   validateMcpServerName,
 } from "./mcp";
-import {
-  compareProviders,
-  filterProviderList,
-  mapConfigProvidersToList,
-  providerPriorityRank,
-} from "./utils/providers";
+import { compareProviders, providerPriorityRank } from "./utils/providers";
 import {
   blueprintMaterializedSessions,
   blueprintSessions,
@@ -96,10 +90,7 @@ import type {
   PluginScope,
   ReloadReason,
   ReloadTrigger,
-  ResetOpenworkMode,
   SettingsTab,
-  SkillCard,
-  SidebarSessionItem,
   TodoItem,
   View,
   WorkspaceSessionGroup,
@@ -111,26 +102,22 @@ import type {
   ComposerPart,
   ProviderListItem,
   SessionErrorTurn,
-  UpdateHandle,
   OpencodeConnectStatus,
-  ScheduledJob,
   WorkspacePreset,
 } from "./types";
 import {
   clearStartupPreference,
   deriveArtifacts,
   deriveWorkingFiles,
-  formatBytes,
   formatModelLabel,
   formatModelRef,
-  formatRelativeTime,
   isVisibleTextPart,
   isTauriRuntime,
   modelEquals,
   normalizeDirectoryQueryPath,
   normalizeDirectoryPath,
 } from "./utils";
-import { currentLocale, setLocale, t, type Language } from "../i18n";
+import { currentLocale, setLocale, t } from "../i18n";
 import {
   isWindowsPlatform,
   lastUserModelFromMessages,
@@ -150,6 +137,7 @@ import {
 import { createSystemState } from "./system-state";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { createSessionStore } from "./context/session";
+import { createProvidersStore } from "./context/providers";
 import {
   formatGenericBehaviorLabel,
   getModelBehaviorSummary,
@@ -158,7 +146,6 @@ import {
 } from "./lib/model-behavior";
 import {
   describeDirectoryScope,
-  shouldApplyScopedSessionLoad,
   shouldRedirectMissingSessionAfterScopedLoad,
   toSessionTransportDirectory,
 } from "./lib/session-scope";
@@ -238,7 +225,6 @@ import {
   type DenAuthDeepLink,
   type RemoteWorkspaceDefaults,
   type SharedBundleDeepLink,
-  type SharedBundleImportIntent,
   type SharedBundleV1,
   type SharedSkillBundleV1,
   type SharedWorkspaceProfileBundleV1,
@@ -311,16 +297,6 @@ export default function App() {
       // ignore
     }
   };
-  type ProviderAuthMethod = {
-    type: "oauth" | "api";
-    label: string;
-    methodIndex?: number;
-  };
-  type ProviderOAuthStartResult = {
-    methodIndex: number;
-    authorization: ProviderAuthAuthorization;
-  };
-
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -831,7 +807,6 @@ export default function App() {
   const [error, setError] = createSignal<string | null>(null);
   const [opencodeConnectStatus, setOpencodeConnectStatus] = createSignal<OpencodeConnectStatus | null>(null);
   const [booting, setBooting] = createSignal(true);
-  const mountTime = Date.now();
   const [lastKnownConfigSnapshot, setLastKnownConfigSnapshot] = createSignal("");
   const [developerMode, setDeveloperMode] = createSignal(false);
   const [documentVisible, setDocumentVisible] = createSignal(true);
@@ -891,13 +866,6 @@ export default function App() {
   type PromptFocusReturnTarget = "none" | "composer";
 
   const [sessionAgentById, setSessionAgentById] = createSignal<Record<string, string>>({});
-  const [providerAuthModalOpen, setProviderAuthModalOpen] = createSignal(false);
-  const [providerAuthBusy, setProviderAuthBusy] = createSignal(false);
-  const [providerAuthError, setProviderAuthError] = createSignal<string | null>(null);
-  const [providerAuthMethods, setProviderAuthMethods] = createSignal<Record<string, ProviderAuthMethod[]>>({});
-  const [providerAuthPreferredProviderId, setProviderAuthPreferredProviderId] = createSignal<string | null>(null);
-  const [providerAuthReturnFocusTarget, setProviderAuthReturnFocusTarget] =
-    createSignal<PromptFocusReturnTarget>("none");
 
   createEffect(() => {
     const view = currentView();
@@ -1025,21 +993,11 @@ export default function App() {
   });
   const activeSessions = createMemo(() => sessions());
   const activeSessionStatusById = createMemo(() => sessionStatusById());
-  const activeMessages = createMemo(() => messages());
   const activeTodos = createMemo(() => todos());
   const activeWorkingFiles = createMemo(() => workingFiles());
 
   const sessionActivity = (session: Session) =>
     session.time?.updated ?? session.time?.created ?? 0;
-  const sortSessionsByActivity = (list: Session[]) =>
-    list
-      .slice()
-      .sort((a, b) => {
-        const delta = sessionActivity(b) - sessionActivity(a);
-        if (delta !== 0) return delta;
-        return a.id.localeCompare(b.id);
-      });
-
   const [sessionsLoaded, setSessionsLoaded] = createSignal(false);
   const loadSessionsWithReady = async (scopeRoot?: string) => {
     await loadSessions(scopeRoot);
@@ -1832,369 +1790,6 @@ export default function App() {
     });
   }
 
-  const buildProviderAuthMethods = (
-    methods: Record<string, ProviderAuthMethod[]>,
-    availableProviders: ProviderListItem[],
-    workerType: "local" | "remote",
-  ) => {
-    const merged = Object.fromEntries(
-      Object.entries(methods ?? {}).map(([id, providerMethods]) => [
-        id,
-        (providerMethods ?? []).map((method, methodIndex) => ({
-          ...method,
-          methodIndex,
-        })),
-      ]),
-    ) as Record<string, ProviderAuthMethod[]>;
-    for (const provider of availableProviders ?? []) {
-      const id = provider.id?.trim();
-      if (!id || id === "opencode") continue;
-      if (!Array.isArray(provider.env) || provider.env.length === 0) continue;
-      const existing = merged[id] ?? [];
-      if (existing.some((method) => method.type === "api")) continue;
-      merged[id] = [...existing, { type: "api", label: "API key" }];
-    }
-    for (const [id, providerMethods] of Object.entries(merged)) {
-      const provider = availableProviders.find((item) => item.id === id);
-      const normalizedId = id.trim().toLowerCase();
-      const normalizedName = provider?.name?.trim().toLowerCase() ?? "";
-      const isOpenAiProvider = normalizedId === "openai" || normalizedName === "openai";
-      if (!isOpenAiProvider) continue;
-      merged[id] = providerMethods.filter((method) => {
-        if (method.type !== "oauth") return true;
-        const label = method.label.toLowerCase();
-        const isHeadless = label.includes("headless") || label.includes("device");
-        return workerType === "remote" ? isHeadless : !isHeadless;
-      });
-    }
-    return merged;
-  };
-
-  const loadProviderAuthMethods = async (workerType: "local" | "remote") => {
-    const c = client();
-    if (!c) {
-      throw new Error("Not connected to a server");
-    }
-    const methods = unwrap(await c.provider.auth());
-    return buildProviderAuthMethods(
-      methods as Record<string, ProviderAuthMethod[]>,
-      providers(),
-      workerType,
-    );
-  };
-
-  async function startProviderAuth(
-    providerId?: string,
-    methodIndex?: number,
-  ): Promise<ProviderOAuthStartResult> {
-    setProviderAuthError(null);
-    const c = client();
-    if (!c) {
-      throw new Error("Not connected to a server");
-    }
-    try {
-      const cachedMethods = providerAuthMethods();
-      const workerType = selectedWorkspaceDisplay().workspaceType === "remote" ? "remote" : "local";
-      const authMethods = Object.keys(cachedMethods).length
-        ? cachedMethods
-        : await loadProviderAuthMethods(workerType);
-      const providerIds = Object.keys(authMethods).sort();
-      if (!providerIds.length) {
-        throw new Error("No providers available");
-      }
-
-      const resolved = providerId?.trim() ?? "";
-      if (!resolved) {
-        throw new Error("Provider ID is required");
-      }
-
-      const methods = authMethods[resolved];
-      if (!methods || !methods.length) {
-        throw new Error(`Unknown provider: ${resolved}`);
-      }
-
-      const oauthIndex =
-        methodIndex !== undefined
-          ? methodIndex
-          : methods.find((method) => method.type === "oauth")?.methodIndex ?? -1;
-      if (oauthIndex === -1) {
-        throw new Error(`No OAuth flow available for ${resolved}. Use an API key instead.`);
-      }
-
-      const selectedMethod = methods.find((method) => method.methodIndex === oauthIndex);
-      if (!selectedMethod || selectedMethod.type !== "oauth") {
-        throw new Error(`Selected auth method is not an OAuth flow for ${resolved}.`);
-      }
-
-      const auth = unwrap(await c.provider.oauth.authorize({ providerID: resolved, method: oauthIndex }));
-      return {
-        methodIndex: oauthIndex,
-        authorization: auth,
-      };
-    } catch (error) {
-      const message = describeProviderError(error, "Failed to connect provider");
-      setProviderAuthError(message);
-      throw error instanceof Error ? error : new Error(message);
-    }
-  }
-
-  async function refreshProviders(options?: { dispose?: boolean }) {
-    const c = client();
-    if (!c) return null;
-
-    if (options?.dispose) {
-      try {
-        unwrap(await c.instance.dispose());
-      } catch {
-        // ignore dispose failures and try reading current state anyway
-      }
-
-      try {
-        await waitForHealthy(client() ?? c, { timeoutMs: 8_000, pollMs: 250 });
-      } catch {
-        // ignore health wait failures and still attempt provider reads
-      }
-    }
-
-    const activeClient = client() ?? c;
-    let disabledProviders = globalSync.data.config.disabled_providers ?? [];
-    try {
-      const config = unwrap(await activeClient.config.get());
-      disabledProviders = Array.isArray(config.disabled_providers) ? config.disabled_providers : [];
-    } catch {
-      // ignore config read failures and continue with current store state
-    }
-    try {
-      const updated = filterProviderList(
-        unwrap(await activeClient.provider.list()),
-        disabledProviders,
-      );
-      globalSync.set("provider", updated);
-      return updated;
-    } catch {
-      try {
-        const fallback = unwrap(await activeClient.config.providers());
-        const mapped = mapConfigProvidersToList(fallback.providers);
-        const previousConnected = providerConnectedIds();
-        const next = filterProviderList(
-          {
-            all: mapped,
-            connected: previousConnected.filter((id) => mapped.some((provider) => provider.id === id)),
-            default: fallback.default,
-          },
-          disabledProviders,
-        );
-        globalSync.set("provider", next);
-        return next;
-      } catch {
-        return null;
-      }
-    }
-  }
-
-  async function completeProviderAuthOAuth(providerId: string, methodIndex: number, code?: string) {
-    setProviderAuthError(null);
-    const c = client();
-    if (!c) {
-      throw new Error("Not connected to a server");
-    }
-
-    const resolved = providerId?.trim();
-    if (!resolved) {
-      throw new Error("Provider ID is required");
-    }
-
-    if (!Number.isInteger(methodIndex) || methodIndex < 0) {
-      throw new Error("OAuth method is required");
-    }
-
-    const waitForProviderConnection = async (timeoutMs = 15_000, pollMs = 2_000) => {
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < timeoutMs) {
-        try {
-          const updated = await refreshProviders({ dispose: true });
-          if (Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
-            return true;
-          }
-        } catch {
-          // ignore and retry
-        }
-        await new Promise((resolve) => setTimeout(resolve, pollMs));
-      }
-      return false;
-    };
-
-    const isPendingOauthError = (error: unknown) => {
-      const text = error instanceof Error ? error.message : String(error ?? "");
-      return /request timed out/i.test(text) || /ProviderAuthOauthMissing/i.test(text);
-    };
-
-    try {
-      const trimmedCode = code?.trim();
-      const result = await c.provider.oauth.callback({
-        providerID: resolved,
-        method: methodIndex,
-        code: trimmedCode || undefined,
-      });
-      assertNoClientError(result);
-      const updated = await refreshProviders({ dispose: true });
-      const connectedNow = Array.isArray(updated?.connected) && updated.connected.includes(resolved);
-      if (connectedNow) {
-        return { connected: true, message: `Connected ${resolved}` };
-      }
-      const connected = await waitForProviderConnection();
-      if (connected) {
-        return { connected: true, message: `Connected ${resolved}` };
-      }
-      return { connected: false, pending: true };
-    } catch (error) {
-      if (isPendingOauthError(error)) {
-        const updated = await refreshProviders({ dispose: true });
-        if (Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
-          return { connected: true, message: `Connected ${resolved}` };
-        }
-        const connected = await waitForProviderConnection();
-        if (connected) {
-          return { connected: true, message: `Connected ${resolved}` };
-        }
-        return { connected: false, pending: true };
-      }
-      const message = describeProviderError(error, "Failed to complete OAuth");
-      setProviderAuthError(message);
-      throw error instanceof Error ? error : new Error(message);
-    }
-  }
-
-  async function submitProviderApiKey(providerId: string, apiKey: string) {
-    setProviderAuthError(null);
-    const c = client();
-    if (!c) {
-      throw new Error("Not connected to a server");
-    }
-
-    const trimmed = apiKey.trim();
-    if (!trimmed) {
-      throw new Error("API key is required");
-    }
-
-    try {
-      await c.auth.set({
-        providerID: providerId,
-        auth: { type: "api", key: trimmed },
-      });
-      await refreshProviders({ dispose: true });
-      return `Connected ${providerId}`;
-    } catch (error) {
-      const message = describeProviderError(error, "Failed to save API key");
-      setProviderAuthError(message);
-      throw error instanceof Error ? error : new Error(message);
-    }
-  }
-
-  async function disconnectProvider(providerId: string) {
-    setProviderAuthError(null);
-    const c = client();
-    if (!c) {
-      throw new Error("Not connected to a server");
-    }
-
-    const resolved = providerId.trim();
-    if (!resolved) {
-      throw new Error("Provider ID is required");
-    }
-
-    const provider = providers().find((entry) => entry.id === resolved) as
-      | (ProviderListItem & { source?: string })
-      | undefined;
-    const canDisableProvider =
-      provider?.source === "config" || provider?.source === "custom";
-
-    const removeProviderAuth = async () => {
-      const authClient = c.auth as unknown as {
-        remove?: (options: { providerID: string }) => Promise<unknown>;
-        set?: (options: { providerID: string; auth: unknown }) => Promise<unknown>;
-      };
-      if (typeof authClient.remove === "function") {
-        const result = await authClient.remove({ providerID: resolved });
-        assertNoClientError(result);
-        return;
-      }
-
-      const rawClient = (c as unknown as { client?: { delete?: (options: { url: string }) => Promise<unknown> } })
-        .client;
-      if (rawClient?.delete) {
-        await rawClient.delete({ url: `/auth/${encodeURIComponent(resolved)}` });
-        return;
-      }
-
-      if (typeof authClient.set === "function") {
-        const result = await authClient.set({ providerID: resolved, auth: null });
-        assertNoClientError(result);
-        return;
-      }
-
-      throw new Error("Provider auth removal is not supported by this client.");
-    };
-
-    const disableProvider = async () => {
-      const config = unwrap(await c.config.get());
-      const disabledProviders = Array.isArray(config.disabled_providers)
-        ? config.disabled_providers
-        : [];
-      if (disabledProviders.includes(resolved)) {
-        return false;
-      }
-
-      const next = [...disabledProviders, resolved];
-      globalSync.set("config", "disabled_providers", next);
-      try {
-        const result = await c.config.update({
-          config: {
-            ...config,
-            disabled_providers: next,
-          },
-        });
-        assertNoClientError(result);
-        markOpencodeConfigReloadRequired();
-      } catch (error) {
-        globalSync.set("config", "disabled_providers", disabledProviders);
-        throw error;
-      }
-      return true;
-    };
-
-    try {
-      await removeProviderAuth();
-      let updated = await refreshProviders({ dispose: true });
-      if (
-        canDisableProvider &&
-        Array.isArray(updated?.connected) &&
-        updated.connected.includes(resolved)
-      ) {
-        const disabled = await disableProvider();
-        if (disabled) {
-          updated = filterProviderList(updated, globalSync.data.config.disabled_providers ?? []);
-          globalSync.set("provider", updated);
-        }
-        if (!Array.isArray(updated?.connected) || !updated.connected.includes(resolved)) {
-          return disabled
-            ? `Disconnected ${resolved} and disabled it in OpenCode config.`
-            : `Disconnected ${resolved}.`;
-        }
-      }
-
-      if (Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
-        return `Removed stored credentials for ${resolved}, but the worker still reports it as connected. Clear any remaining API key or OAuth credentials and restart the worker to fully disconnect.`;
-      }
-      removeProviderFromState(resolved);
-      return `Disconnected ${resolved}`;
-    } catch (error) {
-      const message = describeProviderError(error, "Failed to disconnect provider");
-      setProviderAuthError(message);
-      throw error instanceof Error ? error : new Error(message);
-    }
-  }
-
   function focusSessionPromptSoon() {
     if (typeof window === "undefined" || currentView() !== "session") return;
     requestAnimationFrame(() => {
@@ -2202,43 +1797,6 @@ export default function App() {
         window.dispatchEvent(new CustomEvent("openwork:focusPrompt"));
       });
     });
-  }
-
-  async function openProviderAuthModal(options?: {
-    returnFocusTarget?: PromptFocusReturnTarget;
-    preferredProviderId?: string;
-  }) {
-    const workerType = selectedWorkspaceDisplay().workspaceType === "remote" ? "remote" : "local";
-    setProviderAuthReturnFocusTarget(options?.returnFocusTarget ?? "none");
-    setProviderAuthPreferredProviderId(options?.preferredProviderId?.trim() || null);
-    setProviderAuthBusy(true);
-    setProviderAuthError(null);
-    try {
-      const methods = await loadProviderAuthMethods(workerType);
-      setProviderAuthMethods(methods);
-      setProviderAuthModalOpen(true);
-    } catch (error) {
-      setProviderAuthPreferredProviderId(null);
-      setProviderAuthReturnFocusTarget("none");
-      const message = describeProviderError(error, "Failed to load providers");
-      setProviderAuthError(message);
-      throw error;
-    } finally {
-      setProviderAuthBusy(false);
-    }
-  }
-
-  function closeProviderAuthModal(options?: { restorePromptFocus?: boolean }) {
-    const shouldFocusPrompt =
-      options?.restorePromptFocus ??
-      providerAuthReturnFocusTarget() === "composer";
-    setProviderAuthModalOpen(false);
-    setProviderAuthError(null);
-    setProviderAuthPreferredProviderId(null);
-    setProviderAuthReturnFocusTarget("none");
-    if (shouldFocusPrompt) {
-      focusSessionPromptSoon();
-    }
   }
 
   async function saveSessionExport(sessionID: string) {
@@ -2398,16 +1956,6 @@ export default function App() {
   };
   const setProviderConnectedIds = (value: string[]) => {
     globalSync.set("provider", "connected", value);
-  };
-
-  const removeProviderFromState = (providerId: string) => {
-    const resolved = providerId.trim();
-    if (!resolved) return;
-    setProviders(providers().filter((provider) => provider.id !== resolved));
-    setProviderConnectedIds(providerConnectedIds().filter((id) => id !== resolved));
-    setProviderDefaults(
-      Object.fromEntries(Object.entries(providerDefaults()).filter(([id]) => id !== resolved)),
-    );
   };
 
   const [defaultModel, setDefaultModel] = createSignal<ModelRef>(DEFAULT_MODEL);
@@ -2723,6 +2271,35 @@ export default function App() {
     engineRuntime,
     developerMode,
     setPendingInitialSessionSelection,
+  });
+
+  const {
+    providerAuthModalOpen,
+    providerAuthBusy,
+    providerAuthError,
+    providerAuthMethods,
+    providerAuthPreferredProviderId,
+    providerAuthWorkerType,
+    startProviderAuth,
+    refreshProviders,
+    completeProviderAuthOAuth,
+    submitProviderApiKey,
+    disconnectProvider,
+    openProviderAuthModal,
+    closeProviderAuthModal,
+  } = createProvidersStore({
+    client,
+    providers,
+    providerDefaults,
+    providerConnectedIds,
+    disabledProviders: () => globalSync.data.config.disabled_providers ?? [],
+    selectedWorkspaceDisplay: () => workspaceStore.selectedWorkspaceDisplay(),
+    setProviders,
+    setProviderDefaults,
+    setProviderConnectedIds,
+    setDisabledProviders: (value) => globalSync.set("config", "disabled_providers", value),
+    markOpencodeConfigReloadRequired: () => markOpencodeConfigReloadRequired(),
+    focusPromptSoon: focusSessionPromptSoon,
   });
 
   const runtimeWorkspaceId = createMemo(() => workspaceStore.runtimeWorkspaceId());
@@ -6764,103 +6341,9 @@ export default function App() {
     return seconds > 0 ? `${label} · ${seconds}s` : label;
   });
 
-  const localHostLabel = createMemo(() => {
-    const info = engine();
-    if (info?.hostname && info?.port) {
-      return `${info.hostname}:${info.port}`;
-    }
-
-    try {
-      return new URL(baseUrl()).host;
-    } catch {
-      return "localhost:4096";
-    }
-  });
-
-  const onboardingProps = () => ({
-    startupPreference: startupPreference(),
-    onboardingStep: onboardingStep(),
-    rememberStartupChoice: rememberStartupChoice(),
-    busy: busy(),
-    clientDirectory: clientDirectory(),
-    openworkHostUrl: openworkServerSettings().urlOverride ?? "",
-    openworkToken: openworkServerSettings().token ?? "",
-    newAuthorizedDir: newAuthorizedDir(),
-    authorizedDirs: workspaceStore.authorizedDirs(),
-    selectedWorkspacePath: workspaceStore.selectedWorkspacePath(),
-    workspaces: workspaceStore.workspaces(),
-    localHostLabel: localHostLabel(),
-    engineRunning: Boolean(engine()?.running),
-    developerMode: developerMode(),
-    engineBaseUrl: engine()?.baseUrl ?? null,
-    engineDoctorFound: engineDoctorResult()?.found ?? null,
-    engineDoctorSupportsServe: engineDoctorResult()?.supportsServe ?? null,
-    engineDoctorVersion: engineDoctorResult()?.version ?? null,
-    engineDoctorResolvedPath: engineDoctorResult()?.resolvedPath ?? null,
-    engineDoctorNotes: engineDoctorResult()?.notes ?? [],
-    engineDoctorServeHelpStdout: engineDoctorResult()?.serveHelpStdout ?? null,
-    engineDoctorServeHelpStderr: engineDoctorResult()?.serveHelpStderr ?? null,
-    engineDoctorCheckedAt: engineDoctorCheckedAt(),
-    engineInstallLogs: engineInstallLogs(),
-    error: error(),
-    canRepairMigration: workspaceStore.canRepairOpencodeMigration(),
-    migrationRepairUnavailableReason: migrationRepairUnavailableReason(),
-    migrationRepairBusy: workspaceStore.migrationRepairBusy(),
-    migrationRepairResult: workspaceStore.migrationRepairResult(),
-    isWindows: isWindowsPlatform(),
-    onClientDirectoryChange: setClientDirectory,
-    onOpenworkHostUrlChange: (value: string) =>
-      updateOpenworkServerSettings({
-        ...openworkServerSettings(),
-        urlOverride: value,
-      }),
-    onOpenworkTokenChange: (value: string) =>
-      updateOpenworkServerSettings({
-        ...openworkServerSettings(),
-        token: value,
-      }),
-    onSelectStartup: workspaceStore.onSelectStartup,
-    onRememberStartupToggle: workspaceStore.onRememberStartupToggle,
-    onStartHost: workspaceStore.onStartHost,
-    onRepairMigration: workspaceStore.onRepairOpencodeMigration,
-    onCreateWorkspace: workspaceStore.createWorkspaceFlow,
-    onPickWorkspaceFolder: workspaceStore.pickWorkspaceFolder,
-    onImportWorkspaceConfig: workspaceStore.importWorkspaceConfig,
-    importingWorkspaceConfig: workspaceStore.importingWorkspaceConfig(),
-    onAttachHost: workspaceStore.onAttachHost,
-    onConnectClient: workspaceStore.onConnectClient,
-    onBackToWelcome: workspaceStore.onBackToWelcome,
-    onSetAuthorizedDir: workspaceStore.setNewAuthorizedDir,
-    onAddAuthorizedDir: workspaceStore.addAuthorizedDir,
-    onAddAuthorizedDirFromPicker: () =>
-      workspaceStore.addAuthorizedDirFromPicker({ persistToWorkspace: true }),
-    onRemoveAuthorizedDir: workspaceStore.removeAuthorizedDirAtIndex,
-    onRefreshEngineDoctor: async () => {
-      workspaceStore.setEngineInstallLogs(null);
-      await workspaceStore.refreshEngineDoctor();
-    },
-    onInstallEngine: workspaceStore.onInstallEngine,
-    onShowSearchNotes: () => {
-      const notes =
-        workspaceStore.engineDoctorResult()?.notes?.join("\n") ?? "";
-      workspaceStore.setEngineInstallLogs(notes || null);
-    },
-    onOpenSettings: () => {
-      setTab("settings");
-      setView("dashboard");
-    },
-    onOpenAdvancedSettings: () => {
-      setTab("config");
-      setView("dashboard");
-    },
-    themeMode: themeMode(),
-    setThemeMode,
-  });
-
   const dashboardProps = () => {
     const workspaceType = selectedWorkspaceDisplay().workspaceType;
     const isRemoteWorkspace = workspaceType === "remote";
-    const providerAuthWorkerType: "local" | "remote" = isRemoteWorkspace ? "remote" : "local";
     const openworkStatus = openworkServerStatus();
     const canUseDesktopTools = isTauriRuntime() && !isRemoteWorkspace;
     const canInstallSkillCreator = isRemoteWorkspace
@@ -6901,7 +6384,7 @@ export default function App() {
       providerAuthError: providerAuthError(),
       providerAuthMethods: providerAuthMethods(),
       providerAuthPreferredProviderId: providerAuthPreferredProviderId(),
-      providerAuthWorkerType,
+      providerAuthWorkerType: providerAuthWorkerType(),
       openProviderAuthModal,
       disconnectProvider,
       closeProviderAuthModal,
@@ -7176,9 +6659,7 @@ export default function App() {
 
   const sessionProps = () => ({
     booting: booting(),
-    providerAuthWorkerType: (selectedWorkspaceDisplay().workspaceType === "remote" ? "remote" : "local") as
-      | "remote"
-      | "local",
+    providerAuthWorkerType: providerAuthWorkerType(),
     selectedSessionId: activeSessionId(),
     setView,
     tab: tab(),

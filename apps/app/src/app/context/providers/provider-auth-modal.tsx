@@ -1,30 +1,20 @@
-import type { ProviderAuthAuthorization } from "@opencode-ai/sdk/v2/client";
 import { CheckCircle2, Loader2, X, Search, ChevronRight } from "lucide-solid";
-import type { ProviderListItem } from "../types";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import { isTauriRuntime } from "../utils";
-import { compareProviders } from "../utils/providers";
 
-import Button from "./button";
-import ProviderIcon from "./provider-icon";
-import TextInput from "./text-input";
+import type { ProviderListItem } from "../../types";
+import { isTauriRuntime } from "../../utils";
+import { compareProviders } from "../../utils/providers";
+import Button from "../../components/button";
+import ProviderIcon from "../../components/provider-icon";
+import TextInput from "../../components/text-input";
+import type { ProviderAuthMethod, ProviderOAuthStartResult } from "./store";
 
-export type ProviderAuthMethod = {
-  type: "oauth" | "api";
-  label: string;
-  methodIndex?: number;
-};
 type ProviderAuthEntry = {
   id: string;
   name: string;
   methods: ProviderAuthMethod[];
   connected: boolean;
   env: string[];
-};
-
-export type ProviderOAuthStartResult = {
-  methodIndex: number;
-  authorization: ProviderAuthAuthorization;
 };
 
 type ProviderOAuthSession = ProviderOAuthStartResult & {
@@ -706,7 +696,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                                   </div>
                                 </div>
                                 <div class="text-[11px] text-gray-9 font-mono truncate mt-0.5 opacity-60 group-hover:opacity-80 transition-opacity">{entry.id}</div>
-                                
+
                                 <div class="mt-2 flex flex-wrap gap-1.5">
                                   <For each={entry.methods}>
                                     {(method) => (
