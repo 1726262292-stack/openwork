@@ -220,8 +220,6 @@ export type SessionViewProps = {
   modelBehaviorOptions?: { value: string | null; label: string }[];
   setModelVariant: (value: string | null) => void;
   activePermission: PendingPermission | null;
-  showTryNotionPrompt: boolean;
-  onTryNotionPrompt: () => void;
   permissionReplyBusy: boolean;
   respondPermission: (
     requestID: string,
@@ -274,7 +272,6 @@ export type SessionViewProps = {
   >;
   selectedSessionAgent: string | null;
   setSessionAgent: (sessionId: string, agent: string | null) => void;
-  saveSession: (sessionId: string) => Promise<string>;
   sessionStatusById: Record<string, string>;
   hasEarlierMessages: boolean;
   loadingEarlierMessages: boolean;
@@ -4462,8 +4459,6 @@ export default function SessionView(props: SessionViewProps) {
               setAgentPickerRef={(el) => {
                 agentPickerRef = el;
               }}
-              showNotionBanner={props.showTryNotionPrompt}
-              onNotionBannerClick={props.onTryNotionPrompt}
               toast={toastMessage()}
               onToast={(message) => setToastMessage(message)}
               listAgents={props.listAgents}

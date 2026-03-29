@@ -339,11 +339,6 @@ export type DashboardViewProps = {
   pickAuthorizedFolder: () => Promise<void>;
   removeAuthorizedFolder: (folder: string) => Promise<void>;
   resetAppConfigDefaults: () => Promise<{ ok: boolean; message: string }>;
-  notionStatus: "disconnected" | "connecting" | "connected" | "error";
-  notionStatusDetail: string | null;
-  notionError: string | null;
-  notionBusy: boolean;
-  connectNotion: () => void;
   openDebugDeepLink: (rawUrl: string) => Promise<{ ok: boolean; message: string }>;
 };
 
@@ -1562,11 +1557,6 @@ export default function DashboardView(props: DashboardViewProps) {
                   pickAuthorizedFolder={props.pickAuthorizedFolder}
                   removeAuthorizedFolder={props.removeAuthorizedFolder}
                   resetAppConfigDefaults={props.resetAppConfigDefaults}
-                  notionStatus={props.notionStatus}
-                  notionStatusDetail={props.notionStatusDetail}
-                  notionError={props.notionError}
-                  notionBusy={props.notionBusy}
-                  connectNotion={props.connectNotion}
                   openDebugDeepLink={props.openDebugDeepLink}
                   scheduledJobs={props.scheduledJobs}
                   scheduledJobsSource={props.scheduledJobsSource}

@@ -1,6 +1,5 @@
 import {
   Match,
-  Show,
   Switch,
   createEffect,
   createMemo,
@@ -996,8 +995,6 @@ export default function App() {
   const activeTodos = createMemo(() => todos());
   const activeWorkingFiles = createMemo(() => workingFiles());
 
-  const sessionActivity = (session: Session) =>
-    session.time?.updated ?? session.time?.created ?? 0;
   const [sessionsLoaded, setSessionsLoaded] = createSignal(false);
   const loadSessionsWithReady = async (scopeRoot?: string) => {
     await loadSessions(scopeRoot);
@@ -1799,52 +1796,6 @@ export default function App() {
     });
   }
 
-  async function saveSessionExport(sessionID: string) {
-    const c = client();
-    if (!c) {
-      throw new Error("Not connected to a server");
-    }
-
-    const session = unwrap(await c.session.get({ sessionID }));
-    const messages = unwrap(await c.session.messages({ sessionID }));
-    let todos: TodoItem[] = [];
-    try {
-      todos = unwrap(await c.session.todo({ sessionID }));
-    } catch {
-      // ignore
-    }
-
-    const payload = {
-      session,
-      messages,
-      todos,
-      exportedAt: new Date().toISOString(),
-      source: "openwork",
-    };
-
-    const baseName = session.title || session.slug || session.id;
-    const safeName = baseName
-      .toLowerCase()
-      .replace(/[^a-z0-9\-_.]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 80);
-    const fileName = `session-${safeName || session.id}.json`;
-    return downloadSessionExport(payload, fileName);
-  }
-
-  function downloadSessionExport(payload: unknown, fileName: string) {
-    const json = JSON.stringify(payload, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    link.click();
-    URL.revokeObjectURL(url);
-    return fileName;
-  }
-
-
   async function respondPermissionAndRemember(
     requestID: string,
     reply: "once" | "always" | "reject"
@@ -2191,7 +2142,6 @@ export default function App() {
       return next;
     });
   };
-  const setModelVariant = (value: string | null) => updateModelVariant(selectedSessionModel(), value);
   const toggleAutoCompactContext = () => {
     if (autoCompactContextSaving()) return;
     setAutoCompactContext((value) => !value);
@@ -3937,7 +3887,7 @@ export default function App() {
       setShowThinking(false);
       setHideTitlebar(false);
       setAutoCompactContext(false);
-      setModelVariant(null);
+      updateModelVariant(selectedSessionModel(), null);
       setUpdateAutoCheck(true);
       setUpdateAutoDownload(false);
       setUpdateStatus({ state: "idle", lastCheckedAt: null });
@@ -6779,7 +6729,6 @@ export default function App() {
     listCommands: listCommands,
     selectedSessionAgent: selectedSessionAgent(),
     setSessionAgent: setSessionAgent,
-    saveSession: saveSessionExport,
     sessionStatusById: activeSessionStatusById(),
     hasEarlierMessages: selectedSessionHasEarlierMessages(),
     loadingEarlierMessages: selectedSessionLoadingEarlierMessages(),
