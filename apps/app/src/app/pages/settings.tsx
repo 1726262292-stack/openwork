@@ -210,11 +210,6 @@ export type SettingsViewProps = {
   pickAuthorizedFolder: () => Promise<void>;
   removeAuthorizedFolder: (folder: string) => Promise<void>;
   resetAppConfigDefaults: () => Promise<{ ok: boolean; message: string }>;
-  notionStatus: "disconnected" | "connecting" | "connected" | "error";
-  notionStatusDetail: string | null;
-  notionError: string | null;
-  notionBusy: boolean;
-  connectNotion: () => void;
   engineDoctorVersion: string | null;
   openDebugDeepLink: (
     rawUrl: string,
@@ -492,32 +487,6 @@ export default function SettingsView(props: SettingsViewProps) {
       return;
     }
     props.checkForUpdates();
-  };
-
-  const notionStatusLabel = () => {
-    switch (props.notionStatus) {
-      case "connected":
-        return "Connected";
-      case "connecting":
-        return "Reload required";
-      case "error":
-        return "Connection failed";
-      default:
-        return "Not connected";
-    }
-  };
-
-  const notionStatusStyle = () => {
-    if (props.notionStatus === "connected") {
-      return "bg-green-7/10 text-green-11 border-green-7/20";
-    }
-    if (props.notionStatus === "error") {
-      return "bg-red-7/10 text-red-11 border-red-7/20";
-    }
-    if (props.notionStatus === "connecting") {
-      return "bg-amber-7/10 text-amber-11 border-amber-7/20";
-    }
-    return "bg-gray-4/60 text-gray-11 border-gray-7/50";
   };
 
   const [providerConnectError, setProviderConnectError] = createSignal<

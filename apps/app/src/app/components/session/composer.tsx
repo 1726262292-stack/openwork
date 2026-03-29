@@ -45,8 +45,6 @@ type ComposerProps = {
   onToggleAgentPicker: () => void;
   onSelectAgent: (agent: string | null) => void;
   setAgentPickerRef: (el: HTMLDivElement) => void;
-  showNotionBanner: boolean;
-  onNotionBannerClick: () => void;
   toast: string | null;
   onToast: (message: string) => void;
   listAgents: () => Promise<Agent[]>;
@@ -1623,17 +1621,6 @@ export default function Composer(props: ComposerProps) {
           </Show>
 
           <div class="p-5 md:p-6">
-            <Show when={props.showNotionBanner}>
-              <button
-                type="button"
-                class="w-full mb-2 flex items-center justify-between gap-3 rounded-xl border border-green-7/20 bg-green-7/10 px-3 py-2 text-left text-sm text-green-12 transition-colors hover:bg-green-7/15"
-                onClick={props.onNotionBannerClick}
-              >
-                <span>Try it now: set up my CRM in Notion</span>
-                <span class="text-xs text-green-12 font-medium">Insert prompt</span>
-              </button>
-            </Show>
-
             <Show when={attachments().length}>
               <div class="mb-3 flex flex-wrap gap-2">
                 <For each={attachments()}>

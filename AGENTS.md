@@ -130,6 +130,19 @@ Design principles for hot reload:
 * Use `DESIGN-LANGUAGE.md` as the default visual reference for OpenWork app and landing work.
 * For OpenWork session-surface details, also reference `packages/docs/orbita-layout-style.mdx`.
 
+## App Architecture (CUPID)
+
+For `apps/app/src/app/**`, use CUPID: small public surfaces, intention-revealing names, minimal dependencies, predictable ownership, and domain-based structure.
+
+* Organize app code by product domain and app behavior, not generic buckets like `pages`, `hooks`, `utils`, or app-wide props.
+* Prefer a thin shell, domain modules, and tiny shared primitives.
+* Colocate state, UI, helpers, and server/client adapters with the domain that owns the workflow.
+* Treat shared utilities as a last resort; promote only after multiple real consumers exist.
+* Cross-domain imports should go through a small public API, not another domain's internals.
+* Keep global shell code thin and use it for routing, top-level layout, runtime wiring, and shared reload/update surfaces only.
+* Domain map: shell, workspace, session, connections, automations, cloud, app-settings, and kernel.
+* When changing app architecture, moving ownership, or editing hot spots like `app.tsx`, `pages/dashboard.tsx`, `pages/session.tsx`, or `pages/settings.tsx`, consult the workspace-root skill at `../../.opencode/skills/cupid-app-architecture/SKILL.md` first.
+
 ## Dev Debugging
 
 * If you change `apps/server/src`, rebuild the OpenWork server binary (`pnpm --filter openwork-server build:bin`) because `openwork` (openwork-orchestrator) runs the compiled server, not the TS sources.
