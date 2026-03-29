@@ -303,7 +303,6 @@ export default function App() {
   const [sessionViewLockUntil, setSessionViewLockUntil] = createSignal(0);
   const currentView = createMemo<View>(() => {
     const path = location.pathname.toLowerCase();
-    if (path.startsWith("/onboarding")) return "onboarding";
     if (path.startsWith("/session")) return "session";
     return "dashboard";
   });
@@ -331,10 +330,6 @@ export default function App() {
       return;
     }
     if (next === "dashboard" && Date.now() < sessionViewLockUntil()) {
-      return;
-    }
-    if (next === "onboarding") {
-      navigate("/onboarding");
       return;
     }
     if (next === "session") {
@@ -885,10 +880,6 @@ export default function App() {
         return;
       }
       navigate("/session");
-      return;
-    }
-    if (target.view === "onboarding") {
-      navigate("/onboarding");
       return;
     }
     goToDashboard(target.tab);
@@ -6844,10 +6835,6 @@ export default function App() {
       }
 
       navigate("/dashboard/scheduled", { replace: true });
-      return;
-    }
-
-    if (path.startsWith("/onboarding")) {
       return;
     }
 

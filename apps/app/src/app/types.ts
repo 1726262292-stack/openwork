@@ -150,7 +150,7 @@ export type SessionCompactionState = {
   messageID: string | null;
 };
 
-export type View = "onboarding" | "dashboard" | "session";
+export type View = "dashboard" | "session";
 
 export type StartupPreference = "local" | "server";
 
