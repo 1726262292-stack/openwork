@@ -2767,6 +2767,7 @@ export default function SessionView(props: SessionViewProps) {
   });
   const showSessionLoadingState = createMemo(() => {
     if (showPendingSessionTransition()) return true;
+    if (props.booting && !props.selectedSessionId) return true;
     const sessionId = props.selectedSessionId;
     if (!sessionId) return false;
     if (props.messages.length > 0) return false;
