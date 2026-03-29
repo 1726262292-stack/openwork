@@ -21,7 +21,7 @@ import {
 } from "../mcp";
 import type { Client, McpServerEntry, McpStatusMap, ReloadReason, ReloadTrigger } from "../types";
 import { isTauriRuntime, normalizeDirectoryQueryPath, safeStringify } from "../utils";
-import { createWorkspaceContextKey } from "./workspace-context";
+import { createWorkspaceContextKey } from "../context/workspace-context";
 
 export type ConnectionsStore = ReturnType<typeof createConnectionsStore>;
 

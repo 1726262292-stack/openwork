@@ -64,15 +64,6 @@ function forcedDevUpdateStatus(): UpdateStatus | null {
   };
 }
 
-export type NotionState = {
-  status: Accessor<"disconnected" | "connecting" | "connected" | "error">;
-  setStatus: (value: "disconnected" | "connecting" | "connected" | "error") => void;
-  statusDetail: Accessor<string | null>;
-  setStatusDetail: (value: string | null) => void;
-  skillInstalled: Accessor<boolean>;
-  setTryPromptVisible: (value: boolean) => void;
-};
-
 export function createSystemState(options: {
   client: Accessor<Client | null>;
   sessions: Accessor<Session[]>;
@@ -86,7 +77,6 @@ export function createSystemState(options: {
   setProviderDefaults: (value: Record<string, string>) => void;
   setProviderConnectedIds: (value: string[]) => void;
   setError: (value: string | null) => void;
-  notion?: NotionState;
 }) {
   const isActiveSessionStatus = (status: string | null | undefined) =>
     status === "running" || status === "retry";
@@ -334,7 +324,9 @@ export function createSystemState(options: {
       await waitForHealthy(nextClient, { timeoutMs: 12_000 });
       let disabledProviders: string[] = [];
       try {
-        const config = unwrap(await nextClient.config.get());
+        const config = unwrap(await nextClient.config.get()) as {
+          disabled_providers?: string[];
+        };
         disabledProviders = Array.isArray(config.disabled_providers) ? config.disabled_providers : [];
       } catch {
         // ignore config read failures and continue with provider discovery
@@ -350,7 +342,10 @@ export function createSystemState(options: {
         options.setProviderConnectedIds(providerList.connected);
       } catch {
         try {
-          const cfg = unwrap(await nextClient.config.providers());
+          const cfg = unwrap(await nextClient.config.providers()) as {
+            providers: Parameters<typeof mapConfigProvidersToList>[0];
+            default: Record<string, string>;
+          };
           const providerList = filterProviderList(
             { all: mapConfigProvidersToList(cfg.providers), default: cfg.default, connected: [] },
             disabledProviders,
@@ -369,40 +364,7 @@ export function createSystemState(options: {
       await options.refreshSkills({ force: true }).catch(() => undefined);
       await options.refreshMcpServers?.().catch(() => undefined);
 
-      if (options.notion) {
-        let nextStatus = options.notion.status();
-        if (nextStatus === "connecting") {
-          nextStatus = "connected";
-          options.notion.setStatus(nextStatus);
-          options.notion.setStatusDetail("Worker connected");
-        }
-
-        if (nextStatus === "connected") {
-          const detail = options.notion.statusDetail();
-          if (!detail || detail.toLowerCase().includes("reload")) {
-            options.notion.setStatusDetail("Worker connected");
-          }
-        }
-
-        try {
-          window.localStorage.setItem("openwork.notionStatus", nextStatus);
-          if (nextStatus === "connected") {
-            const detail = options.notion.statusDetail();
-            if (detail) {
-              window.localStorage.setItem("openwork.notionStatusDetail", detail);
-            } else {
-              window.localStorage.removeItem("openwork.notionStatusDetail");
-            }
-          }
-        } catch {
-          // ignore
-        }
-      }
-
       clearReloadRequired();
-      if (options.notion && options.notion.status() === "connected" && options.notion.skillInstalled()) {
-        options.notion.setTryPromptVisible(true);
-      }
     } catch (e) {
       setReloadError(e instanceof Error ? e.message : safeStringify(e));
     } finally {

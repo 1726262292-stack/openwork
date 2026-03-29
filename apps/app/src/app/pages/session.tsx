@@ -13,8 +13,6 @@ import type {
   DashboardTab,
   ComposerDraft,
   MessageWithParts,
-  McpServerEntry,
-  McpStatusMap,
   PendingPermission,
   PendingQuestion,
   ProviderListItem,
@@ -200,9 +198,6 @@ export type SessionViewProps = {
   authorizedDirs: string[];
   activePlugins: string[];
   activePluginStatus: string | null;
-  mcpServers: McpServerEntry[];
-  mcpStatuses: McpStatusMap;
-  mcpStatus: string | null;
   skills: SkillCard[];
   skillsStatus: string | null;
   busy: boolean;
@@ -3987,7 +3982,6 @@ export default function SessionView(props: SessionViewProps) {
             onOpenProviders={openProviderAuth}
             onOpenMcp={openMcp}
             providerConnectedIds={props.providerConnectedIds}
-            mcpStatuses={props.mcpStatuses}
             statusLabel={
               showCompactionIndicator()
                 ? "Compacting Context"

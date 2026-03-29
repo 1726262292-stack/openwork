@@ -33,9 +33,10 @@ import SharedSkillDestinationModal from "./components/shared-skill-destination-m
 import SharedBundleImportModal from "./components/shared-bundle-import-modal";
 import StartWithTemplateModal from "./components/start-with-template-modal";
 import RenameWorkspaceModal from "./components/rename-workspace-modal";
-import McpAuthModal from "./components/mcp-auth-modal";
 import ReloadWorkspaceToast from "./components/reload-workspace-toast";
 import StatusToast from "./components/status-toast";
+import ConnectionsModals from "./connections/modals";
+import { ConnectionsProvider } from "./connections/provider";
 import DashboardView from "./pages/dashboard";
 import SessionView from "./pages/session";
 import { unwrap } from "./lib/opencode";
@@ -149,7 +150,7 @@ const fileToDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 import { createExtensionsStore } from "./context/extensions";
-import { createConnectionsStore } from "./context/connections";
+import { createConnectionsStore } from "./connections/store";
 import { createAutomationsStore } from "./context/automations";
 import { createSidebarSessionsStore } from "./context/sidebar-sessions";
 import { useGlobalSync } from "./context/global-sync";
@@ -1786,16 +1787,6 @@ export default function App() {
     await respondPermission(requestID, reply);
   }
 
-  const [notionStatus, setNotionStatus] = createSignal<"disconnected" | "connecting" | "connected" | "error">(
-    "disconnected",
-  );
-  const [notionStatusDetail, setNotionStatusDetail] = createSignal<string | null>(null);
-  const [notionError, setNotionError] = createSignal<string | null>(null);
-  const [notionBusy, setNotionBusy] = createSignal(false);
-  const [notionSkillInstalled, setNotionSkillInstalled] = createSignal(false);
-  const [tryNotionPromptVisible, setTryNotionPromptVisible] = createSignal(false);
-  const notionIsActive = createMemo(() => notionStatus() === "connected");
-
   let workspaceStore!: ReturnType<typeof createWorkspaceStore>;
 
   const extensionsStore = createExtensionsStore({
@@ -1813,17 +1804,6 @@ export default function App() {
     setBusyStartedAt,
     setError,
     markReloadRequired,
-    onNotionSkillInstalled: () => {
-      setNotionSkillInstalled(true);
-      try {
-        window.localStorage.setItem("openwork.notionSkillInstalled", "1");
-      } catch {
-        // ignore
-      }
-      if (notionIsActive()) {
-        setTryNotionPromptVisible(true);
-      }
-    },
   });
 
   const {
@@ -1884,27 +1864,7 @@ export default function App() {
     markReloadRequired,
   });
 
-  const {
-    mcpServers,
-    mcpStatus,
-    mcpLastUpdatedAt,
-    mcpStatuses,
-    mcpConnectingName,
-    selectedMcp,
-    setSelectedMcp,
-    quickConnect,
-    readMcpConfigFile,
-    refreshMcpServers,
-    connectMcp,
-    authorizeMcp,
-    logoutMcpAuth,
-    removeMcp,
-    mcpAuthModalOpen,
-    mcpAuthEntry,
-    mcpAuthNeedsReload,
-    closeMcpAuthModal,
-    completeMcpAuthModal,
-  } = connectionsStore;
+  const { refreshMcpServers } = connectionsStore;
 
   const globalSync = useGlobalSync();
   const providers = createMemo(() => globalSync.data.provider.all ?? []);
@@ -3727,14 +3687,6 @@ export default function App() {
     setProviderDefaults,
     setProviderConnectedIds,
     setError,
-    notion: {
-      status: notionStatus,
-      setStatus: setNotionStatus,
-      statusDetail: notionStatusDetail,
-      setStatusDetail: setNotionStatusDetail,
-      skillInstalled: notionSkillInstalled,
-      setTryPromptVisible: setTryNotionPromptVisible,
-    },
   });
 
   const {
@@ -3825,12 +3777,6 @@ export default function App() {
 
       clearOpenworkServerSettings();
       setOpenworkServerSettings(readOpenworkServerSettings());
-
-      setNotionStatus("disconnected");
-      setNotionStatusDetail(null);
-      setNotionError(null);
-      setNotionSkillInstalled(false);
-      setTryNotionPromptVisible(false);
 
       return { ok: true, message: "Reset app config defaults. Restart OpenWork if any stale settings remain." };
     } catch (error) {
@@ -4447,94 +4393,6 @@ export default function App() {
     setView("dashboard");
   }
 
-  async function connectNotion() {
-    if (workspaceStore.selectedWorkspaceDisplay().workspaceType !== "local") {
-      setNotionError("Notion connections are only available for local workspaces.");
-      return;
-    }
-
-    const projectDir = workspaceProjectDir().trim();
-    if (!projectDir) {
-      setNotionError("Pick a workspace folder first.");
-      return;
-    }
-
-    const openworkClient = openworkServerClient();
-    const openworkWorkspaceId = runtimeWorkspaceId();
-    const openworkCapabilities = resolvedOpenworkCapabilities();
-    const canUseOpenworkServer =
-      openworkServerStatus() === "connected" &&
-      openworkClient &&
-      openworkWorkspaceId &&
-      openworkCapabilities?.mcp?.write;
-
-    if (!canUseOpenworkServer && !isTauriRuntime()) {
-      setNotionError("Notion connections require the desktop app.");
-      return;
-    }
-
-    if (notionBusy()) return;
-
-    setNotionBusy(true);
-    setNotionError(null);
-    setNotionStatus("connecting");
-    setNotionStatusDetail(t("mcp.connecting", currentLocale()));
-    setNotionSkillInstalled(false);
-
-    try {
-      if (canUseOpenworkServer) {
-        await openworkClient.addMcp(openworkWorkspaceId, {
-          name: "notion",
-          config: {
-            type: "remote",
-            url: "https://mcp.notion.com/mcp",
-            enabled: true,
-          },
-        });
-      } else {
-        const config = await readOpencodeConfig("project", projectDir);
-        const raw = config.content ?? "";
-        const nextConfig = raw.trim()
-          ? (parse(raw) as Record<string, unknown>)
-          : { $schema: "https://opencode.ai/config.json" };
-
-        const mcp = typeof nextConfig.mcp === "object" && nextConfig.mcp
-          ? { ...(nextConfig.mcp as Record<string, unknown>) }
-          : {};
-        mcp.notion = {
-          type: "remote",
-          url: "https://mcp.notion.com/mcp",
-          enabled: true,
-        };
-
-        nextConfig.mcp = mcp;
-        const formatted = JSON.stringify(nextConfig, null, 2);
-
-        const result = await writeOpencodeConfig("project", projectDir, `${formatted}\n`);
-        if (!result.ok) {
-          throw new Error(result.stderr || result.stdout || "Failed to update opencode.json");
-        }
-      }
-
-      markReloadRequired("mcp", { type: "mcp", name: "notion", action: "added" });
-
-      await refreshMcpServers();
-      setNotionStatusDetail(t("mcp.connecting", currentLocale()));
-      try {
-        window.localStorage.setItem("openwork.notionStatus", "connecting");
-        window.localStorage.setItem("openwork.notionStatusDetail", t("mcp.connecting", currentLocale()));
-        window.localStorage.setItem("openwork.notionSkillInstalled", "0");
-      } catch {
-        // ignore
-      }
-    } catch (e) {
-      setNotionStatus("error");
-      setNotionError(e instanceof Error ? e.message : "Failed to connect Notion.");
-    } finally {
-      setNotionBusy(false);
-    }
-  }
-
   async function createSessionAndOpen() {
     const ready = await ensureSelectedWorkspaceRuntime();
     if (!ready) {
@@ -4837,29 +4695,7 @@ export default function App() {
           }
         }
 
-        const storedNotionStatus = window.localStorage.getItem("openwork.notionStatus");
-        if (
-          storedNotionStatus === "disconnected" ||
-          storedNotionStatus === "connected" ||
-          storedNotionStatus === "connecting" ||
-          storedNotionStatus === "error"
-        ) {
-          setNotionStatus(storedNotionStatus);
-        }
-
-        const storedNotionDetail = window.localStorage.getItem("openwork.notionStatusDetail");
-        if (storedNotionDetail) {
-          setNotionStatusDetail(storedNotionDetail);
-        } else if (storedNotionStatus === "connecting") {
-          setNotionStatusDetail(t("mcp.connecting", currentLocale()));
-        }
-
         await refreshMcpServers();
-
-        const storedNotionSkillInstalled = window.localStorage.getItem("openwork.notionSkillInstalled");
-        if (storedNotionSkillInstalled === "1") {
-          setNotionSkillInstalled(true);
-        }
       } catch {
         // ignore
       }
@@ -5739,26 +5575,7 @@ export default function App() {
       dockerCleanupResult: dockerCleanupResult(),
       markOpencodeConfigReloadRequired,
       resetAppConfigDefaults,
-      notionStatus: notionStatus(),
-      notionStatusDetail: notionStatusDetail(),
-      notionError: notionError(),
-      notionBusy: notionBusy(),
-      connectNotion,
       openDebugDeepLink,
-      mcpServers: mcpServers(),
-      mcpStatus: mcpStatus(),
-      mcpLastUpdatedAt: mcpLastUpdatedAt(),
-      mcpStatuses: mcpStatuses(),
-      mcpConnectingName: mcpConnectingName(),
-      selectedMcp: selectedMcp(),
-      setSelectedMcp,
-      readConfigFile: readMcpConfigFile,
-      quickConnect,
-      connectMcp,
-      authorizeMcp,
-      logoutMcpAuth,
-      removeMcp,
-      refreshMcpServers,
       language: currentLocale(),
       setLanguage: setLocale,
     };
@@ -5844,9 +5661,6 @@ export default function App() {
     setModelVariant: (value: string | null) => updateModelVariant(selectedSessionModel(), value),
     activePlugins: sidebarPluginList(),
     activePluginStatus: sidebarPluginStatus(),
-    mcpServers: mcpServers(),
-    mcpStatuses: mcpStatuses(),
-    mcpStatus: mcpStatus(),
     skills: skills(),
     skillsStatus: skillsStatus(),
     createSessionAndOpen: createSessionAndOpen,
@@ -5888,7 +5702,6 @@ export default function App() {
     questionReplyBusy: questionReplyBusy(),
     respondQuestion: respondQuestion,
     safeStringify: safeStringify,
-    showTryNotionPrompt: tryNotionPromptVisible() && notionIsActive(),
     startProviderAuth: startProviderAuth,
     completeProviderAuthOAuth: completeProviderAuthOAuth,
     refreshProviders: refreshProviders,
@@ -5912,16 +5725,6 @@ export default function App() {
     loadEarlierMessages,
     searchFiles: searchWorkspaceFiles,
     deleteSession: deleteSessionById,
-    onTryNotionPrompt: () => {
-      setPrompt("setup my crm");
-      setTryNotionPromptVisible(false);
-      setNotionSkillInstalled(true);
-      try {
-        window.localStorage.setItem("openwork.notionSkillInstalled", "1");
-      } catch {
-        // ignore
-      }
-    },
     sessionStatus: selectedSessionStatus(),
     renameSession: renameSessionTitle,
     error: error(),
@@ -6033,7 +5836,7 @@ export default function App() {
   });
 
   return (
-    <>
+    <ConnectionsProvider store={connectionsStore}>
       <Switch>
         <Match when={currentView() === "session"}>
           <SessionView {...sessionProps()} />
@@ -6076,19 +5879,14 @@ export default function App() {
         onTextChange={setResetModalText}
       />
 
-      <McpAuthModal
-        open={mcpAuthModalOpen()}
+      <ConnectionsModals
         client={client()}
-        entry={mcpAuthEntry()}
         projectDir={workspaceProjectDir()}
         language={currentLocale()}
-        reloadRequired={mcpAuthNeedsReload()}
         reloadBlocked={activeReloadBlockingSessions().length > 0}
         activeSessions={activeReloadBlockingSessions()}
         isRemoteWorkspace={selectedWorkspaceDisplay().workspaceType === "remote"}
         onForceStopSession={(sessionID) => abortSession(sessionID)}
-        onClose={closeMcpAuthModal}
-        onComplete={completeMcpAuthModal}
         onReloadEngine={() => reloadWorkspaceEngineAndResume()}
       />
 
@@ -6401,6 +6199,6 @@ export default function App() {
         subtitle={t("dashboard.edit_remote_workspace_subtitle", currentLocale())}
         confirmLabel={t("dashboard.edit_remote_workspace_confirm", currentLocale())}
       />
-    </>
+    </ConnectionsProvider>
   );
 }

@@ -3,20 +3,21 @@ import { Show, createEffect, createMemo, createSignal, on } from "solid-js";
 import { Box, Cpu } from "lucide-solid";
 
 import Button from "../components/button";
-import McpView, { type McpViewProps } from "./mcp";
+import McpView from "../connections/mcp-view";
+import { useConnections } from "../connections/provider";
 import PluginsView, { type PluginsViewProps } from "./plugins";
 
 export type ExtensionsSection = "all" | "mcp" | "plugins";
 
-export type ExtensionsViewProps = McpViewProps &
-  PluginsViewProps & {
-    refreshMcpServers: () => void;
-    initialSection?: ExtensionsSection;
-    setDashboardTab?: (tab: "mcp" | "plugins") => void;
-    showHeader?: boolean;
-  };
+export type ExtensionsViewProps = PluginsViewProps & {
+  isRemoteWorkspace: boolean;
+  initialSection?: ExtensionsSection;
+  setDashboardTab?: (tab: "mcp" | "plugins") => void;
+  showHeader?: boolean;
+};
 
 export default function ExtensionsView(props: ExtensionsViewProps) {
+  const connections = useConnections();
   const [section, setSection] = createSignal<ExtensionsSection>(props.initialSection ?? "all");
 
   createEffect(
@@ -30,9 +31,9 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   );
 
   const connectedAppsCount = createMemo(() =>
-    props.mcpServers.filter((entry) => {
+    connections.mcpServers().filter((entry) => {
       if (entry.config.enabled === false) return false;
-      const status = props.mcpStatuses[entry.name];
+      const status = connections.mcpStatuses()[entry.name];
       return status?.status === "connected";
     }).length,
   );
@@ -40,7 +41,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   const pluginCount = createMemo(() => props.pluginList.length);
 
   const refreshAll = () => {
-    props.refreshMcpServers();
+    void connections.refreshMcpServers();
     props.refreshPlugins();
   };
 
@@ -132,18 +133,6 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
             busy={props.busy}
             selectedWorkspaceRoot={props.selectedWorkspaceRoot}
             isRemoteWorkspace={props.isRemoteWorkspace}
-            mcpServers={props.mcpServers}
-            mcpStatus={props.mcpStatus}
-            mcpLastUpdatedAt={props.mcpLastUpdatedAt}
-            mcpStatuses={props.mcpStatuses}
-            mcpConnectingName={props.mcpConnectingName}
-            selectedMcp={props.selectedMcp}
-            setSelectedMcp={props.setSelectedMcp}
-            quickConnect={props.quickConnect}
-            connectMcp={props.connectMcp}
-            authorizeMcp={props.authorizeMcp}
-            logoutMcpAuth={props.logoutMcpAuth}
-            removeMcp={props.removeMcp}
           />
         </div>
       </Show>

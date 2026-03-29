@@ -50,7 +50,6 @@ export function createExtensionsStore(options: {
   setBusyStartedAt: (value: number | null) => void;
   setError: (value: string | null) => void;
   markReloadRequired?: (reason: ReloadReason, trigger?: ReloadTrigger) => void;
-  onNotionSkillInstalled?: () => void;
 }) {
   // Translation helper that uses current language from i18n
   const translate = (key: string) => t(key, currentLocale());

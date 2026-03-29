@@ -1,8 +1,8 @@
 import { Show, createMemo } from "solid-js";
 import { MessageCircle, Settings } from "lucide-solid";
 
+import { useConnections } from "../connections/provider";
 import type { OpenworkServerStatus } from "../lib/openwork-server";
-import type { McpStatusMap } from "../types";
 
 type StatusBarProps = {
   clientConnected: boolean;
@@ -15,7 +15,6 @@ type StatusBarProps = {
   onOpenProviders: () => Promise<void> | void;
   onOpenMcp: () => void;
   providerConnectedIds: string[];
-  mcpStatuses: McpStatusMap;
   statusLabel?: string;
   statusDetail?: string;
   statusDotClass?: string;
@@ -25,9 +24,10 @@ type StatusBarProps = {
 };
 
 export default function StatusBar(props: StatusBarProps) {
+  const connections = useConnections();
   const providerConnectedCount = createMemo(() => props.providerConnectedIds?.length ?? 0);
   const mcpConnectedCount = createMemo(
-    () => Object.values(props.mcpStatuses ?? {}).filter((status) => status?.status === "connected").length,
+    () => Object.values(connections.mcpStatuses() ?? {}).filter((status) => status?.status === "connected").length,
   );
 
   const statusCopy = createMemo(() => {

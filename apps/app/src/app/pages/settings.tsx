@@ -22,7 +22,6 @@ import ProviderIcon from "../components/provider-icon";
 import DenSettingsPanel from "../components/den-settings-panel";
 import TextInput from "../components/text-input";
 import { useSessionDisplayPreferences } from "../app-settings/session-display-preferences";
-import type { McpDirectoryInfo } from "../constants";
 import { usePlatform } from "../context/platform";
 import { buildFeedbackUrl } from "../lib/feedback";
 import { getOpenWorkDeployment } from "../lib/openwork-deployment";
@@ -46,8 +45,6 @@ import {
 import type {
   HubSkillCard,
   HubSkillRepo,
-  McpServerEntry,
-  McpStatusMap,
   OpencodeConnectStatus,
   PluginScope,
   ProviderListItem,
@@ -230,7 +227,6 @@ export type SettingsViewProps = {
   readSkill: (name: string) => Promise<{ name: string; path: string; content: string } | null>;
   saveSkill: (input: { name: string; content: string; description?: string }) => void;
   refreshPlugins: (scopeOverride?: PluginScope) => void;
-  refreshMcpServers: () => void;
   pluginsAccessHint?: string | null;
   canEditPlugins: boolean;
   canUseGlobalPluginScope: boolean;
@@ -247,18 +243,6 @@ export type SettingsViewProps = {
   suggestedPlugins: SuggestedPlugin[];
   addPlugin: (pluginNameOverride?: string) => void;
   removePlugin: (pluginName: string) => void;
-  mcpServers: McpServerEntry[];
-  mcpStatus: string | null;
-  mcpLastUpdatedAt: number | null;
-  mcpStatuses: McpStatusMap;
-  mcpConnectingName: string | null;
-  selectedMcp: string | null;
-  setSelectedMcp: (value: string | null) => void;
-  quickConnect: McpDirectoryInfo[];
-  connectMcp: (entry: McpDirectoryInfo) => void;
-  authorizeMcp: (entry: McpServerEntry) => void;
-  logoutMcpAuth: (name: string) => Promise<void> | void;
-  removeMcp: (name: string) => void;
   createSessionAndOpen: () => void;
   setPrompt: (value: string) => void;
   connectRemoteWorkspace: (input: {
@@ -1946,19 +1930,6 @@ export default function SettingsView(props: SettingsViewProps) {
               busy: props.busy,
               selectedWorkspaceRoot: props.selectedWorkspaceRoot,
               isRemoteWorkspace: props.activeWorkspaceType === "remote",
-              refreshMcpServers: props.refreshMcpServers,
-              mcpServers: props.mcpServers,
-              mcpStatus: props.mcpStatus,
-              mcpLastUpdatedAt: props.mcpLastUpdatedAt,
-              mcpStatuses: props.mcpStatuses,
-              mcpConnectingName: props.mcpConnectingName,
-              selectedMcp: props.selectedMcp,
-              setSelectedMcp: props.setSelectedMcp,
-              quickConnect: props.quickConnect,
-              connectMcp: props.connectMcp,
-              authorizeMcp: props.authorizeMcp,
-              logoutMcpAuth: props.logoutMcpAuth,
-              removeMcp: props.removeMcp,
               canEditPlugins: props.canEditPlugins,
               canUseGlobalScope: props.canUseGlobalPluginScope,
               accessHint: props.pluginsAccessHint,
