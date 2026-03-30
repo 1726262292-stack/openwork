@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
 import { ArrowLeft, MonitorUp, Rocket, X } from "lucide-solid";
 
 import ShareWorkspaceAccessPanel from "./share-workspace-access-panel";
@@ -30,20 +30,30 @@ export default function ShareWorkspaceModal(props: ShareWorkspaceModalProps) {
     return parts[parts.length - 1] || raw;
   });
 
-  createEffect(() => {
-    if (!props.open) return;
-    setActiveView("chooser");
-    setRevealedByIndex({});
-    setCopiedKey(null);
-    setCollaboratorExpanded(false);
-    setRemoteAccessEnabled(props.remoteAccess?.enabled === true);
-    setTeamTemplateName(`${props.workspaceName.trim() || "Workspace"} template`);
-  });
+  createEffect(
+    on(
+      () => props.open,
+      (open) => {
+        if (!open) return;
+        setActiveView("chooser");
+        setRevealedByIndex({});
+        setCopiedKey(null);
+        setCollaboratorExpanded(false);
+        setRemoteAccessEnabled(props.remoteAccess?.enabled === true);
+        setTeamTemplateName(`${props.workspaceName.trim() || "Workspace"} template`);
+      },
+    ),
+  );
 
-  createEffect(() => {
-    if (!props.open) return;
-    setRemoteAccessEnabled(props.remoteAccess?.enabled === true);
-  });
+  createEffect(
+    on(
+      () => props.remoteAccess?.enabled,
+      (enabled) => {
+        if (!props.open) return;
+        setRemoteAccessEnabled(enabled === true);
+      },
+    ),
+  );
 
   createEffect(() => {
     if (!props.open) return;
