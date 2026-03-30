@@ -69,8 +69,8 @@ import { ProviderAuthModal,
   type ProviderAuthMethod,
   type ProviderOAuthStartResult,
 } from "../context/providers";
-import ShareWorkspaceModal from "../components/share-workspace-modal";
 import StatusBar from "../components/status-bar";
+import { ShareWorkspaceModal } from "../workspace";
 import {
   buildOpenworkWorkspaceBaseUrl,
   createOpenworkServerClient,
@@ -3266,7 +3266,6 @@ export default function SessionView(props: SessionViewProps) {
               connectingWorkspaceId={props.connectingWorkspaceId}
               workspaceConnectionStateById={props.workspaceConnectionStateById}
               newTaskDisabled={props.newTaskDisabled}
-              importingWorkspaceConfig={props.importingWorkspaceConfig}
               onSelectWorkspace={props.switchWorkspace}
               onOpenSession={openSessionFromList}
               onCreateTaskInWorkspace={createTaskInWorkspace}
@@ -3282,8 +3281,6 @@ export default function SessionView(props: SessionViewProps) {
               onEditWorkspaceConnection={props.editWorkspaceConnection}
               onForgetWorkspace={props.forgetWorkspace}
               onOpenCreateWorkspace={props.openCreateWorkspace}
-              onOpenCreateRemoteWorkspace={props.openCreateRemoteWorkspace}
-              onImportWorkspaceConfig={props.importWorkspaceConfig}
             />
           </div>
           <div

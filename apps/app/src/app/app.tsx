@@ -27,8 +27,6 @@ import { parse } from "jsonc-parser";
 
 import ModelPickerModal from "./components/model-picker-modal";
 import ResetModal from "./components/reset-modal";
-import CreateRemoteWorkspaceModal from "./components/create-remote-workspace-modal";
-import CreateWorkspaceModal from "./components/create-workspace-modal";
 import SkillDestinationModal from "./bundles/skill-destination-modal";
 import BundleImportModal from "./bundles/import-modal";
 import BundleStartModal from "./bundles/start-modal";
@@ -41,6 +39,10 @@ import BootShell from "./shell/boot-shell";
 import SettingsShell from "./shell/settings-shell";
 import TopRightNotifications from "./shell/top-right-notifications";
 import { createStatusToastsStore, StatusToastsProvider } from "./shell/status-toasts";
+import {
+  CreateRemoteWorkspaceModal,
+  CreateWorkspaceModal,
+} from "./workspace";
 import SessionView from "./pages/session";
 import { unwrap } from "./lib/opencode";
 import { createDenClient, writeDenSettings } from "./lib/den";
@@ -5057,6 +5059,8 @@ export default function App() {
           bundlesStore.clearCreateWorkspaceRequest();
         }}
         onPickFolder={workspaceStore.pickWorkspaceFolder}
+        onImportConfig={isTauriRuntime() ? workspaceStore.importWorkspaceConfig : undefined}
+        importingConfig={workspaceStore.importingWorkspaceConfig()}
         defaultPreset={bundlesStore.createWorkspaceDefaultPreset()}
         onConfirmRemote={(input) => workspaceStore.createRemoteWorkspaceFlow(input)}
         onConfirmTemplate={(template, preset, folder) =>
@@ -5127,6 +5131,12 @@ export default function App() {
           void workspaceStore.refreshSandboxDoctor?.();
         }}
         workerSubmitting={workspaceStore.sandboxPreflightBusy?.() ?? false}
+        localDisabled={!isTauriRuntime()}
+        localDisabledReason={
+          !isTauriRuntime()
+            ? "Create local workspaces in the desktop app. Remote and shared workspaces still work here."
+            : null
+        }
         remoteSubmitting={busy() && busyLabel() === "status.connecting"}
         remoteError={busyLabel() === "status.connecting" ? error() : null}
         submitting={(() => {

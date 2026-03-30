@@ -50,8 +50,8 @@ import { ProviderAuthModal,
   type ProviderAuthMethod,
   type ProviderOAuthStartResult,
 } from "../context/providers";
-import ShareWorkspaceModal from "../components/share-workspace-modal";
 import WorkspaceSessionList from "../components/session/workspace-session-list";
+import { ShareWorkspaceModal } from "../workspace";
 import {
   ArrowDownToLine,
   Box,
@@ -1052,7 +1052,6 @@ export default function SettingsShell(props: SettingsShellProps) {
             connectingWorkspaceId={props.connectingWorkspaceId}
             workspaceConnectionStateById={props.workspaceConnectionStateById}
             newTaskDisabled={props.newTaskDisabled}
-            importingWorkspaceConfig={props.importingWorkspaceConfig}
             onSelectWorkspace={props.switchWorkspace}
             onOpenSession={openSessionFromList}
             onCreateTaskInWorkspace={createTaskInWorkspace}
@@ -1064,8 +1063,6 @@ export default function SettingsShell(props: SettingsShellProps) {
             onEditWorkspaceConnection={props.editWorkspaceConnection}
             onForgetWorkspace={props.forgetWorkspace}
             onOpenCreateWorkspace={props.openCreateWorkspace}
-            onOpenCreateRemoteWorkspace={props.openCreateRemoteWorkspace}
-            onImportWorkspaceConfig={props.importWorkspaceConfig}
           />
         </div>
         <div
