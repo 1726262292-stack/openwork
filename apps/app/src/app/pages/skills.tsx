@@ -322,8 +322,6 @@ export default function SkillsView(props: SkillsViewProps) {
     }
   };
 
-  const workspaceLabel = createMemo(() => props.workspaceName.trim() || "Worker");
-
   const canCreateInChat = createMemo(
     () => !props.busy && (props.canInstallSkillCreator || props.canUseDesktopTools)
   );
@@ -365,7 +363,6 @@ export default function SkillsView(props: SkillsViewProps) {
       <div class="space-y-6">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div class="min-w-0">
-            <p class="mb-1 text-[12px] text-dls-secondary truncate">{workspaceLabel()}</p>
             <Show when={props.showHeader !== false}>
               <h2 class={pageTitleClass}>{translate("skills.title")}</h2>
             </Show>
@@ -514,7 +511,6 @@ export default function SkillsView(props: SkillsViewProps) {
                               {skill.description}
                             </p>
                           </Show>
-                          <div class="mt-3 truncate text-[12px] font-mono text-dls-secondary">{skill.path}</div>
                         </div>
                       </div>
 
@@ -744,7 +740,6 @@ export default function SkillsView(props: SkillsViewProps) {
             <div class="px-5 py-4 border-b border-dls-border flex items-center justify-between gap-3">
               <div class="min-w-0">
                 <div class="text-sm font-semibold text-dls-text truncate">{selectedSkill()!.name}</div>
-                <div class="text-xs text-dls-secondary truncate">{selectedSkill()!.path}</div>
               </div>
               <div class="flex items-center gap-2">
                 <button
@@ -805,10 +800,6 @@ export default function SkillsView(props: SkillsViewProps) {
                     {translate("skills.uninstall_warning").replace("{name}", uninstallTarget()?.name ?? "")}
                   </p>
                 </div>
-              </div>
-
-              <div class="mt-4 rounded-xl bg-dls-hover border border-dls-border p-3 text-xs text-dls-secondary font-mono break-all">
-                {uninstallTarget()?.path}
               </div>
 
               <div class="mt-6 flex justify-end gap-2">
