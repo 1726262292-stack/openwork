@@ -12,6 +12,7 @@ import type {
   PendingPermission,
   PendingQuestion,
   PlaceholderAssistantMessage,
+  PlaceholderMessageInfo,
   ReloadReason,
   ReloadTrigger,
   SessionCompactionState,
@@ -20,6 +21,7 @@ import type {
 } from "../types";
 import {
   addOpencodeCacheHint,
+  isVisibleTextPart,
   modelFromUserMessage,
   normalizeDirectoryPath,
   normalizeEvent,
@@ -38,6 +40,10 @@ export type SessionModelState = {
 };
 
 export type SessionStore = ReturnType<typeof createSessionStore>;
+
+type BlueprintSeedMessage = { role?: "assistant" | "user" | null; text?: string | null };
+
+const SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX = "blueprint-seed:";
 
 type StoreState = {
   sessions: Session[];
@@ -150,6 +156,7 @@ export function createSessionStore(options: {
   selectedWorkspaceRoot: () => string;
   selectedSessionId: () => string | null;
   setSelectedSessionId: (id: string | null) => void;
+  setPrompt: (value: string) => void;
   sessionModelState: () => SessionModelState;
   setSessionModelState: (updater: (current: SessionModelState) => SessionModelState) => SessionModelState;
   lastUserModelFromMessages: (messages: MessageWithParts[]) => ModelRef | null;
@@ -203,6 +210,9 @@ export function createSessionStore(options: {
     sessionCompaction: {},
   });
   const [permissionReplyBusy, setPermissionReplyBusy] = createSignal(false);
+  const [blueprintSeedMessagesBySessionId, setBlueprintSeedMessagesBySessionId] = createSignal<
+    Record<string, BlueprintSeedMessage[]>
+  >({});
   const [messageLimitBySession, setMessageLimitBySession] = createSignal<Record<string, number>>({});
   const [messageCompleteBySession, setMessageCompleteBySession] = createSignal<Record<string, boolean>>({});
   const [messageLoadBusyBySession, setMessageLoadBusyBySession] = createSignal<Record<string, boolean>>({});
@@ -731,6 +741,143 @@ export function createSessionStore(options: {
     return store.sessionInfoById[id] ?? store.sessions.find((session) => session.id === id) ?? null;
   };
 
+  const messageIdFromInfo = (message: MessageWithParts) => {
+    const id = (message.info as { id?: string | number }).id;
+    if (typeof id === "string") return id;
+    if (typeof id === "number") return String(id);
+    return "";
+  };
+
+  const createSyntheticSessionErrorMessage = (
+    sessionID: string,
+    errorTurn: SessionErrorTurn,
+  ): MessageWithParts => {
+    const info: PlaceholderAssistantMessage = {
+      id: errorTurn.id,
+      sessionID,
+      role: "assistant",
+      time: { created: errorTurn.time, completed: errorTurn.time },
+      parentID: errorTurn.afterMessageID ?? "",
+      modelID: "",
+      providerID: "",
+      mode: "",
+      agent: "",
+      path: { cwd: "", root: "" },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    };
+
+    return {
+      info,
+      parts: [
+        {
+          id: `${errorTurn.id}:text`,
+          sessionID,
+          messageID: errorTurn.id,
+          type: "text",
+          text: errorTurn.text,
+        } as Part,
+      ],
+    };
+  };
+
+  const createSyntheticBlueprintSeedMessage = (
+    sessionID: string,
+    index: number,
+    seed: BlueprintSeedMessage,
+  ): MessageWithParts => {
+    const messageId = `${SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX}${sessionID}:${index}`;
+    const role = seed.role === "user" ? "user" : "assistant";
+    const text = seed.text?.trim() ?? "";
+    const createdAt = Math.max(1, index + 1);
+    const info: PlaceholderMessageInfo = {
+      id: messageId,
+      sessionID,
+      role,
+      time: { created: createdAt, completed: createdAt },
+      parentID: index > 0 ? `${SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX}${sessionID}:${index - 1}` : "",
+      modelID: "",
+      providerID: "",
+      mode: "",
+      agent: "",
+      path: { cwd: "", root: "" },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    };
+
+    return {
+      info,
+      parts: [
+        {
+          id: `${messageId}:text`,
+          sessionID,
+          messageID: messageId,
+          type: "text",
+          text,
+        } as Part,
+      ],
+    };
+  };
+
+  const insertSyntheticBlueprintSeedMessages = (
+    list: MessageWithParts[],
+    sessionID: string | null,
+    seeds: BlueprintSeedMessage[],
+  ) => {
+    if (!sessionID || seeds.length === 0) return list;
+    if (list.length > 0) return list;
+    const existingIds = new Set(list.map((message) => messageIdFromInfo(message)));
+    const synthetic = seeds
+      .map((seed, index) => createSyntheticBlueprintSeedMessage(sessionID, index, seed))
+      .filter((message) => !existingIds.has(messageIdFromInfo(message)));
+    if (!synthetic.length) return list;
+    return [...synthetic, ...list];
+  };
+
+  const insertSyntheticSessionErrors = (
+    list: MessageWithParts[],
+    sessionID: string | null,
+    errorTurns: SessionErrorTurn[],
+  ) => {
+    if (!sessionID || errorTurns.length === 0) return list;
+
+    const next = list.slice();
+    errorTurns.forEach((errorTurn) => {
+      if (next.some((message) => messageIdFromInfo(message) === errorTurn.id)) return;
+      const syntheticMessage = createSyntheticSessionErrorMessage(sessionID, errorTurn);
+      const anchorIndex = errorTurn.afterMessageID
+        ? next.findIndex((message) => messageIdFromInfo(message) === errorTurn.afterMessageID)
+        : -1;
+
+      if (anchorIndex === -1) {
+        next.push(syntheticMessage);
+        return;
+      }
+
+      next.splice(anchorIndex + 1, 0, syntheticMessage);
+    });
+
+    return next;
+  };
+
+  const upsertLocalSession = (next: Session | null | undefined) => {
+    const id = (next as { id?: string } | null)?.id ?? "";
+    if (!id) return;
+
+    const current = sessions();
+    const index = current.findIndex((session) => session.id === id);
+    if (index === -1) {
+      setStore("sessions", sortSessionsByActivity([...current, next as Session]));
+      rememberSession(next as Session);
+      return;
+    }
+
+    const copy = current.slice();
+    copy[index] = next as Session;
+    rememberSession(next as Session);
+    setStore("sessions", sortSessionsByActivity(copy));
+  };
+
   const messagesBySessionId = (id: string | null): MessageWithParts[] => {
     if (!id) return [];
     const list = store.messages[id] ?? [];
@@ -756,6 +903,42 @@ export function createSessionStore(options: {
   const messages = createMemo<MessageWithParts[]>(() => {
     return messagesBySessionId(options.selectedSessionId());
   });
+
+  const blueprintSeedMessagesForSelectedSession = createMemo(() => {
+    const sessionID = options.selectedSessionId();
+    if (!sessionID) return [] as BlueprintSeedMessage[];
+    return blueprintSeedMessagesBySessionId()[sessionID] ?? [];
+  });
+
+  const visibleMessages = createMemo(() => {
+    const sessionID = options.selectedSessionId();
+    const errorTurns = sessionID ? store.sessionErrorTurns[sessionID] ?? [] : [];
+    const blueprintSeeds = blueprintSeedMessagesForSelectedSession();
+    const list = messages().filter((message) => {
+      const id = messageIdFromInfo(message);
+      return !id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX) && !id.startsWith(SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX);
+    });
+    const revert = selectedSession()?.revert?.messageID ?? null;
+    const visible = !revert
+      ? list
+      : list.filter((message) => {
+          const id = messageIdFromInfo(message);
+          return Boolean(id) && id < revert;
+        });
+    return insertSyntheticSessionErrors(
+      insertSyntheticBlueprintSeedMessages(visible, sessionID, blueprintSeeds),
+      sessionID,
+      errorTurns,
+    );
+  });
+
+  const restorePromptFromUserMessage = (message: MessageWithParts) => {
+    const text = message.parts
+      .filter(isVisibleTextPart)
+      .map((part) => String((part as { text?: string }).text ?? ""))
+      .join("");
+    options.setPrompt(text);
+  };
 
   const todos = createMemo<TodoItem[]>(() => {
     const id = options.selectedSessionId();
@@ -1848,6 +2031,12 @@ export function createSessionStore(options: {
     sessionStatusById,
     selectedSession,
     selectedSessionStatus,
+    messageIdFromInfo,
+    visibleMessages,
+    blueprintSeedMessagesForSelectedSession,
+    restorePromptFromUserMessage,
+    upsertLocalSession,
+    setBlueprintSeedMessagesBySessionId,
     selectedSessionCompactionState: createMemo(() => {
       const sessionID = options.selectedSessionId();
       return sessionID ? store.sessionCompaction[sessionID] ?? null : null;

@@ -11,7 +11,7 @@ import {
 
 import { useLocation, useNavigate } from "@solidjs/router";
 
-import type { Part, Session } from "@opencode-ai/sdk/v2/client";
+import type { Session } from "@opencode-ai/sdk/v2/client";
 
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -50,12 +50,8 @@ import {
   blueprintMaterializedSessions,
   blueprintSessions,
 } from "./lib/workspace-blueprints";
-import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "./types";
 import type {
   Client,
-  MessageWithParts,
-  PlaceholderAssistantMessage,
-  PlaceholderMessageInfo,
   StartupPreference,
   EngineRuntime,
   OnboardingStep,
@@ -67,14 +63,12 @@ import type {
   WorkspaceSessionGroup,
   ComposerDraft,
   ProviderListItem,
-  SessionErrorTurn,
   OpencodeConnectStatus,
 } from "./types";
 import {
   clearStartupPreference,
   deriveArtifacts,
   deriveWorkingFiles,
-  isVisibleTextPart,
   isTauriRuntime,
   normalizeDirectoryPath,
 } from "./utils";
@@ -412,9 +406,8 @@ export default function App() {
     clearPerfLogs();
   });
 
-  const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(
-    null
-  );
+  const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(null);
+  const [prompt, setPrompt] = createSignal("");
   const [settingsReturnTarget, setSettingsReturnTarget] = createSignal<SettingsReturnTarget>({
     view: "settings",
     tab: "general",
@@ -545,6 +538,7 @@ export default function App() {
     selectedWorkspaceRoot: () => workspaceStore.selectedWorkspaceRoot().trim(),
     selectedSessionId,
     setSelectedSessionId,
+    setPrompt,
     sessionModelState: modelConfig.sessionModelState,
     setSessionModelState: modelConfig.setSessionModelState,
     lastUserModelFromMessages,
@@ -564,10 +558,12 @@ export default function App() {
     loadedScopeRoot: loadedSessionScopeRoot,
     sessionById,
     sessionStatusById,
+    messageIdFromInfo,
     selectedSession,
     selectedSessionStatus,
     selectedSessionCompactionState,
     messages,
+    visibleMessages,
     messagesBySessionId,
     todos,
     pendingPermissions,
@@ -584,6 +580,9 @@ export default function App() {
     renameSession,
     respondPermission,
     respondQuestion,
+    restorePromptFromUserMessage,
+    upsertLocalSession,
+    setBlueprintSeedMessagesBySessionId,
     setSessions,
     setSessionStatusById,
     setMessages,
@@ -624,8 +623,6 @@ export default function App() {
     }
   });
 
-  const [prompt, setPrompt] = createSignal("");
-
   const ensureSelectedWorkspaceRuntime = async () => {
     const workspaceId = workspaceStore.selectedWorkspaceId().trim();
     if (!workspaceId) return false;
@@ -634,198 +631,6 @@ export default function App() {
       await refreshSidebarWorkspaceSessions(workspaceId).catch(() => undefined);
     }
     return ready;
-  };
-
-  const messageIdFromInfo = (message: MessageWithParts) => {
-    const id = (message.info as { id?: string | number }).id;
-    if (typeof id === "string") return id;
-    if (typeof id === "number") return String(id);
-    return "";
-  };
-
-  const createSyntheticSessionErrorMessage = (
-    sessionID: string,
-    errorTurn: SessionErrorTurn,
-  ): MessageWithParts => {
-    const info: PlaceholderAssistantMessage = {
-      id: errorTurn.id,
-      sessionID,
-      role: "assistant",
-      time: { created: errorTurn.time, completed: errorTurn.time },
-      parentID: errorTurn.afterMessageID ?? "",
-      modelID: "",
-      providerID: "",
-      mode: "",
-      agent: "",
-      path: { cwd: "", root: "" },
-      cost: 0,
-      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-    };
-
-    return {
-      info,
-      parts: [
-        {
-          id: `${errorTurn.id}:text`,
-          sessionID,
-          messageID: errorTurn.id,
-          type: "text",
-          text: errorTurn.text,
-        } as Part,
-      ],
-    };
-  };
-
-  const SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX = "blueprint-seed:";
-
-  const createSyntheticBlueprintSeedMessage = (
-    sessionID: string,
-    index: number,
-    seed: { role?: "assistant" | "user" | null; text?: string | null },
-  ): MessageWithParts => {
-    const messageId = `${SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX}${sessionID}:${index}`;
-    const role = seed.role === "user" ? "user" : "assistant";
-    const text = seed.text?.trim() ?? "";
-    const createdAt = Math.max(1, index + 1);
-    const info: PlaceholderMessageInfo = {
-      id: messageId,
-      sessionID,
-      role,
-      time: { created: createdAt, completed: createdAt },
-      parentID: index > 0 ? `${SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX}${sessionID}:${index - 1}` : "",
-      modelID: "",
-      providerID: "",
-      mode: "",
-      agent: "",
-      path: { cwd: "", root: "" },
-      cost: 0,
-      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-    };
-
-    return {
-      info,
-      parts: [
-        {
-          id: `${messageId}:text`,
-          sessionID,
-          messageID: messageId,
-          type: "text",
-          text,
-        } as Part,
-      ],
-    };
-  };
-
-  const [blueprintSeedMessagesBySessionId, setBlueprintSeedMessagesBySessionId] =
-    createSignal<Record<string, Array<{ role?: "assistant" | "user" | null; text?: string | null }>>>({});
-
-  const blueprintSeedMessagesForSelectedSession = createMemo(() => {
-    const sessionID = selectedSessionId();
-    if (!sessionID) return [];
-
-    const fallback = blueprintSeedMessagesBySessionId()[sessionID];
-    if (Array.isArray(fallback) && fallback.length > 0) {
-      return fallback;
-    }
-
-    const materialized = blueprintMaterializedSessions(resolvedActiveWorkspaceConfig());
-    const match = materialized.find((item) => item.sessionId?.trim() === sessionID);
-    if (!match?.templateId) return [];
-
-    const template = blueprintSessions(resolvedActiveWorkspaceConfig()).find(
-      (entry) => entry.id?.trim() === match.templateId,
-    );
-
-    return Array.isArray(template?.messages)
-      ? template!.messages!.filter((entry) => entry?.text?.trim())
-      : [];
-  });
-
-  const insertSyntheticBlueprintSeedMessages = (
-    list: MessageWithParts[],
-    sessionID: string | null,
-    seeds: Array<{ role?: "assistant" | "user" | null; text?: string | null }>,
-  ) => {
-    if (!sessionID || seeds.length === 0) return list;
-    if (list.length > 0) return list;
-    const existingIds = new Set(list.map((message) => messageIdFromInfo(message)));
-    const synthetic = seeds
-      .map((seed, index) => createSyntheticBlueprintSeedMessage(sessionID, index, seed))
-      .filter((message) => !existingIds.has(messageIdFromInfo(message)));
-    if (!synthetic.length) return list;
-    return [...synthetic, ...list];
-  };
-
-  const insertSyntheticSessionErrors = (
-    list: MessageWithParts[],
-    sessionID: string | null,
-    errorTurns: SessionErrorTurn[],
-  ) => {
-    if (!sessionID || errorTurns.length === 0) return list;
-
-    const next = list.slice();
-    errorTurns.forEach((errorTurn) => {
-      if (next.some((message) => messageIdFromInfo(message) === errorTurn.id)) return;
-      const syntheticMessage = createSyntheticSessionErrorMessage(sessionID, errorTurn);
-      const anchorIndex = errorTurn.afterMessageID
-        ? next.findIndex((message) => messageIdFromInfo(message) === errorTurn.afterMessageID)
-        : -1;
-
-      if (anchorIndex === -1) {
-        next.push(syntheticMessage);
-        return;
-      }
-
-      next.splice(anchorIndex + 1, 0, syntheticMessage);
-    });
-
-    return next;
-  };
-
-  const upsertLocalSession = (next: Session | null | undefined) => {
-    const id = (next as { id?: string } | null)?.id ?? "";
-    if (!id) return;
-
-    const current = sessions();
-    const index = current.findIndex((session) => session.id === id);
-    if (index === -1) {
-      setSessions([...current, next as Session]);
-      return;
-    }
-    const copy = current.slice();
-    copy[index] = next as Session;
-    setSessions(copy);
-  };
-
-  // OpenCode keeps reverted messages in the log and uses `session.revert.messageID`
-  // as the visibility boundary. OpenWork mirrors that behavior by filtering the
-  // displayed transcript.
-  const visibleMessages = createMemo(() => {
-    const sessionID = selectedSessionId();
-    const errorTurns = sessionStore.selectedSessionErrorTurns();
-    const blueprintSeeds = blueprintSeedMessagesForSelectedSession();
-    const list = messages().filter((message) => {
-      const id = messageIdFromInfo(message);
-      return !id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX) && !id.startsWith(SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX);
-    });
-    const revert = selectedSession()?.revert?.messageID ?? null;
-    const visible = !revert ? list : list.filter((message) => {
-      const id = messageIdFromInfo(message);
-      return Boolean(id) && id < revert;
-    });
-    return insertSyntheticSessionErrors(
-      insertSyntheticBlueprintSeedMessages(visible, sessionID, blueprintSeeds),
-      sessionID,
-      errorTurns,
-    );
-  });
-
-  const restorePromptFromUserMessage = (message: MessageWithParts) => {
-    const text = message.parts
-      .filter(isVisibleTextPart)
-      .map((part) => String((part as { text?: string }).text ?? ""))
-      .join("");
-    setPrompt(text);
   };
 
   function focusSessionPromptSoon() {
