@@ -34,6 +34,7 @@ import {
   type WorkspaceInfo,
 } from "../lib/tauri";
 import { usePlatform } from "../context/platform";
+import { useSessionActions } from "../session/actions-provider";
 import { buildFeedbackUrl } from "../lib/feedback";
 import { getOpenWorkDeployment } from "../lib/openwork-deployment";
 import { createWorkspaceShellLayout } from "../lib/workspace-shell-layout";
@@ -157,15 +158,6 @@ export type SessionViewProps = {
   updateEnv: { supported?: boolean; reason?: string | null } | null;
   anyActiveRuns: boolean;
   installUpdateAndRestart: () => void;
-  createSessionAndOpen: () => Promise<string | undefined>;
-  sendPromptAsync: (draft: ComposerDraft) => Promise<void>;
-  abortSession: (sessionId?: string) => Promise<void>;
-  sessionRevertMessageId: string | null;
-  undoLastUserMessage: () => Promise<void>;
-  redoLastUserMessage: () => Promise<void>;
-  compactSession: () => Promise<void>;
-  lastPromptSent: string;
-  retryLastPrompt: () => void;
   newTaskDisabled: boolean;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   openRenameWorkspace: (workspaceId: string) => void;
@@ -220,7 +212,6 @@ export type SessionViewProps = {
   safeStringify: (value: unknown) => string;
   error: string | null;
   sessionStatus: string;
-  renameSession: (sessionId: string, title: string) => Promise<void>;
   startProviderAuth: (providerId?: string, methodIndex?: number) => Promise<ProviderOAuthStartResult>;
   completeProviderAuthOAuth: (
     providerId: string,
@@ -245,23 +236,10 @@ export type SessionViewProps = {
   providerAuthWorkerType: "local" | "remote";
   providers: ProviderListItem[];
   providerConnectedIds: string[];
-  listAgents: () => Promise<Agent[]>;
-  searchFiles: (query: string) => Promise<string[]>;
-  listCommands: () => Promise<
-    {
-      id: string;
-      name: string;
-      description?: string;
-      source?: "command" | "mcp" | "skill";
-    }[]
-  >;
-  selectedSessionAgent: string | null;
-  setSessionAgent: (sessionId: string, agent: string | null) => void;
   sessionStatusById: Record<string, string>;
   hasEarlierMessages: boolean;
   loadingEarlierMessages: boolean;
   loadEarlierMessages: (sessionId: string) => Promise<void>;
-  deleteSession: (sessionId: string) => Promise<void>;
 };
 
 type ResolvedEmptyStateStarter = {
@@ -327,6 +305,7 @@ function describePermissionRequest(permission: PendingPermission | null) {
 export default function SessionView(props: SessionViewProps) {
   const { showThinking } = useSessionDisplayPreferences();
   const platform = usePlatform();
+  const sessionActions = useSessionActions();
   const statusToasts = useStatusToasts();
   let chatContainerEl: HTMLDivElement | undefined;
   let chatContentEl: HTMLDivElement | undefined;
@@ -421,7 +400,7 @@ export default function SessionView(props: SessionViewProps) {
   };
 
   const agentLabel = createMemo(() => {
-    const name = props.selectedSessionAgent ?? "Default agent";
+    const name = sessionActions.selectedSessionAgent() ?? "Default agent";
     return name.charAt(0).toUpperCase() + name.slice(1);
   });
   const workspaceLabel = (workspace: WorkspaceInfo) =>
@@ -825,7 +804,7 @@ export default function SessionView(props: SessionViewProps) {
 
   const canUndoLastMessage = createMemo(() => {
     if (!props.selectedSessionId) return false;
-    const revert = props.sessionRevertMessageId;
+    const revert = sessionActions.sessionRevertMessageId();
     for (const message of props.messages) {
       const role = (message.info as { role?: string }).role;
       if (role !== "user") continue;
@@ -844,7 +823,7 @@ export default function SessionView(props: SessionViewProps) {
 
   const canRedoLastMessage = createMemo(() => {
     if (!props.selectedSessionId) return false;
-    return Boolean(props.sessionRevertMessageId);
+    return Boolean(sessionActions.sessionRevertMessageId());
   });
 
   const canCompactSession = createMemo(
@@ -1143,7 +1122,7 @@ export default function SessionView(props: SessionViewProps) {
     setAgentPickerBusy(true);
     setAgentPickerError(null);
     try {
-      const agents = await props.listAgents();
+      const agents = await sessionActions.listAgents();
       const sorted = agents
         .slice()
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -1722,7 +1701,7 @@ export default function SessionView(props: SessionViewProps) {
     setAbortBusy(true);
     showStatusToast("Stopping the run...", "info");
     try {
-      await props.abortSession(props.selectedSessionId);
+      await sessionActions.abortSession(props.selectedSessionId);
       showStatusToast("Stopped.", "success");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to stop";
@@ -1733,7 +1712,7 @@ export default function SessionView(props: SessionViewProps) {
   };
 
   const retryRun = async () => {
-    const text = props.lastPromptSent.trim();
+    const text = sessionActions.lastPromptSent().trim();
     if (!text) {
       showStatusToast("Nothing to retry yet", "warning");
       return;
@@ -1744,7 +1723,7 @@ export default function SessionView(props: SessionViewProps) {
     showStatusToast("Trying again...", "info");
     try {
       if (showRunIndicator() && props.selectedSessionId) {
-        await props.abortSession(props.selectedSessionId);
+        await sessionActions.abortSession(props.selectedSessionId);
       }
     } catch {
       // If abort fails, still allow the retry. Users care more about forward motion.
@@ -1752,7 +1731,7 @@ export default function SessionView(props: SessionViewProps) {
       setAbortBusy(false);
     }
 
-    props.retryLastPrompt();
+    sessionActions.retryLastPrompt();
   };
 
   const focusSearchInput = () => {
@@ -1840,7 +1819,7 @@ export default function SessionView(props: SessionViewProps) {
 
     setHistoryActionBusy("undo");
     try {
-      await props.undoLastUserMessage();
+      await sessionActions.undoLastUserMessage();
       showStatusToast("Reverted the last user message.", "success");
     } catch (error) {
       const message =
@@ -1860,7 +1839,7 @@ export default function SessionView(props: SessionViewProps) {
 
     setHistoryActionBusy("redo");
     try {
-      await props.redoLastUserMessage();
+      await sessionActions.redoLastUserMessage();
       showStatusToast("Restored the reverted message.", "success");
     } catch (error) {
       const message =
@@ -1883,7 +1862,7 @@ export default function SessionView(props: SessionViewProps) {
     setHistoryActionBusy("compact");
     showStatusToast("Compacting session context...", "info");
     try {
-      await props.compactSession();
+      await sessionActions.compactCurrentSession();
       showStatusToast("Session compacted.", "success");
       finishPerf(props.developerMode, "session.compact", "ui-done", startedAt, {
         sessionID,
@@ -2105,7 +2084,7 @@ export default function SessionView(props: SessionViewProps) {
     if (!next || !renameCanSave()) return;
     setRenameBusy(true);
     try {
-      await props.renameSession(sessionId, next);
+      await sessionActions.renameSessionTitle(sessionId, next);
       finishRenameModal();
     } catch (error) {
       const message =
@@ -2138,7 +2117,7 @@ export default function SessionView(props: SessionViewProps) {
     if (!sessionId) return;
     setDeleteSessionBusy(true);
     try {
-      await props.deleteSession(sessionId);
+      await sessionActions.deleteSessionById(sessionId);
       setDeleteSessionOpen(false);
       setDeleteSessionId(null);
       showStatusToast("Session deleted", "success");
@@ -2173,10 +2152,10 @@ export default function SessionView(props: SessionViewProps) {
     let sessionId = props.selectedSessionId;
     if (!sessionId) {
       // Auto-create a session when none is selected (same pattern as sendPrompt)
-      sessionId = (await props.createSessionAndOpen()) ?? null;
+      sessionId = (await sessionActions.createSessionAndOpen()) ?? null;
       if (!sessionId) return;
     }
-    props.setSessionAgent(sessionId, agent);
+    sessionActions.setSessionAgent(sessionId, agent);
   };
 
   createEffect(() => {
@@ -2255,7 +2234,7 @@ export default function SessionView(props: SessionViewProps) {
     suppressJumpControlsTemporarily();
     sessionScroll.scrollToBottom();
     startRun();
-    props.sendPromptAsync(draft).catch(() => undefined);
+    sessionActions.sendPrompt(draft).catch(() => undefined);
   };
 
   const isSandboxWorkspace = createMemo(() =>
@@ -2358,7 +2337,7 @@ export default function SessionView(props: SessionViewProps) {
     void (async () => {
       const ready = await Promise.resolve(props.switchWorkspace(id));
       if (!ready) return;
-      props.createSessionAndOpen();
+      sessionActions.createSessionAndOpen();
     })();
   };
 
@@ -2371,7 +2350,7 @@ export default function SessionView(props: SessionViewProps) {
         meta: "Create",
         action: () => {
           closeCommandPalette();
-          void Promise.resolve(props.createSessionAndOpen())
+          void Promise.resolve(sessionActions.createSessionAndOpen())
             .then((sessionId) => {
               if (!sessionId) return;
               focusComposer();
@@ -3354,7 +3333,7 @@ export default function SessionView(props: SessionViewProps) {
               modelBehaviorOptions={props.modelBehaviorOptions}
               onModelVariantChange={props.setModelVariant}
               agentLabel={agentLabel()}
-              selectedAgent={props.selectedSessionAgent}
+              selectedAgent={sessionActions.selectedSessionAgent()}
               agentPickerOpen={agentPickerOpen()}
               agentPickerBusy={agentPickerBusy()}
               agentPickerError={agentPickerError()}
@@ -3369,10 +3348,10 @@ export default function SessionView(props: SessionViewProps) {
               }}
               notice={composerNotice()}
               onNotice={showComposerNotice}
-              listAgents={props.listAgents}
+              listAgents={sessionActions.listAgents}
               recentFiles={props.workingFiles}
-              searchFiles={props.searchFiles}
-              listCommands={props.listCommands}
+              searchFiles={sessionActions.searchWorkspaceFiles}
+              listCommands={sessionActions.listCommands}
               isRemoteWorkspace={
                 props.selectedWorkspaceDisplay.workspaceType === "remote"
               }

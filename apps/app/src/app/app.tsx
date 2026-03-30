@@ -11,15 +11,7 @@ import {
 
 import { useLocation, useNavigate } from "@solidjs/router";
 
-import type {
-  Agent,
-  Part,
-  Session,
-  TextPartInput,
-  FilePartInput,
-  AgentPartInput,
-  SubtaskPartInput,
-} from "@opencode-ai/sdk/v2/client";
+import type { Part, Session } from "@opencode-ai/sdk/v2/client";
 
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -37,6 +29,8 @@ import { createOpenworkServerStore } from "./connections/openwork-server-store";
 import { ConnectionsProvider } from "./connections/provider";
 import { ExtensionsProvider } from "./extensions/provider";
 import { AutomationsProvider } from "./automations/provider";
+import { SessionActionsProvider } from "./session/actions-provider";
+import { createSessionActionsStore } from "./session/actions-store";
 import BootShell from "./shell/boot-shell";
 import SettingsShell from "./shell/settings-shell";
 import TopRightNotifications from "./shell/top-right-notifications";
@@ -48,15 +42,6 @@ import {
 import SessionView from "./pages/session";
 import { unwrap } from "./lib/opencode";
 import { createDenClient, writeDenSettings } from "./lib/den";
-import {
-  abortSession as abortSessionTyped,
-  abortSessionSafe,
-  compactSession as compactSessionTyped,
-  revertSession,
-  unrevertSession,
-  shellInSession,
-  listCommands as listCommandsTyped,
-} from "./lib/opencode-session";
 import { clearPerfLogs, finishPerf, perfNow, recordPerfLog } from "./lib/perf-log";
 import { deepLinkBridgeEvent, drainPendingDeepLinks, type DeepLinkBridgeDetail } from "./lib/deep-link-bridge";
 import {
@@ -89,9 +74,7 @@ import type {
   View,
   WorkspaceDisplay,
   WorkspaceSessionGroup,
-  ComposerAttachment,
   ComposerDraft,
-  ComposerPart,
   ProviderListItem,
   SessionErrorTurn,
   OpencodeConnectStatus,
@@ -145,19 +128,7 @@ import {
 import {
   describeDirectoryScope,
   shouldRedirectMissingSessionAfterScopedLoad,
-  toSessionTransportDirectory,
 } from "./lib/session-scope";
-
-const fileToDataUrl = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`Failed to read attachment: ${file.name}`));
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      resolve(result);
-    };
-    reader.readAsDataURL(file);
-  });
 import { createExtensionsStore } from "./context/extensions";
 import { createConnectionsStore } from "./connections/store";
 import { createAutomationsStore } from "./context/automations";
@@ -505,7 +476,6 @@ export default function App() {
   const [autoCompactContextSaving, setAutoCompactContextSaving] = createSignal(false);
   type PromptFocusReturnTarget = "none" | "composer";
 
-  const [sessionAgentById, setSessionAgentById] = createSignal<Record<string, string>>({});
   const modelConfig = createModelConfigStore();
 
   createEffect(() => {
@@ -651,177 +621,6 @@ export default function App() {
   });
 
   const [prompt, setPrompt] = createSignal("");
-  const [lastPromptSent, setLastPromptSent] = createSignal("");
-
-  type PartInput = TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput;
-
-  const attachmentToFilePart = async (attachment: ComposerAttachment): Promise<FilePartInput> => ({
-    type: "file",
-    url: await fileToDataUrl(attachment.file),
-    filename: attachment.name,
-    mime: attachment.mimeType,
-  });
-
-  const buildPromptParts = async (draft: ComposerDraft): Promise<PartInput[]> => {
-    const parts: PartInput[] = [];
-    const text = draft.resolvedText ?? draft.text;
-    parts.push({ type: "text", text } as TextPartInput);
-
-    const root = workspaceProjectDir().trim();
-    const toAbsolutePath = (path: string) => {
-      const trimmed = path.trim();
-      if (!trimmed) return "";
-      if (trimmed.startsWith("/")) return trimmed;
-      // Windows absolute path, e.g. C:\foo\bar
-      if (/^[a-zA-Z]:\\/.test(trimmed)) return trimmed;
-      // Without a workspace root, we cannot safely resolve relative paths.
-      // Returning "" avoids emitting invalid file:// URLs.
-      if (!root) return "";
-      return (root + "/" + trimmed).replace("//", "/");
-    };
-    const filenameFromPath = (path: string) => {
-      const normalized = path.replace(/\\/g, "/");
-      const segments = normalized.split("/").filter(Boolean);
-      return segments[segments.length - 1] ?? "file";
-    };
-
-    for (const part of draft.parts) {
-      if (part.type === "agent") {
-        parts.push({ type: "agent", name: part.name } as AgentPartInput);
-        continue;
-      }
-      if (part.type === "file") {
-        const absolute = toAbsolutePath(part.path);
-        if (!absolute) continue;
-        parts.push({
-          type: "file",
-          mime: "text/plain",
-          url: `file://${absolute}`,
-          filename: filenameFromPath(part.path),
-        } as FilePartInput);
-      }
-    }
-
-    parts.push(...(await Promise.all(draft.attachments.map(attachmentToFilePart))));
-
-    return parts;
-  };
-
-  const buildCommandFileParts = async (draft: ComposerDraft): Promise<FilePartInput[]> => {
-    const parts: FilePartInput[] = [];
-    const root = workspaceProjectDir().trim();
-
-    const toAbsolutePath = (path: string) => {
-      const trimmed = path.trim();
-      if (!trimmed) return "";
-      if (trimmed.startsWith("/")) return trimmed;
-      if (/^[a-zA-Z]:\\/.test(trimmed)) return trimmed;
-      if (!root) return "";
-      return (root + "/" + trimmed).replace("//", "/");
-    };
-
-    const filenameFromPath = (path: string) => {
-      const normalized = path.replace(/\\/g, "/");
-      const segments = normalized.split("/").filter(Boolean);
-      return segments[segments.length - 1] ?? "file";
-    };
-
-    for (const part of draft.parts) {
-      if (part.type !== "file") continue;
-      const absolute = toAbsolutePath(part.path);
-      if (!absolute) continue;
-      parts.push({
-        type: "file",
-        mime: "text/plain",
-        url: `file://${absolute}`,
-        filename: filenameFromPath(part.path),
-      } as FilePartInput);
-    }
-
-    parts.push(...(await Promise.all(draft.attachments.map(attachmentToFilePart))));
-
-    return parts;
-  };
-
-  const assertNoClientError = (result: unknown) => {
-    const maybe = result as { error?: unknown } | null | undefined;
-    if (!maybe || maybe.error === undefined) return;
-    throw new Error(describeProviderError(maybe.error, "Request failed"));
-  };
-
-  const describeProviderError = (error: unknown, fallback: string) => {
-    const readString = (value: unknown, max = 700) => {
-      if (typeof value !== "string") return null;
-      const trimmed = value.trim();
-      if (!trimmed) return null;
-      if (trimmed.length <= max) return trimmed;
-      return `${trimmed.slice(0, Math.max(0, max - 3))}...`;
-    };
-
-    const records: Record<string, unknown>[] = [];
-    const root = error && typeof error === "object" ? (error as Record<string, unknown>) : null;
-    if (root) {
-      records.push(root);
-      if (root.data && typeof root.data === "object") records.push(root.data as Record<string, unknown>);
-      if (root.cause && typeof root.cause === "object") {
-        const cause = root.cause as Record<string, unknown>;
-        records.push(cause);
-        if (cause.data && typeof cause.data === "object") records.push(cause.data as Record<string, unknown>);
-      }
-    }
-
-    const firstString = (keys: string[]) => {
-      for (const record of records) {
-        for (const key of keys) {
-          const value = readString(record[key]);
-          if (value) return value;
-        }
-      }
-      return null;
-    };
-
-    const firstNumber = (keys: string[]) => {
-      for (const record of records) {
-        for (const key of keys) {
-          const value = record[key];
-          if (typeof value === "number" && Number.isFinite(value)) return value;
-        }
-      }
-      return null;
-    };
-
-    const status = firstNumber(["statusCode", "status"]);
-    const provider = firstString(["providerID", "providerId", "provider"]);
-    const code = firstString(["code", "errorCode"]);
-    const response = firstString(["responseBody", "body", "response"]);
-    const raw =
-      (error instanceof Error ? readString(error.message) : null) ||
-      firstString(["message", "detail", "reason", "error"]) ||
-      (typeof error === "string" ? readString(error) : null);
-
-    const generic = raw && /^unknown\s+error$/i.test(raw);
-    const heading = (() => {
-      if (status === 401 || status === 403) return "Authentication failed";
-      if (status === 429) return "Rate limit exceeded";
-      if (provider) return `Provider error (${provider})`;
-      return fallback;
-    })();
-
-    const lines = [heading];
-    if (raw && !generic && raw !== heading) lines.push(raw);
-    if (status && !heading.includes(String(status))) lines.push(`Status: ${status}`);
-    if (provider && !heading.includes(provider)) lines.push(`Provider: ${provider}`);
-    if (code) lines.push(`Code: ${code}`);
-    if (response) lines.push(`Response: ${response}`);
-    if (lines.length > 1) return lines.join("\n");
-
-    if (raw && !generic) return raw;
-    if (error && typeof error === "object") {
-      const serialized = safeStringify(error);
-      if (serialized && serialized !== "{}") return serialized;
-    }
-    return fallback;
-  };
 
   const ensureSelectedWorkspaceRuntime = async () => {
     const workspaceId = workspaceStore.selectedWorkspaceId().trim();
@@ -832,220 +631,6 @@ export default function App() {
     }
     return ready;
   };
-
-  async function sendPrompt(draft?: ComposerDraft) {
-    const hasExplicitDraft = Boolean(draft);
-    const fallbackText = prompt().trim();
-    const resolvedDraft: ComposerDraft = draft ?? {
-      mode: "prompt",
-      parts: fallbackText ? [{ type: "text", text: fallbackText } as ComposerPart] : [],
-      attachments: [] as ComposerAttachment[],
-      text: fallbackText,
-    };
-    const content = (resolvedDraft.resolvedText ?? resolvedDraft.text).trim();
-    if (!content && !resolvedDraft.attachments.length) return;
-
-    const ready = await ensureSelectedWorkspaceRuntime();
-    if (!ready) return;
-
-    const c = client();
-    if (!c) return;
-
-    const compactShortcut = /^\/compact(?:\s+.*)?$/i.test(content);
-    const compactCommand = resolvedDraft.command?.name === "compact" || compactShortcut;
-    const commandName = compactCommand ? "compact" : (resolvedDraft.command?.name ?? null);
-    if (compactCommand && !selectedSessionId()) {
-      setError("Select a session with messages before running /compact.");
-      return;
-    }
-
-    let sessionID = selectedSessionId();
-    if (!sessionID) {
-      await createSessionAndOpen();
-      sessionID = selectedSessionId();
-    }
-    if (!sessionID) return;
-
-    setBusy(true);
-    setBusyLabel("status.running");
-    setBusyStartedAt(Date.now());
-    setError(null);
-
-    const perfEnabled = developerMode();
-    const startedAt = perfNow();
-    const visible = messages();
-    const visibleParts = visible.reduce((total, message) => total + message.parts.length, 0);
-    recordPerfLog(perfEnabled, "session.prompt", "start", {
-      sessionID,
-      mode: resolvedDraft.mode,
-      command: commandName,
-      charCount: content.length,
-      attachmentCount: resolvedDraft.attachments.length,
-      messageCount: visible.length,
-      partCount: visibleParts,
-    });
-
-    try {
-      if (!compactCommand) {
-        setLastPromptSent(content);
-      }
-      if (!hasExplicitDraft) {
-        setPrompt("");
-      }
-
-      const model = selectedSessionModel();
-      const agent = selectedSessionAgent();
-      const parts = await buildPromptParts(resolvedDraft);
-      const selectedVariant = sanitizeModelVariantForRef(model, modelVariant()) ?? undefined;
-      const reasoningEffort = resolveCodexReasoningEffort(model.modelID, selectedVariant ?? null);
-      const requestVariant = reasoningEffort ? undefined : selectedVariant;
-      const promptOverrides = reasoningEffort
-        ? ({ reasoning_effort: reasoningEffort } as const)
-        : undefined;
-
-      if (resolvedDraft.mode === "shell") {
-        await shellInSession(c, sessionID, content);
-      } else if (resolvedDraft.command || compactCommand) {
-        if (compactCommand) {
-          await compactCurrentSession(sessionID);
-          finishPerf(perfEnabled, "session.prompt", "done", startedAt, {
-            sessionID,
-            mode: resolvedDraft.mode,
-            command: commandName,
-          });
-          return;
-        }
-
-        const command = resolvedDraft.command;
-        if (!command) {
-          throw new Error("Command was not resolved.");
-        }
-
-        // Slash command: route through session.command() API
-        const modelString = `${model.providerID}/${model.modelID}`;
-        const files = await buildCommandFileParts(resolvedDraft);
-
-        // session.command() expects `model` as a provider/model string and only supports file parts.
-        unwrap(
-          await c.session.command({
-            sessionID,
-            command: command.name,
-            arguments: command.arguments,
-            agent: agent ?? undefined,
-            model: modelString,
-            variant: requestVariant,
-            ...(promptOverrides ?? {}),
-            parts: files.length ? files : undefined,
-          }),
-        );
-
-      } else {
-        const result = await c.session.promptAsync({
-          sessionID,
-          model,
-          agent: agent ?? undefined,
-          variant: requestVariant,
-          ...(promptOverrides ?? {}),
-          parts,
-        });
-        assertNoClientError(result);
-
-        modelConfig.setSessionModelById((current) => ({
-          ...current,
-          [sessionID]: model,
-        }));
-
-        modelConfig.clearSessionModelOverride(sessionID);
-      }
-
-      finishPerf(perfEnabled, "session.prompt", "done", startedAt, {
-        sessionID,
-        mode: resolvedDraft.mode,
-        command: commandName,
-      });
-    } catch (e) {
-      finishPerf(perfEnabled, "session.prompt", "error", startedAt, {
-        sessionID,
-        mode: resolvedDraft.mode,
-        command: commandName,
-        error: e instanceof Error ? e.message : safeStringify(e),
-      });
-      const message = e instanceof Error ? e.message : safeStringify(e);
-      sessionStore.appendSessionErrorTurn(sessionID, addOpencodeCacheHint(message));
-    } finally {
-      setBusy(false);
-      setBusyLabel(null);
-      setBusyStartedAt(null);
-    }
-  }
-
-  async function abortSession(sessionID?: string) {
-    const c = client();
-    if (!c) return;
-    const id = (sessionID ?? selectedSessionId() ?? "").trim();
-    if (!id) return;
-    // OpenCode exposes session.abort which interrupts the active prompt/run.
-    // We intentionally don't mutate global busy state here; the SessionView
-    // provides local UX (button disabled + toast) for cancellation.
-    await abortSessionTyped(c, id);
-  }
-
-  function retryLastPrompt() {
-    const text = lastPromptSent().trim();
-    if (!text) return;
-    void sendPrompt({
-      mode: "prompt",
-      text,
-      parts: [{ type: "text", text }],
-      attachments: [],
-    });
-  }
-
-  async function compactCurrentSession(sessionIdOverride?: string) {
-    const c = client();
-    if (!c) {
-      throw new Error("Not connected to a server");
-    }
-
-    const sessionID = (sessionIdOverride ?? selectedSessionId() ?? "").trim();
-    if (!sessionID) {
-      throw new Error("Select a session before compacting.");
-    }
-
-    const visible = messages();
-    if (!visible.length) {
-      throw new Error("Nothing to compact yet.");
-    }
-
-    const model = selectedSessionModel();
-    const startedAt = perfNow();
-    const modelLabel = `${model.providerID}/${model.modelID}`;
-    recordPerfLog(developerMode(), "session.compact", "start", {
-      sessionID,
-      messageCount: visible.length,
-      model: modelLabel,
-      variant: sanitizeModelVariantForRef(model, modelVariant()) ?? null,
-    });
-
-    try {
-      await compactSessionTyped(c, sessionID, model, {
-        directory: workspaceProjectDir().trim() || undefined,
-      });
-      finishPerf(developerMode(), "session.compact", "done", startedAt, {
-        sessionID,
-        messageCount: visible.length,
-        model: modelLabel,
-      });
-    } catch (error) {
-      finishPerf(developerMode(), "session.compact", "error", startedAt, {
-        sessionID,
-        messageCount: visible.length,
-        model: modelLabel,
-        error: error instanceof Error ? error.message : safeStringify(error),
-      });
-      throw error;
-    }
-  }
 
   const messageIdFromInfo = (message: MessageWithParts) => {
     const id = (message.info as { id?: string | number }).id;
@@ -1238,192 +823,6 @@ export default function App() {
       .join("");
     setPrompt(text);
   };
-
-  async function undoLastUserMessage() {
-    const c = client();
-    const sessionID = (selectedSessionId() ?? "").trim();
-    if (!c || !sessionID) return;
-
-    // Revert is rejected while the session is busy. We *usually* have an accurate
-    // session status via SSE, but to be resilient to transient desync we attempt
-    // an abort even when we think we're idle.
-    await abortSessionSafe(c, sessionID);
-
-    const revertMessageID = selectedSession()?.revert?.messageID ?? null;
-    const users = messages().filter((message) => {
-      const role = (message.info as { role?: string }).role;
-      return role === "user";
-    });
-
-    let target: MessageWithParts | null = null;
-    for (let idx = users.length - 1; idx >= 0; idx -= 1) {
-      const candidate = users[idx];
-      const id = messageIdFromInfo(candidate);
-      if (!id) continue;
-      if (!revertMessageID || id < revertMessageID) {
-        target = candidate;
-        break;
-      }
-    }
-
-    if (!target) return;
-    const messageID = messageIdFromInfo(target);
-    if (!messageID) return;
-
-    const next = await revertSession(c, sessionID, messageID);
-    upsertLocalSession(next);
-    restorePromptFromUserMessage(target);
-  }
-
-  async function redoLastUserMessage() {
-    const c = client();
-    const sessionID = (selectedSessionId() ?? "").trim();
-    if (!c || !sessionID) return;
-
-    await abortSessionSafe(c, sessionID);
-
-    const revertMessageID = selectedSession()?.revert?.messageID ?? null;
-    if (!revertMessageID) return;
-
-    const users = messages().filter((message) => {
-      const role = (message.info as { role?: string }).role;
-      return role === "user";
-    });
-
-    const next = users.find((message) => {
-      const id = messageIdFromInfo(message);
-      return Boolean(id) && id > revertMessageID;
-    });
-
-    if (!next) {
-      const session = await unrevertSession(c, sessionID);
-      upsertLocalSession(session);
-      setPrompt("");
-      return;
-    }
-
-    const messageID = messageIdFromInfo(next);
-    if (!messageID) return;
-
-    const nextSession = await revertSession(c, sessionID, messageID);
-    upsertLocalSession(nextSession);
-
-    let prior: MessageWithParts | null = null;
-    for (let idx = users.length - 1; idx >= 0; idx -= 1) {
-      const candidate = users[idx];
-      const id = messageIdFromInfo(candidate);
-      if (id && id < messageID) {
-        prior = candidate;
-        break;
-      }
-    }
-
-    if (prior) {
-      restorePromptFromUserMessage(prior);
-      return;
-    }
-
-    setPrompt("");
-  }
-
-  async function renameSessionTitle(sessionID: string, title: string) {
-    const trimmed = title.trim();
-    if (!trimmed) {
-      throw new Error("Session name is required");
-    }
-    
-    await renameSession(sessionID, trimmed);
-    await refreshSidebarWorkspaceSessions(workspaceStore.selectedWorkspaceId()).catch(() => undefined);
-  }
-
-  async function deleteSessionById(sessionID: string) {
-    const trimmed = sessionID.trim();
-    if (!trimmed) return;
-    const c = client();
-    if (!c) {
-      throw new Error("Not connected to a server");
-    }
-
-    const root = workspaceStore.selectedWorkspaceRoot().trim();
-    const directory = toSessionTransportDirectory(root);
-    const params = directory ? { sessionID: trimmed, directory } : { sessionID: trimmed };
-    unwrap(await c.session.delete(params));
-
-    // Remove the deleted session from the store locally, then refetch the
-    // workspace-scoped sidebar session list from the server source of truth.
-    setSessions(sessions().filter((s) => s.id !== trimmed));
-    const activeWsId = workspaceStore.selectedWorkspaceId();
-    await refreshSidebarWorkspaceSessions(activeWsId).catch(() => undefined);
-
-    // If we're currently routed to the deleted session, navigate away immediately.
-    // (Otherwise the route effect can try to re-select a session that no longer exists.)
-    try {
-      const path = location.pathname.toLowerCase();
-      if (path === `/session/${trimmed.toLowerCase()}`) {
-        navigate("/session", { replace: true });
-      }
-    } catch {
-      // ignore
-    }
-
-    // If the deleted session was selected, clear selection so routing can fall back cleanly.
-    if (selectedSessionId() === trimmed) {
-      setSelectedSessionId(null);
-      const activeWorkspace = workspaceStore.selectedWorkspaceId().trim();
-      if (activeWorkspace) {
-        const map = readSessionByWorkspace();
-        if (map[activeWorkspace] === trimmed) {
-          const next = { ...map };
-          delete next[activeWorkspace];
-          writeSessionByWorkspace(next);
-        }
-      }
-    }
-
-    const nextStatus = { ...sessionStatusById() };
-    if (nextStatus[trimmed]) {
-      delete nextStatus[trimmed];
-      setSessionStatusById(nextStatus);
-    }
-  }
-
-
-  async function listAgents(): Promise<Agent[]> {
-    const c = client();
-    if (!c) return [];
-    const list = unwrap(await c.app.agents());
-    return list.filter((agent) => !agent.hidden && agent.mode !== "subagent");
-  }
-
-  const BUILTIN_COMPACT_COMMAND = {
-    id: "builtin:compact",
-    name: "compact",
-    description: "Summarize this session to reduce context size.",
-    source: "command" as const,
-  };
-
-  async function listCommands(): Promise<{ id: string; name: string; description?: string; source?: "command" | "mcp" | "skill" }[]> {
-    const c = client();
-    if (!c) return [];
-    const list = await listCommandsTyped(c, workspaceStore.selectedWorkspaceRoot().trim() || undefined);
-    if (list.some((entry) => entry.name === "compact")) {
-      return list;
-    }
-    return [BUILTIN_COMPACT_COMMAND, ...list];
-  }
-
-  function setSessionAgent(sessionID: string, agent: string | null) {
-    const trimmed = agent?.trim() ?? "";
-    setSessionAgentById((current) => {
-      const next = { ...current };
-      if (!trimmed) {
-        delete next[sessionID];
-        return next;
-      }
-      next[sessionID] = trimmed;
-      return next;
-    });
-  }
 
   function focusSessionPromptSoon() {
     if (typeof window === "undefined" || currentView() !== "session") return;
@@ -1807,6 +1206,67 @@ export default function App() {
     workspaceGroups: rawSidebarWorkspaceGroups,
     refreshWorkspaceSessions: refreshSidebarWorkspaceSessions,
   } = sidebarSessionsStore;
+
+  const sessionActionsStore = createSessionActionsStore({
+    client,
+    baseUrl,
+    developerMode,
+    prompt,
+    setPrompt,
+    selectedSessionId,
+    selectedSession,
+    sessions,
+    messages,
+    setSessions,
+    sessionStatusById,
+    setSessionStatusById,
+    setBusy,
+    setBusyLabel,
+    setBusyStartedAt,
+    setCreatingSession,
+    setError,
+    workspaceProjectDir: () => workspaceStore.projectDir(),
+    selectedWorkspaceId: () => workspaceStore.selectedWorkspaceId(),
+    selectedWorkspaceRoot: () => workspaceStore.selectedWorkspaceRoot(),
+    ensureSelectedWorkspaceRuntime,
+    selectSession,
+    refreshSidebarWorkspaceSessions,
+    abortRefreshes,
+    modelConfig,
+    selectedSessionModel: () => selectedSessionModel(),
+    modelVariant,
+    sanitizeModelVariantForRef: (ref, value) => sanitizeModelVariantForRef(ref, value),
+    resolveCodexReasoningEffort: (modelId, variant) => resolveCodexReasoningEffort(modelId, variant),
+    messageIdFromInfo,
+    restorePromptFromUserMessage,
+    upsertLocalSession,
+    readSessionByWorkspace,
+    writeSessionByWorkspace,
+    setSelectedSessionId,
+    locationPath: () => location.pathname,
+    navigate,
+    renameSession,
+    appendSessionErrorTurn: sessionStore.appendSessionErrorTurn,
+  });
+
+  const {
+    lastPromptSent,
+    selectedSessionAgent,
+    sessionRevertMessageId,
+    createSessionAndOpen,
+    sendPrompt,
+    abortSession,
+    retryLastPrompt,
+    compactCurrentSession,
+    undoLastUserMessage,
+    redoLastUserMessage,
+    renameSessionTitle,
+    deleteSessionById,
+    listAgents,
+    listCommands,
+    setSessionAgent,
+    searchWorkspaceFiles,
+  } = sessionActionsStore;
 
   const sidebarWorkspaceGroups = createMemo<WorkspaceSessionGroup[]>(() => {
     const groups = rawSidebarWorkspaceGroups();
@@ -2860,12 +2320,6 @@ export default function App() {
     return defaultModel();
   });
 
-  const selectedSessionAgent = createMemo(() => {
-    const id = selectedSessionId();
-    if (!id) return null;
-    return sessionAgentById()[id] ?? null;
-  });
-
   const selectedSessionModelLabel = createMemo(() =>
     formatModelLabel(selectedSessionModel(), providers())
   );
@@ -3101,151 +2555,6 @@ export default function App() {
   function openSettingsFromModelPicker() {
     setSettingsTab("general");
     setView("settings");
-  }
-
-  async function createSessionAndOpen() {
-    const ready = await ensureSelectedWorkspaceRuntime();
-    if (!ready) {
-      return;
-    }
-
-    const c = client();
-    if (!c) {
-      return;
-    }
-
-    const perfEnabled = developerMode();
-    const startedAt = perfNow();
-    const runId = (() => {
-      const key = "__openwork_create_session_run__";
-      const w = window as typeof window & { [key]?: number };
-      w[key] = (w[key] ?? 0) + 1;
-      return w[key];
-    })();
-
-    const mark = (event: string, payload?: Record<string, unknown>) => {
-      const elapsed = Math.round((perfNow() - startedAt) * 100) / 100;
-      recordPerfLog(perfEnabled, "session.create", event, {
-        runId,
-        elapsedMs: elapsed,
-        ...(payload ?? {}),
-      });
-    };
-
-    mark("start", {
-      baseUrl: baseUrl(),
-      workspace: workspaceStore.selectedWorkspaceRoot().trim() || null,
-    });
-
-    // Abort any in-flight refresh operations to free up connection resources
-    abortRefreshes();
-
-    // Small delay to allow pending requests to settle
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    setBusy(true);
-    setBusyLabel("status.creating_task");
-    setBusyStartedAt(Date.now());
-    setError(null);
-    setCreatingSession(true);
-
-    const withTimeout = async <T,>(
-      promise: Promise<T>,
-      ms: number,
-      label: string
-    ) => {
-      let timeoutId: ReturnType<typeof setTimeout> | null = null;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(
-          () => reject(new Error(`Timed out waiting for ${label}`)),
-          ms
-        );
-      });
-      try {
-        return await Promise.race([promise, timeoutPromise]);
-      } finally {
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-        }
-      }
-    };
-
-    try {
-      // Quick health check to detect stale connection
-      mark("health:start");
-      try {
-        await withTimeout(c.global.health(), 3_000, "health");
-        mark("health:ok");
-      } catch (healthErr) {
-        mark("health:error", {
-          error: healthErr instanceof Error ? healthErr.message : safeStringify(healthErr),
-        });
-        throw new Error(t("app.connection_lost", currentLocale()));
-      }
-
-      let rawResult: Awaited<ReturnType<typeof c.session.create>>;
-      try {
-        const directory = toSessionTransportDirectory(workspaceStore.selectedWorkspaceRoot().trim()) || undefined;
-        logWorkspaceScopeSnapshot("session:create:scope", {
-          transportDirectory: directory ?? null,
-          transportScope: describeDirectoryScope(directory ?? null),
-        });
-        mark("session:create:start");
-        rawResult = await c.session.create({
-          directory,
-        });
-        mark("session:create:ok");
-      } catch (createErr) {
-        mark("session:create:error", {
-          error: createErr instanceof Error ? createErr.message : safeStringify(createErr),
-        });
-        throw createErr;
-      }
-
-      const session = unwrap(rawResult);
-      // Immediately select and show the new session before background list refresh.
-      setBusyLabel("status.loading_session");
-      mark("session:select:start", { sessionID: session.id });
-      await selectSession(session.id);
-      mark("session:select:ok", { sessionID: session.id });
-
-      modelConfig.applyPendingSessionChoice(session.id);
-
-      // Inject the new session into the reactive sessions() store so
-      // the createEffect bridge (sessions → sidebar) will always include it,
-      // even if the background loadSessionsWithReady hasn't returned yet.
-      const currentStoreSessions = sessions();
-      if (!currentStoreSessions.some((s) => s.id === session.id)) {
-        setSessions([session, ...currentStoreSessions]);
-      }
-
-      const wsId = workspaceStore.selectedWorkspaceId().trim();
-      if (wsId) {
-        await refreshSidebarWorkspaceSessions(wsId).catch(() => undefined);
-      }
-
-      // setSessionViewLockUntil(Date.now() + 1200);
-      goToSession(session.id);
-
-      // The new session is already in the sessions() store (injected above).
-      // Sidebar state now refreshes from the server-scoped workspace list.
-      finishPerf(perfEnabled, "session.create", "done", startedAt, {
-        runId,
-        sessionID: session.id,
-      });
-      return session.id;
-    } catch (e) {
-      finishPerf(perfEnabled, "session.create", "error", startedAt, {
-        runId,
-        error: e instanceof Error ? e.message : safeStringify(e),
-      });
-      const message = e instanceof Error ? e.message : t("app.unknown_error", currentLocale());
-      setError(addOpencodeCacheHint(message));
-      return undefined;
-    } finally {
-      setCreatingSession(false);
-      setBusy(false);
-    }
   }
 
 
@@ -4242,27 +3551,6 @@ export default function App() {
     };
   };
 
-  const searchWorkspaceFiles = async (query: string) => {
-    const trimmed = query.trim();
-    if (!trimmed) return [];
-    const activeClient = client();
-    if (!activeClient) return [];
-    try {
-      const directory = workspaceProjectDir().trim();
-      const result = unwrap(
-        await activeClient.find.files({
-          query: trimmed,
-          dirs: "true",
-          limit: 50,
-          directory: directory || undefined,
-        }),
-      );
-      return result;
-    } catch {
-      return [];
-    }
-  };
-
   const sessionProps = () => ({
     providerAuthWorkerType: providerAuthWorkerType(),
     selectedSessionId: activeSessionId(),
@@ -4328,15 +3616,6 @@ export default function App() {
     activePluginStatus: sidebarPluginStatus(),
     skills: skills(),
     skillsStatus: skillsStatus(),
-    createSessionAndOpen: createSessionAndOpen,
-    sendPromptAsync: sendPrompt,
-    abortSession: abortSession,
-    sessionRevertMessageId: selectedSession()?.revert?.messageID ?? null,
-    undoLastUserMessage: undoLastUserMessage,
-    redoLastUserMessage: redoLastUserMessage,
-    compactSession: compactCurrentSession,
-    lastPromptSent: lastPromptSent(),
-    retryLastPrompt: retryLastPrompt,
     newTaskDisabled: newTaskDisabled(),
     workspaceSessionGroups: sidebarWorkspaceGroups(),
     openRenameWorkspace,
@@ -4380,18 +3659,11 @@ export default function App() {
     providerAuthPreferredProviderId: providerAuthPreferredProviderId(),
     providers: providers(),
     providerConnectedIds: providerConnectedIds(),
-    listAgents: listAgents,
-    listCommands: listCommands,
-    selectedSessionAgent: selectedSessionAgent(),
-    setSessionAgent: setSessionAgent,
     sessionStatusById: activeSessionStatusById(),
     hasEarlierMessages: selectedSessionHasEarlierMessages(),
     loadingEarlierMessages: selectedSessionLoadingEarlierMessages(),
     loadEarlierMessages,
-    searchFiles: searchWorkspaceFiles,
-    deleteSession: deleteSessionById,
     sessionStatus: selectedSessionStatus(),
-    renameSession: renameSessionTitle,
     error: error(),
   });
 
@@ -4513,10 +3785,11 @@ export default function App() {
 
   return (
     <OpenworkServerProvider store={openworkServerStore}>
-      <ConnectionsProvider store={connectionsStore}>
-        <ExtensionsProvider store={extensionsStore}>
-          <AutomationsProvider store={automationsStore}>
-            <StatusToastsProvider store={statusToastsStore}>
+      <SessionActionsProvider store={sessionActionsStore}>
+        <ConnectionsProvider store={connectionsStore}>
+          <ExtensionsProvider store={extensionsStore}>
+            <AutomationsProvider store={automationsStore}>
+              <StatusToastsProvider store={statusToastsStore}>
             <Switch>
               <Match when={booting()}>
                 <BootShell />
@@ -4824,10 +4097,11 @@ export default function App() {
         subtitle={t("dashboard.edit_remote_workspace_subtitle", currentLocale())}
         confirmLabel={t("dashboard.edit_remote_workspace_confirm", currentLocale())}
       />
-            </StatusToastsProvider>
-          </AutomationsProvider>
-        </ExtensionsProvider>
-      </ConnectionsProvider>
+              </StatusToastsProvider>
+            </AutomationsProvider>
+          </ExtensionsProvider>
+        </ConnectionsProvider>
+      </SessionActionsProvider>
     </OpenworkServerProvider>
   );
 }
