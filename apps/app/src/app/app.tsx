@@ -39,6 +39,7 @@ import ConnectionsModals from "./connections/modals";
 import { ConnectionsProvider } from "./connections/provider";
 import { ExtensionsProvider } from "./extensions/provider";
 import { AutomationsProvider } from "./automations/provider";
+import BootShell from "./shell/boot-shell";
 import SettingsShell from "./shell/settings-shell";
 import SessionView from "./pages/session";
 import { unwrap } from "./lib/opencode";
@@ -5559,7 +5560,6 @@ export default function App() {
   };
 
   const sessionProps = () => ({
-    booting: booting(),
     providerAuthWorkerType: providerAuthWorkerType(),
     selectedSessionId: activeSessionId(),
     setView,
@@ -5805,6 +5805,9 @@ export default function App() {
       <ExtensionsProvider store={extensionsStore}>
         <AutomationsProvider store={automationsStore}>
           <Switch>
+            <Match when={booting()}>
+              <BootShell />
+            </Match>
             <Match when={currentView() === "session"}>
               <SessionView {...sessionProps()} />
             </Match>
