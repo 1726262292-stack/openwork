@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { listen, type Event as TauriEvent } from "@tauri-apps/api/event";
+import type { Session } from "@opencode-ai/sdk/v2/client";
 
 import type {
   Client,
@@ -22,7 +23,7 @@ import {
 } from "../utils";
 import { unwrap } from "../lib/opencode";
 import { describeDirectoryScope, resolveScopedClientDirectory } from "../lib/session-scope";
-import { defaultBlueprintSessionsForPreset } from "../lib/workspace-blueprints";
+import { blueprintMaterializedSessions, blueprintSessions, defaultBlueprintSessionsForPreset } from "../lib/workspace-blueprints";
 import {
   buildOpenworkWorkspaceBaseUrl,
   createOpenworkServerClient,
@@ -100,6 +101,8 @@ export type SandboxCreateProgressState = {
 
 export type SandboxCreatePhase = "idle" | "preflight" | "provisioning" | "finalizing";
 
+type BlueprintSeedMessage = { role?: "assistant" | "user" | null; text?: string | null };
+
 type RuntimeWorkspaceLookup = {
   workspaceId?: string | null;
   directoryHint?: string | null;
@@ -132,9 +135,15 @@ export function createWorkspaceStore(options: {
   loadSessions: (scopeRoot?: string) => Promise<void>;
   refreshPendingPermissions: () => Promise<void>;
   refreshWorkspaceSessions?: (workspaceId: string) => Promise<void>;
+  sessions: () => Session[];
+  sessionsLoaded: () => boolean;
+  creatingSession: () => boolean;
   readLastSessionByWorkspace?: () => Record<string, string>;
   selectedSessionId: () => string | null;
   selectSession: (id: string) => Promise<void>;
+  setBlueprintSeedMessagesBySessionId: (
+    updater: (current: Record<string, BlueprintSeedMessage[]>) => Record<string, BlueprintSeedMessage[]>,
+  ) => void;
   setSelectedSessionId: (value: string | null) => void;
   setMessages: (value: any[]) => void;
   setTodos: (value: any[]) => void;
@@ -157,6 +166,7 @@ export function createWorkspaceStore(options: {
   onEngineStable?: () => void;
   engineRuntime?: () => EngineRuntime;
   developerMode: () => boolean;
+  pendingInitialSessionSelection?: () => { workspaceId: string; title: string | null; readyAt: number } | null;
   setPendingInitialSessionSelection?: (input: { workspaceId: string; title: string | null; readyAt: number } | null) => void;
 }) {
 
@@ -368,6 +378,10 @@ export function createWorkspaceStore(options: {
   const [workspaceConnectionStateById, setWorkspaceConnectionStateById] = createSignal<
     Record<string, WorkspaceConnectionState>
   >({});
+  const [blueprintSessionMaterializeBusyByWorkspaceId, setBlueprintSessionMaterializeBusyByWorkspaceId] =
+    createSignal<Record<string, boolean>>({});
+  const [blueprintSessionMaterializeAttemptedByWorkspaceId, setBlueprintSessionMaterializeAttemptedByWorkspaceId] =
+    createSignal<Record<string, boolean>>({});
   const [exportingWorkspaceConfig, setExportingWorkspaceConfig] = createSignal(false);
   const [importingWorkspaceConfig, setImportingWorkspaceConfig] = createSignal(false);
   const selectedWorkspaceInfo = createMemo(() => workspaces().find((w) => w.id === selectedWorkspaceId()) ?? null);
@@ -632,6 +646,80 @@ export function createWorkspaceStore(options: {
     onCleanup(() => {
       cancelled = true;
     });
+  });
+
+  createEffect(() => {
+    const workspaceId = (runtimeWorkspaceId() ?? "").trim();
+    const client = options.openworkServer.openworkServerClient();
+    const connected = options.openworkServer.openworkServerStatus() === "connected";
+    const root = selectedWorkspaceRoot().trim();
+    const config = runtimeWorkspaceConfig() ?? workspaceConfig();
+    const templates = blueprintSessions(config);
+    const materialized = blueprintMaterializedSessions(config);
+    const currentSessions = options.sessions();
+    const normalizedRoot = normalizeDirectoryPath(root);
+    const hasWorkspaceSessions = currentSessions.some((session) => {
+      const directory = typeof session.directory === "string" ? session.directory : "";
+      return normalizeDirectoryPath(directory) === normalizedRoot;
+    });
+
+    if (!workspaceId || !client || !connected) return;
+    if (!root) return;
+    if (!options.sessionsLoaded()) return;
+    if (options.creatingSession()) return;
+    if (options.selectedSessionId()) return;
+    if (!templates.length) return;
+    if (materialized.length > 0) return;
+    if (hasWorkspaceSessions) return;
+    if (blueprintSessionMaterializeBusyByWorkspaceId()[workspaceId]) return;
+    if (blueprintSessionMaterializeAttemptedByWorkspaceId()[workspaceId]) return;
+
+    setBlueprintSessionMaterializeBusyByWorkspaceId((current) => ({
+      ...current,
+      [workspaceId]: true,
+    }));
+
+    void (async () => {
+      try {
+        const result = await client.materializeBlueprintSessions(workspaceId);
+        const templateMessages = new Map(
+          templates.map((template) => [template.id?.trim(), (template.messages ?? []).filter((entry) => entry?.text?.trim())] as const),
+        );
+        if (result.created.length > 0) {
+          options.setBlueprintSeedMessagesBySessionId((current) => {
+            const next = { ...current };
+            result.created.forEach((entry) => {
+              const messages = templateMessages.get(entry.templateId?.trim());
+              if (messages && messages.length > 0) {
+                next[entry.sessionId] = messages;
+              }
+            });
+            return next;
+          });
+        }
+        setBlueprintSessionMaterializeAttemptedByWorkspaceId((current) => ({
+          ...current,
+          [workspaceId]: true,
+        }));
+        await refreshRuntimeWorkspaceConfig(workspaceId);
+        await options.loadSessions(root || undefined);
+        const pending = options.pendingInitialSessionSelection?.() ?? null;
+        const shouldDeferInitialOpen = Boolean(pending && pending.workspaceId === workspaceId);
+        if (result.openSessionId && !shouldDeferInitialOpen) {
+          options.setView("session", result.openSessionId);
+          await options.selectSession(result.openSessionId);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : safeStringify(error);
+        options.setError(addOpencodeCacheHint(message));
+      } finally {
+        setBlueprintSessionMaterializeBusyByWorkspaceId((current) => {
+          const next = { ...current };
+          delete next[workspaceId];
+          return next;
+        });
+      }
+    })();
   });
 
   const resolveOpenworkHost = async (input: {

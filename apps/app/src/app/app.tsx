@@ -46,10 +46,6 @@ import {
   HIDE_TITLEBAR_PREF_KEY,
   SUGGESTED_PLUGINS,
 } from "./constants";
-import {
-  blueprintMaterializedSessions,
-  blueprintSessions,
-} from "./lib/workspace-blueprints";
 import type {
   Client,
   StartupPreference,
@@ -791,9 +787,13 @@ export default function App() {
     loadSessions: loadSessionsWithReady,
     refreshPendingPermissions,
     refreshWorkspaceSessions: (workspaceId: string) => refreshSidebarWorkspaceSessions(workspaceId),
+    sessions,
+    sessionsLoaded,
+    creatingSession,
     readLastSessionByWorkspace: readSessionByWorkspace,
     selectedSessionId,
     selectSession,
+    setBlueprintSeedMessagesBySessionId,
     setSelectedSessionId,
     setMessages,
     setTodos,
@@ -815,6 +815,7 @@ export default function App() {
     onEngineStable: () => {},
     engineRuntime,
     developerMode,
+    pendingInitialSessionSelection,
     setPendingInitialSessionSelection,
   });
 
@@ -1845,85 +1846,6 @@ export default function App() {
     authorizedFolders: false,
   });
   const [autoConnectAttempted, setAutoConnectAttempted] = createSignal(false);
-
-  const [blueprintSessionMaterializeBusyByWorkspaceId, setBlueprintSessionMaterializeBusyByWorkspaceId] =
-    createSignal<Record<string, boolean>>({});
-  const [blueprintSessionMaterializeAttemptedByWorkspaceId, setBlueprintSessionMaterializeAttemptedByWorkspaceId] =
-    createSignal<Record<string, boolean>>({});
-
-  createEffect(() => {
-    const workspaceId = (runtimeWorkspaceId() ?? "").trim();
-    const client = openworkServerClient();
-    const connected = openworkServerStatus() === "connected";
-    const root = workspaceStore.selectedWorkspaceRoot().trim();
-    const config = resolvedActiveWorkspaceConfig();
-    const templates = blueprintSessions(config);
-    const materialized = blueprintMaterializedSessions(config);
-    const currentSessions = sessions();
-    const normalizedRoot = normalizeDirectoryPath(root);
-    const hasWorkspaceSessions = currentSessions.some((session) => {
-      const directory = typeof session.directory === "string" ? session.directory : "";
-      return normalizeDirectoryPath(directory) === normalizedRoot;
-    });
-
-    if (!workspaceId || !client || !connected) return;
-    if (!root) return;
-    if (!sessionsLoaded()) return;
-    if (creatingSession()) return;
-    if (selectedSessionId()) return;
-    if (!templates.length) return;
-    if (materialized.length > 0) return;
-    if (hasWorkspaceSessions) return;
-    if (blueprintSessionMaterializeBusyByWorkspaceId()[workspaceId]) return;
-    if (blueprintSessionMaterializeAttemptedByWorkspaceId()[workspaceId]) return;
-
-    setBlueprintSessionMaterializeBusyByWorkspaceId((current) => ({
-      ...current,
-      [workspaceId]: true,
-    }));
-
-    void (async () => {
-      try {
-        const result = await client.materializeBlueprintSessions(workspaceId);
-        const templateMessages = new Map(
-          templates.map((template) => [template.id?.trim(), (template.messages ?? []).filter((entry) => entry?.text?.trim())] as const),
-        );
-        if (result.created.length > 0) {
-          setBlueprintSeedMessagesBySessionId((current) => {
-            const next = { ...current };
-            result.created.forEach((entry) => {
-              const messages = templateMessages.get(entry.templateId?.trim());
-              if (messages && messages.length > 0) {
-                next[entry.sessionId] = messages;
-              }
-            });
-            return next;
-          });
-        }
-        setBlueprintSessionMaterializeAttemptedByWorkspaceId((current) => ({
-          ...current,
-          [workspaceId]: true,
-        }));
-        await refreshActiveWorkspaceServerConfig(workspaceId);
-        await loadSessionsWithReady(root || undefined);
-        const pending = pendingInitialSessionSelection();
-        const shouldDeferInitialOpen = pending && pending.workspaceId === workspaceId;
-        if (result.openSessionId && !shouldDeferInitialOpen) {
-          goToSession(result.openSessionId, { replace: true });
-          await selectSession(result.openSessionId);
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : safeStringify(error);
-        setError(addOpencodeCacheHint(message));
-      } finally {
-        setBlueprintSessionMaterializeBusyByWorkspaceId((current) => {
-          const next = { ...current };
-          delete next[workspaceId];
-          return next;
-        });
-      }
-    })();
-  });
 
   const [appVersion, setAppVersion] = createSignal<string | null>(null);
   const [launchUpdateCheckTriggered, setLaunchUpdateCheckTriggered] = createSignal(false);
