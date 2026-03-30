@@ -34,15 +34,9 @@ import {
   type WorkspaceInfo,
 } from "../lib/tauri";
 import { usePlatform } from "../context/platform";
-import { buildDenAuthUrl, readDenSettings } from "../lib/den";
 import { buildFeedbackUrl } from "../lib/feedback";
 import { getOpenWorkDeployment } from "../lib/openwork-deployment";
 import { createWorkspaceShellLayout } from "../lib/workspace-shell-layout";
-import {
-  publishSkillsSetBundleFromWorkspace,
-  publishWorkspaceProfileBundleFromWorkspace,
-  saveWorkspaceProfileBundleToTeam,
-} from "../bundles/publish";
 
 import {
   ArrowDownToLine,
@@ -71,19 +65,12 @@ import { ProviderAuthModal,
 } from "../context/providers";
 import StatusBar from "../components/status-bar";
 import { ShareWorkspaceModal } from "../workspace";
-import {
-  buildOpenworkWorkspaceBaseUrl,
-  createOpenworkServerClient,
-  OpenworkServerError,
-  parseOpenworkWorkspaceIdFromUrl,
-} from "../lib/openwork-server";
 import type {
   OpenworkServerClient,
   OpenworkServerDiagnostics,
   OpenworkServerSettings,
   OpenworkServerStatus,
 } from "../lib/openwork-server";
-import { DEFAULT_OPENWORK_PUBLISHER_BASE_URL } from "../lib/publisher";
 import { join } from "@tauri-apps/api/path";
 import {
   isUserVisiblePart,
@@ -102,11 +89,17 @@ import { useSessionDisplayPreferences } from "../app-settings/session-display-pr
 
 import MessageList from "../components/session/message-list";
 import Composer from "../components/session/composer";
+import type { ComposerNotice } from "../components/session/composer-notice";
 import { createSessionScrollController } from "../components/session/scroll-controller";
 import WorkspaceSessionList from "../components/session/workspace-session-list";
 import type { SidebarSectionState } from "../components/session/sidebar";
 import FlyoutItem from "../components/flyout-item";
 import QuestionModal from "../components/question-modal";
+import {
+  useStatusToasts,
+  type AppStatusToastTone,
+} from "../shell/status-toasts";
+import { createShareWorkspaceState } from "../session/share-workspace";
 
 export type SessionViewProps = {
   selectedSessionId: string | null;
@@ -334,6 +327,7 @@ function describePermissionRequest(permission: PendingPermission | null) {
 export default function SessionView(props: SessionViewProps) {
   const { showThinking } = useSessionDisplayPreferences();
   const platform = usePlatform();
+  const statusToasts = useStatusToasts();
   let chatContainerEl: HTMLDivElement | undefined;
   let chatContentEl: HTMLDivElement | undefined;
   let scrollMessageIntoViewById:
@@ -345,7 +339,9 @@ export default function SessionView(props: SessionViewProps) {
   let streamRenderBatchQueuedAt = 0;
   let streamRenderBatchReschedules = 0;
 
-  const [toastMessage, setToastMessage] = createSignal<string | null>(null);
+  const [composerNotice, setComposerNotice] = createSignal<ComposerNotice | null>(
+    null,
+  );
   const activePermissionPresentation = createMemo(() =>
     describePermissionRequest(props.activePermission),
   );
@@ -387,6 +383,18 @@ export default function SessionView(props: SessionViewProps) {
     string | null
   >(null);
   const [messageWindowExpanded, setMessageWindowExpanded] = createSignal(false);
+
+  const showStatusToast = (
+    title: string,
+    tone: AppStatusToastTone = "info",
+    description?: string | null,
+  ) => {
+    statusToasts.showToast({ title, tone, description });
+  };
+
+  const showComposerNotice = (notice: ComposerNotice) => {
+    setComposerNotice(notice);
+  };
 
   let commandPaletteInputEl: HTMLInputElement | undefined;
   const commandPaletteOptionRefs: HTMLButtonElement[] = [];
@@ -983,11 +991,11 @@ export default function SessionView(props: SessionViewProps) {
     if (!workspace || workspace.workspaceType !== "local") return;
     const target = workspace.path?.trim() ?? "";
     if (!target) {
-      setToastMessage("Workspace path is unavailable.");
+      showStatusToast("Workspace path is unavailable.", "warning");
       return;
     }
     if (!isTauriRuntime()) {
-      setToastMessage("Reveal is available in the desktop app.");
+      showStatusToast("Reveal is available in the desktop app.", "warning");
       return;
     }
     try {
@@ -1001,7 +1009,7 @@ export default function SessionView(props: SessionViewProps) {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unable to reveal workspace";
-      setToastMessage(message);
+      showStatusToast(message, "error");
     }
   };
   const todoLabel = createMemo(() => {
@@ -1009,9 +1017,15 @@ export default function SessionView(props: SessionViewProps) {
     if (!total) return "";
     return `${todoCompletedCount()} out of ${total} tasks completed`;
   });
-  const [shareWorkspaceId, setShareWorkspaceId] = createSignal<string | null>(
-    null,
-  );
+  const shareWorkspaceState = createShareWorkspaceState({
+    workspaces: () => props.workspaces,
+    openworkServerHostInfo: () => props.openworkServerHostInfo,
+    openworkServerSettings: () => props.openworkServerSettings,
+    engineInfo: () => props.engineInfo,
+    exportWorkspaceBusy: () => props.exportWorkspaceBusy,
+    openLink: (url) => platform.openLink(url),
+    workspaceLabel,
+  });
   let jumpControlsSuppressTimer: ReturnType<typeof setTimeout> | undefined;
   const attachmentsEnabled = createMemo(() => {
     if (props.selectedWorkspaceDisplay.workspaceType !== "remote") return true;
@@ -1090,12 +1104,12 @@ export default function SessionView(props: SessionViewProps) {
     if (!trimmed) return;
 
     if (props.selectedWorkspaceDisplay.workspaceType === "remote") {
-      setToastMessage("File open is unavailable for remote workspaces.");
+      showStatusToast("File open is unavailable for remote workspaces.", "warning");
       return;
     }
 
     if (!isTauriRuntime()) {
-      setToastMessage("File open is available in the desktop app.");
+      showStatusToast("File open is available in the desktop app.", "warning");
       return;
     }
 
@@ -1109,17 +1123,17 @@ export default function SessionView(props: SessionViewProps) {
         },
       );
       if (!result.ok && result.reason === "missing-root") {
-        setToastMessage("Pick a workspace to open files.");
+        showStatusToast("Pick a workspace to open files.", "warning");
         return;
       }
       if (!result.ok) {
-        setToastMessage(result.reason);
+        showStatusToast(result.reason, "error");
         return;
       }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unable to open file";
-      setToastMessage(message);
+      showStatusToast(message, "error");
     }
   };
 
@@ -1251,7 +1265,7 @@ export default function SessionView(props: SessionViewProps) {
       (startedAt, previous) => {
         if (!startedAt || startedAt === previous) return;
         if (props.sessionCompactionState?.mode === "manual") return;
-        setToastMessage("OpenCode started compacting the session context.");
+        showStatusToast("OpenCode started compacting the session context.", "info");
       },
     ),
   );
@@ -1262,7 +1276,7 @@ export default function SessionView(props: SessionViewProps) {
       (finishedAt, previous) => {
         if (!finishedAt || finishedAt === previous) return;
         if (props.sessionCompactionState?.mode === "manual") return;
-        setToastMessage("OpenCode finished compacting the session context.");
+        showStatusToast("OpenCode finished compacting the session context.", "success");
       },
     ),
   );
@@ -1701,18 +1715,18 @@ export default function SessionView(props: SessionViewProps) {
   const cancelRun = async () => {
     if (abortBusy()) return;
     if (!props.selectedSessionId) {
-      setToastMessage("No session selected");
+      showStatusToast("No session selected", "warning");
       return;
     }
 
     setAbortBusy(true);
-    setToastMessage("Stopping the run...");
+    showStatusToast("Stopping the run...", "info");
     try {
       await props.abortSession(props.selectedSessionId);
-      setToastMessage("Stopped.");
+      showStatusToast("Stopped.", "success");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to stop";
-      setToastMessage(message);
+      showStatusToast(message, "error");
     } finally {
       setAbortBusy(false);
     }
@@ -1721,13 +1735,13 @@ export default function SessionView(props: SessionViewProps) {
   const retryRun = async () => {
     const text = props.lastPromptSent.trim();
     if (!text) {
-      setToastMessage("Nothing to retry yet");
+      showStatusToast("Nothing to retry yet", "warning");
       return;
     }
 
     if (abortBusy()) return;
     setAbortBusy(true);
-    setToastMessage("Trying again...");
+    showStatusToast("Trying again...", "info");
     try {
       if (showRunIndicator() && props.selectedSessionId) {
         await props.abortSession(props.selectedSessionId);
@@ -1820,18 +1834,18 @@ export default function SessionView(props: SessionViewProps) {
   const undoLastMessage = async () => {
     if (historyActionBusy()) return;
     if (!canUndoLastMessage()) {
-      setToastMessage("Nothing to undo yet.");
+      showStatusToast("Nothing to undo yet.", "warning");
       return;
     }
 
     setHistoryActionBusy("undo");
     try {
       await props.undoLastUserMessage();
-      setToastMessage("Reverted the last user message.");
+      showStatusToast("Reverted the last user message.", "success");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : props.safeStringify(error);
-      setToastMessage(message || "Failed to undo");
+      showStatusToast(message || "Failed to undo", "error");
     } finally {
       setHistoryActionBusy(null);
     }
@@ -1840,18 +1854,18 @@ export default function SessionView(props: SessionViewProps) {
   const redoLastMessage = async () => {
     if (historyActionBusy()) return;
     if (!canRedoLastMessage()) {
-      setToastMessage("Nothing to redo.");
+      showStatusToast("Nothing to redo.", "warning");
       return;
     }
 
     setHistoryActionBusy("redo");
     try {
       await props.redoLastUserMessage();
-      setToastMessage("Restored the reverted message.");
+      showStatusToast("Restored the reverted message.", "success");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : props.safeStringify(error);
-      setToastMessage(message || "Failed to redo");
+      showStatusToast(message || "Failed to redo", "error");
     } finally {
       setHistoryActionBusy(null);
     }
@@ -1860,24 +1874,24 @@ export default function SessionView(props: SessionViewProps) {
   const compactSessionHistory = async () => {
     if (historyActionBusy()) return;
     if (!canCompactSession()) {
-      setToastMessage("Nothing to compact yet.");
+      showStatusToast("Nothing to compact yet.", "warning");
       return;
     }
 
     const sessionID = props.selectedSessionId;
     const startedAt = perfNow();
     setHistoryActionBusy("compact");
-    setToastMessage("Compacting session context...");
+    showStatusToast("Compacting session context...", "info");
     try {
       await props.compactSession();
-      setToastMessage("Session compacted.");
+      showStatusToast("Session compacted.", "success");
       finishPerf(props.developerMode, "session.compact", "ui-done", startedAt, {
         sessionID,
       });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : props.safeStringify(error);
-      setToastMessage(message || "Failed to compact session");
+      showStatusToast(message || "Failed to compact session", "error");
       finishPerf(
         props.developerMode,
         "session.compact",
@@ -1964,8 +1978,8 @@ export default function SessionView(props: SessionViewProps) {
   });
 
   createEffect(() => {
-    if (!toastMessage()) return;
-    const id = window.setTimeout(() => setToastMessage(null), 2400);
+    if (!composerNotice()) return;
+    const id = window.setTimeout(() => setComposerNotice(null), 2400);
     return () => window.clearTimeout(id);
   });
 
@@ -2067,7 +2081,7 @@ export default function SessionView(props: SessionViewProps) {
   const openRenameModal = (options?: { returnFocusToComposer?: boolean }) => {
     const sessionId = props.selectedSessionId;
     if (!sessionId) {
-      setToastMessage("No session selected");
+      showStatusToast("No session selected", "warning");
       if (options?.returnFocusToComposer) {
         focusComposer();
       }
@@ -2096,7 +2110,7 @@ export default function SessionView(props: SessionViewProps) {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : props.safeStringify(error);
-      setToastMessage(message);
+      showStatusToast(message, "error");
     } finally {
       setRenameBusy(false);
     }
@@ -2105,7 +2119,7 @@ export default function SessionView(props: SessionViewProps) {
   const openDeleteSessionModal = () => {
     const sessionId = props.selectedSessionId;
     if (!sessionId) {
-      setToastMessage("No session selected");
+      showStatusToast("No session selected", "warning");
       return;
     }
     setDeleteSessionId(sessionId);
@@ -2127,13 +2141,13 @@ export default function SessionView(props: SessionViewProps) {
       await props.deleteSession(sessionId);
       setDeleteSessionOpen(false);
       setDeleteSessionId(null);
-      setToastMessage("Session deleted");
+      showStatusToast("Session deleted", "success");
       // Route away from the deleted session id.
       props.setView("session");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : props.safeStringify(error);
-      setToastMessage(message || "Failed to delete session");
+      showStatusToast(message || "Failed to delete session", "error");
     } finally {
       setDeleteSessionBusy(false);
     }
@@ -2142,7 +2156,7 @@ export default function SessionView(props: SessionViewProps) {
   const requireSessionId = () => {
     const sessionId = props.selectedSessionId;
     if (!sessionId) {
-      setToastMessage("No session selected");
+      showStatusToast("No session selected", "warning");
       return null;
     }
     return sessionId;
@@ -2205,13 +2219,13 @@ export default function SessionView(props: SessionViewProps) {
         code,
       );
       if (result.connected) {
-        setToastMessage(result.message || "Provider connected");
+        showStatusToast(result.message || "Provider connected", "success");
         props.closeProviderAuthModal();
       }
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "OAuth failed";
-      setToastMessage(message);
+      showStatusToast(message, "error");
       return { connected: false };
     } finally {
       setProviderAuthActionBusy(false);
@@ -2226,509 +2240,16 @@ export default function SessionView(props: SessionViewProps) {
     setProviderAuthActionBusy(true);
     try {
       const message = await props.submitProviderApiKey(providerId, apiKey);
-      setToastMessage(message || "API key saved");
+      showStatusToast(message || "API key saved", "success");
       props.closeProviderAuthModal();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to save API key";
-      setToastMessage(message);
+      showStatusToast(message, "error");
     } finally {
       setProviderAuthActionBusy(false);
     }
   };
-
-  const shareWorkspace = createMemo(() => {
-    const id = shareWorkspaceId();
-    if (!id) return null;
-    return props.workspaces.find((ws) => ws.id === id) ?? null;
-  });
-
-  const shareWorkspaceName = createMemo(() => {
-    const ws = shareWorkspace();
-    return ws ? workspaceLabel(ws) : "";
-  });
-
-  const shareWorkspaceDetail = createMemo(() => {
-    const ws = shareWorkspace();
-    if (!ws) return "";
-    if (ws.workspaceType === "remote") {
-      if (ws.remoteType === "openwork") {
-        const hostUrl = ws.openworkHostUrl?.trim() || ws.baseUrl?.trim() || "";
-        const mounted = buildOpenworkWorkspaceBaseUrl(
-          hostUrl,
-          ws.openworkWorkspaceId,
-        );
-        return mounted || hostUrl;
-      }
-      return ws.baseUrl?.trim() || "";
-    }
-    return ws.path?.trim() || "";
-  });
-
-  const [shareLocalOpenworkWorkspaceId, setShareLocalOpenworkWorkspaceId] =
-    createSignal<string | null>(null);
-  const [shareWorkspaceProfileBusy, setShareWorkspaceProfileBusy] =
-    createSignal(false);
-  const [shareWorkspaceProfileUrl, setShareWorkspaceProfileUrl] = createSignal<
-    string | null
-  >(null);
-  const [shareWorkspaceProfileError, setShareWorkspaceProfileError] =
-    createSignal<string | null>(null);
-  const [shareWorkspaceProfileTeamBusy, setShareWorkspaceProfileTeamBusy] =
-    createSignal(false);
-  const [shareWorkspaceProfileTeamError, setShareWorkspaceProfileTeamError] =
-    createSignal<string | null>(null);
-  const [shareWorkspaceProfileTeamSuccess, setShareWorkspaceProfileTeamSuccess] =
-    createSignal<string | null>(null);
-  const [shareCloudSettingsVersion, setShareCloudSettingsVersion] =
-    createSignal(0);
-  const [shareSkillsSetBusy, setShareSkillsSetBusy] = createSignal(false);
-  const [shareSkillsSetUrl, setShareSkillsSetUrl] = createSignal<string | null>(
-    null,
-  );
-  const [shareSkillsSetError, setShareSkillsSetError] = createSignal<
-    string | null
-  >(null);
-
-  createEffect(
-    on(shareWorkspaceId, () => {
-      setShareWorkspaceProfileBusy(false);
-      setShareWorkspaceProfileUrl(null);
-      setShareWorkspaceProfileError(null);
-      setShareWorkspaceProfileTeamBusy(false);
-      setShareWorkspaceProfileTeamError(null);
-      setShareWorkspaceProfileTeamSuccess(null);
-      setShareSkillsSetBusy(false);
-      setShareSkillsSetUrl(null);
-      setShareSkillsSetError(null);
-    }),
-  );
-
-  createEffect(() => {
-    const ws = shareWorkspace();
-    const baseUrl = props.openworkServerHostInfo?.baseUrl?.trim() ?? "";
-    const token =
-      props.openworkServerHostInfo?.ownerToken?.trim() ||
-      props.openworkServerHostInfo?.clientToken?.trim() ||
-      "";
-    const workspacePath =
-      ws?.workspaceType === "local" ? (ws.path?.trim() ?? "") : "";
-
-    if (
-      !ws ||
-      ws.workspaceType !== "local" ||
-      !workspacePath ||
-      !baseUrl ||
-      !token
-    ) {
-      setShareLocalOpenworkWorkspaceId(null);
-      return;
-    }
-
-    let cancelled = false;
-    setShareLocalOpenworkWorkspaceId(null);
-
-    void (async () => {
-      try {
-        const client = createOpenworkServerClient({ baseUrl, token });
-        const response = await client.listWorkspaces();
-        if (cancelled) return;
-        const items = Array.isArray(response.items) ? response.items : [];
-        const targetPath = normalizeDirectoryPath(workspacePath);
-        const match = items.find(
-          (entry) => normalizeDirectoryPath(entry.path) === targetPath,
-        );
-        setShareLocalOpenworkWorkspaceId(match?.id ?? null);
-      } catch {
-        if (!cancelled) setShareLocalOpenworkWorkspaceId(null);
-      }
-    })();
-
-    onCleanup(() => {
-      cancelled = true;
-    });
-  });
-
-  const shareFields = createMemo(() => {
-    const ws = shareWorkspace();
-    if (!ws) {
-      return [] as Array<{
-        label: string;
-        value: string;
-        secret?: boolean;
-        placeholder?: string;
-        hint?: string;
-      }>;
-    }
-
-    if (ws.workspaceType !== "remote") {
-      if (props.openworkServerHostInfo?.remoteAccessEnabled !== true) {
-        return [];
-      }
-      const hostUrl =
-        props.openworkServerHostInfo?.connectUrl?.trim() ||
-        props.openworkServerHostInfo?.lanUrl?.trim() ||
-        props.openworkServerHostInfo?.mdnsUrl?.trim() ||
-        props.openworkServerHostInfo?.baseUrl?.trim() ||
-        "";
-      const mountedUrl = shareLocalOpenworkWorkspaceId()
-        ? buildOpenworkWorkspaceBaseUrl(
-            hostUrl,
-            shareLocalOpenworkWorkspaceId(),
-          )
-        : null;
-      const url = mountedUrl || hostUrl;
-      const ownerToken = props.openworkServerHostInfo?.ownerToken?.trim() || "";
-      const collaboratorToken = props.openworkServerHostInfo?.clientToken?.trim() || "";
-      return [
-        {
-          label: "Worker URL",
-          value: url,
-          placeholder: !isTauriRuntime()
-            ? "Desktop app required"
-            : "Starting server...",
-          hint: mountedUrl
-            ? "Use on phones or laptops connecting to this worker."
-            : hostUrl
-              ? "Worker URL is resolving; host URL shown as fallback."
-              : undefined,
-        },
-        {
-          label: "Password",
-          value: ownerToken,
-          secret: true,
-          placeholder: isTauriRuntime() ? "-" : "Desktop app required",
-          hint: mountedUrl
-            ? "Use on phones or laptops connecting to this worker."
-            : "Use when the remote client must answer permission prompts.",
-        },
-        {
-          label: "Collaborator token",
-          value: collaboratorToken,
-          secret: true,
-          placeholder: isTauriRuntime() ? "-" : "Desktop app required",
-          hint: mountedUrl
-            ? "Routine remote access when you do not need owner-only actions."
-            : "Routine remote access to this host without owner-only actions.",
-        },
-      ];
-    }
-
-    if (ws.remoteType === "openwork") {
-      const hostUrl = ws.openworkHostUrl?.trim() || ws.baseUrl?.trim() || "";
-      const url =
-        buildOpenworkWorkspaceBaseUrl(hostUrl, ws.openworkWorkspaceId) ||
-        hostUrl;
-      const token =
-        ws.openworkToken?.trim() ||
-        props.openworkServerSettings.token?.trim() ||
-        "";
-      return [
-        {
-          label: "Worker URL",
-          value: url,
-        },
-        {
-          label: "Password",
-          value: token,
-          secret: true,
-          placeholder: token ? undefined : "Set token in workspace settings",
-          hint: "This workspace is currently connected with this password.",
-        },
-      ];
-    }
-
-    const baseUrl = ws.baseUrl?.trim() || ws.path?.trim() || "";
-    const directory = ws.directory?.trim() || "";
-    return [
-      {
-        label: "OpenCode base URL",
-        value: baseUrl,
-      },
-      {
-        label: "Directory",
-        value: directory,
-        placeholder: "(auto)",
-      },
-    ];
-  });
-
-  const shareNote = createMemo(() => {
-    const ws = shareWorkspace();
-    if (!ws) return null;
-    if (
-      ws.workspaceType === "local" &&
-      props.engineInfo?.runtime === "direct"
-    ) {
-      return "Engine runtime is set to Direct. Switching local workers can restart the host and disconnect clients. The token may change after a restart.";
-    }
-    return null;
-  });
-
-  const shareServiceDisabledReason = createMemo(() => {
-    const ws = shareWorkspace();
-    if (!ws) return "Select a workspace first.";
-    if (ws.workspaceType === "remote" && ws.remoteType !== "openwork") {
-      return "Share service links are available for OpenWork workers.";
-    }
-    if (ws.workspaceType !== "remote") {
-      const baseUrl = props.openworkServerHostInfo?.baseUrl?.trim() ?? "";
-      const token =
-        props.openworkServerHostInfo?.ownerToken?.trim() ||
-        props.openworkServerHostInfo?.clientToken?.trim() ||
-        "";
-      if (!baseUrl || !token) {
-        return "Local OpenWork host is not ready yet.";
-      }
-    } else {
-      const hostUrl = ws.openworkHostUrl?.trim() || ws.baseUrl?.trim() || "";
-      const token =
-        ws.openworkToken?.trim() ||
-        props.openworkServerSettings.token?.trim() ||
-        "";
-      if (!hostUrl) return "Missing OpenWork host URL.";
-      if (!token) return "Missing OpenWork token.";
-    }
-    return null;
-  });
-
-  const shareCloudSettings = createMemo(() => {
-    shareWorkspaceId();
-    shareCloudSettingsVersion();
-    return readDenSettings();
-  });
-
-  createEffect(() => {
-    const handleCloudSessionUpdate = () =>
-      setShareCloudSettingsVersion((value) => value + 1);
-    window.addEventListener("openwork-den-session-updated", handleCloudSessionUpdate);
-    onCleanup(() =>
-      window.removeEventListener(
-        "openwork-den-session-updated",
-        handleCloudSessionUpdate,
-      ),
-    );
-  });
-
-  const shareWorkspaceProfileTeamOrgName = createMemo(() => {
-    const orgName = shareCloudSettings().activeOrgName?.trim();
-    if (orgName) return orgName;
-    return "Active Cloud org";
-  });
-
-  const shareWorkspaceProfileToTeamNeedsSignIn = createMemo(
-    () => !shareCloudSettings().authToken?.trim(),
-  );
-
-  const shareWorkspaceProfileTeamDisabledReason = createMemo(() => {
-    const exportReason = shareServiceDisabledReason();
-    if (exportReason) return exportReason;
-    if (shareWorkspaceProfileToTeamNeedsSignIn()) return null;
-    const settings = shareCloudSettings();
-    if (!settings.activeOrgId?.trim() && !settings.activeOrgSlug?.trim()) {
-      return "Choose an organization in Settings -> Cloud before sharing with your team.";
-    }
-    return null;
-  });
-
-  const startShareWorkspaceProfileToTeamSignIn = () => {
-    const settings = readDenSettings();
-    platform.openLink(buildDenAuthUrl(settings.baseUrl, "sign-in"));
-  };
-
-  const resolveShareExportContext = async (): Promise<{
-    client: OpenworkServerClient;
-    workspaceId: string;
-    workspace: WorkspaceInfo;
-  }> => {
-    const ws = shareWorkspace();
-    if (!ws) {
-      throw new Error("Select a workspace first.");
-    }
-
-    if (ws.workspaceType !== "remote") {
-      const baseUrl = props.openworkServerHostInfo?.baseUrl?.trim() ?? "";
-      const token =
-        props.openworkServerHostInfo?.ownerToken?.trim() ||
-        props.openworkServerHostInfo?.clientToken?.trim() ||
-        "";
-      if (!baseUrl || !token) {
-        throw new Error("Local OpenWork host is not ready yet.");
-      }
-      const client = createOpenworkServerClient({ baseUrl, token });
-
-      let workspaceId = shareLocalOpenworkWorkspaceId()?.trim() ?? "";
-      if (!workspaceId) {
-        const response = await client.listWorkspaces();
-        const items = Array.isArray(response.items) ? response.items : [];
-        const targetPath = normalizeDirectoryPath(ws.path?.trim() ?? "");
-        const match = items.find(
-          (entry) => normalizeDirectoryPath(entry.path) === targetPath,
-        );
-        workspaceId = (match?.id ?? "").trim();
-        setShareLocalOpenworkWorkspaceId(workspaceId || null);
-      }
-
-      if (!workspaceId) {
-        throw new Error(
-          "Could not resolve this workspace on the local OpenWork host.",
-        );
-      }
-
-      return { client, workspaceId, workspace: ws };
-    }
-
-    if (ws.remoteType !== "openwork") {
-      throw new Error(
-        "Share service links are available for OpenWork workers.",
-      );
-    }
-
-    const hostUrl = ws.openworkHostUrl?.trim() || ws.baseUrl?.trim() || "";
-    const token =
-      ws.openworkToken?.trim() ||
-      props.openworkServerSettings.token?.trim() ||
-      "";
-    if (!hostUrl || !token) {
-      throw new Error("OpenWork host URL and token are required.");
-    }
-
-    const client = createOpenworkServerClient({ baseUrl: hostUrl, token });
-    let workspaceId =
-      ws.openworkWorkspaceId?.trim() ||
-      parseOpenworkWorkspaceIdFromUrl(ws.openworkHostUrl ?? "") ||
-      parseOpenworkWorkspaceIdFromUrl(ws.baseUrl ?? "") ||
-      "";
-
-    if (!workspaceId) {
-      const response = await client.listWorkspaces();
-      const items = Array.isArray(response.items) ? response.items : [];
-      const directoryHint = normalizeDirectoryPath(
-        ws.directory?.trim() ?? ws.path?.trim() ?? "",
-      );
-      const match = directoryHint
-        ? items.find((entry) => {
-            const entryPath = normalizeDirectoryPath(
-              (
-                entry.opencode?.directory ??
-                entry.directory ??
-                entry.path ??
-                ""
-              ).trim(),
-            );
-            return Boolean(entryPath && entryPath === directoryHint);
-          })
-        : ((response.activeId
-            ? items.find((entry) => entry.id === response.activeId)
-            : null) ?? items[0]);
-      workspaceId = (match?.id ?? "").trim();
-    }
-
-    if (!workspaceId) {
-      throw new Error("Could not resolve this workspace on the OpenWork host.");
-    }
-
-    return { client, workspaceId, workspace: ws };
-  };
-
-  const publishWorkspaceProfileLink = async () => {
-    if (shareWorkspaceProfileBusy()) return;
-    setShareWorkspaceProfileBusy(true);
-    setShareWorkspaceProfileError(null);
-    setShareWorkspaceProfileUrl(null);
-
-    try {
-      const { client, workspaceId, workspace } = await resolveShareExportContext();
-      const result = await publishWorkspaceProfileBundleFromWorkspace({
-        client,
-        workspaceId,
-        workspaceName: workspaceLabel(workspace),
-        baseUrl: DEFAULT_OPENWORK_PUBLISHER_BASE_URL,
-      });
-
-      setShareWorkspaceProfileUrl(result.url);
-      try {
-        await navigator.clipboard.writeText(result.url);
-      } catch {
-        // ignore
-      }
-    } catch (error) {
-      setShareWorkspaceProfileError(
-        error instanceof Error
-          ? error.message
-          : "Failed to publish workspace profile",
-      );
-    } finally {
-      setShareWorkspaceProfileBusy(false);
-    }
-  };
-
-  const shareWorkspaceProfileToTeam = async (templateName: string) => {
-    if (shareWorkspaceProfileTeamBusy()) return;
-    setShareWorkspaceProfileTeamBusy(true);
-    setShareWorkspaceProfileTeamError(null);
-    setShareWorkspaceProfileTeamSuccess(null);
-
-    try {
-      const { client, workspaceId, workspace } = await resolveShareExportContext();
-      const { created, orgName } = await saveWorkspaceProfileBundleToTeam({
-        client,
-        workspaceId,
-        workspaceName: workspaceLabel(workspace),
-        requestedName: templateName,
-      });
-
-      setShareWorkspaceProfileTeamSuccess(
-        `Saved ${created.name} to ${orgName || "your team templates"}.`,
-      );
-    } catch (error) {
-      setShareWorkspaceProfileTeamError(
-        error instanceof Error ? error.message : "Failed to save team template",
-      );
-    } finally {
-      setShareWorkspaceProfileTeamBusy(false);
-    }
-  };
-
-  const publishSkillsSetLink = async () => {
-    if (shareSkillsSetBusy()) return;
-    setShareSkillsSetBusy(true);
-    setShareSkillsSetError(null);
-    setShareSkillsSetUrl(null);
-
-    try {
-      const { client, workspaceId, workspace } = await resolveShareExportContext();
-      const result = await publishSkillsSetBundleFromWorkspace({
-        client,
-        workspaceId,
-        workspaceName: workspaceLabel(workspace),
-        baseUrl: DEFAULT_OPENWORK_PUBLISHER_BASE_URL,
-      });
-
-      setShareSkillsSetUrl(result.url);
-      try {
-        await navigator.clipboard.writeText(result.url);
-      } catch {
-        // ignore
-      }
-    } catch (error) {
-      setShareSkillsSetError(
-        error instanceof Error ? error.message : "Failed to publish skills set",
-      );
-    } finally {
-      setShareSkillsSetBusy(false);
-    }
-  };
-
-  const exportDisabledReason = createMemo(() => {
-    const ws = shareWorkspace();
-    if (!ws) return "Export is available for local workers in the desktop app.";
-    if (ws.workspaceType === "remote")
-      return "Export is only supported for local workers.";
-    if (!isTauriRuntime()) return "Export is available in the desktop app.";
-    if (props.exportWorkspaceBusy) return "Export is already running.";
-    return null;
-  });
 
   const handleSendPrompt = (draft: ComposerDraft) => {
     suppressJumpControlsTemporarily();
@@ -2752,9 +2273,10 @@ export default function SessionView(props: SessionViewProps) {
     const workspaceId = props.runtimeWorkspaceId?.trim() ?? "";
     if (!client || !workspaceId) {
       if (notify) {
-        setToastMessage(
-          "Connect to the OpenWork server to upload files to the shared folder.",
-        );
+        showComposerNotice({
+          title: "Connect to the OpenWork server to upload files to the shared folder.",
+          tone: "warning",
+        });
       }
       return [];
     }
@@ -2763,7 +2285,10 @@ export default function SessionView(props: SessionViewProps) {
     const label =
       files.length === 1 ? (files[0]?.name ?? "file") : `${files.length} files`;
     if (notify) {
-      setToastMessage(`Uploading ${label} to the shared folder...`);
+      showComposerNotice({
+        title: `Uploading ${label} to the shared folder...`,
+        tone: "info",
+      });
     }
 
     try {
@@ -2778,11 +2303,12 @@ export default function SessionView(props: SessionViewProps) {
           .map((file) => file.name)
           .filter(Boolean)
           .join(", ");
-        setToastMessage(
-          summary
+        showComposerNotice({
+          title: summary
             ? `Uploaded to the shared folder: ${summary}`
             : "Uploaded to the shared folder.",
-        );
+          tone: "success",
+        });
       }
       return uploaded;
     } catch (error) {
@@ -2791,7 +2317,7 @@ export default function SessionView(props: SessionViewProps) {
           error instanceof Error
             ? error.message
             : "Shared folder upload failed";
-        setToastMessage(message);
+        showComposerNotice({ title: message, tone: "error" });
       }
       return [];
     }
@@ -2855,7 +2381,7 @@ export default function SessionView(props: SessionViewProps) {
                 error instanceof Error
                   ? error.message
                   : "Failed to create session";
-              setToastMessage(message);
+              showStatusToast(message, "error");
             });
         },
       },
@@ -2919,7 +2445,7 @@ export default function SessionView(props: SessionViewProps) {
                 error instanceof Error
                   ? error.message
                   : "Failed to load providers";
-              setToastMessage(message);
+              showStatusToast(message, "error");
               focusComposer();
             });
         },
@@ -3104,7 +2630,7 @@ export default function SessionView(props: SessionViewProps) {
   const openProviderAuth = (preferredProviderId?: string) => {
     void props.openProviderAuthModal({ preferredProviderId }).catch((error) => {
       const message = error instanceof Error ? error.message : "Connect failed";
-      setToastMessage(message);
+      showStatusToast(message, "error");
     });
   };
 
@@ -3272,9 +2798,7 @@ export default function SessionView(props: SessionViewProps) {
               onOpenRenameSession={openRenameModal}
               onOpenDeleteSession={openDeleteSessionModal}
               onOpenRenameWorkspace={props.openRenameWorkspace}
-              onShareWorkspace={(workspaceId) =>
-                setShareWorkspaceId(workspaceId)
-              }
+              onShareWorkspace={shareWorkspaceState.openShareWorkspace}
               onRevealWorkspace={revealWorkspaceInFinder}
               onRecoverWorkspace={props.recoverWorkspace}
               onTestWorkspaceConnection={props.testWorkspaceConnection}
@@ -3843,8 +3367,8 @@ export default function SessionView(props: SessionViewProps) {
               setAgentPickerRef={(el) => {
                 agentPickerRef = el;
               }}
-              toast={toastMessage()}
-              onToast={(message) => setToastMessage(message)}
+              notice={composerNotice()}
+              onNotice={showComposerNotice}
               listAgents={props.listAgents}
               recentFiles={props.workingFiles}
               searchFiles={props.searchFiles}
@@ -4052,12 +3576,12 @@ export default function SessionView(props: SessionViewProps) {
       />
 
       <ShareWorkspaceModal
-        open={Boolean(shareWorkspaceId())}
-        onClose={() => setShareWorkspaceId(null)}
-        workspaceName={shareWorkspaceName()}
-        workspaceDetail={shareWorkspaceDetail()}
-        fields={shareFields()}
-        remoteAccess={shareWorkspace()?.workspaceType === "local"
+        open={shareWorkspaceState.shareWorkspaceOpen()}
+        onClose={shareWorkspaceState.closeShareWorkspace}
+        workspaceName={shareWorkspaceState.shareWorkspaceName()}
+        workspaceDetail={shareWorkspaceState.shareWorkspaceDetail()}
+        fields={shareWorkspaceState.shareFields()}
+        remoteAccess={shareWorkspaceState.shareWorkspace()?.workspaceType === "local"
           ? {
               enabled: props.openworkServerHostInfo?.remoteAccessEnabled === true,
               busy: props.shareRemoteAccessBusy,
@@ -4065,35 +3589,35 @@ export default function SessionView(props: SessionViewProps) {
               onSave: props.saveShareRemoteAccess,
             }
           : undefined}
-        note={shareNote()}
-        onShareWorkspaceProfile={publishWorkspaceProfileLink}
-        shareWorkspaceProfileBusy={shareWorkspaceProfileBusy()}
-        shareWorkspaceProfileUrl={shareWorkspaceProfileUrl()}
-        shareWorkspaceProfileError={shareWorkspaceProfileError()}
-        shareWorkspaceProfileDisabledReason={shareServiceDisabledReason()}
-        onShareWorkspaceProfileToTeam={shareWorkspaceProfileToTeam}
-        shareWorkspaceProfileToTeamBusy={shareWorkspaceProfileTeamBusy()}
-        shareWorkspaceProfileToTeamError={shareWorkspaceProfileTeamError()}
-        shareWorkspaceProfileToTeamSuccess={shareWorkspaceProfileTeamSuccess()}
-        shareWorkspaceProfileToTeamDisabledReason={shareWorkspaceProfileTeamDisabledReason()}
-        shareWorkspaceProfileToTeamOrgName={shareWorkspaceProfileTeamOrgName()}
-        shareWorkspaceProfileToTeamNeedsSignIn={shareWorkspaceProfileToTeamNeedsSignIn()}
-        onShareWorkspaceProfileToTeamSignIn={startShareWorkspaceProfileToTeamSignIn}
-        onShareSkillsSet={publishSkillsSetLink}
-        shareSkillsSetBusy={shareSkillsSetBusy()}
-        shareSkillsSetUrl={shareSkillsSetUrl()}
-        shareSkillsSetError={shareSkillsSetError()}
-        shareSkillsSetDisabledReason={shareServiceDisabledReason()}
+        note={shareWorkspaceState.shareNote()}
+        onShareWorkspaceProfile={shareWorkspaceState.publishWorkspaceProfileLink}
+        shareWorkspaceProfileBusy={shareWorkspaceState.shareWorkspaceProfileBusy()}
+        shareWorkspaceProfileUrl={shareWorkspaceState.shareWorkspaceProfileUrl()}
+        shareWorkspaceProfileError={shareWorkspaceState.shareWorkspaceProfileError()}
+        shareWorkspaceProfileDisabledReason={shareWorkspaceState.shareServiceDisabledReason()}
+        onShareWorkspaceProfileToTeam={shareWorkspaceState.shareWorkspaceProfileToTeam}
+        shareWorkspaceProfileToTeamBusy={shareWorkspaceState.shareWorkspaceProfileTeamBusy()}
+        shareWorkspaceProfileToTeamError={shareWorkspaceState.shareWorkspaceProfileTeamError()}
+        shareWorkspaceProfileToTeamSuccess={shareWorkspaceState.shareWorkspaceProfileTeamSuccess()}
+        shareWorkspaceProfileToTeamDisabledReason={shareWorkspaceState.shareWorkspaceProfileTeamDisabledReason()}
+        shareWorkspaceProfileToTeamOrgName={shareWorkspaceState.shareWorkspaceProfileTeamOrgName()}
+        shareWorkspaceProfileToTeamNeedsSignIn={shareWorkspaceState.shareWorkspaceProfileToTeamNeedsSignIn()}
+        onShareWorkspaceProfileToTeamSignIn={shareWorkspaceState.startShareWorkspaceProfileToTeamSignIn}
+        onShareSkillsSet={shareWorkspaceState.publishSkillsSetLink}
+        shareSkillsSetBusy={shareWorkspaceState.shareSkillsSetBusy()}
+        shareSkillsSetUrl={shareWorkspaceState.shareSkillsSetUrl()}
+        shareSkillsSetError={shareWorkspaceState.shareSkillsSetError()}
+        shareSkillsSetDisabledReason={shareWorkspaceState.shareServiceDisabledReason()}
         onExportConfig={
-          exportDisabledReason()
+          shareWorkspaceState.exportDisabledReason()
             ? undefined
             : () => {
-                const id = shareWorkspaceId();
+                const id = shareWorkspaceState.shareWorkspaceId();
                 if (!id) return;
                 props.exportWorkspaceConfig(id);
               }
         }
-        exportDisabledReason={exportDisabledReason()}
+        exportDisabledReason={shareWorkspaceState.exportDisabledReason()}
         onOpenBots={openConfig}
       />
 
