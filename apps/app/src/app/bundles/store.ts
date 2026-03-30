@@ -35,9 +35,9 @@ import type {
   BundleWorkerOption,
   BundleV1,
   SkillDestinationRequest,
-  SkillSuccessToast,
   WorkspaceProfileBundleV1,
 } from "./types";
+import type { AppStatusToastInput } from "../shell/status-toasts";
 
 type BundleProcessResult =
   | { mode: "choice"; bundle: BundleV1 }
@@ -65,6 +65,7 @@ export function createBundlesStore(options: {
   refreshSkills: (input?: { force?: boolean }) => Promise<unknown>;
   refreshHubSkills: (input?: { force?: boolean }) => Promise<unknown>;
   markReloadRequired: (reason: ReloadReason, trigger?: ReloadTrigger) => void;
+  showStatusToast: (toast: AppStatusToastInput) => void;
 }) {
   const [pendingBundleRequest, setPendingBundleRequest] = createSignal<BundleRequest | null>(null);
   const [bundleStartRequest, setBundleStartRequest] = createSignal<BundleStartRequest | null>(null);
@@ -76,34 +77,14 @@ export function createBundlesStore(options: {
   const [bundleImportBusy, setBundleImportBusy] = createSignal(false);
   const [bundleImportError, setBundleImportError] = createSignal<string | null>(null);
   const [bundleNoticeShown, setBundleNoticeShown] = createSignal(false);
-  const [skillSuccessToast, setSkillSuccessToast] = createSignal<SkillSuccessToast | null>(null);
 
-  let skillSuccessToastTimer: number | null = null;
-
-  const clearSkillSuccessToast = () => {
-    if (skillSuccessToastTimer) {
-      window.clearTimeout(skillSuccessToastTimer);
-      skillSuccessToastTimer = null;
-    }
-    setSkillSuccessToast(null);
+  const showSkillSuccessToast = (toast: { title: string; description: string }) => {
+    options.showStatusToast({
+      ...toast,
+      tone: "success",
+      durationMs: 4200,
+    });
   };
-
-  const showSkillSuccessToast = (toast: SkillSuccessToast) => {
-    if (skillSuccessToastTimer) {
-      window.clearTimeout(skillSuccessToastTimer);
-    }
-    setSkillSuccessToast(toast);
-    skillSuccessToastTimer = window.setTimeout(() => {
-      skillSuccessToastTimer = null;
-      setSkillSuccessToast(null);
-    }, 4200);
-  };
-
-  onCleanup(() => {
-    if (skillSuccessToastTimer) {
-      window.clearTimeout(skillSuccessToastTimer);
-    }
-  });
 
   const resetInteractiveBundleState = () => {
     setSkillDestinationRequest(null);
@@ -830,7 +811,6 @@ export function createBundlesStore(options: {
     openRemoteConnectFromSkillDestination,
     handleCreateWorkspaceConfirm,
     handleCreateSandboxConfirm,
-    clearSkillSuccessToast,
     bundleImportChoice,
     bundleImportSummary,
     bundleWorkerOptions,
@@ -844,6 +824,5 @@ export function createBundlesStore(options: {
     skillDestinationRequest,
     skillDestinationWorkspaces,
     skillDestinationBusyId,
-    skillSuccessToast,
   };
 }

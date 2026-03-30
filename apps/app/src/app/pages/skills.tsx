@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 
 import type { HubSkillCard, HubSkillRepo, SkillCard } from "../types";
 import { useExtensions } from "../extensions/provider";
@@ -8,6 +8,7 @@ import Button from "../components/button";
 import { Copy, Edit2, FolderOpen, Loader2, Package, Plus, RefreshCw, Search, Share2, Sparkles, Trash2, Upload } from "lucide-solid";
 import { currentLocale, t } from "../../i18n";
 import { DEFAULT_OPENWORK_PUBLISHER_BASE_URL, publishOpenworkBundleJson } from "../lib/publisher";
+import { useStatusToasts, type AppStatusToastTone } from "../shell/status-toasts";
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
@@ -46,6 +47,7 @@ export type SkillsViewProps = {
 
 export default function SkillsView(props: SkillsViewProps) {
   const extensions = useExtensions();
+  const statusToasts = useStatusToasts();
   // Translation helper that uses current language from i18n
   const translate = (key: string) => t(key, currentLocale());
 
@@ -75,7 +77,6 @@ export default function SkillsView(props: SkillsViewProps) {
   const [selectedDirty, setSelectedDirty] = createSignal(false);
   const [selectedError, setSelectedError] = createSignal<string | null>(null);
 
-  const [toast, setToast] = createSignal<string | null>(null);
   const [installingSkillCreator, setInstallingSkillCreator] = createSignal(false);
   const [installingHubSkill, setInstallingHubSkill] = createSignal<string | null>(null);
 
@@ -83,14 +84,10 @@ export default function SkillsView(props: SkillsViewProps) {
     extensions.ensureHubSkillsFresh();
   });
 
-  createEffect(() => {
-    const message = toast();
-    if (!message) return;
-    const id = window.setTimeout(() => setToast(null), 2400);
-    onCleanup(() => window.clearTimeout(id));
-  });
-
   const maskError = (value: unknown) => (value instanceof Error ? value.message : "Something went wrong");
+  const showToast = (title: string, tone: AppStatusToastTone = "info") => {
+    statusToasts.showToast({ title, tone });
+  };
 
   const hubRepoKey = (repo: HubSkillRepo) => `${repo.owner}/${repo.repo}@${repo.ref}`;
   const defaultHubRepoKey = "different-ai/openwork-hub@main";
@@ -167,16 +164,16 @@ export default function SkillsView(props: SkillsViewProps) {
   const installSkillCreator = async () => {
     if (props.busy || installingSkillCreator()) return;
     if (!props.canInstallSkillCreator) {
-      setToast(props.accessHint ?? translate("skills.host_only_error"));
+      showToast(props.accessHint ?? translate("skills.host_only_error"), "warning");
       return;
     }
     setInstallingSkillCreator(true);
-    setToast(translate("skills.installing_skill_creator"));
+    showToast(translate("skills.installing_skill_creator"));
     try {
       const result = await extensions.installSkillCreator();
-      setToast(result.message);
+      showToast(result.message, "success");
     } catch (e) {
-      setToast(e instanceof Error ? e.message : translate("skills.install_failed"));
+      showToast(e instanceof Error ? e.message : translate("skills.install_failed"), "error");
     } finally {
       setInstallingSkillCreator(false);
     }
@@ -185,12 +182,12 @@ export default function SkillsView(props: SkillsViewProps) {
   const installFromHub = async (skill: HubSkillCard) => {
     if (props.busy || installingHubSkill()) return;
     setInstallingHubSkill(skill.name);
-    setToast(`Installing ${skill.name}…`);
+    showToast(`Installing ${skill.name}…`);
     try {
       const result = await extensions.installHubSkill(skill.name);
-      setToast(result.message);
+      showToast(result.message, "success");
     } catch (e) {
-      setToast(e instanceof Error ? e.message : translate("skills.install_failed"));
+      showToast(e instanceof Error ? e.message : translate("skills.install_failed"), "error");
     } finally {
       setInstallingHubSkill(null);
     }
@@ -252,7 +249,7 @@ export default function SkillsView(props: SkillsViewProps) {
       setShareUrl(result.url);
       try {
         await navigator.clipboard.writeText(result.url);
-        setToast("Link copied");
+        showToast("Link copied", "success");
       } catch {
         // ignore
       }
@@ -268,7 +265,7 @@ export default function SkillsView(props: SkillsViewProps) {
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
-      setToast("Link copied");
+      showToast("Link copied", "success");
     } catch {
       setShareError("Failed to copy link");
     }
@@ -340,7 +337,7 @@ export default function SkillsView(props: SkillsViewProps) {
   const runDesktopAction = (action: () => void | Promise<void>) => {
     if (props.busy) return;
     if (!props.canUseDesktopTools) {
-      setToast(translate("skills.desktop_required"));
+      showToast(translate("skills.desktop_required"), "warning");
       return;
     }
     void Promise.resolve(action());
@@ -354,12 +351,6 @@ export default function SkillsView(props: SkillsViewProps) {
 
   return (
     <section class="space-y-8">
-      <Show when={toast()}>
-        <div class="fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border border-dls-border bg-dls-surface px-4 py-3 text-xs text-dls-text shadow-2xl">
-          {toast()}
-        </div>
-      </Show>
-
       <div class="space-y-6">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div class="min-w-0">
@@ -552,7 +543,7 @@ export default function SkillsView(props: SkillsViewProps) {
                               e.preventDefault();
                               e.stopPropagation();
                               if (props.busy || !props.canUseDesktopTools) {
-                                if (!props.canUseDesktopTools) setToast(translate("skills.desktop_required"));
+                                if (!props.canUseDesktopTools) showToast(translate("skills.desktop_required"), "warning");
                                 return;
                               }
                               setUninstallTarget(skill);

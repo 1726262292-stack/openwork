@@ -67,11 +67,6 @@ export type SkillDestinationRequest = {
   bundle: SkillBundleV1;
 };
 
-export type SkillSuccessToast = {
-  title: string;
-  description: string;
-};
-
 export type BundleImportChoice = {
   request: BundleRequest;
   bundle: BundleV1;

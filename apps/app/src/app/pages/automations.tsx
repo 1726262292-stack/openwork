@@ -22,6 +22,7 @@ import {
   Trophy,
   X,
 } from "lucide-solid";
+import { useStatusToasts, type AppStatusToastTone } from "../shell/status-toasts";
 
 type AutomationsFilter = "all" | "scheduled" | "templates";
 type ScheduleMode = "daily" | "interval";
@@ -413,8 +414,8 @@ const JobCard = (props: {
 export default function AutomationsView(props: AutomationsViewProps) {
   const automations = useAutomations();
   const platform = usePlatform();
+  const statusToasts = useStatusToasts();
 
-  const [toast, setToast] = createSignal<string | null>(null);
   const [searchQuery, setSearchQuery] = createSignal("");
   const [activeFilter, setActiveFilter] = createSignal<AutomationsFilter>("all");
   const [installingScheduler, setInstallingScheduler] = createSignal(false);
@@ -434,17 +435,14 @@ export default function AutomationsView(props: AutomationsViewProps) {
   const [lastUpdatedNow, setLastUpdatedNow] = createSignal(Date.now());
 
   createEffect(() => {
-    const message = toast();
-    if (!message) return;
-    const id = window.setTimeout(() => setToast(null), 2400);
-    onCleanup(() => window.clearTimeout(id));
-  });
-
-  createEffect(() => {
     if (typeof window === "undefined") return;
     const interval = window.setInterval(() => setLastUpdatedNow(Date.now()), 1_000);
     onCleanup(() => window.clearInterval(interval));
   });
+
+  const showToast = (title: string, tone: AppStatusToastTone = "info") => {
+    statusToasts.showToast({ title, tone });
+  };
 
   const resetDraft = (template?: AutomationTemplate) => {
     setAutomationName(template?.name ?? DEFAULT_AUTOMATION_NAME);
@@ -551,7 +549,7 @@ export default function AutomationsView(props: AutomationsViewProps) {
     setSchedulerInstallRequested(true);
     try {
       await Promise.resolve(props.addPlugin("opencode-scheduler"));
-      setToast("Scheduler install requested.");
+      showToast("Scheduler install requested.", "success");
     } finally {
       setInstallingScheduler(false);
     }
@@ -594,7 +592,7 @@ export default function AutomationsView(props: AutomationsViewProps) {
       props.setPrompt(plan.prompt);
       await Promise.resolve(props.createSessionAndOpen());
       setCreateModalOpen(false);
-      setToast("Prepared automation in chat.");
+      showToast("Prepared automation in chat.", "success");
     } catch (error) {
       setCreateError(
         error instanceof Error ? error.message : "Failed to prepare automation in chat.",
@@ -608,12 +606,12 @@ export default function AutomationsView(props: AutomationsViewProps) {
     if (!supported() || props.busy) return;
     const plan = automations.prepareRunAutomation(job, props.selectedWorkspaceRoot);
     if (!plan.ok) {
-      setToast(plan.error);
+      showToast(plan.error, "warning");
       return;
     }
     props.setPrompt(plan.prompt);
     await Promise.resolve(props.createSessionAndOpen());
-    setToast(`Prepared ${job.name} in chat.`);
+    showToast(`Prepared ${job.name} in chat.`, "success");
   };
 
   const confirmDelete = async () => {
@@ -624,7 +622,7 @@ export default function AutomationsView(props: AutomationsViewProps) {
     try {
       await automations.remove(target.slug);
       setDeleteTarget(null);
-      setToast(`Removed ${target.name}.`);
+      showToast(`Removed ${target.name}.`, "success");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setDeleteError(message || "Failed to delete automation.");
@@ -658,12 +656,6 @@ export default function AutomationsView(props: AutomationsViewProps) {
 
   return (
     <section class="space-y-8">
-      <Show when={toast()}>
-        <div class="fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border border-dls-border bg-dls-surface px-4 py-3 text-xs text-dls-text shadow-2xl">
-          {toast()}
-        </div>
-      </Show>
-
       <div class="space-y-6">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div class="min-w-0">

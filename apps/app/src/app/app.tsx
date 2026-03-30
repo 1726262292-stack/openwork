@@ -33,14 +33,14 @@ import SkillDestinationModal from "./bundles/skill-destination-modal";
 import BundleImportModal from "./bundles/import-modal";
 import BundleStartModal from "./bundles/start-modal";
 import RenameWorkspaceModal from "./components/rename-workspace-modal";
-import ReloadWorkspaceToast from "./components/reload-workspace-toast";
-import StatusToast from "./components/status-toast";
 import ConnectionsModals from "./connections/modals";
 import { ConnectionsProvider } from "./connections/provider";
 import { ExtensionsProvider } from "./extensions/provider";
 import { AutomationsProvider } from "./automations/provider";
 import BootShell from "./shell/boot-shell";
 import SettingsShell from "./shell/settings-shell";
+import TopRightNotifications from "./shell/top-right-notifications";
+import { createStatusToastsStore, StatusToastsProvider } from "./shell/status-toasts";
 import SessionView from "./pages/session";
 import { unwrap } from "./lib/opencode";
 import { createDenClient, writeDenSettings } from "./lib/den";
@@ -2020,6 +2020,7 @@ export default function App() {
 
   const runtimeWorkspaceId = createMemo(() => workspaceStore.runtimeWorkspaceId());
   const activeWorkspaceServerConfig = createMemo(() => workspaceStore.runtimeWorkspaceConfig());
+  const statusToastsStore = createStatusToastsStore();
   const bundlesStore = createBundlesStore({
     booting,
     startupPreference,
@@ -2037,6 +2038,7 @@ export default function App() {
     refreshSkills,
     refreshHubSkills,
     markReloadRequired,
+    showStatusToast: statusToastsStore.showToast,
   });
 
   const logWorkspaceScopeSnapshot = (label: string, extra?: Record<string, unknown>) => {
@@ -4946,17 +4948,18 @@ export default function App() {
     <ConnectionsProvider store={connectionsStore}>
       <ExtensionsProvider store={extensionsStore}>
         <AutomationsProvider store={automationsStore}>
-          <Switch>
-            <Match when={booting()}>
-              <BootShell />
-            </Match>
-            <Match when={currentView() === "session"}>
-              <SessionView {...sessionProps()} />
-            </Match>
-            <Match when={true}>
-              <SettingsShell {...settingsShellProps()} />
-            </Match>
-          </Switch>
+          <StatusToastsProvider store={statusToastsStore}>
+            <Switch>
+              <Match when={booting()}>
+                <BootShell />
+              </Match>
+              <Match when={currentView() === "session"}>
+                <SessionView {...sessionProps()} />
+              </Match>
+              <Match when={true}>
+                <SettingsShell {...settingsShellProps()} />
+              </Match>
+            </Switch>
 
       <ModelPickerModal
         open={modelPickerOpen()}
@@ -5166,54 +5169,38 @@ export default function App() {
         }}
       />
 
-      <CreateRemoteWorkspaceModal
-        open={workspaceStore.createRemoteWorkspaceOpen()}
-        onClose={() => {
-          workspaceStore.setCreateRemoteWorkspaceOpen(false);
-          setDeepLinkRemoteWorkspaceDefaults(null);
+            <CreateRemoteWorkspaceModal
+              open={workspaceStore.createRemoteWorkspaceOpen()}
+              onClose={() => {
+                workspaceStore.setCreateRemoteWorkspaceOpen(false);
+                setDeepLinkRemoteWorkspaceDefaults(null);
+              }}
+              onConfirm={(input) => workspaceStore.createRemoteWorkspaceFlow(input)}
+              initialValues={deepLinkRemoteWorkspaceDefaults() ?? undefined}
+              submitting={
+                busy() &&
+                (busyLabel() === "status.creating_workspace" || busyLabel() === "status.connecting")
+              }
+            />
+
+      <TopRightNotifications
+        reloadOpen={reloadRequired("config", "mcp", "plugin", "skill", "agent", "command")}
+        reloadTitle={reloadCopy().title}
+        reloadDescription={reloadCopy().body}
+        reloadTrigger={reloadTrigger()}
+        reloadError={reloadError()}
+        reloadLabel={activeReloadBlockingSessions().length > 0 ? "Reload & Stop Tasks" : "Reload now"}
+        dismissLabel="Later"
+        reloadBusy={reloadBusy()}
+        canReload={canReloadWorkspace()}
+        hasActiveRuns={activeReloadBlockingSessions().length > 0}
+        onReload={() => {
+          void (activeReloadBlockingSessions().length > 0
+            ? forceStopActiveSessionsAndReload()
+            : reloadWorkspaceEngineAndResume());
         }}
-        onConfirm={(input) => workspaceStore.createRemoteWorkspaceFlow(input)}
-        initialValues={deepLinkRemoteWorkspaceDefaults() ?? undefined}
-        submitting={
-          busy() &&
-          (busyLabel() === "status.creating_workspace" || busyLabel() === "status.connecting")
-        }
+        onDismissReload={clearReloadRequired}
       />
-
-      <div class="pointer-events-none fixed right-4 top-4 z-50 flex w-[min(24rem,calc(100vw-1.5rem))] max-w-full flex-col gap-3 sm:right-6 sm:top-6">
-        <div class="pointer-events-auto">
-          <ReloadWorkspaceToast
-            open={reloadRequired("config", "mcp", "plugin", "skill", "agent", "command")}
-            title={reloadCopy().title}
-            description={reloadCopy().body}
-            trigger={reloadTrigger()}
-            error={reloadError()}
-            reloadLabel={activeReloadBlockingSessions().length > 0 ? "Reload & Stop Tasks" : "Reload now"}
-            dismissLabel="Later"
-            busy={reloadBusy()}
-            canReload={canReloadWorkspace()}
-            hasActiveRuns={activeReloadBlockingSessions().length > 0}
-            onReload={() => {
-              void (activeReloadBlockingSessions().length > 0
-                ? forceStopActiveSessionsAndReload()
-                : reloadWorkspaceEngineAndResume());
-            }}
-            onDismiss={clearReloadRequired}
-          />
-        </div>
-
-        <div class="pointer-events-auto">
-          <StatusToast
-            open={Boolean(bundlesStore.skillSuccessToast())}
-            tone="success"
-            title={bundlesStore.skillSuccessToast()?.title ?? "Skill added"}
-            description={bundlesStore.skillSuccessToast()?.description ?? null}
-            dismissLabel="Dismiss"
-            onDismiss={bundlesStore.clearSkillSuccessToast}
-          />
-        </div>
-
-      </div>
 
       <RenameWorkspaceModal
         open={renameWorkspaceOpen()}
@@ -5261,6 +5248,7 @@ export default function App() {
         subtitle={t("dashboard.edit_remote_workspace_subtitle", currentLocale())}
         confirmLabel={t("dashboard.edit_remote_workspace_confirm", currentLocale())}
       />
+          </StatusToastsProvider>
         </AutomationsProvider>
       </ExtensionsProvider>
     </ConnectionsProvider>

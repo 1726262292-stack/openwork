@@ -1,6 +1,6 @@
 import { Show } from "solid-js";
 
-import { CheckCircle2, Info, X } from "lucide-solid";
+import { AlertTriangle, CheckCircle2, CircleAlert, Info, X } from "lucide-solid";
 
 import Button from "./button";
 
@@ -8,7 +8,7 @@ export type StatusToastProps = {
   open: boolean;
   title: string;
   description?: string | null;
-  tone?: "success" | "info";
+  tone?: "success" | "info" | "warning" | "error";
   actionLabel?: string;
   onAction?: () => void;
   dismissLabel?: string;
@@ -20,16 +20,31 @@ export default function StatusToast(props: StatusToastProps) {
 
   return (
     <Show when={props.open}>
-      <div class="w-full max-w-[24rem] overflow-hidden rounded-[1.4rem] border border-white/70 bg-white/92 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.28)] backdrop-blur-xl">
+      <div class="w-full max-w-[24rem] overflow-hidden rounded-[1.4rem] border border-dls-border bg-dls-surface shadow-[var(--dls-shell-shadow)] backdrop-blur-xl animate-in fade-in slide-in-from-top-4 duration-300">
         <div class="flex items-start gap-3 px-4 py-4">
           <div
             class={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
               tone() === "success"
                 ? "border-emerald-6/40 bg-emerald-4/80 text-emerald-11"
+                : tone() === "warning"
+                  ? "border-amber-6/40 bg-amber-4/80 text-amber-11"
+                  : tone() === "error"
+                    ? "border-red-6/40 bg-red-4/80 text-red-11"
                 : "border-sky-6/40 bg-sky-4/80 text-sky-11"
             }`.trim()}
           >
-            <Show when={tone() === "success"} fallback={<Info size={18} />}>
+            <Show
+              when={tone() === "success"}
+              fallback={
+                tone() === "warning" ? (
+                  <AlertTriangle size={18} />
+                ) : tone() === "error" ? (
+                  <CircleAlert size={18} />
+                ) : (
+                  <Info size={18} />
+                )
+              }
+            >
               <CheckCircle2 size={18} />
             </Show>
           </div>
