@@ -198,18 +198,10 @@ export type SettingsShellProps = {
   createSessionAndOpen: () => void;
   setPrompt: (value: string) => void;
   selectSession: (sessionId: string) => Promise<void> | void;
-  defaultModelLabel: string;
-  defaultModelRef: string;
-  openDefaultModelPicker: () => void;
-  autoCompactContext: boolean;
-  toggleAutoCompactContext: () => void;
-  autoCompactContextBusy: boolean;
   hideTitlebar: boolean;
   toggleHideTitlebar: () => void;
   opencodeEnableExa: boolean;
   toggleOpencodeEnableExa: () => void;
-  modelVariantLabel: string;
-  editModelVariant: () => void;
   language: Language;
   setLanguage: (value: Language) => void;
   updateAutoCheck: boolean;
@@ -1180,16 +1172,8 @@ export default function SettingsShell(props: SettingsShellProps) {
                   opencodeEnableExa={props.opencodeEnableExa}
                   toggleOpencodeEnableExa={props.toggleOpencodeEnableExa}
                   isWindows={props.isWindows}
-                  defaultModelLabel={props.defaultModelLabel}
-                  defaultModelRef={props.defaultModelRef}
-                  openDefaultModelPicker={props.openDefaultModelPicker}
-                  autoCompactContext={props.autoCompactContext}
-                  toggleAutoCompactContext={props.toggleAutoCompactContext}
-                  autoCompactContextBusy={props.autoCompactContextBusy}
                   hideTitlebar={props.hideTitlebar}
                   toggleHideTitlebar={props.toggleHideTitlebar}
-                  modelVariantLabel={props.modelVariantLabel}
-                  editModelVariant={props.editModelVariant}
                   language={props.language}
                   setLanguage={props.setLanguage}
                   updateAutoCheck={props.updateAutoCheck}

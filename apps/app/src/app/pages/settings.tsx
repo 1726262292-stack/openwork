@@ -22,6 +22,7 @@ import ProviderIcon from "../components/provider-icon";
 import WebUnavailableSurface from "../components/web-unavailable-surface";
 import DenSettingsPanel from "../components/den-settings-panel";
 import TextInput from "../components/text-input";
+import { useModelControls } from "../app-settings/model-controls-provider";
 import { useSessionDisplayPreferences } from "../app-settings/session-display-preferences";
 import { usePlatform } from "../context/platform";
 import ConfigView from "./config";
@@ -134,16 +135,8 @@ export type SettingsViewProps = {
   opencodeEnableExa: boolean;
   toggleOpencodeEnableExa: () => void;
   isWindows: boolean;
-  defaultModelLabel: string;
-  defaultModelRef: string;
-  openDefaultModelPicker: () => void;
-  autoCompactContext: boolean;
-  toggleAutoCompactContext: () => void;
-  autoCompactContextBusy: boolean;
   hideTitlebar: boolean;
   toggleHideTitlebar: () => void;
-  modelVariantLabel: string;
-  editModelVariant: () => void;
   language: Language;
   setLanguage: (value: Language) => void;
   themeMode: "light" | "dark" | "system";
@@ -256,6 +249,7 @@ export function OpenCodeRouterSettings(_props: {
 }
 
 export default function SettingsView(props: SettingsViewProps) {
+  const modelControls = useModelControls();
   const { showThinking, toggleShowThinking } = useSessionDisplayPreferences();
   const platform = usePlatform();
   const webDeployment = createMemo(() => getOpenWorkDeployment() === "web");
@@ -1581,16 +1575,16 @@ export default function SettingsView(props: SettingsViewProps) {
               <div class="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
                 <div class="min-w-0">
                   <div class="text-sm text-gray-12 truncate">
-                    {props.defaultModelLabel}
+                    {modelControls.defaultModelLabel()}
                   </div>
                   <div class="text-xs text-gray-7 font-mono truncate">
-                    {props.defaultModelRef}
+                    {modelControls.defaultModelRef()}
                   </div>
                 </div>
                 <Button
                   variant="outline"
                   class="text-xs h-8 py-0 px-3 shrink-0"
-                  onClick={props.openDefaultModelPicker}
+                  onClick={modelControls.openDefaultModelPicker}
                   disabled={props.busy}
                 >
                   Change
@@ -1621,13 +1615,13 @@ export default function SettingsView(props: SettingsViewProps) {
                     Open the default model picker to choose reasoning profiles when they are available.
                   </div>
                   <div class="mt-1 text-xs text-gray-8 font-medium truncate">
-                    {props.modelVariantLabel}
+                    {modelControls.defaultModelVariantLabel()}
                   </div>
                 </div>
                 <Button
                   variant="outline"
                   class="text-xs h-8 py-0 px-3 shrink-0"
-                  onClick={props.editModelVariant}
+                  onClick={modelControls.editDefaultModelVariant}
                   disabled={props.busy}
                 >
                   Configure
@@ -1644,10 +1638,10 @@ export default function SettingsView(props: SettingsViewProps) {
                 <Button
                   variant="outline"
                   class="text-xs h-8 py-0 px-3 shrink-0"
-                  onClick={props.toggleAutoCompactContext}
-                  disabled={props.busy || props.autoCompactContextBusy}
+                  onClick={modelControls.toggleAutoCompactContext}
+                  disabled={props.busy || modelControls.autoCompactContextBusy()}
                 >
-                  {props.autoCompactContext ? "On" : "Off"}
+                  {modelControls.autoCompactContext() ? "On" : "Off"}
                 </Button>
               </div>
             </div>

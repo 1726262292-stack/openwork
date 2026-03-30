@@ -118,6 +118,8 @@ import {
   workspaceModelVariantsKey,
 } from "./context/model-config";
 import { createProvidersStore } from "./context/providers";
+import { ModelControlsProvider } from "./app-settings/model-controls-provider";
+import { createModelControlsStore } from "./app-settings/model-controls-store";
 import { useSessionDisplayPreferences } from "./app-settings/session-display-preferences";
 import {
   formatGenericBehaviorLabel,
@@ -3344,6 +3346,32 @@ export default function App() {
     return seconds > 0 ? `${label} · ${seconds}s` : label;
   });
 
+  const modelControlsStore = createModelControlsStore({
+    selectedSessionModelLabel,
+    openSessionModelPicker,
+    sessionModelVariantLabel: createMemo(() => getModelBehaviorCopy(selectedSessionModel(), modelVariant()).label),
+    sessionModelVariant: modelVariant,
+    sessionModelBehaviorOptions: createMemo(() => getModelBehaviorCopy(selectedSessionModel(), modelVariant()).options),
+    setSessionModelVariant: (value: string | null) => {
+      const sessionId = selectedSessionId();
+      if (sessionId) {
+        modelConfig.setSessionVariantOverride(sessionId, sanitizeModelVariantForRef(selectedSessionModel(), value));
+        return;
+      }
+      modelConfig.setPendingSessionVariant(sanitizeModelVariantForRef(selectedSessionModel(), value));
+    },
+    defaultModelLabel: createMemo(() => formatModelLabel(defaultModel(), providers())),
+    defaultModelRef: createMemo(() => formatModelRef(defaultModel())),
+    openDefaultModelPicker,
+    autoCompactContext,
+    toggleAutoCompactContext,
+    autoCompactContextBusy: autoCompactContextSaving,
+    defaultModelVariantLabel: createMemo(
+      () => getModelBehaviorCopy(defaultModel(), modelConfig.getWorkspaceVariantFor(defaultModel())).label,
+    ),
+    editDefaultModelVariant: openDefaultModelPicker,
+  });
+
   const settingsShellProps = () => {
     const workspaceType = selectedWorkspaceDisplay().workspaceType;
     const isRemoteWorkspace = workspaceType === "remote";
@@ -3480,16 +3508,8 @@ export default function App() {
       createSessionAndOpen,
       setPrompt,
       selectSession: selectSession,
-      defaultModelLabel: formatModelLabel(defaultModel(), providers()),
-      defaultModelRef: formatModelRef(defaultModel()),
-      openDefaultModelPicker,
-      autoCompactContext: autoCompactContext(),
-      toggleAutoCompactContext,
-      autoCompactContextBusy: autoCompactContextSaving(),
       hideTitlebar: hideTitlebar(),
       toggleHideTitlebar: () => setHideTitlebar((v) => !v),
-      modelVariantLabel: getModelBehaviorCopy(defaultModel(), modelConfig.getWorkspaceVariantFor(defaultModel())).label,
-      editModelVariant: openDefaultModelPicker,
       updateAutoCheck: updateAutoCheck(),
       toggleUpdateAutoCheck: () => setUpdateAutoCheck((v) => !v),
       updateAutoDownload: updateAutoDownload(),
@@ -3599,19 +3619,6 @@ export default function App() {
     updateEnv: updateEnv(),
     anyActiveRuns: anyActiveRuns(),
     installUpdateAndRestart,
-    selectedSessionModelLabel: selectedSessionModelLabel(),
-    openSessionModelPicker: openSessionModelPicker,
-    modelVariantLabel: getModelBehaviorCopy(selectedSessionModel(), modelVariant()).label,
-    modelVariant: modelVariant(),
-    modelBehaviorOptions: getModelBehaviorCopy(selectedSessionModel(), modelVariant()).options,
-    setModelVariant: (value: string | null) => {
-      const sessionId = selectedSessionId();
-      if (sessionId) {
-        modelConfig.setSessionVariantOverride(sessionId, sanitizeModelVariantForRef(selectedSessionModel(), value));
-        return;
-      }
-      modelConfig.setPendingSessionVariant(sanitizeModelVariantForRef(selectedSessionModel(), value));
-    },
     activePlugins: sidebarPluginList(),
     activePluginStatus: sidebarPluginStatus(),
     skills: skills(),
@@ -3785,11 +3792,12 @@ export default function App() {
 
   return (
     <OpenworkServerProvider store={openworkServerStore}>
-      <SessionActionsProvider store={sessionActionsStore}>
-        <ConnectionsProvider store={connectionsStore}>
-          <ExtensionsProvider store={extensionsStore}>
-            <AutomationsProvider store={automationsStore}>
-              <StatusToastsProvider store={statusToastsStore}>
+      <ModelControlsProvider store={modelControlsStore}>
+        <SessionActionsProvider store={sessionActionsStore}>
+          <ConnectionsProvider store={connectionsStore}>
+            <ExtensionsProvider store={extensionsStore}>
+              <AutomationsProvider store={automationsStore}>
+                <StatusToastsProvider store={statusToastsStore}>
             <Switch>
               <Match when={booting()}>
                 <BootShell />
@@ -4097,11 +4105,12 @@ export default function App() {
         subtitle={t("dashboard.edit_remote_workspace_subtitle", currentLocale())}
         confirmLabel={t("dashboard.edit_remote_workspace_confirm", currentLocale())}
       />
-              </StatusToastsProvider>
-            </AutomationsProvider>
-          </ExtensionsProvider>
-        </ConnectionsProvider>
-      </SessionActionsProvider>
+                </StatusToastsProvider>
+              </AutomationsProvider>
+            </ExtensionsProvider>
+          </ConnectionsProvider>
+        </SessionActionsProvider>
+      </ModelControlsProvider>
     </OpenworkServerProvider>
   );
 }

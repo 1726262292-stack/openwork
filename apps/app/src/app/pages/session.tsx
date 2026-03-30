@@ -35,6 +35,7 @@ import {
 } from "../lib/tauri";
 import { usePlatform } from "../context/platform";
 import { useSessionActions } from "../session/actions-provider";
+import { useModelControls } from "../app-settings/model-controls-provider";
 import { buildFeedbackUrl } from "../lib/feedback";
 import { getOpenWorkDeployment } from "../lib/openwork-deployment";
 import { createWorkspaceShellLayout } from "../lib/workspace-shell-layout";
@@ -188,14 +189,6 @@ export type SessionViewProps = {
   busy: boolean;
   prompt: string;
   setPrompt: (value: string) => void;
-  selectedSessionModelLabel: string;
-  openSessionModelPicker: (options?: {
-    returnFocusTarget?: "none" | "composer";
-  }) => void;
-  modelVariantLabel: string;
-  modelVariant: string | null;
-  modelBehaviorOptions?: { value: string | null; label: string }[];
-  setModelVariant: (value: string | null) => void;
   activePermission: PendingPermission | null;
   permissionReplyBusy: boolean;
   respondPermission: (
@@ -306,6 +299,7 @@ export default function SessionView(props: SessionViewProps) {
   const { showThinking } = useSessionDisplayPreferences();
   const platform = usePlatform();
   const sessionActions = useSessionActions();
+  const modelControls = useModelControls();
   const statusToasts = useStatusToasts();
   let chatContainerEl: HTMLDivElement | undefined;
   let chatContentEl: HTMLDivElement | undefined;
@@ -2403,11 +2397,11 @@ export default function SessionView(props: SessionViewProps) {
       {
         id: "model",
         title: "Change model",
-        detail: `${props.selectedSessionModelLabel || "Model"} · ${props.modelVariantLabel}`,
+        detail: `${modelControls.selectedSessionModelLabel() || "Model"} · ${modelControls.sessionModelVariantLabel()}`,
         meta: "Open",
         action: () => {
           closeCommandPalette();
-          props.openSessionModelPicker({ returnFocusTarget: "composer" });
+          modelControls.openSessionModelPicker({ returnFocusTarget: "composer" });
         },
       },
       {
@@ -3326,12 +3320,12 @@ export default function SessionView(props: SessionViewProps) {
               onSend={handleSendPrompt}
               onStop={cancelRun}
               onDraftChange={handleDraftChange}
-              selectedModelLabel={props.selectedSessionModelLabel || "Model"}
-              onModelClick={() => props.openSessionModelPicker()}
-              modelVariantLabel={props.modelVariantLabel}
-              modelVariant={props.modelVariant}
-              modelBehaviorOptions={props.modelBehaviorOptions}
-              onModelVariantChange={props.setModelVariant}
+              selectedModelLabel={modelControls.selectedSessionModelLabel() || "Model"}
+              onModelClick={() => modelControls.openSessionModelPicker()}
+              modelVariantLabel={modelControls.sessionModelVariantLabel()}
+              modelVariant={modelControls.sessionModelVariant()}
+              modelBehaviorOptions={modelControls.sessionModelBehaviorOptions()}
+              onModelVariantChange={modelControls.setSessionModelVariant}
               agentLabel={agentLabel()}
               selectedAgent={sessionActions.selectedSessionAgent()}
               agentPickerOpen={agentPickerOpen()}
