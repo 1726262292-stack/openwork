@@ -16,6 +16,7 @@ import {
   createOpenworkServerClient,
   normalizeOpenworkServerUrl,
   writeOpenworkServerSettings,
+  type OpenworkAuditEntry,
   type OpenworkServerCapabilities,
   type OpenworkServerClient,
   type OpenworkServerDiagnostics,
@@ -59,6 +60,10 @@ export function createOpenworkServerStore(options: {
     createSignal<OpenCodeRouterInfo | null>(null);
   const [orchestratorStatusState, setOrchestratorStatusState] =
     createSignal<OrchestratorStatus | null>(null);
+  const [openworkAuditEntries, setOpenworkAuditEntries] = createSignal<OpenworkAuditEntry[]>([]);
+  const [openworkAuditStatus, setOpenworkAuditStatus] = createSignal<"idle" | "loading" | "error">("idle");
+  const [openworkAuditError, setOpenworkAuditError] = createSignal<string | null>(null);
+  const [devtoolsWorkspaceId, setDevtoolsWorkspaceId] = createSignal<string | null>(null);
 
   const openworkServerBaseUrl = createMemo(() => {
     const pref = options.startupPreference();
@@ -356,6 +361,89 @@ export function createOpenworkServerStore(options: {
     });
   });
 
+  createEffect(() => {
+    if (!options.developerMode()) {
+      setDevtoolsWorkspaceId(null);
+      return;
+    }
+    if (!options.documentVisible()) return;
+
+    const client = openworkServerClient();
+    if (!client) {
+      setDevtoolsWorkspaceId(null);
+      return;
+    }
+    let active = true;
+
+    const run = async () => {
+      try {
+        const response = await client.listWorkspaces();
+        if (!active) return;
+        const items = Array.isArray(response.items) ? response.items : [];
+        const activeMatch = response.activeId ? items.find((item) => item.id === response.activeId) : null;
+        setDevtoolsWorkspaceId(activeMatch?.id ?? items[0]?.id ?? null);
+      } catch {
+        if (active) setDevtoolsWorkspaceId(null);
+      }
+    };
+
+    run();
+    const interval = window.setInterval(run, 20_000);
+    onCleanup(() => {
+      active = false;
+      window.clearInterval(interval);
+    });
+  });
+
+  createEffect(() => {
+    if (!options.developerMode()) {
+      setOpenworkAuditEntries([]);
+      setOpenworkAuditStatus("idle");
+      setOpenworkAuditError(null);
+      return;
+    }
+    if (!options.documentVisible()) return;
+
+    const client = openworkServerClient();
+    const workspaceId = devtoolsWorkspaceId();
+    if (!client || !workspaceId) {
+      setOpenworkAuditEntries([]);
+      setOpenworkAuditStatus("idle");
+      setOpenworkAuditError(null);
+      return;
+    }
+
+    let active = true;
+    let busy = false;
+
+    const run = async () => {
+      if (busy) return;
+      busy = true;
+      setOpenworkAuditStatus("loading");
+      setOpenworkAuditError(null);
+      try {
+        const result = await client.listAudit(workspaceId, 50);
+        if (!active) return;
+        setOpenworkAuditEntries(Array.isArray(result.items) ? result.items : []);
+        setOpenworkAuditStatus("idle");
+      } catch (error) {
+        if (!active) return;
+        setOpenworkAuditEntries([]);
+        setOpenworkAuditStatus("error");
+        setOpenworkAuditError(error instanceof Error ? error.message : "Failed to load audit log.");
+      } finally {
+        busy = false;
+      }
+    };
+
+    run();
+    const interval = window.setInterval(run, 15_000);
+    onCleanup(() => {
+      active = false;
+      window.clearInterval(interval);
+    });
+  });
+
   const testOpenworkServerConnection = async (next: OpenworkServerSettings) => {
     const derived = normalizeOpenworkServerUrl(next.urlOverride ?? "");
     if (!derived) {
@@ -533,6 +621,10 @@ export function createOpenworkServerStore(options: {
     openworkReconnectBusy,
     opencodeRouterInfoState,
     orchestratorStatusState,
+    openworkAuditEntries,
+    openworkAuditStatus,
+    openworkAuditError,
+    devtoolsWorkspaceId,
     checkOpenworkServer,
     testOpenworkServerConnection,
     reconnectOpenworkServer,
