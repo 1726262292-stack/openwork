@@ -8,11 +8,6 @@ import { CHROME_DEVTOOLS_MCP_ID, MCP_QUICK_CONNECT, type McpDirectoryInfo } from
 import { createClient, unwrap } from "../lib/opencode";
 import { finishPerf, perfNow, recordPerfLog } from "../lib/perf-log";
 import { readOpencodeConfig, writeOpencodeConfig, type OpencodeConfigFile } from "../lib/tauri";
-import type {
-  OpenworkServerCapabilities,
-  OpenworkServerClient,
-  OpenworkServerStatus,
-} from "../lib/openwork-server";
 import {
   parseMcpServersFromContent,
   removeMcpFromConfig,
@@ -22,6 +17,7 @@ import {
 import type { Client, McpServerEntry, McpStatusMap, ReloadReason, ReloadTrigger } from "../types";
 import { isTauriRuntime, normalizeDirectoryQueryPath, safeStringify } from "../utils";
 import { createWorkspaceContextKey } from "../context/workspace-context";
+import type { OpenworkServerStore } from "./openwork-server-store";
 
 export type ConnectionsStore = ReturnType<typeof createConnectionsStore>;
 
@@ -32,11 +28,7 @@ export function createConnectionsStore(options: {
   selectedWorkspaceId: () => string;
   selectedWorkspaceRoot: () => string;
   workspaceType: () => "local" | "remote";
-  openworkServerClient: () => OpenworkServerClient | null;
-  openworkServerStatus: () => OpenworkServerStatus;
-  openworkServerCapabilities: () => OpenworkServerCapabilities | null;
-  openworkServerBaseUrl: () => string;
-  openworkServerAuthToken: () => string | undefined;
+  openworkServer: OpenworkServerStore;
   runtimeWorkspaceId: () => string | null;
   ensureRuntimeWorkspaceId?: () => Promise<string | null | undefined>;
   setProjectDir?: (value: string) => void;
@@ -70,13 +62,13 @@ export function createConnectionsStore(options: {
 
   const readMcpConfigFile = async (scope: "project" | "global"): Promise<OpencodeConfigFile | null> => {
     const projectDir = options.projectDir().trim();
-    const openworkClient = options.openworkServerClient();
+    const openworkClient = options.openworkServer.openworkServerClient();
     const openworkWorkspaceId = options.runtimeWorkspaceId();
     const canUseOpenworkServer =
-      options.openworkServerStatus() === "connected" &&
+      options.openworkServer.openworkServerStatus() === "connected" &&
       openworkClient &&
       openworkWorkspaceId &&
-      options.openworkServerCapabilities()?.config?.read;
+      options.openworkServer.openworkServerCapabilities()?.config?.read;
 
     if (canUseOpenworkServer && openworkClient && openworkWorkspaceId) {
       return openworkClient.readOpencodeConfigFile(openworkWorkspaceId, scope);
@@ -95,8 +87,8 @@ export function createConnectionsStore(options: {
       return activeClient;
     }
 
-    const openworkBaseUrl = options.openworkServerBaseUrl().trim();
-    const token = options.openworkServerAuthToken()?.trim();
+    const openworkBaseUrl = options.openworkServer.openworkServerBaseUrl().trim();
+    const token = options.openworkServer.openworkServerAuth().token?.trim();
     if (!openworkBaseUrl || !token) {
       return null;
     }
@@ -110,15 +102,15 @@ export function createConnectionsStore(options: {
   };
 
   const resolveWritableOpenworkTarget = async () => {
-    const openworkClient = options.openworkServerClient();
+    const openworkClient = options.openworkServer.openworkServerClient();
     let openworkWorkspaceId = options.runtimeWorkspaceId();
-    const openworkCapabilities = options.openworkServerCapabilities();
-    if (!openworkWorkspaceId && openworkClient && options.openworkServerStatus() === "connected") {
+    const openworkCapabilities = options.openworkServer.openworkServerCapabilities();
+    if (!openworkWorkspaceId && openworkClient && options.openworkServer.openworkServerStatus() === "connected") {
       openworkWorkspaceId = (await options.ensureRuntimeWorkspaceId?.()) ?? null;
     }
 
     const canUseOpenworkServer =
-      options.openworkServerStatus() === "connected" &&
+      options.openworkServer.openworkServerStatus() === "connected" &&
       openworkClient &&
       openworkWorkspaceId &&
       openworkCapabilities?.mcp?.write;
@@ -153,13 +145,13 @@ export function createConnectionsStore(options: {
     const projectDir = options.projectDir().trim();
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isLocalWorkspace = !isRemoteWorkspace;
-    const openworkClient = options.openworkServerClient();
+    const openworkClient = options.openworkServer.openworkServerClient();
     const openworkWorkspaceId = options.runtimeWorkspaceId();
     const canUseOpenworkServer =
-      options.openworkServerStatus() === "connected" &&
+      options.openworkServer.openworkServerStatus() === "connected" &&
       openworkClient &&
       openworkWorkspaceId &&
-      options.openworkServerCapabilities()?.mcp?.read;
+      options.openworkServer.openworkServerCapabilities()?.mcp?.read;
 
     if (isRemoteWorkspace) {
       if (!canUseOpenworkServer) {
@@ -286,7 +278,9 @@ export function createConnectionsStore(options: {
 
   async function connectMcp(entry: McpDirectoryInfo) {
     const startedAt = perfNow();
-    const isRemoteWorkspace = options.workspaceType() === "remote" || (!isTauriRuntime() && options.openworkServerStatus() === "connected");
+    const isRemoteWorkspace =
+      options.workspaceType() === "remote" ||
+      (!isTauriRuntime() && options.openworkServer.openworkServerStatus() === "connected");
     const projectDir = options.projectDir().trim();
     const entryType = entry.type ?? "remote";
 
@@ -500,7 +494,9 @@ export function createConnectionsStore(options: {
   }
 
   async function logoutMcpAuth(name: string) {
-    const isRemoteWorkspace = options.workspaceType() === "remote" || (!isTauriRuntime() && options.openworkServerStatus() === "connected");
+    const isRemoteWorkspace =
+      options.workspaceType() === "remote" ||
+      (!isTauriRuntime() && options.openworkServer.openworkServerStatus() === "connected");
     const projectDir = options.projectDir().trim();
 
     const { openworkClient, openworkWorkspaceId, canUseOpenworkServer } = await resolveWritableOpenworkTarget();
@@ -560,13 +556,13 @@ export function createConnectionsStore(options: {
     try {
       setMcpStatus(null);
 
-      const openworkClient = options.openworkServerClient();
+      const openworkClient = options.openworkServer.openworkServerClient();
       const openworkWorkspaceId = options.runtimeWorkspaceId();
       const canUseOpenworkServer =
-        options.openworkServerStatus() === "connected" &&
+        options.openworkServer.openworkServerStatus() === "connected" &&
         openworkClient &&
         openworkWorkspaceId &&
-        options.openworkServerCapabilities()?.mcp?.write;
+        options.openworkServer.openworkServerCapabilities()?.mcp?.write;
 
       if (canUseOpenworkServer && openworkClient && openworkWorkspaceId) {
         await openworkClient.removeMcp(openworkWorkspaceId, name);

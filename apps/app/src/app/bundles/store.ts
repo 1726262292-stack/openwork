@@ -7,16 +7,11 @@ import type {
   View,
   WorkspacePreset,
 } from "../types";
-import type {
-  OpenworkServerClient,
-  OpenworkServerSettings,
-  OpenworkServerStatus,
-} from "../lib/openwork-server";
 import { normalizeOpenworkServerUrl, parseOpenworkWorkspaceIdFromUrl } from "../lib/openwork-server";
 import { isTauriRuntime, safeStringify, addOpencodeCacheHint } from "../utils";
 import type { WorkspaceStore } from "../context/workspace";
 import type { StartupPreference } from "../types";
-import type { OpenworkServerInfo } from "../lib/tauri";
+import type { OpenworkServerStore } from "../connections/openwork-server-store";
 import {
   buildImportPayloadFromBundle,
   describeWorkspaceForBundleToasts,
@@ -51,10 +46,7 @@ export type BundlesStore = ReturnType<typeof createBundlesStore>;
 export function createBundlesStore(options: {
   booting: Accessor<boolean>;
   startupPreference: Accessor<StartupPreference | null>;
-  openworkServerClient: Accessor<OpenworkServerClient | null>;
-  openworkServerStatus: Accessor<OpenworkServerStatus>;
-  openworkServerHostInfo: Accessor<OpenworkServerInfo | null>;
-  openworkServerSettings: Accessor<OpenworkServerSettings>;
+  openworkServer: OpenworkServerStore;
   runtimeWorkspaceId: Accessor<string | null>;
   workspaceStore: WorkspaceStore;
   setError: (value: string | null) => void;
@@ -98,8 +90,8 @@ export function createBundlesStore(options: {
 
   const resolveBundleWorkerTarget = () => {
     const pref = options.startupPreference();
-    const hostInfo = options.openworkServerHostInfo();
-    const settings = options.openworkServerSettings();
+    const hostInfo = options.openworkServer.openworkServerHostInfo();
+    const settings = options.openworkServer.openworkServerSettings();
 
     const localHostUrl = normalizeOpenworkServerUrl(hostInfo?.baseUrl ?? "") ?? "";
     const localToken = hostInfo?.clientToken?.trim() ?? "";
@@ -152,8 +144,8 @@ export function createBundlesStore(options: {
   const waitForBundleImportTarget = async (timeoutMs = 20_000, target?: BundleImportTarget) => {
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeoutMs) {
-      const client = options.openworkServerClient();
-      if (client && options.openworkServerStatus() === "connected") {
+      const client = options.openworkServer.openworkServerClient();
+      if (client && options.openworkServer.openworkServerStatus() === "connected") {
         if (target?.workspaceId?.trim() || target?.localRoot?.trim() || target?.directoryHint?.trim()) {
           try {
             const matchId = await options.workspaceStore.ensureRuntimeWorkspaceId({
@@ -204,7 +196,9 @@ export function createBundlesStore(options: {
     bundleOverride?: BundleV1,
   ) => {
     try {
-      const bundle = bundleOverride ?? (await fetchBundle(request.bundleUrl?.trim() ?? "", options.openworkServerClient()));
+      const bundle =
+        bundleOverride ??
+        (await fetchBundle(request.bundleUrl?.trim() ?? "", options.openworkServer.openworkServerClient()));
       await importBundlePayload(bundle, target);
       options.setError(null);
       return true;
@@ -327,7 +321,7 @@ export function createBundlesStore(options: {
   };
 
   const processBundleRequest = async (request: BundleRequest): Promise<BundleProcessResult> => {
-    const bundle = await fetchBundle(request.bundleUrl?.trim() ?? "", options.openworkServerClient());
+    const bundle = await fetchBundle(request.bundleUrl?.trim() ?? "", options.openworkServer.openworkServerClient());
 
     if (bundle.type === "skill") {
       options.setView("settings");
@@ -360,8 +354,8 @@ export function createBundlesStore(options: {
     }
 
     if (request.intent === "import_current") {
-      const client = options.openworkServerClient();
-      const connected = options.openworkServerStatus() === "connected";
+      const client = options.openworkServer.openworkServerClient();
+      const connected = options.openworkServer.openworkServerStatus() === "connected";
       const target = resolveActiveBundleImportTarget();
       const hasTargetHint = Boolean(target.workspaceId?.trim() || target.localRoot?.trim() || target.directoryHint?.trim());
       if (!client || !connected || !hasTargetHint) {

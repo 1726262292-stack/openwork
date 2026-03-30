@@ -2,9 +2,9 @@ import { createEffect, createMemo, createSignal } from "solid-js";
 
 import type { ScheduledJob } from "../types";
 import { schedulerDeleteJob, schedulerListJobs } from "../lib/tauri";
-import type { OpenworkServerClient, OpenworkServerStatus } from "../lib/openwork-server";
 import { isTauriRuntime } from "../utils";
 import { createWorkspaceContextKey } from "./workspace-context";
+import type { OpenworkServerStore } from "../connections/openwork-server-store";
 
 export type AutomationsStore = ReturnType<typeof createAutomationsStore>;
 
@@ -88,8 +88,7 @@ export function createAutomationsStore(options: {
   selectedWorkspaceId: () => string;
   selectedWorkspaceRoot: () => string;
   runtimeWorkspaceId: () => string | null;
-  openworkServerClient: () => OpenworkServerClient | null;
-  openworkServerStatus: () => OpenworkServerStatus;
+  openworkServer: OpenworkServerStore;
   schedulerPluginInstalled: () => boolean;
 }) {
   const [scheduledJobs, setScheduledJobs] = createSignal<ScheduledJob[]>([]);
@@ -99,9 +98,9 @@ export function createAutomationsStore(options: {
   const [pendingRefreshContextKey, setPendingRefreshContextKey] = createSignal<string | null>(null);
 
   const serverBacked = createMemo(() => {
-    const client = options.openworkServerClient();
+    const client = options.openworkServer.openworkServerClient();
     const runtimeWorkspaceId = (options.runtimeWorkspaceId() ?? "").trim();
-    return options.openworkServerStatus() === "connected" && Boolean(client && runtimeWorkspaceId);
+    return options.openworkServer.openworkServerStatus() === "connected" && Boolean(client && runtimeWorkspaceId);
   });
 
   const scheduledJobsSource = createMemo<"local" | "remote">(() =>
@@ -131,14 +130,14 @@ export function createAutomationsStore(options: {
     }
 
     if (scheduledJobsSource() === "remote") {
-      const client = options.openworkServerClient();
+      const client = options.openworkServer.openworkServerClient();
       const workspaceId = (options.runtimeWorkspaceId() ?? "").trim();
-      if (!client || options.openworkServerStatus() !== "connected" || !workspaceId) {
+      if (!client || options.openworkServer.openworkServerStatus() !== "connected" || !workspaceId) {
         if (scheduledJobsContextKey() !== requestContextKey) return "skipped";
         const status =
-          options.openworkServerStatus() === "disconnected"
+          options.openworkServer.openworkServerStatus() === "disconnected"
             ? "OpenWork server unavailable. Connect to sync scheduled tasks."
-            : options.openworkServerStatus() === "limited"
+            : options.openworkServer.openworkServerStatus() === "limited"
               ? "OpenWork server needs a token to load scheduled tasks."
               : "OpenWork server not ready.";
         setScheduledJobsStatus(status);
@@ -190,7 +189,7 @@ export function createAutomationsStore(options: {
 
   const deleteScheduledJob = async (name: string) => {
     if (scheduledJobsSource() === "remote") {
-      const client = options.openworkServerClient();
+      const client = options.openworkServer.openworkServerClient();
       const workspaceId = (options.runtimeWorkspaceId() ?? "").trim();
       if (!client || !workspaceId) {
         throw new Error("OpenWork server unavailable. Connect to sync scheduled tasks.");
