@@ -369,6 +369,13 @@ export function createWorkspaceStore(options: {
   const [workspaceConfigLoaded, setWorkspaceConfigLoaded] = createSignal(false);
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = createSignal(false);
   const [createRemoteWorkspaceOpen, setCreateRemoteWorkspaceOpen] = createSignal(false);
+  const [editRemoteWorkspaceOpen, setEditRemoteWorkspaceOpen] = createSignal(false);
+  const [editRemoteWorkspaceId, setEditRemoteWorkspaceId] = createSignal<string | null>(null);
+  const [editRemoteWorkspaceError, setEditRemoteWorkspaceError] = createSignal<string | null>(null);
+  const [renameWorkspaceOpen, setRenameWorkspaceOpen] = createSignal(false);
+  const [renameWorkspaceId, setRenameWorkspaceId] = createSignal<string | null>(null);
+  const [renameWorkspaceName, setRenameWorkspaceName] = createSignal("");
+  const [renameWorkspaceBusy, setRenameWorkspaceBusy] = createSignal(false);
   const [connectingWorkspaceId, setConnectingWorkspaceId] = createSignal<string | null>(null);
   const [connectedWorkspaceId, setConnectedWorkspaceId] = createSignal<string | null>(null);
   const [runtimeWorkspaceId, setRuntimeWorkspaceId] = createSignal<string | null>(null);
@@ -434,6 +441,19 @@ export function createWorkspaceStore(options: {
     const id = runtimeWorkspaceId()?.trim() ?? "";
     if (!id) return null;
     return runtimeWorkspaceConfigById()[id] ?? null;
+  });
+
+  const editRemoteWorkspaceDefaults = createMemo(() => {
+    const workspaceId = editRemoteWorkspaceId();
+    if (!workspaceId) return null;
+    const workspace = workspaces().find((item) => item.id === workspaceId) ?? null;
+    if (!workspace || workspace.workspaceType !== "remote") return null;
+    return {
+      openworkHostUrl: workspace.openworkHostUrl ?? workspace.baseUrl ?? "",
+      openworkToken: workspace.openworkToken ?? options.openworkServer.openworkServerSettings().token ?? "",
+      directory: workspace.directory ?? "",
+      displayName: workspace.displayName ?? "",
+    };
   });
 
   const clearSelectedSessionSurface = () => {
@@ -3389,6 +3409,93 @@ export function createWorkspaceStore(options: {
     return true;
   }
 
+  const openRenameWorkspace = (workspaceId: string) => {
+    const workspace = workspaces().find((item) => item.id === workspaceId) ?? null;
+    if (!workspace) return;
+    setRenameWorkspaceId(workspaceId);
+    setRenameWorkspaceName(
+      workspace.displayName?.trim() ||
+        workspace.openworkWorkspaceName?.trim() ||
+        workspace.name?.trim() ||
+        "",
+    );
+    setRenameWorkspaceOpen(true);
+  };
+
+  const closeRenameWorkspace = () => {
+    if (renameWorkspaceBusy()) return;
+    setRenameWorkspaceOpen(false);
+    setRenameWorkspaceId(null);
+    setRenameWorkspaceName("");
+  };
+
+  const saveRenameWorkspace = async () => {
+    const workspaceId = renameWorkspaceId();
+    if (!workspaceId) return;
+    const nextName = renameWorkspaceName().trim();
+    if (!nextName) return;
+    if (renameWorkspaceBusy()) return;
+
+    setRenameWorkspaceBusy(true);
+    options.setError(null);
+    try {
+      const ok = await updateWorkspaceDisplayName(workspaceId, nextName);
+      if (!ok) return;
+      setRenameWorkspaceOpen(false);
+      setRenameWorkspaceId(null);
+      setRenameWorkspaceName("");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : safeStringify(e);
+      options.setError(addOpencodeCacheHint(message));
+    } finally {
+      setRenameWorkspaceBusy(false);
+    }
+  };
+
+  const closeWorkspaceConnectionSettings = () => {
+    setEditRemoteWorkspaceOpen(false);
+    setEditRemoteWorkspaceId(null);
+    setEditRemoteWorkspaceError(null);
+  };
+
+  const saveWorkspaceConnectionSettings = async (input: {
+    openworkHostUrl?: string | null;
+    openworkToken?: string | null;
+    directory?: string | null;
+    displayName?: string | null;
+  }) => {
+    const workspaceId = editRemoteWorkspaceId();
+    if (!workspaceId) return;
+    setEditRemoteWorkspaceError(null);
+    try {
+      const ok = await updateRemoteWorkspaceFlow(workspaceId, input);
+      if (ok) {
+        closeWorkspaceConnectionSettings();
+        return;
+      }
+      setEditRemoteWorkspaceError("Connection failed. Check the URL and token.");
+      options.setError(null);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Connection failed";
+      setEditRemoteWorkspaceError(message);
+      options.setError(null);
+    }
+  };
+
+  const openWorkspaceConnectionSettings = (workspaceId: string) => {
+    const workspace = workspaces().find((item) => item.id === workspaceId) ?? null;
+    if (workspace?.workspaceType === "remote") {
+      setEditRemoteWorkspaceId(workspace.id);
+      setEditRemoteWorkspaceError(null);
+      setEditRemoteWorkspaceOpen(true);
+      return;
+    }
+    setEditRemoteWorkspaceId(null);
+    setEditRemoteWorkspaceError(null);
+    options.setSettingsTab("advanced");
+    options.setView("settings");
+  };
+
   async function stopHost() {
     options.setError(null);
     options.setBusy(true);
@@ -3931,6 +4038,15 @@ export function createWorkspaceStore(options: {
     workspaceConfigLoaded,
     createWorkspaceOpen,
     createRemoteWorkspaceOpen,
+    editRemoteWorkspaceOpen,
+    editRemoteWorkspaceId,
+    editRemoteWorkspaceError,
+    editRemoteWorkspaceDefaults,
+    renameWorkspaceOpen,
+    renameWorkspaceId,
+    renameWorkspaceName,
+    renameWorkspaceBusy,
+    setRenameWorkspaceName,
     connectingWorkspaceId,
     connectedWorkspaceId,
     runtimeWorkspaceId,
@@ -3965,6 +4081,12 @@ export function createWorkspaceStore(options: {
     createRemoteWorkspaceFlow,
     updateRemoteWorkspaceFlow,
     updateWorkspaceDisplayName,
+    openRenameWorkspace,
+    closeRenameWorkspace,
+    saveRenameWorkspace,
+    openWorkspaceConnectionSettings,
+    closeWorkspaceConnectionSettings,
+    saveWorkspaceConnectionSettings,
     forgetWorkspace,
     recoverWorkspace,
     stopSandbox,

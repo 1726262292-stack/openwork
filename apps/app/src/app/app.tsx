@@ -1136,19 +1136,12 @@ export default function App() {
     });
   });
 
-  const [editRemoteWorkspaceOpen, setEditRemoteWorkspaceOpen] = createSignal(false);
-  const [editRemoteWorkspaceId, setEditRemoteWorkspaceId] = createSignal<string | null>(null);
-  const [editRemoteWorkspaceError, setEditRemoteWorkspaceError] = createSignal<string | null>(null);
   const [deepLinkRemoteWorkspaceDefaults, setDeepLinkRemoteWorkspaceDefaults] = createSignal<RemoteWorkspaceDefaults | null>(null);
   const [pendingRemoteConnectDeepLink, setPendingRemoteConnectDeepLink] = createSignal<RemoteWorkspaceDefaults | null>(null);
   const [, setAutoConnectRemoteWorkspaceOverlayOpen] = createSignal(false);
   const [pendingDenAuthDeepLink, setPendingDenAuthDeepLink] = createSignal<DenAuthDeepLink | null>(null);
   const [processingDenAuthDeepLink, setProcessingDenAuthDeepLink] = createSignal(false);
   const recentClaimedDeepLinks = new Map<string, number>();
-  const [renameWorkspaceOpen, setRenameWorkspaceOpen] = createSignal(false);
-  const [renameWorkspaceId, setRenameWorkspaceId] = createSignal<string | null>(null);
-  const [renameWorkspaceName, setRenameWorkspaceName] = createSignal("");
-  const [renameWorkspaceBusy, setRenameWorkspaceBusy] = createSignal(false);
 
   const queueRemoteConnectDeepLink = (rawUrl: string): boolean => {
     const parsed = parseRemoteConnectDeepLink(rawUrl);
@@ -1349,62 +1342,6 @@ export default function App() {
     setDeepLinkRemoteWorkspaceDefaults(null);
   });
 
-  const editRemoteWorkspaceDefaults = createMemo(() => {
-    const workspaceId = editRemoteWorkspaceId();
-    if (!workspaceId) return null;
-    const workspace = workspaceStore.workspaces().find((item) => item.id === workspaceId) ?? null;
-    if (!workspace || workspace.workspaceType !== "remote") return null;
-    return {
-      openworkHostUrl: workspace.openworkHostUrl ?? workspace.baseUrl ?? "",
-      openworkToken: workspace.openworkToken ?? openworkServerSettings().token ?? "",
-      directory: workspace.directory ?? "",
-      displayName: workspace.displayName ?? "",
-    };
-  });
-
-  const openRenameWorkspace = (workspaceId: string) => {
-    const workspace = workspaceStore.workspaces().find((item) => item.id === workspaceId) ?? null;
-    if (!workspace) return;
-    setRenameWorkspaceId(workspaceId);
-    setRenameWorkspaceName(
-      workspace.displayName?.trim() ||
-        workspace.openworkWorkspaceName?.trim() ||
-        workspace.name?.trim() ||
-        ""
-    );
-    setRenameWorkspaceOpen(true);
-  };
-
-  const closeRenameWorkspace = () => {
-    if (renameWorkspaceBusy()) return;
-    setRenameWorkspaceOpen(false);
-    setRenameWorkspaceId(null);
-    setRenameWorkspaceName("");
-  };
-
-  const saveRenameWorkspace = async () => {
-    const workspaceId = renameWorkspaceId();
-    if (!workspaceId) return;
-    const nextName = renameWorkspaceName().trim();
-    if (!nextName) return;
-    if (renameWorkspaceBusy()) return;
-
-    setRenameWorkspaceBusy(true);
-    setError(null);
-    try {
-      const ok = await workspaceStore.updateWorkspaceDisplayName(workspaceId, nextName);
-      if (!ok) return;
-      setRenameWorkspaceOpen(false);
-      setRenameWorkspaceId(null);
-      setRenameWorkspaceName("");
-    } catch (e) {
-      const message = e instanceof Error ? e.message : safeStringify(e);
-      setError(addOpencodeCacheHint(message));
-    } finally {
-      setRenameWorkspaceBusy(false);
-    }
-  };
-
   async function restartLocalServer() {
     const activeWorkspace = workspaceStore.selectedWorkspaceDisplay();
     const activeLocalPath =
@@ -1419,24 +1356,6 @@ export default function App() {
 
     return workspaceStore.startHost({ workspacePath, navigate: false });
   }
-
-  const openWorkspaceConnectionSettings = (workspaceId: string) => {
-    const workspace = workspaceStore.workspaces().find((item) => item.id === workspaceId) ?? null;
-    if (workspace?.workspaceType === "remote" && workspace.remoteType === "openwork") {
-      setEditRemoteWorkspaceId(workspace.id);
-      setEditRemoteWorkspaceError(null);
-      setEditRemoteWorkspaceOpen(true);
-      return;
-    }
-    if (workspace?.workspaceType === "remote") {
-      setEditRemoteWorkspaceId(workspace.id);
-      setEditRemoteWorkspaceError(null);
-      setEditRemoteWorkspaceOpen(true);
-      return;
-    }
-    setSettingsTab("advanced");
-    setView("settings");
-  };
 
   const canReloadLocalEngine = () =>
     isTauriRuntime() && workspaceStore.selectedWorkspaceDisplay().workspaceType === "local";
@@ -2307,8 +2226,8 @@ export default function App() {
       pickWorkspaceFolder: workspaceStore.pickWorkspaceFolder,
       workspaceSessionGroups: sidebarWorkspaceGroups(),
       selectedSessionId: activeSessionId(),
-      openRenameWorkspace,
-      editWorkspaceConnection: openWorkspaceConnectionSettings,
+      openRenameWorkspace: workspaceStore.openRenameWorkspace,
+      editWorkspaceConnection: workspaceStore.openWorkspaceConnectionSettings,
       forgetWorkspace: workspaceStore.forgetWorkspace,
       stopSandbox: workspaceStore.stopSandbox,
       schedulerPluginInstalled: schedulerPluginInstalled(),
@@ -2405,7 +2324,7 @@ export default function App() {
     switchWorkspace: workspaceStore.switchWorkspace,
     testWorkspaceConnection: workspaceStore.testWorkspaceConnection,
     recoverWorkspace: workspaceStore.recoverWorkspace,
-    editWorkspaceConnection: openWorkspaceConnectionSettings,
+    editWorkspaceConnection: workspaceStore.openWorkspaceConnectionSettings,
     forgetWorkspace: workspaceStore.forgetWorkspace,
     openCreateWorkspace: () => workspaceStore.setCreateWorkspaceOpen(true),
     pickFolderWorkspace: workspaceStore.createWorkspaceFromPickedFolder,
@@ -2442,7 +2361,7 @@ export default function App() {
     skillsStatus: skillsStatus(),
     newTaskDisabled: newTaskDisabled(),
     workspaceSessionGroups: sidebarWorkspaceGroups(),
-    openRenameWorkspace,
+    openRenameWorkspace: workspaceStore.openRenameWorkspace,
     selectSession: selectSession,
     messages: visibleMessages(),
     getSessionById: sessionById,
@@ -2863,47 +2782,24 @@ export default function App() {
       />
 
       <RenameWorkspaceModal
-        open={renameWorkspaceOpen()}
-        title={renameWorkspaceName()}
-        busy={renameWorkspaceBusy()}
-        canSave={renameWorkspaceName().trim().length > 0 && !renameWorkspaceBusy()}
-        onClose={closeRenameWorkspace}
-        onSave={saveRenameWorkspace}
-        onTitleChange={setRenameWorkspaceName}
+        open={workspaceStore.renameWorkspaceOpen()}
+        title={workspaceStore.renameWorkspaceName()}
+        busy={workspaceStore.renameWorkspaceBusy()}
+        canSave={workspaceStore.renameWorkspaceName().trim().length > 0 && !workspaceStore.renameWorkspaceBusy()}
+        onClose={workspaceStore.closeRenameWorkspace}
+        onSave={workspaceStore.saveRenameWorkspace}
+        onTitleChange={workspaceStore.setRenameWorkspaceName}
       />
 
       <CreateRemoteWorkspaceModal
-        open={editRemoteWorkspaceOpen()}
-        onClose={() => {
-          setEditRemoteWorkspaceOpen(false);
-          setEditRemoteWorkspaceId(null);
-          setEditRemoteWorkspaceError(null);
-        }}
+        open={workspaceStore.editRemoteWorkspaceOpen()}
+        onClose={workspaceStore.closeWorkspaceConnectionSettings}
         onConfirm={(input) => {
-          const workspaceId = editRemoteWorkspaceId();
-          if (!workspaceId) return;
-          setEditRemoteWorkspaceError(null);
-          void (async () => {
-            try {
-              const ok = await workspaceStore.updateRemoteWorkspaceFlow(workspaceId, input);
-              if (ok) {
-                setEditRemoteWorkspaceOpen(false);
-                setEditRemoteWorkspaceId(null);
-                setEditRemoteWorkspaceError(null);
-              } else {
-                setEditRemoteWorkspaceError(error() || "Connection failed. Check the URL and token.");
-                setError(null);
-              }
-            } catch (e) {
-              const message = e instanceof Error ? e.message : "Connection failed";
-              setEditRemoteWorkspaceError(message);
-              setError(null);
-            }
-          })();
+          void workspaceStore.saveWorkspaceConnectionSettings(input);
         }}
-        initialValues={editRemoteWorkspaceDefaults() ?? undefined}
+        initialValues={workspaceStore.editRemoteWorkspaceDefaults() ?? undefined}
         submitting={busy() && busyLabel() === "status.connecting"}
-        error={editRemoteWorkspaceError()}
+        error={workspaceStore.editRemoteWorkspaceError()}
         title={t("dashboard.edit_remote_workspace_title", currentLocale())}
         subtitle={t("dashboard.edit_remote_workspace_subtitle", currentLocale())}
         confirmLabel={t("dashboard.edit_remote_workspace_confirm", currentLocale())}
