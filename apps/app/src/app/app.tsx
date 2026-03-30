@@ -30,6 +30,7 @@ import { AutomationsProvider } from "./automations/provider";
 import { SessionActionsProvider } from "./session/actions-provider";
 import { createSessionActionsStore } from "./session/actions-store";
 import BootShell from "./shell/boot-shell";
+import { createDeepLinksController } from "./shell/deep-links";
 import SettingsShell from "./shell/settings-shell";
 import TopRightNotifications from "./shell/top-right-notifications";
 import { createStatusToastsStore, StatusToastsProvider } from "./shell/status-toasts";
@@ -39,7 +40,6 @@ import {
 } from "./workspace";
 import SessionView from "./pages/session";
 import { unwrap } from "./lib/opencode";
-import { createDenClient, writeDenSettings } from "./lib/den";
 import { clearPerfLogs, finishPerf, perfNow, recordPerfLog } from "./lib/perf-log";
 import { deepLinkBridgeEvent, drainPendingDeepLinks, type DeepLinkBridgeDetail } from "./lib/deep-link-bridge";
 import {
@@ -133,14 +133,6 @@ import {
   stripBundleQuery,
 } from "./bundles";
 import { createBundlesStore } from "./bundles/store";
-import {
-  parseDebugDeepLinkInput,
-  parseDenAuthDeepLink,
-  parseRemoteConnectDeepLink,
-  stripRemoteConnectQuery,
-  type DenAuthDeepLink,
-  type RemoteWorkspaceDefaults,
- } from "./lib/openwork-links";
 
 type SettingsReturnTarget = {
   view: View;
@@ -281,7 +273,7 @@ export default function App() {
     }
 
     if (invite?.autoConnect) {
-      setPendingRemoteConnectDeepLink({
+      deepLinks.queueRemoteConnectDefaults({
         openworkHostUrl: invite.url,
         openworkToken: invite.token ?? null,
         directory: null,
@@ -681,7 +673,6 @@ export default function App() {
     openworkAuditEntries,
     openworkAuditStatus,
     openworkAuditError,
-    devtoolsWorkspaceId,
     testOpenworkServerConnection,
     reconnectOpenworkServer,
     ensureLocalOpenworkServerClient,
@@ -869,6 +860,16 @@ export default function App() {
     refreshHubSkills,
     markReloadRequired,
     showStatusToast: statusToastsStore.showToast,
+  });
+
+  const deepLinks = createDeepLinksController({
+    booting,
+    setError,
+    setView,
+    setSettingsTab,
+    goToSettings,
+    workspaceStore,
+    bundlesStore,
   });
 
   const logWorkspaceScopeSnapshot = (label: string, extra?: Record<string, unknown>) => {
@@ -1134,212 +1135,6 @@ export default function App() {
       urlOverride: hostUrl,
       token: token || settings.token,
     });
-  });
-
-  const [deepLinkRemoteWorkspaceDefaults, setDeepLinkRemoteWorkspaceDefaults] = createSignal<RemoteWorkspaceDefaults | null>(null);
-  const [pendingRemoteConnectDeepLink, setPendingRemoteConnectDeepLink] = createSignal<RemoteWorkspaceDefaults | null>(null);
-  const [, setAutoConnectRemoteWorkspaceOverlayOpen] = createSignal(false);
-  const [pendingDenAuthDeepLink, setPendingDenAuthDeepLink] = createSignal<DenAuthDeepLink | null>(null);
-  const [processingDenAuthDeepLink, setProcessingDenAuthDeepLink] = createSignal(false);
-  const recentClaimedDeepLinks = new Map<string, number>();
-
-  const queueRemoteConnectDeepLink = (rawUrl: string): boolean => {
-    const parsed = parseRemoteConnectDeepLink(rawUrl);
-    if (!parsed) {
-      return false;
-    }
-    setPendingRemoteConnectDeepLink(parsed);
-    return true;
-  };
-
-  const completeRemoteConnectDeepLink = async (pending: RemoteWorkspaceDefaults) => {
-    const input = {
-      openworkHostUrl: pending.openworkHostUrl,
-      openworkToken: pending.openworkToken,
-      directory: pending.directory,
-      displayName: pending.displayName,
-    };
-
-    if (!pending.autoConnect) {
-      setDeepLinkRemoteWorkspaceDefaults(input);
-      workspaceStore.setCreateRemoteWorkspaceOpen(true);
-      return;
-    }
-
-    setError(null);
-    setAutoConnectRemoteWorkspaceOverlayOpen(true);
-    try {
-      const ok = await workspaceStore.createRemoteWorkspaceFlow(input);
-      if (ok) {
-        setDeepLinkRemoteWorkspaceDefaults(null);
-        return;
-      }
-
-      setDeepLinkRemoteWorkspaceDefaults(input);
-      workspaceStore.setCreateRemoteWorkspaceOpen(true);
-    } finally {
-      setAutoConnectRemoteWorkspaceOverlayOpen(false);
-    }
-  };
-
-  const queueDenAuthDeepLink = (rawUrl: string): boolean => {
-    const parsed = parseDenAuthDeepLink(rawUrl);
-    if (!parsed) {
-      return false;
-    }
-    setPendingDenAuthDeepLink(parsed);
-    return true;
-  };
-
-  const stripHandledBrowserDeepLink = (rawUrl: string) => {
-    if (typeof window === "undefined" || isTauriRuntime()) {
-      return;
-    }
-
-    if (window.location.href !== rawUrl) {
-      return;
-    }
-
-    const remoteStripped = stripRemoteConnectQuery(rawUrl) ?? rawUrl;
-    const bundleStripped = stripBundleQuery(remoteStripped) ?? remoteStripped;
-    if (bundleStripped !== rawUrl) {
-      window.history.replaceState({}, "", bundleStripped);
-    }
-  };
-
-  const consumeDeepLinks = (urls: readonly string[] | null | undefined) => {
-    if (!Array.isArray(urls)) {
-      return;
-    }
-
-    const normalized = urls.map((url) => url.trim()).filter(Boolean);
-    if (normalized.length === 0) {
-      return;
-    }
-
-    const now = Date.now();
-    for (const [url, seenAt] of recentClaimedDeepLinks) {
-      if (now - seenAt > 1500) {
-        recentClaimedDeepLinks.delete(url);
-      }
-    }
-
-    for (const url of normalized) {
-      const seenAt = recentClaimedDeepLinks.get(url) ?? 0;
-      if (now - seenAt < 1500) {
-        continue;
-      }
-
-      const matchedDen = queueDenAuthDeepLink(url);
-      const matchedRemote = !matchedDen && queueRemoteConnectDeepLink(url);
-      const matchedBundle = !matchedDen && !matchedRemote && bundlesStore.queueBundleLink(url);
-      const claimed = matchedDen || matchedRemote || matchedBundle;
-      if (!claimed) {
-        continue;
-      }
-
-      recentClaimedDeepLinks.set(url, now);
-      stripHandledBrowserDeepLink(url);
-      break;
-    }
-  };
-
-  const openDebugDeepLink = async (rawUrl: string): Promise<{ ok: boolean; message: string }> => {
-    const parsed = parseDebugDeepLinkInput(rawUrl);
-    if (!parsed) {
-      return { ok: false, message: "That link is not a recognized OpenWork deep link or share URL." };
-    }
-
-    setError(null);
-    setView("settings");
-    if (parsed.kind === "bundle") {
-      return bundlesStore.openDebugBundleRequest(parsed.link);
-    }
-    if (parsed.kind === "auth") {
-      setPendingDenAuthDeepLink(parsed.link);
-      return { ok: true, message: "Queued the Cloud auth deep link for OpenWork." };
-    }
-
-    setPendingRemoteConnectDeepLink(parsed.kind === "remote" ? parsed.link : null);
-    setSettingsTab("automations");
-    return { ok: true, message: "Queued remote worker link. OpenWork should move into the connect flow." };
-  };
-
-  createEffect(() => {
-    const pending = pendingDenAuthDeepLink();
-    if (!pending || booting() || processingDenAuthDeepLink()) {
-      return;
-    }
-
-    setProcessingDenAuthDeepLink(true);
-    setPendingDenAuthDeepLink(null);
-    setView("settings");
-    setSettingsTab("den");
-    goToSettings("den");
-
-    void createDenClient({ baseUrl: pending.denBaseUrl })
-      .exchangeDesktopHandoff(pending.grant)
-      .then((result) => {
-        if (!result.token) {
-          throw new Error("Desktop sign-in completed, but OpenWork Cloud did not return a session token.");
-        }
-
-        writeDenSettings({
-          baseUrl: pending.denBaseUrl,
-          authToken: result.token,
-          activeOrgId: null,
-          activeOrgSlug: null,
-          activeOrgName: null,
-        });
-
-        window.dispatchEvent(
-          new CustomEvent("openwork-den-session-updated", {
-            detail: {
-              status: "success",
-              email: result.user?.email ?? null,
-            },
-          }),
-        );
-      })
-      .catch((error) => {
-        window.dispatchEvent(
-          new CustomEvent("openwork-den-session-updated", {
-            detail: {
-              status: "error",
-              message: error instanceof Error ? error.message : "Failed to complete OpenWork Cloud sign-in.",
-            },
-          }),
-        );
-      })
-      .finally(() => {
-        setProcessingDenAuthDeepLink(false);
-      });
-  });
-
-  createEffect(() => {
-    const pending = pendingRemoteConnectDeepLink();
-    if (!pending || booting()) {
-      return;
-    }
-
-    if (pending.autoConnect) {
-      setView("session");
-    } else {
-      setView("settings");
-      setSettingsTab("automations");
-    }
-    setPendingRemoteConnectDeepLink(null);
-    void completeRemoteConnectDeepLink(pending);
-  });
-
-  createEffect(() => {
-    if (workspaceStore.createRemoteWorkspaceOpen()) {
-      return;
-    }
-    if (!deepLinkRemoteWorkspaceDefaults()) {
-      return;
-    }
-    setDeepLinkRemoteWorkspaceDefaults(null);
   });
 
   async function restartLocalServer() {
@@ -1863,13 +1658,13 @@ export default function App() {
     }
 
     if (typeof window !== "undefined") {
-      const handleDeepLinkEvent = (event: Event) => {
-        const detail = (event as CustomEvent<DeepLinkBridgeDetail>).detail;
-        consumeDeepLinks(detail?.urls ?? []);
-      };
+        const handleDeepLinkEvent = (event: Event) => {
+          const detail = (event as CustomEvent<DeepLinkBridgeDetail>).detail;
+          deepLinks.consumeDeepLinks(detail?.urls ?? []);
+        };
 
-      consumeDeepLinks(drainPendingDeepLinks(window));
-      window.addEventListener(deepLinkBridgeEvent, handleDeepLinkEvent as EventListener);
+        deepLinks.consumeDeepLinks(drainPendingDeepLinks(window));
+        window.addEventListener(deepLinkBridgeEvent, handleDeepLinkEvent as EventListener);
       onCleanup(() => {
         window.removeEventListener(deepLinkBridgeEvent, handleDeepLinkEvent as EventListener);
       });
@@ -2301,7 +2096,7 @@ export default function App() {
       dockerCleanupResult: dockerCleanupResult(),
       markOpencodeConfigReloadRequired,
       resetAppConfigDefaults,
-      openDebugDeepLink,
+      openDebugDeepLink: deepLinks.openDebugDeepLink,
       language: currentLocale(),
       setLanguage: setLocale,
     };
@@ -2752,10 +2547,10 @@ export default function App() {
               open={workspaceStore.createRemoteWorkspaceOpen()}
               onClose={() => {
                 workspaceStore.setCreateRemoteWorkspaceOpen(false);
-                setDeepLinkRemoteWorkspaceDefaults(null);
+                deepLinks.clearDeepLinkRemoteWorkspaceDefaults();
               }}
               onConfirm={(input) => workspaceStore.createRemoteWorkspaceFlow(input)}
-              initialValues={deepLinkRemoteWorkspaceDefaults() ?? undefined}
+              initialValues={deepLinks.deepLinkRemoteWorkspaceDefaults() ?? undefined}
               submitting={
                 busy() &&
                 (busyLabel() === "status.creating_workspace" || busyLabel() === "status.connecting")
