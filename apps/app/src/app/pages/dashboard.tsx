@@ -46,13 +46,8 @@ import type { EngineInfo, OrchestratorStatus, OpenworkServerInfo, OpenCodeRouter
 import { DEFAULT_OPENWORK_PUBLISHER_BASE_URL } from "../lib/publisher";
 
 import Button from "../components/button";
-import WebUnavailableSurface from "../components/web-unavailable-surface";
 import ConfigView from "./config";
-import ExtensionsView from "./extensions";
-import IdentitiesView from "./identities";
-import ScheduledTasksView from "./scheduled";
 import SettingsView from "./settings";
-import SkillsView from "./skills";
 import StatusBar from "../components/status-bar";
 import { ProviderAuthModal,
   type ProviderAuthMethod,
@@ -443,7 +438,18 @@ export default function DashboardView(props: DashboardViewProps) {
   });
 
   createEffect(() => {
-    const currentTab = props.tab;
+    const currentTab =
+      props.tab === "settings"
+        ? props.settingsTab
+        : props.tab === "scheduled"
+          ? "automations"
+          : props.tab === "skills"
+            ? "skills"
+            : props.tab === "plugins" || props.tab === "mcp"
+              ? "extensions"
+              : props.tab === "identities"
+                ? "messaging"
+                : props.tab;
 
     // Skip if we already refreshed this tab or a refresh is in progress
     if (lastRefreshedTab() === currentTab || refreshInProgress()) {
@@ -462,7 +468,7 @@ export default function DashboardView(props: DashboardViewProps) {
         if (currentTab === "skills" && !cancelled) {
           await extensions.refreshSkills();
         }
-        if ((currentTab === "plugins" || currentTab === "mcp") && !cancelled) {
+        if (currentTab === "extensions" && !cancelled) {
           await Promise.all([extensions.refreshPlugins(), connections.refreshMcpServers()]);
         }
       } catch {
@@ -488,16 +494,36 @@ export default function DashboardView(props: DashboardViewProps) {
   };
 
   const openMessaging = () => {
-    props.setTab("identities");
+    openSettings("messaging");
   };
 
   const openExtensions = () => {
-    props.setTab("mcp");
+    openSettings("extensions");
   };
 
   const openConfig = () => {
-    props.setTab(props.developerMode ? "config" : "identities");
+    if (props.developerMode) {
+      props.setTab("config");
+      return;
+    }
+    openSettings("messaging");
   };
+
+  const resolvedSettingsTab = createMemo<SettingsTab>(() => {
+    switch (props.tab) {
+      case "scheduled":
+        return "automations";
+      case "skills":
+        return "skills";
+      case "plugins":
+      case "mcp":
+        return "extensions";
+      case "identities":
+        return "messaging";
+      default:
+        return props.settingsTab;
+    }
+  });
 
   const revealWorkspaceInFinder = async (workspaceId: string) => {
     const workspace = props.workspaces.find((entry) => entry.id === workspaceId) ?? null;
@@ -519,7 +545,7 @@ export default function DashboardView(props: DashboardViewProps) {
   createEffect(() => {
     if (props.developerMode) return;
     if (props.tab !== "config") return;
-    props.setTab("identities");
+    openSettings("messaging");
   });
 
   const shareWorkspace = createMemo(() => {
@@ -1249,72 +1275,8 @@ export default function DashboardView(props: DashboardViewProps) {
           </div>
         </header>
 
-        <div class={props.tab === "settings" ? "w-full space-y-10 p-6 md:p-10" : "mx-auto w-full max-w-[1100px] space-y-10 p-6 md:p-10"}>
+        <div class={props.tab === "config" && props.developerMode ? "mx-auto w-full max-w-[1100px] space-y-10 p-6 md:p-10" : "w-full space-y-10 p-6 md:p-10"}>
           <Switch>
-            <Match when={props.tab === "scheduled"}>
-              <WebUnavailableSurface unavailable={webDeployment()}>
-                <ScheduledTasksView
-                  busy={props.busy}
-                  selectedWorkspaceRoot={props.selectedWorkspaceRoot}
-                  createSessionAndOpen={props.createSessionAndOpen}
-                  setPrompt={props.setPrompt}
-                  newTaskDisabled={props.newTaskDisabled}
-                  schedulerInstalled={props.schedulerPluginInstalled}
-                  canEditPlugins={props.canEditPlugins}
-                  addPlugin={props.addPlugin}
-                  reloadWorkspaceEngine={props.reloadWorkspaceEngine}
-                  reloadBusy={props.reloadBusy}
-                  canReloadWorkspace={props.canReloadWorkspace}
-                />
-              </WebUnavailableSurface>
-            </Match>
-            <Match when={props.tab === "skills"}>
-              <WebUnavailableSurface unavailable={webDeployment()}>
-                <SkillsView
-                  workspaceName={props.selectedWorkspaceDisplay.name}
-                  busy={props.busy}
-                  canInstallSkillCreator={props.canInstallSkillCreator}
-                  canUseDesktopTools={props.canUseDesktopTools}
-                  accessHint={props.skillsAccessHint}
-                  createSessionAndOpen={props.createSessionAndOpen}
-                  setPrompt={props.setPrompt}
-                />
-              </WebUnavailableSurface>
-            </Match>
-
-            <Match when={props.tab === "plugins" || props.tab === "mcp"}>
-              <WebUnavailableSurface unavailable={webDeployment()}>
-                <ExtensionsView
-                  initialSection={props.tab === "plugins" ? "plugins" : "mcp"}
-                  setDashboardTab={props.setTab}
-                  busy={props.busy}
-                  selectedWorkspaceRoot={props.selectedWorkspaceRoot}
-                  isRemoteWorkspace={props.isRemoteWorkspace}
-                  canEditPlugins={props.canEditPlugins}
-                  canUseGlobalScope={props.canUseGlobalPluginScope}
-                  accessHint={props.pluginsAccessHint}
-                  suggestedPlugins={props.suggestedPlugins}
-                />
-              </WebUnavailableSurface>
-            </Match>
-
-            <Match when={props.tab === "identities"}>
-              <WebUnavailableSurface unavailable={webDeployment()}>
-                <IdentitiesView
-                  busy={props.busy}
-                  openworkServerStatus={props.openworkServerStatus}
-                  openworkServerUrl={props.openworkServerUrl}
-                  openworkServerClient={props.openworkServerClient}
-                  openworkReconnectBusy={props.openworkReconnectBusy}
-                  reconnectOpenworkServer={props.reconnectOpenworkServer}
-                  restartLocalServer={props.restartLocalServer}
-                  runtimeWorkspaceId={props.runtimeWorkspaceId}
-                  selectedWorkspaceRoot={props.selectedWorkspaceRoot}
-                  developerMode={props.developerMode}
-                />
-              </WebUnavailableSurface>
-            </Match>
-
             <Match when={props.tab === "config" && props.developerMode}>
               <ConfigView
                 busy={props.busy}
@@ -1341,14 +1303,14 @@ export default function DashboardView(props: DashboardViewProps) {
               />
             </Match>
 
-            <Match when={props.tab === "settings"}>
+            <Match when={true}>
               <SettingsView
                   startupPreference={props.startupPreference}
                   baseUrl={props.baseUrl}
                   headerStatus={props.headerStatus}
                   busy={props.busy}
                   clientConnected={props.clientConnected}
-                  settingsTab={props.settingsTab}
+                  settingsTab={resolvedSettingsTab()}
                   setSettingsTab={props.setSettingsTab}
                   providers={props.providers}
                   providerConnectedIds={props.providerConnectedIds}
@@ -1434,13 +1396,27 @@ export default function DashboardView(props: DashboardViewProps) {
                   cleanupOpenworkDockerContainers={props.cleanupOpenworkDockerContainers}
                   dockerCleanupBusy={props.dockerCleanupBusy}
                   dockerCleanupResult={props.dockerCleanupResult}
-                  markOpencodeConfigReloadRequired={props.markOpencodeConfigReloadRequired}
-                  resetAppConfigDefaults={props.resetAppConfigDefaults}
-                  openDebugDeepLink={props.openDebugDeepLink}
-                  connectRemoteWorkspace={props.connectRemoteWorkspace}
-                  openCloudTemplate={props.openCloudTemplate}
-              />
-
+                   markOpencodeConfigReloadRequired={props.markOpencodeConfigReloadRequired}
+                   resetAppConfigDefaults={props.resetAppConfigDefaults}
+                   openDebugDeepLink={props.openDebugDeepLink}
+                   newTaskDisabled={props.newTaskDisabled}
+                   schedulerPluginInstalled={props.schedulerPluginInstalled}
+                   skillsAccessHint={props.skillsAccessHint}
+                   canInstallSkillCreator={props.canInstallSkillCreator}
+                   canUseDesktopTools={props.canUseDesktopTools}
+                   pluginsAccessHint={props.pluginsAccessHint}
+                   canEditPlugins={props.canEditPlugins}
+                   canUseGlobalPluginScope={props.canUseGlobalPluginScope}
+                   suggestedPlugins={props.suggestedPlugins}
+                   addPlugin={props.addPlugin}
+                   createSessionAndOpen={props.createSessionAndOpen}
+                   setPrompt={props.setPrompt}
+                   canReloadWorkspace={props.canReloadWorkspace}
+                   reloadWorkspaceEngine={props.reloadWorkspaceEngine}
+                   reloadBusy={props.reloadBusy}
+                   connectRemoteWorkspace={props.connectRemoteWorkspace}
+                   openCloudTemplate={props.openCloudTemplate}
+               />
             </Match>
           </Switch>
         </div>
@@ -1527,7 +1503,7 @@ export default function DashboardView(props: DashboardViewProps) {
           onShareSkillsSet={publishSkillsSetLink}
           onOpenSingleSkillShare={() => {
             setShareWorkspaceId(null);
-            props.setTab("skills");
+            openSettings("skills");
           }}
           shareSkillsSetBusy={shareSkillsSetBusy()}
           shareSkillsSetUrl={shareSkillsSetUrl()}
@@ -1564,36 +1540,36 @@ export default function DashboardView(props: DashboardViewProps) {
           <div class={`mx-auto max-w-5xl px-4 py-3 grid gap-2 ${props.developerMode ? "grid-cols-5" : "grid-cols-4"}`}>
             <button
               class={`flex flex-col items-center gap-1 text-xs ${
-                props.tab === "scheduled" ? "text-gray-12" : "text-gray-10"
+                props.tab === "settings" && props.settingsTab === "automations" ? "text-gray-12" : "text-gray-10"
               }`}
-              onClick={() => props.setTab("scheduled")}
+              onClick={() => openSettings("automations")}
             >
               <History size={18} />
               Automations
             </button>
             <button
               class={`flex flex-col items-center gap-1 text-xs ${
-                props.tab === "skills" ? "text-gray-12" : "text-gray-10"
+                props.tab === "settings" && props.settingsTab === "skills" ? "text-gray-12" : "text-gray-10"
               }`}
-              onClick={() => props.setTab("skills")}
+              onClick={() => openSettings("skills")}
             >
               <Zap size={18} />
               Skills
             </button>
             <button
               class={`flex flex-col items-center gap-1 text-xs ${
-                props.tab === "mcp" || props.tab === "plugins" ? "text-gray-12" : "text-gray-10"
+                props.tab === "settings" && props.settingsTab === "extensions" ? "text-gray-12" : "text-gray-10"
               }`}
-              onClick={() => props.setTab("mcp")}
+              onClick={() => openSettings("extensions")}
             >
               <Box size={18} />
               Extensions
             </button>
             <button
               class={`flex flex-col items-center gap-1 text-xs ${
-                props.tab === "identities" ? "text-gray-12" : "text-gray-10"
+                props.tab === "settings" && props.settingsTab === "messaging" ? "text-gray-12" : "text-gray-10"
               }`}
-              onClick={() => props.setTab("identities")}
+              onClick={() => openSettings("messaging")}
             >
               <MessageCircle size={18} />
               IDs

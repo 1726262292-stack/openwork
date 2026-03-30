@@ -3206,7 +3206,8 @@ export default function SessionView(props: SessionViewProps) {
   };
 
   const openMcp = () => {
-    props.setTab("mcp");
+    props.setSettingsTab("extensions");
+    props.setTab("settings");
     props.setView("dashboard");
   };
 
@@ -3980,7 +3981,8 @@ export default function SessionView(props: SessionViewProps) {
             showSettingsButton={true}
             onOpenSettings={props.toggleSettings}
             onOpenMessaging={() => {
-              props.setTab("identities");
+              props.setSettingsTab("messaging");
+              props.setTab("settings");
               props.setView("dashboard");
             }}
             onOpenProviders={openProviderAuth}
@@ -4195,7 +4197,8 @@ export default function SessionView(props: SessionViewProps) {
         onShareSkillsSet={publishSkillsSetLink}
         onOpenSingleSkillShare={() => {
           setShareWorkspaceId(null);
-          props.setTab("skills");
+          props.setSettingsTab("skills");
+          props.setTab("settings");
           props.setView("dashboard");
         }}
         shareSkillsSetBusy={shareSkillsSetBusy()}

@@ -19,10 +19,15 @@ import {
 import AuthorizedFoldersPanel from "../app-settings/authorized-folders-panel";
 import Button from "../components/button";
 import ProviderIcon from "../components/provider-icon";
+import WebUnavailableSurface from "../components/web-unavailable-surface";
 import DenSettingsPanel from "../components/den-settings-panel";
 import TextInput from "../components/text-input";
 import { useSessionDisplayPreferences } from "../app-settings/session-display-preferences";
 import { usePlatform } from "../context/platform";
+import ExtensionsView from "./extensions";
+import IdentitiesView from "./identities";
+import ScheduledTasksView from "./scheduled";
+import SkillsView from "./skills";
 import { buildFeedbackUrl } from "../lib/feedback";
 import { getOpenWorkDeployment } from "../lib/openwork-deployment";
 import {
@@ -42,14 +47,9 @@ import {
   Zap,
 } from "lucide-solid";
 import type {
-  HubSkillCard,
-  HubSkillRepo,
   OpencodeConnectStatus,
-  PluginScope,
   ProviderListItem,
-  ScheduledJob,
   SettingsTab,
-  SkillCard,
   StartupPreference,
   SuggestedPlugin,
 } from "../types";
@@ -191,6 +191,21 @@ export type SettingsViewProps = {
   openDebugDeepLink: (
     rawUrl: string,
   ) => Promise<{ ok: boolean; message: string }>;
+  newTaskDisabled: boolean;
+  schedulerPluginInstalled: boolean;
+  skillsAccessHint?: string | null;
+  canInstallSkillCreator: boolean;
+  canUseDesktopTools: boolean;
+  pluginsAccessHint?: string | null;
+  canEditPlugins: boolean;
+  canUseGlobalPluginScope: boolean;
+  suggestedPlugins: SuggestedPlugin[];
+  addPlugin: (pluginNameOverride?: string) => void;
+  createSessionAndOpen: () => void;
+  setPrompt: (value: string) => void;
+  canReloadWorkspace: boolean;
+  reloadWorkspaceEngine: () => Promise<void>;
+  reloadBusy: boolean;
   connectRemoteWorkspace: (input: {
     openworkHostUrl?: string | null;
     openworkToken?: string | null;
@@ -803,6 +818,14 @@ export default function SettingsView(props: SettingsViewProps) {
         return "Cloud";
       case "model":
         return "Model";
+      case "automations":
+        return "Automations";
+      case "skills":
+        return "Skills";
+      case "extensions":
+        return "Extensions";
+      case "messaging":
+        return "Messaging";
       case "advanced":
         return "Advanced";
       case "appearance":
@@ -818,7 +841,14 @@ export default function SettingsView(props: SettingsViewProps) {
     }
   };
 
-  const workspaceTabs = createMemo<SettingsTab[]>(() => ["general", "advanced"]);
+  const workspaceTabs = createMemo<SettingsTab[]>(() => [
+    "general",
+    "automations",
+    "skills",
+    "extensions",
+    "messaging",
+    "advanced",
+  ]);
 
   const globalTabs = createMemo<SettingsTab[]>(() => {
     const tabs: SettingsTab[] = ["den", "appearance", "updates", "recovery"];
@@ -1299,6 +1329,14 @@ export default function SettingsView(props: SettingsViewProps) {
         return "Manage your OpenWork Cloud connection, hosted workers, and workspace access.";
       case "model":
         return "Tune the default model, runtime behavior, and assistant output settings.";
+      case "automations":
+        return "Create and manage scheduled automations from workspace settings.";
+      case "skills":
+        return "Browse, edit, and install skills without leaving settings.";
+      case "extensions":
+        return "Manage MCP apps and OpenCode plugins for this workspace.";
+      case "messaging":
+        return "Configure router identities and inbox behavior from workspace settings.";
       case "advanced":
         return "Inspect runtime health, connection state, and developer-facing controls.";
       case "appearance":
@@ -1678,6 +1716,73 @@ export default function SettingsView(props: SettingsViewProps) {
               </div>
             </div>
           </div>
+        </Match>
+
+        <Match when={activeTab() === "automations"}>
+          <WebUnavailableSurface unavailable={webDeployment()}>
+            <ScheduledTasksView
+              busy={props.busy}
+              selectedWorkspaceRoot={props.selectedWorkspaceRoot}
+              createSessionAndOpen={props.createSessionAndOpen}
+              setPrompt={props.setPrompt}
+              newTaskDisabled={props.newTaskDisabled}
+              schedulerInstalled={props.schedulerPluginInstalled}
+              canEditPlugins={props.canEditPlugins}
+              addPlugin={props.addPlugin}
+              reloadWorkspaceEngine={props.reloadWorkspaceEngine}
+              reloadBusy={props.reloadBusy}
+              canReloadWorkspace={props.canReloadWorkspace}
+              showHeader={false}
+            />
+          </WebUnavailableSurface>
+        </Match>
+
+        <Match when={activeTab() === "skills"}>
+          <WebUnavailableSurface unavailable={webDeployment()}>
+            <SkillsView
+              workspaceName={props.selectedWorkspaceRoot.trim() || "Workspace"}
+              busy={props.busy}
+              canInstallSkillCreator={props.canInstallSkillCreator}
+              canUseDesktopTools={props.canUseDesktopTools}
+              accessHint={props.skillsAccessHint}
+              createSessionAndOpen={props.createSessionAndOpen}
+              setPrompt={props.setPrompt}
+              showHeader={false}
+            />
+          </WebUnavailableSurface>
+        </Match>
+
+        <Match when={activeTab() === "extensions"}>
+          <WebUnavailableSurface unavailable={webDeployment()}>
+            <ExtensionsView
+              busy={props.busy}
+              selectedWorkspaceRoot={props.selectedWorkspaceRoot}
+              isRemoteWorkspace={props.activeWorkspaceType === "remote"}
+              canEditPlugins={props.canEditPlugins}
+              canUseGlobalScope={props.canUseGlobalPluginScope}
+              accessHint={props.pluginsAccessHint}
+              suggestedPlugins={props.suggestedPlugins}
+              showHeader={false}
+            />
+          </WebUnavailableSurface>
+        </Match>
+
+        <Match when={activeTab() === "messaging"}>
+          <WebUnavailableSurface unavailable={webDeployment()}>
+            <IdentitiesView
+              busy={props.busy}
+              openworkServerStatus={props.openworkServerStatus}
+              openworkServerUrl={props.openworkServerUrl}
+              openworkServerClient={props.openworkServerClient}
+              openworkReconnectBusy={props.openworkReconnectBusy}
+              reconnectOpenworkServer={props.reconnectOpenworkServer}
+              restartLocalServer={props.restartLocalServer}
+              runtimeWorkspaceId={props.runtimeWorkspaceId}
+              selectedWorkspaceRoot={props.selectedWorkspaceRoot}
+              developerMode={props.developerMode}
+              showHeader={false}
+            />
+          </WebUnavailableSurface>
         </Match>
 
         <Match when={activeTab() === "appearance"}>
