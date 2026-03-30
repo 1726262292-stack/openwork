@@ -19,16 +19,21 @@
         "pages": [
           "get-started",
           {
+            "group": "Desktop App",
+            "pages": [
+              "enable-advanced-search-with-exa",
+              "how-to-connect-chat-gpt",
+              "how-to-connect-mcps",
+              "computer-use",
+              "sharing-ow-setup",
+              "accessing-ow-from-slack"
+            ]
+          },
+          {
             "group": "Tutorials",
             "pages": [
-              "sharing-ow-setup",
               "how-to-connect-a-custom-provider",
-              "how-to-connect-mcps",
-              "accessing-ow-from-slack",
-              "importing-a-skill",
-              "computer-use",
-              "how-to-connect-chat-gpt",
-              "enable-advanced-search-with-exa"
+              "importing-a-skill"
             ]
           },
           {
