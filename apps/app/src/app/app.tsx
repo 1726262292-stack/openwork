@@ -3396,13 +3396,6 @@ export default function App() {
   const isHeroModel = (id: string) => {
     const check = id.toLowerCase();
     if (check.includes("gpt-5")) return true;
-    if (check.includes("opus-4")) return true;
-    if (check.includes("claude-3-7-sonnet")) return true;
-    if (check.includes("claude-3-5-sonnet")) return true;
-    if (check.includes("gpt-4o") && !check.includes("mini") && !check.includes("audio")) return true;
-    if (check.includes("o3-mini")) return true;
-    if (check.includes("o1") && !check.includes("mini")) return true;
-    if (check.includes("deepseek-r1")) return true;
     return false;
   };
 
