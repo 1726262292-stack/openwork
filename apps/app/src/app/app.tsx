@@ -79,21 +79,17 @@ import type {
   ModelOption,
   ModelRef,
   OnboardingStep,
-  PluginScope,
   ReloadReason,
   ReloadTrigger,
   SettingsTab,
-  TodoItem,
   View,
   WorkspaceSessionGroup,
-  WorkspaceDisplay,
   ComposerAttachment,
   ComposerDraft,
   ComposerPart,
   ProviderListItem,
   SessionErrorTurn,
   OpencodeConnectStatus,
-  WorkspacePreset,
 } from "./types";
 import {
   clearStartupPreference,
@@ -104,7 +100,6 @@ import {
   isVisibleTextPart,
   isTauriRuntime,
   modelEquals,
-  normalizeDirectoryQueryPath,
   normalizeDirectoryPath,
 } from "./utils";
 import { currentLocale, setLocale, t } from "../i18n";
@@ -125,7 +120,6 @@ import {
   type ThemeMode,
 } from "./theme";
 import { createSystemState } from "./system-state";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { createSessionStore } from "./context/session";
 import { createProvidersStore } from "./context/providers";
 import { useSessionDisplayPreferences } from "./app-settings/session-display-preferences";
@@ -169,7 +163,6 @@ import {
   type OrchestratorStatus,
   type OpenworkServerInfo,
   type OpenCodeRouterInfo,
-  type WorkspaceInfo,
 } from "./lib/tauri";
 import {
   FONT_ZOOM_STEP,
@@ -251,7 +244,7 @@ export default function App() {
   const navigate = useNavigate();
 
   const [creatingSession, setCreatingSession] = createSignal(false);
-  const [sessionViewLockUntil, setSessionViewLockUntil] = createSignal(0);
+  const [sessionViewLockUntil] = createSignal(0);
   const currentView = createMemo<View>(() => {
     const path = location.pathname.toLowerCase();
     if (path.startsWith("/session")) return "session";
@@ -326,7 +319,7 @@ export default function App() {
   const [openworkServerUrl, setOpenworkServerUrl] = createSignal("");
   const [openworkServerStatus, setOpenworkServerStatus] = createSignal<OpenworkServerStatus>("disconnected");
   const [openworkServerCapabilities, setOpenworkServerCapabilities] = createSignal<OpenworkServerCapabilities | null>(null);
-  const [openworkServerCheckedAt, setOpenworkServerCheckedAt] = createSignal<number | null>(null);
+  const [, setOpenworkServerCheckedAt] = createSignal<number | null>(null);
   const [openworkServerHostInfo, setOpenworkServerHostInfo] = createSignal<OpenworkServerInfo | null>(null);
   const [openworkServerDiagnostics, setOpenworkServerDiagnostics] = createSignal<OpenworkServerDiagnostics | null>(null);
   const [openworkReconnectBusy, setOpenworkReconnectBusy] = createSignal(false);
@@ -744,7 +737,7 @@ export default function App() {
   const [error, setError] = createSignal<string | null>(null);
   const [opencodeConnectStatus, setOpencodeConnectStatus] = createSignal<OpencodeConnectStatus | null>(null);
   const [booting, setBooting] = createSignal(true);
-  const [lastKnownConfigSnapshot, setLastKnownConfigSnapshot] = createSignal("");
+  const [, setLastKnownConfigSnapshot] = createSignal("");
   const [developerMode, setDeveloperMode] = createSignal(false);
   const [documentVisible, setDocumentVisible] = createSignal(true);
 
@@ -905,7 +898,6 @@ export default function App() {
     todos,
     pendingPermissions,
     permissionReplyBusy,
-    pendingQuestions,
     activeQuestion,
     questionReplyBusy,
     events,
@@ -913,7 +905,6 @@ export default function App() {
     loadSessions,
     ensureSessionLoaded,
     refreshPendingPermissions,
-    refreshPendingQuestions,
     selectSession,
     loadEarlierMessages,
     renameSession,
@@ -943,7 +934,6 @@ export default function App() {
     }
     return selectedSessionId();
   });
-  const activeSessions = createMemo(() => sessions());
   const activeSessionStatusById = createMemo(() => sessionStatusById());
   const activeTodos = createMemo(() => todos());
   const activeWorkingFiles = createMemo(() => workingFiles());
@@ -1780,40 +1770,15 @@ export default function App() {
   const {
     skills,
     skillsStatus,
-    hubSkills,
-    hubSkillsStatus,
-    hubRepo,
-    hubRepos,
     pluginScope,
-    setPluginScope,
-    pluginConfig,
-    pluginConfigPath,
-    pluginList,
-    pluginInput,
-    setPluginInput,
-    pluginStatus,
-    activePluginGuide,
-    setActivePluginGuide,
     sidebarPluginList,
     sidebarPluginStatus,
     isPluginInstalledByName,
     refreshSkills,
     refreshHubSkills,
-    setHubRepo,
-    addHubRepo,
-    removeHubRepo,
     refreshPlugins,
     addPlugin,
-    removePlugin,
-    importLocalSkill,
-    installSkillCreator,
-    installHubSkill,
-    revealSkillsFolder,
-    uninstallSkill,
-    readSkill,
-    saveSkill,
     abortRefreshes,
-    ensureHubSkillsFresh,
   } = extensionsStore;
 
   const connectionsStore = createConnectionsStore({
@@ -2494,7 +2459,7 @@ export default function App() {
   const [editRemoteWorkspaceError, setEditRemoteWorkspaceError] = createSignal<string | null>(null);
   const [deepLinkRemoteWorkspaceDefaults, setDeepLinkRemoteWorkspaceDefaults] = createSignal<RemoteWorkspaceDefaults | null>(null);
   const [pendingRemoteConnectDeepLink, setPendingRemoteConnectDeepLink] = createSignal<RemoteWorkspaceDefaults | null>(null);
-  const [autoConnectRemoteWorkspaceOverlayOpen, setAutoConnectRemoteWorkspaceOverlayOpen] = createSignal(false);
+  const [, setAutoConnectRemoteWorkspaceOverlayOpen] = createSignal(false);
   const [pendingDenAuthDeepLink, setPendingDenAuthDeepLink] = createSignal<DenAuthDeepLink | null>(null);
   const [processingDenAuthDeepLink, setProcessingDenAuthDeepLink] = createSignal(false);
   const recentClaimedDeepLinks = new Map<string, number>();
@@ -2985,7 +2950,6 @@ export default function App() {
     updateStatus,
     setUpdateStatus,
     pendingUpdate,
-    setPendingUpdate,
     updateEnv,
     setUpdateEnv,
     checkForUpdates,
@@ -2994,7 +2958,6 @@ export default function App() {
     resetModalOpen,
     setResetModalOpen,
     resetModalMode,
-    setResetModalMode,
     resetModalText,
     setResetModalText,
     resetModalBusy,
@@ -3149,15 +3112,8 @@ export default function App() {
   });
 
   const {
-    engine,
-    engineDoctorResult,
-    engineDoctorCheckedAt,
-    engineInstallLogs,
     projectDir: workspaceProjectDir,
-    newAuthorizedDir,
-    refreshEngineDoctor,
     stopHost,
-    setEngineInstallLogs,
   } = workspaceStore;
 
   const schedulerPluginInstalled = createMemo(() => isPluginInstalledByName("opencode-scheduler"));
@@ -3172,14 +3128,8 @@ export default function App() {
   });
 
   const {
-    scheduledJobs,
-    scheduledJobsStatus,
-    scheduledJobsBusy,
-    scheduledJobsUpdatedAt,
-    scheduledJobsSource,
     scheduledJobsPollingAvailable,
     refreshScheduledJobs,
-    deleteScheduledJob,
   } = automationsStore;
 
   createEffect(() => {
