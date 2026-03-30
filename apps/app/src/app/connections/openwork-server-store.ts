@@ -102,6 +102,22 @@ export function createOpenworkServerStore(options: {
     return createOpenworkServerClient({ baseUrl, token: auth.token, hostToken: auth.hostToken });
   });
 
+  const openworkServerReady = createMemo(() => openworkServerStatus() === "connected");
+  const openworkServerWorkspaceReady = createMemo(() => Boolean(options.runtimeWorkspaceId()));
+  const resolvedOpenworkCapabilities = createMemo(() => openworkServerCapabilities());
+  const openworkServerCanWriteSkills = createMemo(
+    () =>
+      openworkServerReady() &&
+      openworkServerWorkspaceReady() &&
+      (resolvedOpenworkCapabilities()?.skills?.write ?? false),
+  );
+  const openworkServerCanWritePlugins = createMemo(
+    () =>
+      openworkServerReady() &&
+      openworkServerWorkspaceReady() &&
+      (resolvedOpenworkCapabilities()?.plugins?.write ?? false),
+  );
+
   const updateOpenworkServerSettings = (next: OpenworkServerSettings) => {
     const stored = writeOpenworkServerSettings(next);
     setOpenworkServerSettings(stored);
@@ -507,6 +523,11 @@ export function createOpenworkServerStore(options: {
     openworkServerClient,
     openworkServerStatus,
     openworkServerCapabilities,
+    openworkServerReady,
+    openworkServerWorkspaceReady,
+    resolvedOpenworkCapabilities,
+    openworkServerCanWriteSkills,
+    openworkServerCanWritePlugins,
     openworkServerHostInfo,
     openworkServerDiagnostics,
     openworkReconnectBusy,

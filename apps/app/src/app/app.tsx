@@ -674,6 +674,11 @@ export default function App() {
     openworkServerClient,
     openworkServerStatus,
     openworkServerCapabilities,
+    openworkServerReady,
+    openworkServerWorkspaceReady,
+    resolvedOpenworkCapabilities,
+    openworkServerCanWriteSkills,
+    openworkServerCanWritePlugins,
     openworkServerHostInfo,
     openworkServerDiagnostics,
     openworkReconnectBusy,
@@ -1215,23 +1220,6 @@ export default function App() {
       token: token || settings.token,
     });
   });
-
-  const openworkServerReady = createMemo(() => openworkServerStatus() === "connected");
-  const openworkServerWorkspaceReady = createMemo(() => Boolean(runtimeWorkspaceId()));
-  const resolvedOpenworkCapabilities = createMemo(() => openworkServerCapabilities());
-  const openworkServerCanWriteSkills = createMemo(
-    () =>
-      openworkServerReady() &&
-      openworkServerWorkspaceReady() &&
-      (resolvedOpenworkCapabilities()?.skills?.write ?? false),
-  );
-  const openworkServerCanWritePlugins = createMemo(
-    () =>
-      openworkServerReady() &&
-      openworkServerWorkspaceReady() &&
-      (resolvedOpenworkCapabilities()?.plugins?.write ?? false),
-  );
-  const devtoolsCapabilities = createMemo(() => openworkServerCapabilities());
 
   const [editRemoteWorkspaceOpen, setEditRemoteWorkspaceOpen] = createSignal(false);
   const [editRemoteWorkspaceId, setEditRemoteWorkspaceId] = createSignal<string | null>(null);
@@ -2357,7 +2345,7 @@ export default function App() {
       shareRemoteAccessBusy: shareRemoteAccessBusy(),
       shareRemoteAccessError: shareRemoteAccessError(),
       saveShareRemoteAccess,
-      openworkServerCapabilities: devtoolsCapabilities(),
+      openworkServerCapabilities: openworkServerCapabilities(),
       openworkServerDiagnostics: openworkServerDiagnostics(),
       runtimeWorkspaceId: runtimeWorkspaceId(),
       activeWorkspaceType: workspaceStore.selectedWorkspaceDisplay().workspaceType,
