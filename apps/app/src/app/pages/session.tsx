@@ -3579,6 +3579,11 @@ export default function SessionView(props: SessionViewProps) {
         shareWorkspaceProfileToTeamOrgName={shareWorkspaceState.shareWorkspaceProfileTeamOrgName()}
         shareWorkspaceProfileToTeamNeedsSignIn={shareWorkspaceState.shareWorkspaceProfileToTeamNeedsSignIn()}
         onShareWorkspaceProfileToTeamSignIn={shareWorkspaceState.startShareWorkspaceProfileToTeamSignIn}
+        templateContentSummary={{
+          skillNames: props.skills.map((s) => s.name),
+          commandNames: [],
+          configFiles: ["opencode.json", "openwork.json"],
+        }}
         onShareSkillsSet={shareWorkspaceState.publishSkillsSetLink}
         shareSkillsSetBusy={shareWorkspaceState.shareSkillsSetBusy()}
         shareSkillsSetUrl={shareWorkspaceState.shareSkillsSetUrl()}

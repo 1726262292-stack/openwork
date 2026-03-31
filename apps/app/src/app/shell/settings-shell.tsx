@@ -1335,6 +1335,11 @@ export default function SettingsShell(props: SettingsShellProps) {
           shareWorkspaceProfileToTeamOrgName={shareWorkspaceProfileTeamOrgName()}
           shareWorkspaceProfileToTeamNeedsSignIn={shareWorkspaceProfileToTeamNeedsSignIn()}
           onShareWorkspaceProfileToTeamSignIn={startShareWorkspaceProfileToTeamSignIn}
+          templateContentSummary={{
+            skillNames: extensions.skills().map((s) => s.name),
+            commandNames: [],
+            configFiles: ["opencode.json", "openwork.json"],
+          }}
           onShareSkillsSet={publishSkillsSetLink}
           shareSkillsSetBusy={shareSkillsSetBusy()}
           shareSkillsSetUrl={shareSkillsSetUrl()}

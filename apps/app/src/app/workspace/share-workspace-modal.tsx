@@ -204,6 +204,7 @@ export default function ShareWorkspaceModal(props: ShareWorkspaceModalProps) {
                 shareWorkspaceProfileToTeamOrgName={props.shareWorkspaceProfileToTeamOrgName}
                 shareWorkspaceProfileToTeamNeedsSignIn={props.shareWorkspaceProfileToTeamNeedsSignIn}
                 onShareWorkspaceProfileToTeamSignIn={props.onShareWorkspaceProfileToTeamSignIn}
+                templateContentSummary={props.templateContentSummary}
               />
             </Show>
 
