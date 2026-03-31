@@ -19,6 +19,13 @@
         "pages": [
           "get-started",
           {
+            "group": "Cloud",
+            "pages": [
+              "introduction",
+              "team-provisioning"
+            ]
+          },
+          {
             "group": "Desktop App",
             "pages": [
               "enable-advanced-search-with-exa",
