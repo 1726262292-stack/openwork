@@ -1,6 +1,6 @@
 import { For, Show } from "solid-js";
 
-import { FileCode2, FolderCode, Rocket, Settings2, Users } from "lucide-solid";
+import { FolderCode, Rocket, Users } from "lucide-solid";
 
 import WorkspaceOptionCard from "./option-card";
 import {
@@ -17,34 +17,78 @@ import {
 import type { ShareView } from "./types";
 
 type IncludedItem = {
-  title: string;
-  detail: string;
-  icon: typeof Rocket;
+  label: string;
 };
 
-const IncludedTemplateItems = (props: { items: IncludedItem[] }) => (
-  <div class="mt-5 border-t border-dls-border pt-5">
-    <div class={tagClass}>Included in this template</div>
-    <div class="mt-4 space-y-3">
-      <For each={props.items}>
-        {(item) => {
-          const Icon = item.icon;
-          return (
-            <div class="flex items-start gap-3">
-              <div class={`${iconTileClass} h-8 w-8 rounded-lg`}>
-                <Icon size={15} />
-              </div>
-              <div class="min-w-0">
-                <div class="text-[13px] font-medium text-dls-text">{item.title}</div>
-                <div class="mt-0.5 text-[12px] leading-relaxed text-dls-secondary">{item.detail}</div>
+type IncludedTemplateSection = {
+  title: string;
+  detail: string;
+  accentClass: string;
+  statusLabel: string;
+  statusTone?: "neutral" | "positive" | "warning";
+  items: IncludedItem[];
+};
+
+const IncludedTemplateItems = (props: { sections: IncludedTemplateSection[] }) => {
+  const statusClass = (tone: IncludedTemplateSection["statusTone"]) => {
+    if (tone === "positive") {
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    }
+
+    if (tone === "warning") {
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    }
+
+    return "border-slate-200 bg-slate-100 text-slate-600";
+  };
+
+  return (
+    <div class="mt-5 border-t border-dls-border pt-5">
+      <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-dls-secondary">
+        Included in this template
+      </div>
+
+      <div class="mt-4 overflow-hidden rounded-[1.6rem] border border-dls-border bg-dls-surface">
+        <For each={props.sections}>
+          {(section, index) => (
+            <div class={`flex gap-3 px-4 py-4 ${index() === 0 ? "" : "border-t border-dls-border"}`}>
+              <div
+                class={`mt-2 h-3.5 w-3.5 shrink-0 rounded-full bg-gradient-to-br ${section.accentClass} shadow-[0_10px_20px_-14px_rgba(15,23,42,0.45)]`}
+              />
+
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <div class="text-[11px] font-semibold uppercase tracking-[0.22em] text-dls-secondary">
+                      {section.title}
+                    </div>
+                    <div class="mt-1 text-[13px] leading-relaxed text-dls-text">{section.detail}</div>
+                  </div>
+
+                  <span
+                    class={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${statusClass(section.statusTone)}`}
+                  >
+                    {section.statusLabel}
+                  </span>
+                </div>
+
+                <div class="mt-3 flex flex-wrap gap-2">
+                  <For each={section.items}>
+                    {(item) => (
+                      <span class="inline-flex items-center rounded-full border border-black/5 bg-white px-3 py-1.5 text-[12px] font-medium text-dls-secondary shadow-[0_10px_20px_-18px_rgba(15,23,42,0.32)]">
+                        {item.label}
+                      </span>
+                    )}
+                  </For>
+                </div>
               </div>
             </div>
-          );
-        }}
-      </For>
+          )}
+        </For>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export default function ShareWorkspaceTemplatePanel(props: {
   view: ShareView;
@@ -157,23 +201,57 @@ export default function ShareWorkspaceTemplatePanel(props: {
     </Show>
   );
 
-  const templateIncludedItems: IncludedItem[] = [
-    {
-      title: "Workspace settings",
-      detail: "The shared workspace profile and default behavior.",
-      icon: Settings2,
-    },
-    {
-      title: "Included skills",
-      detail: "Custom skills saved in this workspace.",
-      icon: Rocket,
-    },
-    {
-      title: "Commands and config",
-      detail: "Reusable commands, OpenWork/OpenCode config, and portable .opencode files.",
-      icon: FileCode2,
-    },
-  ];
+  const templateIncludedSections = (): IncludedTemplateSection[] => {
+    const settingsStatus =
+      sensitiveWarnings().length === 0
+        ? { label: "Ready", tone: "positive" as const }
+        : props.shareWorkspaceProfileSensitiveMode === "include"
+          ? { label: "Sensitive included", tone: "warning" as const }
+          : props.shareWorkspaceProfileSensitiveMode === "exclude"
+            ? { label: "Sensitive excluded", tone: "positive" as const }
+            : { label: "Needs decision", tone: "warning" as const };
+
+    return [
+      {
+        title: "Workspace settings",
+        detail: "The workspace profile, defaults, and shared OpenWork/OpenCode behavior travel with the template.",
+        accentClass: "from-[#ffb570] via-[#ff9e43] to-[#f97316]",
+        statusLabel: settingsStatus.label,
+        statusTone: settingsStatus.tone,
+        items: [
+          { label: "workspace profile" },
+          { label: "default behavior" },
+          { label: "openwork.json" },
+          { label: "opencode.json" },
+        ],
+      },
+      {
+        title: "Included skills",
+        detail: "Custom workspace skills are bundled so the same prompts and triggers come across together.",
+        accentClass: "from-[#6e87ff] via-[#4f6dff] to-[#1b29ff]",
+        statusLabel: "Bundled",
+        statusTone: "neutral",
+        items: [
+          { label: ".opencode/skills" },
+          { label: "skill descriptions" },
+          { label: "skill content" },
+          { label: "triggers when present" },
+        ],
+      },
+      {
+        title: "Commands and config",
+        detail: "Reusable commands and portable workspace files come with the template so setup stays consistent.",
+        accentClass: "from-[#67d9d1] via-[#3fcfc3] to-[#0f9f9a]",
+        statusLabel: "Portable",
+        statusTone: "neutral",
+        items: [
+          { label: ".opencode/commands" },
+          { label: ".opencode/agents" },
+          { label: "portable .opencode files" },
+        ],
+      },
+    ];
+  };
 
   const needsSignIn = props.shareWorkspaceProfileToTeamNeedsSignIn === true;
 
@@ -236,7 +314,7 @@ export default function ShareWorkspaceTemplatePanel(props: {
               sensitiveDecisionDisabledReason(),
             )}
 
-            <IncludedTemplateItems items={templateIncludedItems} />
+            <IncludedTemplateItems sections={templateIncludedSections()} />
           </div>
         </div>
       </Show>
@@ -307,7 +385,7 @@ export default function ShareWorkspaceTemplatePanel(props: {
               <div class="mt-3 text-[12px] text-dls-secondary">OpenWork Cloud opens in your browser and returns here after sign-in.</div>
             </Show>
 
-            <IncludedTemplateItems items={templateIncludedItems} />
+            <IncludedTemplateItems sections={templateIncludedSections()} />
           </div>
         </div>
       </Show>
