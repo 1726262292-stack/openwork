@@ -224,7 +224,9 @@ export default function App() {
     navigate(`/session/${trimmed}`, options);
   };
 
-  const [startupPreference, setStartupPreference] = createSignal<StartupPreference | null>(null);
+  const [startupPreference, setStartupPreference] = createSignal<StartupPreference | null>(
+    readStartupPreference(),
+  );
   const [onboardingStep, setOnboardingStep] =
     createSignal<OnboardingStep>("welcome");
   const [rememberStartupChoice, setRememberStartupChoice] = createSignal(false);
