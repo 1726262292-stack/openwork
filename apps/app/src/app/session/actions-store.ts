@@ -31,8 +31,11 @@ import type {
 } from "../types";
 import { addOpencodeCacheHint, safeStringify } from "../utils";
 import type { createModelConfigStore } from "../context/model-config";
+import { clearSessionDraft, saveSessionDraft } from "./draft-store";
 
 export type SessionActionsStore = ReturnType<typeof createSessionActionsStore>;
+
+const FLUSH_PROMPT_EVENT = "openwork:flushPromptDraft";
 
 const fileToDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -262,7 +265,11 @@ export function createSessionActionsStore(options: {
 
   const sessionRevertMessageId = createMemo(() => options.selectedSession()?.revert?.messageID ?? null);
 
-  async function createSessionAndOpen() {
+  async function createSessionAndOpen(initialPrompt?: string) {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(FLUSH_PROMPT_EVENT));
+    }
+
     const ready = await options.ensureSelectedWorkspaceRuntime();
     if (!ready) {
       return;
@@ -345,6 +352,18 @@ export function createSessionActionsStore(options: {
       }
 
       const session = unwrap(rawResult);
+      const workspaceId = options.selectedWorkspaceId().trim();
+      if (workspaceId) {
+        if (initialPrompt) {
+          saveSessionDraft(workspaceId, session.id, {
+            text: initialPrompt,
+            mode: "prompt",
+          });
+        } else {
+          clearSessionDraft(workspaceId, session.id);
+        }
+      }
+
       options.setBusyLabel("status.loading_session");
       mark("session:select:start", { sessionID: session.id });
       await options.selectSession(session.id);
@@ -441,6 +460,7 @@ export function createSessionActionsStore(options: {
       if (!compactCommand) {
         setLastPromptSent(content);
       }
+      clearSessionDraft(options.selectedWorkspaceId().trim(), sessionID);
       if (!hasExplicitDraft) {
         options.setPrompt("");
       }
@@ -692,6 +712,7 @@ export function createSessionActionsStore(options: {
     const directory = toSessionTransportDirectory(root);
     const params = directory ? { sessionID: trimmed, directory } : { sessionID: trimmed };
     unwrap(await c.session.delete(params));
+    clearSessionDraft(options.selectedWorkspaceId().trim(), trimmed);
 
     options.setSessions(options.sessions().filter((s) => s.id !== trimmed));
     const activeWsId = options.selectedWorkspaceId();

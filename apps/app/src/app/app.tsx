@@ -2039,7 +2039,6 @@ export default function App() {
       suggestedPlugins: SUGGESTED_PLUGINS,
       addPlugin,
       createSessionAndOpen,
-      setPrompt,
       selectSession: selectSession,
       hideTitlebar: hideTitlebar(),
       toggleHideTitlebar: () => setHideTitlebar((v) => !v),

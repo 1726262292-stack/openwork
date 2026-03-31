@@ -197,8 +197,7 @@ export type SettingsShellProps = {
     }>;
   }>;
   addPlugin: (pluginNameOverride?: string) => void;
-  createSessionAndOpen: () => void;
-  setPrompt: (value: string) => void;
+  createSessionAndOpen: (initialPrompt?: string) => Promise<string | undefined> | string | void;
   selectSession: (sessionId: string) => Promise<void> | void;
   hideTitlebar: boolean;
   toggleHideTitlebar: () => void;
@@ -1236,12 +1235,11 @@ export default function SettingsShell(props: SettingsShellProps) {
                    pluginsAccessHint={props.pluginsAccessHint}
                    canEditPlugins={props.canEditPlugins}
                    canUseGlobalPluginScope={props.canUseGlobalPluginScope}
-                   suggestedPlugins={props.suggestedPlugins}
-                   addPlugin={props.addPlugin}
-                   createSessionAndOpen={props.createSessionAndOpen}
-                   setPrompt={props.setPrompt}
-                   canReloadWorkspace={props.canReloadWorkspace}
-                   reloadWorkspaceEngine={props.reloadWorkspaceEngine}
+                    suggestedPlugins={props.suggestedPlugins}
+                    addPlugin={props.addPlugin}
+                    createSessionAndOpen={props.createSessionAndOpen}
+                    canReloadWorkspace={props.canReloadWorkspace}
+                    reloadWorkspaceEngine={props.reloadWorkspaceEngine}
                    reloadBusy={props.reloadBusy}
                    reloadError={props.reloadError}
                    workspaceAutoReloadAvailable={props.workspaceAutoReloadAvailable}

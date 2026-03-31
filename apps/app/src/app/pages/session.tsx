@@ -1,6 +1,7 @@
 import {
   For,
   Show,
+  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -14,6 +15,7 @@ import type {
   MessageWithParts,
   PendingPermission,
   PendingQuestion,
+  PromptMode,
   ProviderListItem,
   SessionCompactionState,
   SettingsTab,
@@ -102,6 +104,11 @@ import {
   type AppStatusToastTone,
 } from "../shell/status-toasts";
 import { createShareWorkspaceState } from "../session/share-workspace";
+import {
+  getSessionDraft,
+  saveSessionDraft,
+  sessionDraftScopeKey,
+} from "../session/draft-store";
 
 export type SessionViewProps = {
   selectedSessionId: string | null;
@@ -296,6 +303,7 @@ function describePermissionRequest(permission: PendingPermission | null) {
 }
 
 export default function SessionView(props: SessionViewProps) {
+  const FLUSH_PROMPT_EVENT = "openwork:flushPromptDraft";
   const { showThinking } = useSessionDisplayPreferences();
   const platform = usePlatform();
   const sessionActions = useSessionActions();
@@ -341,6 +349,8 @@ export default function SessionView(props: SessionViewProps) {
   const [searchOpen, setSearchOpen] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal("");
   const [searchQueryDebounced, setSearchQueryDebounced] = createSignal("");
+  const [composerDraftMode, setComposerDraftMode] = createSignal<PromptMode>("prompt");
+  const [composerDraftScopeKey, setComposerDraftScopeKey] = createSignal("");
   const [activeSearchHitIndex, setActiveSearchHitIndex] = createSignal(0);
   const [commandPaletteOpen, setCommandPaletteOpen] = createSignal(false);
   const [commandPaletteMode, setCommandPaletteMode] =
@@ -367,6 +377,22 @@ export default function SessionView(props: SessionViewProps) {
 
   const showComposerNotice = (notice: ComposerNotice) => {
     setComposerNotice(notice);
+  };
+
+  const flushComposerDraft = () => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent(FLUSH_PROMPT_EVENT));
+  };
+
+  const persistDraftForSession = (
+    workspaceId: string,
+    sessionId: string | null | undefined,
+    draft: Pick<ComposerDraft, "mode" | "text">,
+  ) => {
+    saveSessionDraft(workspaceId, sessionId, {
+      text: draft.text,
+      mode: draft.mode,
+    });
   };
 
   let commandPaletteInputEl: HTMLInputElement | undefined;
@@ -1479,15 +1505,28 @@ export default function SessionView(props: SessionViewProps) {
 
   createEffect(
     on(
-      () => props.selectedSessionId,
-      (sessionId, previousSessionId) => {
-        if (sessionId === previousSessionId) {
+      () => [props.selectedWorkspaceId, props.selectedSessionId] as const,
+      ([workspaceId, sessionId], previous) => {
+        const previousWorkspaceId = previous?.[0] ?? null;
+        const previousSessionId = previous?.[1] ?? null;
+        if (workspaceId === previousWorkspaceId && sessionId === previousSessionId) {
           return;
         }
-        setSearchOpen(false);
-        setSearchQuery("");
-        setSearchQueryDebounced("");
-        setActiveSearchHitIndex(0);
+
+        const restoredDraft = getSessionDraft(workspaceId, sessionId) ?? {
+          text: "",
+          mode: "prompt" as const,
+        };
+
+        batch(() => {
+          setComposerDraftMode(restoredDraft.mode);
+          props.setPrompt(restoredDraft.text);
+          setComposerDraftScopeKey(sessionDraftScopeKey(workspaceId, sessionId));
+          setSearchOpen(false);
+          setSearchQuery("");
+          setSearchQueryDebounced("");
+          setActiveSearchHitIndex(0);
+        });
       },
     ),
   );
@@ -2360,6 +2399,7 @@ export default function SessionView(props: SessionViewProps) {
 
   const handleDraftChange = (draft: ComposerDraft) => {
     props.setPrompt(draft.text);
+    persistDraftForSession(props.selectedWorkspaceId, props.selectedSessionId, draft);
   };
 
   const openSessionFromList = (
@@ -2368,6 +2408,7 @@ export default function SessionView(props: SessionViewProps) {
     options?: { focusComposer?: boolean },
   ) => {
     if (!sessionId) return;
+    flushComposerDraft();
     setPendingSessionTransition({ workspaceId, sessionId });
     const shouldFocusComposer = options?.focusComposer === true;
     void (async () => {
@@ -2390,6 +2431,7 @@ export default function SessionView(props: SessionViewProps) {
   const createTaskInWorkspace = (workspaceId: string) => {
     const id = workspaceId.trim();
     if (!id) return;
+    flushComposerDraft();
     void (async () => {
       const ready = await Promise.resolve(props.switchWorkspace(id));
       if (!ready) return;
@@ -3166,9 +3208,10 @@ export default function SessionView(props: SessionViewProps) {
                         workspaceRoot={props.selectedWorkspaceRoot}
                         expandedStepIds={props.expandedStepIds}
                         setExpandedStepIds={props.setExpandedStepIds}
-                        openSessionById={(sessionId) =>
-                          props.setView("session", sessionId)
-                        }
+                        openSessionById={(sessionId) => {
+                          flushComposerDraft();
+                          props.setView("session", sessionId);
+                        }}
                         searchMatchMessageIds={searchMatchMessageIds()}
                         activeSearchMessageId={activeSearchHit()?.messageId ?? null}
                         searchHighlightQuery={searchQueryDebounced().trim()}
@@ -3315,6 +3358,8 @@ export default function SessionView(props: SessionViewProps) {
           <Show when={!showWorkspaceSetupEmptyState()}>
             <Composer
               prompt={props.prompt}
+              draftMode={composerDraftMode()}
+              draftScopeKey={composerDraftScopeKey()}
               developerMode={props.developerMode}
               busy={props.busy}
               isStreaming={showRunIndicator()}

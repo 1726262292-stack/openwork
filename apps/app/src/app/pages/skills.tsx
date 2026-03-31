@@ -41,8 +41,7 @@ export type SkillsViewProps = {
   canInstallSkillCreator: boolean;
   canUseDesktopTools: boolean;
   accessHint?: string | null;
-  createSessionAndOpen: () => void;
-  setPrompt: (value: string) => void;
+  createSessionAndOpen: (initialPrompt?: string) => Promise<string | undefined> | string | void;
 };
 
 export default function SkillsView(props: SkillsViewProps) {
@@ -199,9 +198,7 @@ export default function SkillsView(props: SkillsViewProps) {
     if (props.canInstallSkillCreator && !skillCreatorInstalled()) {
       await installSkillCreator();
     }
-    // Open a new session and preselect /skill-creator.
-    await Promise.resolve(props.createSessionAndOpen());
-    props.setPrompt("/skill-creator");
+    await Promise.resolve(props.createSessionAndOpen("/skill-creator"));
   };
 
   const openShareLink = (skill: SkillCard) => {

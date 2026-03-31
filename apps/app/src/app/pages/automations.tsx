@@ -139,8 +139,7 @@ const dayOptions = [
 export type AutomationsViewProps = {
   busy: boolean;
   selectedWorkspaceRoot: string;
-  createSessionAndOpen: () => void;
-  setPrompt: (value: string) => void;
+  createSessionAndOpen: (initialPrompt?: string) => Promise<string | undefined> | string | void;
   newTaskDisabled: boolean;
   schedulerInstalled: boolean;
   canEditPlugins: boolean;
@@ -589,8 +588,7 @@ export default function AutomationsView(props: AutomationsViewProps) {
     setCreateBusy(true);
     setCreateError(null);
     try {
-      props.setPrompt(plan.prompt);
-      await Promise.resolve(props.createSessionAndOpen());
+      await Promise.resolve(props.createSessionAndOpen(plan.prompt));
       setCreateModalOpen(false);
       showToast("Prepared automation in chat.", "success");
     } catch (error) {
@@ -609,8 +607,7 @@ export default function AutomationsView(props: AutomationsViewProps) {
       showToast(plan.error, "warning");
       return;
     }
-    props.setPrompt(plan.prompt);
-    await Promise.resolve(props.createSessionAndOpen());
+    await Promise.resolve(props.createSessionAndOpen(plan.prompt));
     showToast(`Prepared ${job.name} in chat.`, "success");
   };
 

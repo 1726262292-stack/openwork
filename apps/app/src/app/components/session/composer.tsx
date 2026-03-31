@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
 import fuzzysort from "fuzzysort";
 import ProviderIcon from "../provider-icon";
@@ -24,6 +24,8 @@ type MentionGroup = {
 
 type ComposerProps = {
   prompt: string;
+  draftMode: PromptMode;
+  draftScopeKey: string;
   developerMode: boolean;
   busy: boolean;
   isStreaming: boolean;
@@ -61,6 +63,8 @@ type ComposerProps = {
   attachmentsDisabledReason: string | null;
   listCommands: () => Promise<SlashCommandOption[]>;
 };
+
+const FLUSH_PROMPT_EVENT = "openwork:flushPromptDraft";
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const IMAGE_COMPRESS_MAX_PX = 2048;
@@ -637,6 +641,24 @@ export default function Composer(props: ComposerProps) {
     recentEmits.clear();
     rememberRecentEmit(value);
   };
+
+  createEffect(
+    on(
+      () => props.draftScopeKey,
+      () => {
+        recentEmits.clear();
+        setMentionOpen(false);
+        setMentionQuery("");
+        setSlashOpen(false);
+        setSlashQuery("");
+        setMode(props.draftMode);
+        setEditorText(props.prompt);
+        if (!props.prompt) {
+          setAttachments([]);
+        }
+      },
+    ),
+  );
 
   // Sync from props: ignore echoes of what we just sent
   createEffect(() => {
@@ -1501,7 +1523,28 @@ export default function Composer(props: ComposerProps) {
     onCleanup(() => window.removeEventListener("openwork:focusPrompt", handler));
   });
 
+  createEffect(() => {
+    const handler = () => {
+      flushDraftChange();
+    };
+    window.addEventListener(FLUSH_PROMPT_EVENT, handler);
+    onCleanup(() => window.removeEventListener(FLUSH_PROMPT_EVENT, handler));
+  });
+
+  createEffect(() => {
+    const handler = () => {
+      flushDraftChange();
+    };
+    window.addEventListener("beforeunload", handler);
+    window.addEventListener("pagehide", handler);
+    onCleanup(() => {
+      window.removeEventListener("beforeunload", handler);
+      window.removeEventListener("pagehide", handler);
+    });
+  });
+
   onCleanup(() => {
+    flushDraftChange();
     if (emitTimer !== null) {
       window.clearTimeout(emitTimer);
       emitTimer = null;

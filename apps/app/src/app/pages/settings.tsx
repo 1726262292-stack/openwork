@@ -193,8 +193,7 @@ export type SettingsViewProps = {
   canUseGlobalPluginScope: boolean;
   suggestedPlugins: SuggestedPlugin[];
   addPlugin: (pluginNameOverride?: string) => void;
-  createSessionAndOpen: () => void;
-  setPrompt: (value: string) => void;
+  createSessionAndOpen: (initialPrompt?: string) => Promise<string | undefined> | string | void;
   canReloadWorkspace: boolean;
   reloadWorkspaceEngine: () => Promise<void>;
   reloadBusy: boolean;
@@ -1723,7 +1722,6 @@ export default function SettingsView(props: SettingsViewProps) {
               busy={props.busy}
               selectedWorkspaceRoot={props.selectedWorkspaceRoot}
               createSessionAndOpen={props.createSessionAndOpen}
-              setPrompt={props.setPrompt}
               newTaskDisabled={props.newTaskDisabled}
               schedulerInstalled={props.schedulerPluginInstalled}
               canEditPlugins={props.canEditPlugins}
@@ -1745,7 +1743,6 @@ export default function SettingsView(props: SettingsViewProps) {
               canUseDesktopTools={props.canUseDesktopTools}
               accessHint={props.skillsAccessHint}
               createSessionAndOpen={props.createSessionAndOpen}
-              setPrompt={props.setPrompt}
               showHeader={false}
             />
           </WebUnavailableSurface>
