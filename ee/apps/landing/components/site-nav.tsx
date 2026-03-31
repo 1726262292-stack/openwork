@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Menu, X } from "lucide-react";
-import { useState } from "react";
+import { Download, Menu, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { OpenWorkMark } from "./openwork-mark";
 
 type Props = {
@@ -11,23 +11,31 @@ type Props = {
   downloadHref?: string;
   mobilePrimaryHref?: string;
   mobilePrimaryLabel?: string;
-  active?: "home" | "download" | "enterprise" | "den";
+  active?: "home" | "download" | "enterprise" | "den" | "docs";
 };
 
 export function SiteNav(props: Props) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 10);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
   const callHref = props.callUrl || "/enterprise#book";
   const downloadHref = props.downloadHref || "/download";
+  const downloadPageHref = "/download";
   const mobilePrimaryHref = props.mobilePrimaryHref || downloadHref;
-  const mobilePrimaryLabel = props.mobilePrimaryLabel || "Download for free";
+  const mobilePrimaryLabel = props.mobilePrimaryLabel || "Desktop";
   const callExternal = /^https?:\/\//.test(callHref);
-  const downloadExternal = /^https?:\/\//.test(downloadHref);
   const mobilePrimaryExternal = /^https?:\/\//.test(mobilePrimaryHref);
   const navItems = [
     { href: "/docs", label: "Docs", key: "docs" },
-    { href: "/download", label: "Download", key: "download" },
-    { href: "/enterprise", label: "Enterprise", key: "enterprise" },
-    { href: "/den", label: "Den", key: "den" }
+    { href: "/download", label: "Desktop", key: "download" },
+    { href: "/den", label: "Cloud", key: "den" },
+    { href: "/enterprise", label: "Enterprise", key: "enterprise" }
   ] as const;
 
   const navLink = (isActive: boolean) =>
@@ -36,25 +44,26 @@ export function SiteNav(props: Props) {
       : "text-gray-600 transition-colors hover:text-[#011627]";
 
   return (
-    <header className="relative z-20 w-full">
+    <header className={`sticky top-0 z-20 w-full transition-all duration-300 ${scrolled ? "bg-white/80 shadow-sm backdrop-blur-md" : ""}`}>
       <div className="mx-auto flex max-w-5xl flex-col px-6 md:px-8">
-        <div className="mb-12 flex items-center justify-between pt-4 md:mb-16">
+        <div className="grid grid-cols-[auto_1fr_auto] items-center py-4">
           <Link
             href="/"
-            className="group inline-flex items-center gap-2"
+            className="group inline-flex items-center gap-1.5"
             onClick={() => setMobileOpen(false)}
           >
             <OpenWorkMark className="h-[30px] w-[38px] transition-opacity group-hover:opacity-80" />
-            <span className="text-[1.2rem] font-semibold tracking-tight text-[#011627] lowercase md:text-[1.3rem]">
+            <span className="text-[1.2rem] font-semibold tracking-tight text-[#011627] md:text-[1.3rem]">
               OpenWork
             </span>
           </Link>
 
-          <nav className="hidden items-center gap-8 text-[15px] font-medium md:flex">
+          <nav className="hidden items-center justify-center gap-8 text-[15px] font-medium md:flex">
             {navItems.map(item => (
               <Link
                 key={item.key}
                 href={item.href}
+                {...(item.key === "docs" ? { target: "_blank" } : {})}
                 className={navLink(props.active === item.key)}
               >
                 {item.label}
@@ -64,16 +73,8 @@ export function SiteNav(props: Props) {
 
           <div className="flex items-center gap-4">
             <a
-              href={downloadHref}
-              className="doc-button !hidden px-6 text-sm md:!inline-flex"
-              rel={downloadExternal ? "noreferrer" : undefined}
-              target={downloadExternal ? "_blank" : undefined}
-            >
-              Download for free
-            </a>
-            <a
               href="https://github.com/different-ai/openwork"
-              className="hidden items-center gap-2 rounded-full border border-white bg-white px-3 py-2 text-[14px] font-medium text-slate-600 shadow-sm transition-colors hover:text-[#011627] sm:flex"
+              className="hidden items-center gap-2 rounded-full border border-gray-100 bg-white px-3.5 py-2 text-sm font-medium text-gray-500 shadow-[0_1px_2px_rgba(17,24,39,0.06)] transition-colors hover:text-[#011627] sm:flex"
               rel="noreferrer"
               target="_blank"
               aria-label="OpenWork GitHub stars"
@@ -88,6 +89,12 @@ export function SiteNav(props: Props) {
               </svg>
               {props.stars}
             </a>
+            <Link
+              href={downloadPageHref}
+              className="doc-button !hidden items-center gap-2 md:!inline-flex"
+            >
+              Desktop <Download size={16} />
+            </Link>
             <button
               type="button"
               className="rounded-full p-2 text-[#011627] transition-colors hover:bg-white/70 md:hidden"
@@ -103,12 +110,13 @@ export function SiteNav(props: Props) {
         </div>
 
         {mobileOpen ? (
-          <div className="landing-shell mb-8 rounded-[2rem] p-4 md:hidden">
+          <div className="landing-shell mb-8 rounded-xl p-4 md:hidden">
             <div className="flex flex-col gap-1 text-[15px] font-medium text-gray-700">
               {navItems.map(item => (
                 <Link
                   key={item.key}
                   href={item.href}
+                  {...(item.key === "docs" ? { target: "_blank" } : {})}
                   className={`rounded-2xl px-4 py-3 ${navLink(
                     props.active === item.key
                   )}`}
@@ -138,7 +146,7 @@ export function SiteNav(props: Props) {
               </a>
               <a
                 href="https://github.com/different-ai/openwork"
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-white bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:text-[#011627]"
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-100 bg-white px-4 py-2 text-sm font-medium text-gray-500 shadow-[0_1px_2px_rgba(17,24,39,0.06)] transition-colors hover:text-[#011627]"
                 rel="noreferrer"
                 target="_blank"
               >

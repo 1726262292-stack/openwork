@@ -18,6 +18,31 @@ use walkdir::WalkDir;
 use zip::write::FileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
+fn build_workspace_list(state: crate::types::WorkspaceState) -> WorkspaceList {
+    let watched_id = if state.watched_workspace_id.trim().is_empty() {
+        None
+    } else {
+        Some(state.watched_workspace_id)
+    };
+    WorkspaceList {
+        selected_id: state.selected_workspace_id,
+        watched_id,
+        workspaces: state.workspaces,
+    }
+}
+
+fn update_watched_workspace(
+    app: &tauri::AppHandle,
+    watch_state: State<WorkspaceWatchState>,
+    state: &crate::types::WorkspaceState,
+) -> Result<(), String> {
+    let watched_workspace = state
+        .workspaces
+        .iter()
+        .find(|workspace| workspace.id == state.watched_workspace_id);
+    update_workspace_watch(app, watch_state, watched_workspace)
+}
+
 #[tauri::command]
 pub fn workspace_bootstrap(
     app: tauri::AppHandle,
@@ -26,22 +51,30 @@ pub fn workspace_bootstrap(
     println!("[workspace] bootstrap");
     let mut state = load_workspace_state(&app)?;
 
-    if !state.workspaces.iter().any(|w| w.id == state.active_id) {
-        state.active_id = state
+    if !state
+        .workspaces
+        .iter()
+        .any(|w| w.id == state.selected_workspace_id)
+    {
+        state.selected_workspace_id = state
             .workspaces
             .first()
             .map(|entry| entry.id.clone())
             .unwrap_or_default();
     }
 
-    save_workspace_state(&app, &state)?;
-    let active_workspace = state.workspaces.iter().find(|w| w.id == state.active_id);
-    update_workspace_watch(&app, watch_state, active_workspace)?;
+    if !state
+        .workspaces
+        .iter()
+        .any(|w| w.id == state.watched_workspace_id)
+    {
+        state.watched_workspace_id = state.selected_workspace_id.clone();
+    }
 
-    Ok(WorkspaceList {
-        active_id: state.active_id,
-        workspaces: state.workspaces,
-    })
+    save_workspace_state(&app, &state)?;
+    update_watched_workspace(&app, watch_state, &state)?;
+
+    Ok(build_workspace_list(state))
 }
 
 #[tauri::command]
@@ -64,36 +97,37 @@ pub fn workspace_forget(
         return Err("Unknown workspaceId".to_string());
     }
 
-    if state.active_id == id {
-        state.active_id = state
+    if state.selected_workspace_id == id {
+        state.selected_workspace_id = state
             .workspaces
             .first()
             .map(|entry| entry.id.clone())
             .unwrap_or_else(|| "".to_string());
     }
 
+    if state.watched_workspace_id == id {
+        state.watched_workspace_id = state.selected_workspace_id.clone();
+    }
+
     if state.workspaces.is_empty() {
-        state.active_id.clear();
+        state.selected_workspace_id.clear();
+        state.watched_workspace_id.clear();
     }
 
     save_workspace_state(&app, &state)?;
-    let active_workspace = state.workspaces.iter().find(|w| w.id == state.active_id);
-    update_workspace_watch(&app, watch_state, active_workspace)?;
+    update_watched_workspace(&app, watch_state, &state)?;
     println!("[workspace] forget complete");
 
-    Ok(WorkspaceList {
-        active_id: state.active_id,
-        workspaces: state.workspaces,
-    })
+    Ok(build_workspace_list(state))
 }
 
 #[tauri::command]
-pub fn workspace_set_active(
+pub fn workspace_set_selected(
     app: tauri::AppHandle,
     workspace_id: String,
     watch_state: State<WorkspaceWatchState>,
 ) -> Result<WorkspaceList, String> {
-    println!("[workspace] set_active request: {workspace_id}");
+    println!("[workspace] set_selected request: {workspace_id}");
     let mut state = load_workspace_state(&app)?;
     let id = workspace_id.trim();
 
@@ -105,16 +139,51 @@ pub fn workspace_set_active(
         return Err("Unknown workspaceId".to_string());
     }
 
-    state.active_id = id.to_string();
+    state.selected_workspace_id = id.to_string();
     save_workspace_state(&app, &state)?;
-    let active_workspace = state.workspaces.iter().find(|w| w.id == state.active_id);
-    update_workspace_watch(&app, watch_state, active_workspace)?;
-    println!("[workspace] set_active complete: {id}");
+    println!("[workspace] set_selected complete: {id}");
 
-    Ok(WorkspaceList {
-        active_id: state.active_id,
-        workspaces: state.workspaces,
-    })
+    let _ = watch_state;
+
+    Ok(build_workspace_list(state))
+}
+
+#[tauri::command]
+pub fn workspace_set_runtime_active(
+    app: tauri::AppHandle,
+    workspace_id: String,
+    watch_state: State<WorkspaceWatchState>,
+) -> Result<WorkspaceList, String> {
+    println!("[workspace] set_runtime_active request: {workspace_id}");
+    let mut state = load_workspace_state(&app)?;
+    let id = workspace_id.trim();
+
+    if id.is_empty() {
+        state.watched_workspace_id.clear();
+    } else {
+        if !state.workspaces.iter().any(|w| w.id == id) {
+            return Err("Unknown workspaceId".to_string());
+        }
+        state.watched_workspace_id = id.to_string();
+    }
+
+    save_workspace_state(&app, &state)?;
+    update_watched_workspace(&app, watch_state, &state)?;
+    println!(
+        "[workspace] set_runtime_active complete: {}",
+        if id.is_empty() { "(cleared)" } else { id }
+    );
+
+    Ok(build_workspace_list(state))
+}
+
+#[tauri::command]
+pub fn workspace_set_active(
+    app: tauri::AppHandle,
+    workspace_id: String,
+    watch_state: State<WorkspaceWatchState>,
+) -> Result<WorkspaceList, String> {
+    workspace_set_runtime_active(app, workspace_id, watch_state)
 }
 
 #[tauri::command]
@@ -146,10 +215,7 @@ pub fn workspace_update_display_name(
     save_workspace_state(&app, &state)?;
     println!("[workspace] update display name complete: {id}");
 
-    Ok(WorkspaceList {
-        active_id: state.active_id,
-        workspaces: state.workspaces,
-    })
+    Ok(build_workspace_list(state))
 }
 
 #[tauri::command]
@@ -200,6 +266,8 @@ pub fn workspace_create(
         display_name: None,
         openwork_host_url: None,
         openwork_token: None,
+        openwork_client_token: None,
+        openwork_host_token: None,
         openwork_workspace_id: None,
         openwork_workspace_name: None,
         sandbox_backend: None,
@@ -207,16 +275,13 @@ pub fn workspace_create(
         sandbox_container_name: None,
     });
 
-    state.active_id = id.clone();
+    state.selected_workspace_id = id.clone();
     save_workspace_state(&app, &state)?;
-    let active_workspace = state.workspaces.iter().find(|w| w.id == state.active_id);
-    update_workspace_watch(&app, watch_state, active_workspace)?;
     println!("[workspace] create local complete: {id}");
 
-    Ok(WorkspaceList {
-        active_id: state.active_id,
-        workspaces: state.workspaces,
-    })
+    let _ = watch_state;
+
+    Ok(build_workspace_list(state))
 }
 
 #[tauri::command]
@@ -228,6 +293,8 @@ pub fn workspace_create_remote(
     remote_type: Option<RemoteType>,
     openwork_host_url: Option<String>,
     openwork_token: Option<String>,
+    openwork_client_token: Option<String>,
+    openwork_host_token: Option<String>,
     openwork_workspace_id: Option<String>,
     openwork_workspace_name: Option<String>,
     sandbox_backend: Option<String>,
@@ -257,6 +324,14 @@ pub fn workspace_create_remote(
         .filter(|value| !value.is_empty());
 
     let openwork_token = openwork_token
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let openwork_client_token = openwork_client_token
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let openwork_host_token = openwork_host_token
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
@@ -307,6 +382,8 @@ pub fn workspace_create_remote(
         display_name,
         openwork_host_url,
         openwork_token,
+        openwork_client_token,
+        openwork_host_token,
         openwork_workspace_id,
         openwork_workspace_name,
         sandbox_backend: sandbox_backend
@@ -319,16 +396,13 @@ pub fn workspace_create_remote(
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()),
     });
-    state.active_id = id.clone();
+    state.selected_workspace_id = id.clone();
     save_workspace_state(&app, &state)?;
-    let active_workspace = state.workspaces.iter().find(|w| w.id == state.active_id);
-    update_workspace_watch(&app, watch_state, active_workspace)?;
     println!("[workspace] create remote complete: {id}");
 
-    Ok(WorkspaceList {
-        active_id: state.active_id,
-        workspaces: state.workspaces,
-    })
+    let _ = watch_state;
+
+    Ok(build_workspace_list(state))
 }
 
 #[tauri::command]
@@ -341,6 +415,8 @@ pub fn workspace_update_remote(
     remote_type: Option<RemoteType>,
     openwork_host_url: Option<String>,
     openwork_token: Option<String>,
+    openwork_client_token: Option<String>,
+    openwork_host_token: Option<String>,
     openwork_workspace_id: Option<String>,
     openwork_workspace_name: Option<String>,
     sandbox_backend: Option<String>,
@@ -410,6 +486,18 @@ pub fn workspace_update_remote(
             .filter(|value| !value.is_empty());
     }
 
+    if openwork_client_token.is_some() {
+        entry.openwork_client_token = openwork_client_token
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+    }
+
+    if openwork_host_token.is_some() {
+        entry.openwork_host_token = openwork_host_token
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+    }
+
     if openwork_workspace_id.is_some() {
         entry.openwork_workspace_id = openwork_workspace_id
             .map(|value| value.trim().to_string())
@@ -450,10 +538,7 @@ pub fn workspace_update_remote(
     save_workspace_state(&app, &state)?;
     println!("[workspace] update remote complete: {id}");
 
-    Ok(WorkspaceList {
-        active_id: state.active_id,
-        workspaces: state.workspaces,
-    })
+    Ok(build_workspace_list(state))
 }
 
 #[tauri::command]
@@ -899,20 +984,17 @@ pub fn workspace_import_config(
         display_name: None,
         openwork_host_url: None,
         openwork_token: None,
+        openwork_client_token: None,
+        openwork_host_token: None,
         openwork_workspace_id: None,
         openwork_workspace_name: None,
         sandbox_backend: None,
         sandbox_run_id: None,
         sandbox_container_name: None,
     });
-    state.active_id = id.clone();
+    state.selected_workspace_id = id.clone();
     save_workspace_state(&app, &state)?;
+    let _ = watch_state;
 
-    let active_workspace = state.workspaces.iter().find(|w| w.id == state.active_id);
-    update_workspace_watch(&app, watch_state, active_workspace)?;
-
-    Ok(WorkspaceList {
-        active_id: state.active_id,
-        workspaces: state.workspaces,
-    })
+    Ok(build_workspace_list(state))
 }

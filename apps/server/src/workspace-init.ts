@@ -129,11 +129,72 @@ type WorkspaceOpenworkConfig = {
     preset?: string | null;
   } | null;
   authorizedRoots: string[];
+  blueprint?: Record<string, unknown> | null;
   reload?: {
     auto?: boolean;
     resume?: boolean;
   } | null;
 };
+
+function buildDefaultWorkspaceBlueprint(_preset: string): Record<string, unknown> {
+  return {
+    emptyState: {
+      title: "What do you want to do?",
+      body: "Pick a starting point or just type below.",
+      starters: [
+        {
+          id: "csv-help",
+          kind: "prompt",
+          title: "Work on a CSV",
+          description: "Clean up or generate spreadsheet data.",
+          prompt: "Help me create or edit CSV files on this computer.",
+        },
+        {
+          id: "starter-connect-openai",
+          kind: "action",
+          title: "Connect ChatGPT",
+          description: "Add your OpenAi provider so ChatGPT models are ready in new sessions.",
+          action: "connect-openai",
+        },
+        {
+          id: "browser-automation",
+          kind: "session",
+          title: "Automate Chrome",
+          description: "Start a browser automation conversation right away.",
+          prompt: "Help me connect to Chrome and automate a repetitive task.",
+        },
+      ],
+    },
+    sessions: [
+      {
+        id: "welcome-to-openwork",
+        title: "Welcome to OpenWork",
+        openOnFirstLoad: true,
+        messages: [
+          {
+            role: "assistant",
+            text:
+              "Hi welcome to OpenWork!\n\nPeople use us to write .csv files on their computer, connect to Chrome and automate repetitive tasks, and sync contacts to Notion.\n\nBut the only limit is your imagination.\n\nWhat would you want to do?",
+          },
+        ],
+      },
+      {
+        id: "csv-playbook",
+        title: "CSV workflow ideas",
+        messages: [
+          {
+            role: "assistant",
+            text: "I can help you generate, clean, merge, and summarize CSV files. What kind of CSV work do you want to automate?",
+          },
+          {
+            role: "user",
+            text: "I want to combine exports from multiple tools into one clean CSV.",
+          },
+        ],
+      },
+    ],
+  };
+}
 
 function normalizePreset(preset: string | null | undefined): string {
   const trimmed = preset?.trim() ?? "";
@@ -254,6 +315,7 @@ async function ensureWorkspaceOpenworkConfig(workspaceRoot: string, preset: stri
       preset,
     },
     authorizedRoots: [workspaceRoot],
+    blueprint: buildDefaultWorkspaceBlueprint(preset),
     reload: null,
   };
   await ensureDir(join(workspaceRoot, ".opencode"));

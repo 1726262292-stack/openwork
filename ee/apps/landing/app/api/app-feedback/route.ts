@@ -1,8 +1,5 @@
 import { buildResponseHeaders, jsonResponse, rateLimitFormRequest, validateAntiSpamFields, validateTrustedOrigin, verifyFormBotProtection } from "../_lib/security";
 
-import { getFeedbackEmailConfig } from "./config";
-import { buildFeedbackEmailVariables } from "./template";
-
 type FeedbackContext = {
   source?: string;
   entrypoint?: string;
@@ -27,6 +24,7 @@ type FeedbackPayload = {
 };
 
 const LOOPS_TRANSACTIONAL_API_URL = "https://app.loops.so/api/v1/transactional";
+const DEFAULT_INTERNAL_FEEDBACK_EMAIL = "team@openworklabs.com";
 
 function sanitizeValue(value: unknown, maxLength = 240) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
@@ -89,13 +87,16 @@ export async function POST(request: Request) {
   }
 
   const apiKey = process.env.LOOPS_API_KEY?.trim();
-  const { internalEmail, templateName, transactionalId } =
-    getFeedbackEmailConfig(process.env);
+  const transactionalId =
+    process.env.LOOPS_TRANSACTIONAL_ID_APP_FEEDBACK?.trim();
+  const internalEmail =
+    process.env.LOOPS_INTERNAL_FEEDBACK_EMAIL?.trim() ||
+    DEFAULT_INTERNAL_FEEDBACK_EMAIL;
 
   if (!apiKey || !transactionalId) {
     return jsonResponse(
       request,
-      { error: `${templateName} is not configured on this deployment.` },
+      { error: "App feedback is not configured on this deployment." },
       500,
     );
   }
@@ -147,24 +148,15 @@ export async function POST(request: Request) {
   const context = sanitizeContext(payload.context);
   const diagnosticsSummary = formatDiagnosticsSummary(context);
   const submittedAt = new Date().toISOString();
-  const templateVariables = buildFeedbackEmailVariables({
-    name,
-    email,
-    message,
-    submittedAt,
-    context,
-  });
 
   if (process.env.NODE_ENV === "development") {
     console.log("[DEV] Skipping Loops app feedback email", {
       internalEmail,
-      templateName,
       transactionalId,
       message,
       name,
       email,
       context,
-      templateVariables,
     });
     return jsonResponse(request, { ok: true });
   }
@@ -179,7 +171,6 @@ export async function POST(request: Request) {
       transactionalId,
       email: internalEmail,
       dataVariables: {
-        ...templateVariables,
         name,
         email,
         message,

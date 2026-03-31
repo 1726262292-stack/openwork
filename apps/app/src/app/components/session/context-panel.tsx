@@ -1,16 +1,14 @@
 import { For, Show } from "solid-js";
 import { ChevronDown, Circle, File, Folder, Package } from "lucide-solid";
 
+import { useConnections } from "../../connections/provider";
 import { SUGGESTED_PLUGINS } from "../../constants";
-import type { McpServerEntry, McpStatus, McpStatusMap, SkillCard } from "../../types";
+import type { McpStatus, SkillCard } from "../../types";
 import { stripPluginVersion } from "../../utils/plugins";
 
 export type ContextPanelProps = {
   activePlugins: string[];
   activePluginStatus: string | null;
-  mcpServers: McpServerEntry[];
-  mcpStatuses: McpStatusMap;
-  mcpStatus: string | null;
   skills: SkillCard[];
   skillsStatus: string | null;
   authorizedDirs: string[];
@@ -141,6 +139,7 @@ const mcpStatusDot = (status?: McpStatus, disabled?: boolean) => {
 };
 
 export default function ContextPanel(props: ContextPanelProps) {
+  const connections = useConnections();
   const displayFiles = () =>
     props.workingFiles.map((entry) => toWorkspaceRelative(entry, props.workspaceRoot));
 
@@ -264,16 +263,16 @@ export default function ContextPanel(props: ContextPanelProps) {
             <div class="px-4 pb-4 pt-1">
               <div class="space-y-2">
                 <Show
-                  when={props.mcpServers.length}
+                  when={connections.mcpServers().length}
                   fallback={
                     <div class="text-xs text-gray-9">
-                      {props.mcpStatus ?? "No MCP servers loaded."}
+                      {connections.mcpStatus() ?? "No MCP servers loaded."}
                     </div>
                   }
                 >
-                  <For each={props.mcpServers}>
+                  <For each={connections.mcpServers()}>
                     {(entry) => {
-                      const status = () => props.mcpStatuses[entry.name];
+                      const status = () => connections.mcpStatuses()[entry.name];
                       const disabled = () => entry.config.enabled === false;
                       const detail =
                         entry.config.type === "remote"

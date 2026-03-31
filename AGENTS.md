@@ -111,7 +111,7 @@ Design principles for hot reload:
 * **Session-aware**: when sessions are actively running, queue reload signals. Promote to visible reload (toast or auto-reload) only after all active sessions finish. This avoids interrupting in-flight tool calls.
 * **Auto-reload setting**: each workspace can opt into automatic reload via `.opencode/openwork.json` (`reload.auto`). When enabled, the engine reloads automatically once queued signals are ready and no sessions are active.
 * **Session continuity**: before reload, capture running session IDs, agents, and models. After reload, optionally relaunch those sessions so the user experiences seamless continuity.
-* **Per-workspace isolation**: the desktop file watcher only watches the active workspace root and its `.opencode/` directory. The server reload event store is already keyed by `workspaceId`.
+* **Per-workspace isolation**: the desktop file watcher only watches the runtime-connected workspace root and its `.opencode/` directory. This can differ briefly from the UI-selected workspace while the user browses another workspace. The server reload event store is already keyed by `workspaceId`.
 
 ## Technology Stack
 
@@ -129,6 +129,19 @@ Design principles for hot reload:
 * Treat `ARCHITECTURE.md` as the authoritative system design source for runtime flow, server ownership, filesystem mutation policy, and agent/runtime boundaries. If those behaviors change, update `ARCHITECTURE.md` in the same task.
 * Use `DESIGN-LANGUAGE.md` as the default visual reference for OpenWork app and landing work.
 * For OpenWork session-surface details, also reference `packages/docs/orbita-layout-style.mdx`.
+
+## App Architecture (CUPID)
+
+For `apps/app/src/app/**`, use CUPID: small public surfaces, intention-revealing names, minimal dependencies, predictable ownership, and domain-based structure.
+
+* Organize app code by product domain and app behavior, not generic buckets like `pages`, `hooks`, `utils`, or app-wide props.
+* Prefer a thin shell, domain modules, and tiny shared primitives.
+* Colocate state, UI, helpers, and server/client adapters with the domain that owns the workflow.
+* Treat shared utilities as a last resort; promote only after multiple real consumers exist.
+* Cross-domain imports should go through a small public API, not another domain's internals.
+* Keep global shell code thin and use it for routing, top-level layout, runtime wiring, and shared reload/update surfaces only.
+* Domain map: shell, workspace, session, connections, automations, cloud, app-settings, and kernel.
+* When changing app architecture, moving ownership, or editing hot spots like `app.tsx`, `pages/dashboard.tsx`, `pages/session.tsx`, or `pages/settings.tsx`, consult the workspace-root skill at `../../.opencode/skills/cupid-app-architecture/SKILL.md` first.
 
 ## Dev Debugging
 

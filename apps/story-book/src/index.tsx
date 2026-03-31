@@ -6,7 +6,7 @@ import { PlatformProvider, type Platform } from "../../app/src/app/context/platf
 import { bootstrapTheme } from "../../app/src/app/theme";
 import { isTauriRuntime } from "../../app/src/app/utils";
 import { initLocale } from "../../app/src/i18n";
-import StoryBookApp from "./story-book";
+import NewLayoutApp from "./new-layout";
 
 bootstrapTheme();
 initLocale();
@@ -51,7 +51,7 @@ const platform: Platform = {
 render(
   () => (
     <PlatformProvider value={platform}>
-      <StoryBookApp />
+      <NewLayoutApp />
     </PlatformProvider>
   ),
   root,

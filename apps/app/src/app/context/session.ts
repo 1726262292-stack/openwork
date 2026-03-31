@@ -12,13 +12,16 @@ import type {
   PendingPermission,
   PendingQuestion,
   PlaceholderAssistantMessage,
+  PlaceholderMessageInfo,
   ReloadReason,
   ReloadTrigger,
+  SessionCompactionState,
   SessionErrorTurn,
   TodoItem,
 } from "../types";
 import {
   addOpencodeCacheHint,
+  isVisibleTextPart,
   modelFromUserMessage,
   normalizeDirectoryPath,
   normalizeEvent,
@@ -38,6 +41,10 @@ export type SessionModelState = {
 
 export type SessionStore = ReturnType<typeof createSessionStore>;
 
+type BlueprintSeedMessage = { role?: "assistant" | "user" | null; text?: string | null };
+
+const SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX = "blueprint-seed:";
+
 type StoreState = {
   sessions: Session[];
   sessionInfoById: Record<string, Session>;
@@ -49,6 +56,7 @@ type StoreState = {
   pendingPermissions: PendingPermission[];
   pendingQuestions: PendingQuestion[];
   events: OpencodeEvent[];
+  sessionCompaction: Record<string, SessionCompactionState>;
 };
 
 const sortById = <T extends { id: string }>(list: T[]) =>
@@ -145,9 +153,10 @@ const appendPartDelta = (list: Part[], partID: string, field: string, delta: str
 
 export function createSessionStore(options: {
   client: () => Client | null;
-  activeWorkspaceRoot: () => string;
+  selectedWorkspaceRoot: () => string;
   selectedSessionId: () => string | null;
   setSelectedSessionId: (id: string | null) => void;
+  setPrompt: (value: string) => void;
   sessionModelState: () => SessionModelState;
   setSessionModelState: (updater: (current: SessionModelState) => SessionModelState) => SessionModelState;
   lastUserModelFromMessages: (messages: MessageWithParts[]) => ModelRef | null;
@@ -198,14 +207,19 @@ export function createSessionStore(options: {
     pendingPermissions: [],
     pendingQuestions: [],
     events: [],
+    sessionCompaction: {},
   });
   const [permissionReplyBusy, setPermissionReplyBusy] = createSignal(false);
+  const [blueprintSeedMessagesBySessionId, setBlueprintSeedMessagesBySessionId] = createSignal<
+    Record<string, BlueprintSeedMessage[]>
+  >({});
   const [messageLimitBySession, setMessageLimitBySession] = createSignal<Record<string, number>>({});
   const [messageCompleteBySession, setMessageCompleteBySession] = createSignal<Record<string, boolean>>({});
   const [messageLoadBusyBySession, setMessageLoadBusyBySession] = createSignal<Record<string, boolean>>({});
   const [loadedScopeRoot, setLoadedScopeRoot] = createSignal("");
   const reloadDetectionSet = new Set<string>();
   const invalidToolDetectionSet = new Set<string>();
+  const pendingCompactionModeBySession = new Map<string, "auto" | "manual">();
   const syntheticContinueEventTimesBySession = new Map<string, number[]>();
   const syntheticTaskSummaryEventTimesBySession = new Map<string, number[]>();
   const syntheticContinueLoopLastWarnAtBySession = new Map<string, number>();
@@ -350,7 +364,7 @@ export function createSessionStore(options: {
     if (!options.markReloadRequired) return;
     if (!part?.id || !part.messageID) return;
 
-    const root = normalizeDirectoryPath(options.activeWorkspaceRoot());
+    const root = normalizeDirectoryPath(options.selectedWorkspaceRoot());
     if (root) {
       const session = store.sessions.find((candidate) => candidate.id === part.sessionID) ?? null;
       const sessionRoot = normalizeDirectoryPath(session?.directory ?? "");
@@ -727,6 +741,143 @@ export function createSessionStore(options: {
     return store.sessionInfoById[id] ?? store.sessions.find((session) => session.id === id) ?? null;
   };
 
+  const messageIdFromInfo = (message: MessageWithParts) => {
+    const id = (message.info as { id?: string | number }).id;
+    if (typeof id === "string") return id;
+    if (typeof id === "number") return String(id);
+    return "";
+  };
+
+  const createSyntheticSessionErrorMessage = (
+    sessionID: string,
+    errorTurn: SessionErrorTurn,
+  ): MessageWithParts => {
+    const info: PlaceholderAssistantMessage = {
+      id: errorTurn.id,
+      sessionID,
+      role: "assistant",
+      time: { created: errorTurn.time, completed: errorTurn.time },
+      parentID: errorTurn.afterMessageID ?? "",
+      modelID: "",
+      providerID: "",
+      mode: "",
+      agent: "",
+      path: { cwd: "", root: "" },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    };
+
+    return {
+      info,
+      parts: [
+        {
+          id: `${errorTurn.id}:text`,
+          sessionID,
+          messageID: errorTurn.id,
+          type: "text",
+          text: errorTurn.text,
+        } as Part,
+      ],
+    };
+  };
+
+  const createSyntheticBlueprintSeedMessage = (
+    sessionID: string,
+    index: number,
+    seed: BlueprintSeedMessage,
+  ): MessageWithParts => {
+    const messageId = `${SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX}${sessionID}:${index}`;
+    const role = seed.role === "user" ? "user" : "assistant";
+    const text = seed.text?.trim() ?? "";
+    const createdAt = Math.max(1, index + 1);
+    const info: PlaceholderMessageInfo = {
+      id: messageId,
+      sessionID,
+      role,
+      time: { created: createdAt, completed: createdAt },
+      parentID: index > 0 ? `${SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX}${sessionID}:${index - 1}` : "",
+      modelID: "",
+      providerID: "",
+      mode: "",
+      agent: "",
+      path: { cwd: "", root: "" },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    };
+
+    return {
+      info,
+      parts: [
+        {
+          id: `${messageId}:text`,
+          sessionID,
+          messageID: messageId,
+          type: "text",
+          text,
+        } as Part,
+      ],
+    };
+  };
+
+  const insertSyntheticBlueprintSeedMessages = (
+    list: MessageWithParts[],
+    sessionID: string | null,
+    seeds: BlueprintSeedMessage[],
+  ) => {
+    if (!sessionID || seeds.length === 0) return list;
+    if (list.length > 0) return list;
+    const existingIds = new Set(list.map((message) => messageIdFromInfo(message)));
+    const synthetic = seeds
+      .map((seed, index) => createSyntheticBlueprintSeedMessage(sessionID, index, seed))
+      .filter((message) => !existingIds.has(messageIdFromInfo(message)));
+    if (!synthetic.length) return list;
+    return [...synthetic, ...list];
+  };
+
+  const insertSyntheticSessionErrors = (
+    list: MessageWithParts[],
+    sessionID: string | null,
+    errorTurns: SessionErrorTurn[],
+  ) => {
+    if (!sessionID || errorTurns.length === 0) return list;
+
+    const next = list.slice();
+    errorTurns.forEach((errorTurn) => {
+      if (next.some((message) => messageIdFromInfo(message) === errorTurn.id)) return;
+      const syntheticMessage = createSyntheticSessionErrorMessage(sessionID, errorTurn);
+      const anchorIndex = errorTurn.afterMessageID
+        ? next.findIndex((message) => messageIdFromInfo(message) === errorTurn.afterMessageID)
+        : -1;
+
+      if (anchorIndex === -1) {
+        next.push(syntheticMessage);
+        return;
+      }
+
+      next.splice(anchorIndex + 1, 0, syntheticMessage);
+    });
+
+    return next;
+  };
+
+  const upsertLocalSession = (next: Session | null | undefined) => {
+    const id = (next as { id?: string } | null)?.id ?? "";
+    if (!id) return;
+
+    const current = sessions();
+    const index = current.findIndex((session) => session.id === id);
+    if (index === -1) {
+      setStore("sessions", sortSessionsByActivity([...current, next as Session]));
+      rememberSession(next as Session);
+      return;
+    }
+
+    const copy = current.slice();
+    copy[index] = next as Session;
+    rememberSession(next as Session);
+    setStore("sessions", sortSessionsByActivity(copy));
+  };
+
   const messagesBySessionId = (id: string | null): MessageWithParts[] => {
     if (!id) return [];
     const list = store.messages[id] ?? [];
@@ -752,6 +903,42 @@ export function createSessionStore(options: {
   const messages = createMemo<MessageWithParts[]>(() => {
     return messagesBySessionId(options.selectedSessionId());
   });
+
+  const blueprintSeedMessagesForSelectedSession = createMemo(() => {
+    const sessionID = options.selectedSessionId();
+    if (!sessionID) return [] as BlueprintSeedMessage[];
+    return blueprintSeedMessagesBySessionId()[sessionID] ?? [];
+  });
+
+  const visibleMessages = createMemo(() => {
+    const sessionID = options.selectedSessionId();
+    const errorTurns = sessionID ? store.sessionErrorTurns[sessionID] ?? [] : [];
+    const blueprintSeeds = blueprintSeedMessagesForSelectedSession();
+    const list = messages().filter((message) => {
+      const id = messageIdFromInfo(message);
+      return !id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX) && !id.startsWith(SYNTHETIC_BLUEPRINT_SEED_MESSAGE_PREFIX);
+    });
+    const revert = selectedSession()?.revert?.messageID ?? null;
+    const visible = !revert
+      ? list
+      : list.filter((message) => {
+          const id = messageIdFromInfo(message);
+          return Boolean(id) && id < revert;
+        });
+    return insertSyntheticSessionErrors(
+      insertSyntheticBlueprintSeedMessages(visible, sessionID, blueprintSeeds),
+      sessionID,
+      errorTurns,
+    );
+  });
+
+  const restorePromptFromUserMessage = (message: MessageWithParts) => {
+    const text = message.parts
+      .filter(isVisibleTextPart)
+      .map((part) => String((part as { text?: string }).text ?? ""))
+      .join("");
+    options.setPrompt(text);
+  };
 
   const todos = createMemo<TodoItem[]>(() => {
     const id = options.selectedSessionId();
@@ -787,8 +974,8 @@ export function createSessionStore(options: {
       scopeScope: describeDirectoryScope(scopeRoot),
       queryDirectory: queryDirectory ?? null,
       queryScope: describeDirectoryScope(queryDirectory),
-      activeWorkspaceRoot: options.activeWorkspaceRoot?.() ?? null,
-      activeWorkspaceScope: describeDirectoryScope(options.activeWorkspaceRoot?.() ?? null),
+      selectedWorkspaceRoot: options.selectedWorkspaceRoot?.() ?? null,
+      activeWorkspaceScope: describeDirectoryScope(options.selectedWorkspaceRoot?.() ?? null),
     });
 
     const start = Date.now();
@@ -930,8 +1117,11 @@ export function createSessionStore(options: {
     if (!c) return;
 
     const perfEnabled = options.developerMode();
-    options.setSelectedSessionId(sessionID);
-    options.setError(null);
+    batch(() => {
+      setMessageLoadBusyBySession((prev) => ({ ...prev, [sessionID]: true }));
+      options.setSelectedSessionId(sessionID);
+      options.setError(null);
+    });
 
     const existing = selectInFlightBySession.get(sessionID);
     if (existing) {
@@ -977,7 +1167,6 @@ export function createSessionStore(options: {
 
       const existingLimit = messageLimitBySession()[sessionID] ?? 0;
       const requestLimit = Math.max(INITIAL_SESSION_MESSAGE_LIMIT, existingLimit);
-      setMessageLoadBusyBySession((prev) => ({ ...prev, [sessionID]: true }));
       mark("calling session.messages", { limit: requestLimit });
       const msgs = unwrap(
         await withTimeout(c.session.messages({ sessionID, limit: requestLimit }), 12000, "session.messages"),
@@ -1183,6 +1372,68 @@ export function createSessionStore(options: {
     });
   };
 
+  const setSessionCompaction = (sessionID: string, next: SessionCompactionState) => {
+    setStore("sessionCompaction", sessionID, next);
+  };
+
+  const stopSessionCompaction = (sessionID: string) => {
+    const current = store.sessionCompaction[sessionID];
+    pendingCompactionModeBySession.delete(sessionID);
+    if (!current?.running) return;
+    setSessionCompaction(sessionID, {
+      ...current,
+      running: false,
+      messageID: null,
+    });
+  };
+
+  const startSessionCompaction = (sessionID: string, messageID: string) => {
+    const current = store.sessionCompaction[sessionID];
+    if (current?.running && current.messageID === messageID) return;
+    const startedAt = Date.now();
+    const mode = pendingCompactionModeBySession.get(sessionID) ?? current?.mode ?? null;
+    pendingCompactionModeBySession.delete(sessionID);
+    setSessionCompaction(sessionID, {
+      running: true,
+      startedAt,
+      finishedAt: null,
+      mode,
+      messageID,
+    });
+    if (options.developerMode()) {
+      appendDebugEvent({
+        type: "session.compaction.started",
+        properties: { sessionID, messageID, mode, startedAt },
+      });
+    }
+  };
+
+  const finishSessionCompaction = (sessionID: string) => {
+    const current = store.sessionCompaction[sessionID];
+    const finishedAt = Date.now();
+    pendingCompactionModeBySession.delete(sessionID);
+    setSessionCompaction(sessionID, {
+      running: false,
+      startedAt: current?.startedAt ?? null,
+      finishedAt,
+      mode: current?.mode ?? null,
+      messageID: null,
+    });
+    if (options.developerMode()) {
+      appendDebugEvent({
+        type: "session.compaction.finished",
+        properties: {
+          sessionID,
+          mode: current?.mode ?? null,
+          startedAt: current?.startedAt ?? null,
+          finishedAt,
+          durationMs:
+            typeof current?.startedAt === "number" ? Math.max(0, finishedAt - current.startedAt) : null,
+        },
+      });
+    }
+  };
+
   const compactDebugEvent = (event: OpencodeEvent) => {
     if (event.type === "message.part.updated") {
       const record = event.properties as Record<string, unknown> | undefined;
@@ -1281,9 +1532,11 @@ export function createSessionStore(options: {
           syntheticContinueLoopLastWarnAtBySession.delete(info.id);
           syntheticLoopLastAbortAtByKey.delete(`task-summary:${info.id}`);
           syntheticLoopLastAbortAtByKey.delete(`compaction-continue:${info.id}`);
+          pendingCompactionModeBySession.delete(info.id);
           setStore(
             produce((draft: StoreState) => {
               delete draft.sessionInfoById[info.id];
+              delete draft.sessionCompaction[info.id];
             }),
           );
           setStore("sessions", (current) => removeSession(current, info.id));
@@ -1303,6 +1556,9 @@ export function createSessionStore(options: {
         if (sessionID) {
           const normalized = normalizeSessionStatus(record.status);
           setStore("sessionStatus", sessionID, normalized);
+          if (normalized === "idle") {
+            stopSessionCompaction(sessionID);
+          }
           if (sessionID === options.selectedSessionId() && normalized !== "idle") {
             options.setError(null);
           }
@@ -1316,6 +1572,7 @@ export function createSessionStore(options: {
         const sessionID = typeof record.sessionID === "string" ? record.sessionID : null;
         if (sessionID) {
           setStore("sessionStatus", sessionID, "idle");
+          stopSessionCompaction(sessionID);
           const c = options.client();
           if (c) {
             try {
@@ -1340,6 +1597,7 @@ export function createSessionStore(options: {
         const sessionID = typeof record.sessionID === "string" ? record.sessionID : null;
         if (sessionID) {
           setStore("sessionStatus", sessionID, "idle");
+          stopSessionCompaction(sessionID);
         }
         const errorObj = record.error as Record<string, unknown> | undefined;
         if (errorObj) {
@@ -1374,6 +1632,7 @@ export function createSessionStore(options: {
         const record = event.properties as Record<string, unknown>;
         if (record.info && typeof record.info === "object") {
           const info = record.info as Message;
+          const messageRecord = info as Message & Record<string, unknown>;
           const model = modelFromUserMessage(info as MessageInfo);
           if (model) {
             options.setSessionModelState((current) => ({
@@ -1390,6 +1649,14 @@ export function createSessionStore(options: {
           }
 
           setStore("messages", info.sessionID, (current = []) => upsertMessageInfo(current, info));
+
+          if (
+            messageRecord.role === "assistant" &&
+            messageRecord.mode === "compaction" &&
+            messageRecord.summary === true
+          ) {
+            startSessionCompaction(info.sessionID, info.id);
+          }
         }
       }
     }
@@ -1413,6 +1680,13 @@ export function createSessionStore(options: {
           const part = record.part as Part;
           const delta = typeof record.delta === "string" ? record.delta : null;
           const partUpdatedStartedAt = perfNow();
+
+          if (part.type === "compaction") {
+            pendingCompactionModeBySession.set(
+              part.sessionID,
+              (part as Part & { auto?: unknown }).auto === true ? "auto" : "manual",
+            );
+          }
 
           setStore(
             produce((draft: StoreState) => {
@@ -1507,6 +1781,16 @@ export function createSessionStore(options: {
         const sessionID = typeof record.sessionID === "string" ? record.sessionID : null;
         if (sessionID && Array.isArray(record.todos)) {
           setStore("todos", sessionID, record.todos as TodoItem[]);
+        }
+      }
+    }
+
+    if (event.type === "session.compacted") {
+      if (event.properties && typeof event.properties === "object") {
+        const record = event.properties as Record<string, unknown>;
+        const sessionID = typeof record.sessionID === "string" ? record.sessionID : null;
+        if (sessionID) {
+          finishSessionCompaction(sessionID);
         }
       }
     }
@@ -1747,8 +2031,19 @@ export function createSessionStore(options: {
     sessionStatusById,
     selectedSession,
     selectedSessionStatus,
+    messageIdFromInfo,
+    visibleMessages,
+    blueprintSeedMessagesForSelectedSession,
+    restorePromptFromUserMessage,
+    upsertLocalSession,
+    setBlueprintSeedMessagesBySessionId,
+    selectedSessionCompactionState: createMemo(() => {
+      const sessionID = options.selectedSessionId();
+      return sessionID ? store.sessionCompaction[sessionID] ?? null : null;
+    }),
     messages,
     messagesBySessionId,
+    sessionCompactionById: (sessionID: string | null) => (sessionID ? store.sessionCompaction[sessionID] ?? null : null),
     todos,
     pendingPermissions,
     permissionReplyBusy,

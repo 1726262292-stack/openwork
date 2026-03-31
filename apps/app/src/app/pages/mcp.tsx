@@ -30,7 +30,6 @@ import {
   MonitorSmartphone,
   Plug2,
   Plus,
-  RefreshCw,
   Settings,
   Settings2,
   Unplug,
@@ -40,7 +39,7 @@ import { currentLocale, t, type Language } from "../../i18n";
 
 export type McpViewProps = {
   busy: boolean;
-  activeWorkspaceRoot: string;
+  selectedWorkspaceRoot: string;
   isRemoteWorkspace: boolean;
   readConfigFile?: (scope: "project" | "global") => Promise<OpencodeConfigFile | null>;
   showHeader?: boolean;
@@ -56,9 +55,6 @@ export type McpViewProps = {
   authorizeMcp: (entry: McpServerEntry) => void;
   logoutMcpAuth: (name: string) => Promise<void> | void;
   removeMcp: (name: string) => void;
-  showMcpReloadBanner: boolean;
-  reloadBlocked: boolean;
-  reloadMcpEngine: () => void;
 };
 
 /* ── Status helpers ─────────────────────────────────── */
@@ -166,7 +162,7 @@ export default function McpView(props: McpViewProps) {
 
   let configRequestId = 0;
   createEffect(() => {
-    const root = props.activeWorkspaceRoot.trim();
+    const root = props.selectedWorkspaceRoot.trim();
     const nextId = (configRequestId += 1);
     const readConfig = props.readConfigFile;
 
@@ -207,13 +203,13 @@ export default function McpView(props: McpViewProps) {
 
   const canRevealConfig = () => {
     if (!isTauriRuntime() || revealBusy()) return false;
-    if (configScope() === "project" && !props.activeWorkspaceRoot.trim()) return false;
+    if (configScope() === "project" && !props.selectedWorkspaceRoot.trim()) return false;
     return Boolean(activeConfig()?.exists);
   };
 
   const revealConfig = async () => {
     if (!isTauriRuntime() || revealBusy()) return;
-    const root = props.activeWorkspaceRoot.trim();
+    const root = props.selectedWorkspaceRoot.trim();
 
     if (configScope() === "project" && !root) {
       setConfigError(tr("mcp.pick_workspace_error"));
@@ -327,35 +323,25 @@ export default function McpView(props: McpViewProps) {
         </div>
       </Show>
 
-      {/* ── Reload banner ────────────────────────────── */}
-      <Show when={props.showMcpReloadBanner}>
-        <div class="bg-amber-2 border border-amber-6 rounded-xl px-5 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div class="text-sm font-medium text-amber-11">{tr("mcp.finish_setup")}</div>
-            <div class="text-xs text-amber-11/70 mt-0.5">
-              {props.reloadBlocked
-                ? tr("mcp.reload_banner_description_blocked")
-                : tr("mcp.finish_setup_hint")}
-            </div>
-          </div>
-          <Button
-            variant="secondary"
-            onClick={() => props.reloadMcpEngine()}
-            disabled={props.reloadBlocked}
-            title={props.reloadBlocked ? tr("mcp.reload_banner_blocked_hint") : undefined}
-          >
-            <RefreshCw size={14} />
-            {tr("mcp.activate_button")}
-          </Button>
-        </div>
-      </Show>
-
       {/* ── Status message ───────────────────────────── */}
       <Show when={props.mcpStatus}>
         <div class="rounded-xl border border-dls-border bg-dls-hover px-4 py-3 text-xs text-dls-secondary whitespace-pre-wrap break-words">
           {props.mcpStatus}
         </div>
       </Show>
+
+      <div class="rounded-2xl border border-blue-6/30 bg-[linear-gradient(180deg,rgba(59,130,246,0.08),rgba(59,130,246,0.03))] px-5 py-5 sm:px-6">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div class="space-y-1">
+            <div class="text-base font-semibold text-dls-text">{tr("mcp.add_modal_title")}</div>
+            <div class="text-sm text-dls-secondary">{tr("mcp.custom_app_cta_hint")}</div>
+          </div>
+          <Button variant="secondary" onClick={() => setAddMcpModalOpen(true)}>
+            <Plus size={14} />
+            {tr("mcp.add_modal_title")}
+          </Button>
+        </div>
+      </div>
 
       {/* ── Available apps (Quick Connect) ───────────── */}
       <div class="space-y-4">
@@ -764,12 +750,6 @@ export default function McpView(props: McpViewProps) {
               <div class="text-xs text-red-11">{configError()}</div>
             </Show>
 
-            <div class="border-t border-dls-border pt-4">
-              <Button variant="secondary" onClick={() => setAddMcpModalOpen(true)}>
-                <Plus size={14} />
-                {tr("mcp.add_modal_title")}
-              </Button>
-            </div>
           </div>
         </Show>
       </div>

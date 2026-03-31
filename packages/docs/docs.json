@@ -15,45 +15,34 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Product",
-        "groups": [
+        "tab": "Start here",
+        "pages": [
+          "get-started",
           {
-            "group": "Choose a path",
+            "group": "Desktop App",
             "pages": [
-              "introduction",
-              "non-technical",
-              "technical"
+              "enable-advanced-search-with-exa",
+              "how-to-connect-chat-gpt",
+              "how-to-connect-mcps",
+              "computer-use",
+              "sharing-ow-setup",
+              "accessing-ow-from-slack",
+              "how-to-automate-your",
+              "automating-tasks"
             ]
           },
           {
-            "group": "Run and share",
+            "group": "Tutorials",
             "pages": [
-              "quickstart",
-              "create-openwork-instance",
-              "tutorials/share-worker-invite-link",
-              "tutorials/automations-repeatable-jobs",
-              "tutorials/worker-isolation"
+              "how-to-connect-a-custom-provider",
+              "importing-a-skill"
             ]
           },
           {
-            "group": "Technical setup",
+            "group": "Improve this doc",
             "pages": [
-              "openwork",
-              "cli",
-              "opencode-router",
-              "worker-runtime-upgrades"
+              "missing-docs"
             ]
-          },
-          {
-            "group": "Reference",
-            "pages": [
-              "tutorials/share-workspace-url-service",
-              "orbita-layout-style"
-            ]
-          },
-          {
-            "group": "Contributing",
-            "pages": ["development"]
           }
         ]
       }
@@ -62,14 +51,25 @@
   "redirects": [
     {
       "source": "/",
-      "destination": "/introduction"
+      "destination": "/get-started"
+    },
+    {
+      "source": "/quickstart",
+      "destination": "/get-started"
     }
   ],
+  "errors": {
+    "404": {
+      "redirect": false,
+      "title": "Missing Documentation?",
+      "description": "If you're technical and want to use a specific part of the app that is not documented well yet, [send us a quick email](mailto:team@openworklabs.com?subject=missing%20documentation&body=hey%20my%20github%20is%20%7Busername%7D%2C%20I%27m%20interested%20in%20%7Bfeature%7D%20from%20openwork%20but%20I%27m%20missing%20documentation%20on%20it%2C%20could%20you%20create%20it%3F%0A%0AThanks) and tell us what you're missing."
+    }
+  },
   "navbar": {
     "primary": {
       "type": "button",
       "label": "Download OpenWork",
-      "href": "https://openwork.software/download"
+      "href": "https://openworklabs.com/download"
     }
   }
 }

@@ -3,6 +3,7 @@ import type { Agent } from "@opencode-ai/sdk/v2/client";
 import fuzzysort from "fuzzysort";
 import ProviderIcon from "../provider-icon";
 import { ArrowUp, AtSign, Check, ChevronDown, File as FileIcon, Paperclip, Square, Terminal, X, Zap } from "lucide-solid";
+import ComposerNotice, { type ComposerNotice as ComposerNoticeData } from "./composer-notice";
 
 import type { ComposerAttachment, ComposerDraft, ComposerPart, PromptMode, SlashCommandOption } from "../../types";
 import { perfNow, recordPerfLog } from "../../lib/perf-log";
@@ -30,7 +31,6 @@ type ComposerProps = {
   onSend: (draft: ComposerDraft) => void;
   onStop: () => void;
   onDraftChange: (draft: ComposerDraft) => void;
-  selectedProviderID?: string | null;
   selectedModelLabel: string;
   onModelClick: () => void;
   modelVariantLabel: string;
@@ -46,10 +46,8 @@ type ComposerProps = {
   onToggleAgentPicker: () => void;
   onSelectAgent: (agent: string | null) => void;
   setAgentPickerRef: (el: HTMLDivElement) => void;
-  showNotionBanner: boolean;
-  onNotionBannerClick: () => void;
-  toast: string | null;
-  onToast: (message: string) => void;
+  notice: ComposerNoticeData | null;
+  onNotice: (notice: ComposerNoticeData) => void;
   listAgents: () => Promise<Agent[]>;
   recentFiles: string[];
   searchFiles: (query: string) => Promise<string[]>;
@@ -475,11 +473,7 @@ export default function Composer(props: ComposerProps) {
   const [attachments, setAttachments] = createSignal<ComposerAttachment[]>([]);
   const [draftText, setDraftText] = createSignal(normalizeText(props.prompt));
   const [mode, setMode] = createSignal<PromptMode>("prompt");
-  const [historySnapshot, setHistorySnapshot] = createSignal<ComposerDraft | null>(null);
-  const [historyIndex, setHistoryIndex] = createSignal({ prompt: -1, shell: -1 });
-  const [history, setHistory] = createSignal({ prompt: [] as ComposerDraft[], shell: [] as ComposerDraft[] });
   const [variantMenuOpen, setVariantMenuOpen] = createSignal(false);
-  const [showInboxUploadAction, setShowInboxUploadAction] = createSignal(false);
   const compactModelLabel = createMemo(() =>
     props.selectedModelLabel.length > 20 ? `${props.selectedModelLabel.slice(0, 20)}...` : props.selectedModelLabel,
   );
@@ -670,8 +664,6 @@ export default function Composer(props: ComposerProps) {
       if (!value && current) {
         setEditorText("");
         setAttachments([]);
-        setHistoryIndex((currentIndex: { prompt: number; shell: number }) => ({ ...currentIndex, [mode()]: -1 }));
-        setHistorySnapshot(null);
         queueMicrotask(() => focusEditorEnd());
       }
       return;
@@ -697,8 +689,6 @@ export default function Composer(props: ComposerProps) {
     setEditorText(value);
     if (!value) {
       setAttachments([]);
-      setHistoryIndex((currentIndex: { prompt: number; shell: number }) => ({ ...currentIndex, [mode()]: -1 }));
-      setHistorySnapshot(null);
     }
 
     // We don't emitDraftChange here usually, to avoid loops, but if we changed text we might need to?
@@ -998,48 +988,6 @@ export default function Composer(props: ComposerProps) {
     emitDraftChange();
   };
 
-  const canNavigateHistory = () => {
-    if (!editorRef) return false;
-    const offsets = getSelectionOffsets(editorRef);
-    if (!offsets || offsets.start !== offsets.end) return false;
-    const total = readEditorText(editorRef).length;
-    return offsets.start === 0 || offsets.start === total;
-  };
-
-  const applyHistoryDraft = (draft: ComposerDraft | null) => {
-    if (!draft) return;
-    setMode(draft.mode);
-    renderParts(draft.parts, false);
-    setDraftText(draft.text);
-    setAttachments(draft.attachments ?? []);
-    props.onDraftChange(draft);
-  };
-
-  const navigateHistory = (direction: "up" | "down") => {
-    const key = mode();
-    const list = history()[key];
-    if (!list.length) return;
-    const index = historyIndex()[key];
-    const nextIndex = direction === "up" ? index + 1 : index - 1;
-    if (nextIndex < -1 || nextIndex >= list.length) return;
-
-    if (index === -1 && direction === "up") {
-      const parts = editorRef ? buildPartsFromEditor(editorRef, pasteTextById) : [];
-      const text = normalizeText(partsToText(parts));
-      const resolvedText = normalizeText(partsToResolvedText(parts));
-      setHistorySnapshot({ mode: key, parts, attachments: attachments(), text, resolvedText });
-    }
-
-    setHistoryIndex((current: { prompt: number; shell: number }) => ({ ...current, [key]: nextIndex }));
-    if (nextIndex === -1) {
-      applyHistoryDraft(historySnapshot());
-      setHistorySnapshot(null);
-      return;
-    }
-    const target = list[list.length - 1 - nextIndex];
-    applyHistoryDraft(target);
-  };
-
   const sendDraft = () => {
     // Ensure any pending debounce updates are committed before sending
     flushDraftChange();
@@ -1062,7 +1010,6 @@ export default function Composer(props: ComposerProps) {
       }
     }
 
-    recordHistory(draft);
     props.onSend(draft);
     setSlashOpen(false);
     setSlashQuery("");
@@ -1086,20 +1033,12 @@ export default function Composer(props: ComposerProps) {
     });
   };
 
-  const recordHistory = (draft: ComposerDraft) => {
-    const trimmed = draft.text.trim();
-    if (!trimmed && !draft.attachments.length) return;
-    setHistory((current: { prompt: ComposerDraft[]; shell: ComposerDraft[] }) => ({
-      ...current,
-      [draft.mode]: [...current[draft.mode], { ...draft, attachments: [] }],
-    }));
-    setHistoryIndex((current: { prompt: number; shell: number }) => ({ ...current, [draft.mode]: -1 }));
-    setHistorySnapshot(null);
-  };
-
   const addAttachments = async (files: File[]) => {
     if (attachmentsDisabled()) {
-      props.onToast(props.attachmentsDisabledReason ?? "Attachments are unavailable.");
+      props.onNotice({
+        title: props.attachmentsDisabledReason ?? "Attachments are unavailable.",
+        tone: "warning",
+      });
       return;
     }
     const supportedFiles = files.filter((file) => isSupportedAttachmentType(file.type));
@@ -1116,7 +1055,10 @@ export default function Composer(props: ComposerProps) {
     const next: ComposerAttachment[] = [];
     for (const file of supportedFiles) {
       if (file.size > MAX_ATTACHMENT_BYTES) {
-        props.onToast(`${file.name} exceeds the 8MB limit.`);
+        props.onNotice({
+          title: `${file.name} exceeds the 8MB limit.`,
+          tone: "warning",
+        });
         continue;
       }
       try {
@@ -1124,7 +1066,10 @@ export default function Composer(props: ComposerProps) {
         const processed = isImageMime(file.type) ? await compressImageFile(file) : file;
         const estimatedJsonBytes = estimateInlineAttachmentBytes(processed);
         if (estimatedJsonBytes > MAX_ATTACHMENT_BYTES) {
-          props.onToast(`${file.name} is too large after encoding. Try a smaller image.`);
+          props.onNotice({
+            title: `${file.name} is too large after encoding. Try a smaller image.`,
+            tone: "warning",
+          });
           continue;
         }
         next.push({
@@ -1137,7 +1082,10 @@ export default function Composer(props: ComposerProps) {
           previewUrl: isImageMime(processed.type) ? createObjectUrl(processed) : undefined,
         });
       } catch (error) {
-        props.onToast(error instanceof Error ? error.message : "Failed to read attachment");
+        props.onNotice({
+          title: error instanceof Error ? error.message : "Failed to read attachment",
+          tone: "error",
+        });
       }
     }
     if (next.length) {
@@ -1248,29 +1196,32 @@ export default function Composer(props: ComposerProps) {
           updateMentionQuery();
           updateSlashQuery();
           emitDraftChange();
-          props.onToast(
-            links.length === 1
-              ? `Uploaded ${links[0].name} to the shared folder and inserted a link.`
-              : `Uploaded ${links.length} files to the shared folder and inserted links.`,
-          );
+          props.onNotice({
+            title:
+              links.length === 1
+                ? `Uploaded ${links[0].name} to the shared folder and inserted a link.`
+                : `Uploaded ${links.length} files to the shared folder and inserted links.`,
+            tone: "success",
+          });
           return;
         }
       }
-      props.onToast(
-        "Couldn't upload to the shared folder. Inserted local links instead.",
-      );
+      props.onNotice({
+        title: "Couldn't upload to the shared folder. Inserted local links instead.",
+        tone: "warning",
+      });
     }
 
     const text = formatLinks(fallbackLinks());
     if (!text) {
-      props.onToast("Unsupported attachment type.");
+      props.onNotice({ title: "Unsupported attachment type.", tone: "warning" });
       return;
     }
     insertPlainTextAtSelection(text);
     updateMentionQuery();
     updateSlashQuery();
     emitDraftChange();
-    props.onToast("Inserted links for unsupported files.");
+    props.onNotice({ title: "Inserted links for unsupported files.", tone: "info" });
   };
 
   const handlePaste = (event: ClipboardEvent) => {
@@ -1303,10 +1254,13 @@ export default function Composer(props: ComposerProps) {
       const hasAbsolutePosix = /(^|\s)\/(Users|home|var|etc|opt|tmp|private|Volumes|Applications)\//.test(trimmedForCheck);
       const hasAbsoluteWindows = /(^|\s)[a-zA-Z]:\\/.test(trimmedForCheck);
       if (hasFileUrl || hasAbsolutePosix || hasAbsoluteWindows) {
-        props.onToast(
+        props.onNotice({
+          title:
             "This is a remote worker. Sandboxes are remote too. To share files with it, upload them to the Shared folder in the sidebar.",
-          );
-        setShowInboxUploadAction(Boolean(props.onUploadInboxFiles));
+          tone: "warning",
+          actionLabel: props.onUploadInboxFiles ? "Upload to shared folder" : undefined,
+          onAction: props.onUploadInboxFiles ? () => inboxFileInputRef?.click() : undefined,
+        });
       }
     }
 
@@ -1328,12 +1282,6 @@ export default function Composer(props: ComposerProps) {
     updateSlashQuery();
     emitDraftChange();
   };
-
-  createEffect(() => {
-    if (!props.toast) {
-      setShowInboxUploadAction(false);
-    }
-  });
 
   const handleDrop = (event: DragEvent) => {
     if (!event.dataTransfer) return;
@@ -1481,14 +1429,6 @@ export default function Composer(props: ComposerProps) {
       setMode("prompt");
       emitDraftChange();
       return;
-    }
-
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      if (canNavigateHistory()) {
-        event.preventDefault();
-        navigateHistory(event.key === "ArrowUp" ? "up" : "down");
-        return;
-      }
     }
 
     if (event.key === "Enter") {
@@ -1693,17 +1633,6 @@ export default function Composer(props: ComposerProps) {
           </Show>
 
           <div class="p-5 md:p-6">
-            <Show when={props.showNotionBanner}>
-              <button
-                type="button"
-                class="w-full mb-2 flex items-center justify-between gap-3 rounded-xl border border-green-7/20 bg-green-7/10 px-3 py-2 text-left text-sm text-green-12 transition-colors hover:bg-green-7/15"
-                onClick={props.onNotionBannerClick}
-              >
-                <span>Try it now: set up my CRM in Notion</span>
-                <span class="text-xs text-green-12 font-medium">Insert prompt</span>
-              </button>
-            </Show>
-
             <Show when={attachments().length}>
               <div class="mb-3 flex flex-wrap gap-2">
                 <For each={attachments()}>
@@ -1742,22 +1671,7 @@ export default function Composer(props: ComposerProps) {
             </Show>
 
             <div class="relative min-h-[120px]">
-              <Show when={props.toast}>
-                <div class="absolute bottom-full right-0 mb-2 z-30 rounded-xl border border-gray-6 bg-gray-1 px-3 py-2 text-xs text-gray-11 shadow-lg backdrop-blur-md">
-                  <div class="flex items-center gap-3">
-                    <span>{props.toast}</span>
-                    <Show when={showInboxUploadAction() && props.onUploadInboxFiles}>
-                      <button
-                        type="button"
-                        class="shrink-0 rounded-md border border-gray-6 bg-gray-2 px-2 py-1 text-[10px] text-gray-11 hover:bg-gray-3"
-                        onClick={() => inboxFileInputRef?.click()}
-                      >
-                        Upload to shared folder
-                      </button>
-                    </Show>
-                  </div>
-                </div>
-              </Show>
+              <ComposerNotice notice={props.notice} />
 
               <div class="flex flex-col gap-2">
                 <div class="flex-1 min-w-0">

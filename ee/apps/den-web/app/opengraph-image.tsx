@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-export const alt = "Den Cloud Workers";
+export const alt = "OpenWork Cloud";
 export const size = {
   width: 1200,
   height: 630
@@ -74,19 +74,19 @@ export default function OpenGraphImage() {
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <div style={{ fontSize: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: 3, color: "#64748b" }}>
-                  OpenWork hosted
+                  OpenWork Cloud
                 </div>
-                <div style={{ fontSize: 24, fontWeight: 600 }}>Den Cloud Workers</div>
+                <div style={{ fontSize: 24, fontWeight: 600 }}>OpenWork Cloud</div>
               </div>
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 64, fontWeight: 600, letterSpacing: -2.8, lineHeight: 0.98 }}>
-              <div>Always-on AI workers</div>
-              <div>for you and your team.</div>
+              <div>Share your setup</div>
+              <div>with your team.</div>
             </div>
 
             <div style={{ fontSize: 24, lineHeight: 1.45, color: "#475569", display: "flex", maxWidth: 520 }}>
-              Launch cloud workers, manage Polar checkout, and operate Den directly from app.openwork.software.
+              Share setups across your org, keep selected workflows available, and manage OpenWork Cloud from app.openworklabs.com.
             </div>
 
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>

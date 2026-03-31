@@ -70,6 +70,9 @@ Agents, skills, and commands should model the following as OpenWork server behav
 - workspace creation and initialization
 - writes to `.opencode/`, `opencode.json`, and `opencode.jsonc`
 - OpenWork workspace config writes (`.opencode/openwork.json`)
+- workspace template export/import, including shareable `.opencode/**` files and `opencode.json` state
+- workspace template starter-session materialization from portable blueprint config (not copied runtime session history)
+- share-bundle publish/fetch flows used by OpenWork template links
 - reload event generation after config or capability changes
 - other filesystem-backed capability changes that must work across desktop host mode and remote clients
 
@@ -81,6 +84,33 @@ Tauri or other native shell behavior remains the fallback or shell boundary for:
 - host-side process supervision and native runtime bootstrapping
 
 If an agent needs one of the server-owned behaviors above and only a Tauri path exists, treat that as an architecture gap to close rather than a parallel capability surface to preserve.
+
+## Reload-required flow
+
+OpenWork uses a single reload-required flow for changes that only take effect when OpenCode restarts.
+
+Key pieces:
+
+- `createSystemState()` owns the raw queued-reload state.
+- `reloadPending()` means a reload is currently queued for the active workspace.
+- `markReloadRequired(reason, trigger)` queues the reload and records the source that caused it.
+- `app.tsx` exposes `reloadRequired(...sources)` as a small helper for UI filtering. It is used to decide whether the shared reload popup should show for a given trigger type.
+
+Use this flow when a change mutates startup-loaded OpenCode inputs, for example:
+
+- `opencode.json`
+- `.opencode/skills/**`
+- `.opencode/agents/**`
+- `.opencode/commands/**`
+- MCP definitions or plugin lists that OpenCode only loads at startup
+
+Do not invent a separate reload banner per feature. New UI that needs restart semantics should:
+
+1. perform the config or filesystem mutation
+2. call `markReloadRequired(...)`
+3. rely on the shared reload popup to explain and execute the restart path
+
+Current examples that should use this shared flow include MCP changes, auto context compaction, default model changes, authorized folder updates, plugin changes, and other `opencode.json` writes.
 
 ## opencode primitives
 how to pick the right extension abstraction for 
@@ -359,7 +389,7 @@ workspace C ----/
 
                  +-------------------------------+
                  | opencode-router               |
-                 | root: active workspace        |
+                 | root: runtime active workspace|
                  | clients: many dirs under root |
                  +-------------------------------+
 ```
@@ -370,6 +400,22 @@ Practical consequences:
 - If workspaces live in unrelated roots, directories outside the active router root are rejected.
 - OpenWork server is already multi-workspace aware.
 - Desktop router management is still effectively single-root at a time.
+- On desktop, the file watcher follows the runtime-connected workspace root, not just the workspace currently selected in the UI.
+
+Terminology clarification:
+
+- `selected workspace` is a UI concept: the workspace the user is currently viewing and where compose/config actions should target.
+- `runtime active workspace` is a backend concept: the workspace the local server/orchestrator currently reports as active.
+- `watched workspace` is the desktop-host/runtime concept for which workspace root local file watching is currently attached to.
+- These states must be treated separately. UI selection can change without implying that the backend has switched roots yet.
+- In practice, `selected workspace` and `runtime active workspace` often converge once the user sends work, but they are allowed to diverge briefly while the UI is browsing another workspace.
+
+Desktop local OpenWork server ports:
+
+- Desktop-hosted local OpenWork server instances do not assume a fixed `8787` port.
+- Each workspace gets a persistent preferred localhost port in the `48000-51000` range.
+- On restart, desktop tries to reuse that workspace's saved port first.
+- If that port is unavailable, desktop picks another free port in the same range and avoids ports already reserved by other known workspaces.
 
 ```text
 Shared-root case

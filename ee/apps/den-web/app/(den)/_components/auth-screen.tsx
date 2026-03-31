@@ -1,8 +1,22 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { Dithering, MeshGradient } from "@paper-design/shaders-react";
+import { ArrowRight, CheckCircle2 } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { isSamePathname } from "../_lib/client-route";
 import { useDenFlow } from "../_providers/den-flow-provider";
+
+function getDesktopGrant(url: string | null) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    const grant = parsed.searchParams.get("grant")?.trim() ?? "";
+    return grant || null;
+  } catch {
+    return null;
+  }
+}
 
 function GitHubLogo() {
   return (
@@ -26,9 +40,58 @@ function GoogleLogo() {
   );
 }
 
+function FeatureCard({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-white p-5">
+      <p className="mb-2 text-[14px] font-medium text-gray-900">{title}</p>
+      <p className="text-[13px] leading-[1.6] text-gray-500">{body}</p>
+    </div>
+  );
+}
+
+function SocialButton({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-[14px] font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+      onClick={onClick}
+      disabled={disabled}
+    >
+      {children}
+    </button>
+  );
+}
+
+function LoadingPanel({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-[28px] border border-gray-100 bg-white p-6 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.22)] md:p-7">
+      <div className="grid gap-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+          OpenWork Cloud
+        </p>
+        <h2 className="text-[28px] font-semibold tracking-[-0.04em] text-gray-900">{title}</h2>
+        <p className="text-[14px] leading-relaxed text-gray-500">{body}</p>
+      </div>
+      <div className="mt-6 h-2 overflow-hidden rounded-full bg-gray-100">
+        <div className="h-full w-1/3 animate-pulse rounded-full bg-gray-900/80" />
+      </div>
+    </div>
+  );
+}
+
 export function AuthScreen() {
   const router = useRouter();
+  const pathname = usePathname();
   const routingRef = useRef(false);
+  const [copiedDesktopField, setCopiedDesktopField] = useState<"link" | "code" | null>(null);
   const {
     authMode,
     setAuthMode,
@@ -53,201 +116,339 @@ export function AuthScreen() {
     resendVerificationCode,
     cancelVerification,
     beginSocialAuth,
-    resolveUserLandingRoute
+    resolveUserLandingRoute,
   } = useDenFlow();
+  const desktopGrant = getDesktopGrant(desktopRedirectUrl);
+  const hasResolvedSession = sessionHydrated && Boolean(user) && !desktopAuthRequested;
+
+  const copyDesktopValue = async (field: "link" | "code", value: string | null) => {
+    if (!value) return;
+    await navigator.clipboard.writeText(value);
+    setCopiedDesktopField(field);
+    window.setTimeout(() => {
+      setCopiedDesktopField((current) => (current === field ? null : current));
+    }, 1800);
+  };
 
   useEffect(() => {
-    if (!sessionHydrated || !user || desktopAuthRequested || routingRef.current) {
+    if (!hasResolvedSession || routingRef.current) {
       return;
     }
 
     routingRef.current = true;
-    void resolveUserLandingRoute().then((target) => {
-      if (target) {
-        router.replace(target);
-      }
-      routingRef.current = false;
-    });
-  }, [desktopAuthRequested, resolveUserLandingRoute, router, sessionHydrated, user]);
+    void resolveUserLandingRoute()
+      .then((target) => {
+        if (target && !isSamePathname(pathname, target)) {
+          router.replace(target);
+        }
+      })
+      .finally(() => {
+        routingRef.current = false;
+      });
+  }, [hasResolvedSession, pathname, resolveUserLandingRoute, router]);
+
+  const panelTitle = verificationRequired
+    ? "Verify your email."
+    : authMode === "sign-up"
+      ? "Create your Cloud account."
+      : "Sign in to Cloud.";
+
+  const panelCopy = verificationRequired
+    ? "Enter the six-digit code from your inbox to finish setup."
+    : authMode === "sign-up"
+      ? "Start with email, GitHub, or Google."
+      : "Welcome back. Keep your team setup in sync across Cloud and desktop.";
+
+  if (!sessionHydrated) {
+    return (
+      <section className="den-page flex w-full items-center py-4 lg:min-h-[calc(100vh-2.5rem)]">
+        <LoadingPanel title="Checking your session." body="Loading your Cloud account state..." />
+      </section>
+    );
+  }
 
   return (
-    <section className="mx-auto grid w-full max-w-[32rem] gap-6 px-1 py-2">
-      {sessionHydrated ? (
-        <div className="grid gap-6 rounded-[32px] border border-white/70 bg-white/92 p-5 shadow-[0_28px_80px_-44px_rgba(15,23,42,0.35)] backdrop-blur md:p-6">
-          <div className="grid gap-3 text-center">
-            <h1 className="text-[2rem] font-semibold leading-[1.02] tracking-[-0.045em] text-[var(--dls-text-primary)] md:text-[2.5rem]">
-              {verificationRequired
-                ? "Verify your email code."
-                : authMode === "sign-up"
-                  ? "Create your OpenWork Den account."
-                  : "Sign in to OpenWork Den."}
-            </h1>
-            <p className="mx-auto max-w-[24rem] text-[15px] leading-7 text-[var(--dls-text-secondary)]">
-              {verificationRequired
-                ? "Enter the code from your inbox to finish setting up access to your cloud worker dashboard."
-                : "Keep your tasks alive even when your computer sleeps."}
-            </p>
+    <section className="den-page flex w-full items-center py-4 lg:min-h-[calc(100vh-2.5rem)]">
+      <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]">
+        <div className="order-2 flex flex-col gap-6 lg:order-1">
+          <div className="relative min-h-[300px] overflow-hidden rounded-[32px] border border-gray-100 px-7 py-8 md:px-10 md:py-10">
+            <div className="absolute inset-0 z-0">
+              <Dithering
+                speed={0}
+                shape="warp"
+                type="4x4"
+                size={2.5}
+                scale={1}
+                frame={30214.2}
+                colorBack="#00000000"
+                colorFront="#FEFEFE"
+                style={{ backgroundColor: "#142033", width: "100%", height: "100%" }}
+              >
+                <MeshGradient
+                  speed={0.1}
+                  distortion={0.8}
+                  swirl={0.1}
+                  grainMixer={0}
+                  grainOverlay={0}
+                  frame={176868.9}
+                  colors={["#0F172A", "#1E40AF", "#4C1D95", "#0F766E"]}
+                  style={{ width: "100%", height: "100%" }}
+                />
+              </Dithering>
+            </div>
+
+            <div className="relative z-10 flex h-full flex-col justify-between gap-10">
+              <div className="flex items-center gap-3">
+                <img src="/openwork-logo-transparent.svg" alt="OpenWork" className="h-9 w-auto" />
+                <span className="text-[13px] font-medium text-white/80">OpenWork Cloud</span>
+              </div>
+
+              <div className="grid gap-4">
+                <span className="inline-flex w-fit rounded-full border border-white/20 bg-white/15 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-white backdrop-blur-md">
+                  Shared setups
+                </span>
+                <h1 className="max-w-[12ch] text-[2.25rem] font-semibold leading-[0.95] tracking-[-0.06em] text-white md:text-[3rem]">
+                  Share your OpenWork setup with your team.
+                </h1>
+                <p className="max-w-[34rem] text-[15px] leading-7 text-white/80">
+                  Provision shared setups, invite your org, and keep background workspaces available across Cloud and desktop.
+                </p>
+              </div>
+            </div>
           </div>
 
-          {desktopAuthRequested ? (
-            <div className="rounded-[24px] border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900">
-              Finish auth here and we&apos;ll bounce you back into the OpenWork desktop app automatically.
-              {desktopRedirectUrl ? (
-                <div className="mt-3">
+          <div className="grid gap-4 md:grid-cols-3">
+            <FeatureCard
+              title="Team sharing"
+              body="Package skills, MCPs, plugins, and config once so the whole org can use the same setup."
+            />
+            <FeatureCard
+              title="Cloud Hosted Agents"
+              body="Keep selected workflows running in the cloud without asking each teammate to run them locally."
+            />
+            <FeatureCard
+              title="Custom LLM Providers"
+              body="Whether you want to use LiteLLM, Azure, or any other provider, you can use OpenWork to provision your team."
+            />
+          </div>
+        </div>
+
+        <div className="order-1 lg:order-2">
+          {hasResolvedSession ? (
+            <LoadingPanel
+              title="Redirecting to your workspace."
+              body="We found your account and are sending you to the right Cloud destination now."
+            />
+          ) : (
+            <div className="rounded-[28px] border border-gray-100 bg-white p-6 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.22)] md:p-7">
+            <div className="grid gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+                Account
+              </p>
+              <h2 className="text-[28px] font-semibold tracking-[-0.04em] text-gray-900">{panelTitle}</h2>
+              <p className="text-[14px] leading-relaxed text-gray-500">{panelCopy}</p>
+            </div>
+
+            {desktopAuthRequested ? (
+              <div className="mt-5 rounded-2xl border border-sky-100 bg-sky-50 p-4 text-[13px] text-sky-900">
+                Finish auth here and we&apos;ll send you back into the OpenWork desktop app.
+                {desktopRedirectUrl ? (
+                  <div className="mt-4 grid gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="rounded-full border border-sky-200 bg-white px-4 py-2 text-xs font-medium text-sky-900 transition-colors hover:bg-sky-100"
+                        onClick={() => window.location.assign(desktopRedirectUrl)}
+                      >
+                        Open OpenWork
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-full border border-sky-200 bg-white px-4 py-2 text-xs font-medium text-sky-900 transition-colors hover:bg-sky-100"
+                        onClick={() => void copyDesktopValue("link", desktopRedirectUrl)}
+                      >
+                        {copiedDesktopField === "link" ? "Copied link" : "Copy sign-in link"}
+                      </button>
+                      {desktopGrant ? (
+                        <button
+                          type="button"
+                          className="rounded-full border border-sky-200 bg-white px-4 py-2 text-xs font-medium text-sky-900 transition-colors hover:bg-sky-100"
+                          onClick={() => void copyDesktopValue("code", desktopGrant)}
+                        >
+                          {copiedDesktopField === "code" ? "Copied code" : "Copy one-time code"}
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="text-xs leading-5 text-sky-800/80">
+                      If OpenWork does not open automatically, copy the sign-in link or one-time code and paste it into the OpenWork desktop app.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <form
+              className="mt-5 grid gap-3"
+              onSubmit={async (event) => {
+                const next = verificationRequired
+                  ? await submitVerificationCode(event)
+                  : await submitAuth(event);
+                if (next === "dashboard" || next === "join-org") {
+                  const target = await resolveUserLandingRoute();
+                  if (target && !isSamePathname(pathname, target)) {
+                    router.replace(target);
+                  }
+                } else if (next === "checkout" && !isSamePathname(pathname, "/checkout")) {
+                  router.replace("/checkout");
+                }
+              }}
+            >
+              {!verificationRequired ? (
+                <>
+                  <SocialButton
+                    onClick={() => void beginSocialAuth("github")}
+                    disabled={authBusy || desktopRedirectBusy}
+                  >
+                    <GitHubLogo />
+                    <span>Continue with GitHub</span>
+                  </SocialButton>
+
+                  <SocialButton
+                    onClick={() => void beginSocialAuth("google")}
+                    disabled={authBusy || desktopRedirectBusy}
+                  >
+                    <GoogleLogo />
+                    <span>Continue with Google</span>
+                  </SocialButton>
+
+                  <div
+                    className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400"
+                    aria-hidden="true"
+                  >
+                    <span className="h-px flex-1 bg-gray-200" />
+                    <span>or</span>
+                    <span className="h-px flex-1 bg-gray-200" />
+                  </div>
+                </>
+              ) : null}
+
+              <label className="grid gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">
+                  Email
+                </span>
+                <input
+                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-[14px] text-gray-900 outline-none transition focus:border-gray-300 focus:ring-4 focus:ring-gray-900/5"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="email"
+                  required
+                />
+              </label>
+
+              {!verificationRequired ? (
+                <label className="grid gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">
+                    Password
+                  </span>
+                  <input
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-[14px] text-gray-900 outline-none transition focus:border-gray-300 focus:ring-4 focus:ring-gray-900/5"
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    autoComplete={authMode === "sign-up" ? "new-password" : "current-password"}
+                    required
+                  />
+                </label>
+              ) : (
+                <label className="grid gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">
+                    Verification code
+                  </span>
+                  <input
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-center text-[18px] font-semibold tracking-[0.35em] text-gray-900 outline-none transition focus:border-gray-300 focus:ring-4 focus:ring-gray-900/5"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={verificationCode}
+                    onChange={(event) =>
+                      setVerificationCode(event.target.value.replace(/\D+/g, "").slice(0, 6))
+                    }
+                    autoComplete="one-time-code"
+                    required
+                  />
+                </label>
+              )}
+
+              <button
+                type="submit"
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-gray-900 px-5 py-3 text-[14px] font-medium text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={authBusy || desktopRedirectBusy}
+              >
+                {authBusy || desktopRedirectBusy
+                  ? "Working..."
+                  : verificationRequired
+                    ? "Verify email"
+                    : authMode === "sign-in"
+                      ? "Sign in to Cloud"
+                      : "Create Cloud account"}
+                {!authBusy && !desktopRedirectBusy ? <ArrowRight className="h-4 w-4" /> : null}
+              </button>
+
+              {verificationRequired ? (
+                <div className="flex flex-col gap-3 sm:flex-row">
                   <button
                     type="button"
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-200 bg-white px-3 py-2 text-xs font-medium text-sky-900 transition hover:border-sky-300 hover:bg-sky-50"
-                    onClick={() => window.location.assign(desktopRedirectUrl)}
+                    className="w-full rounded-full border border-gray-200 bg-white px-4 py-3 text-[13px] font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => void resendVerificationCode()}
+                    disabled={authBusy || desktopRedirectBusy}
                   >
-                    Open OpenWork
+                    Resend code
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full rounded-full border border-gray-200 bg-white px-4 py-3 text-[13px] font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => cancelVerification()}
+                    disabled={authBusy || desktopRedirectBusy}
+                  >
+                    Change email
                   </button>
                 </div>
               ) : null}
-            </div>
-          ) : null}
-
-          <form
-            className="grid gap-3 rounded-[28px] border border-[var(--dls-border)] bg-white p-5 shadow-[var(--dls-card-shadow)] md:p-6"
-            onSubmit={async (event) => {
-              const next = verificationRequired ? await submitVerificationCode(event) : await submitAuth(event);
-              if (next === "dashboard") {
-                router.replace("/dashboard");
-              } else if (next === "checkout") {
-                router.replace("/checkout");
-              }
-            }}
-          >
-            {!verificationRequired ? (
-              <>
-                <button
-                  type="button"
-                  className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => void beginSocialAuth("github")}
-                  disabled={authBusy || desktopRedirectBusy}
-                >
-                  <GitHubLogo />
-                  <span>Continue with GitHub</span>
-                </button>
-
-                <button
-                  type="button"
-                  className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => void beginSocialAuth("google")}
-                  disabled={authBusy || desktopRedirectBusy}
-                >
-                  <GoogleLogo />
-                  <span>Continue with Google</span>
-                </button>
-
-                <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400" aria-hidden="true">
-                  <span className="h-px flex-1 bg-slate-200" />
-                  <span>or</span>
-                  <span className="h-px flex-1 bg-slate-200" />
-                </div>
-              </>
-            ) : null}
-
-            <label className="grid gap-2">
-              <span className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Email</span>
-              <input
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-900/5"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                autoComplete="email"
-                required
-              />
-            </label>
+            </form>
 
             {!verificationRequired ? (
-              <label className="grid gap-2">
-                <span className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Password</span>
-                <input
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-900/5"
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete={authMode === "sign-up" ? "new-password" : "current-password"}
-                  required
-                />
-              </label>
-            ) : (
-              <label className="grid gap-2">
-                <span className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Verification code</span>
-                <input
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-[18px] font-semibold tracking-[0.35em] text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-900/5"
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={verificationCode}
-                  onChange={(event) => setVerificationCode(event.target.value.replace(/\D+/g, "").slice(0, 6))}
-                  autoComplete="one-time-code"
-                  required
-                />
-              </label>
-            )}
-
-            <button
-              type="submit"
-              className="inline-flex w-full items-center justify-center rounded-2xl bg-[#011627] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(15,23,42,0.14)] transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={authBusy || desktopRedirectBusy}
-            >
-              {authBusy || desktopRedirectBusy
-                ? "Working..."
-                : verificationRequired
-                  ? "Verify email"
-                  : authMode === "sign-in"
-                    ? "Sign in"
-                    : "Create account"}
-            </button>
-
-            {verificationRequired ? (
-              <div className="flex flex-col gap-3 sm:flex-row">
+              <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-200 pt-4 text-sm text-gray-500">
+                <p>{authMode === "sign-in" ? "Need an account?" : "Already have an account?"}</p>
                 <button
                   type="button"
-                  className="inline-flex w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => void resendVerificationCode()}
-                  disabled={authBusy || desktopRedirectBusy}
+                  className="font-medium text-gray-900 transition hover:opacity-70"
+                  onClick={() => setAuthMode(authMode === "sign-in" ? "sign-up" : "sign-in")}
                 >
-                  Resend code
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => cancelVerification()}
-                  disabled={authBusy || desktopRedirectBusy}
-                >
-                  Change email
+                  {authMode === "sign-in" ? "Create account" : "Switch to sign in"}
                 </button>
               </div>
             ) : null}
-          </form>
 
-          {!verificationRequired ? (
-            <div className="flex items-center justify-between gap-3 px-1 text-sm text-[var(--dls-text-secondary)]">
-              <p>{authMode === "sign-in" ? "Need an account?" : "Already have an account?"}</p>
-              <button
-                type="button"
-                className="font-medium text-[var(--dls-text-primary)] transition hover:opacity-70"
-                onClick={() => setAuthMode(authMode === "sign-in" ? "sign-up" : "sign-in")}
+            {showAuthFeedback ? (
+              <div
+                className="mt-4 grid gap-1 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-center text-[13px] text-gray-500"
+                aria-live="polite"
               >
-                {authMode === "sign-in" ? "Create account" : "Switch to sign in"}
-              </button>
-            </div>
-          ) : null}
-
-          {showAuthFeedback ? (
-            <div className="grid gap-1 rounded-2xl border border-[var(--dls-border)] bg-[var(--dls-hover)] px-4 py-3 text-center text-[13px] text-[var(--dls-text-secondary)]" aria-live="polite">
-              <p>{authInfo}</p>
-              {authError ? <p className="font-medium text-rose-600">{authError}</p> : null}
-            </div>
-          ) : null}
+                <p>{authInfo}</p>
+                {authError ? <p className="font-medium text-rose-600">{authError}</p> : null}
+                {!authError && verificationRequired ? (
+                  <div className="mt-1 inline-flex items-center justify-center gap-1 text-emerald-600">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <span>Waiting for your verification code</span>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+          )}
         </div>
-      ) : (
-        <div className="grid gap-3 rounded-[32px] border border-white/70 bg-white/92 p-6 text-center shadow-[0_28px_80px_-44px_rgba(15,23,42,0.35)]">
-          <p className="text-sm text-slate-500">Checking your session...</p>
-        </div>
-      )}
+      </div>
     </section>
   );
 }

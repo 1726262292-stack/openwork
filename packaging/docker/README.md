@@ -39,7 +39,7 @@ Optional env vars (via `.env` or `export`):
 - `OPENWORK_OPENCODE_CONFIG_DIR` — override the host OpenCode config source used for that optional import
 - `OPENWORK_OPENCODE_DATA_DIR` — override the host OpenCode data source used for that optional import
 
-The dev stack also starts the local share service automatically and points the OpenWork app at it, so share-link flows publish to a local service instead of `https://share.openwork.software`.
+The dev stack also starts the local share service automatically and points the OpenWork app at it, so share-link flows publish to a local service instead of `https://share.openworklabs.com`.
 
 ---
 
@@ -79,9 +79,33 @@ Optional env vars (via `.env` or `export`):
 - `DEN_PUBLIC_HOST` — host name/IP used for default auth URL + printed LAN/public URLs (defaults to your machine hostname)
 - `DEN_BETTER_AUTH_URL` — browser-facing auth base URL (defaults to `http://$DEN_PUBLIC_HOST:<DEN_WEB_PORT>`)
 - `DEN_BETTER_AUTH_TRUSTED_ORIGINS` — trusted origins for Better Auth (defaults to `DEN_CORS_ORIGINS`)
-- `DEN_CORS_ORIGINS` — trusted origins for Express CORS (defaults include hostname, localhost, loopback, and detected LAN IPv4)
+- `DEN_CORS_ORIGINS` — trusted origins for Express CORS (defaults include hostname, localhost, `127.0.0.1`, `0.0.0.0`, and detected LAN IPv4)
 - `DEN_PROVISIONER_MODE` — `stub` or `render` (defaults to `stub`)
 - `DEN_WORKER_URL_TEMPLATE` — stub worker URL template with `{workerId}` placeholder
+
+### Faster inner-loop alternative
+
+If you are iterating on Den locally and do not need the full Dockerized web stack, use the hybrid path instead:
+
+From the OpenWork repo root:
+
+```bash
+pnpm dev:den-local
+```
+
+Or from the OpenWork enterprise root:
+
+```bash
+pnpm --dir _repos/openwork dev:den-local
+```
+
+What it does:
+- Starts only **MySQL** in Docker
+- Runs **Den controller** locally in watch mode
+- Runs **OpenWork Cloud web app** locally in Next.js dev mode
+- Reuses the existing local-dev wiring in `scripts/dev-web-local.sh`
+
+This is usually the fastest path for UI/auth/control-plane iteration because it avoids rebuilding the Docker web image on each boot.
 
 ---
 

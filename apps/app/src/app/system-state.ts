@@ -15,8 +15,8 @@ import type {
   UpdateHandle,
 } from "./types";
 import { addOpencodeCacheHint, isTauriRuntime, safeStringify } from "./utils";
-import { mapConfigProvidersToList } from "./utils/providers";
-import { createUpdaterState } from "./context/updater";
+import { filterProviderList, mapConfigProvidersToList } from "./utils/providers";
+import { createUpdaterState, type UpdateStatus } from "./context/updater";
 import {
   resetOpenworkState,
   resetOpencodeCache,
@@ -49,14 +49,20 @@ function throttle<T extends (...args: any[]) => any>(
   }
 }
 
-export type NotionState = {
-  status: Accessor<"disconnected" | "connecting" | "connected" | "error">;
-  setStatus: (value: "disconnected" | "connecting" | "connected" | "error") => void;
-  statusDetail: Accessor<string | null>;
-  setStatusDetail: (value: string | null) => void;
-  skillInstalled: Accessor<boolean>;
-  setTryPromptVisible: (value: boolean) => void;
-};
+function forcedDevUpdateStatus(): UpdateStatus | null {
+  if (!import.meta.env.DEV) return null;
+
+  const forcedState = String(import.meta.env.VITE_FORCE_UPDATE_STATUS ?? "").trim().toLowerCase();
+  if (forcedState !== "available") return null;
+
+  const version = String(import.meta.env.VITE_FORCE_UPDATE_VERSION ?? "0.11.999").trim() || "0.11.999";
+  return {
+    state: "available",
+    lastCheckedAt: Date.now(),
+    version,
+    notes: "Dev-only forced update state",
+  };
+}
 
 export function createSystemState(options: {
   client: Accessor<Client | null>;
@@ -71,9 +77,11 @@ export function createSystemState(options: {
   setProviderDefaults: (value: Record<string, string>) => void;
   setProviderConnectedIds: (value: string[]) => void;
   setError: (value: string | null) => void;
-  notion?: NotionState;
 }) {
-  const [reloadRequired, setReloadRequired] = createSignal(false);
+  const isActiveSessionStatus = (status: string | null | undefined) =>
+    status === "running" || status === "retry";
+
+  const [reloadPending, setReloadPending] = createSignal(false);
   const [reloadReasons, setReloadReasons] = createSignal<ReloadReason[]>([]);
   const [reloadLastTriggeredAt, setReloadLastTriggeredAt] = createSignal<number | null>(null);
   const [reloadLastFinishedAt, setReloadLastFinishedAt] = createSignal<number | null>(null);
@@ -109,7 +117,7 @@ export function createSystemState(options: {
 
   const anyActiveRuns = createMemo(() => {
     const statuses = options.sessionStatusById();
-    return options.sessions().some((s) => statuses[s.id] === "running");
+    return options.sessions().some((s) => isActiveSessionStatus(statuses[s.id]));
   });
 
   function clearOpenworkLocalStorage(mode: ResetOpenworkMode) {
@@ -179,7 +187,7 @@ export function createSystemState(options: {
   }
 
   function markReloadRequired(reason: ReloadReason, trigger?: ReloadTrigger) {
-    setReloadRequired(true);
+    setReloadPending(true);
     setReloadLastTriggeredAt(Date.now());
     setReloadReasons((current) => (current.includes(reason) ? current : [...current, reason]));
     if (trigger) {
@@ -201,7 +209,7 @@ export function createSystemState(options: {
   }
 
   function clearReloadRequired() {
-    setReloadRequired(false);
+    setReloadPending(false);
     setReloadReasons([]);
     setReloadError(null);
     setReloadTrigger(null);
@@ -265,7 +273,7 @@ export function createSystemState(options: {
   });
 
   const canReloadEngine = createMemo(() => {
-    if (!reloadRequired()) return false;
+    if (!reloadPending()) return false;
     if (reloadBusy()) return false;
     const override = options.canReloadWorkspaceEngine?.();
     if (override === true) return true;
@@ -276,7 +284,7 @@ export function createSystemState(options: {
 
   // Keep this mounted so the reload banner UX remains in the app.
   createEffect(() => {
-    reloadRequired();
+    reloadPending();
   });
 
   async function reloadEngineInstance() {
@@ -314,18 +322,37 @@ export function createSystemState(options: {
       }
 
       await waitForHealthy(nextClient, { timeoutMs: 12_000 });
+      let disabledProviders: string[] = [];
+      try {
+        const config = unwrap(await nextClient.config.get()) as {
+          disabled_providers?: string[];
+        };
+        disabledProviders = Array.isArray(config.disabled_providers) ? config.disabled_providers : [];
+      } catch {
+        // ignore config read failures and continue with provider discovery
+      }
 
       try {
-        const providerList = unwrap(await nextClient.provider.list());
+        const providerList = filterProviderList(
+          unwrap(await nextClient.provider.list()),
+          disabledProviders,
+        );
         options.setProviders(providerList.all);
         options.setProviderDefaults(providerList.default);
         options.setProviderConnectedIds(providerList.connected);
       } catch {
         try {
-          const cfg = unwrap(await nextClient.config.providers());
-          options.setProviders(mapConfigProvidersToList(cfg.providers));
-          options.setProviderDefaults(cfg.default);
-          options.setProviderConnectedIds([]);
+          const cfg = unwrap(await nextClient.config.providers()) as {
+            providers: Parameters<typeof mapConfigProvidersToList>[0];
+            default: Record<string, string>;
+          };
+          const providerList = filterProviderList(
+            { all: mapConfigProvidersToList(cfg.providers), default: cfg.default, connected: [] },
+            disabledProviders,
+          );
+          options.setProviders(providerList.all);
+          options.setProviderDefaults(providerList.default);
+          options.setProviderConnectedIds(providerList.connected);
         } catch {
           options.setProviders([]);
           options.setProviderDefaults({});
@@ -337,40 +364,7 @@ export function createSystemState(options: {
       await options.refreshSkills({ force: true }).catch(() => undefined);
       await options.refreshMcpServers?.().catch(() => undefined);
 
-      if (options.notion) {
-        let nextStatus = options.notion.status();
-        if (nextStatus === "connecting") {
-          nextStatus = "connected";
-          options.notion.setStatus(nextStatus);
-          options.notion.setStatusDetail("Worker connected");
-        }
-
-        if (nextStatus === "connected") {
-          const detail = options.notion.statusDetail();
-          if (!detail || detail.toLowerCase().includes("reload")) {
-            options.notion.setStatusDetail("Worker connected");
-          }
-        }
-
-        try {
-          window.localStorage.setItem("openwork.notionStatus", nextStatus);
-          if (nextStatus === "connected") {
-            const detail = options.notion.statusDetail();
-            if (detail) {
-              window.localStorage.setItem("openwork.notionStatusDetail", detail);
-            } else {
-              window.localStorage.removeItem("openwork.notionStatusDetail");
-            }
-          }
-        } catch {
-          // ignore
-        }
-      }
-
       clearReloadRequired();
-      if (options.notion && options.notion.status() === "connected" && options.notion.skillInstalled()) {
-        options.notion.setTryPromptVisible(true);
-      }
     } catch (e) {
       setReloadError(e instanceof Error ? e.message : safeStringify(e));
     } finally {
@@ -452,6 +446,13 @@ export function createSystemState(options: {
 
   async function checkForUpdates(optionsCheck?: { quiet?: boolean }) {
     if (!isTauriRuntime()) return;
+
+    const forcedStatus = forcedDevUpdateStatus();
+    if (forcedStatus) {
+      setPendingUpdate(null);
+      setUpdateStatus(forcedStatus);
+      return;
+    }
 
     const env = updateEnv();
     if (env && !env.supported) {
@@ -593,7 +594,7 @@ export function createSystemState(options: {
   }
 
   return {
-    reloadRequired,
+    reloadPending,
     reloadReasons,
     reloadLastTriggeredAt,
     reloadLastFinishedAt,

@@ -118,6 +118,8 @@ export type WorkspaceInfo = {
   displayName?: string | null;
   openworkHostUrl?: string | null;
   openworkToken?: string | null;
+  openworkClientToken?: string | null;
+  openworkHostToken?: string | null;
   openworkWorkspaceId?: string | null;
   openworkWorkspaceName?: string | null;
 
@@ -128,9 +130,20 @@ export type WorkspaceInfo = {
 };
 
 export type WorkspaceList = {
-  activeId: string;
+  // UI-selected workspace persisted by the desktop shell.
+  selectedId?: string;
+  // Runtime/watch target currently followed by the desktop host.
+  watchedId?: string | null;
+  // Legacy desktop payloads used activeId for the UI-selected workspace.
+  activeId?: string | null;
   workspaces: WorkspaceInfo[];
 };
+
+export function resolveWorkspaceListSelectedId(
+  list: Pick<WorkspaceList, "selectedId" | "activeId"> | null | undefined,
+): string {
+  return list?.selectedId?.trim() || list?.activeId?.trim() || "";
+}
 
 export type WorkspaceExportSummary = {
   outputPath: string;
@@ -164,8 +177,12 @@ export async function workspaceBootstrap(): Promise<WorkspaceList> {
   return invoke<WorkspaceList>("workspace_bootstrap");
 }
 
-export async function workspaceSetActive(workspaceId: string): Promise<WorkspaceList> {
-  return invoke<WorkspaceList>("workspace_set_active", { workspaceId });
+export async function workspaceSetSelected(workspaceId: string): Promise<WorkspaceList> {
+  return invoke<WorkspaceList>("workspace_set_selected", { workspaceId });
+}
+
+export async function workspaceSetRuntimeActive(workspaceId: string | null): Promise<WorkspaceList> {
+  return invoke<WorkspaceList>("workspace_set_runtime_active", { workspaceId: workspaceId ?? "" });
 }
 
 export async function workspaceCreate(input: {
@@ -187,6 +204,8 @@ export async function workspaceCreateRemote(input: {
   remoteType?: "openwork" | "opencode" | null;
   openworkHostUrl?: string | null;
   openworkToken?: string | null;
+  openworkClientToken?: string | null;
+  openworkHostToken?: string | null;
   openworkWorkspaceId?: string | null;
   openworkWorkspaceName?: string | null;
 
@@ -202,6 +221,8 @@ export async function workspaceCreateRemote(input: {
     remoteType: input.remoteType ?? null,
     openworkHostUrl: input.openworkHostUrl ?? null,
     openworkToken: input.openworkToken ?? null,
+    openworkClientToken: input.openworkClientToken ?? null,
+    openworkHostToken: input.openworkHostToken ?? null,
     openworkWorkspaceId: input.openworkWorkspaceId ?? null,
     openworkWorkspaceName: input.openworkWorkspaceName ?? null,
     sandboxBackend: input.sandboxBackend ?? null,
@@ -218,6 +239,8 @@ export async function workspaceUpdateRemote(input: {
   remoteType?: "openwork" | "opencode" | null;
   openworkHostUrl?: string | null;
   openworkToken?: string | null;
+  openworkClientToken?: string | null;
+  openworkHostToken?: string | null;
   openworkWorkspaceId?: string | null;
   openworkWorkspaceName?: string | null;
 
@@ -234,6 +257,8 @@ export async function workspaceUpdateRemote(input: {
     remoteType: input.remoteType ?? null,
     openworkHostUrl: input.openworkHostUrl ?? null,
     openworkToken: input.openworkToken ?? null,
+    openworkClientToken: input.openworkClientToken ?? null,
+    openworkHostToken: input.openworkHostToken ?? null,
     openworkWorkspaceId: input.openworkWorkspaceId ?? null,
     openworkWorkspaceName: input.openworkWorkspaceName ?? null,
     sandboxBackend: input.sandboxBackend ?? null,
@@ -406,8 +431,8 @@ export async function appBuildInfo(): Promise<AppBuildInfo> {
   return invoke<AppBuildInfo>("app_build_info");
 }
 
-export async function nukeOpencodeDevConfigAndExit(): Promise<void> {
-  return invoke<void>("nuke_opencode_dev_config_and_exit");
+export async function nukeOpenworkAndOpencodeConfigAndExit(): Promise<void> {
+  return invoke<void>("nuke_openwork_and_opencode_config_and_exit");
 }
 
 export type OrchestratorDetachedHost = {
@@ -737,63 +762,6 @@ export async function resetOpencodeCache(): Promise<CacheResetResult> {
   return invoke<CacheResetResult>("reset_opencode_cache");
 }
 
-export async function obsidianIsAvailable(): Promise<boolean> {
-  return invoke<boolean>("obsidian_is_available");
-}
-
-export async function openInObsidian(filePath: string): Promise<void> {
-  const safePath = filePath.trim();
-  if (!safePath) {
-    throw new Error("filePath is required");
-  }
-  return invoke<void>("open_in_obsidian", { filePath: safePath });
-}
-
-export async function writeObsidianMirrorFile(
-  workspaceId: string,
-  filePath: string,
-  content: string,
-): Promise<string> {
-  const safeWorkspaceId = workspaceId.trim();
-  const safePath = filePath.trim();
-  if (!safeWorkspaceId) {
-    throw new Error("workspaceId is required");
-  }
-  if (!safePath) {
-    throw new Error("filePath is required");
-  }
-  return invoke<string>("write_obsidian_mirror_file", {
-    workspaceId: safeWorkspaceId,
-    filePath: safePath,
-    content,
-  });
-}
-
-export type ObsidianMirrorFileContent = {
-  exists: boolean;
-  path: string;
-  content: string | null;
-  updatedAtMs: number | null;
-};
-
-export async function readObsidianMirrorFile(
-  workspaceId: string,
-  filePath: string,
-): Promise<ObsidianMirrorFileContent> {
-  const safeWorkspaceId = workspaceId.trim();
-  const safePath = filePath.trim();
-  if (!safeWorkspaceId) {
-    throw new Error("workspaceId is required");
-  }
-  if (!safePath) {
-    throw new Error("filePath is required");
-  }
-  return invoke<ObsidianMirrorFileContent>("read_obsidian_mirror_file", {
-    workspaceId: safeWorkspaceId,
-    filePath: safePath,
-  });
-}
-
 export async function schedulerListJobs(scopeRoot?: string): Promise<ScheduledJob[]> {
   return invoke<ScheduledJob[]>("scheduler_list_jobs", { scopeRoot });
 }
@@ -894,23 +862,6 @@ export async function setOpenCodeRouterGroupsEnabled(enabled: boolean): Promise<
   } catch (e) {
     return { ok: false, status: 1, stdout: "", stderr: String(e) };
   }
-}
-
-export async function opencodeDbMigrate(input: {
-  projectDir: string;
-  preferSidecar?: boolean;
-  opencodeBinPath?: string | null;
-}): Promise<ExecResult> {
-  const safeProjectDir = input.projectDir.trim();
-  if (!safeProjectDir) {
-    throw new Error("project_dir is required");
-  }
-
-  return invoke<ExecResult>("opencode_db_migrate", {
-    projectDir: safeProjectDir,
-    preferSidecar: input.preferSidecar ?? false,
-    opencodeBinPath: input.opencodeBinPath ?? null,
-  });
 }
 
 export async function opencodeMcpAuth(

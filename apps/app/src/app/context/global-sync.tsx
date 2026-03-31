@@ -19,7 +19,7 @@ import type {
 import type { McpStatusMap, TodoItem } from "../types";
 import { unwrap } from "../lib/opencode";
 import { safeStringify } from "../utils";
-import { mapConfigProvidersToList } from "../utils/providers";
+import { filterProviderList, mapConfigProvidersToList } from "../utils/providers";
 import { useGlobalSDK } from "./global-sdk";
 
 export type WorkspaceState = {
@@ -115,16 +115,32 @@ export function GlobalSyncProvider(props: ParentProps) {
   };
 
   const refreshProviders = async () => {
+    let disabledProviders = globalStore.config.disabled_providers ?? [];
     try {
-      const result = unwrap(await globalSDK.client().provider.list());
+      const config = unwrap(await globalSDK.client().config.get());
+      disabledProviders = Array.isArray(config.disabled_providers) ? config.disabled_providers : [];
+    } catch {
+      // ignore config read failures and continue with current store state
+    }
+    try {
+      const result = filterProviderList(
+        unwrap(await globalSDK.client().provider.list()),
+        disabledProviders,
+      );
       setGlobalStore("provider", result);
     } catch {
       const fallback = unwrap(await globalSDK.client().config.providers()) as ConfigProvidersResponse;
-      setGlobalStore("provider", {
-        all: mapConfigProvidersToList(fallback.providers),
-        connected: [],
-        default: fallback.default,
-      });
+      setGlobalStore(
+        "provider",
+        filterProviderList(
+          {
+            all: mapConfigProvidersToList(fallback.providers),
+            connected: [],
+            default: fallback.default,
+          },
+          disabledProviders,
+        ),
+      );
     }
   };
 

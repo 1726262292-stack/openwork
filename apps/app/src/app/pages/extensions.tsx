@@ -3,19 +3,23 @@ import { Show, createEffect, createMemo, createSignal, on } from "solid-js";
 import { Box, Cpu } from "lucide-solid";
 
 import Button from "../components/button";
-import McpView, { type McpViewProps } from "./mcp";
+import McpView from "../connections/mcp-view";
+import { useConnections } from "../connections/provider";
+import { useExtensions } from "../extensions/provider";
 import PluginsView, { type PluginsViewProps } from "./plugins";
 
 export type ExtensionsSection = "all" | "mcp" | "plugins";
 
-export type ExtensionsViewProps = McpViewProps &
-  PluginsViewProps & {
-    refreshMcpServers: () => void;
-    initialSection?: ExtensionsSection;
-    setDashboardTab?: (tab: "mcp" | "plugins") => void;
-  };
+export type ExtensionsViewProps = PluginsViewProps & {
+  isRemoteWorkspace: boolean;
+  initialSection?: ExtensionsSection;
+  setSectionRoute?: (tab: "mcp" | "plugins") => void;
+  showHeader?: boolean;
+};
 
 export default function ExtensionsView(props: ExtensionsViewProps) {
+  const connections = useConnections();
+  const extensions = useExtensions();
   const [section, setSection] = createSignal<ExtensionsSection>(props.initialSection ?? "all");
 
   createEffect(
@@ -29,24 +33,24 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   );
 
   const connectedAppsCount = createMemo(() =>
-    props.mcpServers.filter((entry) => {
+    connections.mcpServers().filter((entry) => {
       if (entry.config.enabled === false) return false;
-      const status = props.mcpStatuses[entry.name];
+      const status = connections.mcpStatuses()[entry.name];
       return status?.status === "connected";
     }).length,
   );
 
-  const pluginCount = createMemo(() => props.pluginList.length);
+  const pluginCount = createMemo(() => extensions.pluginList().length);
 
   const refreshAll = () => {
-    props.refreshMcpServers();
-    props.refreshPlugins();
+    void connections.refreshMcpServers();
+    void extensions.refreshPlugins();
   };
 
   const selectSection = (nextSection: ExtensionsSection) => {
     setSection(nextSection);
     if (nextSection === "mcp" || nextSection === "plugins") {
-      props.setDashboardTab?.(nextSection);
+      props.setSectionRoute?.(nextSection);
     }
   };
 
@@ -59,11 +63,13 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     <section class="space-y-6 animate-in fade-in duration-300">
       <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div class="space-y-1">
-          <h2 class="text-3xl font-bold text-dls-text">Extensions</h2>
-          <p class="text-sm text-dls-secondary mt-1.5">
-            Apps (MCP) and OpenCode plugins live in one place.
-          </p>
-          <div class="mt-3 flex flex-wrap items-center gap-2">
+          <Show when={props.showHeader !== false}>
+            <h2 class="text-3xl font-bold text-dls-text">Extensions</h2>
+            <p class="text-sm text-dls-secondary mt-1.5">
+              Apps (MCP) and OpenCode plugins live in one place.
+            </p>
+          </Show>
+          <div class={`${props.showHeader === false ? "" : "mt-3"} flex flex-wrap items-center gap-2`}>
             <Show when={connectedAppsCount() > 0}>
               <div class="inline-flex items-center gap-2 rounded-full bg-green-3 px-3 py-1">
                 <div class="w-2 h-2 rounded-full bg-green-9" />
@@ -127,23 +133,8 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
           <McpView
             showHeader={false}
             busy={props.busy}
-            activeWorkspaceRoot={props.activeWorkspaceRoot}
+            selectedWorkspaceRoot={props.selectedWorkspaceRoot}
             isRemoteWorkspace={props.isRemoteWorkspace}
-            mcpServers={props.mcpServers}
-            mcpStatus={props.mcpStatus}
-            mcpLastUpdatedAt={props.mcpLastUpdatedAt}
-            mcpStatuses={props.mcpStatuses}
-            mcpConnectingName={props.mcpConnectingName}
-            selectedMcp={props.selectedMcp}
-            setSelectedMcp={props.setSelectedMcp}
-            quickConnect={props.quickConnect}
-            connectMcp={props.connectMcp}
-            authorizeMcp={props.authorizeMcp}
-            logoutMcpAuth={props.logoutMcpAuth}
-            removeMcp={props.removeMcp}
-            showMcpReloadBanner={props.showMcpReloadBanner}
-            reloadBlocked={props.reloadBlocked}
-            reloadMcpEngine={props.reloadMcpEngine}
           />
         </div>
       </Show>
@@ -156,24 +147,11 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
           </div>
           <PluginsView
             busy={props.busy}
-            activeWorkspaceRoot={props.activeWorkspaceRoot}
+            selectedWorkspaceRoot={props.selectedWorkspaceRoot}
             canEditPlugins={props.canEditPlugins}
             canUseGlobalScope={props.canUseGlobalScope}
             accessHint={props.accessHint}
-            pluginScope={props.pluginScope}
-            setPluginScope={props.setPluginScope}
-            pluginConfigPath={props.pluginConfigPath}
-            pluginList={props.pluginList}
-            pluginInput={props.pluginInput}
-            setPluginInput={props.setPluginInput}
-            pluginStatus={props.pluginStatus}
-            activePluginGuide={props.activePluginGuide}
-            setActivePluginGuide={props.setActivePluginGuide}
-            isPluginInstalled={props.isPluginInstalled}
             suggestedPlugins={props.suggestedPlugins}
-            refreshPlugins={props.refreshPlugins}
-            addPlugin={props.addPlugin}
-            removePlugin={props.removePlugin}
           />
         </div>
       </Show>

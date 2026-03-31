@@ -20,7 +20,6 @@ export interface OgImageUrlSet {
 
 export interface OpenInAppUrls {
   openInAppDeepLink: string;
-  openInWebAppUrl: string;
 }
 
 export interface NormalizedSkillItem {
@@ -38,6 +37,11 @@ export interface NormalizedCommandItem {
   agent: string;
   model: string;
   subtask: boolean;
+}
+
+export interface NormalizedPortableFileItem {
+  path: string;
+  content: string;
 }
 
 export interface NormalizedBundle {
@@ -58,6 +62,7 @@ export interface BundleCounts {
   agentCount: number;
   mcpCount: number;
   configCount: number;
+  fileCount: number;
   hasConfig: boolean;
 }
 
@@ -131,7 +136,6 @@ export interface BundlePageProps {
   twitterImageUrl?: string;
   ogImageUrls?: OgImageUrlSet;
   openInAppDeepLink?: string;
-  openInWebAppUrl?: string;
   installHint?: string;
   bundleType?: string;
   typeLabel?: string;

@@ -30,14 +30,11 @@ export type SidebarProps = {
   expandedSections: SidebarSectionState;
   onToggleSection: (section: keyof SidebarSectionState) => void;
   workspaceGroups: WorkspaceSessionGroup[];
-  activeWorkspaceId: string;
+  selectedWorkspaceId: string;
   connectingWorkspaceId?: string | null;
   workspaceConnectionStateById: Record<string, WorkspaceConnectionState>;
   onSelectWorkspace: (workspaceId: string) => void;
   onCreateWorkspace: () => void;
-  onCreateRemoteWorkspace: () => void;
-  onImportWorkspace: () => void;
-  importingWorkspaceConfig?: boolean;
   onEditWorkspace: (workspaceId: string) => void;
   onTestWorkspaceConnection: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
@@ -81,9 +78,6 @@ export default function SessionSidebar(props: SidebarProps) {
   const [showAllSessionsByWorkspaceId, setShowAllSessionsByWorkspaceId] = createSignal<
     Record<string, boolean>
   >({});
-  const [addWorkspaceMenuOpen, setAddWorkspaceMenuOpen] = createSignal(false);
-  let addWorkspaceMenuRef: HTMLDivElement | undefined;
-
   const workspaceLabel = (workspace: WorkspaceInfo) =>
     workspace.displayName?.trim() ||
     workspace.openworkWorkspaceName?.trim() ||
@@ -263,17 +257,6 @@ export default function SessionSidebar(props: SidebarProps) {
     });
   });
 
-  createEffect(() => {
-    if (!addWorkspaceMenuOpen()) return;
-    const closeMenu = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (addWorkspaceMenuRef && target && addWorkspaceMenuRef.contains(target)) return;
-      setAddWorkspaceMenuOpen(false);
-    };
-    window.addEventListener("click", closeMenu);
-    onCleanup(() => window.removeEventListener("click", closeMenu));
-  });
-
   return (
     <div class="flex flex-col h-full overflow-hidden">
       <div class="px-4 pt-4 shrink-0">
@@ -303,7 +286,7 @@ export default function SessionSidebar(props: SidebarProps) {
             >
               <For each={props.workspaceGroups}>
                 {(group) => {
-                  const isActive = () => props.activeWorkspaceId === group.workspace.id;
+                  const isActive = () => props.selectedWorkspaceId === group.workspace.id;
                   const isConnecting = () => props.connectingWorkspaceId === group.workspace.id;
                   const pathLabel = () => workspacePathLabel(group.workspace);
                   const detailLabel = () => workspaceDetailLabel(group.workspace);
@@ -319,7 +302,7 @@ export default function SessionSidebar(props: SidebarProps) {
                   const isActivelyConnecting = () => isConnecting() && connectionStatus() === "connecting";
                   const hasPendingSwitch = () => {
                     const pendingId = props.connectingWorkspaceId;
-                    if (!pendingId || pendingId === props.activeWorkspaceId) return false;
+                    if (!pendingId || pendingId === props.selectedWorkspaceId) return false;
                     const pendingStatus = props.workspaceConnectionStateById[pendingId]?.status ?? "idle";
                     return pendingStatus === "connecting";
                   };
@@ -510,7 +493,7 @@ export default function SessionSidebar(props: SidebarProps) {
                                     >
                                       <span
                                         class={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-full border flex items-center gap-1 ${
-                                          props.sessionStatusById[session.id] === "running"
+                                          props.sessionStatusById[session.id] === "running" || props.sessionStatusById[session.id] === "retry"
                                             ? "border-amber-7/50 text-amber-11 bg-amber-2/50"
                                             : "border-gray-7/50 text-gray-10 bg-gray-2/50"
                                         }`}
@@ -519,7 +502,9 @@ export default function SessionSidebar(props: SidebarProps) {
                                           class={`w-1 h-1 rounded-full ${
                                             props.sessionStatusById[session.id] === "running"
                                               ? "bg-amber-9 animate-pulse"
-                                              : "bg-gray-9"
+                                              : props.sessionStatusById[session.id] === "retry"
+                                                ? "bg-amber-9"
+                                                : "bg-gray-9"
                                           }`}
                                         />
                                       </span>
@@ -547,56 +532,18 @@ export default function SessionSidebar(props: SidebarProps) {
                 }}
               </For>
             </Show>
-            <div class="relative" ref={(el) => (addWorkspaceMenuRef = el)}>
+            <div>
               <button
                 type="button"
-                class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-gray-11 border border-dashed border-gray-6 hover:border-gray-7 hover:text-gray-12 hover:bg-gray-2 transition-colors"
-                onClick={() => setAddWorkspaceMenuOpen((prev) => !prev)}
+                class="w-full flex items-center justify-center gap-2 rounded-[18px] border border-dls-border bg-dls-surface px-3.5 py-2.5 text-[12px] font-medium text-gray-11 shadow-[var(--dls-card-shadow)] transition-colors hover:bg-gray-2"
+                onClick={props.onCreateWorkspace}
                 onDragOver={(event) => handleDragOver(event, null)}
                 onDragLeave={() => handleDragLeave(null)}
                 onDrop={(event) => handleDrop(event, null)}
               >
                 <Plus size={14} />
-                Add new workspace
+                Add workspace
               </button>
-              <Show when={addWorkspaceMenuOpen()}>
-                <div class="mt-2 rounded-lg border border-gray-6 bg-gray-1 shadow-lg overflow-hidden">
-                  <button
-                    type="button"
-                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-11 hover:bg-gray-2 transition-colors"
-                    onClick={() => {
-                      props.onCreateWorkspace();
-                      setAddWorkspaceMenuOpen(false);
-                    }}
-                  >
-                    <Plus size={12} />
-                    New worker
-                  </button>
-                  <button
-                    type="button"
-                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-11 hover:bg-gray-2 transition-colors"
-                    onClick={() => {
-                      props.onCreateRemoteWorkspace();
-                      setAddWorkspaceMenuOpen(false);
-                    }}
-                  >
-                    <Plus size={12} />
-                    Connect remote
-                  </button>
-                  <button
-                    type="button"
-                    class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-11 hover:bg-gray-2 transition-colors disabled:opacity-60"
-                    disabled={props.importingWorkspaceConfig}
-                    onClick={() => {
-                      props.onImportWorkspace();
-                      setAddWorkspaceMenuOpen(false);
-                    }}
-                  >
-                    <Plus size={12} />
-                    Import config
-                  </button>
-                </div>
-              </Show>
             </div>
           </div>
         </div>

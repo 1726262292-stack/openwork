@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { createEffect, createMemo, createSignal } from "solid-js";
 
 import { applyEdits, modify } from "jsonc-parser";
 import { join } from "@tauri-apps/api/path";
@@ -25,33 +25,45 @@ import {
   writeOpencodeConfig,
   type OpencodeConfigFile,
 } from "../lib/tauri";
-import type {
-  OpenworkHubRepo,
-  OpenworkServerCapabilities,
-  OpenworkServerClient,
-  OpenworkServerStatus,
-} from "../lib/openwork-server";
+import type { OpenworkHubRepo, OpenworkServerClient } from "../lib/openwork-server";
+import { createWorkspaceContextKey } from "./workspace-context";
+import type { OpenworkServerStore } from "../connections/openwork-server-store";
 
 export type ExtensionsStore = ReturnType<typeof createExtensionsStore>;
 
 export function createExtensionsStore(options: {
   client: () => Client | null;
   projectDir: () => string;
-  activeWorkspaceRoot: () => string;
+  selectedWorkspaceId: () => string;
+  selectedWorkspaceRoot: () => string;
   workspaceType: () => "local" | "remote";
-  openworkServerClient: () => OpenworkServerClient | null;
-  openworkServerStatus: () => OpenworkServerStatus;
-  openworkServerCapabilities: () => OpenworkServerCapabilities | null;
-  openworkServerWorkspaceId: () => string | null;
+  openworkServer: OpenworkServerStore;
+  runtimeWorkspaceId: () => string | null;
   setBusy: (value: boolean) => void;
   setBusyLabel: (value: string | null) => void;
   setBusyStartedAt: (value: number | null) => void;
   setError: (value: string | null) => void;
   markReloadRequired?: (reason: ReloadReason, trigger?: ReloadTrigger) => void;
-  onNotionSkillInstalled?: () => void;
 }) {
   // Translation helper that uses current language from i18n
   const translate = (key: string) => t(key, currentLocale());
+
+  // ── Workspace context tracking ──────────────────────
+  const workspaceContextKey = createWorkspaceContextKey({
+    selectedWorkspaceId: options.selectedWorkspaceId,
+    selectedWorkspaceRoot: options.selectedWorkspaceRoot,
+    runtimeWorkspaceId: options.runtimeWorkspaceId,
+    workspaceType: options.workspaceType,
+  });
+
+  // Per-resource staleness: tracks the context key each resource was last loaded for.
+  const [skillsContextKey, setSkillsContextKey] = createSignal("");
+  const [pluginsContextKey, setPluginsContextKey] = createSignal("");
+  const [hubSkillsContextKey, setHubSkillsContextKey] = createSignal("");
+
+  const skillsStale = createMemo(() => skillsContextKey() !== workspaceContextKey());
+  const pluginsStale = createMemo(() => pluginsContextKey() !== workspaceContextKey());
+  const hubSkillsStale = createMemo(() => hubSkillsContextKey() !== workspaceContextKey());
 
   const [skills, setSkills] = createSignal<SkillCard[]>([]);
   const [skillsStatus, setSkillsStatus] = createSignal<string | null>(null);
@@ -211,13 +223,13 @@ export function createExtensionsStore(options: {
   }
 
   async function refreshHubSkills(optionsOverride?: { force?: boolean }) {
-    const root = options.activeWorkspaceRoot().trim();
+    const root = options.selectedWorkspaceRoot().trim();
     const repo = hubRepo();
     const loadKey = `${root}::${repo ? hubRepoKey(repo) : "none"}`;
-    const openworkClient = options.openworkServerClient();
-    const openworkCapabilities = options.openworkServerCapabilities();
+    const openworkClient = options.openworkServer.openworkServerClient();
+    const openworkCapabilities = options.openworkServer.openworkServerCapabilities();
     const canUseOpenworkServer =
-      options.openworkServerStatus() === "connected" &&
+      options.openworkServer.openworkServerStatus() === "connected" &&
       openworkClient &&
       openworkCapabilities?.hub?.skills?.read &&
       typeof (openworkClient as any).listHubSkills === "function";
@@ -264,6 +276,7 @@ export function createExtensionsStore(options: {
         if (!next.length) setHubSkillsStatus("No hub skills found.");
         hubSkillsLoaded = true;
         hubSkillsLoadKey = loadKey;
+        setHubSkillsContextKey(workspaceContextKey());
         return;
       }
 
@@ -295,6 +308,7 @@ export function createExtensionsStore(options: {
       if (!sorted.length) setHubSkillsStatus("No hub skills found.");
       hubSkillsLoaded = true;
       hubSkillsLoadKey = loadKey;
+      setHubSkillsContextKey(workspaceContextKey());
     } catch (e) {
       if (refreshHubSkillsAborted) return;
       setHubSkills([]);
@@ -313,11 +327,11 @@ export function createExtensionsStore(options: {
     }
 
     const isRemoteWorkspace = options.workspaceType() === "remote";
-    const openworkClient = options.openworkServerClient();
-    const openworkWorkspaceId = options.openworkServerWorkspaceId();
-    const openworkCapabilities = options.openworkServerCapabilities();
+    const openworkClient = options.openworkServer.openworkServerClient();
+    const openworkWorkspaceId = options.runtimeWorkspaceId();
+    const openworkCapabilities = options.openworkServer.openworkServerCapabilities();
     const canUseOpenworkServer =
-      options.openworkServerStatus() === "connected" &&
+      options.openworkServer.openworkServerStatus() === "connected" &&
       openworkClient &&
       openworkWorkspaceId &&
       openworkCapabilities?.hub?.skills?.install &&
@@ -366,14 +380,14 @@ export function createExtensionsStore(options: {
   };
 
   async function refreshSkills(optionsOverride?: { force?: boolean }) {
-    const root = options.activeWorkspaceRoot().trim();
+    const root = options.selectedWorkspaceRoot().trim();
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isLocalWorkspace = options.workspaceType() === "local";
-    const openworkClient = options.openworkServerClient();
-    const openworkWorkspaceId = options.openworkServerWorkspaceId();
-    const openworkCapabilities = options.openworkServerCapabilities();
+    const openworkClient = options.openworkServer.openworkServerClient();
+    const openworkWorkspaceId = options.runtimeWorkspaceId();
+    const openworkCapabilities = options.openworkServer.openworkServerCapabilities();
     const canUseOpenworkServer =
-      options.openworkServerStatus() === "connected" &&
+      options.openworkServer.openworkServerStatus() === "connected" &&
       openworkClient &&
       openworkWorkspaceId &&
       openworkCapabilities?.skills?.read;
@@ -421,6 +435,7 @@ export function createExtensionsStore(options: {
         }
         skillsLoaded = true;
         skillsRoot = root;
+        setSkillsContextKey(workspaceContextKey());
       } catch (e) {
         if (refreshSkillsAborted) return;
         setSkills([]);
@@ -470,6 +485,7 @@ export function createExtensionsStore(options: {
         }
         skillsLoaded = true;
         skillsRoot = root;
+        setSkillsContextKey(workspaceContextKey());
       } catch (e) {
         if (refreshSkillsAborted) return;
         setSkills([]);
@@ -542,6 +558,7 @@ export function createExtensionsStore(options: {
       }
       skillsLoaded = true;
       skillsRoot = root;
+      setSkillsContextKey(workspaceContextKey());
     } catch (e) {
       if (refreshSkillsAborted) return;
       setSkills([]);
@@ -554,11 +571,11 @@ export function createExtensionsStore(options: {
   async function refreshPlugins(scopeOverride?: PluginScope) {
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isLocalWorkspace = options.workspaceType() === "local";
-    const openworkClient = options.openworkServerClient();
-    const openworkWorkspaceId = options.openworkServerWorkspaceId();
-    const openworkCapabilities = options.openworkServerCapabilities();
+    const openworkClient = options.openworkServer.openworkServerClient();
+    const openworkWorkspaceId = options.runtimeWorkspaceId();
+    const openworkCapabilities = options.openworkServer.openworkServerCapabilities();
     const canUseOpenworkServer =
-      options.openworkServerStatus() === "connected" &&
+      options.openworkServer.openworkServerStatus() === "connected" &&
       openworkClient &&
       openworkWorkspaceId &&
       openworkCapabilities?.plugins?.read;
@@ -600,6 +617,7 @@ export function createExtensionsStore(options: {
         const list = configItems.map((item) => item.spec);
         setPluginList(list);
         setSidebarPluginList(list);
+        setPluginsContextKey(workspaceContextKey());
 
         if (!list.length) {
           setPluginStatus("No plugins configured yet.");
@@ -674,6 +692,7 @@ export function createExtensionsStore(options: {
       }
 
       loadPluginsFromConfig(config);
+      setPluginsContextKey(workspaceContextKey());
     } catch (e) {
       if (refreshPluginsAborted) return;
       setPluginConfig(null);
@@ -694,11 +713,11 @@ export function createExtensionsStore(options: {
 
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isLocalWorkspace = options.workspaceType() === "local";
-    const openworkClient = options.openworkServerClient();
-    const openworkWorkspaceId = options.openworkServerWorkspaceId();
-    const openworkCapabilities = options.openworkServerCapabilities();
+    const openworkClient = options.openworkServer.openworkServerClient();
+    const openworkWorkspaceId = options.runtimeWorkspaceId();
+    const openworkCapabilities = options.openworkServer.openworkServerCapabilities();
     const canUseOpenworkServer =
-      options.openworkServerStatus() === "connected" &&
+      options.openworkServer.openworkServerStatus() === "connected" &&
       openworkClient &&
       openworkWorkspaceId &&
       openworkCapabilities?.plugins?.write;
@@ -719,6 +738,7 @@ export function createExtensionsStore(options: {
       try {
         setPluginStatus(null);
         await openworkClient.addPlugin(openworkWorkspaceId, pluginName);
+        options.markReloadRequired?.("plugins", { type: "plugin", name: triggerName, action: "added" });
         if (isManualInput) {
           setPluginInput("");
         }
@@ -798,11 +818,11 @@ export function createExtensionsStore(options: {
 
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isLocalWorkspace = options.workspaceType() === "local";
-    const openworkClient = options.openworkServerClient();
-    const openworkWorkspaceId = options.openworkServerWorkspaceId();
-    const openworkCapabilities = options.openworkServerCapabilities();
+    const openworkClient = options.openworkServer.openworkServerClient();
+    const openworkWorkspaceId = options.runtimeWorkspaceId();
+    const openworkCapabilities = options.openworkServer.openworkServerCapabilities();
     const canUseOpenworkServer =
-      options.openworkServerStatus() === "connected" &&
+      options.openworkServer.openworkServerStatus() === "connected" &&
       openworkClient &&
       openworkWorkspaceId &&
       openworkCapabilities?.plugins?.write;
@@ -816,6 +836,7 @@ export function createExtensionsStore(options: {
       try {
         setPluginStatus(null);
         await openworkClient.removePlugin(openworkWorkspaceId, name);
+        options.markReloadRequired?.("plugins", { type: "plugin", name: triggerName, action: "removed" });
         await refreshPlugins("project");
       } catch (e) {
         setPluginStatus(e instanceof Error ? e.message : "Failed to remove plugin.");
@@ -926,11 +947,11 @@ export function createExtensionsStore(options: {
   async function installSkillCreator(): Promise<{ ok: boolean; message: string }> {
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isLocalWorkspace = options.workspaceType() === "local";
-    const openworkClient = options.openworkServerClient();
-    const openworkWorkspaceId = options.openworkServerWorkspaceId();
-    const openworkCapabilities = options.openworkServerCapabilities();
+    const openworkClient = options.openworkServer.openworkServerClient();
+    const openworkWorkspaceId = options.runtimeWorkspaceId();
+    const openworkCapabilities = options.openworkServer.openworkServerCapabilities();
     const canUseOpenworkServer =
-      options.openworkServerStatus() === "connected" &&
+      options.openworkServer.openworkServerStatus() === "connected" &&
       openworkClient &&
       openworkWorkspaceId &&
       openworkCapabilities?.skills?.write;
@@ -983,7 +1004,7 @@ export function createExtensionsStore(options: {
       return { ok: false, message };
     }
 
-    const targetDir = options.activeWorkspaceRoot().trim();
+    const targetDir = options.selectedWorkspaceRoot().trim();
     if (!targetDir) {
       const message = translate("skills.pick_workspace_first");
       setSkillsStatus(message);
@@ -1034,7 +1055,7 @@ export function createExtensionsStore(options: {
       return;
     }
 
-    const root = options.activeWorkspaceRoot().trim();
+    const root = options.selectedWorkspaceRoot().trim();
     if (!root) {
       setSkillsStatus(translate("skills.pick_workspace_first"));
       return;
@@ -1076,7 +1097,7 @@ export function createExtensionsStore(options: {
       return;
     }
 
-    const root = options.activeWorkspaceRoot().trim();
+    const root = options.selectedWorkspaceRoot().trim();
     if (!root) {
       setSkillsStatus(translate("skills.pick_workspace_first"));
       return;
@@ -1113,7 +1134,7 @@ export function createExtensionsStore(options: {
     const trimmed = name.trim();
     if (!trimmed) return null;
 
-    const root = options.activeWorkspaceRoot().trim();
+    const root = options.selectedWorkspaceRoot().trim();
     if (!root) {
       setSkillsStatus(translate("skills.pick_workspace_first"));
       return null;
@@ -1121,11 +1142,11 @@ export function createExtensionsStore(options: {
 
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isLocalWorkspace = options.workspaceType() === "local";
-    const openworkClient = options.openworkServerClient();
-    const openworkWorkspaceId = options.openworkServerWorkspaceId();
-    const openworkCapabilities = options.openworkServerCapabilities();
+    const openworkClient = options.openworkServer.openworkServerClient();
+    const openworkWorkspaceId = options.runtimeWorkspaceId();
+    const openworkCapabilities = options.openworkServer.openworkServerCapabilities();
     const canUseOpenworkServer =
-      options.openworkServerStatus() === "connected" &&
+      options.openworkServer.openworkServerStatus() === "connected" &&
       openworkClient &&
       openworkWorkspaceId &&
       openworkCapabilities?.skills?.read &&
@@ -1179,7 +1200,7 @@ export function createExtensionsStore(options: {
     const trimmed = input.name.trim();
     if (!trimmed) return;
 
-    const root = options.activeWorkspaceRoot().trim();
+    const root = options.selectedWorkspaceRoot().trim();
     if (!root) {
       setSkillsStatus(translate("skills.pick_workspace_first"));
       return;
@@ -1187,11 +1208,11 @@ export function createExtensionsStore(options: {
 
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isLocalWorkspace = options.workspaceType() === "local";
-    const openworkClient = options.openworkServerClient();
-    const openworkWorkspaceId = options.openworkServerWorkspaceId();
-    const openworkCapabilities = options.openworkServerCapabilities();
+    const openworkClient = options.openworkServer.openworkServerClient();
+    const openworkWorkspaceId = options.runtimeWorkspaceId();
+    const openworkCapabilities = options.openworkServer.openworkServerCapabilities();
     const canUseOpenworkServer =
-      options.openworkServerStatus() === "connected" &&
+      options.openworkServer.openworkServerStatus() === "connected" &&
       openworkClient &&
       openworkWorkspaceId &&
       openworkCapabilities?.skills?.write;
@@ -1259,6 +1280,56 @@ export function createExtensionsStore(options: {
     refreshHubSkillsAborted = true;
   }
 
+  /**
+   * Ensure skills are fresh for the current workspace context.
+   * Call this from any visible surface that needs skills data.
+   * It will only fetch if data is stale or missing.
+   */
+  function ensureSkillsFresh() {
+    if (!skillsStale()) return;
+    void refreshSkills({ force: true });
+  }
+
+  /**
+   * Ensure plugins are fresh for the current workspace context.
+   */
+  function ensurePluginsFresh(scopeOverride?: PluginScope) {
+    if (!pluginsStale()) return;
+    void refreshPlugins(scopeOverride);
+  }
+
+  /**
+   * Ensure hub skills are fresh for the current workspace context.
+   */
+  function ensureHubSkillsFresh() {
+    if (!hubSkillsStale()) return;
+    void refreshHubSkills({ force: true });
+  }
+
+  // When workspace context changes, invalidate caches and refresh core
+  // resources (skills + plugins) that are visible across many surfaces
+  // (sidebar context panel, session view, dashboard panels).
+  // Hub skills are deferred — only refreshed when the skills panel opens.
+  //
+  // Placed after all function definitions to avoid uninitialized variable
+  // references (ES module strict mode does not hoist function declarations
+  // past their lexical position during the initial synchronous pass).
+  createEffect(() => {
+    const key = workspaceContextKey();
+    // Reset in-memory cache flags so the next refresh actually fetches.
+    skillsLoaded = false;
+    hubSkillsLoaded = false;
+    skillsRoot = "";
+    hubSkillsLoadKey = "";
+
+    // Skip the very first run (empty key = no workspace selected yet).
+    if (!key || key === "::::") return;
+
+    // Refresh core resources that are needed across many surfaces.
+    void refreshSkills({ force: true });
+    void refreshPlugins();
+  });
+
   return {
     skills,
     skillsStatus,
@@ -1295,5 +1366,13 @@ export function createExtensionsStore(options: {
     readSkill,
     saveSkill,
     abortRefreshes,
+    // Freshness model
+    workspaceContextKey,
+    skillsStale,
+    pluginsStale,
+    hubSkillsStale,
+    ensureSkillsFresh,
+    ensurePluginsFresh,
+    ensureHubSkillsFresh,
   };
 }

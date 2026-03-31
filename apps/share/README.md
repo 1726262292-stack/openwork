@@ -14,7 +14,7 @@ It keeps the existing bundle APIs, but the public share surface now runs as a si
 - `POST /v1/bundles`
   - Accepts JSON bundle payloads.
   - Stores bytes in Vercel Blob.
-  - Returns `{ "url": "https://share.openwork.software/b/<id>" }`.
+  - Returns `{ "url": "https://share.openworklabs.com/b/<id>" }`.
 
 - `POST /v1/package`
   - Accepts `{ files: [{ path, name?, content }], preview?: boolean }`.
@@ -28,7 +28,6 @@ It keeps the existing bundle APIs, but the public share surface now runs as a si
     - `ow_bundle=<share-url>`
     - `ow_intent=new_worker` (desktop OpenWork converts single-skill bundles into a destination picker before import)
     - `ow_source=share_service`
-  - Also includes a web fallback action that opens `PUBLIC_OPENWORK_APP_URL` with the same query params.
   - Returns raw JSON for API/programmatic requests:
     - send `Accept: application/json`, or
     - append `?format=json`.
@@ -42,14 +41,15 @@ It keeps the existing bundle APIs, but the public share surface now runs as a si
 - `skills-set`
   - A full skills pack (multiple skills) exported from a worker.
 - `workspace-profile`
-  - Full workspace profile payload (config, MCP/OpenCode settings, commands, skills, and agent config).
+  - Full workspace template payload (config, MCP/OpenCode settings, commands, skills, and extra shareable `.opencode/**` files, excluding env/runtime files).
 
 ## Packager input support
 
 - Skill markdown from `.opencode/skills/<name>/SKILL.md`
 - Agent markdown from `.opencode/agents/*.md`
+- Tool definitions from `.opencode/tools/*`
 - Command markdown from `.opencode/commands/*.md`
-- `opencode.json` / `opencode.jsonc` (only `mcp` and `agent` sections are exported)
+- `opencode.json` / `opencode.jsonc` (portable project keys only: `agent`, `command`, `instructions`, `mcp`, `permission`, `plugin`, `share`, `tools`, `watcher`)
 - `openwork.json`
 
 The packager rejects files that appear to contain secrets in shareable config.
@@ -62,7 +62,7 @@ The packager rejects files that appear to contain secrets in shareable config.
 ## Optional Environment Variables
 
 - `PUBLIC_BASE_URL`
-  - Default: `https://share.openwork.software`
+  - Default: `https://share.openworklabs.com`
   - Used to construct the returned share URL.
 
 - `MAX_BYTES`
@@ -72,10 +72,6 @@ The packager rejects files that appear to contain secrets in shareable config.
 - `OPENWORK_PUBLISHER_ALLOWED_ORIGINS`
   - Optional comma-separated browser origins allowed to publish bundles.
   - Defaults include the share origin, the hosted OpenWork app origin, and common local dev origins.
-
-- `PUBLIC_OPENWORK_APP_URL`
-  - Default: `https://app.openwork.software`
-  - Target app URL for the Open in app action on bundle pages.
 
 - `LOCAL_BLOB_DIR`
   - Optional local filesystem storage root for bundle JSON.

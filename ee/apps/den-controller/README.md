@@ -25,6 +25,24 @@ That brings up:
 
 The script prints the exact URLs and `docker compose ... down` command to use for cleanup.
 
+## Faster local iteration
+
+For a quicker inner loop, run MySQL in Docker and keep the Den controller + Den web app local:
+
+From the OpenWork repo root:
+
+```bash
+pnpm dev:den-local
+```
+
+From the OpenWork enterprise root:
+
+```bash
+pnpm --dir _repos/openwork dev:den-local
+```
+
+That path reuses `scripts/dev-web-local.sh` and is usually faster than the full Docker stack because the Next.js app runs in dev mode instead of `build && start`.
+
 ## Environment
 
 - `DATABASE_URL` MySQL connection URL
@@ -211,18 +229,18 @@ Optional GitHub Actions variable:
 
 - `DEN_RENDER_WORKER_PLAN` (defaults to `standard`)
 - `DEN_RENDER_WORKER_OPENWORK_VERSION` pins the `openwork-orchestrator` npm version installed in workers; the worker build bundles the matching `opencode` release asset into the Render image
-- `DEN_CORS_ORIGINS` (defaults to `https://app.openwork.software,https://api.openwork.software,<render-service-url>`)
+- `DEN_CORS_ORIGINS` (defaults to `https://app.openworklabs.com,https://api.openworklabs.com,<render-service-url>`)
 - `DEN_BETTER_AUTH_TRUSTED_ORIGINS` (defaults to `DEN_CORS_ORIGINS`)
 - `DEN_RENDER_WORKER_PUBLIC_DOMAIN_SUFFIX` (defaults to `openwork.studio`)
 - `DEN_RENDER_CUSTOM_DOMAIN_READY_TIMEOUT_MS` (defaults to `240000`)
-- `DEN_BETTER_AUTH_URL` (defaults to `https://app.openwork.software`)
+- `DEN_BETTER_AUTH_URL` (defaults to `https://app.openworklabs.com`)
 - `DEN_VERCEL_API_BASE` (defaults to `https://api.vercel.com`)
 - `DEN_VERCEL_TEAM_ID` (optional)
 - `DEN_VERCEL_TEAM_SLUG` (optional, defaults to `prologe`)
 - `DEN_VERCEL_DNS_DOMAIN` (defaults to `openwork.studio`)
 - `DEN_POLAR_FEATURE_GATE_ENABLED` (`true`/`false`, defaults to `false`)
 - `DEN_POLAR_API_BASE` (defaults to `https://api.polar.sh`)
-- `DEN_POLAR_SUCCESS_URL` (defaults to `https://app.openwork.software`)
+- `DEN_POLAR_SUCCESS_URL` (defaults to `https://app.openworklabs.com`)
 - `DEN_POLAR_RETURN_URL` (defaults to `DEN_POLAR_SUCCESS_URL`)
 
 Required additional secret when using vanity worker domains:

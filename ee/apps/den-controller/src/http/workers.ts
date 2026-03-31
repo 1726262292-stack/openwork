@@ -8,7 +8,7 @@ import { AuditEventTable, AuthUserTable, DaytonaSandboxTable, OrgMembershipTable
 import { env } from "../env.js"
 import { asyncRoute, isTransientDbConnectionError } from "./errors.js"
 import { getRequestSession } from "./session.js"
-import { ensureDefaultOrg } from "../orgs.js"
+import { ensureUserOrgAccess, listUserOrgs, setSessionActiveOrganization } from "../orgs.js"
 import { deprovisionWorker, provisionWorker } from "../workers/provisioner.js"
 import { customDomainForWorker } from "../workers/vanity-domain.js"
 import { createDenTypeId, normalizeDenTypeId } from "../db/typeid.js"
@@ -46,7 +46,7 @@ const token = () => randomBytes(32).toString("hex")
 type WorkerRow = typeof WorkerTable.$inferSelect
 type WorkerInstanceRow = typeof WorkerInstanceTable.$inferSelect
 type WorkerId = WorkerRow["id"]
-type OrgId = typeof OrgMembershipTable.$inferSelect.org_id
+type OrgId = typeof OrgMembershipTable.$inferSelect.organizationId
 type UserId = typeof AuthUserTable.$inferSelect.id
 
 function parseWorkerIdParam(value: string): WorkerId {
@@ -281,16 +281,43 @@ async function requireSession(req: express.Request, res: express.Response) {
   }
 }
 
-async function getOrgId(userId: UserId): Promise<OrgId | null> {
-  const membership = await db
-    .select()
-    .from(OrgMembershipTable)
-    .where(eq(OrgMembershipTable.user_id, userId))
-    .limit(1)
-  if (membership.length === 0) {
+async function resolveActiveOrgId(session: Awaited<ReturnType<typeof requireSession>>): Promise<OrgId | null> {
+  if (!session) {
     return null
   }
-  return membership[0].org_id
+
+  const sessionId = typeof session.session?.id === "string"
+    ? normalizeDenTypeId("session", session.session.id)
+    : null
+
+  const existingOrgId = await ensureUserOrgAccess({
+    userId: session.user.id,
+  })
+  if (!existingOrgId) {
+    return null
+  }
+
+  const orgs = await listUserOrgs(session.user.id)
+  const availableOrgIds = new Set(orgs.map((org) => org.id))
+
+  let activeOrgId: OrgId | null = null
+  if (session.session?.activeOrganizationId) {
+    try {
+      const normalized = normalizeDenTypeId("organization", session.session.activeOrganizationId)
+      if (availableOrgIds.has(normalized)) {
+        activeOrgId = normalized
+      }
+    } catch {
+      activeOrgId = null
+    }
+  }
+
+  activeOrgId ??= orgs[0]?.id ?? null
+  if (sessionId && activeOrgId && activeOrgId !== session.session?.activeOrganizationId) {
+    await setSessionActiveOrganization(sessionId, activeOrgId)
+  }
+
+  return activeOrgId
 }
 
 async function countUserCloudWorkers(userId: UserId) {
@@ -494,7 +521,7 @@ workersRouter.get("/", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
-  const orgId = await getOrgId(session.user.id)
+  const orgId = await resolveActiveOrgId(session)
   if (!orgId) {
     res.json({ workers: [] })
     return
@@ -561,8 +588,11 @@ workersRouter.post("/", asyncRoute(async (req, res) => {
     }
   }
 
-  const orgId =
-    (await getOrgId(session.user.id)) ?? (await ensureDefaultOrg(session.user.id, session.user.name ?? session.user.email ?? "Personal"))
+  const orgId = await resolveActiveOrgId(session)
+  if (!orgId) {
+    res.status(400).json({ error: "organization_unavailable" })
+    return
+  }
   const workerId = createDenTypeId("worker")
   let workerStatus: WorkerRow["status"] = parsed.data.destination === "cloud" ? "provisioning" : "healthy"
 
@@ -634,6 +664,7 @@ workersRouter.post("/", asyncRoute(async (req, res) => {
       session.user.id,
     ),
     tokens: {
+      owner: hostToken,
       host: hostToken,
       client: clientToken,
     },
@@ -711,7 +742,7 @@ workersRouter.get("/:id", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
-  const orgId = await getOrgId(session.user.id)
+  const orgId = await resolveActiveOrgId(session)
   if (!orgId) {
     res.status(404).json({ error: "worker_not_found" })
     return
@@ -748,7 +779,7 @@ workersRouter.patch("/:id", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
-  const orgId = await getOrgId(session.user.id)
+  const orgId = await resolveActiveOrgId(session)
   if (!orgId) {
     res.status(404).json({ error: "worker_not_found" })
     return
@@ -779,6 +810,14 @@ workersRouter.patch("/:id", asyncRoute(async (req, res) => {
     return
   }
 
+  if (rows[0].created_by_user_id !== session.user.id) {
+    res.status(403).json({
+      error: "forbidden",
+      message: "Only the worker owner can rename this sandbox.",
+    })
+    return
+  }
+
   await db
     .update(WorkerTable)
     .set({ name: parsed.data.name })
@@ -800,7 +839,7 @@ workersRouter.post("/:id/tokens", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
-  const orgId = await getOrgId(session.user.id)
+  const orgId = await resolveActiveOrgId(session)
   if (!orgId) {
     res.status(404).json({ error: "worker_not_found" })
     return
@@ -847,6 +886,7 @@ workersRouter.post("/:id/tokens", asyncRoute(async (req, res) => {
 
   res.json({
     tokens: {
+      owner: hostToken,
       host: hostToken,
       client: clientToken,
     },
@@ -858,7 +898,7 @@ workersRouter.get("/:id/runtime", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
-  const orgId = await getOrgId(session.user.id)
+  const orgId = await resolveActiveOrgId(session)
   if (!orgId) {
     res.status(404).json({ error: "worker_not_found" })
     return
@@ -895,7 +935,7 @@ workersRouter.post("/:id/runtime/upgrade", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
-  const orgId = await getOrgId(session.user.id)
+  const orgId = await resolveActiveOrgId(session)
   if (!orgId) {
     res.status(404).json({ error: "worker_not_found" })
     return
@@ -934,7 +974,7 @@ workersRouter.delete("/:id", asyncRoute(async (req, res) => {
   const session = await requireSession(req, res)
   if (!session) return
 
-  const orgId = await getOrgId(session.user.id)
+  const orgId = await resolveActiveOrgId(session)
   if (!orgId) {
     res.status(404).json({ error: "worker_not_found" })
     return
