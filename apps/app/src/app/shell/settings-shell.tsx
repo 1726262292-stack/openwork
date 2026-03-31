@@ -144,6 +144,7 @@ export type SettingsShellProps = {
   selectedWorkspaceId: string;
   connectingWorkspaceId: string | null;
   workspaceConnectionStateById: Record<string, WorkspaceConnectionState>;
+  selectWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   switchWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   testWorkspaceConnection: (workspaceId: string) => Promise<boolean> | boolean;
   recoverWorkspace: (workspaceId: string) => Promise<boolean> | boolean;
@@ -195,8 +196,9 @@ export type SettingsShellProps = {
       path?: string;
       note?: string;
     }>;
-  }>;
+  }>; 
   addPlugin: (pluginNameOverride?: string) => void;
+  createSessionInWorkspace: (workspaceId: string, initialPrompt?: string) => Promise<string | undefined> | string | void;
   createSessionAndOpen: (initialPrompt?: string) => Promise<string | undefined> | string | void;
   selectSession: (sessionId: string) => Promise<void> | void;
   hideTitlebar: boolean;
@@ -317,9 +319,7 @@ export default function SettingsShell(props: SettingsShellProps) {
     const id = workspaceId.trim();
     if (!id) return;
     void (async () => {
-      const ready = await Promise.resolve(props.switchWorkspace(id));
-      if (!ready) return;
-      props.createSessionAndOpen();
+      await Promise.resolve(props.createSessionInWorkspace(id));
     })();
   };
 
@@ -1063,7 +1063,7 @@ export default function SettingsShell(props: SettingsShellProps) {
             connectingWorkspaceId={props.connectingWorkspaceId}
             workspaceConnectionStateById={props.workspaceConnectionStateById}
             newTaskDisabled={props.newTaskDisabled}
-            onSelectWorkspace={props.switchWorkspace}
+            onSelectWorkspace={props.selectWorkspace}
             onOpenSession={openSessionFromList}
             onCreateTaskInWorkspace={createTaskInWorkspace}
             onOpenRenameWorkspace={props.openRenameWorkspace}

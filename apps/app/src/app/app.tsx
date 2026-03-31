@@ -607,12 +607,12 @@ export default function App() {
     }
   });
 
-  const ensureSelectedWorkspaceRuntime = async () => {
-    const workspaceId = workspaceStore.selectedWorkspaceId().trim();
-    if (!workspaceId) return false;
-    const ready = await workspaceStore.switchWorkspace(workspaceId);
+  const ensureWorkspaceRuntime = async (workspaceId: string) => {
+    const id = workspaceId.trim();
+    if (!id) return false;
+    const ready = await workspaceStore.activateWorkspace(id);
     if (ready) {
-      await refreshSidebarWorkspaceSessions(workspaceId).catch(() => undefined);
+      await refreshSidebarWorkspaceSessions(id).catch(() => undefined);
     }
     return ready;
   };
@@ -926,10 +926,12 @@ export default function App() {
     setBusyStartedAt,
     setCreatingSession,
     setError,
-    workspaceProjectDir: () => workspaceStore.projectDir(),
+    selectWorkspace: workspaceStore.selectWorkspace,
+    workspaceRootForId: workspaceStore.workspaceRootForId,
     selectedWorkspaceId: () => workspaceStore.selectedWorkspaceId(),
     selectedWorkspaceRoot: () => workspaceStore.selectedWorkspaceRoot(),
-    ensureSelectedWorkspaceRuntime,
+    runtimeWorkspaceRoot: () => workspaceStore.runtimeWorkspaceRoot(),
+    ensureWorkspaceRuntime,
     selectSession,
     refreshSidebarWorkspaceSessions,
     abortRefreshes,
@@ -954,6 +956,7 @@ export default function App() {
     lastPromptSent,
     selectedSessionAgent,
     sessionRevertMessageId,
+    createSessionInWorkspace,
     createSessionAndOpen,
     sendPrompt,
     abortSession,
@@ -2005,6 +2008,7 @@ export default function App() {
       selectedWorkspaceId: workspaceStore.selectedWorkspaceId(),
       connectingWorkspaceId: workspaceStore.connectingWorkspaceId(),
       workspaceConnectionStateById: workspaceStore.workspaceConnectionStateById(),
+      selectWorkspace: workspaceStore.selectWorkspace,
       switchWorkspace: workspaceStore.switchWorkspace,
       testWorkspaceConnection: workspaceStore.testWorkspaceConnection,
       recoverWorkspace: workspaceStore.recoverWorkspace,
@@ -2038,6 +2042,7 @@ export default function App() {
       canUseGlobalPluginScope,
       suggestedPlugins: SUGGESTED_PLUGINS,
       addPlugin,
+      createSessionInWorkspace,
       createSessionAndOpen,
       selectSession: selectSession,
       hideTitlebar: hideTitlebar(),
@@ -2117,6 +2122,7 @@ export default function App() {
     selectedWorkspaceId: workspaceStore.selectedWorkspaceId(),
     connectingWorkspaceId: workspaceStore.connectingWorkspaceId(),
     workspaceConnectionStateById: workspaceStore.workspaceConnectionStateById(),
+    selectWorkspace: workspaceStore.selectWorkspace,
     switchWorkspace: workspaceStore.switchWorkspace,
     testWorkspaceConnection: workspaceStore.testWorkspaceConnection,
     recoverWorkspace: workspaceStore.recoverWorkspace,

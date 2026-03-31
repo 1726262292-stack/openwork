@@ -437,6 +437,26 @@ export function createWorkspaceStore(options: {
     return ws.path ?? "";
   });
   const selectedWorkspaceRoot = createMemo(() => selectedWorkspacePath().trim());
+  const resolveWorkspaceRuntimeRoot = (workspace: WorkspaceInfo | null | undefined) => {
+    if (!workspace) return "";
+    if (workspace.workspaceType === "remote") {
+      return workspace.directory?.trim() ?? workspace.path?.trim() ?? "";
+    }
+    return workspace.path?.trim() ?? "";
+  };
+  const resolveCurrentRuntimeRoot = () => {
+    const connectedRoot = resolveWorkspaceRuntimeRoot(connectedWorkspaceInfo());
+    if (connectedRoot) return connectedRoot;
+    const engineRoot = engine()?.projectDir?.trim() ?? "";
+    if (engineRoot) return engineRoot;
+    return projectDir().trim();
+  };
+  const runtimeWorkspaceRoot = createMemo(() => resolveCurrentRuntimeRoot().trim());
+  const workspaceRootForId = (workspaceId: string) => {
+    const id = workspaceId.trim();
+    if (!id) return "";
+    return resolveWorkspaceRuntimeRoot(workspaces().find((workspace) => workspace.id === id) ?? null);
+  };
   const runtimeWorkspaceConfig = createMemo(() => {
     const id = runtimeWorkspaceId()?.trim() ?? "";
     if (!id) return null;
@@ -557,19 +577,14 @@ export function createWorkspaceStore(options: {
     return true;
   }
 
+  async function selectWorkspace(workspaceId: string) {
+    return await applyWorkspaceSelection(workspaceId);
+  }
+
   async function switchWorkspace(workspaceId: string) {
     const id = workspaceId.trim();
     if (!id) return false;
-    // Capture the current project dir *before* applyWorkspaceSelection sets it
-    // to the new workspace path.  Without this, activateWorkspace always sees
-    // oldPath === newPath and skips the engine restart.
-    const prevProjectDir = projectDir();
-    if (selectedWorkspaceId() !== id) {
-      await applyWorkspaceSelection(id);
-    }
-    if (connectedWorkspaceId() === id && options.client()) {
-      return true;
-    }
+    const prevProjectDir = resolveCurrentRuntimeRoot();
     return await activateWorkspace(id, { prevProjectDir });
   }
 
@@ -1336,13 +1351,18 @@ export function createWorkspaceStore(options: {
     const id = workspaceId.trim();
     if (!id) return false;
 
-    // Snapshot the current project dir before anything can overwrite it.
-    // When called from switchWorkspace, applyWorkspaceSelection already ran
-    // and clobbered projectDir(), so use the caller-provided hint instead.
-    const capturedPrevDir = hint?.prevProjectDir ?? projectDir();
+    const capturedPrevDir = hint?.prevProjectDir?.trim() || resolveCurrentRuntimeRoot();
 
     const next = workspaces().find((w) => w.id === id) ?? null;
     if (!next) return false;
+    if (connectedWorkspaceId() === id && options.client()) {
+      if (selectedWorkspaceId() !== id) {
+        await applyWorkspaceSelection(id);
+      }
+      updateWorkspaceConnectionState(id, { status: "connected", message: null });
+      wsDebug("activate:noop-already-connected", { id });
+      return true;
+    }
     if (selectedWorkspaceId() !== id) {
       await applyWorkspaceSelection(id);
     }
@@ -2920,9 +2940,9 @@ export function createWorkspaceStore(options: {
 
       const nextSelectedId = pickSelectedWorkspaceId(ws.workspaces, [selectedWorkspaceId()], ws);
       const selected = ws.workspaces.find((w) => w.id === nextSelectedId) ?? null;
-      // Snapshot projectDir before the optimistic setProjectDir so
-      // activateWorkspace can detect the workspace actually changed.
-      const prevProjectDir = projectDir();
+      // Snapshot the runtime root before the optimistic selected-workspace update
+      // so activateWorkspace can still detect a real workspace transition.
+      const prevProjectDir = resolveCurrentRuntimeRoot();
       if (selected) {
         setProjectDir(selected.workspaceType === "remote" ? selected.directory?.trim() ?? "" : selected.path);
       }
@@ -4076,6 +4096,7 @@ export function createWorkspaceStore(options: {
     selectedWorkspaceDisplay,
     selectedWorkspacePath,
     selectedWorkspaceRoot,
+    runtimeWorkspaceRoot,
     setCreateWorkspaceOpen,
     setCreateRemoteWorkspaceOpen,
     setProjectDir,
@@ -4086,6 +4107,8 @@ export function createWorkspaceStore(options: {
     setWorkspaces,
     clearSelectedSessionSurface,
     syncSelectedWorkspaceId: syncSelectedWorkspaceId,
+    workspaceRootForId,
+    selectWorkspace,
     switchWorkspace,
     refreshEngine,
     refreshEngineDoctor,
