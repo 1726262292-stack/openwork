@@ -3292,7 +3292,6 @@ export default function SessionView(props: SessionViewProps) {
                     <div>
                       <MessageList
                         messages={batchedRenderedMessages()}
-                        sessionId={props.selectedSessionId}
                         isStreaming={showRunIndicator()}
                         developerMode={props.developerMode}
                         showThinking={showThinking()}
