@@ -123,7 +123,7 @@ export default async function Download() {
                 Windows support — $99/year
               </h3>
               <p className="mb-5 text-[14px] leading-7 text-gray-600">
-                Purchase through Polar, then we will send your Windows build link manually in phase one.
+                Purchase through Polar and we will send your Windows build link after checkout.
               </p>
               <div className="flex flex-wrap gap-3">
                 <a

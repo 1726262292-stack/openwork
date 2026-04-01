@@ -111,9 +111,9 @@ export function LandingHome(props: Props) {
             <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] font-medium text-gray-500 md:text-[14px]">
               <span>Solo free forever</span>
               <span aria-hidden="true">•</span>
-              <span>Windows support $99/year</span>
-              <span aria-hidden="true">•</span>
               <span>Workers $50/month</span>
+              <span aria-hidden="true">•</span>
+              <span>Enterprise talk to us</span>
             </div>
 
             <div className="mt-6 flex flex-col items-start gap-4 sm:flex-row sm:items-center">

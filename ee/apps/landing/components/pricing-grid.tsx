@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, Cloud, Download, Monitor, Shield, CornerRightDown } from "lucide-react";
+import { ArrowUpRight, Cloud, Download, Shield, CornerRightDown } from "lucide-react";
 import { ResponsiveGrain } from "./responsive-grain";
 
 type PricingGridProps = {
@@ -19,7 +19,6 @@ type PricingCard = {
   external?: boolean;
   features: Array<{ text: string; icon: typeof Download }>;
   footer: string;
-  /** GrainGradient colors revealed on hover */
   gradientColors: string[];
   gradientBack: string;
   gradientShape: "corners" | "wave" | "dots" | "truchet" | "ripple" | "blob" | "sphere";
@@ -42,7 +41,6 @@ function PricingCardView({ card }: { card: PricingCard }) {
             shape={card.gradientShape}
             speed={0.4}
           />
-          {/* Overlay for text contrast */}
           <div className="absolute inset-0 bg-black/10 mix-blend-overlay" />
         </div>
 
@@ -85,9 +83,9 @@ function PricingCardView({ card }: { card: PricingCard }) {
             return (
               <div
                 key={idx}
-                className="flex items-start gap-3 py-3 border-b border-dotted border-gray-200/80 last:border-0 text-[13px] text-gray-700 font-medium"
+                className="flex items-start gap-3 py-3 border-b border-dotted border-gray-400/40 last:border-0 text-[13px] text-gray-700 font-medium"
               >
-                <Icon className="w-[18px] h-[18px] text-gray-600 shrink-0 mt-0.5" strokeWidth={1.5} />
+                <Icon className="w-[18px] h-[18px] text-gray-500 shrink-0 mt-0.5" strokeWidth={1.5} />
                 <span className="leading-snug">{feature.text}</span>
               </div>
             );
@@ -118,24 +116,6 @@ export function PricingGrid(props: PricingGridProps) {
         { text: "Bring your own keys", icon: Download },
       ],
       footer: "Free forever",
-      gradientColors: ["#6B7280", "#374151", "#1F2937", "#111827"],
-      gradientBack: "#0F172A",
-      gradientShape: "sphere",
-    },
-    {
-      id: "windows-support",
-      title: "Windows",
-      price: "$99",
-      priceSub: "per year · 1 seat",
-      ctaLabel: "Purchase Windows",
-      href: props.windowsCheckoutUrl,
-      external: /^https?:\/\//.test(props.windowsCheckoutUrl),
-      features: [
-        { text: "1 Windows seat", icon: Monitor },
-        { text: "Binary access", icon: Monitor },
-        { text: "1 year of updates", icon: Monitor },
-      ],
-      footer: "Manual delivery in phase one",
       gradientColors: ["#7C3AED", "#A855F7", "#6D28D9", "#4338CA"],
       gradientBack: "#1E1B4B",
       gradientShape: "wave",
@@ -149,11 +129,11 @@ export function PricingGrid(props: PricingGridProps) {
       href: "https://app.openworklabs.com/checkout",
       external: true,
       features: [
+        { text: "5 seats included", icon: Cloud },
         { text: "Hosted OpenWork worker", icon: Cloud },
-        { text: "Monthly billing", icon: Cloud },
         { text: "$50 per additional worker", icon: Cloud },
       ],
-      footer: "5 seats included · workers disabled by default",
+      footer: "Workers disabled by default",
       gradientColors: ["#2563EB", "#0284C7", "#0EA5E9", "#0F172A"],
       gradientBack: "#0C1220",
       gradientShape: "ripple",
@@ -162,7 +142,7 @@ export function PricingGrid(props: PricingGridProps) {
       id: "enterprise-license",
       title: "Enterprise",
       price: "Custom pricing",
-      priceSub: "licensing",
+      priceSub: "",
       isCustomPricing: true,
       ctaLabel: "Talk to us",
       href: props.callUrl,
@@ -189,16 +169,16 @@ export function PricingGrid(props: PricingGridProps) {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 relative border-l border-t border-dotted border-gray-200/80">
+      <div className="grid grid-cols-1 md:grid-cols-3 relative border-l border-t border-dotted border-gray-400/50">
         {cards.map((card) => (
-          <div key={card.id} className="p-6 border-r border-b border-dotted border-gray-200/80 flex flex-col h-full">
+          <div key={card.id} className="p-6 border-r border-b border-dotted border-gray-400/50 flex flex-col h-full">
             <PricingCardView card={card} />
           </div>
         ))}
       </div>
 
       <p className="text-center text-[12px] font-medium text-gray-500">
-        Prices exclude taxes. Windows delivery is manual in phase one.
+        Prices exclude taxes.
       </p>
     </section>
   );

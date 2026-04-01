@@ -60,7 +60,7 @@ export function BillingDashboardScreen() {
     ? formatSubscriptionStatus(subscription.status)
     : billingSummary?.hasActivePlan
       ? "Active"
-      : "Trial ready";
+      : "Purchase required";
   const nextBillingDate = subscription?.currentPeriodEnd
     ? formatIsoDate(subscription.currentPeriodEnd)
     : "Not available";
@@ -92,7 +92,7 @@ export function BillingDashboardScreen() {
           <p className="text-[15px] text-gray-700">
             {billingSummary?.hasActivePlan
               ? `This workspace's plan is currently ${statusLabel.toLowerCase()} and renews on ${nextBillingDate}.`
-              : "Start your OpenWork Cloud billing flow when your team is ready to share templates and cloud workflows."}
+              : "Workers are $50/month each. Purchase a worker to enable hosted launches for your team."}
           </p>
         </div>
 
@@ -181,6 +181,27 @@ export function BillingDashboardScreen() {
                   : "Cancel plan"}
             </button>
           ) : null}
+        </div>
+      </div>
+
+      <div className="mb-6 rounded-[20px] border border-gray-100 bg-white p-8 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.06)]">
+        <h2 className="mb-4 text-[15px] font-medium text-gray-900">Pricing</h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="rounded-[16px] border border-gray-100 bg-gray-50 p-4">
+            <p className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-gray-500">Solo</p>
+            <p className="text-[20px] font-semibold text-gray-900">$0</p>
+            <p className="mt-1 text-[13px] text-gray-500">Free forever · open source</p>
+          </div>
+          <div className="rounded-[16px] border border-gray-100 bg-gray-50 p-4">
+            <p className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-gray-500">Cloud worker</p>
+            <p className="text-[20px] font-semibold text-gray-900">$50<span className="text-[13px] font-medium text-gray-500">/month</span></p>
+            <p className="mt-1 text-[13px] text-gray-500">Per worker · 5 seats included</p>
+          </div>
+          <div className="rounded-[16px] border border-gray-100 bg-gray-50 p-4">
+            <p className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-gray-500">Enterprise</p>
+            <p className="text-[20px] font-semibold text-gray-900">Custom</p>
+            <p className="mt-1 text-[13px] text-gray-500">Windows included · talk to us</p>
+          </div>
         </div>
       </div>
 
