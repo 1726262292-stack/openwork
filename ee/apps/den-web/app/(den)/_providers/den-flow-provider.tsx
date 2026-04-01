@@ -1299,7 +1299,7 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
     setLaunchBusy(true);
     setLaunchError(null);
     setCheckoutUrl(null);
-    setLaunchStatus(options.source === "signup_auto" ? "Creating your first worker..." : "Checking subscription and launch eligibility...");
+    setLaunchStatus(options.source === "signup_auto" ? "Creating your first worker..." : "Checking worker billing and launch eligibility...");
     appendEvent("info", "Launch requested", resolvedLaunchName);
 
     try {

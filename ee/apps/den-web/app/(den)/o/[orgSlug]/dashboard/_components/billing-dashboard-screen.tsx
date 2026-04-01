@@ -144,7 +144,7 @@ export function BillingDashboardScreen() {
               rel="noreferrer"
               className="rounded-full bg-gray-900 px-5 py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-gray-800"
             >
-              Start free trial
+              Purchase worker
             </a>
           ) : null}
 

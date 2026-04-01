@@ -11,7 +11,7 @@ type Props = {
   downloadHref?: string;
   mobilePrimaryHref?: string;
   mobilePrimaryLabel?: string;
-  active?: "home" | "download" | "enterprise" | "den" | "docs";
+  active?: "home" | "pricing" | "download" | "enterprise" | "den" | "docs";
 };
 
 export function SiteNav(props: Props) {
@@ -33,6 +33,7 @@ export function SiteNav(props: Props) {
   const mobilePrimaryExternal = /^https?:\/\//.test(mobilePrimaryHref);
   const navItems = [
     { href: "/docs", label: "Docs", key: "docs" },
+    { href: "/pricing", label: "Pricing", key: "pricing" },
     { href: "/download", label: "Desktop", key: "download" },
     { href: "https://app.openworklabs.com", label: "Cloud", key: "den" },
     { href: "/enterprise", label: "Enterprise", key: "enterprise" }
