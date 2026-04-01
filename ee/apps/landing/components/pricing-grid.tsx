@@ -1,4 +1,7 @@
-import { ArrowUpRight, Cloud, Download, Monitor, Shield } from "lucide-react";
+"use client";
+
+import { ArrowUpRight, Cloud, Download, Monitor, Shield, CornerRightDown } from "lucide-react";
+import { ResponsiveGrain } from "./responsive-grain";
 
 type PricingGridProps = {
   windowsCheckoutUrl: string;
@@ -8,102 +11,95 @@ type PricingGridProps = {
 
 type PricingCard = {
   id: string;
-  eyebrow: string;
   title: string;
   price: string;
   priceSub: string;
-  description: string;
   ctaLabel: string;
   href: string;
   external?: boolean;
-  features: string[];
+  features: Array<{ text: string; icon: typeof Download }>;
   footer: string;
-  icon: typeof Download;
-  accent: string;
+  /** GrainGradient colors revealed on hover */
+  gradientColors: string[];
+  gradientBack: string;
+  gradientShape: "corners" | "wave" | "dots" | "truchet" | "ripple" | "blob" | "sphere";
+  isCustomPricing?: boolean;
 };
 
-function PricingAction(props: { href: string; label: string; external?: boolean }) {
+function PricingCardView({ card }: { card: PricingCard }) {
   return (
-    <a
-      href={props.href}
-      {...(props.external ? { rel: "noreferrer", target: "_blank" as const } : {})}
-      className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#011627] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#16293f]"
-    >
-      {props.label}
-      <ArrowUpRight size={15} />
-    </a>
-  );
-}
-
-function PricingCardView(card: PricingCard) {
-  const Icon = card.icon;
-
-  return (
-    <article
-      id={card.id}
-      className="group relative flex h-full flex-col overflow-hidden rounded-[28px] border border-dotted border-gray-300/80 bg-[#efefef] p-6 transition duration-300 hover:-translate-y-1 hover:border-gray-400/80 hover:shadow-[0_28px_60px_-30px_rgba(15,23,42,0.35)]"
-    >
-      <div
-        className="pointer-events-none absolute inset-0 opacity-0 transition duration-300 group-hover:opacity-100"
-        style={{ background: card.accent }}
-      />
-
-      <div className="relative z-10 flex h-full flex-col">
-        <div className="mb-8 rounded-[22px] border border-white/70 bg-white/80 p-5 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.3)] transition group-hover:border-white/20 group-hover:bg-white/10 group-hover:shadow-none">
-          <div className="mb-8 flex items-start justify-between gap-4">
-            <div>
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-gray-500 transition group-hover:text-white/70">
-                {card.eyebrow}
-              </div>
-              <h3 className="text-xl font-medium tracking-tight text-[#011627] transition group-hover:text-white">
-                {card.title}
-              </h3>
-            </div>
-            <div className="rounded-2xl border border-gray-200 bg-white/80 p-2.5 text-gray-600 transition group-hover:border-white/20 group-hover:bg-white/10 group-hover:text-white/90">
-              <Icon size={18} />
-            </div>
-          </div>
-
-          <div className="flex items-end gap-2">
-            <span className="text-3xl font-semibold tracking-tight text-[#011627] transition group-hover:text-white">
-              {card.price}
-            </span>
-            <span className="pb-1 text-xs font-medium text-gray-500 transition group-hover:text-white/70">
-              {card.priceSub}
-            </span>
-          </div>
-
-          <p className="mt-4 text-sm leading-relaxed text-gray-600 transition group-hover:text-white/80">
-            {card.description}
-          </p>
-
-          <div className="mt-6">
-            <PricingAction href={card.href} label={card.ctaLabel} external={card.external} />
-          </div>
+    <div className="flex h-full flex-col relative group">
+      {/* ── Header card ── */}
+      <div className="relative p-5 rounded-[20px] overflow-hidden mb-6 flex-shrink-0 bg-[#F4F4F4] text-gray-900 group-hover:text-white transition-colors duration-300">
+        {/* Shader layer — hidden by default, revealed on hover */}
+        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+          <ResponsiveGrain
+            colors={card.gradientColors}
+            colorBack={card.gradientBack}
+            softness={0.6}
+            intensity={0.35}
+            noise={0.06}
+            shape={card.gradientShape}
+            speed={0.4}
+          />
+          {/* Overlay for text contrast */}
+          <div className="absolute inset-0 bg-black/10 mix-blend-overlay" />
         </div>
 
-        <div className="flex flex-1 flex-col">
-          <div className="mb-3 inline-flex items-center gap-1.5 border-b border-dotted border-gray-300/90 pb-3 text-[12px] font-medium text-gray-500 transition group-hover:border-white/20 group-hover:text-white/70">
-            Included
-          </div>
+        <div className="relative z-10 flex flex-col h-full min-h-[160px] justify-between">
+          <div>
+            <div className="flex justify-between items-start mb-6">
+              <h3 className="text-[17px] font-medium tracking-tight">{card.title}</h3>
+            </div>
 
-          <div className="flex flex-1 flex-col">
-            {card.features.map((feature) => (
-              <div
-                key={feature}
-                className="border-b border-dotted border-gray-300/80 py-3 text-[13px] font-medium text-gray-700 transition last:border-b-0 group-hover:border-white/15 group-hover:text-white/88"
-              >
-                {feature}
+            {card.isCustomPricing ? (
+              <div className="text-[16px] font-semibold mt-4 mb-2">{card.price}</div>
+            ) : (
+              <div className="mt-4">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-[28px] font-semibold tracking-tight leading-none">{card.price}</span>
+                  <span className="text-[12px] font-medium text-gray-500 group-hover:text-white/80 transition-colors duration-300">
+                    {card.priceSub}
+                  </span>
+                </div>
               </div>
-            ))}
+            )}
           </div>
 
-          <div className="mt-8 text-sm font-medium text-gray-700 transition group-hover:text-white/88">
-            {card.footer}
-          </div>
+          <a
+            href={card.href}
+            {...(card.external ? { rel: "noreferrer", target: "_blank" as const } : {})}
+            className="w-full mt-6 py-2.5 rounded-full text-[13px] font-medium bg-gray-950 text-white hover:bg-gray-900 shadow-sm transition-colors flex items-center justify-center gap-2"
+          >
+            {card.ctaLabel}
+            <ArrowUpRight size={14} />
+          </a>
         </div>
       </div>
-    </article>
+
+      {/* ── Features list ── */}
+      <div className="flex-1 pr-4">
+        <div className="flex flex-col">
+          {card.features.map((feature, idx) => {
+            const Icon = feature.icon;
+            return (
+              <div
+                key={idx}
+                className="flex items-start gap-3 py-3 border-b border-dotted border-gray-200/80 last:border-0 text-[13px] text-gray-700 font-medium"
+              >
+                <Icon className="w-[18px] h-[18px] text-gray-600 shrink-0 mt-0.5" strokeWidth={1.5} />
+                <span className="leading-snug">{feature.text}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Footer ── */}
+      <div className="mt-auto pt-8">
+        <div className="text-[14px] font-medium text-gray-800">{card.footer}</div>
+      </div>
+    </div>
   );
 }
 
@@ -111,106 +107,93 @@ export function PricingGrid(props: PricingGridProps) {
   const cards: PricingCard[] = [
     {
       id: "solo",
-      eyebrow: "Solo",
-      title: "Free forever",
+      title: "Solo",
       price: "$0",
       priceSub: "open source",
-      description:
-        "Start on desktop for free with macOS and Linux downloads, local models, and bring-your-own-provider workflows.",
       ctaLabel: "Download free",
       href: "/download",
       features: [
-        "Open source desktop app",
-        "macOS and Linux downloads",
-        "Bring your own keys and local models"
+        { text: "Open source desktop app", icon: Download },
+        { text: "macOS and Linux downloads", icon: Download },
+        { text: "Bring your own keys", icon: Download },
       ],
-      footer: "Best for individual builders and local-first workflows.",
-      icon: Download,
-      accent: "linear-gradient(135deg, #4b5563 0%, #111827 100%)"
+      footer: "Free forever",
+      gradientColors: ["#6B7280", "#374151", "#1F2937", "#111827"],
+      gradientBack: "#0F172A",
+      gradientShape: "sphere",
     },
     {
       id: "windows-support",
-      eyebrow: "Windows",
-      title: "Windows support",
+      title: "Windows",
       price: "$99",
       priceSub: "per year · 1 seat",
-      description:
-        "Annual Windows access includes the binary plus one year of updates. In phase one we send the build link manually after purchase.",
-      ctaLabel: "Purchase Windows support",
+      ctaLabel: "Purchase Windows",
       href: props.windowsCheckoutUrl,
       external: /^https?:\/\//.test(props.windowsCheckoutUrl),
       features: [
-        "1 Windows seat",
-        "Binary access",
-        "1 year of updates"
+        { text: "1 Windows seat", icon: Monitor },
+        { text: "Binary access", icon: Monitor },
+        { text: "1 year of updates", icon: Monitor },
       ],
-      footer: "Manual fulfillment first, hosted delivery later.",
-      icon: Monitor,
-      accent: "linear-gradient(135deg, #7c3aed 0%, #1f2937 100%)"
+      footer: "Manual delivery in phase one",
+      gradientColors: ["#7C3AED", "#A855F7", "#6D28D9", "#4338CA"],
+      gradientBack: "#1E1B4B",
+      gradientShape: "wave",
     },
     {
       id: "cloud-workers",
-      eyebrow: "Cloud workers",
-      title: "One worker at a time",
+      title: "Cloud workers",
       price: "$50",
       priceSub: "per month · per worker",
-      description:
-        "Workers stay disabled by default. Buy worker access when you want a hosted OpenWork worker for your account.",
       ctaLabel: "Purchase worker",
       href: "https://app.openworklabs.com/checkout",
       external: true,
       features: [
-        "Hosted OpenWork worker",
-        "Monthly billing",
-        "Purchase required before launch"
+        { text: "Hosted OpenWork worker", icon: Cloud },
+        { text: "Monthly billing", icon: Cloud },
+        { text: "$50 per additional worker", icon: Cloud },
       ],
-      footer: "Designed for cloud usage without forcing hosted billing on solo desktop users.",
-      icon: Cloud,
-      accent: "linear-gradient(135deg, #2563eb 0%, #0f172a 100%)"
+      footer: "5 seats included · workers disabled by default",
+      gradientColors: ["#2563EB", "#0284C7", "#0EA5E9", "#0F172A"],
+      gradientBack: "#0C1220",
+      gradientShape: "ripple",
     },
     {
       id: "enterprise-license",
-      eyebrow: "Enterprise",
-      title: "Talk to us",
-      price: "Custom",
+      title: "Enterprise",
+      price: "Custom pricing",
       priceSub: "licensing",
-      description:
-        "Enterprise licensing includes Windows support, rollout help, and managed or self-hosted deployment paths for larger teams.",
+      isCustomPricing: true,
       ctaLabel: "Talk to us",
       href: props.callUrl,
       external: /^https?:\/\//.test(props.callUrl),
       features: [
-        "Includes Windows support",
-        "Deployment and rollout guidance",
-        "Custom commercial terms"
+        { text: "Includes Windows support", icon: Shield },
+        { text: "Deployment guidance", icon: Shield },
+        { text: "Custom commercial terms", icon: Shield },
       ],
-      footer: "Use this when you need org-wide rollout, controls, or custom terms.",
-      icon: Shield,
-      accent: "linear-gradient(135deg, #fb923c 0%, #111827 100%)"
-    }
+      footer: "For org-wide rollout and custom terms",
+      gradientColors: ["#F97316", "#E11D48", "#9333EA", "#4338CA"],
+      gradientBack: "#111827",
+      gradientShape: "corners",
+    },
   ];
 
   return (
     <section className="grid gap-8">
       {props.showHeader !== false ? (
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div className="max-w-3xl">
-            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-gray-500">
-              Pricing
-            </div>
-            <h2 className="text-3xl font-medium leading-[1.1] tracking-tight text-[#011627] md:text-4xl lg:text-5xl">
-              Gray by default. Clear when you hover.
-            </h2>
-          </div>
-          <p className="max-w-xl text-sm leading-7 text-gray-600 md:text-right md:text-base">
-            Solo stays free forever. Windows is annual. Cloud workers are monthly. Enterprise starts with a conversation.
-          </p>
+          <h2 className="text-[40px] md:text-[46px] font-medium tracking-tight text-gray-900 leading-[1.1]">
+            Pricing
+          </h2>
         </div>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 relative border-l border-t border-dotted border-gray-200/80">
         {cards.map((card) => (
-          <PricingCardView key={card.id} {...card} />
+          <div key={card.id} className="p-6 border-r border-b border-dotted border-gray-200/80 flex flex-col h-full">
+            <PricingCardView card={card} />
+          </div>
         ))}
       </div>
 
