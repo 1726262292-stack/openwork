@@ -26,12 +26,11 @@ import {
   type StepGroupMode,
 } from "../../types";
 import {
-  deriveArtifactsFromParts,
   groupMessageParts,
   isUserVisiblePart,
   summarizeStep,
 } from "../../utils";
-import MessageContent from "./message-content";
+import PartView from "../part-view";
 import { perfNow, recordPerfLog } from "../../lib/perf-log";
 
 export type MessageListProps = {
@@ -64,7 +63,6 @@ type StepClusterBlock = {
   id: string;
   stepGroups: StepTimelineGroup[];
   messageIds: string[];
-  artifacts: MessageBlock["artifacts"];
   isUser: boolean;
 };
 
@@ -78,14 +76,6 @@ type MessageBlock = {
   kind: "message";
   message: MessageWithParts;
   renderableParts: Part[];
-  artifacts: Array<{
-    id: string;
-    name: string;
-    path?: string;
-    kind: "file" | "text";
-    size?: string;
-    messageId?: string;
-  }>;
   attachments: Array<{
     url: string;
     filename: string;
@@ -103,35 +93,6 @@ const VIRTUAL_OVERSCAN = 4;
 const STAGING_THRESHOLD = 24;
 const STAGING_INIT = 12;
 const STAGING_BATCH = 8;
-
-function mergeArtifacts(
-  ...lists: Array<
-    Array<{
-      id: string;
-      name: string;
-      path?: string;
-      kind: "file" | "text";
-      size?: string;
-      messageId?: string;
-    }>
-  >
-) {
-  const merged = new Map<string, {
-    id: string;
-    name: string;
-    path?: string;
-    kind: "file" | "text";
-    size?: string;
-    messageId?: string;
-  }>();
-  for (const list of lists) {
-    list.forEach((artifact) => {
-      const key = (artifact.path || artifact.id || artifact.name).toLowerCase();
-      merged.set(key, artifact);
-    });
-  }
-  return Array.from(merged.values());
-}
 
 function normalizePath(path: string) {
   const normalized = path.replace(/\\/g, "/").trim().replace(/\/+/g, "/");
@@ -461,7 +422,6 @@ export default function MessageList(props: MessageListProps) {
     const blocks: MessageBlockItem[] = [];
     const nextMessagePartCountById = new Map<string, number>();
     const nextMessageBlockById = new Map<string, MessageBlock>();
-    let pendingAssistantArtifacts: MessageBlock["artifacts"] = [];
     let changedMessageCount = 0;
     let addedMessageCount = 0;
     let toolPartCount = 0;
@@ -513,10 +473,6 @@ export default function MessageList(props: MessageListProps) {
       const groupId = String((message.info as any).id ?? "message");
       const attachments = attachmentsForParts(renderableParts);
       const nonAttachmentParts = renderableParts.filter((part) => !isAttachmentPart(part));
-      const ownArtifacts = deriveArtifactsFromParts(renderableParts, messageId || undefined);
-      const artifacts = !isUser
-        ? mergeArtifacts(pendingAssistantArtifacts, ownArtifacts)
-        : ownArtifacts;
       const groups = groupMessageParts(nonAttachmentParts, groupId);
       const isStepsOnly =
         groups.length > 0 && groups.every((group) => group.kind === "steps");
@@ -535,11 +491,6 @@ export default function MessageList(props: MessageListProps) {
       );
 
       if (isStepsOnly) {
-        if (!isUser && artifacts.length > 0) {
-          pendingAssistantArtifacts = artifacts;
-        } else if (isUser) {
-          pendingAssistantArtifacts = [];
-        }
         blocks.push({
           kind: "steps-cluster",
           id: stepGroups[0].id,
@@ -549,19 +500,15 @@ export default function MessageList(props: MessageListProps) {
             mode: group.mode,
           })),
           messageIds: [messageId],
-          artifacts,
           isUser,
         });
         return;
       }
 
-      pendingAssistantArtifacts = [];
-
       const block: MessageBlock = {
         kind: "message",
         message,
         renderableParts,
-        artifacts,
         attachments,
         groups,
         isUser,
@@ -1144,24 +1091,6 @@ export default function MessageList(props: MessageListProps) {
       );
     }
 
-    const carriedArtifacts =
-      !block.isUser && block.artifacts.length === 0
-        ? (() => {
-            for (let cursor = blockIndex - 1; cursor >= 0; cursor -= 1) {
-              const previous = messageBlocks()[cursor];
-              if (!previous) continue;
-              if (previous.kind === "steps-cluster") {
-                if (!previous.isUser && previous.artifacts.length > 0) {
-                  return previous.artifacts;
-                }
-                continue;
-              }
-              break;
-            }
-            return [] as MessageBlock["artifacts"];
-          })()
-        : block.artifacts;
-
     const groupSpacing = block.isUser ? "mb-3" : "mb-4";
     const isSyntheticSessionError =
       !block.isUser &&
@@ -1258,32 +1187,30 @@ export default function MessageList(props: MessageListProps) {
               >
                 <Show when={group.kind === "text"}>
                   {(() => {
-                    const textGroup = group as {
-                      kind: "text";
-                      part: Part;
-                      segment: "intent" | "result";
-                    };
                     const isStreamingLatestAssistant =
                       !block.isUser &&
                       props.isStreaming &&
                       block.messageId === latestAssistantMessageId();
                     const markdownThrottleMs = isStreamingLatestAssistant
-                      ? 48
-                      : 0;
-                    const isFinalTextGroup = idx() === block.groups.length - 1;
-                    const artifacts =
-                      !block.isUser && isFinalTextGroup
-                        ? carriedArtifacts
-                        : [];
+                      ? 120
+                      : 100;
                     return (
-                      <MessageContent
-                        part={textGroup.part}
+                      <PartView
+                        part={
+                          (
+                            group as {
+                              kind: "text";
+                              part: Part;
+                              segment: "intent" | "result";
+                            }
+                          ).part
+                        }
                         developerMode={props.developerMode}
+                        showThinking={props.showThinking}
                         workspaceRoot={props.workspaceRoot}
                         tone={block.isUser ? "dark" : "light"}
                         renderMarkdown={!block.isUser}
                         markdownThrottleMs={markdownThrottleMs}
-                        artifacts={artifacts}
                         highlightQuery={
                           hasSearchMatch
                             ? props.searchHighlightQuery
