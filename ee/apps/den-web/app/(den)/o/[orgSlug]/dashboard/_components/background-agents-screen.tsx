@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
+  Bot,
   Box,
   Check,
   ChevronDown,
@@ -15,9 +16,11 @@ import {
   MoreHorizontal,
   Plus,
   RefreshCw,
+  Search,
 } from "lucide-react";
-import { PaperMeshGradient } from "@openwork/ui/react";
-import { Dithering } from "@paper-design/shaders-react";
+import { DenInput } from "../../../../_components/ui/input";
+import { DashboardPageTemplate } from "../../../../_components/ui/dashboard-page-template";
+import { DenButton, buttonVariants } from "../../../../_components/ui/button";
 import {
   OPENWORK_APP_CONNECT_BASE_URL,
   buildOpenworkAppConnectUrl,
@@ -393,60 +396,24 @@ export function BackgroundAgentsScreen() {
   }
 
   return (
-    <div className="mx-auto max-w-[860px] p-8">
-      <div className="relative mb-8 flex min-h-[180px] items-center overflow-hidden rounded-3xl border border-gray-100 px-10">
-        <div className="absolute inset-0 z-0">
-          <Dithering
-            speed={0}
-            shape="warp"
-            type="4x4"
-            size={2.5}
-            scale={1}
-            frame={5213.4}
-            colorBack="#00000000"
-            colorFront="#FEFEFE"
-            style={{ backgroundColor: "#23301C", width: "100%", height: "100%" }}
-          >
-            <PaperMeshGradient
-              speed={0}
-              distortion={0.8}
-              swirl={0.1}
-              grainMixer={0}
-              grainOverlay={0}
-              frame={176868.9}
-              colors={["#E9FFE0", "#3E9A1D", "#B3F750", "#51F0A3"]}
-              style={{ width: "100%", height: "100%" }}
-            />
-          </Dithering>
-        </div>
-        <div className="relative z-10 flex flex-col items-start gap-3">
-          <div>
-            <span className="mb-2 inline-block rounded-full border border-white/20 bg-white/20 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[1px] text-white backdrop-blur-md">
-              Alpha
-            </span>
-            <h1 className="mb-1.5 text-[26px] font-medium tracking-[-0.5px] text-white">
-              Shared Workspaces
-            </h1>
-            <p className="max-w-[500px] text-[14px] text-white/80">
-              Keep selected workflows running in the background without asking each teammate to run them locally. Available for selected workflows while the product continues to evolve.
-            </p>
-          </div>
-        </div>
-      </div>
-
+    <DashboardPageTemplate
+      icon={Bot}
+      badgeLabel="Alpha"
+      title="Shared Workspaces"
+      description="Keep selected workflows running in the background without asking each teammate to run them locally."
+      colors={["#E9FFE0", "#3E9A1D", "#B3F750", "#51F0A3"]}
+    >
       <div className="mb-10 flex items-center gap-3">
-        <button
-          type="button"
+        <DenButton
+          icon={Plus}
+          loading={launchBusy}
           onClick={() => void handleAddWorkspace()}
-          disabled={launchBusy}
-          className="flex items-center gap-2 rounded-full bg-gray-900 px-5 py-2.5 text-[13px] font-medium text-white shadow-sm transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <Plus size={15} />
-          {launchBusy ? "Adding workspace..." : "Add workspace"}
-        </button>
+          Add workspace
+        </DenButton>
         <Link
           href={getSharedSetupsRoute(orgSlug)}
-          className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-2.5 text-[13px] font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+          className={buttonVariants({ variant: "secondary" })}
         >
           Open shared setups
         </Link>
@@ -468,30 +435,13 @@ export function BackgroundAgentsScreen() {
           <h2 className="text-[15px] font-medium tracking-[-0.2px] text-gray-900">
             Current workspaces
           </h2>
-          <div className="relative w-full max-w-[240px]">
-            <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-gray-400"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-            </div>
-            <input
+          <div className="w-full max-w-[240px]">
+            <DenInput
               type="text"
+              icon={Search}
               value={workerQuery}
               onChange={(event) => setWorkerQuery(event.target.value)}
               placeholder="Search workspaces..."
-              className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-4 text-[13px] text-gray-900 outline-none transition-all placeholder:text-gray-400 focus:border-gray-300 focus:ring-2 focus:ring-gray-900/5"
             />
           </div>
         </div>
@@ -534,6 +484,6 @@ export function BackgroundAgentsScreen() {
       {workersLoadedOnce && workersBusy ? (
         <p className="mt-4 text-[12px] text-gray-400">Refreshing workspaces…</p>
       ) : null}
-    </div>
+    </DashboardPageTemplate>
   );
 }
