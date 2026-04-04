@@ -668,6 +668,13 @@ export default function SessionView(props: SessionViewProps) {
       return;
     }
 
+    // MessageList only mounts when batchedRenderedMessages is non-empty, but the blueprint
+    // empty state hides as soon as props.messages has items. While non-idle, the debounced
+    // commit can lag one tick—skip that blank strip when we first get rows to render.
+    if (next.length > 0 && batchedRenderedMessages().length === 0) {
+      setBatchedRenderedMessages(next);
+    }
+
     if (streamRenderBatchQueuedAt <= 0) {
       streamRenderBatchQueuedAt = perfNow();
     } else {

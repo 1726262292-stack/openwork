@@ -1075,7 +1075,8 @@ export function createSessionStore(options: {
   async function ensureSessionLoaded(sessionID: string) {
     const id = sessionID.trim();
     if (!id) return;
-    if (sessionById(id) && (store.messages[id]?.length ?? 0) > 0) return;
+    if ((store.messages[id]?.length ?? 0) > 0) return;
+    if (sessionById(id) && messageLimitBySession()[id] !== undefined) return;
 
     const existing = ensureInFlightBySession.get(id);
     if (existing) return existing;

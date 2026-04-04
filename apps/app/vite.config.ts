@@ -1,6 +1,7 @@
 import os from "node:os";
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
+import devtools from "solid-devtools/vite";
 import solid from "vite-plugin-solid";
 
 const portValue = Number.parseInt(process.env.PORT ?? "", 10);
@@ -24,7 +25,19 @@ if (shortHostname && shortHostname !== hostname) {
 }
 
 export default defineConfig({
-  plugins: [tailwindcss(), solid()],
+  plugins: [
+    tailwindcss(),
+    devtools({
+      autoname: true,
+      // jsxLocation is required for in-page locator: map DOM → Solid components (hold Option/Alt while hovering).
+      locator: {
+        targetIDE: "vscode",
+        jsxLocation: true,
+        componentLocation: true,
+      },
+    }),
+    solid(),
+  ],
   server: {
     port: devPort,
     strictPort: true,
