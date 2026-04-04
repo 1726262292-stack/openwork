@@ -19,30 +19,17 @@
         "pages": [
           "get-started",
           {
-            "group": "Cloud",
-            "pages": [
-              "introduction",
-              "team-provisioning"
-            ]
-          },
-          {
-            "group": "Desktop App",
-            "pages": [
-              "enable-advanced-search-with-exa",
-              "how-to-connect-chat-gpt",
-              "how-to-connect-mcps",
-              "computer-use",
-              "sharing-ow-setup",
-              "accessing-ow-from-slack",
-              "how-to-automate-your",
-              "automating-tasks"
-            ]
-          },
-          {
             "group": "Tutorials",
             "pages": [
+              "sharing-ow-setup",
               "how-to-connect-a-custom-provider",
-              "importing-a-skill"
+              "how-to-connect-mcps",
+              "how-to-setup-automations",
+              "accessing-ow-from-slack",
+              "importing-a-skill",
+              "computer-use",
+              "how-to-connect-chat-gpt",
+              "enable-advanced-search-with-exa"
             ]
           },
           {
