@@ -57,6 +57,10 @@
             ]
           }
         ]
+      },
+      {
+        "tab": "API Reference",
+        "openapi": "https://api.openworklabs.com/openapi.json"
       }
     ]
   },
