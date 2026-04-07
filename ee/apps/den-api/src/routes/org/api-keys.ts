@@ -9,6 +9,7 @@ import {
   listOrganizationApiKeys,
 } from "../../api-keys.js"
 import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { denTypeIdSchema } from "../../openapi.js"
 import { auth } from "../../auth.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { ensureApiKeyManager, idParamSchema, orgIdParamSchema } from "./shared.js"
@@ -45,8 +46,8 @@ const apiKeyNotFoundSchema = z.object({
 }).meta({ ref: "OrganizationApiKeyNotFoundError" })
 
 const apiKeyOwnerSchema = z.object({
-  userId: z.string(),
-  memberId: z.string(),
+  userId: denTypeIdSchema("user"),
+  memberId: denTypeIdSchema("member"),
   name: z.string(),
   email: z.string().email(),
   image: z.string().nullable(),
@@ -98,7 +99,7 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
   app.get(
     "/v1/orgs/:orgId/api-keys",
     describeRoute({
-      tags: ["Organizations", "Organization API Keys"],
+      tags: ["API Keys"],
       summary: "List organization API keys",
       description: "Returns the API keys that belong to the selected organization.",
       security: [{ bearerAuth: [] }],
@@ -128,7 +129,7 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
           },
         },
         403: {
-          description: "Forbidden",
+          description: "Only workspace owners and admins can list API keys.",
           content: {
             "application/json": {
               schema: resolver(forbiddenApiKeyManagerSchema),
@@ -163,7 +164,7 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
   app.post(
     "/v1/orgs/:orgId/api-keys",
     describeRoute({
-      tags: ["Organizations", "Organization API Keys"],
+      tags: ["API Keys"],
       summary: "Create an organization API key",
       description: "Creates a new API key for the selected organization.",
       hide: hideApiKeyGenerationRoute,
@@ -194,7 +195,7 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
           },
         },
         403: {
-          description: "Forbidden",
+          description: "Only workspace owners and admins can create API keys.",
           content: {
             "application/json": {
               schema: resolver(forbiddenApiKeyManagerSchema),
@@ -260,7 +261,8 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
   app.delete(
     "/v1/orgs/:orgId/api-keys/:apiKeyId",
     describeRoute({
-      tags: ["Organizations", "Organization API Keys"],
+      tags: ["API Keys"],
+      hide: true,
       summary: "Delete an organization API key",
       description: "Deletes an API key from the selected organization.",
       security: [{ bearerAuth: [] }],
@@ -285,7 +287,7 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
           },
         },
         403: {
-          description: "Forbidden",
+          description: "Only workspace owners and admins can delete API keys.",
           content: {
             "application/json": {
               schema: resolver(forbiddenApiKeyManagerSchema),

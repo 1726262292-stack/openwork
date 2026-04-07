@@ -8,7 +8,7 @@ import { requireCloudWorkerAccess } from "../../billing/polar.js"
 import { db } from "../../db.js"
 import { env } from "../../env.js"
 import { jsonValidator, paramValidator, queryValidator, requireUserMiddleware, resolveMemberTeamsMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
-import { forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
+import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { acceptInvitationForUser, createOrganizationForUser, getInvitationPreview, setSessionActiveOrganization } from "../../orgs.js"
 import { getRequiredUserEmail } from "../../user.js"
 import type { OrgRouteVariables } from "./shared.js"
@@ -19,11 +19,11 @@ const createOrganizationSchema = z.object({
 })
 
 const invitationPreviewQuerySchema = z.object({
-  id: z.string().trim().min(1),
+  id: denTypeIdSchema("invitation"),
 })
 
 const acceptInvitationSchema = z.object({
-  id: z.string().trim().min(1),
+  id: denTypeIdSchema("invitation"),
 })
 
 const organizationResponseSchema = z.object({
@@ -44,9 +44,9 @@ const invitationPreviewResponseSchema = z.object({}).passthrough().meta({ ref: "
 
 const invitationAcceptedResponseSchema = z.object({
   accepted: z.literal(true),
-  organizationId: z.string(),
+  organizationId: denTypeIdSchema("organization"),
   organizationSlug: z.string().nullable(),
-  invitationId: z.string(),
+  invitationId: denTypeIdSchema("invitation"),
 }).meta({ ref: "InvitationAcceptedResponse" })
 
 const organizationContextResponseSchema = z.object({
@@ -74,6 +74,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
     "/v1/orgs",
     describeRoute({
       tags: ["Organizations"],
+      hide: true,
       summary: "Create organization",
       description: "Creates a new organization for the signed-in user after verifying that their account can provision OpenWork Cloud workspaces.",
       responses: {
@@ -144,7 +145,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
   app.get(
     "/v1/orgs/invitations/preview",
     describeRoute({
-      tags: ["Organizations", "Organization Invitations"],
+      tags: ["Invitations"],
       summary: "Preview organization invitation",
       description: "Returns invitation preview details so a user can inspect an organization invite before accepting it.",
       responses: {
@@ -169,7 +170,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
   app.post(
     "/v1/orgs/invitations/accept",
     describeRoute({
-      tags: ["Organizations", "Organization Invitations"],
+      tags: ["Invitations"],
       summary: "Accept organization invitation",
       description: "Accepts an organization invitation for the current signed-in user and switches their active organization to the accepted workspace.",
       responses: {

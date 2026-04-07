@@ -7,7 +7,7 @@ import { z } from "zod"
 import { db } from "../../db.js"
 import { sendDenOrganizationInvitationEmail } from "../../email.js"
 import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
-import { forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
+import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
 import { getOrganizationLimitStatus } from "../../organization-limits.js"
 import { listAssignableRoles } from "../../orgs.js"
 import type { OrgRouteVariables } from "./shared.js"
@@ -19,20 +19,20 @@ const inviteMemberSchema = z.object({
 })
 
 const invitationResponseSchema = z.object({
-  invitationId: z.string(),
+  invitationId: denTypeIdSchema("invitation"),
   email: z.string().email(),
   role: z.string(),
   expiresAt: z.string().datetime(),
 }).meta({ ref: "InvitationResponse" })
 
 type InvitationId = typeof InvitationTable.$inferSelect.id
-const orgInvitationParamsSchema = orgIdParamSchema.extend(idParamSchema("invitationId").shape)
+const orgInvitationParamsSchema = orgIdParamSchema.extend(idParamSchema("invitationId", "invitation").shape)
 
 export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVariables }>(app: Hono<T>) {
   app.post(
     "/v1/orgs/:orgId/invitations",
     describeRoute({
-      tags: ["Organizations", "Organization Invitations"],
+      tags: ["Invitations"],
       summary: "Create organization invitation",
       description: "Creates or refreshes a pending organization invitation for an email address and sends the invite email.",
       responses: {
@@ -40,7 +40,7 @@ export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVaria
         201: jsonResponse("Invitation created successfully.", invitationResponseSchema),
         400: jsonResponse("The invitation request body or path parameters were invalid.", invalidRequestSchema),
         401: jsonResponse("The caller must be signed in to invite organization members.", unauthorizedSchema),
-        403: jsonResponse("The caller is not allowed to manage invitations for this organization.", forbiddenSchema),
+        403: jsonResponse("Only workspace owners and admins can create or resend invitations.", forbiddenSchema),
         404: jsonResponse("The organization could not be found.", notFoundSchema),
       },
     }),
@@ -141,14 +141,14 @@ export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVaria
   app.post(
     "/v1/orgs/:orgId/invitations/:invitationId/cancel",
     describeRoute({
-      tags: ["Organizations", "Organization Invitations"],
+      tags: ["Invitations"],
       summary: "Cancel organization invitation",
       description: "Cancels a pending organization invitation so the invite link can no longer be used.",
       responses: {
         200: jsonResponse("Invitation cancelled successfully.", successSchema),
         400: jsonResponse("The invitation cancellation path parameters were invalid.", invalidRequestSchema),
         401: jsonResponse("The caller must be signed in to cancel invitations.", unauthorizedSchema),
-        403: jsonResponse("The caller is not allowed to manage invitations for this organization.", forbiddenSchema),
+        403: jsonResponse("Only workspace owners and admins can cancel invitations.", forbiddenSchema),
         404: jsonResponse("The invitation or organization could not be found.", notFoundSchema),
       },
     }),

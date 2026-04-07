@@ -7,7 +7,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { jsonValidator, requireUserMiddleware } from "../../middleware/index.js"
 import { db } from "../../db.js"
-import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
+import { denTypeIdSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import type { AuthContextVariables } from "../../session.js"
 
 const createGrantSchema = z.object({
@@ -28,7 +28,7 @@ const desktopHandoffGrantResponseSchema = z.object({
 const desktopHandoffExchangeResponseSchema = z.object({
   token: z.string(),
   user: z.object({
-    id: z.string(),
+    id: denTypeIdSchema("user"),
     email: z.string().email(),
     name: z.string().nullable(),
   }),
@@ -115,6 +115,7 @@ export function registerDesktopAuthRoutes<T extends { Variables: AuthContextVari
   app.post(
     "/v1/auth/desktop-handoff",
     describeRoute({
+      hide: true,
       tags: ["Authentication"],
       summary: "Create desktop handoff grant",
       description: "Creates a short-lived desktop handoff grant and deep link so a signed-in web user can continue the same account in the OpenWork desktop app.",
@@ -162,6 +163,7 @@ export function registerDesktopAuthRoutes<T extends { Variables: AuthContextVari
   app.post(
     "/v1/auth/desktop-handoff/exchange",
     describeRoute({
+      hide: true,
       tags: ["Authentication"],
       summary: "Exchange desktop handoff grant",
       description: "Exchanges a one-time desktop handoff grant for the user's session token and basic profile so the desktop app can sign the user in.",

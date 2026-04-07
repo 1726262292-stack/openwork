@@ -6,7 +6,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { db } from "../../db.js"
 import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
-import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
+import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { idParamSchema, orgIdParamSchema, parseTemplateJson } from "./shared.js"
 
@@ -16,15 +16,15 @@ const createTemplateSchema = z.object({
 })
 
 const templateSchema = z.object({
-  id: z.string(),
-  organizationId: z.string(),
+  id: denTypeIdSchema("tempTemplateSharing"),
+  organizationId: denTypeIdSchema("organization"),
   name: z.string(),
   templateData: z.unknown(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   creator: z.object({
-    memberId: z.string(),
-    userId: z.string(),
+    memberId: denTypeIdSchema("member"),
+    userId: denTypeIdSchema("user"),
     role: z.string(),
     name: z.string().nullable(),
     email: z.string().email().nullable(),
@@ -41,13 +41,13 @@ const templateListResponseSchema = z.object({
 }).meta({ ref: "TemplateListResponse" })
 
 type TemplateSharingId = typeof TempTemplateSharingTable.$inferSelect.id
-const orgTemplateParamsSchema = orgIdParamSchema.extend(idParamSchema("templateId").shape)
+const orgTemplateParamsSchema = orgIdParamSchema.extend(idParamSchema("templateId", "tempTemplateSharing").shape)
 
 export function registerOrgTemplateRoutes<T extends { Variables: OrgRouteVariables }>(app: Hono<T>) {
   app.post(
     "/v1/orgs/:orgId/templates",
     describeRoute({
-      tags: ["Organizations", "Organization Templates"],
+      tags: ["Templates"],
       summary: "Create shared template",
       description: "Stores a reusable shared template snapshot inside an organization.",
       responses: {
@@ -103,7 +103,7 @@ export function registerOrgTemplateRoutes<T extends { Variables: OrgRouteVariabl
   app.get(
     "/v1/orgs/:orgId/templates",
     describeRoute({
-      tags: ["Organizations", "Organization Templates"],
+      tags: ["Templates"],
       summary: "List shared templates",
       description: "Lists the shared templates that belong to an organization, including creator metadata.",
       responses: {
@@ -170,14 +170,14 @@ export function registerOrgTemplateRoutes<T extends { Variables: OrgRouteVariabl
   app.delete(
     "/v1/orgs/:orgId/templates/:templateId",
     describeRoute({
-      tags: ["Organizations", "Organization Templates"],
+      tags: ["Templates"],
       summary: "Delete shared template",
-      description: "Deletes a shared template when the caller is the template creator or an organization owner.",
+      description: "Deletes a shared template when the caller is the template creator or a workspace owner.",
       responses: {
         204: emptyResponse("Template deleted successfully."),
         400: jsonResponse("The template deletion path parameters were invalid.", invalidRequestSchema),
         401: jsonResponse("The caller must be signed in to delete templates.", unauthorizedSchema),
-        403: jsonResponse("The caller is not allowed to delete this template.", forbiddenSchema),
+        403: jsonResponse("Only the template creator or a workspace owner can delete templates.", forbiddenSchema),
         404: jsonResponse("The template or organization could not be found.", notFoundSchema),
       },
     }),
@@ -211,7 +211,7 @@ export function registerOrgTemplateRoutes<T extends { Variables: OrgRouteVariabl
     if (!isOwner && !isCreator) {
       return c.json({
         error: "forbidden",
-        message: "Only the template creator or organization owner can delete templates.",
+        message: "Only the template creator or a workspace owner can delete templates.",
       }, 403)
     }
 
