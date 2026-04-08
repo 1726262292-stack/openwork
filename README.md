@@ -221,6 +221,12 @@ First contribution checklist:
 - [ ] Include commands run and outcomes in your PR.
 - [ ] Add screenshots/video for user-facing flow changes.
 
+## Supported Languages
+
+Translated READMEs: [`translated_readmes/`](./translated_readmes/README.md), available in English, 简体中文, 繁體中文, 日本語.
+
+The App is available in the following languages: English (`en`), Japanese (`ja`), Simplified Chinese (`zh`), Vietnamese (`vi`), Brazilian Portuguese (`pt-BR`).
+
 ## For Teams & Businesses
 
 Interested in using OpenWork in your organization? We'd love to hear from you — reach out at [ben@openworklabs.com](mailto:ben@openworklabs.com) to chat about your use case.
@@ -228,9 +234,3 @@ Interested in using OpenWork in your organization? We'd love to hear from you �
 ## License
 
 MIT — see `LICENSE`.
-
-## Supported Languages
-
-Translated READMEs: [`translated_readmes/`](./translated_readmes/README.md). README languages: English, 简体中文, 繁體中文, 日本語.
-
-App i18n languages: English (`en`), Japanese (`ja`), Simplified Chinese (`zh`), Vietnamese (`vi`), Brazilian Portuguese (`pt-BR`).
