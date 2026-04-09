@@ -149,7 +149,7 @@ export function LandingEnterprise(props: Props) {
                                   <LandingAppDemoPanel
                                     flows={landingDemoFlows}
                                     activeFlowId={activeStackDemoId}
-                                    onSelect={setActiveStackDemoId}
+                                    onSelectFlow={setActiveStackDemoId}
                                     timesById={landingDemoFlowTimes}
                                   />
                                 </div>
