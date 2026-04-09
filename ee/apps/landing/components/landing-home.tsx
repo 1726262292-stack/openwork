@@ -1,6 +1,6 @@
 "use client";
 import { AnimatePresence, motion, useInView } from "framer-motion";
-import { Cloud, Download, Monitor, Shield, Users } from "lucide-react";
+import { Download, Users } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import { LandingAppDemoPanel } from "./landing-app-demo-panel";
@@ -206,53 +206,6 @@ export function LandingHome(props: Props) {
                     </motion.div>
                   </AnimatePresence>
                 </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="grid gap-6 md:grid-cols-3">
-            <div className="landing-shell flex flex-col rounded-xl p-6">
-              <div className="mb-4 flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">
-                <Monitor size={18} />
-                Desktop
-              </div>
-              <h2 className="mb-3 text-xl font-medium tracking-tight">Local AI worker</h2>
-              <p className="mb-6 flex-1 text-sm leading-relaxed text-gray-500">
-                Start free on desktop forever with macOS and Linux downloads,
-                then automate email, Slack, and the work you do every day.
-              </p>
-              <div>
-                <a href="/download" className="secondary-button">Learn more</a>
-              </div>
-            </div>
-
-            <div className="landing-shell flex flex-col rounded-xl p-6">
-              <div className="mb-4 flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">
-                <Cloud size={18} />
-                Cloud
-              </div>
-              <h2 className="mb-3 text-xl font-medium tracking-tight">Hosted sandboxed workers</h2>
-              <p className="mb-6 flex-1 text-sm leading-relaxed text-gray-500">
-                Workers are disabled by default. Purchase one for $50/month when
-                you need hosted runtime.
-              </p>
-              <div>
-                <a href="/den" className="secondary-button">Learn more</a>
-              </div>
-            </div>
-
-            <div className="landing-shell flex flex-col rounded-xl p-6">
-              <div className="mb-4 flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">
-                <Shield size={18} />
-                Enterprise
-              </div>
-              <h2 className="mb-3 text-xl font-medium tracking-tight">Safe workflow sharing</h2>
-              <p className="mb-6 flex-1 text-sm leading-relaxed text-gray-500">
-                Deploy on your infrastructure. Enterprise licensing includes
-                Windows support plus rollout guidance.
-              </p>
-              <div>
-                <a href="/enterprise" className="secondary-button">Learn more</a>
               </div>
             </div>
           </section>
