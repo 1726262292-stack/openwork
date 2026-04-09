@@ -79,13 +79,13 @@ export function LandingEnterprise(props: Props) {
         <main className="mx-auto flex w-full max-w-5xl flex-col gap-16 px-6 pb-24 md:gap-20 md:px-8 md:pb-28">
           <section className="max-w-4xl">
             <h1 className="mb-6 text-4xl font-medium leading-[1.05] tracking-tight md:text-5xl lg:text-6xl">
-              Scale your existing AI workflows across your organisation at a fraction of the cost.
+              The Open Source alternative to Claude Cowork.
             </h1>
 
             <p className="max-w-3xl text-lg leading-relaxed text-slate-600 md:text-xl">
-              Get your entire organisation on your skills, plugins, and AI
-              workflows. Use your own API providers and integrate with systems
-              like LiteLLM out of the box.
+              Get your entire organisation running on shared skills, plugins,
+              and AI workflows. Bring your own LLM providers, choose from 50+
+              supported models, and integrate with LiteLLM out of the box.
             </p>
 
             <div className="mt-8 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
@@ -132,7 +132,7 @@ export function LandingEnterprise(props: Props) {
                     >
                       <div className="flex h-[220px] items-center justify-center bg-gray-50/60 p-4 md:h-[280px]">
                         {item.id === "desktop" ? (
-                          <div className="h-full w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+                          <div className="h-full w-full overflow-hidden rounded-lg border border-gray-200 bg-white">
                             <div className="relative flex h-7 items-center border-b border-gray-100 bg-gradient-to-b from-white to-gray-50 px-3">
                               <div className="flex gap-1.5">
                                 <div className="h-2 w-2 rounded-full bg-[#ff5f56]"></div>
@@ -160,10 +160,14 @@ export function LandingEnterprise(props: Props) {
                           <img
                             src={item.imageSrc}
                             alt={`${item.title} interface`}
-                            className="h-full w-full rounded-md border border-gray-200 object-cover object-top shadow-sm"
+                            className={`h-full w-full rounded-md ${
+                              item.id === "skill-hub" || item.id === "onboarding"
+                                ? "object-cover object-center scale-[1.02]"
+                                : "object-cover object-top"
+                            }`}
                           />
                         ) : (
-                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-[#011627] shadow-sm">
+                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-[#011627]">
                             <Icon size={18} />
                           </div>
                         )}
@@ -183,7 +187,7 @@ export function LandingEnterprise(props: Props) {
             </div>
 
             <div className="grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-              <div className="landing-shell rounded-[2rem] p-6 md:p-8">
+              <div className="rounded-[2rem] border border-gray-200 bg-white p-6 md:p-8">
                 <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
                   <ShieldCheck size={12} />
                   Information security
@@ -199,7 +203,7 @@ export function LandingEnterprise(props: Props) {
                 </p>
               </div>
 
-              <div className="landing-shell rounded-[2rem] p-6">
+              <div className="rounded-[2rem] border border-gray-200 bg-white p-6">
                 <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">
                   <PlugZap size={12} />
                   Deployment
