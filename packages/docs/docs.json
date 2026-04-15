@@ -55,7 +55,6 @@
           "cloud-shared-workspaces",
           "cloud-llm-providers",
           "cloud-custom-llm-providers",
-          "cloud-roi-calculator",
           "cloud-members-and-rbac"
         ]
       },
