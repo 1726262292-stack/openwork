@@ -13,7 +13,7 @@ This is one of the most relevant and meaningful applications of Openwork, and we
 
 > **Disclaimer:** We recommend setting the slackbot with a remote workspace instead of in your local machine to ensure there's `hardware isolation` between the remote workspace the ai can access and your local machine.
 
-For team-owned Slack or other long-running connectors, you can host the runtime in an OpenWork Cloud [shared workspace](/cloud-shared-workspaces) instead of keeping it on a laptop or self-managed server.
+For team-owned Slack or other long-running connectors, you can host the runtime in an OpenWork Cloud [shared workspace](/cloud/run-in-the-cloud/shared-workspace) instead of keeping it on a laptop or self-managed server.
 
 ## Having the right slack permissions
 
@@ -42,7 +42,7 @@ Go to [Create new app](https://api.slack.com/apps?new_app=1) in Slack. What you 
 Now, once you have both of these tokens, you can directly paste them into the app.
 
 <Frame>
-  ![Clean Shot 2026 03 24 At 17 15 15@2x](/images/CleanShot2026-03-24at17.15.15@2x.png)
+  ![Slack messaging settings with bot and app token fields](/images/slack-connect-tokens.png)
 
   Paste you `xorb-` and `xapp-` tokens into `Settings` \> `messaging`
 </Frame>
@@ -52,7 +52,7 @@ Now, once you have both of these tokens, you can directly paste them into the ap
 Test the bot by sending a message. It should respond instantly indicating that a new session has been initiatied and then send the actual response afterwards. For now, you will have to use `@slack-bot-name` every time you want to talk to it.
 
 <Frame>
-  ![Clean Shot 2026 03 24 At 17 16 43@2x](/images/CleanShot2026-03-24at17.16.43@2x.png)
+  ![Slack thread showing the bot reply to a test message](/images/slack-test-message-thread.png)
 </Frame>
 
 ## Template Manifest Example
