@@ -1,18 +1,19 @@
 import { eq } from "@openwork-ee/den-db/drizzle"
 import { OrganizationTable } from "@openwork-ee/den-db/schema"
-import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
+import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
+import { auth } from "../../auth.js"
 import { requireCloudWorkerAccess } from "../../billing/polar.js"
 import { db } from "../../db.js"
 import { env } from "../../env.js"
-import { jsonValidator, paramValidator, queryValidator, requireUserMiddleware, resolveMemberTeamsMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { jsonValidator, queryValidator, requireUserMiddleware, resolveMemberTeamsMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { acceptInvitationForUser, createOrganizationForUser, getInvitationPreview, setSessionActiveOrganization, updateOrganizationName } from "../../orgs.js"
 import { getRequiredUserEmail } from "../../user.js"
 import type { OrgRouteVariables } from "./shared.js"
-import { ensureOwner, orgIdParamSchema } from "./shared.js"
+import { ensureOwner } from "./shared.js"
 
 const createOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(120),
@@ -34,6 +35,14 @@ const organizationResponseSchema = z.object({
   organization: z.object({}).passthrough().nullable(),
 }).meta({ ref: "OrganizationResponse" })
 
+const organizationOwnerSchema = z.object({
+  memberId: denTypeIdSchema("member"),
+  userId: denTypeIdSchema("user"),
+  name: z.string().nullable(),
+  email: z.string().email().nullable(),
+  image: z.string().nullable().optional(),
+}).meta({ ref: "OrganizationOwner" })
+
 const paymentRequiredSchema = z.object({
   error: z.literal("payment_required"),
   message: z.string(),
@@ -54,6 +63,10 @@ const invitationAcceptedResponseSchema = z.object({
 }).meta({ ref: "InvitationAcceptedResponse" })
 
 const organizationContextResponseSchema = z.object({
+  organization: z.object({
+    owner: organizationOwnerSchema.nullable().optional(),
+  }).passthrough(),
+  currentMember: z.object({}).passthrough(),
   currentMemberTeams: z.array(z.object({}).passthrough()),
 }).passthrough().meta({ ref: "OrganizationContextResponse" })
 
@@ -73,9 +86,30 @@ function getStoredSessionId(session: { id?: string | null } | null) {
   }
 }
 
+async function setRequestActiveOrganization(
+  c: {
+    get: (key: "session") => { id?: string | null } | null
+    req: { raw: Request }
+  },
+  organizationId: DenTypeId<"organization"> | null,
+) {
+  try {
+    await auth.api.setActiveOrganization({
+      body: { organizationId },
+      headers: c.req.raw.headers,
+    })
+    return
+  } catch {}
+
+  const sessionId = getStoredSessionId(c.get("session"))
+  if (sessionId) {
+    await setSessionActiveOrganization(sessionId, organizationId)
+  }
+}
+
 export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }>(app: Hono<T>) {
   app.post(
-    "/v1/orgs",
+    "/v1/org",
     describeRoute({
       tags: ["Organizations"],
       hide: true,
@@ -100,7 +134,6 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
     }
 
     const user = c.get("user")
-    const session = c.get("session")
     const input = c.req.valid("json")
     const email = getRequiredUserEmail(user)
 
@@ -131,10 +164,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
       name: input.name,
     })
 
-    const sessionId = getStoredSessionId(session)
-    if (sessionId) {
-      await setSessionActiveOrganization(sessionId, organizationId)
-    }
+    await setRequestActiveOrganization(c, organizationId)
 
     const organization = await db
       .select()
@@ -196,7 +226,6 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
     }
 
     const user = c.get("user")
-    const session = c.get("session")
     const input = c.req.valid("json")
     const email = getRequiredUserEmail(user)
 
@@ -214,10 +243,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
       return c.json({ error: "invitation_not_found" }, 404)
     }
 
-    const sessionId = getStoredSessionId(session)
-    if (sessionId) {
-      await setSessionActiveOrganization(sessionId, accepted.member.organizationId)
-    }
+    await setRequestActiveOrganization(c, accepted.member.organizationId)
 
     const orgRows = await db
       .select({ slug: OrganizationTable.slug })
@@ -235,7 +261,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
   )
 
   app.patch(
-    "/v1/orgs/:orgId",
+    "/v1/org",
     describeRoute({
       tags: ["Organizations"],
       summary: "Update organization",
@@ -249,7 +275,6 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
       },
     }),
     requireUserMiddleware,
-    paramValidator(orgIdParamSchema),
     resolveOrganizationContextMiddleware,
     jsonValidator(updateOrganizationSchema),
     async (c) => {
@@ -275,25 +300,38 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
   )
 
   app.get(
-    "/v1/orgs/:orgId/context",
+    "/v1/org",
     describeRoute({
       tags: ["Organizations"],
-      summary: "Get organization context",
-      description: "Returns the resolved organization context for a specific org, including the current member record and their team memberships.",
+      summary: "Get active organization",
+      description: "Returns the active organization from the current session, including its owner, the current member record, and their team memberships.",
       responses: {
         200: jsonResponse("Organization context returned successfully.", organizationContextResponseSchema),
-        400: jsonResponse("The organization context path parameters were invalid.", invalidRequestSchema),
         401: jsonResponse("The caller must be signed in to load organization context.", unauthorizedSchema),
         404: jsonResponse("The organization could not be found.", notFoundSchema),
       },
     }),
     requireUserMiddleware,
-    paramValidator(orgIdParamSchema),
     resolveOrganizationContextMiddleware,
     resolveMemberTeamsMiddleware,
     (c) => {
+      const payload = c.get("organizationContext")
+      const owner = payload.members.find((member: typeof payload.members[number]) => member.isOwner) ?? null
+
       return c.json({
-        ...c.get("organizationContext"),
+        ...payload,
+        organization: {
+          ...payload.organization,
+          owner: owner
+            ? {
+              memberId: owner.id,
+              userId: owner.user.id,
+              name: owner.user.name,
+              email: owner.user.email,
+              image: owner.user.image,
+            }
+            : null,
+        },
         currentMemberTeams: c.get("memberTeams") ?? [],
       })
     },
