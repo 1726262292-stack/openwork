@@ -14,9 +14,9 @@ const home = `# OpenWork
 
 - **Try it free** — [Download the desktop app](https://openworklabs.com/download)
 - **Hosted cloud workers** — [Pricing](https://openworklabs.com/pricing) (\\$50/mo per worker)
+- **Sign in to the hosted workspace** — [Cloud](https://app.openworklabs.com)
 - **SSO / audit / procurement** — [Enterprise](https://openworklabs.com/enterprise)
 - **Docs** — [openworklabs.com/docs](https://openworklabs.com/docs)
-- **Den (team workspace)** — [openworklabs.com/den](https://openworklabs.com/den)
 
 ## For agents
 
@@ -28,7 +28,7 @@ const home = `# OpenWork
 Backed by Y Combinator.
 `
 
-const pricing = `# Pricing
+const pricing = `# OpenWork pricing — free, team, and enterprise
 
 > OpenWork has three tiers: free open-source desktop, \\$50/mo Team Starter, and custom Enterprise.
 
@@ -59,9 +59,9 @@ const pricing = `# Pricing
 Prices exclude taxes.
 `
 
-const enterprise = `# OpenWork for Enterprise
+const enterprise = `# A privacy-first alternative to Claude Cowork for your organization
 
-> Secure hosting for safe, permissioned AI employees. SSO, audit, custom deployment, and procurement support.
+> The open-source Claude Cowork alternative — self-hosted, permissioned, and compliance-ready. SSO, audit, custom deployment, and procurement support.
 
 ## What Enterprise includes
 
@@ -79,30 +79,8 @@ const enterprise = `# OpenWork for Enterprise
 ## Next step
 
 - [Book a call](https://openworklabs.com/enterprise#book)
-- See [Trust & security](https://openworklabs.com/trust) for data handling, subprocessors, and incident SLA
+- [Security Review](https://openworklabs.com/trust) — data handling, subprocessors, and incident SLA
 - See [Pricing](https://openworklabs.com/pricing) for tier comparison
-`
-
-const den = `# Den — Agents that never sleep
-
-> Cloud workspace for long-running tasks, background automation, and the same agent workflows you use locally in OpenWork, without keeping your own machine awake.
-
-## What Den is
-
-- Personal cloud workspace for OpenWork agents
-- Runs long-running and scheduled tasks without a local machine
-- Same skills, plugins, and MCP servers as the desktop app
-- \\$50/mo per worker — free for a limited time
-
-## Get started
-
-- CTA: [Start a cloud worker](https://app.openworklabs.com/checkout)
-- Free for a limited time
-
-## Related
-
-- [Pricing](https://openworklabs.com/pricing)
-- [Docs](https://openworklabs.com/docs)
 `
 
 const download = `# Download OpenWork
@@ -171,7 +149,6 @@ export const agentMarkdown: Record<string, string> = {
   "/": home,
   "/pricing": pricing,
   "/enterprise": enterprise,
-  "/den": den,
   "/download": download,
   "/trust": trust,
 }
