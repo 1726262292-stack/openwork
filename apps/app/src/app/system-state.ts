@@ -18,7 +18,8 @@ import type {
 import { addOpencodeCacheHint, isTauriRuntime, safeStringify } from "./utils";
 import { filterProviderList, mapConfigProvidersToList } from "./utils/providers";
 import { createUpdaterState, type UpdateStatus } from "./context/updater";
-import { createDenClient, readDenSettings } from "./lib/den";
+import { createDenClient, readDenSettings, type DenDesktopConfig } from "./lib/den";
+import { recordDevLog } from "./lib/dev-log";
 import {
   resetOpenworkState,
   resetOpencodeCache,
@@ -132,14 +133,122 @@ function compareVersions(left: string, right: string): number | null {
   return comparePrereleaseIdentifiers(parsedLeft.prerelease, parsedRight.prerelease);
 }
 
+function logUpdateGateFailure(label: string, payload?: unknown) {
+  try {
+    recordDevLog(true, {
+      level: "warn",
+      source: "updates",
+      label,
+      payload,
+    });
+    if (payload === undefined) {
+      console.warn(`[UPDATES] ${label}`);
+    } else {
+      console.warn(`[UPDATES] ${label}`, payload);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function logUpdateGateDebug(label: string, payload?: unknown) {
+  try {
+    recordDevLog(true, {
+      level: "debug",
+      source: "updates",
+      label,
+      payload,
+    });
+    if (payload === undefined) {
+      console.log(`[UPDATES] ${label}`);
+    } else {
+      console.log(`[UPDATES] ${label}`, payload);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function isUpdateAllowedByDesktopConfig(
+  updateVersion: string,
+  desktopConfig: DenDesktopConfig | null | undefined,
+) {
+  if (!Array.isArray(desktopConfig?.allowedDesktopVersions)) {
+    return true;
+  }
+
+  return desktopConfig.allowedDesktopVersions.some(
+    (allowedVersion) => compareVersions(updateVersion, allowedVersion) === 0,
+  );
+}
+
 async function isUpdateSupportedByDen(updateVersion: string) {
   try {
     const settings = readDenSettings();
-    const client = createDenClient({ baseUrl: settings.baseUrl, apiBaseUrl: settings.apiBaseUrl });
+    const token = settings.authToken?.trim() ?? "";
+    logUpdateGateDebug("den-update-check-start", {
+      updateVersion,
+      hasToken: Boolean(token),
+      activeOrgId: settings.activeOrgId ?? null,
+      activeOrgSlug: settings.activeOrgSlug ?? null,
+      baseUrl: settings.baseUrl,
+      apiBaseUrl: settings.apiBaseUrl ?? null,
+    });
+    const client = createDenClient({
+      baseUrl: settings.baseUrl,
+      apiBaseUrl: settings.apiBaseUrl,
+      ...(token ? { token } : {}),
+    });
     const metadata = await client.getAppVersionMetadata();
     const comparison = compareVersions(updateVersion, metadata.latestAppVersion);
-    return comparison !== null && comparison <= 0;
-  } catch {
+    logUpdateGateDebug("den-update-check-app-version-response", {
+      updateVersion,
+      minAppVersion: metadata.minAppVersion,
+      latestAppVersion: metadata.latestAppVersion,
+      comparison,
+    });
+    if (comparison === null) {
+      logUpdateGateFailure("den-update-check-invalid-version-comparison", {
+        updateVersion,
+        latestAppVersion: metadata.latestAppVersion,
+      });
+      return false;
+    }
+
+    if (comparison > 0) {
+      logUpdateGateDebug("den-update-check-blocked-by-server-max", {
+        updateVersion,
+        latestAppVersion: metadata.latestAppVersion,
+      });
+      return false;
+    }
+
+    if (!token) {
+      logUpdateGateDebug("den-update-check-allowed-no-token", { updateVersion });
+      return true;
+    }
+
+    try {
+      const desktopConfig = await client.getDesktopConfig();
+      const allowed = isUpdateAllowedByDesktopConfig(updateVersion, desktopConfig);
+      logUpdateGateDebug("den-update-check-desktop-config-response", {
+        updateVersion,
+        allowedDesktopVersions: desktopConfig.allowedDesktopVersions ?? null,
+        allowed,
+      });
+      return allowed;
+    } catch (error) {
+      logUpdateGateFailure("den-update-check-desktop-config-fetch-failed", {
+        updateVersion,
+        error: error instanceof Error ? error.message : safeStringify(error),
+      });
+      return false;
+    }
+  } catch (error) {
+    logUpdateGateFailure("den-update-check-app-version-fetch-failed", {
+      updateVersion,
+      error: error instanceof Error ? error.message : safeStringify(error),
+    });
     return false;
   }
 }
@@ -516,6 +625,15 @@ export function createSystemState(options: {
       const update = (await check({ timeout: 8_000 })) as unknown as UpdateHandle | null;
       const checkedAt = Date.now();
 
+      logUpdateGateDebug("tauri-update-check-result", update
+        ? {
+            available: update.available,
+            currentVersion: update.currentVersion,
+            version: update.version,
+            date: update.date ?? null,
+          }
+        : { available: false });
+
       if (!update) {
         setPendingUpdate(null);
         setUpdateStatus({ state: "idle", lastCheckedAt: checkedAt });
@@ -525,11 +643,17 @@ export function createSystemState(options: {
       const notes = typeof update.body === "string" ? update.body : undefined;
 
       if (!(await isUpdateSupportedByDen(update.version))) {
+        logUpdateGateDebug("tauri-update-check-suppressed-by-den", {
+          version: update.version,
+        });
         setPendingUpdate(null);
         setUpdateStatus({ state: "idle", lastCheckedAt: checkedAt });
         return;
       }
 
+      logUpdateGateDebug("tauri-update-check-allowed-by-den", {
+        version: update.version,
+      });
       setPendingUpdate({ update, version: update.version, notes });
       setUpdateStatus({
         state: "available",
