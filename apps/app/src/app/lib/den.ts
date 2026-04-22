@@ -1,5 +1,16 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { normalizeDesktopConfig, type DesktopConfig as SharedDesktopConfig } from "@openwork/types/den/desktop-app-restrictions";
+import {
+  normalizeDesktopConfig,
+  type DesktopConfig as SharedDesktopConfig,
+} from "@openwork/types/den/desktop-app-restrictions";
+
+// Re-export the shared schema under the local alias so React consumers
+// (e.g. the cloud domain's desktop-config provider) can import it alongside
+// the helpers they need. Solid references it internally only; the React
+// port wants it as part of the public surface of this module.
+export type { SharedDesktopConfig };
+export { normalizeDesktopConfig };
+
 import { isDesktopDeployment } from "./openwork-deployment";
 import {
   dispatchDenSettingsChanged,
