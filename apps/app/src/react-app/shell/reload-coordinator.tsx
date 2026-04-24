@@ -115,7 +115,7 @@ export function ReloadCoordinatorProvider({ children }: { children: ReactNode })
       <div className="pointer-events-none fixed right-4 top-4 z-50 w-[min(24rem,calc(100vw-1.5rem))] max-w-full sm:right-6 sm:top-6">
         <div className="pointer-events-auto">
           <ReloadWorkspaceToast
-            open={systemState.reload.reloadPending}
+            open={systemState.reload.reloadPending && activeSessions.length === 0}
             title={systemState.reloadCopy.title}
             description={systemState.reloadCopy.body}
             trigger={systemState.reload.reloadTrigger}

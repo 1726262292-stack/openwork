@@ -180,9 +180,9 @@ function mergeRouteWorkspaces(
     const merged = match
       ? {
           ...workspace,
-          displayName: match.displayName?.trim()
-            ? match.displayName
-            : workspace.displayName,
+          displayName: workspace.displayName?.trim()
+            ? workspace.displayName
+            : match.displayName,
           name: match.name?.trim() ? match.name : workspace.name,
         }
       : workspace;
@@ -225,6 +225,14 @@ function toSessionGroups(
         : "ready",
     error: errorsByWorkspaceId[workspace.id],
   }));
+}
+
+function isActiveSessionStatus(status: unknown) {
+  return status === "running" || status === "retry" || status === "busy";
+}
+
+function getSessionStatus(session: any) {
+  return session?.status ?? session?.state ?? session?.runStatus ?? null;
 }
 
 async function fileToDataUrl(file: File) {
@@ -371,6 +379,21 @@ export function SessionRoute() {
     openLink: (url) => platform.openLink(url),
     workspaceLabel,
   });
+
+  const activeReloadBlockingSessions = useMemo(
+    () =>
+      Object.values(sessionsByWorkspaceId)
+        .flat()
+        .filter((session) => isActiveSessionStatus(getSessionStatus(session)))
+        .map((session: any) => ({
+          id: String(session?.id ?? ""),
+          title:
+            String(session?.title ?? session?.slug ?? session?.id ?? "").trim() ||
+            t("session.untitled"),
+        }))
+        .filter((session) => session.id.length > 0),
+    [sessionsByWorkspaceId],
+  );
 
   const backgroundSessionLoadInFlight = useRef<Set<string>>(new Set());
   const loadWorkspaceSessionsInBackground = useCallback(
@@ -575,9 +598,9 @@ export function SessionRoute() {
     return reloadCoordinator.registerWorkspaceReloadControls({
       canReloadWorkspaceEngine: () => Boolean(client && selectedWorkspaceId),
       reloadWorkspaceEngine: reloadWorkspaceEngineFromUi,
-      activeSessions: () => [],
+      activeSessions: () => activeReloadBlockingSessions,
     });
-  }, [client, reloadCoordinator, reloadWorkspaceEngineFromUi, selectedWorkspaceId]);
+  }, [activeReloadBlockingSessions, client, reloadCoordinator, reloadWorkspaceEngineFromUi, selectedWorkspaceId]);
 
   useEffect(() => {
     if (!client || !selectedWorkspaceId) return;

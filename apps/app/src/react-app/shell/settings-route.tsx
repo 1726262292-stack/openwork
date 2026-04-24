@@ -109,9 +109,9 @@ function mergeRouteWorkspaces(
     const merged = match
       ? {
           ...workspace,
-          displayName: match.displayName?.trim()
-            ? match.displayName
-            : workspace.displayName,
+          displayName: workspace.displayName?.trim()
+            ? workspace.displayName
+            : match.displayName,
           name: match.name?.trim() ? match.name : workspace.name,
         }
       : workspace;

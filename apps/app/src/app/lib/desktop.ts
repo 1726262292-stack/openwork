@@ -88,7 +88,23 @@ export const desktopBridge: DesktopBridge = new Proxy({} as DesktopBridge, {
 
 export const desktopFetch: typeof globalThis.fetch = (input, init) => {
   if (isElectronDesktopRuntime()) {
-    return globalThis.fetch(input, init);
+    return invokeElectronHelper<{
+      status: number;
+      statusText: string;
+      headers: [string, string][];
+      body: string;
+    }>("__fetch", typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url, {
+      method: init?.method,
+      headers: init?.headers ? Object.fromEntries(new Headers(init.headers).entries()) : undefined,
+      body: typeof init?.body === "string" ? init.body : undefined,
+    }).then(
+      (result) =>
+        new Response(result.body, {
+          status: result.status,
+          statusText: result.statusText,
+          headers: result.headers,
+        }),
+    );
   }
   return tauriBridge.desktopFetch(input, init);
 };

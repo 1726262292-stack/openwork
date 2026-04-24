@@ -1140,6 +1140,22 @@ async function handleDesktopInvoke(event, command, ...args) {
       shell.showItemInFolder(target);
       return undefined;
     }
+    case "__fetch": {
+      const url = String(args[0] ?? "").trim();
+      const init = args[1] ?? {};
+      if (!url) throw new Error("URL is required.");
+      const response = await fetch(url, {
+        method: typeof init.method === "string" ? init.method : undefined,
+        headers: init.headers && typeof init.headers === "object" ? init.headers : undefined,
+        body: typeof init.body === "string" ? init.body : undefined,
+      });
+      return {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Array.from(response.headers.entries()),
+        body: await response.text(),
+      };
+    }
     case "__homeDir":
       return os.homedir();
     case "__joinPath":
