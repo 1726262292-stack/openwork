@@ -47,7 +47,6 @@ function deriveStatusCopy(props: StatusBarProps): StatusCopy {
     };
   }
 
-  const providers = props.providerConnectedIds?.length ?? 0;
   const mcp = props.mcpConnectedCount;
 
   if (!props.clientConnected && props.openworkServerStatus === "disconnected" && props.initializing) {
@@ -62,14 +61,6 @@ function deriveStatusCopy(props: StatusBarProps): StatusCopy {
 
   if (props.clientConnected) {
     const detailBits: string[] = [];
-    if (providers > 0) {
-      detailBits.push(
-        t("status.providers_connected", undefined, {
-          count: providers,
-          plural: providers === 1 ? "" : "s",
-        }),
-      );
-    }
     if (mcp > 0) {
       detailBits.push(t("status.mcp_connected", undefined, { count: mcp }));
     }
