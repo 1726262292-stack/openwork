@@ -372,6 +372,59 @@ export function SessionRoute() {
     workspaceLabel,
   });
 
+  const backgroundSessionLoadInFlight = useRef<Set<string>>(new Set());
+  const loadWorkspaceSessionsInBackground = useCallback(
+    async (openworkClient: OpenworkServerClient, workspaces: RouteWorkspace[]) => {
+      const MAX_ATTEMPTS = 6;
+      const backoffMs = (attempt: number) => Math.min(500 * Math.pow(2, attempt), 4_000);
+
+      const fetchOnce = async (workspace: RouteWorkspace, attempt: number): Promise<void> => {
+        if (backgroundSessionLoadInFlight.current.has(workspace.id)) return;
+        backgroundSessionLoadInFlight.current.add(workspace.id);
+        try {
+          const response = await openworkClient.listSessions(workspace.id, { limit: 200 });
+          const workspaceRoot = normalizeDirectoryPath(workspace.path ?? "");
+          const items = workspaceRoot
+            ? (response.items ?? []).filter((session: any) =>
+                normalizeDirectoryPath(session?.directory ?? "") === workspaceRoot,
+              )
+            : (response.items ?? []);
+          setSessionsByWorkspaceId((current) => ({ ...current, [workspace.id]: items }));
+          setErrorsByWorkspaceId((current) => ({ ...current, [workspace.id]: null }));
+          setRetryingWorkspaceIds((current) =>
+            current.includes(workspace.id) ? current.filter((id) => id !== workspace.id) : current,
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : t("app.unknown_error");
+          // The first cold call to OpenCode's /session endpoint often hits
+          // the 12s server timeout while the daemon finishes warming up
+          // its index. Retry silently with backoff until we get a response
+          // or run out of attempts — the sidebar keeps its "loading" state
+          // in the meantime instead of flashing "error" next to the
+          // workspace name.
+          if (attempt + 1 < MAX_ATTEMPTS && isTransientStartupError(message)) {
+            backgroundSessionLoadInFlight.current.delete(workspace.id);
+            await new Promise((r) => window.setTimeout(r, backoffMs(attempt)));
+            await fetchOnce(workspace, attempt + 1);
+            return;
+          }
+          // Final failure: clear loading but still don't surface the raw
+          // transport error in the sidebar header. If we truly can't reach
+          // the server, the status bar already says so, and other UI paths
+          // (refresh button, retry timer) will pick things up.
+          setRetryingWorkspaceIds((current) =>
+            current.includes(workspace.id) ? current.filter((id) => id !== workspace.id) : current,
+          );
+        } finally {
+          backgroundSessionLoadInFlight.current.delete(workspace.id);
+        }
+      };
+
+      await Promise.all(workspaces.map((workspace) => fetchOnce(workspace, 0)));
+    },
+    [],
+  );
+
   const refreshRouteState = useCallback(async () => {
     // Dedupe: if a refresh is already running, skip this call. Fast workspace
     // switches used to fire 5-6 overlapping refreshRouteState() calls which
@@ -421,64 +474,15 @@ export function SessionRoute() {
       const list = await openworkClient.listWorkspaces();
       const nextWorkspaces = mergeRouteWorkspaces(list.items, desktopWorkspaces);
 
-      const sessionEntries = await Promise.all(
-        nextWorkspaces.map(async (workspace) => {
-          try {
-            const response = await Promise.race([
-              openworkClient.listSessions(workspace.id, { limit: 200 }),
-              new Promise<never>((_, reject) =>
-                window.setTimeout(() => reject(new Error("Request timed out.")), 2_500),
-              ),
-            ]);
-            // The underlying opencode instance is shared across all local
-            // workspaces attached to the same openwork-server, so `listSessions`
-            // returns every session it knows about. Filter to just the ones
-            // rooted in this workspace's path (match the Solid reference at
-            // context/workspace.ts::listWorkspaceSessions).
-            const workspaceRoot = normalizeDirectoryPath(workspace.path ?? "");
-            const items = workspaceRoot
-              ? (response.items ?? []).filter((session: any) =>
-                  normalizeDirectoryPath(session?.directory ?? "") === workspaceRoot,
-                )
-              : (response.items ?? []);
-            return { workspaceId: workspace.id, sessions: items, error: null as string | null, loading: false };
-          } catch (error) {
-            const message = error instanceof Error ? error.message : t("app.unknown_error");
-            if (isTransientStartupError(message)) {
-              return {
-                workspaceId: workspace.id,
-                sessions: sessionsByWorkspaceIdRef.current[workspace.id] ?? [],
-                error: null as string | null,
-                loading: true,
-              };
-            }
-            return {
-              workspaceId: workspace.id,
-              sessions: [],
-              error: message,
-              loading: false,
-            };
-          }
-        }),
+      // Preserve any sessions we already have cached so switching routes
+      // doesn't erase the sidebar while we refetch.
+      const cachedEntries = nextWorkspaces.map((workspace) => ({
+        workspaceId: workspace.id,
+        sessions: sessionsByWorkspaceIdRef.current[workspace.id] ?? [],
+      }));
+      const workspacesWithoutCachedSessions = new Set(
+        cachedEntries.filter((entry) => entry.sessions.length === 0).map((entry) => entry.workspaceId),
       );
-      const retryingIds = sessionEntries
-        .filter((entry) => entry.loading)
-        .map((entry) => entry.workspaceId);
-      // Session list is best-effort; dismiss the boot overlay as soon as
-      // workspaces are loaded so the user can interact with the UI. The
-      // sidebar shows its own loading state for still-pending workspaces.
-      routeReadyAfterRefresh = true;
-      setRetryingWorkspaceIds(retryingIds);
-      if (retryingIds.length > 0 && typeof window !== "undefined" && startupRetryTimerRef.current === null) {
-        startupRetryTimerRef.current = window.setTimeout(() => {
-          startupRetryTimerRef.current = null;
-          refreshInFlightRef.current = false;
-          void refreshRouteState();
-        }, 1_000);
-      } else if (retryingIds.length === 0 && startupRetryTimerRef.current !== null) {
-        window.clearTimeout(startupRetryTimerRef.current);
-        startupRetryTimerRef.current = null;
-      }
 
       // Prefer, in order: the URL-selected workspace (if it owns the session),
       // the user's last-active workspace from localStorage, the desktop's
@@ -493,8 +497,8 @@ export function SessionRoute() {
         nextWorkspaces[0]?.id ||
         "";
       if (selectedSessionId) {
-        const match = sessionEntries.find((entry) =>
-          entry.sessions.some((session) => session.id === selectedSessionId),
+        const match = cachedEntries.find((entry) =>
+          entry.sessions.some((session: any) => session?.id === selectedSessionId),
         );
         if (match?.workspaceId) nextWorkspaceId = match.workspaceId;
       }
@@ -503,15 +507,28 @@ export function SessionRoute() {
       setBaseUrl(normalizedBaseUrl);
       setToken(resolvedToken);
       setWorkspaces(nextWorkspaces);
-      setSessionsByWorkspaceId(Object.fromEntries(sessionEntries.map((entry) => [entry.workspaceId, entry.sessions])));
-      setErrorsByWorkspaceId(Object.fromEntries(sessionEntries.map((entry) => [entry.workspaceId, entry.error])));
+      setSessionsByWorkspaceId(Object.fromEntries(cachedEntries.map((entry) => [entry.workspaceId, entry.sessions])));
+      setErrorsByWorkspaceId((previous) => {
+        const next: Record<string, string | null> = {};
+        for (const workspace of nextWorkspaces) {
+          next[workspace.id] = previous[workspace.id] ?? null;
+        }
+        return next;
+      });
+      setRetryingWorkspaceIds(Array.from(workspacesWithoutCachedSessions));
       setSelectedWorkspaceId(nextWorkspaceId);
       writeActiveWorkspaceId(nextWorkspaceId || null);
       recordInspectorEvent("route.refresh.complete", {
         workspaces: nextWorkspaces.length,
         selectedWorkspaceId: nextWorkspaceId,
-        errors: Object.fromEntries(sessionEntries.filter((e) => e.error).map((e) => [e.workspaceId, e.error])),
+        errors: {},
       });
+
+      // Session list comes from OpenCode's index and can be slow on cold
+      // boot. Kick it off in the background instead of blocking the route
+      // so the UI is interactive immediately; the sidebar shows a
+      // loading state per-workspace until the list arrives.
+      void loadWorkspaceSessionsInBackground(openworkClient, nextWorkspaces);
     } catch (error) {
       const message = describeRouteError(error);
       console.error("[session-route] refreshRouteState failed", error);
@@ -537,7 +554,7 @@ export function SessionRoute() {
         markBootRouteReady();
       }
     }
-  }, [markBootRouteReady, selectedSessionId]);
+  }, [loadWorkspaceSessionsInBackground, markBootRouteReady, selectedSessionId]);
 
   const reloadWorkspaceEngineFromUi = useCallback(async () => {
     if (!client || !selectedWorkspaceId) {
