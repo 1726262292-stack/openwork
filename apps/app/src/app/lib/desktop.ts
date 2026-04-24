@@ -86,8 +86,22 @@ export const desktopBridge: DesktopBridge = new Proxy({} as DesktopBridge, {
   },
 });
 
+function isLoopbackUrl(input: RequestInfo | URL): boolean {
+  const raw = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+  try {
+    const url = new URL(raw);
+    return url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
 export const desktopFetch: typeof globalThis.fetch = (input, init) => {
   if (isElectronDesktopRuntime()) {
+    if (isLoopbackUrl(input)) {
+      return globalThis.fetch(input, init);
+    }
+
     return invokeElectronHelper<{
       status: number;
       statusText: string;

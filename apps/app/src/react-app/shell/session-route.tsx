@@ -395,15 +395,17 @@ export function SessionRoute() {
     [sessionsByWorkspaceId],
   );
 
-  const backgroundSessionLoadInFlight = useRef<Set<string>>(new Set());
+  const backgroundSessionLoadInFlight = useRef<Map<string, number>>(new Map());
   const loadWorkspaceSessionsInBackground = useCallback(
     async (openworkClient: OpenworkServerClient, workspaces: RouteWorkspace[]) => {
       const MAX_ATTEMPTS = 6;
       const backoffMs = (attempt: number) => Math.min(500 * Math.pow(2, attempt), 4_000);
 
       const fetchOnce = async (workspace: RouteWorkspace, attempt: number): Promise<void> => {
-        if (backgroundSessionLoadInFlight.current.has(workspace.id)) return;
-        backgroundSessionLoadInFlight.current.add(workspace.id);
+        const startedAt = backgroundSessionLoadInFlight.current.get(workspace.id) ?? 0;
+        if (startedAt && Date.now() - startedAt < 5_000) return;
+        const requestStartedAt = Date.now();
+        backgroundSessionLoadInFlight.current.set(workspace.id, requestStartedAt);
         try {
           const response = await openworkClient.listSessions(workspace.id, { limit: 200 });
           const workspaceRoot = normalizeDirectoryPath(workspace.path ?? "");
@@ -426,7 +428,9 @@ export function SessionRoute() {
           // in the meantime instead of flashing "error" next to the
           // workspace name.
           if (attempt + 1 < MAX_ATTEMPTS && isTransientStartupError(message)) {
-            backgroundSessionLoadInFlight.current.delete(workspace.id);
+            if (backgroundSessionLoadInFlight.current.get(workspace.id) === requestStartedAt) {
+              backgroundSessionLoadInFlight.current.delete(workspace.id);
+            }
             await new Promise((r) => window.setTimeout(r, backoffMs(attempt)));
             await fetchOnce(workspace, attempt + 1);
             return;
@@ -439,7 +443,9 @@ export function SessionRoute() {
             current.includes(workspace.id) ? current.filter((id) => id !== workspace.id) : current,
           );
         } finally {
-          backgroundSessionLoadInFlight.current.delete(workspace.id);
+          if (backgroundSessionLoadInFlight.current.get(workspace.id) === requestStartedAt) {
+            backgroundSessionLoadInFlight.current.delete(workspace.id);
+          }
         }
       };
 
