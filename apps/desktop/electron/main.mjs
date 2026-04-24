@@ -90,7 +90,7 @@ const EMPTY_WORKSPACE_LIST = Object.freeze({
 
 const IDLE_ENGINE_INFO = Object.freeze({
   running: false,
-  runtime: "openwork-orchestrator",
+  runtime: "direct",
   baseUrl: null,
   projectDir: null,
   hostname: null,
@@ -412,7 +412,7 @@ async function bootRuntimeForSelectedWorkspace() {
   if (!workspacePaths.includes(workspaceRoot)) workspacePaths.unshift(workspaceRoot);
 
   const engine = await runtimeManager.engineStart(workspaceRoot, {
-    runtime: "openwork-orchestrator",
+    runtime: "direct",
     workspacePaths,
   });
   await runtimeManager.orchestratorWorkspaceActivate({

@@ -807,6 +807,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     const env = await buildChildEnv({
       OPENWORK_TOKEN: tokens.clientToken,
       OPENWORK_HOST_TOKEN: tokens.hostToken,
+      ...(options.manageOpencode ? { OPENWORK_MANAGE_OPENCODE: "1" } : {}),
+      ...(options.manageOpencode ? { OPENWORK_OPENCODE_BIN: options.opencodeBinPath || resolveBinary("opencode") || "" } : {}),
       ...(options.routerHealthPort ? { OPENCODE_ROUTER_HEALTH_PORT: String(options.routerHealthPort) } : {}),
       ...(options.opencodeUsername ? { OPENWORK_OPENCODE_USERNAME: options.opencodeUsername } : {}),
       ...(options.opencodePassword ? { OPENWORK_OPENCODE_PASSWORD: options.opencodePassword } : {}),
@@ -834,6 +836,28 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     openworkServerState.ownerToken = ownerToken;
     if (ownerToken) {
       await persistWorkspaceOwnerToken(activeWorkspace, ownerToken);
+    }
+    if (ownerToken) {
+      try {
+        const list = await fetchJson(`${baseUrl}/workspaces`, {
+          headers: { Authorization: `Bearer ${ownerToken}` },
+        }, 5000);
+        const first = Array.isArray(list?.items) ? list.items[0] : undefined;
+        const opencode = first?.opencode;
+        if (opencode?.baseUrl) {
+          engineState.runtime = DIRECT_RUNTIME;
+          engineState.projectDir = opencode.directory ?? activeWorkspace ?? null;
+          engineState.hostname = new URL(opencode.baseUrl).hostname;
+          engineState.port = Number(new URL(opencode.baseUrl).port) || null;
+          engineState.baseUrl = opencode.baseUrl;
+          engineState.opencodeUsername = opencode.username ?? null;
+          engineState.opencodePassword = opencode.password ?? null;
+          engineState.child = null;
+          engineState.childExited = false;
+        }
+      } catch (error) {
+        appendOutput(openworkServerState, "lastStderr", `OpenWork server workspace probe: ${error instanceof Error ? error.message : String(error)}\n`);
+      }
     }
     await persistPreferredOpenworkPort(activeWorkspace, port);
     return snapshotOpenworkServerState(openworkServerState);
@@ -1040,6 +1064,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
         opencodePassword: engineState.opencodePassword,
         routerHealthPort,
         remoteAccessEnabled: options.remoteAccessEnabled,
+        manageOpencode: options.manageOpencode === true,
+        opencodeBinPath: options.opencodeBinPath,
       });
     } catch (error) {
       appendOutput(engineState, "lastStderr", `OpenWork server: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -1072,22 +1098,25 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     const workspacePaths = [safeProjectDir, ...((options.workspacePaths ?? []).filter(Boolean))].filter(
       (value, index, list) => list.indexOf(value) === index,
     );
-    const runtime = options.runtime ?? ORCHESTRATOR_RUNTIME;
+    const runtime = DIRECT_RUNTIME;
 
     try {
       lifecycleState = "starting";
-      const snapshot = runtime === ORCHESTRATOR_RUNTIME
-        ? await startOrchestratorRuntime(safeProjectDir, options)
-        : await startDirectRuntime(safeProjectDir, options);
+      engineState.runtime = runtime;
+      engineState.projectDir = safeProjectDir;
+      engineState.child = null;
+      engineState.childExited = true;
 
       await ensureRouterAndOpenwork({
         projectDir: safeProjectDir,
         workspacePaths,
         remoteAccessEnabled: options.openworkRemoteAccess === true,
+        manageOpencode: true,
+        opencodeBinPath: options.opencodeBinPath,
       });
 
       lifecycleState = "healthy";
-      return snapshot;
+      return snapshotEngineState(engineState);
     } catch (error) {
       lifecycleState = "error";
       throw error;
@@ -1144,74 +1173,54 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   async function orchestratorStatus() {
-    const dataDir = orchestratorState.dataDir || orchestratorDataDir();
-    const stateFile = await readOrchestratorStateFile(dataDir);
-    const baseUrl = stateFile?.daemon?.baseUrl?.trim();
-    let health = null;
-    let workspaces = stateFile?.workspaces ?? [];
-    if (baseUrl) {
-      try {
-        health = await fetchJson(`${baseUrl}/health`, {}, 250);
-      } catch {
-        health = null;
-      }
-      try {
-        const list = await fetchJson(`${baseUrl}/workspaces`, {}, 250);
-        if (Array.isArray(list?.workspaces)) {
-          workspaces = list.workspaces;
-        }
-      } catch {
-        // ignore
-      }
-    }
+    const engine = snapshotEngineState(engineState);
+    const openworkServer = snapshotOpenworkServerState(openworkServerState);
+    const workspaces = engine.projectDir
+      ? [{ id: normalizeWorkspaceKey(engine.projectDir), path: engine.projectDir, name: path.basename(engine.projectDir) || "Workspace" }]
+      : [];
     return {
-      running: Boolean(health?.ok || stateFile?.daemon),
-      dataDir,
-      daemon: health?.daemon ?? stateFile?.daemon ?? null,
-      opencode: health?.opencode ?? stateFile?.opencode ?? null,
-      cliVersion: health?.cliVersion ?? stateFile?.cliVersion ?? null,
-      sidecar: health?.sidecar ?? stateFile?.sidecar ?? null,
-      binaries: health?.binaries ?? stateFile?.binaries ?? null,
-      activeId: health?.activeId ?? stateFile?.activeId ?? null,
-      workspaceCount: typeof health?.workspaceCount === "number" ? health.workspaceCount : workspaces.length,
+      running: engine.running,
+      dataDir: null,
+      daemon: openworkServer.running
+        ? { baseUrl: openworkServer.baseUrl, port: openworkServer.port, pid: openworkServer.pid, runtime: "direct" }
+        : null,
+      opencode: engine.running
+        ? { baseUrl: engine.baseUrl, port: engine.port, pid: engine.pid, projectDir: engine.projectDir, runtime: "direct" }
+        : null,
+      cliVersion: null,
+      sidecar: null,
+      binaries: null,
+      activeId: workspaces[0]?.id ?? null,
+      workspaceCount: workspaces.length,
       workspaces,
-      lastError: orchestratorState.lastStderr,
+      lastError: engine.lastStderr,
     };
   }
 
   async function orchestratorWorkspaceActivate(input) {
-    const baseUrl = await resolveOrchestratorBaseUrl();
-    const payload = { path: input.workspacePath, name: input.name ?? null };
-    const added = await fetchJson(`${baseUrl.replace(/\/+$/, "")}/workspaces`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }, 5000);
-    const id = added?.workspace?.id;
-    if (!id) {
-      throw new Error("Failed to add workspace.");
+    const workspacePath = String(input?.workspacePath ?? "").trim();
+    if (!workspacePath) {
+      throw new Error("workspacePath is required");
     }
-    await fetch(`${baseUrl.replace(/\/+$/, "")}/workspaces/${id}/activate`, { method: "POST" });
-    return added.workspace;
+    const resolved = path.resolve(workspacePath);
+    if (normalizeWorkspaceKey(engineState.projectDir) !== normalizeWorkspaceKey(resolved)) {
+      await engineStart(resolved, {
+        runtime: DIRECT_RUNTIME,
+        workspacePaths: [resolved],
+      });
+    }
+    return {
+      id: normalizeWorkspaceKey(resolved),
+      path: resolved,
+      name: input?.name ?? (path.basename(resolved) || "Workspace"),
+    };
   }
 
   async function orchestratorInstanceDispose(workspacePath) {
-    const baseUrl = await resolveOrchestratorBaseUrl();
-    const added = await fetchJson(`${baseUrl.replace(/\/+$/, "")}/workspaces`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: workspacePath }),
-    }, 5000);
-    const id = added?.workspace?.id;
-    if (!id) {
-      throw new Error("Failed to resolve workspace.");
+    if (normalizeWorkspaceKey(engineState.projectDir) === normalizeWorkspaceKey(workspacePath)) {
+      return true;
     }
-    const response = await fetchJson(`${baseUrl.replace(/\/+$/, "")}/instances/${id}/dispose`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "",
-    }, 5000);
-    return response?.disposed === true;
+    return true;
   }
 
   async function opencodeRouterInfo() {
