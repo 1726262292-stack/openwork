@@ -832,7 +832,12 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     openworkServerState.lanUrl = connectUrls.lanUrl;
 
     await waitForHttpOk(`${baseUrl}/health`, 10_000);
-    const ownerToken = tokens.ownerToken || (await issueOwnerToken(baseUrl, tokens.hostToken));
+    // Owner tokens live in the OpenWork server token store, which can be reset
+    // independently from the desktop runtime token cache. Always mint a fresh
+    // owner token for the newly-started server instead of trusting the cached
+    // value; otherwise the renderer can receive a stale bearer token and all
+    // workspace calls fail with 401.
+    const ownerToken = await issueOwnerToken(baseUrl, tokens.hostToken);
     openworkServerState.ownerToken = ownerToken;
     if (ownerToken) {
       await persistWorkspaceOwnerToken(activeWorkspace, ownerToken);
