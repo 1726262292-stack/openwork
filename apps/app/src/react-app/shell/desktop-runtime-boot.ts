@@ -7,6 +7,7 @@ import {
   openworkServerInfo,
   orchestratorWorkspaceActivate,
   resolveWorkspaceListSelectedId,
+  runtimeBootstrap,
   workspaceBootstrap,
 } from "../../app/lib/desktop";
 import { ingestMigrationSnapshotOnElectronBoot } from "../../app/lib/migration";
@@ -78,6 +79,54 @@ export function useDesktopRuntimeBoot() {
 
         const workspaceRoot = workspace.path?.trim();
         if (!workspaceRoot) {
+          markReady();
+          return;
+        }
+
+        if (isElectronRuntime()) {
+          setPhase("starting-engine", "Starting your workspace");
+          const boot = (await runtimeBootstrap().catch((error) => ({
+            ok: false,
+            error: error instanceof Error ? error.message : safeStringify(error),
+          }))) as {
+            ok?: boolean;
+            skipped?: boolean;
+            error?: string;
+            engine?: { baseUrl?: string | null };
+            openworkServer?: {
+              baseUrl?: string | null;
+              ownerToken?: string | null;
+              clientToken?: string | null;
+              port?: number | null;
+              remoteAccessEnabled?: boolean;
+            };
+          };
+
+          if (boot.ok === false) {
+            setError(boot.error || "Failed to start OpenWork runtime");
+            return;
+          }
+
+          if (boot.engine?.baseUrl) {
+            setActive(boot.engine.baseUrl);
+          }
+          const serverInfo = boot.openworkServer;
+          if (serverInfo?.baseUrl) {
+            writeOpenworkServerSettings({
+              urlOverride: serverInfo.baseUrl,
+              token:
+                serverInfo.ownerToken?.trim() ||
+                serverInfo.clientToken?.trim() ||
+                undefined,
+              portOverride: serverInfo.port ?? undefined,
+              remoteAccessEnabled: serverInfo.remoteAccessEnabled === true,
+            });
+            try {
+              window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
+            } catch {
+              /* ignore */
+            }
+          }
           markReady();
           return;
         }

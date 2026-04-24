@@ -292,6 +292,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   // stopAllRuntimeChildren kills the previous call's freshly-spawned
   // orchestrator daemon, and the prior call then times out its /health probe.
   let runtimeLifecycleQueue = Promise.resolve();
+  let lifecycleState = "idle";
   function withRuntimeLifecycle(fn) {
     const next = runtimeLifecycleQueue.then(fn, fn);
     runtimeLifecycleQueue = next.catch(() => {});
@@ -435,17 +436,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   async function resolveOpenworkPort(host, workspaceKey) {
-    const preferred = await readPreferredOpenworkPort(workspaceKey);
-    if (preferred && (await portAvailable(host, preferred))) {
-      return preferred;
-    }
-
-    for (let port = OPENWORK_SERVER_PORT_RANGE_START; port <= OPENWORK_SERVER_PORT_RANGE_END; port += 1) {
-      if (await portAvailable(host, port)) {
-        return port;
-      }
-    }
-
+    // Use a fresh port every boot. Persisted preferred ports made prod starts
+    // fragile when an old sidecar held the previous port or shutdown was
+    // unclean; Electron publishes the chosen URL to React after boot.
     return findFreePort(host);
   }
 
@@ -674,6 +667,55 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     });
 
     return child;
+  }
+
+  function processMatchesSidecar(command) {
+    const value = String(command ?? "");
+    return sidecarDirs.some((dir) => value.includes(dir)) &&
+      (
+        value.includes("openwork-orchestrator") ||
+        value.includes("openwork-server") ||
+        value.includes("opencode serve") ||
+        value.includes("opencode-router")
+      );
+  }
+
+  function killProcessId(pid, signal = "SIGTERM") {
+    if (!Number.isFinite(pid) || pid <= 0 || pid === process.pid) return;
+    try {
+      process.kill(pid, signal);
+    } catch {
+      // Process already exited or is not ours.
+    }
+  }
+
+  async function cleanupPackagedSidecars() {
+    if (!app.isPackaged) return;
+
+    // First ask the previously recorded orchestrator daemon to shut itself and
+    // its OpenCode child down. This handles the happy path without relying on
+    // process-list parsing.
+    await requestOrchestratorShutdown(orchestratorState.dataDir || orchestratorDataDir()).catch(() => false);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    // Safety net: an unclean Electron quit can orphan sidecars. Packaged builds
+    // should always own a fresh runtime per app launch, so remove any leftover
+    // sidecars from this app bundle before choosing ports for the new runtime.
+    const result = spawnSync("ps", ["-Ao", "pid=,command="], { encoding: "utf8" });
+    const rows = String(result.stdout ?? "").split(/\r?\n/);
+    const pids = [];
+    for (const row of rows) {
+      const match = row.match(/^\s*(\d+)\s+(.+)$/);
+      if (!match) continue;
+      const pid = Number(match[1]);
+      const command = match[2] ?? "";
+      if (processMatchesSidecar(command)) pids.push(pid);
+    }
+    for (const pid of pids) killProcessId(pid, "SIGTERM");
+    if (pids.length > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      for (const pid of pids) killProcessId(pid, "SIGKILL");
+    }
   }
 
   async function stopChild(state, options = {}) {
@@ -981,6 +1023,13 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     Object.assign(routerState, createRouterState());
   }
 
+  async function prepareFreshRuntime() {
+    lifecycleState = "cleaning";
+    await stopAllRuntimeChildren();
+    await cleanupPackagedSidecars();
+    lifecycleState = "idle";
+  }
+
   async function ensureRouterAndOpenwork(options) {
     const routerHealthPort = await resolveRouterHealthPort().catch(() => null);
     try {
@@ -1018,28 +1067,37 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     }
     await mkdir(safeProjectDir, { recursive: true });
     await ensureOpencodeConfig(safeProjectDir);
-    await stopAllRuntimeChildren();
+    await prepareFreshRuntime();
 
     const workspacePaths = [safeProjectDir, ...((options.workspacePaths ?? []).filter(Boolean))].filter(
       (value, index, list) => list.indexOf(value) === index,
     );
     const runtime = options.runtime ?? ORCHESTRATOR_RUNTIME;
 
-    const snapshot = runtime === ORCHESTRATOR_RUNTIME
-      ? await startOrchestratorRuntime(safeProjectDir, options)
-      : await startDirectRuntime(safeProjectDir, options);
+    try {
+      lifecycleState = "starting";
+      const snapshot = runtime === ORCHESTRATOR_RUNTIME
+        ? await startOrchestratorRuntime(safeProjectDir, options)
+        : await startDirectRuntime(safeProjectDir, options);
 
-    await ensureRouterAndOpenwork({
-      projectDir: safeProjectDir,
-      workspacePaths,
-      remoteAccessEnabled: options.openworkRemoteAccess === true,
-    });
+      await ensureRouterAndOpenwork({
+        projectDir: safeProjectDir,
+        workspacePaths,
+        remoteAccessEnabled: options.openworkRemoteAccess === true,
+      });
 
-    return snapshot;
+      lifecycleState = "healthy";
+      return snapshot;
+    } catch (error) {
+      lifecycleState = "error";
+      throw error;
+    }
   }
 
   async function engineStop() {
+    lifecycleState = "stopping";
     await stopAllRuntimeChildren();
+    lifecycleState = "idle";
     return snapshotEngineState(engineState);
   }
 
@@ -1057,31 +1115,16 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   async function engineInfo() {
-    if (engineState.runtime === ORCHESTRATOR_RUNTIME && !engineState.child && !engineState.childExited) {
-      return snapshotEngineState(engineState);
-    }
+    return { ...snapshotEngineState(engineState), lifecycleState };
+  }
 
-    if (engineState.runtime === ORCHESTRATOR_RUNTIME && !snapshotEngineState(engineState).running) {
-      const dataDir = orchestratorState.dataDir || orchestratorDataDir();
-      const stateFile = await readOrchestratorStateFile(dataDir);
-      const auth = await readOrchestratorAuthFile(dataDir);
-      const opencode = stateFile?.opencode;
-      return {
-        running: Boolean(stateFile?.daemon && opencode),
-        runtime: ORCHESTRATOR_RUNTIME,
-        baseUrl: opencode?.port ? `http://127.0.0.1:${opencode.port}` : null,
-        projectDir: auth?.projectDir ?? engineState.projectDir,
-        hostname: opencode ? "127.0.0.1" : null,
-        port: opencode?.port ?? null,
-        opencodeUsername: auth?.opencodeUsername ?? engineState.opencodeUsername,
-        opencodePassword: auth?.opencodePassword ?? engineState.opencodePassword,
-        pid: opencode?.pid ?? null,
-        lastStdout: orchestratorState.lastStdout,
-        lastStderr: orchestratorState.lastStderr,
-      };
-    }
-
-    return snapshotEngineState(engineState);
+  async function runtimeStatus() {
+    return {
+      lifecycleState,
+      engine: await engineInfo(),
+      openworkServer: snapshotOpenworkServerState(openworkServerState),
+      router: snapshotRouterState(routerState),
+    };
   }
 
   async function openworkServerInfo() {
@@ -1540,6 +1583,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     engineStart: (projectDir, options) => withRuntimeLifecycle(() => engineStart(projectDir, options)),
     engineStop: () => withRuntimeLifecycle(() => engineStop()),
     engineRestart: (options) => withRuntimeLifecycle(() => engineRestart(options)),
+    prepareFreshRuntime: () => withRuntimeLifecycle(() => prepareFreshRuntime()),
+    dispose: () => withRuntimeLifecycle(() => stopAllRuntimeChildren()),
+    runtimeStatus,
     engineInfo,
     engineInstall,
     openworkServerInfo,

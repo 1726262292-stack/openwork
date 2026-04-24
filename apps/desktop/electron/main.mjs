@@ -383,6 +383,56 @@ const runtimeManager = createRuntimeManager({
       .filter(Boolean),
 });
 
+let runtimeDisposedForQuit = false;
+let runtimeBootstrapPromise = null;
+
+async function disposeRuntimeBeforeQuit() {
+  if (runtimeDisposedForQuit) return;
+  runtimeDisposedForQuit = true;
+  await runtimeManager.dispose().catch(() => undefined);
+}
+
+async function bootRuntimeForSelectedWorkspace() {
+  const list = await readWorkspaceState();
+  const selectedId = list.selectedId || list.activeId || list.workspaces[0]?.id || "";
+  const workspace = selectedId
+    ? list.workspaces.find((entry) => entry?.id === selectedId)
+    : list.workspaces[0];
+  const workspaceRoot = String(workspace?.path ?? "").trim();
+  if (!workspaceRoot || workspace?.workspaceType === "remote") {
+    return { ok: true, skipped: true, reason: "no-local-workspace" };
+  }
+
+  const workspacePaths = [];
+  for (const entry of list.workspaces) {
+    if (entry?.workspaceType === "remote") continue;
+    const workspacePath = String(entry?.path ?? "").trim();
+    if (workspacePath && !workspacePaths.includes(workspacePath)) workspacePaths.push(workspacePath);
+  }
+  if (!workspacePaths.includes(workspaceRoot)) workspacePaths.unshift(workspaceRoot);
+
+  const engine = await runtimeManager.engineStart(workspaceRoot, {
+    runtime: "openwork-orchestrator",
+    workspacePaths,
+  });
+  await runtimeManager.orchestratorWorkspaceActivate({
+    workspacePath: workspaceRoot,
+    name: workspace.name ?? workspace.displayName ?? null,
+  }).catch(() => undefined);
+  const openworkServer = await runtimeManager.openworkServerInfo();
+  return { ok: true, skipped: false, engine, openworkServer, workspaceId: workspace.id ?? null };
+}
+
+function ensureRuntimeBootstrap() {
+  if (!runtimeBootstrapPromise) {
+    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch((error) => ({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+  }
+  return runtimeBootstrapPromise;
+}
+
 function makeWorkspaceId(kind, value) {
   return `${kind}_${createHash("sha1").update(String(value)).digest("hex").slice(0, 12)}`;
 }
@@ -877,6 +927,12 @@ async function handleDesktopInvoke(event, command, ...args) {
       const options = args[1] ?? {};
       return runtimeManager.engineStart(projectDir, options);
     }
+    case "prepareFreshRuntime":
+      return runtimeManager.prepareFreshRuntime();
+    case "runtimeBootstrap":
+      return ensureRuntimeBootstrap();
+    case "runtimeStatus":
+      return runtimeManager.runtimeStatus();
     case "engineStop":
       return runtimeManager.engineStop();
     case "engineRestart":
@@ -931,7 +987,7 @@ async function handleDesktopInvoke(event, command, ...args) {
       const result = await dialog.showOpenDialog(activeWindowFromEvent(event), {
         title: options.title,
         defaultPath: options.defaultPath,
-        properties: ["openDirectory", ...(options.multiple ? ["multiSelections"] : [])],
+        properties: ["openDirectory", "createDirectory", ...(options.multiple ? ["multiSelections"] : [])],
       });
       if (result.canceled) return null;
       return options.multiple ? result.filePaths : (result.filePaths[0] ?? null);
@@ -1346,6 +1402,12 @@ ipcMain.handle("openwork:updater:installAndRestart", async () => {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
+  app.on("before-quit", (event) => {
+    if (runtimeDisposedForQuit) return;
+    event.preventDefault();
+    void disposeRuntimeBeforeQuit().finally(() => app.quit());
+  });
+
   app.on("second-instance", async (_event, argv) => {
     const win = await createMainWindow();
     if (win.isMinimized()) {
@@ -1363,9 +1425,15 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    await runtimeManager.prepareFreshRuntime().catch(() => undefined);
+
     // Copy Tauri workspace state on first launch so the Electron sidebar
     // reflects the exact workspace list users see in the Tauri app today.
     await migrateLegacyWorkspaceStateIfNeeded();
+    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch((error) => ({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
 
     queueDeepLinks(forwardedDeepLinks(process.argv));
     const win = await createMainWindow();
