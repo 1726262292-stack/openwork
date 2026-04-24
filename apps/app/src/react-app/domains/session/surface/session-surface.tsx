@@ -24,6 +24,7 @@ import {
 import { getReactQueryClient } from "../../../infra/query-client";
 import { ReactSessionComposer } from "./composer/composer";
 import { DevProfiler } from "../../../shell/dev-profiler";
+import { OwDotTicker } from "../../../shell/dot-ticker";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import type { ReactComposerNotice } from "./composer/notice";
 import { SessionDebugPanel } from "./debug-panel";
@@ -117,25 +118,10 @@ function messageHasVisibleAssistantOutput(message: UIMessage) {
 
 function AssistantWaitingCard() {
   return (
-    <div className="flex justify-start py-3" role="status" aria-live="polite">
-      <div className="ow-session-wait relative flex max-w-[360px] items-center gap-4 overflow-hidden rounded-[26px] border border-dls-border bg-[radial-gradient(circle_at_top_left,rgba(var(--dls-accent-rgb),0.16),transparent_46%),var(--dls-surface)] px-5 py-4 shadow-[0_18px_56px_rgba(15,23,42,0.12)]">
-        <div className="pointer-events-none absolute inset-0 opacity-70">
-          <div className="ow-session-glow absolute left-12 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgba(var(--dls-accent-rgb),0.16)] blur-2xl" />
-          <div className="ow-session-scan absolute inset-x-4 top-4 h-px bg-gradient-to-r from-transparent via-[rgba(var(--dls-accent-rgb),0.62)] to-transparent" />
-        </div>
-        <div className="relative flex h-14 w-14 shrink-0 items-center justify-center">
-          <div className="ow-session-orbit absolute inset-0 rounded-full border border-[rgba(var(--dls-accent-rgb),0.24)]" />
-          <div className="ow-session-orbit-reverse absolute inset-2 rounded-full border border-dashed border-[rgba(var(--dls-accent-rgb),0.36)]" />
-          <div className="ow-session-comet absolute left-1/2 top-1/2 h-2 w-2 rounded-full bg-dls-accent shadow-[0_0_18px_rgba(var(--dls-accent-rgb),0.9)]" />
-          <div className="relative h-7 w-7 rounded-lg bg-[conic-gradient(from_0deg,rgba(var(--dls-accent-rgb),0.15),rgba(var(--dls-accent-rgb),0.95),rgba(var(--dls-accent-rgb),0.15))] ow-session-core" />
-        </div>
-        <div className="relative min-w-0 flex-1 text-left">
-          <div className="text-sm font-medium text-dls-text">Thinking...</div>
-          <div className="mt-0.5 text-xs text-dls-secondary">Waiting for the first response token</div>
-          <div className="relative mt-3 h-1 w-full overflow-hidden rounded-full bg-dls-hover">
-            <div className="ow-session-progress absolute inset-y-0 left-0 w-1/2 rounded-full bg-gradient-to-r from-transparent via-dls-accent to-transparent" />
-          </div>
-        </div>
+    <div className="flex justify-start py-2" role="status" aria-live="polite">
+      <div className="inline-flex items-center gap-3 rounded-full border border-dls-border bg-dls-surface px-3 py-1.5 text-[12px] text-dls-secondary">
+        <OwDotTicker size="sm" />
+        <span>Thinking</span>
       </div>
     </div>
   );
