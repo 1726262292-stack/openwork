@@ -134,34 +134,6 @@ async function resolveRouteOpenworkConnection() {
   return { normalizedBaseUrl, resolvedToken, hostInfo };
 }
 
-async function checkWorkspaceOpencodeReady(
-  baseUrl: string,
-  workspaceId: string,
-  token: string,
-  timeoutMs = 1_500,
-) {
-  const mounted = buildOpenworkWorkspaceBaseUrl(baseUrl, workspaceId) ?? baseUrl;
-  const url = `${mounted.replace(/\/+$/, "")}/opencode/global/health`;
-  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-  let timeoutId: number | null = null;
-  try {
-    if (controller) {
-      timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-    }
-    const response = await fetch(url, {
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      signal: controller?.signal,
-    });
-    if (!response.ok) return false;
-    const data = await response.json().catch(() => null);
-    return data?.healthy === true;
-  } catch {
-    return false;
-  } finally {
-    if (timeoutId) window.clearTimeout(timeoutId);
-  }
-}
-
 function isTransientStartupError(message: string | null | undefined) {
   const value = (message ?? "").toLowerCase();
   return (
@@ -452,28 +424,12 @@ export function SessionRoute() {
       const sessionEntries = await Promise.all(
         nextWorkspaces.map(async (workspace) => {
           try {
-            const opencodeReady = await checkWorkspaceOpencodeReady(
-              normalizedBaseUrl,
-              workspace.id,
-              resolvedToken,
-            );
-            if (!opencodeReady) {
-              return {
-                workspaceId: workspace.id,
-                sessions: sessionsByWorkspaceIdRef.current[workspace.id] ?? [],
-                error: null as string | null,
-                loading: true,
-              };
-            }
-            if (!selectedSessionId) {
-              return {
-                workspaceId: workspace.id,
-                sessions: sessionsByWorkspaceIdRef.current[workspace.id] ?? [],
-                error: null as string | null,
-                loading: false,
-              };
-            }
-            const response = await openworkClient.listSessions(workspace.id, { limit: 200 });
+            const response = await Promise.race([
+              openworkClient.listSessions(workspace.id, { limit: 200 }),
+              new Promise<never>((_, reject) =>
+                window.setTimeout(() => reject(new Error("Request timed out.")), 2_500),
+              ),
+            ]);
             // The underlying opencode instance is shared across all local
             // workspaces attached to the same openwork-server, so `listSessions`
             // returns every session it knows about. Filter to just the ones
@@ -508,7 +464,10 @@ export function SessionRoute() {
       const retryingIds = sessionEntries
         .filter((entry) => entry.loading)
         .map((entry) => entry.workspaceId);
-      routeReadyAfterRefresh = retryingIds.length === 0;
+      // Session list is best-effort; dismiss the boot overlay as soon as
+      // workspaces are loaded so the user can interact with the UI. The
+      // sidebar shows its own loading state for still-pending workspaces.
+      routeReadyAfterRefresh = true;
       setRetryingWorkspaceIds(retryingIds);
       if (retryingIds.length > 0 && typeof window !== "undefined" && startupRetryTimerRef.current === null) {
         startupRetryTimerRef.current = window.setTimeout(() => {
@@ -853,21 +812,26 @@ export function SessionRoute() {
   }, [baseUrl, selectedWorkspaceId]);
   const selectedWorkspaceIsLoading = retryingWorkspaceIds.includes(selectedWorkspaceId);
   const selectedWorkspaceError = errorsByWorkspaceId[selectedWorkspaceId] ?? null;
-  const effectiveLoading = loading || selectedWorkspaceIsLoading;
+  // Boot-level loading blocks the whole UI. Session-list retries only fill the
+  // sidebar; they must not gate the composer/New task.
+  const effectiveLoading = loading;
 
   const opencodeClient = useMemo(
     () =>
-      opencodeBaseUrl && token && !effectiveLoading && !selectedWorkspaceError
+      opencodeBaseUrl && token && !selectedWorkspaceError
         ? createClient(opencodeBaseUrl, selectedWorkspaceRoot || undefined, {
             token,
             mode: "openwork",
           })
         : null,
-    [effectiveLoading, opencodeBaseUrl, selectedWorkspaceError, selectedWorkspaceRoot, token],
+    [opencodeBaseUrl, selectedWorkspaceError, selectedWorkspaceRoot, token],
   );
   const canCreateTask = Boolean(
-    opencodeClient && selectedWorkspaceId && !effectiveLoading && !selectedWorkspaceError,
+    opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError,
   );
+  const showPreparingStatus =
+    effectiveLoading ||
+    (!canCreateTask && !routeError && !selectedWorkspaceError);
 
   useEffect(() => {
     if (!opencodeClient) {
@@ -1359,7 +1323,15 @@ export function SessionRoute() {
       const session = unwrap(
         await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
       );
+      setSelectedWorkspaceId(workspaceId);
+      writeActiveWorkspaceId(workspaceId || null);
+      writeLastSessionFor(workspaceId, session.id);
+      setSessionsByWorkspaceId((current) => ({
+        ...current,
+        [workspaceId]: [session as any, ...(current[workspaceId] ?? [])],
+      }));
       navigate(`/session/${session.id}`);
+      void refreshRouteState();
     } catch (error) {
       const message = describeRouteError(error);
       setRouteError(message);
@@ -1742,7 +1714,7 @@ export function SessionRoute() {
             }
           : undefined
       }
-      statusBar={effectiveLoading ? {
+      statusBar={showPreparingStatus ? {
         statusLabel: "Preparing workspace",
         statusDetail: t("session.loading_detail"),
         statusDotClass: "bg-amber-9",
