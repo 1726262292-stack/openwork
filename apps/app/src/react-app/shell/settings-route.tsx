@@ -21,7 +21,7 @@ import { createOpenworkServerStore, useOpenworkServerStoreSnapshot } from "../do
 import { createProviderAuthStore, useProviderAuthStoreSnapshot } from "../domains/connections/provider-auth/store";
 import ProviderAuthModal from "../domains/connections/provider-auth/provider-auth-modal";
 import ConnectionsModals from "../domains/connections/modals";
-import { TopRightNotifications } from "../domains/shell-feedback/top-right-notifications";
+import { ReloadWorkspaceToast } from "../domains/shell-feedback/reload-workspace-toast";
 import { GeneralSettingsView } from "../domains/settings/pages/general-view";
 import { AdvancedView } from "../domains/settings/pages/advanced-view";
 import { AppearanceView } from "../domains/settings/pages/appearance-view";
@@ -1299,28 +1299,32 @@ export function SettingsRoute() {
         remoteSubmitting={createWorkspaceRemoteBusy}
         remoteError={createWorkspaceRemoteError}
       />
-      <TopRightNotifications
-        reloadOpen={systemState.reload.reloadPending}
-        reloadTitle={systemState.reloadCopy.title}
-        reloadDescription={systemState.reloadCopy.body}
-        reloadTrigger={systemState.reload.reloadTrigger}
-        reloadError={systemState.reload.reloadError}
-        reloadLabel={
-          activeReloadBlockingSessions.length > 0
-            ? t("app.reload_stop_tasks")
-            : t("app.reload_now")
-        }
-        dismissLabel={t("app.reload_later")}
-        reloadBusy={systemState.reload.reloadBusy}
-        canReload={systemState.canReloadWorkspaceEngine}
-        hasActiveRuns={activeReloadBlockingSessions.length > 0}
-        onReload={() => {
-          void (activeReloadBlockingSessions.length > 0
-            ? forceStopActiveSessionsAndReload()
-            : systemState.reloadWorkspaceEngine());
-        }}
-        onDismissReload={systemState.clearReloadRequired}
-      />
+      <div className="pointer-events-none fixed right-4 top-4 z-50 w-[min(24rem,calc(100vw-1.5rem))] max-w-full sm:right-6 sm:top-6">
+        <div className="pointer-events-auto">
+          <ReloadWorkspaceToast
+            open={systemState.reload.reloadPending}
+            title={systemState.reloadCopy.title}
+            description={systemState.reloadCopy.body}
+            trigger={systemState.reload.reloadTrigger}
+            error={systemState.reload.reloadError}
+            reloadLabel={
+              activeReloadBlockingSessions.length > 0
+                ? t("app.reload_stop_tasks")
+                : t("app.reload_now")
+            }
+            dismissLabel={t("app.reload_later")}
+            busy={systemState.reload.reloadBusy}
+            canReload={systemState.canReloadWorkspaceEngine}
+            hasActiveRuns={activeReloadBlockingSessions.length > 0}
+            onReload={() => {
+              void (activeReloadBlockingSessions.length > 0
+                ? forceStopActiveSessionsAndReload()
+                : systemState.reloadWorkspaceEngine());
+            }}
+            onDismiss={systemState.clearReloadRequired}
+          />
+        </div>
+      </div>
       <ConnectionsModals
         client={activeClient}
         projectDir={selectedWorkspaceRoot}
