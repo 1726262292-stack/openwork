@@ -81,6 +81,7 @@ import {
   publishInspectorSlice,
   recordInspectorEvent,
 } from "./app-inspector";
+import { useReactRenderWatchdog } from "./react-render-watchdog";
 import { getModelBehaviorSummary } from "../../app/lib/model-behavior";
 import { filterProviderList, mapConfigProvidersToList } from "../../app/utils/providers";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
@@ -320,6 +321,15 @@ export function SessionRoute() {
   // behavior pill actually shows its options (bug: was empty before).
   const [providerCatalog, setProviderCatalog] = useState<Record<string, Record<string, any>>>({});
   const [openworkServerHostInfoState, setOpenworkServerHostInfoState] = useState<OpenworkServerInfo | null>(null);
+  useReactRenderWatchdog("SessionRoute", {
+    selectedSessionId,
+    selectedWorkspaceId,
+    loading,
+    workspaceCount: workspaces.length,
+    sessionGroupCount: Object.keys(sessionsByWorkspaceId).length,
+    commandPaletteOpen,
+    modelPickerOpen,
+  });
   const [openworkServerSettingsVersion, setOpenworkServerSettingsVersion] = useState(0);
   const [routeEngineInfo, setRouteEngineInfo] = useState<EngineInfo | null>(null);
   const [shareRemoteAccessBusy, setShareRemoteAccessBusy] = useState(false);

@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { SUGGESTED_PLUGINS } from "../../app/constants";
@@ -21,6 +21,7 @@ import { createOpenworkServerStore, useOpenworkServerStoreSnapshot } from "../do
 import { createProviderAuthStore, useProviderAuthStoreSnapshot } from "../domains/connections/provider-auth/store";
 import ProviderAuthModal from "../domains/connections/provider-auth/provider-auth-modal";
 import ConnectionsModals from "../domains/connections/modals";
+import { TopRightNotifications } from "../domains/shell-feedback/top-right-notifications";
 import { GeneralSettingsView } from "../domains/settings/pages/general-view";
 import { AdvancedView } from "../domains/settings/pages/advanced-view";
 import { AppearanceView } from "../domains/settings/pages/appearance-view";
@@ -38,6 +39,7 @@ import { SettingsShell } from "../domains/settings/shell/settings-shell";
 import { createAutomationsStore, useAutomationsStoreSnapshot } from "../domains/settings/state/automations-store";
 import { createExtensionsStore, useExtensionsStoreSnapshot } from "../domains/settings/state/extensions-store";
 import { usePlatform } from "../kernel/platform";
+import { useSystemState } from "../kernel/system-state";
 import { useLocal } from "../kernel/local-provider";
 import {
   DEFAULT_WORKSPACE_LEFT_SIDEBAR_WIDTH,
@@ -65,6 +67,7 @@ import { ModelPickerModal } from "../domains/session/modals/model-picker-modal";
 import type { ModelOption, ModelRef } from "../../app/types";
 import { recordInspectorEvent } from "./app-inspector";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
+import { abortSessionSafe } from "../../app/lib/opencode-session";
 
 type RouteWorkspace = OpenworkWorkspaceInfo & {
   displayNameResolved: string;
@@ -190,6 +193,14 @@ function toSessionGroups(
     status: errorsByWorkspaceId[workspace.id] ? "error" : "ready",
     error: errorsByWorkspaceId[workspace.id],
   }));
+}
+
+function isActiveSessionStatus(status: unknown) {
+  return status === "running" || status === "retry" || status === "busy";
+}
+
+function getSessionStatus(session: any) {
+  return session?.status ?? session?.state ?? session?.runStatus ?? null;
 }
 
 function parseSettingsPath(pathname: string): {
@@ -375,6 +386,55 @@ export function SettingsRoute() {
     developerMode,
   };
 
+  const activeReloadBlockingSessions = useMemo(
+    () =>
+      Object.values(sessionsByWorkspaceId)
+        .flat()
+        .filter((session) => isActiveSessionStatus(getSessionStatus(session)))
+        .map((session: any) => ({
+          id: String(session?.id ?? ""),
+          title:
+            String(session?.title ?? session?.slug ?? session?.id ?? "").trim() ||
+            t("session.untitled"),
+        }))
+        .filter((session) => session.id.length > 0),
+    [sessionsByWorkspaceId],
+  );
+
+  const reloadWorkspaceEngineFromUi = useCallback(async () => {
+    const workspaceId = routeStateRef.current.runtimeWorkspaceId?.trim() || selectedWorkspaceId.trim();
+    if (!openworkClient || !workspaceId) {
+      setRouteError(t("app.error_connect_first"));
+      return false;
+    }
+
+    await openworkClient.reloadEngine(workspaceId);
+
+    try {
+      window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
+    } catch {
+      // ignore browser event dispatch failures
+    }
+
+    return true;
+  }, [openworkClient, selectedWorkspaceId]);
+
+  const systemState = useSystemState({
+    hasActiveRuns: () => activeReloadBlockingSessions.length > 0,
+    reloadWorkspaceEngine: reloadWorkspaceEngineFromUi,
+    canReloadWorkspaceEngine: () => Boolean(openworkClient && (selectedWorkspace?.id || selectedWorkspaceId)),
+    setError: setRouteError,
+  });
+
+  const forceStopActiveSessionsAndReload = useCallback(async () => {
+    if (activeClient) {
+      for (const session of activeReloadBlockingSessions) {
+        await abortSessionSafe(activeClient, session.id).catch(() => undefined);
+      }
+    }
+    await systemState.reloadWorkspaceEngine();
+  }, [activeClient, activeReloadBlockingSessions, systemState.reloadWorkspaceEngine]);
+
   const shellLayout = useWorkspaceShellLayout({
     expandedRightWidth: 320,
     defaultLeftWidth: DEFAULT_WORKSPACE_LEFT_SIDEBAR_WIDTH,
@@ -414,8 +474,9 @@ export function SettingsRoute() {
         openworkServer: openworkServerStore,
         runtimeWorkspaceId: () => routeStateRef.current.runtimeWorkspaceId,
         developerMode: () => routeStateRef.current.developerMode,
+        markReloadRequired: systemState.markReloadRequired,
       }),
-    [openworkServerStore],
+    [openworkServerStore, systemState.markReloadRequired],
   );
   const providerAuthStore = useMemo(
     () =>
@@ -435,9 +496,14 @@ export function SettingsRoute() {
         setDisabledProviders,
         markOpencodeConfigReloadRequired: () => {
           setConfigActionStatus(t("settings.config_updated"));
+          systemState.markReloadRequired("config", {
+            type: "config",
+            name: "opencode.json",
+            action: "updated",
+          });
         },
       }),
-    [openworkServerStore],
+    [openworkServerStore, systemState.markReloadRequired],
   );
   const extensionsStore = useMemo(
     () =>
@@ -453,8 +519,9 @@ export function SettingsRoute() {
         setBusyLabel,
         setBusyStartedAt: () => {},
         setError: setRouteError,
+        markReloadRequired: systemState.markReloadRequired,
       }),
-    [openworkServerStore],
+    [openworkServerStore, systemState.markReloadRequired],
   );
   const automationsStore = useMemo(
     () =>
@@ -937,11 +1004,9 @@ export function SettingsRoute() {
             addPlugin={async () => {
               setRouteError("Scheduler plugin install is not wired into the React settings route yet.");
             }}
-            reloadWorkspaceEngine={async () => {
-              setRouteError("Workspace reload is not wired into the React settings route yet.");
-            }}
-            reloadBusy={false}
-            canReloadWorkspace={false}
+            reloadWorkspaceEngine={systemState.reloadWorkspaceEngine}
+            reloadBusy={systemState.reload.reloadBusy}
+            canReloadWorkspace={systemState.canReloadWorkspaceEngine}
             openLink={(url) => platform.openLink(url)}
           />
         );
@@ -1065,12 +1130,10 @@ export function SettingsRoute() {
               updateOpenworkServerSettings: openworkServerStore.updateOpenworkServerSettings,
               resetOpenworkServerSettings: openworkServerStore.resetOpenworkServerSettings,
               testOpenworkServerConnection: openworkServerStore.testOpenworkServerConnection,
-              canReloadWorkspace: false,
-              reloadWorkspaceEngine: async () => {
-                setRouteError("Workspace reload is not wired into the React settings route yet.");
-              },
-              reloadBusy: false,
-              reloadError: routeError,
+              canReloadWorkspace: systemState.canReloadWorkspaceEngine,
+              reloadWorkspaceEngine: systemState.reloadWorkspaceEngine,
+              reloadBusy: systemState.reload.reloadBusy,
+              reloadError: systemState.reload.reloadError ?? routeError,
               developerMode,
             }}
           />
@@ -1236,15 +1299,40 @@ export function SettingsRoute() {
         remoteSubmitting={createWorkspaceRemoteBusy}
         remoteError={createWorkspaceRemoteError}
       />
+      <TopRightNotifications
+        reloadOpen={systemState.reload.reloadPending}
+        reloadTitle={systemState.reloadCopy.title}
+        reloadDescription={systemState.reloadCopy.body}
+        reloadTrigger={systemState.reload.reloadTrigger}
+        reloadError={systemState.reload.reloadError}
+        reloadLabel={
+          activeReloadBlockingSessions.length > 0
+            ? t("app.reload_stop_tasks")
+            : t("app.reload_now")
+        }
+        dismissLabel={t("app.reload_later")}
+        reloadBusy={systemState.reload.reloadBusy}
+        canReload={systemState.canReloadWorkspaceEngine}
+        hasActiveRuns={activeReloadBlockingSessions.length > 0}
+        onReload={() => {
+          void (activeReloadBlockingSessions.length > 0
+            ? forceStopActiveSessionsAndReload()
+            : systemState.reloadWorkspaceEngine());
+        }}
+        onDismissReload={systemState.clearReloadRequired}
+      />
       <ConnectionsModals
         client={activeClient}
         projectDir={selectedWorkspaceRoot}
         language={currentLocale() as Language}
-        reloadBlocked={false}
-        activeSessions={[]}
+        reloadBlocked={activeReloadBlockingSessions.length > 0}
+        activeSessions={activeReloadBlockingSessions}
         isRemoteWorkspace={selectedWorkspace?.workspaceType === "remote"}
-        onForceStopSession={() => undefined}
-        onReloadEngine={() => undefined}
+        onForceStopSession={(sessionId) => {
+          if (!activeClient) return undefined;
+          return abortSessionSafe(activeClient, sessionId);
+        }}
+        onReloadEngine={systemState.reloadWorkspaceEngine}
         modalState={{
           mcpAuthModalOpen: connectionsSnapshot.mcpAuthModalOpen,
           mcpAuthEntry: connectionsSnapshot.mcpAuthEntry,

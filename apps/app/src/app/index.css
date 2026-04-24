@@ -286,3 +286,116 @@ select:disabled {
 @utility animate-progress-shimmer {
   animation: progress-shimmer 2s infinite linear;
 }
+
+@keyframes ow-session-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ow-session-orbit-reverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes ow-session-comet {
+  0%,
+  100% {
+    opacity: 0.58;
+    transform: translate(-50%, -50%) rotate(0deg) translateX(42px) scale(0.72);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(180deg) translateX(42px) scale(1.08);
+  }
+}
+
+@keyframes ow-session-glow {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: translate(-50%, -50%) scale(0.86);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.12);
+  }
+}
+
+@keyframes ow-session-scan {
+  0% {
+    opacity: 0;
+    transform: translateY(-22px) scaleX(0.6);
+  }
+  18%,
+  72% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(170px) scaleX(1);
+  }
+}
+
+@keyframes ow-session-core {
+  from {
+    transform: rotate(0deg) scale(0.94);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.04);
+  }
+  to {
+    transform: rotate(360deg) scale(0.94);
+  }
+}
+
+@keyframes ow-session-progress {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(240%);
+  }
+}
+
+.ow-session-orbit {
+  animation: ow-session-orbit 3.8s linear infinite;
+}
+
+.ow-session-orbit-reverse {
+  animation: ow-session-orbit-reverse 5.2s linear infinite;
+}
+
+.ow-session-comet {
+  animation: ow-session-comet 2.4s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+}
+
+.ow-session-glow {
+  animation: ow-session-glow 3.2s ease-in-out infinite;
+}
+
+.ow-session-scan {
+  animation: ow-session-scan 2.8s ease-in-out infinite;
+}
+
+.ow-session-core {
+  animation: ow-session-core 2.6s ease-in-out infinite;
+}
+
+.ow-session-progress {
+  animation: ow-session-progress 1.7s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ow-session-wait * {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

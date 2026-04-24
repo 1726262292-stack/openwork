@@ -173,6 +173,14 @@ function enqueue(entry: DevLogEntry) {
   scheduleFlush();
 }
 
+export function recordDebugLog(entry: DevLogEntry) {
+  if (!started || !isEnabled()) {
+    recordInspectorEvent(`log.${entry.level}`, entry);
+    return;
+  }
+  enqueue(entry);
+}
+
 function isEnabled(): boolean {
   if (typeof window === "undefined") return false;
   // Always on in dev; explicit opt-out via `localStorage.openwork.debug.disableLogger = "1"`.

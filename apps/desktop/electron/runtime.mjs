@@ -287,6 +287,17 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   const orchestratorState = createOrchestratorState();
   const routerState = createRouterState();
 
+  // Serialize engine lifecycle operations. Without this, concurrent renderer
+  // invocations of engineStart/engineStop/engineRestart race: each call's
+  // stopAllRuntimeChildren kills the previous call's freshly-spawned
+  // orchestrator daemon, and the prior call then times out its /health probe.
+  let runtimeLifecycleQueue = Promise.resolve();
+  function withRuntimeLifecycle(fn) {
+    const next = runtimeLifecycleQueue.then(fn, fn);
+    runtimeLifecycleQueue = next.catch(() => {});
+    return next;
+  }
+
   const userDataDir = app.getPath("userData");
   const sidecarDirs = [
     path.join(desktopRoot, "src-tauri", "sidecars"),
@@ -1526,9 +1537,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   return {
-    engineStart,
-    engineStop,
-    engineRestart,
+    engineStart: (projectDir, options) => withRuntimeLifecycle(() => engineStart(projectDir, options)),
+    engineStop: () => withRuntimeLifecycle(() => engineStop()),
+    engineRestart: (options) => withRuntimeLifecycle(() => engineRestart(options)),
     engineInfo,
     engineInstall,
     openworkServerInfo,

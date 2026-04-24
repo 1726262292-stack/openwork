@@ -29,6 +29,7 @@ import {
   DEFAULT_WORKSPACE_LEFT_SIDEBAR_WIDTH,
   useWorkspaceShellLayout,
 } from "../../../shell/workspace-shell-layout";
+import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 
 type StatusBarOverrides = Pick<
   StatusBarProps,
@@ -195,6 +196,14 @@ export function SessionPage(props: SessionPageProps) {
   const { leftSidebarWidth, startLeftSidebarResize } = useWorkspaceShellLayout({
     defaultLeftWidth: DEFAULT_WORKSPACE_LEFT_SIDEBAR_WIDTH,
     expandedRightWidth: 280,
+  });
+  useReactRenderWatchdog("SessionPage", {
+    selectedSessionId: props.selectedSessionId,
+    selectedWorkspaceId: props.selectedWorkspaceId,
+    clientConnected: props.clientConnected,
+    startupPhase: props.startupPhase,
+    hasSurface: Boolean(props.surface),
+    workspaceCount: props.workspaces.length,
   });
 
   const [renameOpen, setRenameOpen] = useState(false);
@@ -442,14 +451,28 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
 
               {showDelayedSessionLoadingState ? (
-                <div className="px-6 py-24">
-                  <div className="mx-auto flex max-w-sm flex-col items-center gap-4 rounded-3xl border border-dls-border bg-dls-hover/60 px-8 py-10 text-center" role="status" aria-live="polite">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-dls-border bg-dls-surface">
-                      <Loader2 size={20} className="animate-spin text-dls-secondary" />
+                <div className="px-6 py-20">
+                  <div className="ow-session-wait relative mx-auto flex max-w-md flex-col items-center gap-5 overflow-hidden rounded-[32px] border border-dls-border bg-[radial-gradient(circle_at_top,rgba(var(--dls-accent-rgb),0.16),transparent_46%),var(--dls-surface)] px-8 py-10 text-center shadow-[0_24px_80px_rgba(15,23,42,0.16)]" role="status" aria-live="polite">
+                    <div className="pointer-events-none absolute inset-0 opacity-80">
+                      <div className="ow-session-glow absolute left-1/2 top-1/2 h-56 w-56 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgba(var(--dls-accent-rgb),0.14)] blur-3xl" />
+                      <div className="ow-session-scan absolute inset-x-8 top-8 h-px bg-gradient-to-r from-transparent via-[rgba(var(--dls-accent-rgb),0.65)] to-transparent" />
                     </div>
+
+                    <div className="relative flex h-24 w-24 items-center justify-center">
+                      <div className="ow-session-orbit absolute inset-0 rounded-full border border-[rgba(var(--dls-accent-rgb),0.24)]" />
+                      <div className="ow-session-orbit-reverse absolute inset-3 rounded-full border border-dashed border-[rgba(var(--dls-accent-rgb),0.36)]" />
+                      <div className="ow-session-comet absolute left-1/2 top-1/2 h-2.5 w-2.5 rounded-full bg-dls-accent shadow-[0_0_20px_rgba(var(--dls-accent-rgb),0.9)]" />
+                      <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl border border-dls-border bg-dls-surface/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] backdrop-blur">
+                        <div className="h-6 w-6 rounded-lg bg-[conic-gradient(from_0deg,rgba(var(--dls-accent-rgb),0.15),rgba(var(--dls-accent-rgb),0.95),rgba(var(--dls-accent-rgb),0.15))] ow-session-core" />
+                      </div>
+                    </div>
+
                     <div className="space-y-1">
                       <h3 className="text-base font-medium text-dls-text">{t("session.loading_title")}</h3>
                       <p className="text-sm text-dls-secondary">{t("session.loading_detail")}</p>
+                    </div>
+                    <div className="relative h-1.5 w-full max-w-[260px] overflow-hidden rounded-full bg-dls-hover">
+                      <div className="ow-session-progress absolute inset-y-0 left-0 w-1/2 rounded-full bg-gradient-to-r from-transparent via-dls-accent to-transparent" />
                     </div>
                   </div>
                 </div>

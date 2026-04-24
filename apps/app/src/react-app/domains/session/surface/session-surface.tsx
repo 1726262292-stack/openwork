@@ -24,6 +24,7 @@ import {
 import { getReactQueryClient } from "../../../infra/query-client";
 import { ReactSessionComposer } from "./composer/composer";
 import { DevProfiler } from "../../../shell/dev-profiler";
+import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import type { ReactComposerNotice } from "./composer/notice";
 import { SessionDebugPanel } from "./debug-panel";
 import { SessionTranscript } from "./message-list";
@@ -106,6 +107,40 @@ function useSharedQueryState<T>(queryKey: readonly unknown[], fallback: T) {
   );
 }
 
+function messageHasVisibleAssistantOutput(message: UIMessage) {
+  if (message.role !== "assistant") return false;
+  return message.parts.some((part) => {
+    if ("text" in part && typeof part.text === "string") return part.text.trim().length > 0;
+    return part.type === "dynamic-tool" || part.type === "file";
+  });
+}
+
+function AssistantWaitingCard() {
+  return (
+    <div className="flex justify-start py-3" role="status" aria-live="polite">
+      <div className="ow-session-wait relative flex max-w-[360px] items-center gap-4 overflow-hidden rounded-[26px] border border-dls-border bg-[radial-gradient(circle_at_top_left,rgba(var(--dls-accent-rgb),0.16),transparent_46%),var(--dls-surface)] px-5 py-4 shadow-[0_18px_56px_rgba(15,23,42,0.12)]">
+        <div className="pointer-events-none absolute inset-0 opacity-70">
+          <div className="ow-session-glow absolute left-12 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgba(var(--dls-accent-rgb),0.16)] blur-2xl" />
+          <div className="ow-session-scan absolute inset-x-4 top-4 h-px bg-gradient-to-r from-transparent via-[rgba(var(--dls-accent-rgb),0.62)] to-transparent" />
+        </div>
+        <div className="relative flex h-14 w-14 shrink-0 items-center justify-center">
+          <div className="ow-session-orbit absolute inset-0 rounded-full border border-[rgba(var(--dls-accent-rgb),0.24)]" />
+          <div className="ow-session-orbit-reverse absolute inset-2 rounded-full border border-dashed border-[rgba(var(--dls-accent-rgb),0.36)]" />
+          <div className="ow-session-comet absolute left-1/2 top-1/2 h-2 w-2 rounded-full bg-dls-accent shadow-[0_0_18px_rgba(var(--dls-accent-rgb),0.9)]" />
+          <div className="relative h-7 w-7 rounded-lg bg-[conic-gradient(from_0deg,rgba(var(--dls-accent-rgb),0.15),rgba(var(--dls-accent-rgb),0.95),rgba(var(--dls-accent-rgb),0.15))] ow-session-core" />
+        </div>
+        <div className="relative min-w-0 flex-1 text-left">
+          <div className="text-sm font-medium text-dls-text">Thinking...</div>
+          <div className="mt-0.5 text-xs text-dls-secondary">Waiting for the first response token</div>
+          <div className="relative mt-3 h-1 w-full overflow-hidden rounded-full bg-dls-hover">
+            <div className="ow-session-progress absolute inset-y-0 left-0 w-1/2 rounded-full bg-gradient-to-r from-transparent via-dls-accent to-transparent" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function revokeAttachmentPreview(attachment: { previewUrl?: string | undefined }) {
   if (!attachment.previewUrl) return;
   URL.revokeObjectURL(attachment.previewUrl);
@@ -120,6 +155,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [showDelayedLoading, setShowDelayedLoading] = useState(false);
+  const [awaitingAssistantBaseline, setAwaitingAssistantBaseline] = useState<number | null>(null);
   const [rendered, setRendered] = useState<{ sessionId: string; snapshot: OpenworkSessionSnapshot } | null>(null);
   const [toolSkills, setToolSkills] = useState<SkillCard[]>([]);
   const [toolMcpServers, setToolMcpServers] = useState<McpServerEntry[]>([]);
@@ -181,6 +217,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setError(null);
     setSending(false);
     setShowDelayedLoading(false);
+    setAwaitingAssistantBaseline(null);
     // Clear draft + attachments + mentions on session change so typed text
     // doesn't bleed across sessions (and across workspaces). The sessionId
     // effectively changes when the workspace changes too because the route
@@ -270,6 +307,23 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const chatStreaming = sending || liveStatus.type === "busy" || liveStatus.type === "retry";
   const renderedMessages = transcriptState ?? [];
   const pendingSessionLoad = !snapshot && snapshotQuery.isLoading && renderedMessages.length === 0;
+  const assistantOutputAfterAwaitStart = useMemo(() => {
+    if (awaitingAssistantBaseline === null) return false;
+    return renderedMessages
+      .slice(awaitingAssistantBaseline)
+      .some(messageHasVisibleAssistantOutput);
+  }, [awaitingAssistantBaseline, renderedMessages]);
+  const showAssistantWaitState = awaitingAssistantBaseline !== null && !assistantOutputAfterAwaitStart;
+  useReactRenderWatchdog("SessionSurface", {
+    sessionId: props.sessionId,
+    workspaceId: props.workspaceId,
+    messageCount: renderedMessages.length,
+    liveStatus: liveStatus.type,
+    sending,
+    pendingSessionLoad,
+    showAssistantWaitState,
+    hasSnapshot: Boolean(snapshot),
+  });
 
   useEffect(() => {
     if (!pendingSessionLoad) {
@@ -279,6 +333,17 @@ export function SessionSurface(props: SessionSurfaceProps) {
     const id = window.setTimeout(() => setShowDelayedLoading(true), 2000);
     return () => window.clearTimeout(id);
   }, [pendingSessionLoad]);
+
+  useEffect(() => {
+    if (awaitingAssistantBaseline === null) return;
+    if (assistantOutputAfterAwaitStart) {
+      setAwaitingAssistantBaseline(null);
+      return;
+    }
+    if (sending || liveStatus.type !== "idle" || renderedMessages.length <= awaitingAssistantBaseline) return;
+    const id = window.setTimeout(() => setAwaitingAssistantBaseline(null), 1200);
+    return () => window.clearTimeout(id);
+  }, [assistantOutputAfterAwaitStart, awaitingAssistantBaseline, liveStatus.type, renderedMessages.length, sending]);
 
   const model = deriveSessionRenderModel({
     intendedSessionId: props.sessionId,
@@ -336,6 +401,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     // talking" behavior that the Solid composer had.
     setError(null);
     setSending(true);
+    setAwaitingAssistantBaseline(renderedMessages.length);
     try {
       const nextDraft = buildDraft(text, attachments);
       await props.onSendDraft(nextDraft);
@@ -346,6 +412,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       setSending(false);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to send prompt.");
+      setAwaitingAssistantBaseline(null);
       setSending(false);
     }
   };
@@ -560,20 +627,23 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   {error || (snapshotQuery.error instanceof Error ? snapshotQuery.error.message : "Failed to load React session view.")}
                 </div>
               </div>
-            ) : renderedMessages.length === 0 && snapshot && snapshot.messages.length === 0 ? (
-              <div className="px-6 py-16">
-                <div className="mx-auto max-w-sm rounded-3xl border border-dls-border bg-dls-hover/60 px-8 py-10 text-center">
-                  <div className="text-sm text-dls-secondary">No transcript yet.</div>
-                </div>
+            ) : renderedMessages.length === 0 && showAssistantWaitState ? (
+              <div className="px-6 py-12">
+                <AssistantWaitingCard />
               </div>
+            ) : renderedMessages.length === 0 && snapshot && snapshot.messages.length === 0 ? (
+              null
             ) : (
               <DevProfiler id="SessionTranscript">
-                <SessionTranscript
-                  messages={renderedMessages}
-                  isStreaming={chatStreaming}
-                  developerMode={props.developerMode}
-                  scrollElement={() => scrollRef.current}
-                />
+                <>
+                  <SessionTranscript
+                    messages={renderedMessages}
+                    isStreaming={chatStreaming}
+                    developerMode={props.developerMode}
+                    scrollElement={() => scrollRef.current}
+                  />
+                  {showAssistantWaitState ? <AssistantWaitingCard /> : null}
+                </>
               </DevProfiler>
             )}
           </div>
