@@ -13,6 +13,7 @@ import { BootStateProvider } from "./boot-state";
 import { DesktopRuntimeBoot } from "./desktop-runtime-boot";
 import { startDebugLogger, stopDebugLogger } from "./debug-logger";
 import { MigrationPrompt } from "./migration-prompt";
+import { ReloadCoordinatorProvider } from "./reload-coordinator";
 
 function resolveDefaultServerUrl(): string {
   if (isDesktopRuntime()) return "http://127.0.0.1:4096";
@@ -63,7 +64,9 @@ export function AppProviders({ children }: AppProvidersProps) {
         <DenAuthProvider>
           <DesktopConfigProvider>
             <RestrictionNoticeProvider>
-              <LocalProvider>{children}</LocalProvider>
+              <LocalProvider>
+                <ReloadCoordinatorProvider>{children}</ReloadCoordinatorProvider>
+              </LocalProvider>
             </RestrictionNoticeProvider>
           </DesktopConfigProvider>
         </DenAuthProvider>

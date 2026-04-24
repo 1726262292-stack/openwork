@@ -49,7 +49,7 @@ const PHASE_MESSAGES: Record<BootPhaseId, string> = {
   idle: "",
   "bootstrapping-workspaces": "Loading your workspaces",
   "starting-openwork-server": "Starting the OpenWork server",
-  "starting-engine": "Starting OpenCode",
+  "starting-engine": "Preparing workspace",
   "activating-workspace": "Activating your workspace",
   ready: "Ready",
   error: "Something went wrong",

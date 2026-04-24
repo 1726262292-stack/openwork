@@ -130,7 +130,7 @@ export function useDesktopRuntimeBoot() {
           if (!workspacePaths.includes(path)) workspacePaths.push(path);
         }
 
-        setPhase("starting-engine", "Launching the OpenCode engine");
+        setPhase("starting-engine", "Starting your workspace");
         const engineStartResult = await engineStart(workspaceRoot, {
           runtime: "openwork-orchestrator",
           workspacePaths,
