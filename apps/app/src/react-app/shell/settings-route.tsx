@@ -178,9 +178,12 @@ async function resolveRouteOpenworkConnection() {
   let normalizedBaseUrl = normalizeOpenworkServerUrl(settings.urlOverride ?? "") ?? "";
   let resolvedToken = settings.token?.trim() ?? "";
 
-  if ((!normalizedBaseUrl || !resolvedToken) && isDesktopRuntime()) {
+  if (isDesktopRuntime()) {
     try {
       const info = await openworkServerInfo();
+      // Desktop-hosted servers use a fresh loopback port and freshly minted
+      // owner token per boot. Prefer the live runtime info over localStorage;
+      // stored settings may belong to a previous server process.
       normalizedBaseUrl =
         normalizeOpenworkServerUrl(info.connectUrl ?? info.baseUrl ?? info.lanUrl ?? info.mdnsUrl ?? "") ??
         normalizedBaseUrl;

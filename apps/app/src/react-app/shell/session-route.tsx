@@ -118,14 +118,14 @@ async function resolveRouteOpenworkConnection() {
     try {
       const info = await openworkServerInfo();
       hostInfo = info;
-      if (!normalizedBaseUrl) {
-        normalizedBaseUrl =
-          normalizeOpenworkServerUrl(info.connectUrl ?? info.baseUrl ?? info.lanUrl ?? info.mdnsUrl ?? "") ??
-          normalizedBaseUrl;
-      }
-      if (!resolvedToken) {
-        resolvedToken = info.ownerToken?.trim() || info.clientToken?.trim() || resolvedToken;
-      }
+      // Desktop-hosted servers use a fresh loopback port and freshly minted
+      // owner token per boot. Prefer the live runtime info over localStorage;
+      // the stored URL/token can point at the previous process and produce
+      // ERR_CONNECTION_REFUSED or 401 before the boot event refreshes settings.
+      normalizedBaseUrl =
+        normalizeOpenworkServerUrl(info.connectUrl ?? info.baseUrl ?? info.lanUrl ?? info.mdnsUrl ?? "") ??
+        normalizedBaseUrl;
+      resolvedToken = info.ownerToken?.trim() || info.clientToken?.trim() || resolvedToken;
     } catch {
       // ignore and fall back to stored settings only
     }
