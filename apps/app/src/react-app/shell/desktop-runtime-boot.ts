@@ -27,8 +27,9 @@ let BOOT_STARTED = false;
  *   2) if a local workspace is selected, restart the embedded OpenWork server
  *   3) start the OpenCode engine pointed at the workspace
  *   4) activate the workspace in the orchestrator
- *   5) persist the resulting base URL + token into local OpenWork settings so the
- *      React routes (session-route / settings-route) see a live `readOpenworkServerSettings()`
+ *   5) notify React routes that fresh desktop runtime info is available. Electron
+ *      routes read live runtime info directly instead of persisting ephemeral
+ *      localhost ports/tokens into OpenWork settings.
  *
  * Safe to call multiple times — gated by a `didBoot` ref so it runs once per mount.
  */
@@ -112,15 +113,6 @@ export function useDesktopRuntimeBoot() {
           }
           const serverInfo = boot.openworkServer;
           if (serverInfo?.baseUrl) {
-            writeOpenworkServerSettings({
-              urlOverride: serverInfo.baseUrl,
-              token:
-                serverInfo.ownerToken?.trim() ||
-                serverInfo.clientToken?.trim() ||
-                undefined,
-              portOverride: serverInfo.port ?? undefined,
-              remoteAccessEnabled: serverInfo.remoteAccessEnabled === true,
-            });
             try {
               window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
             } catch {

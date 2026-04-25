@@ -14,7 +14,6 @@ import { listCommands, shellInSession } from "../../app/lib/opencode-session";
 import {
   buildOpenworkWorkspaceBaseUrl,
   createOpenworkServerClient,
-  normalizeOpenworkServerUrl,
   readOpenworkServerSettings,
   writeOpenworkServerSettings,
   type OpenworkServerClient,
@@ -23,7 +22,6 @@ import {
 import {
   engineInfo,
   revealDesktopItemInDir,
-  openworkServerInfo,
   openworkServerRestart,
   pickDirectory,
   resolveWorkspaceListSelectedId,
@@ -85,6 +83,7 @@ import { useReactRenderWatchdog } from "./react-render-watchdog";
 import { getModelBehaviorSummary } from "../../app/lib/model-behavior";
 import { filterProviderList, mapConfigProvidersToList } from "../../app/utils/providers";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
+import { resolveOpenworkConnection } from "./openwork-connection";
 import { useReloadCoordinator } from "./reload-coordinator";
 
 type RouteWorkspace = OpenworkWorkspaceInfo & {
@@ -106,32 +105,6 @@ function folderNameFromPath(path: string) {
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
   const parts = normalized.split("/").filter(Boolean);
   return parts[parts.length - 1] ?? "workspace";
-}
-
-async function resolveRouteOpenworkConnection() {
-  const settings = readOpenworkServerSettings();
-  let normalizedBaseUrl = normalizeOpenworkServerUrl(settings.urlOverride ?? "") ?? "";
-  let resolvedToken = settings.token?.trim() ?? "";
-  let hostInfo: OpenworkServerInfo | null = null;
-
-  if (isDesktopRuntime()) {
-    try {
-      const info = await openworkServerInfo();
-      hostInfo = info;
-      // Desktop-hosted servers use a fresh loopback port and freshly minted
-      // owner token per boot. Prefer the live runtime info over localStorage;
-      // the stored URL/token can point at the previous process and produce
-      // ERR_CONNECTION_REFUSED or 401 before the boot event refreshes settings.
-      normalizedBaseUrl =
-        normalizeOpenworkServerUrl(info.connectUrl ?? info.baseUrl ?? info.lanUrl ?? info.mdnsUrl ?? "") ??
-        normalizedBaseUrl;
-      resolvedToken = info.ownerToken?.trim() || info.clientToken?.trim() || resolvedToken;
-    } catch {
-      // ignore and fall back to stored settings only
-    }
-  }
-
-  return { normalizedBaseUrl, resolvedToken, hostInfo };
 }
 
 function isTransientStartupError(message: string | null | undefined) {
@@ -483,7 +456,7 @@ export function SessionRoute() {
         }
       }
 
-      const { normalizedBaseUrl, resolvedToken, hostInfo } = await resolveRouteOpenworkConnection();
+      const { normalizedBaseUrl, resolvedToken, hostInfo } = await resolveOpenworkConnection();
       setOpenworkServerHostInfoState(hostInfo);
       if (!normalizedBaseUrl || !resolvedToken) {
         setClient(null);

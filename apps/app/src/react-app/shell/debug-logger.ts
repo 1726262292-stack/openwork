@@ -31,7 +31,7 @@ type DevLogEntry = {
 let started = false;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let queue: DevLogEntry[] = [];
-let serverUrlRef: () => string = () => readFallbackServerUrl();
+let serverUrlRef: () => string | Promise<string> = () => readFallbackServerUrl();
 const pendingFetches = new Map<number, { url: string; method: string; startedAt: number }>();
 let nextFetchId = 1;
 let lastHeartbeat = Date.now();
@@ -137,7 +137,7 @@ function scheduleFlush() {
 
 async function flushQueue() {
   if (queue.length === 0) return;
-  const base = serverUrlRef();
+  const base = await serverUrlRef();
   if (!base) return;
 
   // Skip the POST entirely when we know the sink is disabled, otherwise
@@ -196,7 +196,7 @@ function isEnabled(): boolean {
   return true;
 }
 
-export function startDebugLogger(opts?: { serverUrl?: () => string }) {
+export function startDebugLogger(opts?: { serverUrl?: () => string | Promise<string> }) {
   if (started) return;
   if (!isEnabled()) return;
   started = true;

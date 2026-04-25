@@ -7,7 +7,6 @@ import { createClient } from "../../app/lib/opencode";
 import {
   buildOpenworkWorkspaceBaseUrl,
   createOpenworkServerClient,
-  normalizeOpenworkServerUrl,
   readOpenworkServerSettings,
   type OpenworkServerCapabilities,
   type OpenworkServerClient,
@@ -46,7 +45,6 @@ import {
   useWorkspaceShellLayout,
 } from "./workspace-shell-layout";
 import {
-  openworkServerInfo,
   pickDirectory,
   resolveWorkspaceListSelectedId,
   workspaceBootstrap,
@@ -65,6 +63,7 @@ import { ModelPickerModal } from "../domains/session/modals/model-picker-modal";
 import type { ModelOption, ModelRef } from "../../app/types";
 import { recordInspectorEvent } from "./app-inspector";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
+import { resolveOpenworkConnection } from "./openwork-connection";
 import { abortSessionSafe } from "../../app/lib/opencode-session";
 import { useReloadCoordinator } from "./reload-coordinator";
 
@@ -173,27 +172,13 @@ function folderNameFromPath(path: string) {
   return parts[parts.length - 1] ?? "workspace";
 }
 
-async function resolveRouteOpenworkConnection() {
-  const settings = readOpenworkServerSettings();
-  let normalizedBaseUrl = normalizeOpenworkServerUrl(settings.urlOverride ?? "") ?? "";
-  let resolvedToken = settings.token?.trim() ?? "";
-
-  if (isDesktopRuntime()) {
-    try {
-      const info = await openworkServerInfo();
-      // Desktop-hosted servers use a fresh loopback port and freshly minted
-      // owner token per boot. Prefer the live runtime info over localStorage;
-      // stored settings may belong to a previous server process.
-      normalizedBaseUrl =
-        normalizeOpenworkServerUrl(info.connectUrl ?? info.baseUrl ?? info.lanUrl ?? info.mdnsUrl ?? "") ??
-        normalizedBaseUrl;
-      resolvedToken = info.ownerToken?.trim() || info.clientToken?.trim() || resolvedToken;
-    } catch {
-      // ignore and fall back to stored settings only
-    }
+function isLoopbackServerUrl(raw: string) {
+  try {
+    const parsed = new URL(raw);
+    return parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost" || parsed.hostname === "::1";
+  } catch {
+    return false;
   }
-
-  return { normalizedBaseUrl, resolvedToken };
 }
 
 type PersistedThemeMode = "light" | "dark" | "system";
@@ -482,11 +467,13 @@ export function SettingsRoute() {
     () =>
       createOpenworkServerStore({
         startupPreference: () => {
-          // In Tauri desktop mode, prefer the embedded host server (hostInfo.baseUrl)
-          // unless the user has explicitly pinned a remote urlOverride.
+          // In desktop mode, loopback URLs are ephemeral local runtime details.
+          // Only non-loopback stored URLs indicate an explicit remote/manual
+          // server connection preference.
           if (!isDesktopRuntime()) return "server";
           const stored = readOpenworkServerSettings();
-          return stored.urlOverride?.trim() ? "server" : "local";
+          const urlOverride = stored.urlOverride?.trim() ?? "";
+          return urlOverride && !isLoopbackServerUrl(urlOverride) ? "server" : "local";
         },
         documentVisible: () => typeof document === "undefined" || document.visibilityState === "visible",
         developerMode: () => routeStateRef.current.developerMode,
@@ -703,7 +690,7 @@ export function SettingsRoute() {
           desktopWorkspaces = workspacesRef.current;
         }
       }
-      const { normalizedBaseUrl, resolvedToken } = await resolveRouteOpenworkConnection();
+      const { normalizedBaseUrl, resolvedToken } = await resolveOpenworkConnection();
 
       if (!normalizedBaseUrl || !resolvedToken) {
         setOpenworkClient(null);

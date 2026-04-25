@@ -2,7 +2,7 @@
 import { useEffect, type ReactNode } from "react";
 
 import { isWebDeployment } from "../../app/lib/openwork-deployment";
-import { hydrateOpenworkServerSettingsFromEnv, readOpenworkServerSettings } from "../../app/lib/openwork-server";
+import { hydrateOpenworkServerSettingsFromEnv } from "../../app/lib/openwork-server";
 import { isDesktopRuntime } from "../../app/utils";
 import { DenAuthProvider } from "../domains/cloud/den-auth-provider";
 import { DesktopConfigProvider } from "../domains/cloud/desktop-config-provider";
@@ -13,6 +13,7 @@ import { BootStateProvider } from "./boot-state";
 import { DesktopRuntimeBoot } from "./desktop-runtime-boot";
 import { startDebugLogger, stopDebugLogger } from "./debug-logger";
 import { MigrationPrompt } from "./migration-prompt";
+import { resolveOpenworkConnection } from "./openwork-connection";
 import { ReloadCoordinatorProvider } from "./reload-coordinator";
 
 function resolveDefaultServerUrl(): string {
@@ -49,7 +50,7 @@ export function AppProviders({ children }: AppProvidersProps) {
     // URL on every flush so reconnects after port changes still work. In prod
     // builds `startDebugLogger` is a no-op.
     startDebugLogger({
-      serverUrl: () => readOpenworkServerSettings().urlOverride?.trim() ?? "",
+      serverUrl: async () => (await resolveOpenworkConnection()).normalizedBaseUrl,
     });
     return () => {
       stopDebugLogger();
