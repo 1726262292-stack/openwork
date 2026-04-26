@@ -64,11 +64,9 @@ export function ShareWorkspaceAccessPanel(
   const primaryAccessFields = accessFields.filter(
     (field) => !isCollaboratorField(field.label),
   );
-  const remoteSaveEnabled = props.remoteAccess
-    ? !props.remoteAccess.enabled && !props.remoteAccessEnabled
-      ? true
-      : props.remoteAccessEnabled
-    : false;
+  const remoteAccessNeedsEnable = Boolean(
+    props.remoteAccess && !props.remoteAccess.enabled && !props.remoteAccessEnabled,
+  );
   const remoteSaveDisabled = props.remoteAccess
     ? props.remoteAccess.busy ||
       (props.remoteAccess.enabled &&
@@ -76,9 +74,11 @@ export function ShareWorkspaceAccessPanel(
     : true;
   const remoteSaveLabel = props.remoteAccess?.busy
     ? "Saving…"
-    : !props.remoteAccess?.enabled && !props.remoteAccessEnabled
-      ? "Turn on remote access"
-      : "Save";
+    : remoteAccessNeedsEnable
+      ? "Enable remote access"
+      : props.remoteAccess?.enabled === false && props.remoteAccessEnabled
+        ? "Save & restart worker"
+        : "Save";
 
   const renderCredentialField = (
     field: ShareField,
@@ -177,9 +177,13 @@ export function ShareWorkspaceAccessPanel(
             </div>
             <button
               type="button"
-              onClick={() =>
-                void props.remoteAccess?.onSave(remoteSaveEnabled)
-              }
+              onClick={() => {
+                if (remoteAccessNeedsEnable) {
+                  props.onRemoteAccessEnabledChange(true);
+                  return;
+                }
+                void props.remoteAccess?.onSave(props.remoteAccessEnabled);
+              }}
               disabled={remoteSaveDisabled}
               className={pillSecondaryClass}
             >
