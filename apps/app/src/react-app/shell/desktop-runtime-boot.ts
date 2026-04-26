@@ -21,6 +21,19 @@ import { useBootState } from "./boot-state";
 // keeps running across the transient unmount.
 let BOOT_STARTED = false;
 
+function isOpenworkServerReady(info?: {
+  running?: boolean | null;
+  baseUrl?: string | null;
+  ownerToken?: string | null;
+  clientToken?: string | null;
+}) {
+  return Boolean(
+    info?.running === true &&
+      info.baseUrl?.trim() &&
+      (info.ownerToken?.trim() || info.clientToken?.trim()),
+  );
+}
+
 /**
  * On desktop (Tauri) startup:
  *   1) bootstrap the workspace list
@@ -95,6 +108,7 @@ export function useDesktopRuntimeBoot() {
             error?: string;
             engine?: { baseUrl?: string | null };
             openworkServer?: {
+              running?: boolean | null;
               baseUrl?: string | null;
               ownerToken?: string | null;
               clientToken?: string | null;
@@ -105,6 +119,11 @@ export function useDesktopRuntimeBoot() {
 
           if (boot.ok === false) {
             setError(boot.error || "Failed to start OpenWork runtime");
+            return;
+          }
+
+          if (!boot.skipped && !isOpenworkServerReady(boot.openworkServer)) {
+            setError("OpenWork server did not finish starting. Please restart OpenWork.");
             return;
           }
 

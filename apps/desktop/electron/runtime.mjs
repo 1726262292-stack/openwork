@@ -103,6 +103,19 @@ function snapshotOpenworkServerState(state) {
   };
 }
 
+function assertOpenworkServerReady(snapshot) {
+  if (!snapshot?.running) {
+    throw new Error("OpenWork server did not stay running after startup.");
+  }
+  if (!snapshot.baseUrl) {
+    throw new Error("OpenWork server did not report a base URL after startup.");
+  }
+  if (!snapshot.ownerToken && !snapshot.clientToken) {
+    throw new Error("OpenWork server did not report an access token after startup.");
+  }
+  return snapshot;
+}
+
 function createOrchestratorState() {
   return {
     child: null,
@@ -1061,8 +1074,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
   async function ensureRouterAndOpenwork(options) {
     const routerHealthPort = await resolveRouterHealthPort().catch(() => null);
+    let openworkServer;
     try {
-      await startOpenworkServer({
+      openworkServer = await startOpenworkServer({
         workspacePaths: options.workspacePaths,
         opencodeBaseUrl: engineState.baseUrl,
         opencodeUsername: engineState.opencodeUsername,
@@ -1074,7 +1088,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       });
     } catch (error) {
       appendOutput(engineState, "lastStderr", `OpenWork server: ${error instanceof Error ? error.message : String(error)}\n`);
+      throw error;
     }
+
+    assertOpenworkServerReady(openworkServer);
 
     if (options.projectDir && engineState.baseUrl) {
       try {

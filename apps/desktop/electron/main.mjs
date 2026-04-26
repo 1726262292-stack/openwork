@@ -90,8 +90,15 @@ async function installReactDevToolsForDev() {
   if (app.isPackaged || envFlagDisabled("OPENWORK_REACT_DEVTOOLS")) return;
   try {
     const mod = await import("electron-devtools-installer");
-    const installExtension = mod.default ?? mod.installExtension;
-    const reactDevtools = mod.REACT_DEVELOPER_TOOLS;
+    const installExtension =
+      typeof mod.installExtension === "function"
+        ? mod.installExtension
+        : typeof mod.default === "function"
+          ? mod.default
+          : typeof mod.default?.installExtension === "function"
+            ? mod.default.installExtension
+            : null;
+    const reactDevtools = mod.REACT_DEVELOPER_TOOLS ?? mod.default?.REACT_DEVELOPER_TOOLS;
     if (typeof installExtension !== "function" || !reactDevtools) {
       throw new Error("electron-devtools-installer did not expose React DevTools");
     }
@@ -413,6 +420,19 @@ async function disposeRuntimeBeforeQuit() {
   await runtimeManager.dispose().catch(() => undefined);
 }
 
+function assertOpenworkServerReady(info) {
+  if (!info?.running) {
+    throw new Error("OpenWork server did not stay running after startup.");
+  }
+  if (!info.baseUrl) {
+    throw new Error("OpenWork server did not report a base URL after startup.");
+  }
+  if (!info.ownerToken && !info.clientToken) {
+    throw new Error("OpenWork server did not report an access token after startup.");
+  }
+  return info;
+}
+
 async function bootRuntimeForSelectedWorkspace() {
   const list = await readWorkspaceState();
   const selectedId = list.selectedId || list.activeId || list.workspaces[0]?.id || "";
@@ -440,7 +460,7 @@ async function bootRuntimeForSelectedWorkspace() {
     workspacePath: workspaceRoot,
     name: workspace.name ?? workspace.displayName ?? null,
   }).catch(() => undefined);
-  const openworkServer = await runtimeManager.openworkServerInfo();
+  const openworkServer = assertOpenworkServerReady(await runtimeManager.openworkServerInfo());
   return { ok: true, skipped: false, engine, openworkServer, workspaceId: workspace.id ?? null };
 }
 
