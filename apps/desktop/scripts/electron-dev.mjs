@@ -106,7 +106,7 @@ async function waitForVite(url, timeoutMs = 60_000) {
   throw new Error(`Timed out waiting for Vite dev server at ${viteProbeUrls.join(", ")}`);
 }
 
-function killTree(child) {
+function signalTree(child, signal) {
   if (!child?.pid) return;
   if (process.platform === "win32") {
     try {
@@ -118,30 +118,72 @@ function killTree(child) {
   }
 
   try {
-    process.kill(-child.pid, "SIGTERM");
+    process.kill(-child.pid, signal);
   } catch {
     try {
-      child.kill("SIGTERM");
+      child.kill(signal);
     } catch {
       // ignore
     }
   }
 }
 
+function restoreTerminal() {
+  try {
+    if (process.stdin.isTTY && typeof process.stdin.setRawMode === "function") {
+      process.stdin.setRawMode(false);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function waitForExit(child, timeoutMs) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolveWait) => {
+    let settled = false;
+    const finish = (clean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.off("exit", onExit);
+      resolveWait(clean);
+    };
+    const onExit = () => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    child.once("exit", onExit);
+  });
+}
+
+async function waitForChildren(children, timeoutMs) {
+  const results = await Promise.all(children.map((child) => waitForExit(child, timeoutMs)));
+  return results.every(Boolean);
+}
+
 let uiChild = null;
 let electronChild = null;
 let stopping = false;
 
-function stopAll(exitCode = 0) {
+async function stopAll(exitCode = 0) {
   if (stopping) return;
   stopping = true;
-  killTree(electronChild);
-  killTree(uiChild);
+  restoreTerminal();
+
+  const children = [electronChild, uiChild].filter(Boolean);
+  for (const child of children) signalTree(child, "SIGINT");
+
+  const stoppedCleanly = await waitForChildren(children, 2_000);
+  if (!stoppedCleanly) {
+    for (const child of children) signalTree(child, "SIGTERM");
+    await waitForChildren(children, 1_000);
+  }
+
+  restoreTerminal();
   process.exit(exitCode);
 }
 
-process.once("SIGINT", () => stopAll(0));
-process.once("SIGTERM", () => stopAll(0));
+process.once("SIGINT", () => void stopAll(130));
+process.once("SIGTERM", () => void stopAll(143));
 
 runSync(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force"], { cwd: desktopRoot });
 
@@ -200,5 +242,6 @@ if (cdpPort) {
 }
 
 electronChild.on("exit", (code) => {
-  stopAll(code ?? 0);
+  if (stopping) return;
+  void stopAll(code ?? 0);
 });
