@@ -81,6 +81,27 @@ if (Number.isFinite(remoteDebugPort) && remoteDebugPort > 0) {
 const DEFAULT_DEN_BASE_URL = "https://app.openworklabs.com";
 const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:4096";
 
+function envFlagDisabled(name) {
+  const value = process.env[name]?.trim().toLowerCase();
+  return value === "0" || value === "false" || value === "off";
+}
+
+async function installReactDevToolsForDev() {
+  if (app.isPackaged || envFlagDisabled("OPENWORK_REACT_DEVTOOLS")) return;
+  try {
+    const mod = await import("electron-devtools-installer");
+    const installExtension = mod.default ?? mod.installExtension;
+    const reactDevtools = mod.REACT_DEVELOPER_TOOLS;
+    if (typeof installExtension !== "function" || !reactDevtools) {
+      throw new Error("electron-devtools-installer did not expose React DevTools");
+    }
+    const name = await installExtension(reactDevtools);
+    console.info(`[devtools] installed ${name}`);
+  } catch (error) {
+    console.warn("[devtools] failed to install React Developer Tools", error);
+  }
+}
+
 const EMPTY_WORKSPACE_LIST = Object.freeze({
   selectedId: "",
   watchedId: null,
@@ -1425,6 +1446,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    await installReactDevToolsForDev();
     await runtimeManager.prepareFreshRuntime().catch(() => undefined);
 
     // Copy Tauri workspace state on first launch so the Electron sidebar
