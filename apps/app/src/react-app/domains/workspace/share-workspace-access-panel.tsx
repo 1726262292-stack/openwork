@@ -45,6 +45,7 @@ export type ShareWorkspaceAccessPanelProps = {
     enabled: boolean;
     busy: boolean;
     error?: string | null;
+    status?: string | null;
     onSave: (enabled: boolean) => void | Promise<void>;
   };
   remoteAccessEnabled: boolean;
@@ -171,9 +172,10 @@ export function ShareWorkspaceAccessPanel(
 
           <div className="mt-4 flex items-center justify-between gap-3">
             <div className="text-[13px] text-dls-secondary">
-              {props.remoteAccess.enabled
-                ? "Remote access is currently enabled."
-                : "Remote access is currently disabled."}
+              {props.remoteAccess.status?.trim() ||
+                (props.remoteAccess.enabled
+                  ? "Remote access is currently enabled."
+                  : "Remote access is currently disabled.")}
             </div>
             <button
               type="button"

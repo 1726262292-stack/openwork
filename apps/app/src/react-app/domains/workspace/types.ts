@@ -116,6 +116,7 @@ export type ShareWorkspaceModalProps = {
     enabled: boolean;
     busy: boolean;
     error?: string | null;
+    status?: string | null;
     onSave: (enabled: boolean) => void | Promise<void>;
   };
   note?: string | null;

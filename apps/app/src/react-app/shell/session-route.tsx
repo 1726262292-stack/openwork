@@ -15,14 +15,12 @@ import {
   buildOpenworkWorkspaceBaseUrl,
   createOpenworkServerClient,
   readOpenworkServerSettings,
-  writeOpenworkServerSettings,
   type OpenworkServerClient,
   type OpenworkWorkspaceInfo,
 } from "../../app/lib/openwork-server";
 import {
   engineInfo,
   revealDesktopItemInDir,
-  openworkServerRestart,
   pickDirectory,
   resolveWorkspaceListSelectedId,
   workspaceBootstrap,
@@ -62,6 +60,7 @@ import { useCheckDesktopRestriction } from "../domains/cloud/desktop-config-prov
 import { useRestrictionNotice } from "../domains/cloud/restriction-notice-provider";
 import { ReactSessionRuntime } from "../domains/session/sync/runtime-sync";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
+import { useRemoteAccessRestart } from "../domains/workspace/remote-access-restart";
 import { RenameWorkspaceModal } from "../domains/workspace/rename-workspace-modal";
 import { useShareWorkspaceState } from "../domains/workspace/share-workspace-state";
 import { ModelPickerModal } from "../domains/session/modals/model-picker-modal";
@@ -334,8 +333,6 @@ export function SessionRoute() {
   });
   const [openworkServerSettingsVersion, setOpenworkServerSettingsVersion] = useState(0);
   const [routeEngineInfo, setRouteEngineInfo] = useState<EngineInfo | null>(null);
-  const [shareRemoteAccessBusy, setShareRemoteAccessBusy] = useState(false);
-  const [shareRemoteAccessError, setShareRemoteAccessError] = useState<string | null>(null);
   const reconnectAttemptedWorkspaceIdRef = useRef("");
 
   const openworkServerSettings = useMemo(
@@ -557,6 +554,13 @@ export function SessionRoute() {
       }
     }
   }, [loadWorkspaceSessionsInBackground, markBootRouteReady, selectedSessionId]);
+
+  const remoteAccessRestart = useRemoteAccessRestart({
+    isEnabled: () => openworkServerSettings.remoteAccessEnabled === true,
+    onHostInfo: setOpenworkServerHostInfoState,
+    onRefresh: refreshRouteState,
+    onSettingsChanged: () => setOpenworkServerSettingsVersion((value) => value + 1),
+  });
 
   const reloadWorkspaceEngineFromUi = useCallback(async () => {
     if (!client || !selectedWorkspaceId) {
@@ -1251,26 +1255,10 @@ export function SessionRoute() {
 
   const handleSaveShareRemoteAccess = useCallback(
     async (enabled: boolean) => {
-      if (shareRemoteAccessBusy || !isDesktopRuntime()) return;
-      const previous = readOpenworkServerSettings();
-      const next = { ...previous, remoteAccessEnabled: enabled };
-      setShareRemoteAccessBusy(true);
-      setShareRemoteAccessError(null);
-      writeOpenworkServerSettings(next);
-      setOpenworkServerSettingsVersion((value) => value + 1);
-      try {
-        const info = await openworkServerRestart({ remoteAccessEnabled: enabled });
-        setOpenworkServerHostInfoState(info);
-        await refreshRouteState();
-      } catch (error) {
-        writeOpenworkServerSettings(previous);
-        setOpenworkServerSettingsVersion((value) => value + 1);
-        setShareRemoteAccessError(error instanceof Error ? error.message : t("app.error_remote_access"));
-      } finally {
-        setShareRemoteAccessBusy(false);
-      }
+      if (!isDesktopRuntime()) return;
+      await remoteAccessRestart.save(enabled);
     },
-    [refreshRouteState, shareRemoteAccessBusy],
+    [remoteAccessRestart],
   );
 
   const handleExportWorkspaceConfig = useCallback(
@@ -1652,8 +1640,9 @@ export function SessionRoute() {
                 isDesktopRuntime() && shareWorkspaceState.shareWorkspace?.workspaceType === "local"
                   ? {
                       enabled: openworkServerSettings.remoteAccessEnabled === true,
-                      busy: shareRemoteAccessBusy,
-                      error: shareRemoteAccessError,
+                      busy: remoteAccessRestart.busy,
+                      error: remoteAccessRestart.error,
+                      status: remoteAccessRestart.status,
                       onSave: handleSaveShareRemoteAccess,
                     }
                   : undefined,
