@@ -10,6 +10,7 @@ import { ForcedSigninPage } from "../domains/cloud/forced-signin-page";
 import { useDesktopFontZoomBehavior } from "./font-zoom";
 import { LoadingOverlay } from "./loading-overlay";
 import { DevProfiler, DevProfilerOverlay } from "./dev-profiler";
+import { ReactRenderWatchdogOverlay } from "./react-render-watchdog-overlay";
 import { SessionRoute } from "./session-route";
 import { SettingsRoute } from "./settings-route";
 
@@ -142,6 +143,7 @@ export function AppRoot() {
         true app-level signal.
       */}
       <DevProfilerOverlay />
+      <ReactRenderWatchdogOverlay />
     </>
   );
 }
