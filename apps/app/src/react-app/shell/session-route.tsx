@@ -558,7 +558,6 @@ export function SessionRoute() {
   const remoteAccessRestart = useRemoteAccessRestart({
     isEnabled: () => openworkServerSettings.remoteAccessEnabled === true,
     onHostInfo: setOpenworkServerHostInfoState,
-    onRefresh: refreshRouteState,
     onSettingsChanged: () => setOpenworkServerSettingsVersion((value) => value + 1),
   });
 

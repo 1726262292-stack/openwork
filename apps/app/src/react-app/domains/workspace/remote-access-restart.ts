@@ -17,7 +17,6 @@ type UseRemoteAccessRestartOptions = {
   isEnabled: () => boolean;
   onHostInfo: (info: OpenworkServerInfo) => void;
   onSettingsChanged: () => void;
-  onRefresh: () => Promise<void>;
 };
 
 export function useRemoteAccessRestart(options: UseRemoteAccessRestartOptions) {
@@ -39,8 +38,6 @@ export function useRemoteAccessRestart(options: UseRemoteAccessRestartOptions) {
       try {
         const info = await openworkServerRestart({ remoteAccessEnabled: enabled });
         options.onHostInfo(info);
-        setPhase("reconnecting");
-        await options.onRefresh();
         setPhase("idle");
       } catch (caught) {
         writeOpenworkServerSettings(previous);
