@@ -170,7 +170,7 @@ if (!viteReady) {
     env: {
       ...process.env,
       PORT: String(devPort),
-      OPENWORK_DEV_MODE: process.env.OPENWORK_DEV_MODE ?? "1",
+      // OPENWORK_DEV_MODE: process.env.OPENWORK_DEV_MODE ?? "1",
     },
   });
 }

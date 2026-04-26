@@ -604,13 +604,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
             {showDelayedLoading && pendingSessionLoad ? (
               <div className="px-6 py-16">
                 <div className="mx-auto max-w-sm rounded-3xl border border-dls-border bg-dls-hover/60 px-8 py-10 text-center">
-                  <div className="text-sm text-dls-secondary">Loading React session view...</div>
+                  <div className="text-sm text-dls-secondary">Opening session…</div>
                 </div>
               </div>
             ) : (snapshotQuery.isError || error) && !snapshot && renderedMessages.length === 0 ? (
               <div className="px-6 py-16">
                 <div className="mx-auto max-w-xl rounded-3xl border border-red-6/40 bg-red-3/20 px-6 py-5 text-sm text-red-11">
-                  {error || (snapshotQuery.error instanceof Error ? snapshotQuery.error.message : "Failed to load React session view.")}
+                  {error || (snapshotQuery.error instanceof Error ? snapshotQuery.error.message : "Failed to load session.")}
                 </div>
               </div>
             ) : renderedMessages.length === 0 && showAssistantWaitState ? (

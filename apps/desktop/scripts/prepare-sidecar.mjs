@@ -101,6 +101,7 @@ const resolvedTargetTriple = (() => {
   }
   return null;
 })();
+const isWindowsTarget = process.platform === "win32" || resolvedTargetTriple?.includes("windows") === true;
 
 const bunTarget = (() => {
   switch (resolvedTargetTriple) {
@@ -116,15 +117,17 @@ const bunTarget = (() => {
     // with Bun 1.3.6. Use the stable x64 target here for now.
     case "x86_64-pc-windows-msvc":
       return "bun-windows-x64";
+    case "aarch64-pc-windows-msvc":
+      return "bun-windows-arm64";
     default:
       return null;
   }
 })();
 
-const opencodeBaseName = process.platform === "win32" ? "opencode.exe" : "opencode";
+const opencodeBaseName = isWindowsTarget ? "opencode.exe" : "opencode";
 const opencodePath = join(sidecarDir, opencodeBaseName);
 const opencodeTargetName = resolvedTargetTriple
-  ? `opencode-${resolvedTargetTriple}${process.platform === "win32" ? ".exe" : ""}`
+  ? `opencode-${resolvedTargetTriple}${isWindowsTarget ? ".exe" : ""}`
   : null;
 const opencodeTargetPath = opencodeTargetName ? join(sidecarDir, opencodeTargetName) : null;
 
@@ -133,7 +136,7 @@ let existingOpencodeVersion = null;
 
 // openwork-server paths
 const openworkServerBaseName = "openwork-server";
-const openworkServerName = process.platform === "win32" ? `${openworkServerBaseName}.exe` : openworkServerBaseName;
+const openworkServerName = isWindowsTarget ? `${openworkServerBaseName}.exe` : openworkServerBaseName;
 const openworkServerPath = join(sidecarDir, openworkServerName);
 const openworkServerBuildName = bunTarget
   ? `${openworkServerBaseName}-${bunTarget}${bunTarget.includes("windows") ? ".exe" : ""}`
@@ -157,7 +160,7 @@ const resolveBuildScript = (dir) => {
 
 // opencode-router paths
 const opencodeRouterBaseName = "opencode-router";
-const opencodeRouterName = process.platform === "win32" ? `${opencodeRouterBaseName}.exe` : opencodeRouterBaseName;
+const opencodeRouterName = isWindowsTarget ? `${opencodeRouterBaseName}.exe` : opencodeRouterBaseName;
 const opencodeRouterPath = join(sidecarDir, opencodeRouterName);
 const opencodeRouterBuildName = bunTarget
   ? `${opencodeRouterBaseName}-${bunTarget}${bunTarget.includes("windows") ? ".exe" : ""}`
@@ -173,7 +176,7 @@ const opencodeRouterDir = resolve(__dirname, "..", "..", "opencode-router");
 // orchestrator paths
 const orchestratorBaseName = "openwork-orchestrator";
 const orchestratorName =
-  process.platform === "win32" ? `${orchestratorBaseName}.exe` : orchestratorBaseName;
+  isWindowsTarget ? `${orchestratorBaseName}.exe` : orchestratorBaseName;
 const orchestratorPath = join(sidecarDir, orchestratorName);
 const orchestratorBuildName = bunTarget
   ? `${orchestratorBaseName}-${bunTarget}${bunTarget.includes("windows") ? ".exe" : ""}`
@@ -188,7 +191,7 @@ const orchestratorDir = resolve(__dirname, "..", "..", "orchestrator");
 
 // chrome-devtools-mcp shim sidecar
 const chromeDevtoolsBaseName = "chrome-devtools-mcp";
-const chromeDevtoolsName = process.platform === "win32" ? `${chromeDevtoolsBaseName}.exe` : chromeDevtoolsBaseName;
+const chromeDevtoolsName = isWindowsTarget ? `${chromeDevtoolsBaseName}.exe` : chromeDevtoolsBaseName;
 const chromeDevtoolsPath = join(sidecarDir, chromeDevtoolsName);
 const chromeDevtoolsBuildName = bunTarget
   ? `${chromeDevtoolsBaseName}-${bunTarget}${bunTarget.includes("windows") ? ".exe" : ""}`
@@ -250,6 +253,7 @@ const findOpencodeBinary = (dir) => {
   const candidates = readDirectory(dir);
   return (
     candidates.find((file) => file.endsWith(`/${opencodeBaseName}`) || file.endsWith(`\\${opencodeBaseName}`)) ??
+    candidates.find((file) => file.endsWith("/opencode.exe") || file.endsWith("\\opencode.exe")) ??
     candidates.find((file) => file.endsWith("/opencode") || file.endsWith("\\opencode")) ??
     null
   );
@@ -762,7 +766,7 @@ try {
   const content = JSON.stringify(versions, null, 2) + "\n";
   writeFileSync(versionsPath, content, "utf8");
   if (resolvedTargetTriple) {
-    const targetSuffix = process.platform === "win32" ? ".exe" : "";
+    const targetSuffix = isWindowsTarget ? ".exe" : "";
     const targetVersionsPath = join(sidecarDir, `versions.json-${resolvedTargetTriple}${targetSuffix}`);
     writeFileSync(targetVersionsPath, content, "utf8");
   }

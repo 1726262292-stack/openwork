@@ -201,8 +201,8 @@ function binaryFileNames(baseName) {
   const ext = process.platform === "win32" ? ".exe" : "";
   const triple = targetTriple();
   return [
-    `${baseName}${ext}`,
     triple ? `${baseName}-${triple}${ext}` : null,
+    `${baseName}${ext}`,
   ].filter(Boolean);
 }
 
