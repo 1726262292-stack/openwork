@@ -1286,7 +1286,7 @@ export default {
   "session.share_missing_host_url": "Missing OpenWork host URL.",
   "session.share_missing_token": "Missing OpenWork token.",
   "session.share_no_skills": "No skills found in this workspace.",
-  "session.share_note_direct_runtime": "Engine runtime is set to Direct. Switching local workers can restart the host and disconnect clients. The token may change after a restart.",
+  "session.share_note_direct_runtime": "Remote access shares the currently running local worker. If you switch local folders later, reopen this panel to confirm the URL and password.",
   "session.share_opencode_base_url": "OpenCode base URL",
   "session.share_openwork_workers_only": "Share service links are available for OpenWork workers.",
   "session.share_owner_permission_hint": "Use when the remote client must answer permission prompts.",
