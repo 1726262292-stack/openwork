@@ -263,18 +263,20 @@ jobs:
           gh release download "$ALPHA_RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --pattern "openwork-desktop-darwin-aarch64.app.tar.gz" \
+            --pattern "openwork-desktop-darwin-aarch64.dmg" \
             --dir "$tmp_dir"
 
           tar -xzf "$tmp_dir/openwork-desktop-darwin-aarch64.app.tar.gz" -C "$tmp_dir"
           app_path="$tmp_dir/OpenWork.app"
+          dmg_path="$tmp_dir/openwork-desktop-darwin-aarch64.dmg"
 
           # Tauri places versions.json in Contents/MacOS as an externalBin.
           # `codesign --verify --strict` treats that data file as a code
           # subcomponent, so use display for signing visibility and rely on
-          # stapler + spctl for the notarization/Gatekeeper gate.
+          # stapler for the updater app payload and spctl for the user-facing DMG.
           codesign --display --verbose=4 "$app_path"
           xcrun stapler validate "$app_path"
-          spctl --assess --type execute --verbose=4 "$app_path"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg_path"
 
       - name: Generate alpha latest.json
         env:

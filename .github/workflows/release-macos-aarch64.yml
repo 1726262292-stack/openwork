@@ -571,11 +571,13 @@ jobs:
           gh release download "${RELEASE_TAG}" \
             --repo "$GITHUB_REPOSITORY" \
             --pattern "openwork-desktop-darwin-${asset_arch}.app.tar.gz" \
+            --pattern "openwork-desktop-darwin-${asset_arch}.dmg" \
             --dir "$tmp_dir"
 
           tar -xzf "$tmp_dir/openwork-desktop-darwin-${asset_arch}.app.tar.gz" -C "$tmp_dir"
 
           app_path="$tmp_dir/OpenWork.app"
+          dmg_path="$tmp_dir/openwork-desktop-darwin-${asset_arch}.dmg"
           manifest_path="$app_path/Contents/MacOS/versions.json"
 
           if [ ! -f "$manifest_path" ]; then
@@ -590,10 +592,10 @@ jobs:
             # Tauri places versions.json in Contents/MacOS as an externalBin.
             # `codesign --verify --strict` treats that data file as a code
             # subcomponent, so use display for signing visibility and rely on
-            # stapler + spctl for the notarization/Gatekeeper gate.
+            # stapler for the updater app payload and spctl for the user-facing DMG.
             codesign --display --verbose=4 "$app_path"
             xcrun stapler validate "$app_path"
-            spctl --assess --type execute --verbose=4 "$app_path"
+            spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg_path"
           fi
 
   publish-updater-json:
