@@ -705,7 +705,8 @@ jobs:
           MACOS_NOTARIZE: "true"
         run: |
           set -euo pipefail
-          pnpm --filter @openwork/desktop package:electron -- --mac --arm64 --publish never
+          pnpm --filter @openwork/desktop build:electron
+          pnpm --filter @openwork/desktop exec electron-builder --config electron-builder.yml --mac --arm64 --publish never
 
       - name: Verify Electron notarization
         run: |
