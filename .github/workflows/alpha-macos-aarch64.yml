@@ -268,7 +268,11 @@ jobs:
           tar -xzf "$tmp_dir/openwork-desktop-darwin-aarch64.app.tar.gz" -C "$tmp_dir"
           app_path="$tmp_dir/OpenWork.app"
 
-          codesign --verify --strict --verbose=2 "$app_path"
+          # Tauri places versions.json in Contents/MacOS as an externalBin.
+          # `codesign --verify --strict` treats that data file as a code
+          # subcomponent, so use display for signing visibility and rely on
+          # stapler + spctl for the notarization/Gatekeeper gate.
+          codesign --display --verbose=4 "$app_path"
           xcrun stapler validate "$app_path"
           spctl --assess --type execute --verbose=4 "$app_path"
 
