@@ -23,6 +23,9 @@ The next release is intentionally **non-destructive**:
 
 - Tauri remains the main/stable desktop build and keeps using the existing
   Tauri updater feed (`latest.json`).
+- The alpha macOS arm64 release now carries both notarized Tauri artifacts
+  (`latest.json`) and notarized Electron artifacts (`latest-mac.yml`) on the
+  rolling `alpha-macos-latest` release.
 - Electron is built as a preview artifact on every push by
   `.github/workflows/build-electron-desktop.yml`.
 - Pushes to `dev` or `main` refresh the rolling prerelease bucket at
