@@ -268,7 +268,7 @@ jobs:
           tar -xzf "$tmp_dir/openwork-desktop-darwin-aarch64.app.tar.gz" -C "$tmp_dir"
           app_path="$tmp_dir/OpenWork.app"
 
-          codesign --verify --deep --strict --verbose=2 "$app_path"
+          codesign --verify --strict --verbose=2 "$app_path"
           xcrun stapler validate "$app_path"
           spctl --assess --type execute --verbose=4 "$app_path"
 

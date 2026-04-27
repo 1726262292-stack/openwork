@@ -33,7 +33,10 @@ jobs:
             builder_args: --win --x64
           - os: windows-latest
             artifact: windows-arm64
-            target_triple: aarch64-pc-windows-msvc
+            # Bun does not publish a Windows ARM64 compile target today.
+            # Build x64 sidecars for Windows ARM64 packages; Windows on ARM
+            # can run these through x64 emulation while the Electron shell is ARM64.
+            target_triple: x86_64-pc-windows-msvc
             builder_args: --win --arm64
     runs-on: ${{ matrix.os }}
     env:
@@ -71,6 +74,20 @@ jobs:
       - name: Build Electron renderer and sidecars
         shell: bash
         run: pnpm --filter @openwork/desktop build:electron
+
+      - name: Mirror Windows x64 sidecars for ARM64 package
+        if: matrix.artifact == 'windows-arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sidecars_dir="apps/desktop/src-tauri/sidecars"
+          for base in opencode openwork-server opencode-router openwork-orchestrator chrome-devtools-mcp; do
+            cp "$sidecars_dir/${base}-x86_64-pc-windows-msvc.exe" \
+              "$sidecars_dir/${base}-aarch64-pc-windows-msvc.exe"
+          done
+          cp "$sidecars_dir/versions.json-x86_64-pc-windows-msvc.exe" \
+            "$sidecars_dir/versions.json-aarch64-pc-windows-msvc.exe"
 
       - name: Package Electron desktop installer
         shell: bash

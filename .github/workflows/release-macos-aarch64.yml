@@ -587,7 +587,7 @@ jobs:
           echo "Found bundled versions.json at $manifest_path"
 
           if [ "${MACOS_NOTARIZE}" = "true" ]; then
-            codesign --verify --deep --strict --verbose=2 "$app_path"
+            codesign --verify --strict --verbose=2 "$app_path"
             xcrun stapler validate "$app_path"
             spctl --assess --type execute --verbose=4 "$app_path"
           fi
