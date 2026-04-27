@@ -27,6 +27,7 @@ pub struct EngineState {
 impl EngineManager {
     pub fn snapshot_locked(state: &mut EngineState) -> EngineInfo {
         let (running, pid) = match state.child.as_ref() {
+            None if !state.child_exited && state.base_url.is_some() => (true, None),
             None => (false, None),
             Some(_child) if state.child_exited => {
                 state.child = None;

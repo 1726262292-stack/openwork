@@ -610,7 +610,7 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     const workspacePath = optionsRef.current.selectedWorkspaceRoot.trim();
     if (!workspacePath) {
       throw new Error(
-        "Select a local workspace before starting the orchestrator/engine.",
+        "Select a local workspace before starting the local server/engine.",
       );
     }
 
@@ -632,7 +632,7 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     }
 
     const info = await engineStartCmd(workspacePath, {
-      runtime: "openwork-orchestrator",
+      runtime: "direct",
       workspacePaths,
       opencodeEnableExa: readOpencodeEnableExa(),
       openworkRemoteAccess:
@@ -640,9 +640,8 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
           .remoteAccessEnabled === true,
     });
 
-    // engine_start restarts openwork-server on a NEW port with --opencode-base-url
-    // attached. Re-read host info and persist the new base URL + token so the
-    // React route listeners pick up the fresh connection instead of the stale one.
+    // engine_start restarts openwork-server on a NEW port and lets that server
+    // manage OpenCode. Re-read host info and persist the fresh URL/token.
     try {
       const hostInfo = await openworkServerInfoCmd();
       if (hostInfo?.baseUrl) {
@@ -672,8 +671,8 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     setOpenworkRestartStatus(null);
     try {
       await bootFullEngineStack();
-      setOpenworkRestartStatus(t("settings.restart_orchestrator"));
-      pushDeveloperLog("Started orchestrator + OpenCode stack via engine_start");
+      setOpenworkRestartStatus(t("settings.restart_openwork_server"));
+      pushDeveloperLog("Started OpenWork server + managed OpenCode via engine_start");
     } catch (error) {
       setServiceRestartError(error instanceof Error ? error.message : safeStringify(error));
     } finally {

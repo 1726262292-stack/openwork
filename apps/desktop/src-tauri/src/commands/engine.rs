@@ -14,6 +14,7 @@ use crate::orchestrator::manager::OrchestratorManager;
 use crate::orchestrator::{self, OrchestratorSpawnOptions};
 use crate::types::{EngineDoctorResult, EngineInfo, EngineRuntime, ExecResult};
 use crate::utils::truncate_output;
+use serde::Deserialize;
 use serde_json::json;
 use tauri_plugin_shell::process::CommandEvent;
 use uuid::Uuid;
@@ -91,6 +92,76 @@ struct OutputState {
     stderr: String,
     exited: bool,
     exit_code: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenworkWorkspaceListResponse {
+    #[serde(default)]
+    items: Vec<OpenworkWorkspaceEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenworkWorkspaceEntry {
+    opencode: Option<OpenworkWorkspaceOpencode>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenworkWorkspaceOpencode {
+    base_url: String,
+    directory: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+}
+
+fn parse_base_url_host(base_url: &str) -> Option<String> {
+    let without_scheme = base_url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(base_url);
+    let host_port = without_scheme.split('/').next()?.trim();
+    let host = host_port
+        .rsplit_once(':')
+        .map(|(host, _)| host)
+        .unwrap_or(host_port);
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.trim_matches(['[', ']']).to_string())
+    }
+}
+
+fn parse_base_url_port(base_url: &str) -> Option<u16> {
+    let without_scheme = base_url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(base_url);
+    let host_port = without_scheme.split('/').next()?.trim();
+    host_port
+        .rsplit_once(':')
+        .and_then(|(_, port)| port.parse::<u16>().ok())
+}
+
+fn probe_openwork_managed_opencode(
+    server_base_url: &str,
+    owner_token: &str,
+) -> Result<Option<OpenworkWorkspaceOpencode>, String> {
+    let response = ureq::get(&format!(
+        "{}/workspaces",
+        server_base_url.trim_end_matches('/')
+    ))
+    .set("Authorization", &format!("Bearer {owner_token}"))
+    .call()
+    .map_err(|error| error.to_string())?;
+    let payload: OpenworkWorkspaceListResponse = response
+        .into_json()
+        .map_err(|error| format!("Failed to parse OpenWork workspaces response: {error}"))?;
+
+    Ok(payload.items.into_iter().find_map(|entry| {
+        entry
+            .opencode
+            .filter(|opencode| !opencode.base_url.trim().is_empty())
+    }))
 }
 
 fn generate_managed_opencode_secret() -> String {
@@ -408,6 +479,116 @@ pub fn engine_start(
         ));
     };
 
+    let legacy_engine_mode = std::env::var("OPENWORK_TAURI_LEGACY_ENGINE")
+        .ok()
+        .is_some_and(|value| value.trim() == "1");
+
+    if !legacy_engine_mode {
+        let opencode_bin = program.to_string_lossy().to_string();
+        state.runtime = EngineRuntime::Direct;
+        drop(state);
+
+        if let Ok(mut openwork_state) = openwork_manager.inner.lock() {
+            OpenworkServerManager::stop_locked(&mut openwork_state);
+        }
+        if let Ok(mut opencode_router_state) = opencode_router_manager.inner.lock() {
+            OpenCodeRouterManager::stop_locked(&mut opencode_router_state);
+        }
+
+        let opencode_router_health_port = match resolve_opencode_router_health_port() {
+            Ok(port) => Some(port),
+            Err(error) => {
+                if let Ok(mut state) = manager.inner.lock() {
+                    state.last_stderr = Some(truncate_output(
+                        &format!("OpenCodeRouter health port: {error}"),
+                        8000,
+                    ));
+                }
+                None
+            }
+        };
+
+        let openwork_info = start_openwork_server(
+            &app,
+            &openwork_manager,
+            &workspace_paths,
+            None,
+            None,
+            None,
+            opencode_router_health_port,
+            openwork_remote_access_enabled,
+            true,
+            Some(&opencode_bin),
+        )?;
+
+        let managed_opencode = match (
+            openwork_info.base_url.as_deref(),
+            openwork_info.owner_token.as_deref(),
+        ) {
+            (Some(server_base_url), Some(owner_token)) => {
+                probe_openwork_managed_opencode(server_base_url, owner_token)
+            }
+            _ => Err("OpenWork server did not report a base URL and owner token".to_string()),
+        };
+
+        match managed_opencode {
+            Ok(Some(opencode)) => {
+                let opencode_connect_url = opencode.base_url.clone();
+                if let Ok(mut state) = manager.inner.lock() {
+                    state.runtime = EngineRuntime::Direct;
+                    state.child = None;
+                    state.child_exited = false;
+                    state.project_dir = opencode.directory.clone().or(Some(project_dir.clone()));
+                    state.hostname = parse_base_url_host(&opencode.base_url);
+                    state.port = parse_base_url_port(&opencode.base_url);
+                    state.base_url = Some(opencode.base_url.clone());
+                    state.opencode_username = opencode.username.clone();
+                    state.opencode_password = opencode.password.clone();
+                    state.last_stdout = None;
+                    state.last_stderr = None;
+                }
+
+                if let Err(error) = opencodeRouter_start(
+                    app.clone(),
+                    opencode_router_manager,
+                    project_dir.clone(),
+                    Some(opencode_connect_url),
+                    opencode.username,
+                    opencode.password,
+                    opencode_router_health_port,
+                ) {
+                    if let Ok(mut state) = manager.inner.lock() {
+                        state.last_stderr =
+                            Some(truncate_output(&format!("OpenCodeRouter: {error}"), 8000));
+                    }
+                }
+            }
+            Ok(None) => {
+                if let Ok(mut state) = manager.inner.lock() {
+                    state.runtime = EngineRuntime::Direct;
+                    state.project_dir = Some(project_dir.clone());
+                    state.last_stderr = Some(truncate_output(
+                        "OpenWork server did not report a managed OpenCode workspace",
+                        8000,
+                    ));
+                }
+            }
+            Err(error) => {
+                if let Ok(mut state) = manager.inner.lock() {
+                    state.runtime = EngineRuntime::Direct;
+                    state.project_dir = Some(project_dir.clone());
+                    state.last_stderr = Some(truncate_output(
+                        &format!("OpenWork server workspace probe: {error}"),
+                        8000,
+                    ));
+                }
+            }
+        }
+
+        let mut state = manager.inner.lock().expect("engine mutex poisoned");
+        return Ok(EngineManager::snapshot_locked(&mut state));
+    }
+
     let (sidecar_candidate, _sidecar_notes) = resolve_sidecar_candidate(
         prefer_sidecar,
         resource_dir.as_deref(),
@@ -560,6 +741,8 @@ pub fn engine_start(
             opencode_password.as_deref(),
             opencode_router_health_port,
             openwork_remote_access_enabled,
+            false,
+            None,
         ) {
             if let Ok(mut state) = manager.inner.lock() {
                 state.last_stderr =
@@ -742,6 +925,8 @@ pub fn engine_start(
         opencode_password.as_deref(),
         opencode_router_health_port,
         openwork_remote_access_enabled,
+        false,
+        None,
     ) {
         state.last_stderr = Some(truncate_output(&format!("OpenWork server: {error}"), 8000));
     }

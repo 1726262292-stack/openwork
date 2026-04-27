@@ -67,7 +67,7 @@ export async function ensureDesktopLocalOpenworkConnection(
     const engine = await engineInfo().catch(() => null);
     if (!engine?.running || !engine.baseUrl) {
       await engineStart(workspaceRoot, {
-        runtime: "openwork-orchestrator",
+        runtime: "direct",
         workspacePaths,
       });
     }

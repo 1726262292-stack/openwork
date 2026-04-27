@@ -74,5 +74,7 @@ pub fn openwork_server_restart(
         opencode_password.as_deref(),
         opencode_router_health_port,
         remote_access_enabled.unwrap_or(false),
+        false,
+        None,
     )
 }

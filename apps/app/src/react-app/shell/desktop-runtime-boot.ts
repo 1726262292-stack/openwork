@@ -178,9 +178,8 @@ export function useDesktopRuntimeBoot() {
         }
 
         // SLOW PATH ─────────────────────────────────────────────────────
-        // No running engine. engine_start handles both orchestrator spawn
-        // and openwork-server (re)start with --opencode-base-url attached,
-        // so we don't need a separate openworkServerRestart step.
+        // No running engine. Tauri now mirrors Electron: engine_start boots
+        // openwork-server and lets that server manage OpenCode.
         const localPaths = list.workspaces
           .filter((entry) => entry.workspaceType !== "remote")
           .map((entry) => entry.path?.trim() ?? "")
@@ -192,7 +191,7 @@ export function useDesktopRuntimeBoot() {
 
         setPhase("starting-engine", "Starting your workspace");
         const engineStartResult = await engineStart(workspaceRoot, {
-          runtime: "openwork-orchestrator",
+          runtime: "direct",
           workspacePaths,
         }).catch((error) => {
           console.warn("[desktop-boot] engineStart failed:", error);
