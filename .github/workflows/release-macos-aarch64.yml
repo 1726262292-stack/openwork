@@ -668,8 +668,8 @@ jobs:
       - name: Build + package Electron app
         env:
           # electron-builder reads these to codesign the .app.
-          CSC_LINK: ${{ secrets.APPLE_CERTIFICATE }}
-          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
           # Our Electron afterSign hook notarizes with the same App Store
           # Connect API key flow as the Tauri release path. The electron-builder
           # built-in notarizer is disabled in electron-builder.yml.
