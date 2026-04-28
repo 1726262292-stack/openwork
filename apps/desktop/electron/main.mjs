@@ -24,6 +24,11 @@ const NATIVE_DEEP_LINK_EVENT = "openwork:deep-link-native";
 const TAURI_APP_IDENTIFIER = "com.differentai.openwork";
 const MIGRATION_SNAPSHOT_FILENAME = "migration-snapshot.v1.json";
 const MIGRATION_SNAPSHOT_DONE_FILENAME = "migration-snapshot.v1.done.json";
+const ELECTRON_UPDATER_CHANNEL_FILENAME = "electron-updater-channel.v1.json";
+const ELECTRON_UPDATER_FEEDS = Object.freeze({
+  stable: "https://github.com/different-ai/openwork/releases/latest/download",
+  alpha: "https://github.com/different-ai/openwork/releases/download/alpha-macos-latest",
+});
 
 // Share the same on-disk state folder as the Tauri shell so in-place
 // migration is a no-op for almost every file. Done BEFORE whenReady so all
@@ -1253,6 +1258,59 @@ ipcMain.handle("openwork:migration:ack", async () => {
 let autoUpdaterInstance = null;
 let autoUpdaterLoaded = false;
 
+function normalizeElectronUpdaterChannel(value) {
+  if (value === "alpha" && process.platform === "darwin") return "alpha";
+  return "stable";
+}
+
+function electronUpdaterChannelPath() {
+  return path.join(app.getPath("userData"), ELECTRON_UPDATER_CHANNEL_FILENAME);
+}
+
+async function readElectronUpdaterChannel() {
+  try {
+    const raw = await readFile(electronUpdaterChannelPath(), "utf8");
+    const parsed = JSON.parse(raw);
+    return normalizeElectronUpdaterChannel(parsed?.channel);
+  } catch {
+    return "stable";
+  }
+}
+
+async function writeElectronUpdaterChannel(channel) {
+  const normalized = normalizeElectronUpdaterChannel(channel);
+  const outputPath = electronUpdaterChannelPath();
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  await writeFile(
+    outputPath,
+    `${JSON.stringify({ channel: normalized, writtenAt: new Date().toISOString() }, null, 2)}\n`,
+    "utf8",
+  );
+  return normalized;
+}
+
+function electronUpdaterFeedUrl(channel) {
+  return ELECTRON_UPDATER_FEEDS[normalizeElectronUpdaterChannel(channel)];
+}
+
+function updaterChannelState(channel) {
+  const normalized = normalizeElectronUpdaterChannel(channel);
+  return {
+    channel: normalized,
+    feedUrl: electronUpdaterFeedUrl(normalized),
+    currentVersion: app.getVersion(),
+  };
+}
+
+async function applyElectronUpdaterFeed(updater) {
+  const channel = await readElectronUpdaterChannel();
+  const state = updaterChannelState(channel);
+  if (updater?.setFeedURL) {
+    updater.setFeedURL({ provider: "generic", url: state.feedUrl });
+  }
+  return state;
+}
+
 async function ensureAutoUpdater() {
   if (!app.isPackaged) return null;
   if (autoUpdaterLoaded) return autoUpdaterInstance;
@@ -1266,6 +1324,7 @@ async function ensureAutoUpdater() {
       autoUpdaterInstance.on("error", (err) => {
         console.warn("[updater] error", err);
       });
+      await applyElectronUpdaterFeed(autoUpdaterInstance);
     }
   } catch (error) {
     console.warn("[updater] electron-updater not available", error);
@@ -1274,9 +1333,26 @@ async function ensureAutoUpdater() {
   return autoUpdaterInstance;
 }
 
+ipcMain.handle("openwork:updater:getChannel", async () => {
+  const channel = await readElectronUpdaterChannel();
+  return updaterChannelState(channel);
+});
+
+ipcMain.handle("openwork:updater:setChannel", async (_event, rawChannel) => {
+  const channel = await writeElectronUpdaterChannel(rawChannel);
+  const updater = await ensureAutoUpdater();
+  if (updater) {
+    return applyElectronUpdaterFeed(updater);
+  }
+  return updaterChannelState(channel);
+});
+
 ipcMain.handle("openwork:updater:check", async () => {
   const updater = await ensureAutoUpdater();
-  if (!updater) return { available: false, reason: "unavailable" };
+  const channelState = updater
+    ? await applyElectronUpdaterFeed(updater)
+    : updaterChannelState(await readElectronUpdaterChannel());
+  if (!updater) return { available: false, reason: "unavailable", ...channelState };
   try {
     const result = await updater.checkForUpdates();
     const info = result?.updateInfo ?? null;
@@ -1286,9 +1362,10 @@ ipcMain.handle("openwork:updater:check", async () => {
       latestVersion: info?.version ?? null,
       releaseDate: info?.releaseDate ?? null,
       releaseNotes: info?.releaseNotes ?? null,
+      ...channelState,
     };
   } catch (error) {
-    return { available: false, reason: String(error?.message ?? error) };
+    return { available: false, reason: String(error?.message ?? error), ...channelState };
   }
 });
 

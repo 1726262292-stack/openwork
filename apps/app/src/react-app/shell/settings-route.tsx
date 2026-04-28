@@ -31,6 +31,7 @@ import { RecoveryView } from "../domains/settings/pages/recovery-view";
 import { SkillsView } from "../domains/settings/pages/skills-view";
 import { UpdatesView } from "../domains/settings/pages/updates-view";
 import { useDebugViewModel } from "../domains/settings/state/debug-view-model";
+import { useElectronUpdaterState } from "../domains/settings/state/electron-updater-state";
 import { useBootState } from "./boot-state";
 import { SettingsShell } from "../domains/settings/shell/settings-shell";
 import { createExtensionsStore, useExtensionsStoreSnapshot } from "../domains/settings/state/extensions-store";
@@ -55,7 +56,7 @@ import {
 import { isDesktopProviderBlocked } from "../../app/cloud/desktop-app-restrictions";
 import { useCheckDesktopRestriction } from "../domains/cloud/desktop-config-provider";
 import { useCloudProviderAutoSync } from "../domains/cloud/use-cloud-provider-auto-sync";
-import { isDesktopRuntime, isMacPlatform, normalizeDirectoryPath, safeStringify } from "../../app/utils";
+import { isDesktopRuntime, isMacPlatform, isTauriRuntime, normalizeDirectoryPath, safeStringify } from "../../app/utils";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
 import { ModelPickerModal } from "../domains/session/modals/model-picker-modal";
 import type { ModelOption, ModelRef } from "../../app/types";
@@ -554,6 +555,18 @@ export function SettingsRoute() {
     runtimeWorkspaceId: selectedWorkspace?.id ?? null,
     selectedWorkspaceRoot,
     setRouteError,
+  });
+  const onReleaseChannelChange = useCallback(
+    (next: "stable" | "alpha") => {
+      local.setPrefs((previous) => ({ ...previous, releaseChannel: next }));
+    },
+    [local],
+  );
+  const electronUpdaterState = useElectronUpdaterState({
+    releaseChannel: local.prefs.releaseChannel ?? "stable",
+    onReleaseChannelChange,
+    updateAutoDownload,
+    setError: setRouteError,
   });
 
   const workspaceSessionGroups = useMemo(
@@ -1142,28 +1155,20 @@ export function SettingsRoute() {
           <UpdatesView
             busy={busy}
             webDeployment={platform.platform === "web"}
-            appVersion={null}
-            updateEnv={null}
+            appVersion={electronUpdaterState.appVersion}
+            updateEnv={electronUpdaterState.updateEnv}
             updateAutoCheck={updateAutoCheck}
             toggleUpdateAutoCheck={() => setUpdateAutoCheck((current) => !current)}
             updateAutoDownload={updateAutoDownload}
             toggleUpdateAutoDownload={() => setUpdateAutoDownload((current) => !current)}
-            updateStatus={null}
-            anyActiveRuns={false}
-            checkForUpdates={() => {
-              setRouteError("App update checks are not wired into the React settings route yet.");
-            }}
-            downloadUpdate={() => {
-              setRouteError("App update downloads are not wired into the React settings route yet.");
-            }}
-            installUpdateAndRestart={() => {
-              setRouteError("App update install is not wired into the React settings route yet.");
-            }}
+            updateStatus={electronUpdaterState.updateStatus}
+            anyActiveRuns={activeReloadBlockingSessions.length > 0}
+            checkForUpdates={electronUpdaterState.checkForUpdates}
+            downloadUpdate={electronUpdaterState.downloadUpdate}
+            installUpdateAndRestart={electronUpdaterState.installUpdateAndRestart}
             releaseChannel={local.prefs.releaseChannel ?? "stable"}
-            onReleaseChannelChange={(next) =>
-              local.setPrefs((previous) => ({ ...previous, releaseChannel: next }))
-            }
-            alphaChannelSupported={isDesktopRuntime() && isMacPlatform()}
+            onReleaseChannelChange={electronUpdaterState.setReleaseChannel}
+            alphaChannelSupported={isTauriRuntime() && isMacPlatform()}
           />
         );
       case "recovery":

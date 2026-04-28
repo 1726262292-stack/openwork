@@ -27,6 +27,9 @@ pub struct MigrateToElectronRequest {
     /// Optional sha256 to verify before we touch the filesystem.
     #[serde(default)]
     pub sha256: Option<String>,
+    /// Optional electron-builder sha512 (base64) from latest-mac.yml.
+    #[serde(default)]
+    pub sha512: Option<String>,
     /// Optional override for where the new OpenWork bundle should land on
     /// macOS. Defaults to replacing the currently-running .app in place.
     #[serde(default)]
@@ -101,6 +104,7 @@ fn write_macos_migration_script(
     app: &AppHandle,
     url: &str,
     sha256: Option<&str>,
+    sha512: Option<&str>,
     target: &std::path::Path,
 ) -> Result<PathBuf, String> {
     let cache = app
@@ -119,6 +123,20 @@ expected="{hash}"
 actual=$(shasum -a 256 "$ZIP" | awk '{{print $1}}')
 if [ "$actual" != "$expected" ]; then
   echo "sha256 mismatch: got $actual, expected $expected" >&2
+  exit 1
+fi
+"#
+        ),
+        None => String::new(),
+    };
+
+    let sha512_check = match sha512 {
+        Some(hash) => format!(
+            r#"
+expected_sha512="{hash}"
+actual_sha512=$(openssl dgst -sha512 -binary "$ZIP" | openssl base64 -A)
+if [ "$actual_sha512" != "$expected_sha512" ]; then
+  echo "sha512 mismatch: got $actual_sha512, expected $expected_sha512" >&2
   exit 1
 fi
 "#
@@ -145,6 +163,7 @@ sleep 3
 echo "[migration] downloading $URL"
 curl --fail --location --silent --show-error --output "$ZIP" "$URL"
 {sha256}
+{sha512}
 
 echo "[migration] extracting"
 /usr/bin/unzip -q "$ZIP" -d "$WORK"
@@ -173,6 +192,7 @@ echo "[migration] done $(date -u +%FT%TZ)"
         target = target.display(),
         url = url,
         sha256 = sha256_check,
+        sha512 = sha512_check,
     );
 
     fs::write(&script_path, script).map_err(|e| format!("Failed to write script: {e}"))?;
@@ -221,8 +241,13 @@ pub async fn migrate_to_electron(
             Some(path) => PathBuf::from(path),
             None => current_app_bundle_path()?,
         };
-        let script =
-            write_macos_migration_script(&app, &request.url, request.sha256.as_deref(), &target)?;
+        let script = write_macos_migration_script(
+            &app,
+            &request.url,
+            request.sha256.as_deref(),
+            request.sha512.as_deref(),
+            &target,
+        )?;
         spawn_macos_migration_script(&script)?;
         // Give the script a moment to daemonize before we exit.
         std::thread::sleep(std::time::Duration::from_millis(400));

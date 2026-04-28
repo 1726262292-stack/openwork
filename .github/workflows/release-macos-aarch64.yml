@@ -132,7 +132,12 @@ jobs:
           if [ -n "$RELEASE_BODY_INPUT" ]; then
             RELEASE_BODY="$RELEASE_BODY_INPUT"
           else
-            RELEASE_BODY="See the assets to download this version and install."
+            printf -v RELEASE_BODY '%s\n\nOpenWork %s desktop release.\n\n%s\n%s\n%s' \
+              "## What's new" \
+              "$TAG" \
+              "- Download the attached installer for your platform." \
+              "- Electron builds use the attached latest-mac.yml updater feed when Electron publishing is enabled." \
+              "- Tauri builds use the attached latest.json updater manifest."
           fi
 
           draft="${INPUT_DRAFT:-}"
@@ -985,6 +990,7 @@ jobs:
       - verify-release
       - publish-tauri
       - publish-updater-json
+      - publish-electron
       - release-orchestrator-sidecars
       - publish-npm
       - publish-daytona-snapshot
@@ -995,6 +1001,7 @@ jobs:
       needs.verify-release.result == 'success' &&
       (needs.publish-tauri.result == 'success' || needs.publish-tauri.result == 'skipped') &&
       (needs.publish-updater-json.result == 'success' || needs.publish-updater-json.result == 'skipped') &&
+      (needs.publish-electron.result == 'success' || needs.publish-electron.result == 'skipped') &&
       (needs.release-orchestrator-sidecars.result == 'success' || needs.release-orchestrator-sidecars.result == 'skipped') &&
       (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') &&
       (needs.publish-daytona-snapshot.result == 'success' || needs.publish-daytona-snapshot.result == 'skipped')

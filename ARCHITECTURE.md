@@ -89,12 +89,13 @@ If an agent needs one of the server-owned behaviors above and only a Tauri path 
 
 OpenWork desktop ships through two release channels:
 
-- **Stable** (default, all platforms): versioned builds produced by the `Release App` workflow. Each tag `vX.Y.Z` publishes signed, notarized Tauri bundles plus a `latest.json` updater manifest at `https://github.com/different-ai/openwork/releases/latest/download/latest.json`; when Electron publishing is enabled, the same release also carries signed, notarized Electron macOS assets plus `latest-mac.yml`.
-- **Alpha** (macOS arm64 only, rolling): every merge to `dev` publishes signed, notarized Tauri and Electron builds to the rolling GitHub release tagged `alpha-macos-latest`. The Tauri alpha updater manifest lives at `https://github.com/different-ai/openwork/releases/download/alpha-macos-latest/latest.json`; Electron alpha assets include `latest-mac.yml` on the same release.
+- **Stable** (default, all platforms): versioned builds produced by the `Release App` workflow. Each tag `vX.Y.Z` publishes signed, notarized Tauri bundles plus a `latest.json` updater manifest at `https://github.com/different-ai/openwork/releases/latest/download/latest.json`; when Electron publishing is enabled, the same release also carries signed, notarized Electron macOS assets plus `latest-mac.yml` at `https://github.com/different-ai/openwork/releases/latest/download/latest-mac.yml`.
+- **Alpha** (macOS arm64 only, rolling): every merge to `dev` publishes signed, notarized Tauri and Electron builds to the rolling GitHub release tagged `alpha-macos-latest`. The Tauri alpha updater manifest lives at `https://github.com/different-ai/openwork/releases/download/alpha-macos-latest/latest.json`; Electron alpha assets include `latest-mac.yml` at `https://github.com/different-ai/openwork/releases/download/alpha-macos-latest/latest-mac.yml` on the same release.
 
 Guidelines:
 
-- The alpha channel is an opt-in preference (`LocalPreferences.releaseChannel`). The toggle is rendered only when `isTauriRuntime()` and `isMacPlatform()` both resolve true; other platforms silently fall back to stable even if the stored preference says `"alpha"`.
+- The Tauri alpha channel is an opt-in preference (`LocalPreferences.releaseChannel`). The normal Updates toggle is rendered only when `isTauriRuntime()` and `isMacPlatform()` both resolve true; other platforms silently fall back to stable even if the stored preference says `"alpha"`.
+- The Electron alpha channel is Debug-only during the migration window. Migrated Electron users can switch feeds from Settings → Debug → Electron alpha channel; the normal Updates page stays on the selected Electron feed and defaults to stable.
 - Alpha builds advertise the next patch version plus an `-alpha.<runNumber>+<sha>` prerelease suffix. That keeps semver ordering `stable < alpha.1 < alpha.2 < next stable` so alpha users migrate forward cleanly when the next stable ships.
 - Alpha and stable share the same Tauri updater signing keypair so an installed stable can upgrade into alpha and vice versa without re-installing manually.
 - Apple signing and notarization are required on both channels; `alpha-macos-aarch64.yml` fails closed unless `MACOS_NOTARIZE=true`, and the `Release App` Electron job reuses the same Tauri Apple signing/notary secrets.
@@ -104,7 +105,8 @@ Code references:
 
 - Workflow: `.github/workflows/alpha-macos-aarch64.yml`
 - Endpoint resolution: `apps/app/src/app/lib/release-channels.ts`
-- Preference plumbing: `apps/app/src/react-app/kernel/local-provider.tsx`, `apps/app/src/react-app/domains/settings/pages/updates-view.tsx`
+- Electron alpha resolver: `apps/app/src/app/lib/electron-alpha.ts`
+- Preference plumbing: `apps/app/src/react-app/kernel/local-provider.tsx`, `apps/app/src/react-app/domains/settings/pages/updates-view.tsx`, `apps/app/src/react-app/domains/settings/pages/debug-view.tsx`
 - Stable workflow (reference): `.github/workflows/release-macos-aarch64.yml`
 
 ## Reload-required flow
