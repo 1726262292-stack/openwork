@@ -42,6 +42,8 @@ function createEngineState() {
     baseUrl: null,
     opencodeUsername: null,
     opencodePassword: null,
+    opencodeBinPath: null,
+    opencodeBinSource: null,
     lastStdout: null,
     lastStderr: null,
   };
@@ -58,6 +60,8 @@ function snapshotEngineState(state) {
     port: state.port,
     opencodeUsername: state.opencodeUsername,
     opencodePassword: state.opencodePassword,
+    opencodeBinPath: state.opencodeBinPath,
+    opencodeBinSource: state.opencodeBinSource,
     pid: child?.pid ?? null,
     lastStdout: state.lastStdout,
     lastStderr: state.lastStderr,
@@ -78,6 +82,8 @@ function createOpenworkServerState() {
     clientToken: null,
     ownerToken: null,
     hostToken: null,
+    managedOpencodeBinPath: null,
+    managedOpencodeBinSource: null,
     lastStdout: null,
     lastStderr: null,
   };
@@ -97,6 +103,8 @@ function snapshotOpenworkServerState(state) {
     clientToken: state.clientToken,
     ownerToken: state.ownerToken,
     hostToken: state.hostToken,
+    managedOpencodeBinPath: state.managedOpencodeBinPath,
+    managedOpencodeBinSource: state.managedOpencodeBinSource,
     pid: child?.pid ?? null,
     lastStdout: state.lastStdout,
     lastStderr: state.lastStderr,
@@ -466,12 +474,12 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return env;
   }
 
-  function resolveBinary(baseName, extraPaths = []) {
+  function resolveBinaryInfo(baseName, extraPaths = []) {
     for (const directory of [...sidecarDirs, ...extraPaths]) {
       for (const fileName of binaryFileNames(baseName)) {
         const candidate = path.join(directory, fileName);
         if (existsSync(candidate)) {
-          return candidate;
+          return { path: candidate, source: "bundled" };
         }
       }
     }
@@ -481,7 +489,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       for (const fileName of binaryFileNames(baseName)) {
         const candidate = path.join(entry, fileName);
         if (existsSync(candidate)) {
-          return candidate;
+          return { path: candidate, source: "path" };
         }
       }
     }
@@ -494,12 +502,21 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
         path.join("/usr/bin", process.platform === "win32" ? "opencode.exe" : "opencode"),
       ]) {
         if (existsSync(candidate)) {
-          return candidate;
+          return { path: candidate, source: "known-location" };
         }
       }
     }
 
     return null;
+  }
+
+  function resolveBinary(baseName, extraPaths = []) {
+    return resolveBinaryInfo(baseName, extraPaths)?.path ?? null;
+  }
+
+  function resolveOpencodeBinary(opencodeBinPath) {
+    const explicitPath = typeof opencodeBinPath === "string" ? opencodeBinPath.trim() : "";
+    return explicitPath ? { path: explicitPath, source: "custom" } : resolveBinaryInfo("opencode");
   }
 
   function resolveDockerCandidates() {
@@ -611,6 +628,47 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       status: typeof result.status === "number" ? result.status : -1,
       stdout: result.stdout ?? "",
       stderr: result.stderr ?? "",
+    };
+  }
+
+  function engineDoctor(options = {}) {
+    const resolved = resolveOpencodeBinary(options?.opencodeBinPath);
+    if (!resolved?.path) {
+      return {
+        found: false,
+        inPath: false,
+        resolvedPath: null,
+        resolvedSource: null,
+        version: null,
+        supportsServe: false,
+        notes: ["OpenCode binary not found in bundled sidecars or PATH."],
+        serveHelpStatus: null,
+        serveHelpStdout: null,
+        serveHelpStderr: null,
+      };
+    }
+
+    const versionResult = spawnSync(resolved.path, ["--version"], { encoding: "utf8" });
+    const helpResult = spawnSync(resolved.path, ["serve", "--help"], { encoding: "utf8" });
+    const notes = [`Using ${resolved.source}: ${resolved.path}`];
+    if (versionResult.status !== 0) {
+      notes.push("OpenCode version probe failed.");
+    }
+    if (helpResult.status !== 0) {
+      notes.push("OpenCode serve --help probe failed.");
+    }
+
+    return {
+      found: true,
+      inPath: resolved.source === "path",
+      resolvedPath: resolved.path,
+      resolvedSource: resolved.source,
+      version: versionResult.stdout?.trim() || versionResult.stderr?.trim() || null,
+      supportsServe: helpResult.status === 0,
+      notes,
+      serveHelpStatus: typeof helpResult.status === "number" ? helpResult.status : null,
+      serveHelpStdout: helpResult.stdout?.trim() || null,
+      serveHelpStderr: helpResult.stderr?.trim() || null,
     };
   }
 
@@ -788,11 +846,19 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       ...(activeWorkspace ? ["--opencode-directory", activeWorkspace] : []),
     ];
 
+    const managedOpencode = options.manageOpencode ? resolveOpencodeBinary(options.opencodeBinPath) : null;
+    openworkServerState.managedOpencodeBinPath = managedOpencode?.path ?? null;
+    openworkServerState.managedOpencodeBinSource = managedOpencode?.source ?? null;
+    if (options.manageOpencode) {
+      engineState.opencodeBinPath = managedOpencode?.path ?? null;
+      engineState.opencodeBinSource = managedOpencode?.source ?? null;
+    }
+
     const env = await buildChildEnv({
       OPENWORK_TOKEN: tokens.clientToken,
       OPENWORK_HOST_TOKEN: tokens.hostToken,
       ...(options.manageOpencode ? { OPENWORK_MANAGE_OPENCODE: "1" } : {}),
-      ...(options.manageOpencode ? { OPENWORK_OPENCODE_BIN: options.opencodeBinPath || resolveBinary("opencode") || "" } : {}),
+      ...(options.manageOpencode ? { OPENWORK_OPENCODE_BIN: managedOpencode?.path ?? "" } : {}),
       ...(options.opencodeUsername ? { OPENWORK_OPENCODE_USERNAME: options.opencodeUsername } : {}),
       ...(options.opencodePassword ? { OPENWORK_OPENCODE_PASSWORD: options.opencodePassword } : {}),
     });
@@ -875,10 +941,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       throw new Error("Failed to locate openwork-orchestrator.");
     }
 
-    const opencodeProgram = (typeof options.opencodeBinPath === "string" && options.opencodeBinPath.trim())
-      ? options.opencodeBinPath.trim()
-      : resolveBinary("opencode");
-    if (!opencodeProgram) {
+    const opencodeBinary = resolveOpencodeBinary(options.opencodeBinPath);
+    if (!opencodeBinary?.path) {
       throw new Error("Failed to locate opencode.");
     }
 
@@ -899,7 +963,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       "--daemon-port",
       String(daemonPort),
       "--opencode-bin",
-      opencodeProgram,
+      opencodeBinary.path,
       "--opencode-host",
       "127.0.0.1",
       "--opencode-workdir",
@@ -935,15 +999,15 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     engineState.baseUrl = `http://127.0.0.1:${opencode.port}`;
     engineState.opencodeUsername = username;
     engineState.opencodePassword = password;
+    engineState.opencodeBinPath = opencodeBinary.path;
+    engineState.opencodeBinSource = opencodeBinary.source;
 
     return snapshotEngineState(engineState);
   }
 
   async function startDirectRuntime(projectDir, options = {}) {
-    const opencodeProgram = (typeof options.opencodeBinPath === "string" && options.opencodeBinPath.trim())
-      ? options.opencodeBinPath.trim()
-      : resolveBinary("opencode");
-    if (!opencodeProgram) {
+    const opencodeBinary = resolveOpencodeBinary(options.opencodeBinPath);
+    if (!opencodeBinary?.path) {
       throw new Error("Failed to locate opencode.");
     }
 
@@ -956,7 +1020,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
     spawnManagedChild(
       engineState,
-      opencodeProgram,
+      opencodeBinary.path,
       ["serve", "--hostname", "127.0.0.1", "--port", String(port), "--cors", "*"],
       {
         cwd: projectDir,
@@ -971,6 +1035,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     engineState.baseUrl = `http://127.0.0.1:${port}`;
     engineState.opencodeUsername = username;
     engineState.opencodePassword = password;
+    engineState.opencodeBinPath = opencodeBinary.path;
+    engineState.opencodeBinSource = opencodeBinary.source;
 
     await waitForHttpOk(`${engineState.baseUrl}/health`, 10_000).catch(() => undefined);
     return snapshotEngineState(engineState);
@@ -1504,6 +1570,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     dispose: () => withRuntimeLifecycle(() => stopAllRuntimeChildren()),
     runtimeStatus,
     engineInfo,
+    engineDoctor,
     engineInstall,
     openworkServerInfo,
     openworkServerRestart,

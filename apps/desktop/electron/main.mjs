@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
@@ -125,6 +124,8 @@ const IDLE_ENGINE_INFO = Object.freeze({
   port: null,
   opencodeUsername: null,
   opencodePassword: null,
+  opencodeBinPath: null,
+  opencodeBinSource: null,
   pid: null,
   lastStdout: null,
   lastStderr: null,
@@ -142,6 +143,8 @@ const IDLE_OPENWORK_SERVER_INFO = Object.freeze({
   clientToken: null,
   ownerToken: null,
   hostToken: null,
+  managedOpencodeBinPath: null,
+  managedOpencodeBinSource: null,
   pid: null,
   lastStdout: null,
   lastStderr: null,
@@ -761,61 +764,8 @@ async function ensureProjectSkillRoot(projectDir) {
   return modern;
 }
 
-function resolveProgramInPath(name) {
-  const pathEntries = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
-  const candidates = process.platform === "win32" ? [name, `${name}.exe`, `${name}.cmd`, `${name}.bat`] : [name];
-  for (const entry of pathEntries) {
-    for (const candidate of candidates) {
-      const fullPath = path.join(entry, candidate);
-      if (existsSync(fullPath)) return fullPath;
-    }
-  }
-  return null;
-}
-
-function runProgram(program, args) {
-  return spawnSync(program, args, { encoding: "utf8" });
-}
-
 function engineDoctor(options = {}) {
-  const explicitPath = typeof options?.opencodeBinPath === "string" ? options.opencodeBinPath.trim() : "";
-  const resolvedPath = explicitPath || resolveProgramInPath("opencode");
-  const notes = [];
-
-  if (!resolvedPath) {
-    return {
-      found: false,
-      inPath: false,
-      resolvedPath: null,
-      version: null,
-      supportsServe: false,
-      notes: ["OpenCode binary not found on PATH."],
-      serveHelpStatus: null,
-      serveHelpStdout: null,
-      serveHelpStderr: null,
-    };
-  }
-
-  const versionResult = runProgram(resolvedPath, ["--version"]);
-  const helpResult = runProgram(resolvedPath, ["serve", "--help"]);
-  if (versionResult.status !== 0) {
-    notes.push("OpenCode version probe failed.");
-  }
-  if (helpResult.status !== 0) {
-    notes.push("OpenCode serve --help probe failed.");
-  }
-
-  return {
-    found: true,
-    inPath: !explicitPath,
-    resolvedPath,
-    version: versionResult.stdout?.trim() || versionResult.stderr?.trim() || null,
-    supportsServe: helpResult.status === 0,
-    notes,
-    serveHelpStatus: typeof helpResult.status === "number" ? helpResult.status : null,
-    serveHelpStdout: helpResult.stdout?.trim() || null,
-    serveHelpStderr: helpResult.stderr?.trim() || null,
-  };
+  return runtimeManager.engineDoctor(options);
 }
 
 function activeWindowFromEvent(event) {

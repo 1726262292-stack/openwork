@@ -85,6 +85,8 @@ export type EngineInfo = {
   port: number | null;
   opencodeUsername: string | null;
   opencodePassword: string | null;
+  opencodeBinPath: string | null;
+  opencodeBinSource: string | null;
   pid: number | null;
   lastStdout: string | null;
   lastStderr: string | null;
@@ -102,6 +104,8 @@ export type OpenworkServerInfo = {
   clientToken: string | null;
   ownerToken: string | null;
   hostToken: string | null;
+  managedOpencodeBinPath: string | null;
+  managedOpencodeBinSource: string | null;
   pid: number | null;
   lastStdout: string | null;
   lastStderr: string | null;
@@ -111,6 +115,7 @@ export type EngineDoctorResult = {
   found: boolean;
   inPath: boolean;
   resolvedPath: string | null;
+  resolvedSource: string | null;
   version: string | null;
   supportsServe: boolean;
   notes: string[];
