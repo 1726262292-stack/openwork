@@ -43,6 +43,7 @@ export type CreateWorkspaceModalProps = {
   onImportConfig?: () => void;
   importingConfig?: boolean;
   submitting?: boolean;
+  localError?: string | null;
   remoteSubmitting?: boolean;
   remoteError?: string | null;
   inline?: boolean;

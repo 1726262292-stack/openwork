@@ -136,6 +136,13 @@ Do not invent a separate reload banner per feature. New UI that needs restart se
 
 Current examples that should use this shared flow include MCP changes, auto context compaction, default model changes, authorized folder updates, plugin changes, and other `opencode.json` writes.
 
+When the desktop shell asks the OpenWork server to manage OpenCode, the managed
+OpenCode process starts from a shell-owned local workdir under app data instead
+of the user's selected workspace. Workspace-specific file access still flows
+through the OpenWork server and `x-opencode-directory`, but startup no longer
+depends on opening a project `opencode.json` from slow cloud-synced folders such
+as iCloud Drive.
+
 ## opencode primitives
 how to pick the right extension abstraction for 
 @opencode

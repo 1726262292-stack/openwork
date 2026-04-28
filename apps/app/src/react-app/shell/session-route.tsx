@@ -134,6 +134,19 @@ function describeRouteError(error: unknown) {
   return serialized && serialized !== "{}" ? serialized : t("app.unknown_error");
 }
 
+function describeWorkspaceCreateError(error: unknown) {
+  const message = describeRouteError(error);
+  const lower = message.toLowerCase();
+  if (
+    lower.includes("operation timed out") ||
+    lower.includes("os error 60") ||
+    lower.includes("etimedout")
+  ) {
+    return `${message}\n\nOpenWork could not read the workspace config before the filesystem timed out. This often happens when the folder is still syncing from iCloud Drive or another remote folder. Wait for the folder to finish downloading, move the workspace to a local folder, or try again.`;
+  }
+  return message;
+}
+
 function mergeRouteWorkspaces(
   serverWorkspaces: OpenworkWorkspaceInfo[],
   desktopWorkspaces: RouteWorkspace[],
@@ -303,6 +316,7 @@ export function SessionRoute() {
   const [retryingWorkspaceIds, setRetryingWorkspaceIds] = useState<string[]>([]);
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [createWorkspaceBusy, setCreateWorkspaceBusy] = useState(false);
+  const [createWorkspaceError, setCreateWorkspaceError] = useState<string | null>(null);
   const [createWorkspaceRemoteBusy, setCreateWorkspaceRemoteBusy] = useState(false);
   const [createWorkspaceRemoteError, setCreateWorkspaceRemoteError] = useState<string | null>(null);
   const [renameWorkspaceId, setRenameWorkspaceId] = useState<string | null>(null);
@@ -479,10 +493,6 @@ export function SessionRoute() {
         workspaceId: workspace.id,
         sessions: sessionsByWorkspaceIdRef.current[workspace.id] ?? [],
       }));
-      const workspacesWithoutCachedSessions = new Set(
-        cachedEntries.filter((entry) => entry.sessions.length === 0).map((entry) => entry.workspaceId),
-      );
-
       // Prefer, in order: the URL-selected workspace (if it owns the session),
       // the user's last-active workspace from localStorage, the desktop's
       // activeId, the server's activeId, then the first known workspace.
@@ -514,7 +524,11 @@ export function SessionRoute() {
         }
         return next;
       });
-      setRetryingWorkspaceIds(Array.from(workspacesWithoutCachedSessions));
+      setRetryingWorkspaceIds(
+        cachedEntries.find((entry) => entry.workspaceId === nextWorkspaceId)?.sessions.length === 0 && nextWorkspaceId
+          ? [nextWorkspaceId]
+          : [],
+      );
       setSelectedWorkspaceId(nextWorkspaceId);
       writeActiveWorkspaceId(nextWorkspaceId || null);
       recordInspectorEvent("route.refresh.complete", {
@@ -527,7 +541,10 @@ export function SessionRoute() {
       // boot. Kick it off in the background instead of blocking the route
       // so the UI is interactive immediately; the sidebar shows a
       // loading state per-workspace until the list arrives.
-      void loadWorkspaceSessionsInBackground(openworkClient, nextWorkspaces);
+      const selectedWorkspace = nextWorkspaces.find((workspace) => workspace.id === nextWorkspaceId);
+      if (selectedWorkspace) {
+        void loadWorkspaceSessionsInBackground(openworkClient, [selectedWorkspace]);
+      }
     } catch (error) {
       const message = describeRouteError(error);
       console.error("[session-route] refreshRouteState failed", error);
@@ -1430,6 +1447,7 @@ export function SessionRoute() {
   const handleCreateWorkspace = useCallback(async (preset: WorkspacePreset, folder: string | null) => {
     if (!folder) return;
     setCreateWorkspaceBusy(true);
+    setCreateWorkspaceError(null);
     try {
       const workspaceName = folderNameFromPath(folder);
       const list = await workspaceCreate({
@@ -1457,6 +1475,8 @@ export function SessionRoute() {
       if (createdId) {
         navigate("/settings/general");
       }
+    } catch (error) {
+      setCreateWorkspaceError(describeWorkspaceCreateError(error));
     } finally {
       setCreateWorkspaceBusy(false);
     }
@@ -1554,6 +1574,11 @@ export function SessionRoute() {
           if (workspaceId === selectedWorkspaceId) return true;
           setSelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
+          const workspace = workspaces.find((item) => item.id === workspaceId);
+          if (client && workspace && !sessionsByWorkspaceId[workspaceId]?.length) {
+            setRetryingWorkspaceIds((current) => Array.from(new Set([...current, workspaceId])));
+            void loadWorkspaceSessionsInBackground(client, [workspace]);
+          }
           // Fire Tauri updates but don't await them — they're bookkeeping and
           // awaiting 2 IPC roundtrips on every click used to stall rapid
           // workspace switches behind a queue.
@@ -1730,11 +1755,15 @@ export function SessionRoute() {
     />
     <CreateWorkspaceModal
       open={createWorkspaceOpen}
-      onClose={() => setCreateWorkspaceOpen(false)}
+      onClose={() => {
+        setCreateWorkspaceOpen(false);
+        setCreateWorkspaceError(null);
+      }}
       onConfirm={handleCreateWorkspace}
       onConfirmRemote={handleCreateRemoteWorkspace}
       onPickFolder={() => pickDirectory({ title: t("onboarding.authorize_folder") }) as Promise<string | null>}
       submitting={createWorkspaceBusy}
+      localError={createWorkspaceError}
       remoteSubmitting={createWorkspaceRemoteBusy}
       remoteError={createWorkspaceRemoteError}
     />

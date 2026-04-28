@@ -174,6 +174,7 @@ export function CreateWorkspaceModal(props: CreateWorkspaceModalProps) {
     [props.workerDebugLines],
   );
   const hasSelectedFolder = Boolean(selectedFolder?.trim());
+  const localError = (props.localError ?? "").trim() || null;
   const remoteError = (props.remoteError ?? "").trim() || null;
   const isSignedIn = Boolean(cloudSettings.authToken?.trim());
   const denClient = useMemo(
@@ -529,7 +530,7 @@ export function CreateWorkspaceModal(props: CreateWorkspaceModalProps) {
       }
       return;
     }
-    props.onConfirm(preset, selectedFolder);
+    await props.onConfirm(preset, selectedFolder);
   };
 
   if (!props.open && !isInline) {
@@ -635,6 +636,7 @@ export function CreateWorkspaceModal(props: CreateWorkspaceModalProps) {
           pickingFolder={pickingFolder}
           onPickFolder={() => void handlePickFolder()}
           submitting={submitting}
+          localError={localError}
           selectedTemplateId={selectedTemplateId}
           setSelectedTemplateId={setSelectedTemplateId}
           showTemplateSection={showTemplateSection}

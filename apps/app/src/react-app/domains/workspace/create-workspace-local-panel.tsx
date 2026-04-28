@@ -41,6 +41,7 @@ export type CreateWorkspaceLocalPanelProps = {
   pickingFolder: boolean;
   onPickFolder: () => void;
   submitting: boolean;
+  localError: string | null;
   selectedTemplateId: string | null;
   setSelectedTemplateId: (
     next: string | null | ((current: string | null) => string | null),
@@ -344,6 +345,12 @@ export function CreateWorkspaceLocalPanel(
                 </div>
               </details>
             ) : null}
+          </div>
+        ) : null}
+
+        {props.localError ? (
+          <div className="mb-3 whitespace-pre-line rounded-[20px] border border-red-7/20 bg-red-1/40 px-4 py-3 text-[13px] text-red-11">
+            {props.localError}
           </div>
         ) : null}
 

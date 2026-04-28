@@ -211,33 +211,32 @@ function desktopBootstrapPath() {
 }
 
 function workspaceStatePath() {
-  return path.join(app.getPath("userData"), "workspace-state.json");
-}
-
-// Tauri shell writes the same data to openwork-workspaces.json. Electron
-// reads the legacy filename on first launch when the Electron-native file
-// isn't present yet, then writes to the Electron filename going forward.
-function legacyTauriWorkspaceStatePath() {
   return path.join(app.getPath("userData"), "openwork-workspaces.json");
 }
 
-async function migrateLegacyWorkspaceStateIfNeeded() {
+// Earlier Electron alpha builds copied Tauri's openwork-workspaces.json into an
+// Electron-only workspace-state.json. Keep importing that file when the shared
+// canonical file is missing, but write openwork-workspaces.json going forward so
+// Tauri rollback and Electron both read the same desktop workspace state.
+function legacyElectronWorkspaceStatePath() {
+  return path.join(app.getPath("userData"), "workspace-state.json");
+}
+
+async function migrateLegacyElectronWorkspaceStateIfNeeded() {
   const current = workspaceStatePath();
-  const legacy = legacyTauriWorkspaceStatePath();
+  const legacy = legacyElectronWorkspaceStatePath();
   try {
     if (existsSync(current)) return false;
     if (!existsSync(legacy)) return false;
     await mkdir(path.dirname(current), { recursive: true });
     const raw = await readFile(legacy, "utf8");
-    // Write to the Electron name without deleting the legacy file for a few
-    // releases so a rollback to Tauri (same bundle id) still finds data.
     await writeFile(current, raw, "utf8");
     console.info(
-      "[migration] copied openwork-workspaces.json → workspace-state.json",
+      "[migration] copied workspace-state.json → openwork-workspaces.json",
     );
     return true;
   } catch (error) {
-    console.warn("[migration] legacy workspace-state copy failed", error);
+    console.warn("[migration] legacy Electron workspace-state copy failed", error);
     return false;
   }
 }
@@ -397,8 +396,20 @@ async function writeWorkspaceOpenworkConfig(workspacePath, config) {
 async function readWorkspaceState() {
   const state = await readJsonFile(workspaceStatePath(), EMPTY_WORKSPACE_LIST);
   return {
-    selectedId: typeof state?.selectedId === "string" ? state.selectedId : "",
-    watchedId: typeof state?.watchedId === "string" ? state.watchedId : null,
+    selectedId:
+      typeof state?.selectedId === "string"
+        ? state.selectedId
+        : typeof state?.selectedWorkspaceId === "string"
+          ? state.selectedWorkspaceId
+          : typeof state?.activeId === "string"
+            ? state.activeId
+            : "",
+    watchedId:
+      typeof state?.watchedId === "string"
+        ? state.watchedId
+        : typeof state?.watchedWorkspaceId === "string"
+          ? state.watchedWorkspaceId
+          : null,
     activeId: typeof state?.activeId === "string" ? state.activeId : null,
     workspaces: Array.isArray(state?.workspaces) ? state.workspaces : [],
   };
@@ -406,9 +417,22 @@ async function readWorkspaceState() {
 
 async function writeWorkspaceState(nextState) {
   const outputPath = workspaceStatePath();
+  const selectedId = String(nextState?.selectedId ?? nextState?.activeId ?? "");
+  const watchedId = typeof nextState?.watchedId === "string" ? nextState.watchedId : "";
+  const output = {
+    ...nextState,
+    // Tauri's Rust state uses selectedWorkspaceId/watchedWorkspaceId on disk
+    // (with activeId as a legacy alias). Keep Electron's selectedId/watchedId
+    // too so older Electron builds can still read the same file.
+    selectedId,
+    selectedWorkspaceId: selectedId,
+    watchedId: watchedId || null,
+    watchedWorkspaceId: watchedId,
+    activeId: selectedId || null,
+  };
   await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${JSON.stringify(nextState, null, 2)}\n`, "utf8");
-  return nextState;
+  await writeFile(outputPath, `${JSON.stringify(output, null, 2)}\n`, "utf8");
+  return output;
 }
 
 const runtimeManager = createRuntimeManager({
@@ -463,16 +487,48 @@ async function bootRuntimeForSelectedWorkspace() {
   }
   if (!workspacePaths.includes(workspaceRoot)) workspacePaths.unshift(workspaceRoot);
 
-  const engine = await runtimeManager.engineStart(workspaceRoot, {
-    runtime: "direct",
-    workspacePaths,
-  });
+  let bootWorkspace = workspace;
+  let bootWorkspaceRoot = workspaceRoot;
+  let engine;
+  try {
+    engine = await runtimeManager.engineStart(workspaceRoot, {
+      runtime: "direct",
+      workspacePaths,
+    });
+  } catch (error) {
+    const fallback = list.workspaces.find((entry) => {
+      const candidatePath = String(entry?.path ?? "").trim();
+      return entry?.workspaceType !== "remote" && candidatePath && candidatePath !== workspaceRoot;
+    });
+    const fallbackRoot = String(fallback?.path ?? "").trim();
+    if (!fallback || !fallbackRoot) throw error;
+    console.warn("[runtime] selected workspace failed during boot; trying fallback workspace", {
+      selectedWorkspaceId: workspace?.id ?? null,
+      fallbackWorkspaceId: fallback.id ?? null,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    const fallbackWorkspacePaths = [
+      fallbackRoot,
+      ...workspacePaths.filter((entry) => entry !== fallbackRoot && entry !== workspaceRoot),
+    ];
+    engine = await runtimeManager.engineStart(fallbackRoot, {
+      runtime: "direct",
+      workspacePaths: fallbackWorkspacePaths,
+    });
+    bootWorkspace = fallback;
+    bootWorkspaceRoot = fallbackRoot;
+    await writeWorkspaceState({
+      ...list,
+      selectedId: String(fallback.id ?? ""),
+      watchedId: String(fallback.id ?? ""),
+    }).catch(() => undefined);
+  }
   await runtimeManager.orchestratorWorkspaceActivate({
-    workspacePath: workspaceRoot,
-    name: workspace.name ?? workspace.displayName ?? null,
+    workspacePath: bootWorkspaceRoot,
+    name: bootWorkspace.name ?? bootWorkspace.displayName ?? null,
   }).catch(() => undefined);
   const openworkServer = assertOpenworkServerReady(await runtimeManager.openworkServerInfo());
-  return { ok: true, skipped: false, engine, openworkServer, workspaceId: workspace.id ?? null };
+  return { ok: true, skipped: false, engine, openworkServer, workspaceId: bootWorkspace.id ?? null };
 }
 
 function ensureRuntimeBootstrap() {
@@ -1423,9 +1479,10 @@ if (!app.requestSingleInstanceLock()) {
     await installReactDevToolsForDev();
     await runtimeManager.prepareFreshRuntime().catch(() => undefined);
 
-    // Copy Tauri workspace state on first launch so the Electron sidebar
-    // reflects the exact workspace list users see in the Tauri app today.
-    await migrateLegacyWorkspaceStateIfNeeded();
+    // Use Tauri's existing workspace state file as canonical so rollback and
+    // Electron see the same workspace list. Import the short-lived
+    // Electron-only filename only when the shared file is missing.
+    await migrateLegacyElectronWorkspaceStateIfNeeded();
     runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch((error) => ({
       ok: false,
       error: error instanceof Error ? error.message : String(error),

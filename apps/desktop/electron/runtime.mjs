@@ -307,6 +307,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return path.join(userDataDir, "openwork-server-state.json");
   }
 
+  function managedOpencodeWorkdir() {
+    return path.join(userDataDir, "managed-opencode-workdir");
+  }
+
   function orchestratorDataDir() {
     const envDir = process.env.OPENWORK_DATA_DIR?.trim();
     if (envDir) return envDir;
@@ -859,6 +863,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       OPENWORK_HOST_TOKEN: tokens.hostToken,
       ...(options.manageOpencode ? { OPENWORK_MANAGE_OPENCODE: "1" } : {}),
       ...(options.manageOpencode ? { OPENWORK_OPENCODE_BIN: managedOpencode?.path ?? "" } : {}),
+      ...(options.manageOpencode ? { OPENWORK_MANAGED_OPENCODE_CWD: managedOpencodeWorkdir() } : {}),
       ...(options.opencodeUsername ? { OPENWORK_OPENCODE_USERNAME: options.opencodeUsername } : {}),
       ...(options.opencodePassword ? { OPENWORK_OPENCODE_PASSWORD: options.opencodePassword } : {}),
     });

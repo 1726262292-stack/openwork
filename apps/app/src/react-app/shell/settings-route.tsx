@@ -89,6 +89,19 @@ function describeRouteError(error: unknown) {
   return serialized && serialized !== "{}" ? serialized : t("app.unknown_error");
 }
 
+function describeWorkspaceCreateError(error: unknown) {
+  const message = describeRouteError(error);
+  const lower = message.toLowerCase();
+  if (
+    lower.includes("operation timed out") ||
+    lower.includes("os error 60") ||
+    lower.includes("etimedout")
+  ) {
+    return `${message}\n\nOpenWork could not read the workspace config before the filesystem timed out. This often happens when the folder is still syncing from iCloud Drive or another remote folder. Wait for the folder to finish downloading, move the workspace to a local folder, or try again.`;
+  }
+  return message;
+}
+
 function mergeRouteWorkspaces(
   serverWorkspaces: OpenworkWorkspaceInfo[],
   desktopWorkspaces: RouteWorkspace[],
@@ -335,6 +348,7 @@ export function SettingsRoute() {
   const [resetConfigBusy, setResetConfigBusy] = useState(false);
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [createWorkspaceBusy, setCreateWorkspaceBusy] = useState(false);
+  const [createWorkspaceError, setCreateWorkspaceError] = useState<string | null>(null);
   const [createWorkspaceRemoteBusy, setCreateWorkspaceRemoteBusy] = useState(false);
   const [createWorkspaceRemoteError, setCreateWorkspaceRemoteError] = useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -882,6 +896,7 @@ export function SettingsRoute() {
     : null;
 
   const handleOpenCreateWorkspace = () => {
+    setCreateWorkspaceError(null);
     setCreateWorkspaceRemoteError(null);
     setCreateWorkspaceOpen(true);
   };
@@ -889,6 +904,7 @@ export function SettingsRoute() {
   const handleCreateWorkspace = async (preset: WorkspacePreset, folder: string | null) => {
     if (!folder) return;
     setCreateWorkspaceBusy(true);
+    setCreateWorkspaceError(null);
     try {
       const workspaceName = folderNameFromPath(folder);
       const list = await workspaceCreate({
@@ -913,6 +929,8 @@ export function SettingsRoute() {
       }
       setCreateWorkspaceOpen(false);
       await refreshRouteState();
+    } catch (error) {
+      setCreateWorkspaceError(describeWorkspaceCreateError(error));
     } finally {
       setCreateWorkspaceBusy(false);
     }
@@ -1276,11 +1294,15 @@ export function SettingsRoute() {
       />
       <CreateWorkspaceModal
         open={createWorkspaceOpen}
-        onClose={() => setCreateWorkspaceOpen(false)}
+        onClose={() => {
+          setCreateWorkspaceOpen(false);
+          setCreateWorkspaceError(null);
+        }}
         onConfirm={handleCreateWorkspace}
         onConfirmRemote={handleCreateRemoteWorkspace}
         onPickFolder={() => pickDirectory({ title: t("onboarding.authorize_folder") }) as Promise<string | null>}
         submitting={createWorkspaceBusy}
+        localError={createWorkspaceError}
         remoteSubmitting={createWorkspaceRemoteBusy}
         remoteError={createWorkspaceRemoteError}
       />
