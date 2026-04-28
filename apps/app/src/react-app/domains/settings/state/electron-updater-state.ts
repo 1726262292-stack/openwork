@@ -1,8 +1,8 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ReleaseChannel } from "../../../../app/types";
-import { isElectronRuntime, safeStringify } from "../../../../app/utils";
+import { isElectronRuntime, isTauriRuntime, safeStringify } from "../../../../app/utils";
 
 export type SettingsUpdateStatus = {
   state: "idle" | "checking" | "available" | "downloading" | "ready" | "error";
@@ -16,6 +16,12 @@ export type SettingsUpdateStatus = {
 } | null;
 
 type ElectronUpdaterBridge = NonNullable<Window["__OPENWORK_ELECTRON__"]>["updater"];
+type TauriUpdate = {
+  version?: string;
+  date?: string;
+  body?: string;
+  downloadAndInstall?: (handler?: (event: unknown) => void) => Promise<void>;
+};
 
 type UseElectronUpdaterStateOptions = {
   releaseChannel: ReleaseChannel;
@@ -52,13 +58,38 @@ function releaseNotesToText(value: unknown): string | undefined {
   return undefined;
 }
 
+function updateProgress(event: unknown): { downloaded?: number; total?: number } | null {
+  if (!event || typeof event !== "object") return null;
+  const data = event as { data?: unknown };
+  if (!data.data || typeof data.data !== "object") return null;
+  const payload = data.data as { chunkLength?: unknown; contentLength?: unknown };
+  return {
+    downloaded: typeof payload.chunkLength === "number" ? payload.chunkLength : undefined,
+    total: typeof payload.contentLength === "number" ? payload.contentLength : undefined,
+  };
+}
+
 export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions) {
   const { releaseChannel, onReleaseChannelChange, updateAutoDownload, setError } = options;
   const [updateStatus, setUpdateStatus] = useState<SettingsUpdateStatus>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [updateEnv, setUpdateEnv] = useState<{ supported?: boolean; reason?: string | null } | null>(null);
+  const tauriUpdateRef = useRef<TauriUpdate | null>(null);
 
   useEffect(() => {
+    if (isTauriRuntime()) {
+      let cancelled = false;
+      void import("@tauri-apps/api/app")
+        .then(({ getVersion }) => getVersion())
+        .then((version) => {
+          if (!cancelled) setAppVersion(version ?? null);
+        })
+        .catch(() => undefined);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     if (!isElectronRuntime()) return;
     const bridge = electronUpdaterBridge();
     if (!bridge?.getChannel) {
@@ -86,6 +117,45 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
   }, [onReleaseChannelChange, releaseChannel]);
 
   const downloadUpdate = useCallback(async () => {
+    if (isTauriRuntime()) {
+      let update = tauriUpdateRef.current;
+      if (!update) {
+        const { check } = await import("@tauri-apps/plugin-updater");
+        update = (await check()) as TauriUpdate | null;
+        tauriUpdateRef.current = update;
+      }
+      if (!update?.downloadAndInstall) {
+        setUpdateStatus({ state: "idle", lastCheckedAt: Date.now() });
+        return;
+      }
+      let downloadedBytes = 0;
+      setUpdateStatus({
+        state: "downloading",
+        version: update.version,
+        date: update.date,
+        notes: update.body,
+        downloadedBytes: 0,
+        totalBytes: null,
+      });
+      await update.downloadAndInstall((event) => {
+        const progress = updateProgress(event);
+        if (!progress) return;
+        downloadedBytes += progress.downloaded ?? 0;
+        setUpdateStatus((current) => ({
+          ...(current ?? {}),
+          state: "downloading",
+          downloadedBytes,
+          totalBytes: progress.total ?? current?.totalBytes ?? null,
+        }));
+      });
+      setUpdateStatus((current) => ({
+        ...(current ?? {}),
+        state: "ready",
+        downloadedBytes,
+      }));
+      return;
+    }
+
     const bridge = electronUpdaterBridge();
     if (!bridge?.download) {
       const message = "Electron updater downloads are available only in the Electron desktop app.";
@@ -112,6 +182,31 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
   }, [setError]);
 
   const checkForUpdates = useCallback(async () => {
+    if (isTauriRuntime()) {
+      setUpdateStatus({ state: "checking" });
+      try {
+        const { check } = await import("@tauri-apps/plugin-updater");
+        const update = (await check()) as TauriUpdate | null;
+        tauriUpdateRef.current = update;
+        const nextStatus: Exclude<SettingsUpdateStatus, null> = update
+          ? {
+              state: "available",
+              lastCheckedAt: Date.now(),
+              version: update.version,
+              date: update.date,
+              notes: update.body,
+            }
+          : { state: "idle", lastCheckedAt: Date.now() };
+        setUpdateStatus(nextStatus);
+        if (update && updateAutoDownload) {
+          await downloadUpdate();
+        }
+      } catch (error) {
+        setUpdateStatus({ state: "error", message: describeError(error) });
+      }
+      return;
+    }
+
     const bridge = electronUpdaterBridge();
     if (!bridge?.check) {
       const message = "Electron update checks are available only in the Electron desktop app.";
@@ -164,6 +259,16 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
   }, [downloadUpdate, onReleaseChannelChange, releaseChannel, setError, updateAutoDownload]);
 
   const installUpdateAndRestart = useCallback(async () => {
+    if (isTauriRuntime()) {
+      try {
+        const { relaunch } = await import("@tauri-apps/plugin-process");
+        await relaunch();
+      } catch (error) {
+        setUpdateStatus({ state: "error", message: describeError(error) });
+      }
+      return;
+    }
+
     const bridge = electronUpdaterBridge();
     if (!bridge?.installAndRestart) {
       const message = "Electron update install is available only in the Electron desktop app.";
