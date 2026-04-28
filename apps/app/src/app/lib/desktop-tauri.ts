@@ -177,7 +177,7 @@ export async function engineStart(
 ): Promise<EngineInfo> {
   return invoke<EngineInfo>("engine_start", {
     projectDir,
-    preferSidecar: options?.preferSidecar ?? false,
+    preferSidecar: options?.preferSidecar ?? true,
     opencodeBinPath: options?.opencodeBinPath ?? null,
     opencodeEnableExa: options?.opencodeEnableExa ?? null,
     openworkRemoteAccess: options?.openworkRemoteAccess ?? null,
@@ -582,7 +582,7 @@ export async function engineDoctor(options?: {
   opencodeBinPath?: string | null;
 }): Promise<EngineDoctorResult> {
   return invoke<EngineDoctorResult>("engine_doctor", {
-    preferSidecar: options?.preferSidecar ?? false,
+    preferSidecar: options?.preferSidecar ?? true,
     opencodeBinPath: options?.opencodeBinPath ?? null,
   });
 }

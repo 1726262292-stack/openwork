@@ -186,7 +186,7 @@ pub fn engine_doctor(
     prefer_sidecar: Option<bool>,
     opencode_bin_path: Option<String>,
 ) -> EngineDoctorResult {
-    let prefer_sidecar = prefer_sidecar.unwrap_or(false);
+    let prefer_sidecar = prefer_sidecar.unwrap_or(true);
     let resource_dir = app.path().resource_dir().ok();
 
     let current_bin_dir = tauri::process::current_binary(&app.env())
@@ -316,7 +316,7 @@ pub fn engine_start(
     let current_bin_dir = tauri::process::current_binary(&app.env())
         .ok()
         .and_then(|path| path.parent().map(|parent| parent.to_path_buf()));
-    let prefer_sidecar = prefer_sidecar.unwrap_or(false);
+    let prefer_sidecar = prefer_sidecar.unwrap_or(true);
     let _guard = EnvVarGuard::apply("OPENCODE_BIN_PATH", opencode_bin_path.as_deref());
     let (program, _in_path, notes) = resolve_engine_path(
         prefer_sidecar,
