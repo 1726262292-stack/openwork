@@ -7,7 +7,7 @@ import type {
   Session,
 } from "@opencode-ai/sdk/v2/client";
 import type { createClient } from "./lib/opencode";
-import type { OpencodeConfigFile, ScheduledJob as TauriScheduledJob, WorkspaceInfo } from "./lib/desktop";
+import type { OpencodeConfigFile, WorkspaceInfo } from "./lib/desktop";
 
 export type Client = ReturnType<typeof createClient>;
 
@@ -165,17 +165,15 @@ export type StartupPreference = "local" | "server";
  */
 export type ReleaseChannel = "stable" | "alpha";
 
-export type EngineRuntime = "direct" | "openwork-orchestrator";
+export type EngineRuntime = "direct";
 
 export type OnboardingStep = "welcome" | "local" | "server" | "connecting";
 
 export type SettingsTab =
   | "general"
   | "den"
-  | "automations"
   | "skills"
   | "extensions"
-  | "messaging"
   | "advanced"
   | "appearance"
   | "updates"
@@ -418,8 +416,6 @@ export type WorkspaceState = {
   path: string;
   root: string;
 };
-
-export type ScheduledJob = TauriScheduledJob;
 
 export type PluginState = {
   scope: PluginScope;

@@ -13,14 +13,10 @@ export function getSettingsTabLabel(tab: SettingsTab) {
   switch (tab) {
     case "den":
       return t("settings.tab_cloud");
-    case "automations":
-      return t("settings.tab_automations");
     case "skills":
       return t("settings.tab_skills");
     case "extensions":
       return t("settings.tab_extensions");
-    case "messaging":
-      return t("settings.tab_messaging");
     case "advanced":
       return t("settings.tab_advanced");
     case "appearance":
@@ -40,14 +36,10 @@ export function getSettingsTabDescription(tab: SettingsTab) {
   switch (tab) {
     case "den":
       return t("settings.tab_description_den");
-    case "automations":
-      return t("settings.tab_description_automations");
     case "skills":
       return t("settings.tab_description_skills");
     case "extensions":
       return t("settings.tab_description_extensions");
-    case "messaging":
-      return t("settings.tab_description_messaging");
     case "advanced":
       return t("settings.tab_description_advanced");
     case "appearance":
@@ -64,7 +56,7 @@ export function getSettingsTabDescription(tab: SettingsTab) {
 }
 
 export function getWorkspaceSettingsTabs(): SettingsTab[] {
-  return ["general", "automations", "skills", "extensions", "messaging", "advanced"];
+  return ["general", "skills", "extensions", "advanced"];
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {

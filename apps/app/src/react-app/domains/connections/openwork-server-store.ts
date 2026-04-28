@@ -6,11 +6,7 @@ import { isDesktopRuntime } from "../../../app/utils";
 import {
   openworkServerInfo,
   openworkServerRestart,
-  opencodeRouterInfo,
-  orchestratorStatus,
-  type OpenCodeRouterInfo,
   type OpenworkServerInfo,
-  type OrchestratorStatus,
 } from "../../../app/lib/desktop";
 import {
   clearOpenworkServerSettings,
@@ -54,8 +50,6 @@ export type OpenworkServerStoreSnapshot = {
   openworkServerHostInfo: OpenworkServerInfo | null;
   openworkServerDiagnostics: OpenworkServerDiagnostics | null;
   openworkReconnectBusy: boolean;
-  opencodeRouterInfoState: OpenCodeRouterInfo | null;
-  orchestratorStatusState: OrchestratorStatus | null;
   openworkAuditEntries: OpenworkAuditEntry[];
   openworkAuditStatus: "idle" | "loading" | "error";
   openworkAuditError: string | null;
@@ -87,8 +81,6 @@ type MutableState = {
   openworkServerHostInfoReady: boolean;
   openworkServerDiagnostics: OpenworkServerDiagnostics | null;
   openworkReconnectBusy: boolean;
-  opencodeRouterInfoState: OpenCodeRouterInfo | null;
-  orchestratorStatusState: OrchestratorStatus | null;
   openworkAuditEntries: OpenworkAuditEntry[];
   openworkAuditStatus: "idle" | "loading" | "error";
   openworkAuditError: string | null;
@@ -124,8 +116,6 @@ export function createOpenworkServerStore(options: CreateOpenworkServerStoreOpti
     openworkServerHostInfoReady: !isDesktopRuntime(),
     openworkServerDiagnostics: null,
     openworkReconnectBusy: false,
-    opencodeRouterInfoState: null,
-    orchestratorStatusState: null,
     openworkAuditEntries: [],
     openworkAuditStatus: "idle",
     openworkAuditError: null,
@@ -228,8 +218,6 @@ export function createOpenworkServerStore(options: CreateOpenworkServerStoreOpti
       openworkServerHostInfo: state.openworkServerHostInfo,
       openworkServerDiagnostics: state.openworkServerDiagnostics,
       openworkReconnectBusy: state.openworkReconnectBusy,
-      opencodeRouterInfoState: state.opencodeRouterInfoState,
-      orchestratorStatusState: state.orchestratorStatusState,
       openworkAuditEntries: state.openworkAuditEntries,
       openworkAuditStatus: state.openworkAuditStatus,
       openworkAuditError: state.openworkAuditError,
@@ -482,46 +470,6 @@ export function createOpenworkServerStore(options: CreateOpenworkServerStoreOpti
     };
     refreshDiagnostics();
     startInterval("diagnostics", refreshDiagnostics, 10_000);
-
-    const refreshRouterInfo = () => {
-      if (!isDesktopRuntime()) return;
-      if (!options.documentVisible()) return;
-      if (!options.developerMode()) {
-        setStateField("opencodeRouterInfoState", null);
-        return;
-      }
-
-      void (async () => {
-        try {
-          const info = await opencodeRouterInfo();
-          if (!disposed) setStateField("opencodeRouterInfoState", info);
-        } catch {
-          if (!disposed) setStateField("opencodeRouterInfoState", null);
-        }
-      })();
-    };
-    refreshRouterInfo();
-    startInterval("router", refreshRouterInfo, 10_000);
-
-    const refreshOrchestratorStatus = () => {
-      if (!isDesktopRuntime()) return;
-      if (!options.documentVisible()) return;
-      if (!options.developerMode()) {
-        setStateField("orchestratorStatusState", null);
-        return;
-      }
-
-      void (async () => {
-        try {
-          const status = await orchestratorStatus();
-          if (!disposed) setStateField("orchestratorStatusState", status);
-        } catch {
-          if (!disposed) setStateField("orchestratorStatusState", null);
-        }
-      })();
-    };
-    refreshOrchestratorStatus();
-    startInterval("orchestrator", refreshOrchestratorStatus, 10_000);
 
     const refreshDevtoolsWorkspace = () => {
       if (!options.documentVisible()) return;

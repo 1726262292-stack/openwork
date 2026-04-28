@@ -203,7 +203,6 @@ pub fn spawn_openwork_server(
     opencode_directory: Option<&str>,
     opencode_username: Option<&str>,
     opencode_password: Option<&str>,
-    opencode_router_health_port: Option<u16>,
     manage_opencode: bool,
     opencode_bin_path: Option<&str>,
 ) -> Result<(Receiver<CommandEvent>, CommandChild), String> {
@@ -228,10 +227,6 @@ pub fn spawn_openwork_server(
     command = command
         .env("OPENWORK_TOKEN", token)
         .env("OPENWORK_HOST_TOKEN", host_token);
-
-    if let Some(port) = opencode_router_health_port {
-        command = command.env("OPENCODE_ROUTER_HEALTH_PORT", port.to_string());
-    }
 
     if manage_opencode {
         command = command.env("OPENWORK_MANAGE_OPENCODE", "1");

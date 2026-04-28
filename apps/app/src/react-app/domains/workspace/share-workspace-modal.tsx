@@ -260,7 +260,6 @@ export function ShareWorkspaceModal(props: ShareWorkspaceModalProps) {
               remoteAccessEnabled={remoteAccessEnabled}
               onRemoteAccessEnabledChange={setRemoteAccessEnabled}
               note={props.note}
-              onOpenBots={props.onOpenBots}
             />
           ) : null}
         </div>

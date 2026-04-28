@@ -4,7 +4,6 @@ import {
   Box,
   ChevronLeft,
   ChevronRight,
-  History,
   MessageCircle,
   Redo2,
   Search,
@@ -48,7 +47,7 @@ import type {
 } from "../../app/src/app/types";
 import { sessionMessages, storyWorkspaces } from "./mock-data";
 
-type RightRailNav = "automations" | "skills" | "extensions" | "messaging" | "advanced";
+type RightRailNav = "skills" | "extensions" | "messaging" | "advanced";
 type CommandPaletteMode = "root" | "sessions";
 
 type CommandPaletteItem = {
@@ -280,7 +279,7 @@ const RightRailButton: Component<{
 export default function StoryBookApp() {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = createSignal(localWorkspace.id);
   const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>("sb-session-shell");
-  const [rightRailNav, setRightRailNav] = createSignal<RightRailNav>("automations");
+  const [rightRailNav, setRightRailNav] = createSignal<RightRailNav>("skills");
   const [themeMode] = createSignal<ThemeMode>(getInitialThemeMode());
   const [composerPrompt, setComposerPrompt] = createSignal(
     "Use this mock shell to design layout changes before touching the live session runtime.",
@@ -822,13 +821,6 @@ export default function StoryBookApp() {
       <div class={`flex-1 overflow-y-auto ${expanded ? "space-y-5 pt-1" : "space-y-3 pt-1"}`}>
         <div class="space-y-1 mb-2">
           <RightRailButton
-            label="Automations"
-            icon={<History size={18} />}
-            active={rightRailNav() === "automations"}
-            expanded={expanded}
-            onClick={() => setRightRailNav("automations")}
-          />
-          <RightRailButton
             label="Skills"
             icon={<Zap size={18} />}
             active={rightRailNav() === "skills"}
@@ -1097,7 +1089,7 @@ export default function StoryBookApp() {
             onSendFeedback={() => undefined}
             onOpenSettings={() => {
               if (showingSettings()) {
-                setRightRailNav("automations");
+                setRightRailNav("skills");
                 return;
               }
               if (!rightSidebarExpanded()) toggleRightSidebar();

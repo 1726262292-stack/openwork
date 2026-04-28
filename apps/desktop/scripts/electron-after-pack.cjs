@@ -4,7 +4,6 @@ const path = require("node:path");
 const sidecarBases = [
   "opencode",
   "openwork-server",
-  "opencode-router",
   "openwork-orchestrator",
   "chrome-devtools-mcp",
 ];

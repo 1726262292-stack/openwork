@@ -413,7 +413,6 @@ pub fn start_openwork_server(
     opencode_base_url: Option<&str>,
     opencode_username: Option<&str>,
     opencode_password: Option<&str>,
-    opencode_router_health_port: Option<u16>,
     remote_access_enabled: bool,
     manage_opencode: bool,
     opencode_bin_path: Option<&str>,
@@ -456,7 +455,6 @@ pub fn start_openwork_server(
         },
         opencode_username,
         opencode_password,
-        opencode_router_health_port,
         manage_opencode,
         opencode_bin_path,
     )?;

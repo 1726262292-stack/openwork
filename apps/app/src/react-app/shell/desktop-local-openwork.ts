@@ -2,7 +2,6 @@ import {
   engineInfo,
   engineStart,
   openworkServerInfo,
-  orchestratorWorkspaceActivate,
 } from "../../app/lib/desktop";
 import { writeOpenworkServerSettings } from "../../app/lib/openwork-server";
 import { safeStringify } from "../../app/utils";
@@ -71,11 +70,6 @@ export async function ensureDesktopLocalOpenworkConnection(
         workspacePaths,
       });
     }
-
-    await orchestratorWorkspaceActivate({
-      workspacePath: workspaceRoot,
-      name: workspace.name ?? workspace.displayNameResolved ?? null,
-    });
 
     const info = await openworkServerInfo();
     if (!info?.baseUrl) {

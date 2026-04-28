@@ -9,19 +9,13 @@ import {
   openDesktopUrl,
   openworkServerInfo as openworkServerInfoCmd,
   openworkServerRestart as openworkServerRestartCmd,
-  opencodeRouterInfo as opencodeRouterInfoCmd,
-  opencodeRouterRestart as opencodeRouterRestartCmd,
-  opencodeRouterStop as opencodeRouterStopCmd,
-  orchestratorStatus as orchestratorStatusCmd,
   pickFile,
   resetOpenworkState,
   sandboxDebugProbe as sandboxDebugProbeCmd,
   workspaceBootstrap as workspaceBootstrapCmd,
   type AppBuildInfo,
   type EngineInfo,
-  type OpenCodeRouterInfo,
   type OpenworkServerInfo,
-  type OrchestratorStatus,
   type SandboxDebugProbeResult,
 } from "../../../../app/lib/desktop";
 import {
@@ -43,7 +37,6 @@ import type { OpenworkServerStore, OpenworkServerStoreSnapshot } from "../../con
 
 const STARTUP_PREFERENCE_KEY = "openwork.startupPreference";
 const ENGINE_SOURCE_KEY = "openwork.engineSource";
-const ENGINE_RUNTIME_KEY = "openwork.engineRuntime";
 const ENGINE_CUSTOM_BIN_KEY = "openwork.engineCustomBinPath";
 const OPENCODE_ENABLE_EXA_KEY = "openwork.opencodeEnableExa";
 const ELECTRON_PREVIEW_RELEASE_URL = "https://github.com/different-ai/openwork/releases/tag/electron-preview-latest";
@@ -109,11 +102,6 @@ function readEngineSource(): "path" | "sidecar" | "custom" {
   return raw === "path" || raw === "sidecar" || raw === "custom" ? raw : "sidecar";
 }
 
-function readEngineRuntime(): "direct" | "openwork-orchestrator" {
-  const raw = readStoredString(ENGINE_RUNTIME_KEY, "openwork-orchestrator");
-  return raw === "direct" ? "direct" : "openwork-orchestrator";
-}
-
 function readOpencodeEnableExa(): boolean {
   return readStoredString(OPENCODE_ENABLE_EXA_KEY, "0") === "1";
 }
@@ -173,23 +161,6 @@ function describeEngine(info: EngineInfo | null) {
   };
 }
 
-function describeOrchestrator(status: OrchestratorStatus | null) {
-  const running = Boolean(status?.running);
-  return {
-    ...statusPill(running),
-    lines: [
-      t("settings.debug_data_dir", undefined, { path: status?.dataDir ?? "—" }),
-      t("settings.debug_daemon_url", undefined, { url: status?.daemon?.baseUrl ?? "—" }),
-      t("settings.debug_daemon_pid", undefined, { pid: status?.daemon?.pid ? String(status.daemon.pid) : "—" }),
-      t("settings.debug_opencode_url", undefined, { url: status?.opencode?.baseUrl ?? "—" }),
-      t("settings.debug_opencode_pid", undefined, { pid: status?.opencode?.pid ? String(status.opencode.pid) : "—" }),
-      t("settings.debug_cli_version", undefined, { version: status?.cliVersion ?? "—" }),
-    ],
-    binaryTitle: status?.binaries?.opencode?.path ?? null,
-    error: status?.lastError ?? null,
-  };
-}
-
 function describeOpenworkServer(info: OpenworkServerInfo | null) {
   const running = Boolean(info?.running);
   return {
@@ -206,26 +177,6 @@ function describeOpenworkServer(info: OpenworkServerInfo | null) {
     ],
     stdout: info?.lastStdout ?? null,
     stderr: info?.lastStderr ?? null,
-    error: null as string | null,
-  };
-}
-
-function describeOpencodeRouter(info: OpenCodeRouterInfo | null) {
-  const running = Boolean(info?.running);
-  return {
-    ...statusPill(running),
-    lines: [
-      t("settings.debug_workspace_path", undefined, { path: info?.workspacePath ?? "—" }),
-      t("settings.debug_opencode_url", undefined, { url: info?.opencodeUrl ?? "—" }),
-      t("settings.debug_health_port", undefined, {
-        port: info?.healthPort ? String(info.healthPort) : "—",
-      }),
-      t("settings.debug_pid", undefined, { pid: info?.pid ? String(info.pid) : "—" }),
-      t("settings.debug_router_version", undefined, { version: info?.version ?? "—" }),
-    ],
-    stdout: info?.lastStdout ?? null,
-    stderr: info?.lastStderr ?? null,
-    running,
     error: null as string | null,
   };
 }
@@ -263,17 +214,23 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
   const [sandboxProbeBusy, setSandboxProbeBusy] = useState(false);
   const [sandboxProbeResult, setSandboxProbeResult] = useState<SandboxDebugProbeResult | null>(null);
   const [sandboxProbeStatus, setSandboxProbeStatus] = useState<string | null>(null);
-  const [openworkRestartBusy, setOpenworkRestartBusy] = useState(false);
   const [opencodeRestarting, setOpencodeRestarting] = useState(false);
   const [openworkServerRestarting, setOpenworkServerRestarting] = useState(false);
-  const [opencodeRouterRestarting, setOpencodeRouterRestarting] = useState(false);
-  const [openworkRestartStatus, setOpenworkRestartStatus] = useState<string | null>(null);
+  const [opencodeServiceStatus, setOpencodeServiceStatus] = useState<{
+    tone: "success" | "error";
+    message: string;
+  } | null>(null);
+  const [openworkServiceStatus, setOpenworkServiceStatus] = useState<{
+    tone: "success" | "error";
+    message: string;
+  } | null>(null);
+  const [opencodeLogStatus, setOpencodeLogStatus] = useState<string | null>(null);
+  const [openworkLogStatus, setOpenworkLogStatus] = useState<string | null>(null);
   const [serviceRestartError, setServiceRestartError] = useState<string | null>(null);
   const [resetModalBusy, setResetModalBusy] = useState(false);
   const [nukeConfigBusy, setNukeConfigBusy] = useState(false);
   const [nukeConfigStatus, setNukeConfigStatus] = useState<string | null>(null);
   const [engineSource, setEngineSourceState] = useState<"path" | "sidecar" | "custom">(readEngineSource);
-  const [engineRuntime, setEngineRuntimeState] = useState<"direct" | "openwork-orchestrator">(readEngineRuntime);
   const [engineCustomBinPath, setEngineCustomBinPath] = useState<string>(() =>
     readStoredString(ENGINE_CUSTOM_BIN_KEY, ""),
   );
@@ -328,20 +285,14 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     () => ({
       appVersionLabel: appBuild?.version ?? "—",
       appCommitLabel: appBuild?.gitSha ?? "—",
-      orchestratorVersionLabel:
-        openworkServerSnapshot.orchestratorStatusState?.cliVersion ?? "—",
-      opencodeVersionLabel:
-        openworkServerSnapshot.orchestratorStatusState?.binaries?.opencode?.actualVersion ?? "—",
+      opencodeVersionLabel: engineInfoState?.baseUrl ? "managed" : "—",
       openworkServerVersionLabel: openworkServerSnapshot.openworkServerDiagnostics?.version ?? "—",
-      opencodeRouterVersionLabel: openworkServerSnapshot.opencodeRouterInfoState?.version ?? "—",
     }),
     [
       appBuild?.gitSha,
       appBuild?.version,
-      openworkServerSnapshot.opencodeRouterInfoState?.version,
+      engineInfoState?.baseUrl,
       openworkServerSnapshot.openworkServerDiagnostics?.version,
-      openworkServerSnapshot.orchestratorStatusState?.binaries?.opencode?.actualVersion,
-      openworkServerSnapshot.orchestratorStatusState?.cliVersion,
     ],
   );
 
@@ -350,7 +301,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       collectedAt: new Date().toISOString(),
       app: appBuild ?? null,
       engine: engineInfoState,
-      orchestrator: openworkServerSnapshot.orchestratorStatusState,
       openworkServer: {
         hostInfo: openworkServerSnapshot.openworkServerHostInfo,
         diagnostics: openworkServerSnapshot.openworkServerDiagnostics,
@@ -359,21 +309,18 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
         status: openworkServerSnapshot.openworkServerStatus,
         url: openworkServerSnapshot.openworkServerUrl,
       },
-      opencodeRouter: openworkServerSnapshot.opencodeRouterInfoState,
       runtimeWorkspaceId,
       selectedWorkspaceRoot,
     };
   }, [
     appBuild,
     engineInfoState,
-    openworkServerSnapshot.opencodeRouterInfoState,
     openworkServerSnapshot.openworkServerCapabilities,
     openworkServerSnapshot.openworkServerDiagnostics,
     openworkServerSnapshot.openworkServerHostInfo,
     openworkServerSnapshot.openworkServerSettings,
     openworkServerSnapshot.openworkServerStatus,
     openworkServerSnapshot.openworkServerUrl,
-    openworkServerSnapshot.orchestratorStatusState,
     runtimeWorkspaceId,
     selectedWorkspaceRoot,
   ]);
@@ -384,17 +331,9 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
   );
 
   const engineCard = useMemo(() => describeEngine(engineInfoState), [engineInfoState]);
-  const orchestratorCard = useMemo(
-    () => describeOrchestrator(openworkServerSnapshot.orchestratorStatusState),
-    [openworkServerSnapshot.orchestratorStatusState],
-  );
   const openworkCard = useMemo(
     () => describeOpenworkServer(openworkServerSnapshot.openworkServerHostInfo),
     [openworkServerSnapshot.openworkServerHostInfo],
-  );
-  const opencodeRouterCard = useMemo(
-    () => describeOpencodeRouter(openworkServerSnapshot.opencodeRouterInfoState),
-    [openworkServerSnapshot.opencodeRouterInfoState],
   );
   const opencodeConnectCard = useMemo(
     () => describeOpencodeConnect(engineInfoState),
@@ -562,28 +501,22 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     }
   }, [pushDeveloperLog]);
 
+  const [startupStatus, setStartupStatus] = useState<string | null>(null);
+
   const onStopHost = useCallback(async () => {
     clearStartupPreference();
-    setOpenworkRestartStatus(t("settings.startup_reset_hint"));
+    setStartupStatus(t("settings.startup_reset_hint"));
   }, []);
 
   const onResetStartupPreference = useCallback(async () => {
     clearStartupPreference();
-    setOpenworkRestartStatus(t("settings.startup_reset_hint"));
+    setStartupStatus(t("settings.startup_reset_hint"));
   }, []);
 
   const onSetEngineSource = useCallback((value: "path" | "sidecar" | "custom") => {
     setEngineSourceState(value);
     writeStoredString(ENGINE_SOURCE_KEY, value);
   }, []);
-
-  const onSetEngineRuntime = useCallback(
-    (value: "direct" | "openwork-orchestrator") => {
-      setEngineRuntimeState(value);
-      writeStoredString(ENGINE_RUNTIME_KEY, value);
-    },
-    [],
-  );
 
   const onPickEngineBinary = useCallback(async () => {
     if (!isDesktopRuntime()) {
@@ -664,33 +597,25 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     return info;
   }, [openworkServerStore, refreshEngineInfo]);
 
-  const onRestartLocalServer = useCallback(async () => {
-    if (!isDesktopRuntime()) return;
-    setOpenworkRestartBusy(true);
-    setServiceRestartError(null);
-    setOpenworkRestartStatus(null);
-    try {
-      await bootFullEngineStack();
-      setOpenworkRestartStatus(t("settings.restart_openwork_server"));
-      pushDeveloperLog("Started OpenWork server + managed OpenCode via engine_start");
-    } catch (error) {
-      setServiceRestartError(error instanceof Error ? error.message : safeStringify(error));
-    } finally {
-      setOpenworkRestartBusy(false);
-    }
-  }, [bootFullEngineStack, pushDeveloperLog]);
-
   const onRestartOpencode = useCallback(async () => {
     if (!isDesktopRuntime()) return;
     setOpencodeRestarting(true);
+    setOpencodeServiceStatus(null);
     setServiceRestartError(null);
-    setOpenworkRestartStatus(null);
     try {
       await bootFullEngineStack();
-      setOpenworkRestartStatus(t("settings.restart_opencode"));
+      setOpencodeServiceStatus({
+        tone: "success",
+        message: t("settings.restart_succeeded_template", undefined, { service: "OpenCode" }),
+      });
       pushDeveloperLog("Restarted OpenCode via engine_start");
     } catch (error) {
-      setServiceRestartError(error instanceof Error ? error.message : safeStringify(error));
+      const message = error instanceof Error ? error.message : safeStringify(error);
+      setOpencodeServiceStatus({
+        tone: "error",
+        message: `${t("settings.restart_failed_template", undefined, { service: "OpenCode" })} ${message}`,
+      });
+      setServiceRestartError(message);
     } finally {
       setOpencodeRestarting(false);
     }
@@ -699,17 +624,25 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
   const onRestartOpenworkServer = useCallback(async () => {
     if (!isDesktopRuntime()) return;
     setOpenworkServerRestarting(true);
+    setOpenworkServiceStatus(null);
     setServiceRestartError(null);
-    setOpenworkRestartStatus(null);
     try {
       await openworkServerRestartCmd({
         remoteAccessEnabled: openworkServerSnapshot.openworkServerSettings.remoteAccessEnabled === true,
       });
-      setOpenworkRestartStatus(t("settings.restart_openwork_server"));
+      setOpenworkServiceStatus({
+        tone: "success",
+        message: t("settings.restart_succeeded_template", undefined, { service: "OpenWork server" }),
+      });
       pushDeveloperLog("Restarted openwork-server");
       await openworkServerStore.reconnectOpenworkServer();
     } catch (error) {
-      setServiceRestartError(error instanceof Error ? error.message : safeStringify(error));
+      const message = error instanceof Error ? error.message : safeStringify(error);
+      setOpenworkServiceStatus({
+        tone: "error",
+        message: `${t("settings.restart_failed_template", undefined, { service: "OpenWork server" })} ${message}`,
+      });
+      setServiceRestartError(message);
     } finally {
       setOpenworkServerRestarting(false);
     }
@@ -719,40 +652,85 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     pushDeveloperLog,
   ]);
 
-  const onRestartOpencodeRouter = useCallback(async () => {
-    if (!isDesktopRuntime()) return;
-    const workspacePath = optionsRef.current.selectedWorkspaceRoot.trim();
-    if (!workspacePath) {
-      setServiceRestartError("Select a workspace before restarting the OpenCode Router.");
+  const formatServiceLogs = useCallback(
+    (stdout: string | null | undefined, stderr: string | null | undefined): string => {
+      const out = (stdout ?? "").toString().trim();
+      const err = (stderr ?? "").toString().trim();
+      const sections: string[] = [];
+      if (out) sections.push(`# stdout\n${out}`);
+      if (err) sections.push(`# stderr\n${err}`);
+      return sections.join("\n\n");
+    },
+    [],
+  );
+
+  const onCopyOpencodeLogs = useCallback(async () => {
+    const text = formatServiceLogs(engineInfoState?.lastStdout, engineInfoState?.lastStderr);
+    if (!text) {
+      setOpencodeLogStatus(t("settings.no_logs_captured"));
       return;
     }
-    setOpencodeRouterRestarting(true);
-    setServiceRestartError(null);
-    setOpenworkRestartStatus(null);
     try {
-      const info = await opencodeRouterInfoCmd().catch(() => null);
-      await opencodeRouterRestartCmd({
-        workspacePath,
-        opencodeUrl: info?.opencodeUrl ?? undefined,
-      });
-      setOpenworkRestartStatus(t("settings.restart_opencode_router"));
-      pushDeveloperLog("Restarted opencode-router");
+      await navigator.clipboard.writeText(text);
+      setOpencodeLogStatus(t("settings.copied_service_logs", undefined, { service: "OpenCode" }));
     } catch (error) {
-      setServiceRestartError(error instanceof Error ? error.message : safeStringify(error));
-    } finally {
-      setOpencodeRouterRestarting(false);
+      setOpencodeLogStatus(error instanceof Error ? error.message : safeStringify(error));
     }
-  }, [pushDeveloperLog]);
+  }, [engineInfoState?.lastStderr, engineInfoState?.lastStdout, formatServiceLogs]);
 
-  const onStopOpencodeRouter = useCallback(async () => {
-    if (!isDesktopRuntime()) return;
-    try {
-      await opencodeRouterStopCmd();
-      pushDeveloperLog("Stopped opencode-router");
-    } catch (error) {
-      setServiceRestartError(error instanceof Error ? error.message : safeStringify(error));
+  const onExportOpencodeLogs = useCallback(async () => {
+    const text = formatServiceLogs(engineInfoState?.lastStdout, engineInfoState?.lastStderr);
+    if (!text) {
+      setOpencodeLogStatus(t("settings.no_logs_captured"));
+      return;
     }
-  }, [pushDeveloperLog]);
+    try {
+      downloadTextAsFile(
+        `openwork-opencode-${new Date().toISOString().replace(/[:.]/g, "-")}.log`,
+        text,
+        "text/plain",
+      );
+      setOpencodeLogStatus(t("settings.exported_developer_log"));
+    } catch (error) {
+      setOpencodeLogStatus(error instanceof Error ? error.message : safeStringify(error));
+    }
+  }, [engineInfoState?.lastStderr, engineInfoState?.lastStdout, formatServiceLogs]);
+
+  const onCopyOpenworkLogs = useCallback(async () => {
+    const info = openworkServerSnapshot.openworkServerHostInfo;
+    const text = formatServiceLogs(info?.lastStdout, info?.lastStderr);
+    if (!text) {
+      setOpenworkLogStatus(t("settings.no_logs_captured"));
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setOpenworkLogStatus(t("settings.copied_service_logs", undefined, { service: "OpenWork server" }));
+    } catch (error) {
+      setOpenworkLogStatus(error instanceof Error ? error.message : safeStringify(error));
+    }
+  }, [formatServiceLogs, openworkServerSnapshot.openworkServerHostInfo]);
+
+  const onExportOpenworkLogs = useCallback(async () => {
+    const info = openworkServerSnapshot.openworkServerHostInfo;
+    const text = formatServiceLogs(info?.lastStdout, info?.lastStderr);
+    if (!text) {
+      setOpenworkLogStatus(t("settings.no_logs_captured"));
+      return;
+    }
+    try {
+      downloadTextAsFile(
+        `openwork-server-${new Date().toISOString().replace(/[:.]/g, "-")}.log`,
+        text,
+        "text/plain",
+      );
+      setOpenworkLogStatus(t("settings.exported_developer_log"));
+    } catch (error) {
+      setOpenworkLogStatus(error instanceof Error ? error.message : safeStringify(error));
+    }
+  }, [formatServiceLogs, openworkServerSnapshot.openworkServerHostInfo]);
+
+  const [resetStatus, setResetStatus] = useState<string | null>(null);
 
   const onOpenResetModal = useCallback(
     (mode: ResetModalMode) => {
@@ -765,9 +743,10 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
         return;
       }
       setResetModalBusy(true);
+      setResetStatus(null);
       void resetOpenworkState(mode)
         .then(() => {
-          setOpenworkRestartStatus(
+          setResetStatus(
             mode === "all"
               ? "Reset OpenWork state. Restart the app to see changes."
               : "Reset onboarding state.",
@@ -804,8 +783,9 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     }
   }, []);
 
+  const [workspaceDebugEventsStatus, setWorkspaceDebugEventsStatus] = useState<string | null>(null);
   const onClearWorkspaceDebugEvents = useCallback(async () => {
-    setOpenworkRestartStatus("Workspace debug events are not retained in the React route yet.");
+    setWorkspaceDebugEventsStatus("Workspace debug events are not retained in the React route yet.");
   }, []);
 
   const debugProps: DebugViewProps = useMemo(
@@ -852,26 +832,27 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       engineCustomBinPathLabel: engineCustomBinPath.trim() || t("settings.no_custom_path_set"),
       onPickEngineBinary,
       onClearEngineCustomBinPath,
-      engineRuntime,
-      onSetEngineRuntime,
       onOpenResetModal,
       resetModalBusy,
-      openworkRestartBusy,
+      resetStatus,
+      startupStatus,
+      workspaceDebugEventsStatus,
       opencodeRestarting,
       openworkServerRestarting,
-      opencodeRouterRestarting,
-      openworkRestartStatus,
+      opencodeServiceStatus,
+      openworkServiceStatus,
+      opencodeLogStatus,
+      openworkLogStatus,
+      onCopyOpencodeLogs,
+      onExportOpencodeLogs,
+      onCopyOpenworkLogs,
+      onExportOpenworkLogs,
       serviceRestartError,
-      onRestartLocalServer,
       onRestartOpencode,
       onRestartOpenworkServer,
-      onRestartOpencodeRouter,
       engineCard,
-      orchestratorCard,
       opencodeConnectCard,
       openworkCard,
-      opencodeRouterCard,
-      onStopOpencodeRouter,
       openworkServerDiagnostics: openworkServerSnapshot.openworkServerDiagnostics,
       runtimeWorkspaceId,
       openworkServerCapabilities: openworkServerSnapshot.openworkServerCapabilities,
@@ -884,7 +865,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       openworkAuditStatus: auditStatusPill(openworkServerSnapshot.openworkAuditStatus),
       openworkAuditError: openworkServerSnapshot.openworkAuditError,
       opencodeConnectStatus: null,
-      orchestratorStatus: openworkServerSnapshot.orchestratorStatusState,
       opencodeDevModeEnabled: appBuild?.openworkDevMode === true,
       nukeConfigBusy,
       nukeConfigStatus,
@@ -901,7 +881,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       electronMigrationUrl,
       engineCard,
       engineCustomBinPath,
-      engineRuntime,
       engineSource,
       nukeConfigBusy,
       nukeConfigStatus,
@@ -919,31 +898,32 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       onPrepareElectronMigrationSnapshot,
       onPickEngineBinary,
       onResetStartupPreference,
-      onRestartLocalServer,
       onRestartOpencode,
-      onRestartOpencodeRouter,
       onRestartOpenworkServer,
       onRunSandboxDebugProbe,
-      onSetEngineRuntime,
       onSetEngineSource,
       onStopHost,
-      onStopOpencodeRouter,
+      onCopyOpencodeLogs,
+      onCopyOpenworkLogs,
+      onExportOpencodeLogs,
+      onExportOpenworkLogs,
       opencodeConnectCard,
+      opencodeLogStatus,
       opencodeRestarting,
-      opencodeRouterCard,
-      opencodeRouterRestarting,
+      opencodeServiceStatus,
       openworkCard,
-      openworkRestartBusy,
-      openworkRestartStatus,
+      openworkLogStatus,
+      openworkServiceStatus,
       openworkServerRestarting,
+      resetStatus,
+      startupStatus,
+      workspaceDebugEventsStatus,
       openworkServerSnapshot.openworkAuditEntries,
       openworkServerSnapshot.openworkAuditError,
       openworkServerSnapshot.openworkAuditStatus,
       openworkServerSnapshot.openworkServerCapabilities,
       openworkServerSnapshot.openworkServerDiagnostics,
       openworkServerSnapshot.openworkServerStatus,
-      openworkServerSnapshot.orchestratorStatusState,
-      orchestratorCard,
       resetModalBusy,
       runtimeDebugReportJson,
       runtimeDebugStatus,

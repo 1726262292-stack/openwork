@@ -1146,84 +1146,8 @@ async function handleDesktopInvoke(event, command, ...args) {
     }
     case "resetOpencodeCache":
       return { removed: [], missing: [], errors: [] };
-    case "schedulerListJobs":
-      return [];
-    case "schedulerDeleteJob":
-      return {
-        slug: String(args[0] ?? ""),
-        name: String(args[0] ?? ""),
-        schedule: "",
-        createdAt: new Date().toISOString(),
-      };
-    case "getOpenCodeRouterStatus":
-      return (async () => {
-        const info = await runtimeManager.opencodeRouterInfo();
-        if (!info.running) return null;
-        return {
-          running: info.running,
-          config: "",
-          healthPort: info.healthPort,
-          telegram: { items: [] },
-          slack: { items: [] },
-          opencode: {
-            url: info.opencodeUrl ?? "",
-            directory: info.workspacePath ?? undefined,
-          },
-        };
-      })();
-    case "getOpenCodeRouterStatusDetailed":
-      return (async () => {
-        try {
-          const status = await handleDesktopInvoke(event, "getOpenCodeRouterStatus");
-          if (!status) {
-            return { ok: false, error: "OpenCodeRouter is not running." };
-          }
-          return { ok: true, status };
-        } catch (error) {
-          return { ok: false, error: error instanceof Error ? error.message : String(error) };
-        }
-      })();
-    case "opencodeRouterInfo":
-      return runtimeManager.opencodeRouterInfo();
-    case "getOpenCodeRouterGroupsEnabled":
-      return (async () => {
-        const info = await runtimeManager.opencodeRouterInfo();
-        if (!info.healthPort) return null;
-        try {
-          const payload = await fetchJson(`http://127.0.0.1:${info.healthPort}/config/groups`, {}, 3000);
-          return payload?.groupsEnabled ?? null;
-        } catch {
-          return null;
-        }
-      })();
-    case "setOpenCodeRouterGroupsEnabled":
-      return (async () => {
-        const info = await runtimeManager.opencodeRouterInfo();
-        if (!info.healthPort) {
-          return execResult(false, "", "OpenCodeRouter is not running.");
-        }
-        try {
-          const response = await fetch(`http://127.0.0.1:${info.healthPort}/config/groups`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ enabled: Boolean(args[0]) }),
-          });
-          if (!response.ok) {
-            return execResult(false, "", (await response.text()) || `HTTP ${response.status}`);
-          }
-          return execResult(true, "", "");
-        } catch (error) {
-          return execResult(false, "", error instanceof Error ? error.message : String(error));
-        }
-      })();
     case "opencodeMcpAuth":
       return runtimeManager.opencodeMcpAuth(String(args[0] ?? "").trim(), String(args[1] ?? "").trim());
-    case "opencodeRouterStop":
-      return runtimeManager.opencodeRouterStop();
-    case "opencodeRouterStart":
-      return runtimeManager.opencodeRouterStart(args[0] ?? {});
-    case "opencodeRouterRestart":
-      return runtimeManager.opencodeRouterRestart(args[0] ?? {});
     case "setWindowDecorations":
       return undefined;
     case "__openPath": {

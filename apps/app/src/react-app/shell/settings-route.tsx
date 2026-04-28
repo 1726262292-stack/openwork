@@ -23,7 +23,6 @@ import ConnectionsModals from "../domains/connections/modals";
 import { GeneralSettingsView } from "../domains/settings/pages/general-view";
 import { AdvancedView } from "../domains/settings/pages/advanced-view";
 import { AppearanceView } from "../domains/settings/pages/appearance-view";
-import { AutomationsView } from "../domains/settings/pages/automations-view";
 import { DebugView } from "../domains/settings/pages/debug-view";
 import { DenView } from "../domains/settings/pages/den-view";
 import { ExtensionsView } from "../domains/settings/pages/extensions-view";
@@ -34,7 +33,6 @@ import { UpdatesView } from "../domains/settings/pages/updates-view";
 import { useDebugViewModel } from "../domains/settings/state/debug-view-model";
 import { useBootState } from "./boot-state";
 import { SettingsShell } from "../domains/settings/shell/settings-shell";
-import { createAutomationsStore, useAutomationsStoreSnapshot } from "../domains/settings/state/automations-store";
 import { createExtensionsStore, useExtensionsStoreSnapshot } from "../domains/settings/state/extensions-store";
 import { usePlatform } from "../kernel/platform";
 import { useLocal } from "../kernel/local-provider";
@@ -233,9 +231,7 @@ function parseSettingsPath(pathname: string): {
   switch (head) {
     case "general":
     case "den":
-    case "automations":
     case "skills":
-    case "messaging":
     case "advanced":
     case "appearance":
     case "updates":
@@ -546,23 +542,10 @@ export function SettingsRoute() {
       }),
     [openworkServerStore, reloadCoordinator.markReloadRequired],
   );
-  const automationsStore = useMemo(
-    () =>
-      createAutomationsStore({
-        selectedWorkspaceId: () => routeStateRef.current.selectedWorkspaceId,
-        selectedWorkspaceRoot: () => routeStateRef.current.selectedWorkspaceRoot,
-        runtimeWorkspaceId: () => routeStateRef.current.runtimeWorkspaceId,
-        openworkServer: openworkServerStore,
-        schedulerPluginInstalled: () => false,
-      }),
-    [openworkServerStore],
-  );
-
   const openworkServerSnapshot = useOpenworkServerStoreSnapshot(openworkServerStore);
   const connectionsSnapshot = useConnectionsStoreSnapshot(connectionsStore);
   const providerAuthSnapshot = useProviderAuthStoreSnapshot(providerAuthStore);
   useExtensionsStoreSnapshot(extensionsStore);
-  useAutomationsStoreSnapshot(automationsStore);
 
   const debugViewProps = useDebugViewModel({
     developerMode,
@@ -800,16 +783,14 @@ export function SettingsRoute() {
     connectionsStore.start();
     providerAuthStore.start();
     extensionsStore.start();
-    automationsStore.start();
 
     return () => {
-      automationsStore.dispose();
       extensionsStore.dispose();
       providerAuthStore.dispose();
       connectionsStore.dispose();
       openworkServerStore.dispose();
     };
-  }, [automationsStore, connectionsStore, extensionsStore, openworkServerStore, providerAuthStore]);
+  }, [connectionsStore, extensionsStore, openworkServerStore, providerAuthStore]);
 
   // Periodically refresh cloud providers from Den while signed in (dev
   // #1509 "auto-sync cloud providers"). Mounted here because the settings
@@ -822,10 +803,8 @@ export function SettingsRoute() {
     connectionsStore.syncFromOptions();
     providerAuthStore.syncFromOptions();
     extensionsStore.syncFromOptions();
-    automationsStore.syncFromOptions();
   }, [
     activeClient,
-    automationsStore,
     connectionsStore,
     extensionsStore,
     openworkServerStore,
@@ -886,7 +865,6 @@ export function SettingsRoute() {
         mcp: { read: true, write: true },
         commands: { read: true, write: true },
         config: { read: true, write: true },
-        proxy: { opencode: true, opencodeRouter: false },
       }
     : null;
 
@@ -1017,25 +995,6 @@ export function SettingsRoute() {
             onSendFeedback={() => platform.openLink("https://openworklabs.com/docs")}
             onJoinDiscord={() => platform.openLink("https://discord.gg/VEhNQXxYMB")}
             onReportIssue={() => platform.openLink("https://github.com/different-ai/openwork/issues/new?template=bug.yml")}
-          />
-        );
-      case "automations":
-        return (
-          <AutomationsView
-            automations={automationsStore}
-            busy={busy}
-            selectedWorkspaceRoot={selectedWorkspaceRoot}
-            createSessionAndOpen={async () => undefined}
-            newTaskDisabled={!opencodeClient}
-            schedulerInstalled={false}
-            canEditPlugins={!isRemoteWorkspace}
-            addPlugin={async () => {
-              setRouteError("Scheduler plugin install is not wired into the React settings route yet.");
-            }}
-            reloadWorkspaceEngine={reloadCoordinator.reloadWorkspaceEngine}
-            reloadBusy={false}
-            canReloadWorkspace={reloadCoordinator.canReloadWorkspaceEngine}
-            openLink={(url) => platform.openLink(url)}
           />
         );
       case "skills":
@@ -1235,13 +1194,6 @@ export function SettingsRoute() {
             onCleanupOpenworkDockerContainers={() => {
               setRouteError("Docker cleanup is not wired into the React settings route yet.");
             }}
-          />
-        );
-      case "messaging":
-        return (
-          <PlaceholderSettingsView
-            title="Messaging settings are not fully ported"
-            detail="The React settings route replaces the Solid bridge for the ported settings surfaces, but messaging still depends on app state that has not been moved over yet."
           />
         );
       case "debug":

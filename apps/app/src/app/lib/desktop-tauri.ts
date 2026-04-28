@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { isTauriRuntime } from "../utils";
 import { validateMcpServerName } from "../mcp";
 import { applyWebviewZoom } from "./font-zoom";
 import { nativeDeepLinkEvent } from "./deep-link-bridge";
@@ -79,7 +78,7 @@ export async function subscribeDesktopDeepLinks(
 
 export type EngineInfo = {
   running: boolean;
-  runtime: "direct" | "openwork-orchestrator";
+  runtime: "direct";
   baseUrl: string | null;
   projectDir: string | null;
   hostname: string | null;
@@ -106,66 +105,6 @@ export type OpenworkServerInfo = {
   pid: number | null;
   lastStdout: string | null;
   lastStderr: string | null;
-};
-
-export type OrchestratorDaemonState = {
-  pid: number;
-  port: number;
-  baseUrl: string;
-  startedAt: number;
-};
-
-export type OrchestratorOpencodeState = {
-  pid: number;
-  port: number;
-  baseUrl: string;
-  startedAt: number;
-};
-
-export type OrchestratorBinaryInfo = {
-  path: string;
-  source: string;
-  expectedVersion?: string | null;
-  actualVersion?: string | null;
-};
-
-export type OrchestratorBinaryState = {
-  opencode?: OrchestratorBinaryInfo | null;
-};
-
-export type OrchestratorSidecarInfo = {
-  dir?: string | null;
-  baseUrl?: string | null;
-  manifestUrl?: string | null;
-  target?: string | null;
-  source?: string | null;
-  opencodeSource?: string | null;
-  allowExternal?: boolean | null;
-};
-
-export type OrchestratorWorkspace = {
-  id: string;
-  name: string;
-  path: string;
-  workspaceType: string;
-  baseUrl?: string | null;
-  directory?: string | null;
-  createdAt?: number | null;
-  lastUsedAt?: number | null;
-};
-
-export type OrchestratorStatus = {
-  running: boolean;
-  dataDir: string;
-  daemon: OrchestratorDaemonState | null;
-  opencode: OrchestratorOpencodeState | null;
-  cliVersion?: string | null;
-  sidecar?: OrchestratorSidecarInfo | null;
-  binaries?: OrchestratorBinaryState | null;
-  activeId: string | null;
-  workspaceCount: number;
-  workspaces: OrchestratorWorkspace[];
-  lastError: string | null;
 };
 
 export type EngineDoctorResult = {
@@ -229,7 +168,7 @@ export async function engineStart(
   projectDir: string,
   options?: {
     preferSidecar?: boolean;
-    runtime?: "direct" | "openwork-orchestrator";
+    runtime?: "direct";
     workspacePaths?: string[];
     opencodeBinPath?: string | null;
     opencodeEnableExa?: boolean;
@@ -476,24 +415,6 @@ export async function engineRestart(options?: {
   });
 }
 
-export async function orchestratorStatus(): Promise<OrchestratorStatus> {
-  return invoke<OrchestratorStatus>("orchestrator_status");
-}
-
-export async function orchestratorWorkspaceActivate(input: {
-  workspacePath: string;
-  name?: string | null;
-}): Promise<OrchestratorWorkspace> {
-  return invoke<OrchestratorWorkspace>("orchestrator_workspace_activate", {
-    workspacePath: input.workspacePath,
-    name: input.name ?? null,
-  });
-}
-
-export async function orchestratorInstanceDispose(workspacePath: string): Promise<boolean> {
-  return invoke<boolean>("orchestrator_instance_dispose", { workspacePath });
-}
-
 export type AppBuildInfo = {
   version: string;
   gitSha?: string | null;
@@ -717,44 +638,6 @@ export type ExecResult = {
   stderr: string;
 };
 
-export type ScheduledJobRun = {
-  prompt?: string;
-  command?: string;
-  arguments?: string;
-  files?: string[];
-  agent?: string;
-  model?: string;
-  variant?: string;
-  title?: string;
-  share?: boolean;
-  continue?: boolean;
-  session?: string;
-  runFormat?: string;
-  attachUrl?: string;
-  port?: number;
-};
-
-export type ScheduledJob = {
-  scopeId?: string;
-  timeoutSeconds?: number;
-  invocation?: { command: string; args: string[] };
-  slug: string;
-  name: string;
-  schedule: string;
-  prompt?: string;
-  attachUrl?: string;
-  run?: ScheduledJobRun;
-  source?: string;
-  workdir?: string;
-  createdAt: string;
-  updatedAt?: string;
-  lastRunAt?: string;
-  lastRunExitCode?: number;
-  lastRunError?: string;
-  lastRunSource?: string;
-  lastRunStatus?: string;
-};
-
 export async function engineInstall(): Promise<ExecResult> {
   return invoke<ExecResult>("engine_install");
 }
@@ -859,108 +742,6 @@ export async function resetOpencodeCache(): Promise<CacheResetResult> {
   return invoke<CacheResetResult>("reset_opencode_cache");
 }
 
-export async function schedulerListJobs(scopeRoot?: string): Promise<ScheduledJob[]> {
-  return invoke<ScheduledJob[]>("scheduler_list_jobs", { scopeRoot });
-}
-
-export async function schedulerDeleteJob(name: string, scopeRoot?: string): Promise<ScheduledJob> {
-  return invoke<ScheduledJob>("scheduler_delete_job", { name, scopeRoot });
-}
-
-// OpenCodeRouter types
-export type OpenCodeRouterIdentityItem = {
-  id: string;
-  enabled: boolean;
-  running?: boolean;
-};
-
-export type OpenCodeRouterChannelStatus = {
-  items: OpenCodeRouterIdentityItem[];
-};
-
-export type OpenCodeRouterStatus = {
-  running: boolean;
-  config: string;
-  healthPort?: number | null;
-  telegram: OpenCodeRouterChannelStatus;
-  slack: OpenCodeRouterChannelStatus;
-  opencode: { url: string; directory?: string };
-};
-
-export type OpenCodeRouterStatusResult =
-  | { ok: true; status: OpenCodeRouterStatus }
-  | { ok: false; error: string };
-
-export type OpenCodeRouterInfo = {
-  running: boolean;
-  version: string | null;
-  workspacePath: string | null;
-  opencodeUrl: string | null;
-  healthPort: number | null;
-  pid: number | null;
-  lastStdout: string | null;
-  lastStderr: string | null;
-};
-
-// OpenCodeRouter functions - call Tauri commands that wrap opencodeRouter CLI
-export async function getOpenCodeRouterStatus(): Promise<OpenCodeRouterStatus | null> {
-  try {
-    return await invoke<OpenCodeRouterStatus>("opencodeRouter_status");
-  } catch {
-    return null;
-  }
-}
-
-export async function getOpenCodeRouterStatusDetailed(): Promise<OpenCodeRouterStatusResult> {
-  try {
-    const status = await invoke<OpenCodeRouterStatus>("opencodeRouter_status");
-    return { ok: true, status };
-  } catch (error) {
-    return { ok: false, error: String(error) };
-  }
-}
-
-export async function opencodeRouterInfo(): Promise<OpenCodeRouterInfo> {
-  return invoke<OpenCodeRouterInfo>("opencodeRouter_info");
-}
-
-export async function getOpenCodeRouterGroupsEnabled(): Promise<boolean | null> {
-  try {
-    const status = await getOpenCodeRouterStatus();
-    const healthPort = status?.healthPort ?? 3005;
-    const response = await (isTauriRuntime() ? tauriFetch : fetch)(`http://127.0.0.1:${healthPort}/config/groups`, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
-    });
-    if (!response.ok) {
-      return null;
-    }
-    const data = await response.json();
-    return data?.groupsEnabled ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export async function setOpenCodeRouterGroupsEnabled(enabled: boolean): Promise<ExecResult> {
-  try {
-    const status = await getOpenCodeRouterStatus();
-    const healthPort = status?.healthPort ?? 3005;
-    const response = await (isTauriRuntime() ? tauriFetch : fetch)(`http://127.0.0.1:${healthPort}/config/groups`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled }),
-    });
-    if (!response.ok) {
-      const message = await response.text();
-      return { ok: false, status: response.status, stdout: "", stderr: message };
-    }
-    return { ok: true, status: 0, stdout: "", stderr: "" };
-  } catch (e) {
-    return { ok: false, status: 1, stdout: "", stderr: String(e) };
-  }
-}
-
 export async function opencodeMcpAuth(
   projectDir: string,
   serverName: string,
@@ -976,37 +757,6 @@ export async function opencodeMcpAuth(
     projectDir: safeProjectDir,
     serverName: safeServerName,
   });
-}
-
-export async function opencodeRouterStop(): Promise<OpenCodeRouterInfo> {
-  return invoke<OpenCodeRouterInfo>("opencodeRouter_stop");
-}
-
-export async function opencodeRouterStart(options: {
-  workspacePath: string;
-  opencodeUrl?: string;
-  opencodeUsername?: string;
-  opencodePassword?: string;
-  healthPort?: number;
-}): Promise<OpenCodeRouterInfo> {
-  return invoke<OpenCodeRouterInfo>("opencodeRouter_start", {
-    workspacePath: options.workspacePath,
-    opencodeUrl: options.opencodeUrl ?? null,
-    opencodeUsername: options.opencodeUsername ?? null,
-    opencodePassword: options.opencodePassword ?? null,
-    healthPort: options.healthPort ?? null,
-  });
-}
-
-export async function opencodeRouterRestart(options: {
-  workspacePath: string;
-  opencodeUrl?: string;
-  opencodeUsername?: string;
-  opencodePassword?: string;
-  healthPort?: number;
-}): Promise<OpenCodeRouterInfo> {
-  await opencodeRouterStop();
-  return opencodeRouterStart(options);
 }
 
 /**

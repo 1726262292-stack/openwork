@@ -5,7 +5,6 @@ import {
   Copy,
   Eye,
   EyeOff,
-  MessageSquare,
 } from "lucide-react";
 
 import {
@@ -51,7 +50,6 @@ export type ShareWorkspaceAccessPanelProps = {
   remoteAccessEnabled: boolean;
   onRemoteAccessEnabledChange: (value: boolean) => void;
   note?: string | null;
-  onOpenBots?: () => void;
 };
 
 export function ShareWorkspaceAccessPanel(
@@ -200,30 +198,6 @@ export function ShareWorkspaceAccessPanel(
           ) : null}
         </div>
       ) : null}
-
-      <div className={surfaceCardClass}>
-        <div className="flex items-center gap-2 min-w-0">
-          <div className={`${iconTileClass} h-9 w-9 rounded-full`}>
-            <MessageSquare size={16} />
-          </div>
-          <div className="min-w-0">
-            <h4 className="text-[18px] font-semibold tracking-[-0.3px] text-dls-text">
-              Connect messaging
-            </h4>
-            <p className="mt-1 truncate text-[14px] text-dls-secondary">
-              Use this workspace from Slack, Telegram, and others.
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => props.onOpenBots?.()}
-          disabled={!props.onOpenBots}
-          className={`${pillSecondaryClass} mt-5`}
-        >
-          Setup
-        </button>
-      </div>
 
       {primaryAccessFields.length > 0 ? (
         <div className={surfaceCardClass}>

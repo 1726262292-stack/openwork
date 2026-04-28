@@ -196,7 +196,7 @@ Steps:
 1. From `/session`, click the footer **Settings** button. URL becomes
    `/settings/general`.
 2. Click each workspace tab in order:
-   `Settings → Automations → Skills → Extensions → Messaging → Advanced`.
+   `Settings → Skills → Extensions → Messaging → Advanced`.
 3. Click each global tab in order:
    `Cloud → Appearance → Updates → Recovery`.
 4. Click the **X Close settings** button in the header.
@@ -205,8 +205,8 @@ Steps:
 Pass criteria for each tab click:
 - URL updates to `/settings/<tab>`.
 - Heading (level 1 *and* level 2) updates to the tab name.
-- Tab body content matches the tab (e.g. Automations lists templates,
-  Skills shows hub list, Advanced shows runtime status, etc.).
+- Tab body content matches the tab (e.g. Skills shows hub list,
+  Extensions shows integrations, Advanced shows runtime status, etc.).
 - Close settings returns to `/session` and re-renders the session shell,
   not a stale settings DOM.
 
@@ -329,7 +329,7 @@ runner. Key differences:
   Never trust that a click "worked" — re-snapshot and verify the new `uid`s.
 - When text you're waiting for might also match a sidebar button, pass a
   longer, more specific phrase to `chrome-devtools_wait_for` (e.g.
-  `"Create and manage scheduled automations"` instead of `"Automations"`).
+  `"Browse skill surfaces"` instead of `"Skills"`).
 - If a single flow fails, immediately run
   `chrome-devtools_list_console_messages { types: ["error"], pageSize: 5 }`.
   A `Maximum update depth exceeded` error invalidates the rest of the

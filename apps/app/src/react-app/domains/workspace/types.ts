@@ -148,5 +148,4 @@ export type ShareWorkspaceModalProps = {
   shareSkillsSetDisabledReason?: string | null;
   onExportConfig?: () => void;
   exportDisabledReason?: string | null;
-  onOpenBots?: () => void;
 };

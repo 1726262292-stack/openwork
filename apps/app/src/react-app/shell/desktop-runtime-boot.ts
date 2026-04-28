@@ -5,7 +5,6 @@ import {
   engineInfo,
   engineStart,
   openworkServerInfo,
-  orchestratorWorkspaceActivate,
   resolveWorkspaceListSelectedId,
   runtimeBootstrap,
   workspaceBootstrap,
@@ -39,7 +38,7 @@ function isOpenworkServerReady(info?: {
  *   1) bootstrap the workspace list
  *   2) if a local workspace is selected, restart the embedded OpenWork server
  *   3) start the OpenCode engine pointed at the workspace
- *   4) activate the workspace in the orchestrator
+ *   4) activate the workspace on the running OpenWork server
  *   5) notify React routes that fresh desktop runtime info is available. Electron
  *      routes read live runtime info directly instead of persisting ephemeral
  *      localhost ports/tokens into OpenWork settings.
@@ -225,14 +224,6 @@ export function useDesktopRuntimeBoot() {
             console.warn("[desktop-boot] post-engineStart openworkServerInfo failed:", error);
           }
         }
-
-        setPhase("activating-workspace", workspace.displayName || workspace.name || workspaceRoot);
-        await orchestratorWorkspaceActivate({
-          workspacePath: workspaceRoot,
-          name: workspace.name ?? workspace.displayName ?? null,
-        }).catch((error) => {
-          console.warn("[desktop-boot] orchestratorWorkspaceActivate failed:", error);
-        });
 
         markReady();
       } catch (error) {

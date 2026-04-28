@@ -128,33 +128,6 @@ function createOrchestratorState() {
   };
 }
 
-function createRouterState() {
-  return {
-    child: null,
-    childExited: true,
-    version: null,
-    workspacePath: null,
-    opencodeUrl: null,
-    healthPort: null,
-    lastStdout: null,
-    lastStderr: null,
-  };
-}
-
-function snapshotRouterState(state) {
-  const child = state.childExited ? null : state.child;
-  return {
-    running: Boolean(child && child.exitCode === null && !child.killed),
-    version: state.version,
-    workspacePath: state.workspacePath,
-    opencodeUrl: state.opencodeUrl,
-    healthPort: state.healthPort,
-    pid: child?.pid ?? null,
-    lastStdout: state.lastStdout,
-    lastStderr: state.lastStderr,
-  };
-}
-
 async function fileExists(targetPath) {
   try {
     await readFile(targetPath);
@@ -298,7 +271,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   const engineState = createEngineState();
   const openworkServerState = createOpenworkServerState();
   const orchestratorState = createOrchestratorState();
-  const routerState = createRouterState();
 
   // Serialize engine lifecycle operations. Without this, concurrent renderer
   // invocations of engineStart/engineStop/engineRestart race: each call's
@@ -688,8 +660,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       (
         value.includes("openwork-orchestrator") ||
         value.includes("openwork-server") ||
-        value.includes("opencode serve") ||
-        value.includes("opencode-router")
+        value.includes("opencode serve")
       );
   }
 
@@ -822,7 +793,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       OPENWORK_HOST_TOKEN: tokens.hostToken,
       ...(options.manageOpencode ? { OPENWORK_MANAGE_OPENCODE: "1" } : {}),
       ...(options.manageOpencode ? { OPENWORK_OPENCODE_BIN: options.opencodeBinPath || resolveBinary("opencode") || "" } : {}),
-      ...(options.routerHealthPort ? { OPENCODE_ROUTER_HEALTH_PORT: String(options.routerHealthPort) } : {}),
       ...(options.opencodeUsername ? { OPENWORK_OPENCODE_USERNAME: options.opencodeUsername } : {}),
       ...(options.opencodePassword ? { OPENWORK_OPENCODE_PASSWORD: options.opencodePassword } : {}),
     });
@@ -879,50 +849,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     }
     await persistPreferredOpenworkPort(activeWorkspace, port);
     return snapshotOpenworkServerState(openworkServerState);
-  }
-
-  async function resolveRouterHealthPort() {
-    return findFreePort("127.0.0.1");
-  }
-
-  async function startRouter(options) {
-    await stopChild(routerState);
-    const healthPort = options.healthPort ?? (await resolveRouterHealthPort());
-    const program = resolveBinary("opencode-router");
-    if (!program) {
-      throw new Error("Failed to locate opencode-router.");
-    }
-
-    const env = await buildChildEnv({
-      OPENCODE_ROUTER_HEALTH_PORT: String(healthPort),
-      ...(options.opencodeUsername ? { OPENCODE_SERVER_USERNAME: options.opencodeUsername } : {}),
-      ...(options.opencodePassword ? { OPENCODE_SERVER_PASSWORD: options.opencodePassword } : {}),
-    });
-
-    const args = [
-      "serve",
-      options.workspacePath,
-      ...(options.opencodeUrl ? ["--opencode-url", options.opencodeUrl] : []),
-    ];
-
-    spawnManagedChild(routerState, program, args, {
-      cwd: options.workspacePath,
-      env,
-    });
-
-    routerState.workspacePath = options.workspacePath;
-    routerState.opencodeUrl = options.opencodeUrl ?? null;
-    routerState.healthPort = healthPort;
-
-    try {
-      const version = runProgram(program, ["--version"]);
-      routerState.version = version.stdout?.trim() || version.stderr?.trim() || null;
-    } catch {
-      routerState.version = null;
-    }
-
-    await waitForHttpOk(`http://127.0.0.1:${healthPort}/health`, 5000).catch(() => undefined);
-    return snapshotRouterState(routerState);
   }
 
   async function resolveOrchestratorBaseUrl() {
@@ -1051,7 +977,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   async function stopAllRuntimeChildren() {
-    await stopChild(routerState);
     await stopChild(openworkServerState);
     await stopChild(orchestratorState, {
       requestShutdown: () => requestOrchestratorShutdown(orchestratorState.dataDir || orchestratorDataDir()),
@@ -1062,7 +987,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     Object.assign(engineState, createEngineState());
     Object.assign(openworkServerState, createOpenworkServerState());
     Object.assign(orchestratorState, createOrchestratorState());
-    Object.assign(routerState, createRouterState());
   }
 
   async function prepareFreshRuntime() {
@@ -1072,8 +996,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     lifecycleState = "idle";
   }
 
-  async function ensureRouterAndOpenwork(options) {
-    const routerHealthPort = await resolveRouterHealthPort().catch(() => null);
+  async function ensureOpenwork(options) {
     let openworkServer;
     try {
       openworkServer = await startOpenworkServer({
@@ -1081,7 +1004,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
         opencodeBaseUrl: engineState.baseUrl,
         opencodeUsername: engineState.opencodeUsername,
         opencodePassword: engineState.opencodePassword,
-        routerHealthPort,
         remoteAccessEnabled: options.remoteAccessEnabled,
         manageOpencode: options.manageOpencode === true,
         opencodeBinPath: options.opencodeBinPath,
@@ -1092,20 +1014,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     }
 
     assertOpenworkServerReady(openworkServer);
-
-    if (options.projectDir && engineState.baseUrl) {
-      try {
-        await startRouter({
-          workspacePath: options.projectDir,
-          opencodeUrl: engineState.baseUrl,
-          opencodeUsername: engineState.opencodeUsername,
-          opencodePassword: engineState.opencodePassword,
-          healthPort: routerHealthPort,
-        });
-      } catch (error) {
-        appendOutput(engineState, "lastStderr", `OpenCodeRouter: ${error instanceof Error ? error.message : String(error)}\n`);
-      }
-    }
   }
 
   async function engineStart(projectDir, options = {}) {
@@ -1129,7 +1037,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       engineState.child = null;
       engineState.childExited = true;
 
-      await ensureRouterAndOpenwork({
+      await ensureOpenwork({
         projectDir: safeProjectDir,
         workspacePaths,
         remoteAccessEnabled: options.openworkRemoteAccess === true,
@@ -1174,7 +1082,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       lifecycleState,
       engine: await engineInfo(),
       openworkServer: snapshotOpenworkServerState(openworkServerState),
-      router: snapshotRouterState(routerState),
     };
   }
 
@@ -1189,7 +1096,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       opencodeBaseUrl: engineState.baseUrl,
       opencodeUsername: engineState.opencodeUsername,
       opencodePassword: engineState.opencodePassword,
-      routerHealthPort: routerState.healthPort,
       remoteAccessEnabled: options.remoteAccessEnabled === true,
     });
   }
@@ -1243,24 +1149,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       return true;
     }
     return true;
-  }
-
-  async function opencodeRouterInfo() {
-    return snapshotRouterState(routerState);
-  }
-
-  async function opencodeRouterStart(options) {
-    return startRouter(options);
-  }
-
-  async function opencodeRouterStop() {
-    await stopChild(routerState);
-    Object.assign(routerState, createRouterState());
-    return snapshotRouterState(routerState);
-  }
-
-  async function opencodeRouterRestart(options) {
-    return opencodeRouterStart(options);
   }
 
   async function engineInstall() {
@@ -1485,8 +1373,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       workspacePath,
       "--approval",
       "auto",
-      "--opencode-router",
-      "true",
       "--detach",
       "--openwork-port",
       String(port),
@@ -1625,10 +1511,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     orchestratorWorkspaceActivate,
     orchestratorInstanceDispose,
     orchestratorStartDetached,
-    opencodeRouterInfo,
-    opencodeRouterStart,
-    opencodeRouterStop,
-    opencodeRouterRestart,
     opencodeMcpAuth,
     sandboxDoctor,
     sandboxStop,

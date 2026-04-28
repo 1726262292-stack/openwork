@@ -38,8 +38,7 @@ fn migration_snapshot_path(app: &AppHandle) -> Result<PathBuf, String> {
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to resolve app_data_dir: {e}"))?;
-    fs::create_dir_all(&data_dir)
-        .map_err(|e| format!("Failed to create app_data_dir: {e}"))?;
+    fs::create_dir_all(&data_dir).map_err(|e| format!("Failed to create app_data_dir: {e}"))?;
     Ok(data_dir.join(MIGRATION_SNAPSHOT_FILENAME))
 }
 
@@ -182,8 +181,7 @@ echo "[migration] done $(date -u +%FT%TZ)"
         .permissions();
     use std::os::unix::fs::PermissionsExt;
     perms.set_mode(0o755);
-    fs::set_permissions(&script_path, perms)
-        .map_err(|e| format!("Failed to chmod script: {e}"))?;
+    fs::set_permissions(&script_path, perms).map_err(|e| format!("Failed to chmod script: {e}"))?;
 
     Ok(script_path)
 }
@@ -193,7 +191,10 @@ fn spawn_macos_migration_script(script_path: &std::path::Path) -> Result<(), Str
     // nohup + background so the script survives this process exiting.
     Command::new("/bin/bash")
         .arg("-c")
-        .arg(format!("nohup bash \"{}\" >/dev/null 2>&1 &", script_path.display()))
+        .arg(format!(
+            "nohup bash \"{}\" >/dev/null 2>&1 &",
+            script_path.display()
+        ))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -220,12 +221,8 @@ pub async fn migrate_to_electron(
             Some(path) => PathBuf::from(path),
             None => current_app_bundle_path()?,
         };
-        let script = write_macos_migration_script(
-            &app,
-            &request.url,
-            request.sha256.as_deref(),
-            &target,
-        )?;
+        let script =
+            write_macos_migration_script(&app, &request.url, request.sha256.as_deref(), &target)?;
         spawn_macos_migration_script(&script)?;
         // Give the script a moment to daemonize before we exit.
         std::thread::sleep(std::time::Duration::from_millis(400));

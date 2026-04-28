@@ -1692,7 +1692,6 @@ export function SessionRoute() {
                     }
                   : undefined,
               exportDisabledReason: shareWorkspaceState.exportDisabledReason,
-              onOpenBots: () => navigate("/settings/messaging"),
             }
           : null
       }
