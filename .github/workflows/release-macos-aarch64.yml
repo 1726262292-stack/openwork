@@ -592,10 +592,12 @@ jobs:
             # Tauri places versions.json in Contents/MacOS as an externalBin.
             # `codesign --verify --strict` treats that data file as a code
             # subcomponent, so use display for signing visibility and rely on
-            # stapler for the updater app payload and spctl for the user-facing DMG.
+            # stapler + spctl for the updater app payload. Tauri notarizes the
+            # app bundle; the DMG can report as an unnotarized container even
+            # when the shipped app has a valid stapled ticket.
             codesign --display --verbose=4 "$app_path"
             xcrun stapler validate "$app_path"
-            spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg_path"
+            spctl --assess --type execute --verbose=4 "$app_path"
           fi
 
   publish-updater-json:

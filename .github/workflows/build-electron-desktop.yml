@@ -82,7 +82,10 @@ jobs:
           set -euo pipefail
 
           sidecars_dir="apps/desktop/src-tauri/sidecars"
-          for base in opencode openwork-server opencode-router openwork-orchestrator chrome-devtools-mcp; do
+          # The desktop package no longer owns or bundles a local opencode-router
+          # sidecar; messaging surfaces are provided by external server/worker
+          # surfaces instead. Only mirror sidecars that prepare:sidecar produces.
+          for base in opencode openwork-server openwork-orchestrator chrome-devtools-mcp; do
             cp "$sidecars_dir/${base}-x86_64-pc-windows-msvc.exe" \
               "$sidecars_dir/${base}-aarch64-pc-windows-msvc.exe"
           done
