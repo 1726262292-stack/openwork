@@ -1,10 +1,17 @@
 name: Alpha Channel (macOS arm64)
 
 # Every merge to `dev` publishes a fresh macOS arm64 build to the OpenWork
-# alpha release channel. The rolling release carries both desktop shells during
-# the Tauri -> Electron migration window:
-#   - Tauri updater assets + latest.json
-#   - Electron updater assets + latest-mac.yml
+# alpha release channel.
+#
+# The alpha channel is macOS-only today. It lives as a rolling GitHub
+# release under the fixed tag `alpha-macos-latest` so the Tauri updater
+# manifest URL stays stable while the underlying artifact gets replaced on
+# every run.
+#
+# See:
+#   - apps/app/src/app/lib/release-channels.ts (updater endpoint URLs)
+#   - ARCHITECTURE.md#release-channels
+#   - .github/workflows/release-macos-aarch64.yml (stable channel)
 
 on:
   push:
@@ -23,14 +30,16 @@ jobs:
   publish-alpha-macos-aarch64:
     name: Build + Publish alpha (aarch64-apple-darwin)
     runs-on: macos-14
-    timeout-minutes: 240
+    timeout-minutes: 180
 
     env:
       OPENCODE_GITHUB_REPO: ${{ vars.OPENCODE_GITHUB_REPO || 'anomalyco/opencode' }}
       ALPHA_RELEASE_TAG: alpha-macos-latest
       ALPHA_RELEASE_NAME: OpenWork Alpha (macOS arm64)
+      # Apple signing + notarization are required so alpha bundles install
+      # and launch without Gatekeeper friction. Alpha builds are served
+      # from GitHub Releases like stable, just from a different tag.
       MACOS_NOTARIZE: ${{ vars.MACOS_NOTARIZE || 'true' }}
-      TAURI_ENV_TARGET_TRIPLE: aarch64-apple-darwin
 
     steps:
       - name: Checkout
@@ -82,12 +91,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Require notarized alpha builds
-        if: env.MACOS_NOTARIZE != 'true'
-        run: |
-          echo "Alpha releases must be signed and notarized. Set MACOS_NOTARIZE=true." >&2
-          exit 1
-
       - name: Resolve alpha version
         id: alpha-version
         shell: bash
@@ -106,6 +109,11 @@ jobs:
             throw new Error(`Unsupported version in ${path}: ${current}`);
           }
           const [, major, minor, patch] = match;
+          // Alpha builds advertise the *next* patch version so semver
+          // comparison makes the alpha newer than the current stable
+          // (e.g. stable 0.11.207 < alpha 0.11.208-alpha.<run>). Once
+          // stable 0.11.208 ships, its semver beats the alpha prerelease
+          // tag and alpha users cleanly migrate forward.
           const nextPatch = Number(patch) + 1;
           const run = process.env.GITHUB_RUN_NUMBER || "0";
           const sha = (process.env.GITHUB_SHA || "").slice(0, 7) || "local";
@@ -127,7 +135,14 @@ jobs:
           const config = JSON.parse(fs.readFileSync(base, "utf8"));
 
           config.version = process.env.ALPHA_VERSION;
+
+          // Alpha builds must advertise updater artifacts so the
+          // Tauri updater receives a `.app.tar.gz` + `.sig` pair.
           config.bundle = { ...(config.bundle || {}), createUpdaterArtifacts: true };
+
+          // Point this build's updater at the alpha channel's rolling
+          // manifest. The stable endpoint stays in the base config for
+          // everyone else.
           config.plugins = config.plugins || {};
           config.plugins.updater = {
             ...(config.plugins.updater || {}),
@@ -139,26 +154,69 @@ jobs:
           fs.writeFileSync(out, `${JSON.stringify(config, null, 2)}\n`);
           NODE
 
-      - name: Write alpha Electron package version
-        shell: bash
-        env:
-          ALPHA_VERSION: ${{ steps.alpha-version.outputs.alpha_version }}
-        run: |
-          set -euo pipefail
-          node <<'NODE'
-          const fs = require("node:fs");
-          const path = "apps/desktop/package.json";
-          const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
-          pkg.version = process.env.ALPHA_VERSION;
-          fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
-          NODE
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin
 
+      - name: Resolve OpenCode version
+        id: opencode-version
+        shell: bash
+        run: |
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const fs = require('fs');
+          const parsed = JSON.parse(fs.readFileSync('./constants.json', 'utf8'));
+          const version = String(parsed.opencodeVersion || '').replace(/^v/, '').trim();
+          if (!version) {
+            throw new Error('Pinned OpenCode version is missing from constants.json');
+          }
+          console.log('version=' + version);
+          NODE
+
+      - name: Download OpenCode sidecar
+        shell: bash
+        env:
+          PINNED_OPENCODE_VERSION: ${{ steps.opencode-version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          repo="${OPENCODE_GITHUB_REPO:-anomalyco/opencode}"
+          opencode_asset="opencode-darwin-arm64.zip"
+          url="https://github.com/${repo}/releases/download/v${PINNED_OPENCODE_VERSION}/${opencode_asset}"
+          tmp_dir="$RUNNER_TEMP/opencode"
+          extract_dir="$tmp_dir/extracted"
+          rm -rf "$tmp_dir"
+          mkdir -p "$extract_dir"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 -o "$tmp_dir/$opencode_asset" "$url"
+          unzip -q "$tmp_dir/$opencode_asset" -d "$extract_dir"
+
+          if [ ! -f "$extract_dir/opencode" ]; then
+            echo "OpenCode binary not found in archive" >&2
+            ls -la "$extract_dir"
+            exit 1
+          fi
+
+          mkdir -p apps/desktop/src-tauri/sidecars
+          cp "$extract_dir/opencode" "apps/desktop/src-tauri/sidecars/opencode-aarch64-apple-darwin"
+          chmod 755 "apps/desktop/src-tauri/sidecars/opencode-aarch64-apple-darwin"
+
+      - name: Clear previous alpha release (rolling channel)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Keep a single rolling release under ALPHA_RELEASE_TAG. Delete
+          # whatever exists so tauri-action can recreate it fresh with
+          # this run's artifacts, and users on the alpha channel always
+          # resolve to the freshest latest.json.
+          gh release delete "$ALPHA_RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --cleanup-tag \
+            --yes || true
+
       - name: Write notary API key
+        if: env.MACOS_NOTARIZE == 'true'
         env:
           APPLE_NOTARY_API_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_API_KEY_P8_BASE64 }}
         run: |
@@ -170,67 +228,24 @@ jobs:
 
           echo "NOTARY_KEY_PATH=$NOTARY_KEY_PATH" >> "$GITHUB_ENV"
 
-      - name: Normalize Electron signing identity
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: |
-          set -euo pipefail
-
-          CSC_NAME_VALUE="${APPLE_SIGNING_IDENTITY#Developer ID Application: }"
-          echo "CSC_NAME=$CSC_NAME_VALUE" >> "$GITHUB_ENV"
-
-      - name: Build + package alpha Electron app
-        env:
-          CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
-          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
-          CSC_NAME: ${{ env.CSC_NAME }}
-          APPLE_API_KEY: ${{ secrets.APPLE_NOTARY_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_NOTARY_API_ISSUER_ID }}
-          APPLE_API_KEY_PATH: ${{ env.NOTARY_KEY_PATH }}
-          MACOS_NOTARIZE: "true"
-        run: |
-          set -euo pipefail
-          pnpm --filter @openwork/desktop build:electron
-          pnpm --filter @openwork/desktop exec electron-builder --config electron-builder.yml --mac --arm64 --publish never
-
-      - name: Verify alpha Electron notarization
-        run: |
-          set -euo pipefail
-
-          APP_PATH="$(python3 - <<'PY'
-          from pathlib import Path
-          matches = sorted(Path('apps/desktop/dist-electron').glob('mac*/OpenWork.app'))
-          if not matches:
-              raise SystemExit('OpenWork.app not found in apps/desktop/dist-electron/mac*')
-          print(matches[0])
-          PY
-          )"
-
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-          xcrun stapler validate "$APP_PATH"
-          spctl --assess --type execute --verbose=4 "$APP_PATH"
-
-      - name: Clear previous alpha release (rolling channel)
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh release delete "$ALPHA_RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --cleanup-tag \
-            --yes || true
-
-      - name: Build + upload alpha Tauri app
+      - name: Build + upload alpha (notarized)
+        if: env.MACOS_NOTARIZE == 'true'
         uses: tauri-apps/tauri-action@390cbe447412ced1303d35abe75287949e43437a
         env:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # Tauri updater signing — same minisign keypair as stable so
+          # an installed stable build can update into alpha and back.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+          # macOS signing
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+
+          # macOS notarization (App Store Connect API key)
           APPLE_API_KEY: ${{ secrets.APPLE_NOTARY_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_NOTARY_API_ISSUER_ID }}
           APPLE_API_KEY_PATH: ${{ env.NOTARY_KEY_PATH }}
@@ -240,7 +255,7 @@ jobs:
           releaseBody: |
             Rolling alpha build for OpenWork (macOS arm64).
             Every merge to `dev` replaces the artifacts attached to this release.
-            This release carries both notarized Tauri and notarized Electron artifacts.
+            Subscribe from Settings → Updates → Release channel → Alpha.
           releaseDraft: false
           prerelease: true
           projectPath: apps/desktop
@@ -250,46 +265,40 @@ jobs:
           uploadUpdaterJson: false
           releaseAssetNamePattern: openwork-desktop-[platform]-[arch][ext]
 
-      - name: Verify alpha Tauri notarization
+      - name: Build + upload alpha (unsigned fallback)
+        if: env.MACOS_NOTARIZE != 'true'
+        uses: tauri-apps/tauri-action@390cbe447412ced1303d35abe75287949e43437a
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
+          CI: true
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-          tmp_dir="$RUNNER_TEMP/openwork-alpha-tauri-verify"
-          rm -rf "$tmp_dir"
-          mkdir -p "$tmp_dir"
-
-          gh release download "$ALPHA_RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern "openwork-desktop-darwin-aarch64.app.tar.gz" \
-            --pattern "openwork-desktop-darwin-aarch64.dmg" \
-            --dir "$tmp_dir"
-
-          tar -xzf "$tmp_dir/openwork-desktop-darwin-aarch64.app.tar.gz" -C "$tmp_dir"
-          app_path="$tmp_dir/OpenWork.app"
-          dmg_path="$tmp_dir/openwork-desktop-darwin-aarch64.dmg"
-
-          # Tauri places versions.json in Contents/MacOS as an externalBin.
-          # `codesign --verify --strict` treats that data file as a code
-          # subcomponent, so use display for signing visibility and rely on
-          # stapler + spctl for the updater app payload. Tauri notarizes the
-          # app bundle; the DMG can report as an unnotarized container even
-          # when the shipped app has a valid stapled ticket.
-          codesign --display --verbose=4 "$app_path"
-          xcrun stapler validate "$app_path"
-          spctl --assess --type execute --verbose=4 "$app_path"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ env.ALPHA_RELEASE_TAG }}
+          releaseName: ${{ env.ALPHA_RELEASE_NAME }}
+          releaseBody: |
+            Rolling alpha build for OpenWork (macOS arm64).
+            Unsigned build (MACOS_NOTARIZE disabled). macOS Gatekeeper will
+            require a manual open-on-first-launch. Subscribe from Settings →
+            Updates → Release channel → Alpha.
+          releaseDraft: false
+          prerelease: true
+          projectPath: apps/desktop
+          tauriScript: pnpm exec tauri -vvv
+          args: --config src-tauri/tauri.conf.alpha.json --target aarch64-apple-darwin --bundles dmg,app
+          retryAttempts: 3
+          uploadUpdaterJson: false
+          releaseAssetNamePattern: openwork-desktop-[platform]-[arch][ext]
 
       - name: Generate alpha latest.json
         env:
           GH_TOKEN: ${{ github.token }}
-          ALPHA_VERSION: ${{ steps.alpha-version.outputs.alpha_version }}
         run: |
           set -euo pipefail
           node scripts/release/generate-latest-json.mjs \
             --tag "$ALPHA_RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --version "$ALPHA_VERSION" \
             --output "$RUNNER_TEMP/alpha-latest.json"
 
       - name: Upload alpha latest.json
@@ -301,24 +310,3 @@ jobs:
             "$RUNNER_TEMP/alpha-latest.json#latest.json" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
-
-      - name: Upload Electron alpha assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          ASSET_LIST="$RUNNER_TEMP/electron-alpha-assets.txt"
-          python3 - <<'PY' > "$ASSET_LIST"
-          from pathlib import Path
-          root = Path('apps/desktop/dist-electron')
-          suffixes = ('.dmg', '.zip', '.blockmap', '.yml')
-          files = sorted(path for path in root.iterdir() if path.is_file() and path.suffix in suffixes)
-          if not files:
-              raise SystemExit('No Electron alpha assets found in apps/desktop/dist-electron')
-          for path in files:
-              print(path)
-          PY
-
-          mapfile -t files < "$ASSET_LIST"
-          gh release upload "$ALPHA_RELEASE_TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
