@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type {
   AgentPartInput,
@@ -43,6 +43,7 @@ import type {
   ComposerPart,
   ModelOption,
   ModelRef,
+  PendingPermission,
   SlashCommandOption,
   TodoItem,
   WorkspacePreset,
@@ -61,6 +62,10 @@ import { useCheckDesktopRestriction } from "../domains/cloud/desktop-config-prov
 import { useRestrictionNotice } from "../domains/cloud/restriction-notice-provider";
 import { ReactSessionRuntime } from "../domains/session/sync/runtime-sync";
 import { buildOpenworkEnvSystemContext } from "../domains/session/sync/env-context";
+import {
+  permissionKey as reactPermissionKey,
+  seedPermissionState,
+} from "../domains/session/sync/session-sync";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
 import { useRemoteAccessRestart } from "../domains/workspace/remote-access-restart";
 import { RenameWorkspaceModal } from "../domains/workspace/rename-workspace-modal";
@@ -86,6 +91,8 @@ import { filterProviderList, mapConfigProvidersToList } from "../../app/utils/pr
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
 import { resolveOpenworkConnection } from "./openwork-connection";
 import { useReloadCoordinator } from "./reload-coordinator";
+import { getReactQueryClient } from "../infra/query-client";
+import { useStatusToasts } from "../domains/shell-feedback/status-toasts";
 
 type RouteWorkspace = OpenworkWorkspaceInfo & {
   displayNameResolved: string;
@@ -167,6 +174,17 @@ function describeWorkspaceCreateError(error: unknown) {
     return `${message}\n\nOpenWork could not read the workspace config before the filesystem timed out. This often happens when the folder is still syncing from iCloud Drive or another remote folder. Wait for the folder to finish downloading, move the workspace to a local folder, or try again.`;
   }
   return message;
+}
+
+const emptyPendingPermissions: PendingPermission[] = [];
+
+function useQueryCacheState<T>(queryKey: readonly unknown[] | null, fallback: T): T {
+  const queryClient = getReactQueryClient();
+  return useSyncExternalStore(
+    (callback) => (queryKey ? queryClient.getQueryCache().subscribe(callback) : () => {}),
+    () => (queryKey ? queryClient.getQueryData<T>(queryKey) ?? fallback : fallback),
+    () => fallback,
+  );
 }
 
 function mergeRouteWorkspaces(
@@ -312,6 +330,7 @@ export function SessionRoute() {
   const platform = usePlatform();
   const local = useLocal();
   const reloadCoordinator = useReloadCoordinator();
+  const { showToast } = useStatusToasts();
   const checkDesktopRestriction = useCheckDesktopRestriction();
   const restrictionNotice = useRestrictionNotice();
   const params = useParams<{ sessionId?: string }>();
@@ -353,6 +372,8 @@ export function SessionRoute() {
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
   const [providerConnectedIds, setProviderConnectedIds] = useState<string[]>([]);
+  const [permissionReplyBusy, setPermissionReplyBusy] = useState(false);
+  const permissionReplyBusyRef = useRef(false);
   // Provider catalog cache. Used to compute the reasoning/thinking variant
   // options for whichever model is currently selected so the composer's
   // behavior pill actually shows its options (bug: was empty before).
@@ -892,6 +913,70 @@ export function SessionRoute() {
   );
   const canCreateTask = Boolean(
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError,
+  );
+  const permissionQueryKey = useMemo(
+    () =>
+      selectedWorkspaceId && selectedSessionId
+        ? reactPermissionKey(selectedWorkspaceId, selectedSessionId)
+        : null,
+    [selectedSessionId, selectedWorkspaceId],
+  );
+  const pendingPermissions = useQueryCacheState<PendingPermission[]>(
+    permissionQueryKey,
+    emptyPendingPermissions,
+  );
+  useEffect(() => {
+    if (!opencodeClient || !selectedWorkspaceId || !selectedSessionId) return;
+    let cancelled = false;
+    const directory = selectedWorkspaceRoot || undefined;
+    void (async () => {
+      const snapshotStartedAt = Date.now();
+      try {
+        const list = unwrap(await opencodeClient.permission.list({ directory }));
+        if (!cancelled) {
+          seedPermissionState(selectedWorkspaceId, selectedSessionId, list, { snapshotStartedAt });
+        }
+      } catch {
+        // Keep event-synced permission state if the snapshot read fails.
+        // Hiding a pending approval can block the running task.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [opencodeClient, selectedSessionId, selectedWorkspaceId, selectedWorkspaceRoot]);
+
+  const activePermission = pendingPermissions[0] ?? null;
+  const respondPermission = useCallback(
+    async (requestID: string, reply: "once" | "always" | "reject") => {
+      if (!opencodeClient || !selectedWorkspaceId || !selectedSessionId) return;
+      if (permissionReplyBusyRef.current) return;
+      permissionReplyBusyRef.current = true;
+      setPermissionReplyBusy(true);
+      try {
+        unwrap(
+          await opencodeClient.permission.reply({
+            requestID,
+            reply,
+            directory: selectedWorkspaceRoot || undefined,
+          }),
+        );
+        getReactQueryClient().setQueryData<PendingPermission[]>(
+          reactPermissionKey(selectedWorkspaceId, selectedSessionId),
+          (current = []) => current.filter((permission) => permission.id !== requestID),
+        );
+      } catch (error) {
+        showToast({
+          title: t("app.error_request_failed"),
+          description: describeRouteError(error),
+          tone: "error",
+        });
+      } finally {
+        permissionReplyBusyRef.current = false;
+        setPermissionReplyBusy(false);
+      }
+    },
+    [opencodeClient, selectedSessionId, selectedWorkspaceId, selectedWorkspaceRoot, showToast],
   );
   const showPreparingStatus =
     effectiveLoading ||
@@ -1727,6 +1812,10 @@ export function SessionRoute() {
             }
           : null
       }
+      activePermission={activePermission}
+      permissionReplyBusy={permissionReplyBusy}
+      respondPermission={respondPermission}
+      safeStringify={safeStringify}
       onRenameSession={
         opencodeClient
           ? async (sessionId, nextTitle) => {
