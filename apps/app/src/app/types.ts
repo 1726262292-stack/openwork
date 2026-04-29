@@ -313,6 +313,8 @@ export type SuggestedPlugin = {
 
 export type PluginScope = "project" | "global";
 
+export type McpServerSource = "config.project" | "config.global" | "config.remote";
+
 export type McpServerConfig = {
   type: "remote" | "local";
   url?: string;
@@ -327,6 +329,7 @@ export type McpServerConfig = {
 export type McpServerEntry = {
   name: string;
   config: McpServerConfig;
+  source?: McpServerSource;
 };
 
 export type McpStatus =

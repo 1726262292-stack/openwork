@@ -329,6 +329,9 @@ export function SettingsRoute() {
   const workspacesRef = useRef<RouteWorkspace[]>([]);
   const refreshInFlightRef = useRef(false);
   const reconnectAttemptedWorkspaceIdRef = useRef("");
+  const refreshMcpServersRef = useRef<(() => void | Promise<void>) | null>(null);
+  const notifyMcpReloadingRef = useRef<(() => void) | null>(null);
+  const pollMcpServersAfterReloadRef = useRef<(() => void | Promise<void>) | null>(null);
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
   const [providerDefaults, setProviderDefaults] = useState<Record<string, string>>({});
   const [providerConnectedIds, setProviderConnectedIds] = useState<string[]>([]);
@@ -443,6 +446,10 @@ export function SettingsRoute() {
       // ignore browser event dispatch failures
     }
 
+    // OpenCode reconnects MCPs async after dispose — the store polls until
+    // statuses settle so users don't have to collapse/expand the card.
+    void pollMcpServersAfterReloadRef.current?.();
+
     return true;
   }, [openworkClient, selectedWorkspaceId]);
 
@@ -511,6 +518,9 @@ export function SettingsRoute() {
       }),
     [openworkServerStore, reloadCoordinator.markReloadRequired],
   );
+  refreshMcpServersRef.current = connectionsStore.refreshMcpServers;
+  notifyMcpReloadingRef.current = connectionsStore.notifyMcpReloading;
+  pollMcpServersAfterReloadRef.current = connectionsStore.pollMcpServersAfterReload;
   const providerAuthStore = useMemo(
     () =>
       createProviderAuthStore({
@@ -1140,6 +1150,11 @@ export function SettingsRoute() {
                 removeMcp={(name) => {
                   void connectionsStore.removeMcp(name);
                 }}
+                setMcpEnabled={
+                  routeOpenworkStatus === "connected" && routeOpenworkCapabilities?.mcp?.write
+                    ? (name, enabled) => connectionsStore.setMcpEnabled(name, enabled)
+                    : undefined
+                }
                 readConfigFile={(scope) => connectionsStore.readMcpConfigFile(scope)}
                 showHeader={false}
               />
