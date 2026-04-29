@@ -13,18 +13,50 @@ during the React port cutover. Run them before shipping any change that touches:
 
 Before running any eval:
 
-1. Start the Docker dev stack with `packaging/docker/dev-up.sh` and note the
-   printed web URL (example: `http://localhost:50423`).
-2. Open the web URL in a fresh Chrome DevTools MCP page:
+1. Install dependencies in the OpenWork repo:
+   ```bash
+   pnpm install --frozen-lockfile
    ```
-   chrome-devtools_new_page { url: "http://localhost:50423/session" }
+2. Start the Electron dev app:
+   ```bash
+   nohup pnpm dev:electron > .openwork-run/electron.log 2>&1 &
    ```
-3. Confirm the footer shows **"OpenWork Ready"**.
-4. Check the JS console for errors with
+   Wait ~15s for Vite + Electron to boot. The log will show
+   `[openwork] Electron CDP exposed at http://127.0.0.1:9823` when ready.
+3. Chrome MCP automatically connects to the Electron renderer via CDP on
+   port 9823. Verify by taking a snapshot:
+   ```
+   chrome-devtools_take_snapshot
+   ```
+   You should see the full OpenWork UI tree (sidebar, composer, footer).
+4. Confirm the footer shows **"OpenWork Ready"**.
+5. Check the JS console for errors with
    `chrome-devtools_list_console_messages { types: ["error"] }`. It must be
    empty of `Maximum update depth exceeded` warnings. Any of those means the
    settings route has a re-render loop and every other eval below will be
    unreliable.
+
+### Why Electron + Chrome MCP
+
+The Electron app exposes a Chrome DevTools Protocol endpoint that Chrome MCP
+connects to directly. This gives full access to the accessibility tree
+(`take_snapshot`), DOM interaction (`click`, `type_text`, `fill`), network
+inspection, and console messages — without needing Docker or a separate
+browser window. It tests the real desktop app, not a web-only build.
+
+### Paste testing note
+
+CDP keyboard commands (`press_key Meta+V`) do not trigger real clipboard
+paste events in Electron. To test paste flows (Flow 15), use osascript:
+```bash
+pbcopy <<'CLIP'
+<multi-line text here>
+CLIP
+osascript \
+  -e 'tell application "System Events" to tell process "Electron" to set frontmost to true' \
+  -e 'delay 0.3' \
+  -e 'tell application "System Events" to keystroke "v" using command down'
+```
 
 ---
 
@@ -45,11 +77,11 @@ Steps:
 Tool recipe:
 ```
 chrome-devtools_take_snapshot
-chrome-devtools_hover { uid: <workspace header> }
-chrome-devtools_click { uid: <New task> }
-chrome-devtools_fill { uid: <composer textbox>, value: "..." }
+chrome-devtools_click { uid: <New task button> }
+chrome-devtools_click { uid: <composer textbox> }
+chrome-devtools_type_text { text: "Count from 1 to 5..." }
 chrome-devtools_click { uid: <Run task> }
-# observe the response filling in
+chrome-devtools_wait_for { text: ["Ready"], timeout: 30000 }
 chrome-devtools_take_snapshot
 ```
 
