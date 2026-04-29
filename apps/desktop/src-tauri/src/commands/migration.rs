@@ -106,6 +106,7 @@ fn write_macos_migration_script(
     sha256: Option<&str>,
     sha512: Option<&str>,
     target: &std::path::Path,
+    tauri_pid: u32,
 ) -> Result<PathBuf, String> {
     let cache = app
         .path()
@@ -154,11 +155,30 @@ echo "[migration] script start $(date -u +%FT%TZ)"
 
 TARGET="{target}"
 URL="{url}"
+TAURI_PID="{tauri_pid}"
 WORK=$(mktemp -d /tmp/openwork-migrate-XXXXXX)
 ZIP="$WORK/OpenWork-electron.zip"
 
-# Wait for Tauri to fully exit before touching the .app bundle.
-sleep 3
+# Wait for Tauri to fully exit before touching the .app bundle. A fixed
+# sleep races on slower machines and can leave the old bundle locked while
+# the migration script tries to replace it.
+echo "[migration] waiting for Tauri pid $TAURI_PID to exit"
+for i in {{1..60}}; do
+  if ! kill -0 "$TAURI_PID" 2>/dev/null; then
+    echo "[migration] Tauri exited after ${{i}}s"
+    break
+  fi
+  sleep 1
+done
+
+if kill -0 "$TAURI_PID" 2>/dev/null; then
+  echo "[migration] Tauri pid $TAURI_PID still running after 60s; aborting bundle swap" >&2
+  exit 1
+fi
+
+# Give LaunchServices and filesystem watchers one final beat to release the
+# old bundle after the process disappears.
+sleep 2
 
 echo "[migration] downloading $URL"
 curl --fail --location --silent --show-error --output "$ZIP" "$URL"
@@ -191,6 +211,7 @@ echo "[migration] done $(date -u +%FT%TZ)"
         log = log_path.display(),
         target = target.display(),
         url = url,
+        tauri_pid = tauri_pid,
         sha256 = sha256_check,
         sha512 = sha512_check,
     );
@@ -247,6 +268,7 @@ pub async fn migrate_to_electron(
             request.sha256.as_deref(),
             request.sha512.as_deref(),
             &target,
+            std::process::id(),
         )?;
         spawn_macos_migration_script(&script)?;
         // Give the script a moment to daemonize before we exit.
