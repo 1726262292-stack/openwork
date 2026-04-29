@@ -7,11 +7,13 @@ import { createClient } from "../../app/lib/opencode";
 import {
   buildOpenworkWorkspaceBaseUrl,
   createOpenworkServerClient,
+  isLoopbackOpenworkServerUrl,
   readOpenworkServerSettings,
   type OpenworkServerCapabilities,
   type OpenworkServerClient,
   type OpenworkWorkspaceInfo,
 } from "../../app/lib/openwork-server";
+import { buildOpenworkEnvRuntimeKey } from "../../app/lib/openwork-env-runtime";
 import type { Client, ProviderListItem, SettingsTab, WorkspaceDisplay, WorkspacePreset, WorkspaceSessionGroup } from "../../app/types";
 import { isSandboxWorkspace } from "../../app/utils";
 import { currentLocale, t, setLocale, type Language } from "../../i18n";
@@ -25,6 +27,7 @@ import { AdvancedView } from "../domains/settings/pages/advanced-view";
 import { AppearanceView } from "../domains/settings/pages/appearance-view";
 import { DebugView } from "../domains/settings/pages/debug-view";
 import { DenView } from "../domains/settings/pages/den-view";
+import { EnvironmentView } from "../domains/settings/pages/environment-view";
 import { ExtensionsView } from "../domains/settings/pages/extensions-view";
 import { McpView } from "../domains/settings/pages/mcp-view";
 import { RecoveryView } from "../domains/settings/pages/recovery-view";
@@ -44,6 +47,7 @@ import {
   useWorkspaceShellLayout,
 } from "./workspace-shell-layout";
 import {
+  engineStart,
   pickDirectory,
   resolveWorkspaceListSelectedId,
   workspaceBootstrap,
@@ -184,15 +188,6 @@ function folderNameFromPath(path: string) {
   return parts[parts.length - 1] ?? "workspace";
 }
 
-function isLoopbackServerUrl(raw: string) {
-  try {
-    const parsed = new URL(raw);
-    return parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost" || parsed.hostname === "::1";
-  } catch {
-    return false;
-  }
-}
-
 type PersistedThemeMode = "light" | "dark" | "system";
 
 const SETTINGS_THEME_KEY = "openwork.react.settings.theme-mode";
@@ -248,6 +243,7 @@ function parseSettingsPath(pathname: string): {
     case "skills":
     case "advanced":
     case "appearance":
+    case "environment":
     case "updates":
     case "recovery":
     case "debug":
@@ -485,8 +481,8 @@ export function SettingsRoute() {
           // server connection preference.
           if (!isDesktopRuntime()) return "server";
           const stored = readOpenworkServerSettings();
-          const urlOverride = stored.urlOverride?.trim() ?? "";
-          return urlOverride && !isLoopbackServerUrl(urlOverride) ? "server" : "local";
+          const storedUrl = stored.urlOverride?.trim() ?? "";
+          return storedUrl && !isLoopbackOpenworkServerUrl(storedUrl) ? "server" : "local";
         },
         documentVisible: () => typeof document === "undefined" || document.visibilityState === "visible",
         developerMode: () => routeStateRef.current.developerMode,
@@ -705,7 +701,7 @@ export function SettingsRoute() {
           desktopWorkspaces = workspacesRef.current;
         }
       }
-      const { normalizedBaseUrl, resolvedToken } = await resolveOpenworkConnection();
+      const { normalizedBaseUrl, resolvedToken, resolvedHostToken } = await resolveOpenworkConnection();
 
       if (!normalizedBaseUrl || !resolvedToken) {
         setOpenworkClient(null);
@@ -718,7 +714,11 @@ export function SettingsRoute() {
         return;
       }
 
-      const client = createOpenworkServerClient({ baseUrl: normalizedBaseUrl, token: resolvedToken });
+      const client = createOpenworkServerClient({
+        baseUrl: normalizedBaseUrl,
+        token: resolvedToken,
+        hostToken: resolvedHostToken || undefined,
+      });
       const list = await client.listWorkspaces();
       const serverWorkspaceIds = new Set(list.items.map((workspace) => workspace.id));
       const nextWorkspaces = mergeRouteWorkspaces(list.items, desktopWorkspaces);
@@ -908,6 +908,46 @@ export function SettingsRoute() {
         config: { read: true, write: true },
       }
     : null;
+  const environmentRuntimeKey = buildOpenworkEnvRuntimeKey({
+    baseUrl: openworkServerSnapshot.openworkServerBaseUrl || openworkServerSnapshot.openworkServerUrl,
+    pid: openworkServerSnapshot.openworkServerHostInfo?.pid ?? null,
+    port: openworkServerSnapshot.openworkServerHostInfo?.port ?? null,
+  });
+
+  const handleApplyEnvironmentChanges = async () => {
+    if (!isDesktopRuntime()) {
+      throw new Error(t("settings.environment.apply_unavailable"));
+    }
+    if (activeReloadBlockingSessions.length > 0) {
+      throw new Error(t("settings.environment.apply_blocked_active_tasks"));
+    }
+    if (!selectedWorkspaceRoot) {
+      throw new Error(t("settings.environment.apply_no_local_workspace"));
+    }
+    const workspacePaths = Array.from(
+      new Set(
+        workspaces
+          .filter((workspace) => workspace.workspaceType !== "remote")
+          .map((workspace) => workspace.path?.trim() ?? "")
+          .filter((path) => path.length > 0),
+      ),
+    );
+    if (!workspacePaths.includes(selectedWorkspaceRoot)) {
+      workspacePaths.unshift(selectedWorkspaceRoot);
+    }
+    await engineStart(selectedWorkspaceRoot, {
+      preferSidecar: true,
+      runtime: "direct",
+      workspacePaths,
+      openworkRemoteAccess: openworkServerSnapshot.openworkServerSettings.remoteAccessEnabled === true,
+    });
+    const reconnected = await openworkServerStore.reconnectOpenworkServer();
+    if (!reconnected) {
+      await refreshRouteState().catch(() => {});
+      return { statusMessage: t("settings.environment.apply_refresh_failed") };
+    }
+    await refreshRouteState();
+  };
 
   const handleOpenCreateWorkspace = () => {
     setCreateWorkspaceError(null);
@@ -1233,6 +1273,22 @@ export function SettingsRoute() {
             onCleanupOpenworkDockerContainers={() => {
               setRouteError("Docker cleanup is not wired into the React settings route yet.");
             }}
+          />
+        );
+      case "environment":
+        return (
+          <EnvironmentView
+            client={openworkServerSnapshot.openworkServerClient}
+            isRemoteWorkspace={isRemoteWorkspace}
+            onStatusMessage={setConfigActionStatus}
+            onApplyChanges={isDesktopRuntime() && !isRemoteWorkspace ? handleApplyEnvironmentChanges : undefined}
+            applyBlocked={activeReloadBlockingSessions.length > 0}
+            applyBlockedReason={
+              activeReloadBlockingSessions.length > 0
+                ? t("settings.environment.apply_blocked_active_tasks")
+                : null
+            }
+            runtimeKey={environmentRuntimeKey}
           />
         );
       case "debug":

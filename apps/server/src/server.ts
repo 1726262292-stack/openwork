@@ -22,6 +22,7 @@ import { workspaceIdForPath } from "./workspaces.js";
 import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
+import { EnvService, EnvStoreReadError, InvalidEnvKeyError, isValidEnvKey } from "./env-file.js";
 import { TOY_UI_CSS, TOY_UI_FAVICON_SVG, TOY_UI_HTML, TOY_UI_JS, cssResponse, htmlResponse, jsResponse, svgResponse } from "./toy-ui.js";
 import { FileSessionStore } from "./file-sessions.js";
 import {
@@ -140,7 +141,7 @@ function logRequest(input: {
   logger.log(level, message, attributes);
 }
 
-type AuthMode = "none" | "client" | "host";
+type AuthMode = "none" | "client" | "host" | "host-token";
 
 function parseWorkspaceMount(pathname: string): { workspaceId: string; restPath: string } | null {
   if (!pathname.startsWith("/w/")) return null;
@@ -204,13 +205,14 @@ export function startServer(config: ServerConfig) {
   const approvals = new ApprovalService(config.approval);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
+  const env = new EnvService();
   const logger = createServerLogger(config);
   let watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   const restartReloadWatchers = () => {
     watcherHandle.close();
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
-  const routes = createRoutes(config, approvals, tokens, restartReloadWatchers);
+  const routes = createRoutes(config, approvals, tokens, env, restartReloadWatchers);
 
   const serverOptions: {
     hostname: string;
@@ -311,11 +313,14 @@ export function startServer(config: ServerConfig) {
 
       authMode = route.auth;
       try {
-        const actor = route.auth === "host"
-          ? await requireHost(request, config, tokens)
-          : route.auth === "client"
-            ? await requireClient(request, config, tokens)
-            : undefined;
+        const actor =
+          route.auth === "host-token"
+            ? requireHostToken(request, config)
+            : route.auth === "host"
+              ? await requireHost(request, config, tokens)
+              : route.auth === "client"
+                ? await requireClient(request, config, tokens)
+                : undefined;
         const response = await route.handler({
           request,
           url,
@@ -536,7 +541,7 @@ function withCors(response: Response, request: Request, config: ServerConfig) {
     "Access-Control-Allow-Headers",
     "Authorization, Content-Type, X-OpenWork-Host-Token, X-OpenWork-Client-Id, X-OpenCode-Directory, X-Opencode-Directory, x-opencode-directory",
   );
-  headers.set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+  headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
   headers.set("Vary", "Origin");
   return new Response(response.body, { status: response.status, headers });
 }
@@ -554,6 +559,14 @@ async function requireClient(request: Request, config: ServerConfig, tokens: Tok
   }
   const clientId = request.headers.get("x-openwork-client-id") ?? undefined;
   return { type: "remote", clientId, tokenHash: hashToken(token), scope };
+}
+
+function requireHostToken(request: Request, config: ServerConfig): Actor {
+  const hostToken = request.headers.get("x-openwork-host-token");
+  if (hostToken && hostToken === config.hostToken) {
+    return { type: "host", tokenHash: hashToken(hostToken), scope: "owner" };
+  }
+  throw new ApiError(401, "unauthorized", "Invalid host token");
 }
 
 async function requireHost(request: Request, config: ServerConfig, tokens: TokenService): Promise<Actor> {
@@ -1007,6 +1020,7 @@ function createRoutes(
   config: ServerConfig,
   approvals: ApprovalService,
   tokens: TokenService,
+  env: EnvService,
   onWorkspacesChanged: () => void,
 ): Route[] {
   const routes: Route[] = [];
@@ -1257,6 +1271,87 @@ function createRoutes(
     const ok = await tokens.revoke(ctx.params.id);
     if (!ok) {
       throw new ApiError(404, "token_not_found", "Token not found");
+    }
+    return jsonResponse({ ok: true });
+  });
+
+  function rethrowEnvStoreReadError(error: unknown): never {
+    if (error instanceof EnvStoreReadError) {
+      throw new ApiError(
+        409,
+        error.code,
+        "Environment variable store is invalid. Fix or remove the local env file before editing.",
+      );
+    }
+    throw error;
+  }
+
+  // User-level env vars (see apps/app/pr/environment-variables.md). All routes
+  // require the desktop host token (not owner bearer tokens) because values are
+  // returned raw; the React pane masks them only for display. Reload semantics
+  // are driven from the UI after a write; this surface is user-scoped, not
+  // workspace-scoped, so no audit.
+  addRoute(routes, "GET", "/env", "host-token", async () => {
+    const items = await env.list().catch(rethrowEnvStoreReadError);
+    return jsonResponse({ items });
+  });
+
+  addRoute(routes, "GET", "/env/keys", "host-token", async () => {
+    const items = await env.list().catch(rethrowEnvStoreReadError);
+    return jsonResponse({ keys: items.map((item) => item.key) });
+  });
+
+  addRoute(routes, "PUT", "/env", "host-token", async (ctx) => {
+    ensureWritable(config);
+    const body = await readJsonBody(ctx.request);
+    const rawEntries = Array.isArray(body.entries)
+      ? body.entries
+      : [{ key: body.key, value: body.value }];
+    const entries: Array<{ key: string; value: string }> = [];
+    for (const raw of rawEntries) {
+      if (!raw || typeof raw !== "object") {
+        throw new ApiError(400, "invalid_entry", "Each entry must be an object");
+      }
+      const candidate = raw as { key?: unknown; value?: unknown };
+      const key = typeof candidate.key === "string" ? candidate.key.trim() : "";
+      const value = typeof candidate.value === "string" ? candidate.value : "";
+      if (!isValidEnvKey(key)) {
+        throw new ApiError(400, "invalid_env_key", "Invalid environment variable name");
+      }
+      entries.push({ key, value });
+    }
+    if (entries.length === 0) {
+      throw new ApiError(400, "no_entries", "No entries provided");
+    }
+    try {
+      await env.upsertMany(entries);
+    } catch (error) {
+      if (error instanceof EnvStoreReadError) {
+        rethrowEnvStoreReadError(error);
+      }
+      if (error instanceof InvalidEnvKeyError) {
+        throw new ApiError(
+          400,
+          error.code,
+          error.code === "reserved_env_key"
+            ? "Environment variable name is reserved for OpenWork internals"
+            : "Invalid environment variable name",
+        );
+      }
+      throw error;
+    }
+    return jsonResponse({ ok: true, count: entries.length });
+  });
+
+  addRoute(routes, "DELETE", "/env/:key", "host-token", async (ctx) => {
+    ensureWritable(config);
+    const key = ctx.params.key;
+    if (!isValidEnvKey(key)) {
+      throw new ApiError(400, "invalid_env_key", "Invalid environment variable name");
+    }
+    const removed = await env.delete(key).catch(rethrowEnvStoreReadError);
+    if (!removed) {
+      throw new ApiError(404, "env_not_found", "Environment variable not found");
     }
     return jsonResponse({ ok: true });
   });
