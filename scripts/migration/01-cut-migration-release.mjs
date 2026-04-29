@@ -126,6 +126,10 @@ async function main() {
   // 1. Bump all 5 sync files via the existing helper.
   run("pnpm", ["bump:set", "--", args.version], { dryRun: args.dryRun });
 
+  // Keep CI/release jobs using --frozen-lockfile green after bumping
+  // workspace package versions referenced by pnpm-lock.yaml.
+  run("pnpm", ["install", "--no-frozen-lockfile"], { dryRun: args.dryRun });
+
   // 2. Write the migration-release env fragment. Gets picked up by the
   //    app build step during `Release App` via --copy-config.
   const envFragment =
