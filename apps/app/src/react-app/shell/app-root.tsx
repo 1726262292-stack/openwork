@@ -79,7 +79,7 @@ function DenSigninGate({ children }: DenSigninGateProps) {
   ]);
 
   if (requireSignin && denAuth.status === "checking") {
-    return null;
+    return <ForcedSigninPage developerMode={false} />;
   }
 
   return <>{children}</>;
