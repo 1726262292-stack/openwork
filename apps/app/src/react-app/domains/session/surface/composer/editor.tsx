@@ -402,14 +402,15 @@ function SyncPlugin(props: { value: string; mentions: Record<string, "agent" | "
   }, [editor, props.disabled]);
 
   useEffect(() => {
-    if (valueRef.current === props.value) return;
+    // When the external value is cleared (e.g. after sending a message),
+    // always force-rebuild the editor to remove any stale chip nodes.
+    // The valueRef check can false-positive when both refs converge to ""
+    // through different paths (SyncPlugin vs OnChange).
+    const forceRebuild = !props.value.trim() && serializePromptFromRoot().trim() !== "";
+    if (!forceRebuild && valueRef.current === props.value) return;
     valueRef.current = props.value;
     editor.update(() => {
-      // Use the same single-newline serializer we write out so we don't
-      // rebuild the editor on every keystroke when the user typed only a
-      // plain newline (Lexical's root.getTextContent() uses "\n\n" which
-      // never matches what we stored).
-      if (serializePromptFromRoot() === props.value) return;
+      if (!forceRebuild && serializePromptFromRoot() === props.value) return;
       setPrompt(props.value, props.mentions, props.pastedText);
       $getRoot().selectEnd();
     });
