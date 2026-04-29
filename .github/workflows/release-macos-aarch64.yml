@@ -668,6 +668,11 @@ jobs:
             artifact: electron-linux-x64
             electron_args: "--linux --x64"
             target_triple: x86_64-unknown-linux-gnu
+          - platform: ubuntu-22.04-arm
+            os_type: linux
+            artifact: electron-linux-arm64
+            electron_args: "--linux --arm64"
+            target_triple: aarch64-unknown-linux-gnu
           - platform: windows-2022
             os_type: windows
             artifact: electron-windows-x64

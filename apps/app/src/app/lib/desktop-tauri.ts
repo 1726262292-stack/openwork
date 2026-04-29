@@ -425,6 +425,8 @@ export type AppBuildInfo = {
   gitSha?: string | null;
   buildEpoch?: string | null;
   openworkDevMode?: boolean;
+  os?: string | null;
+  arch?: string | null;
 };
 
 export type DesktopBootstrapConfig = {
