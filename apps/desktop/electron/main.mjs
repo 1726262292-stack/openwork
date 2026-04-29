@@ -1377,7 +1377,7 @@ ipcMain.handle("openwork:shell:relaunch", async () => {
 });
 
 registerMigrationIpc({ app, ipcMain });
-const { ensureAutoUpdater } = registerUpdaterIpc({ app, ipcMain });
+const { ensureAutoUpdater } = registerUpdaterIpc({ app, ipcMain, getMainWindow: () => mainWindow });
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();

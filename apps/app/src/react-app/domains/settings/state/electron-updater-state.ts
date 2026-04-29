@@ -17,7 +17,9 @@ export type SettingsUpdateStatus = {
   message?: string;
 } | null;
 
-type ElectronUpdaterBridge = NonNullable<Window["__OPENWORK_ELECTRON__"]>["updater"];
+type ElectronUpdaterBridge = NonNullable<Window["__OPENWORK_ELECTRON__"]>["updater"] & {
+  onDownloadProgress?: (callback: (data: { transferred: number; total: number; percent: number; bytesPerSecond: number }) => void) => (() => void);
+};
 type TauriUpdate = {
   version?: string;
   date?: string;
@@ -172,21 +174,39 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
       return;
     }
 
+    // Subscribe to incremental progress events from the main process so
+    // the UI updates in real time instead of staying stuck at 0 bytes.
+    let unsubProgress: (() => void) | null = null;
+    if (bridge.onDownloadProgress) {
+      unsubProgress = bridge.onDownloadProgress((data) => {
+        setUpdateStatus((current) => ({
+          ...(current ?? {}),
+          state: "downloading",
+          downloadedBytes: data.transferred ?? 0,
+          totalBytes: data.total ?? current?.totalBytes ?? null,
+        }));
+      });
+    }
+
     setUpdateStatus((current) => ({
       ...(current ?? {}),
       state: "downloading",
       downloadedBytes: current?.downloadedBytes ?? 0,
       totalBytes: current?.totalBytes ?? null,
     }));
-    const result = await bridge.download();
-    if (!result?.ok) {
-      setUpdateStatus({ state: "error", message: result?.reason ?? "Update download failed." });
-      return;
+    try {
+      const result = await bridge.download();
+      if (!result?.ok) {
+        setUpdateStatus({ state: "error", message: result?.reason ?? "Update download failed." });
+        return;
+      }
+      setUpdateStatus((current) => ({
+        ...(current ?? {}),
+        state: "ready",
+      }));
+    } finally {
+      unsubProgress?.();
     }
-    setUpdateStatus((current) => ({
-      ...(current ?? {}),
-      state: "ready",
-    }));
   }, [desktopConfig, setError]);
 
   const checkForUpdates = useCallback(async () => {

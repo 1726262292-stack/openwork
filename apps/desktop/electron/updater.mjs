@@ -62,9 +62,20 @@ async function applyElectronUpdaterFeed(app, updater) {
 
 // electron-updater wiring. Packaged-only; dev builds skip this so the
 // updater doesn't try to probe a non-existent release channel.
-export function registerUpdaterIpc({ app, ipcMain }) {
+export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
   let autoUpdaterInstance = null;
   let autoUpdaterLoaded = false;
+
+  function sendToRenderer(channel, data) {
+    try {
+      const win = typeof getMainWindow === "function" ? getMainWindow() : null;
+      if (win?.webContents && !win.isDestroyed()) {
+        win.webContents.send(channel, data);
+      }
+    } catch {
+      // Window may be closed; swallow send failures.
+    }
+  }
 
   async function ensureAutoUpdater() {
     if (!app.isPackaged) return null;
@@ -78,6 +89,17 @@ export function registerUpdaterIpc({ app, ipcMain }) {
         autoUpdaterInstance.autoInstallOnAppQuit = true;
         autoUpdaterInstance.on("error", (err) => {
           console.warn("[updater] error", err);
+        });
+        // Forward download progress to the renderer so the UI can show
+        // incremental bytes instead of staying stuck at 0.
+        autoUpdaterInstance.on("download-progress", (info) => {
+          sendToRenderer("openwork:updater:download-progress", {
+            bytesPerSecond: info.bytesPerSecond ?? 0,
+            percent: info.percent ?? 0,
+            transferred: info.transferred ?? 0,
+            total: info.total ?? 0,
+            delta: info.delta ?? 0,
+          });
         });
         await applyElectronUpdaterFeed(app, autoUpdaterInstance);
       }

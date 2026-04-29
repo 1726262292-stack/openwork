@@ -44,6 +44,14 @@ contextBridge.exposeInMainWorld("__OPENWORK_ELECTRON__", {
     installAndRestart() {
       return ipcRenderer.invoke("openwork:updater:installAndRestart");
     },
+    /** Subscribe to incremental download progress from electron-updater. */
+    onDownloadProgress(callback) {
+      const handler = (_event, data) => callback(data);
+      ipcRenderer.on("openwork:updater:download-progress", handler);
+      return () => {
+        ipcRenderer.removeListener("openwork:updater:download-progress", handler);
+      };
+    },
   },
   meta: {
     initialDeepLinks: [],
