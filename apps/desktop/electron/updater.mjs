@@ -1,7 +1,33 @@
 import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const ELECTRON_UPDATER_CHANNEL_FILENAME = "electron-updater-channel.v1.json";
+
+// In dev mode, app.getVersion() returns the Electron framework version
+// (e.g. "35.7.5") instead of the OpenWork app version. Read from
+// package.json so the UI always shows the correct version.
+const __updater_dirname = path.dirname(fileURLToPath(import.meta.url));
+let _cachedAppVersion = null;
+function resolveAppVersion(app) {
+  if (_cachedAppVersion) return _cachedAppVersion;
+  const electronVersion = app.getVersion();
+  // If packaged, app.getVersion() is correct (set by electron-builder).
+  if (app.isPackaged) {
+    _cachedAppVersion = electronVersion;
+    return electronVersion;
+  }
+  // In dev, read from package.json.
+  try {
+    const pkgPath = path.resolve(__updater_dirname, "..", "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+    _cachedAppVersion = pkg.version || electronVersion;
+  } catch {
+    _cachedAppVersion = electronVersion;
+  }
+  return _cachedAppVersion;
+}
 const ELECTRON_UPDATER_FEEDS = Object.freeze({
   stable: "https://github.com/different-ai/openwork/releases/latest/download",
   alpha: "https://github.com/different-ai/openwork/releases/download/alpha-macos-latest",
@@ -47,7 +73,7 @@ function updaterChannelState(app, channel) {
   return {
     channel: normalized,
     feedUrl: electronUpdaterFeedUrl(normalized),
-    currentVersion: app.getVersion(),
+    currentVersion: resolveAppVersion(app),
   };
 }
 
@@ -134,8 +160,8 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       const result = await updater.checkForUpdates();
       const info = result?.updateInfo ?? null;
       return {
-        available: Boolean(info && info.version && info.version !== app.getVersion()),
-        currentVersion: app.getVersion(),
+        available: Boolean(info && info.version && info.version !== resolveAppVersion(app)),
+        currentVersion: resolveAppVersion(app),
         latestVersion: info?.version ?? null,
         releaseDate: info?.releaseDate ?? null,
         releaseNotes: info?.releaseNotes ?? null,

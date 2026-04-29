@@ -260,8 +260,8 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
       }
       if (result.reason === "unavailable") {
         setUpdateStatus({
-          state: "error",
-          message: "Electron updater is available only in packaged Electron builds.",
+          state: "idle",
+          message: "Auto-updates are available in packaged builds only.",
         });
         return;
       }
