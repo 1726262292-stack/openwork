@@ -1541,12 +1541,26 @@ function resolveBinCommand(bin: string): {
 }
 
 async function readVersionManifest(): Promise<VersionManifest | null> {
+  const binDir = dirname(process.execPath);
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const envManifestPath = process.env.OPENWORK_VERSION_MANIFEST?.trim();
+  const envSidecarDir = process.env.OPENWORK_BUNDLED_SIDECAR_DIR?.trim();
   const candidates = [
-    dirname(process.execPath),
-    dirname(fileURLToPath(import.meta.url)),
+    ...(envManifestPath
+      ? [
+          {
+            manifestPath: envManifestPath,
+            dir: envSidecarDir || dirname(envManifestPath),
+          },
+        ]
+      : []),
+    { manifestPath: join(binDir, "versions.json"), dir: binDir },
+    // macOS treats files in Contents/MacOS as executable code, so the manifest
+    // is bundled as a resource while sidecar binaries remain next to execPath.
+    { manifestPath: join(binDir, "..", "Resources", "versions.json"), dir: binDir },
+    { manifestPath: join(moduleDir, "versions.json"), dir: moduleDir },
   ];
-  for (const dir of candidates) {
-    const manifestPath = join(dir, "versions.json");
+  for (const { manifestPath, dir } of candidates) {
     if (await fileExists(manifestPath)) {
       try {
         const payload = await readFile(manifestPath, "utf8");

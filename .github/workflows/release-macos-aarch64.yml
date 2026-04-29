@@ -588,15 +588,18 @@ jobs:
           tar -xzf "$archive_path" -C "$tmp_dir"
 
           app_path="$tmp_dir/OpenWork.app"
-          manifest_path="$app_path/Contents/MacOS/versions.json"
+          manifest_path="$app_path/Contents/Resources/versions.json"
 
           if [ ! -f "$manifest_path" ]; then
             echo "ERROR: versions.json missing from app bundle: $manifest_path" >&2
-            echo "Hint: ensure apps/desktop/src-tauri/tauri.conf.json bundles sidecars/versions.json" >&2
+            echo "Hint: ensure apps/desktop/src-tauri/tauri.conf.json bundles sidecars/versions.json as a resource" >&2
             exit 1
           fi
 
           echo "Found bundled versions.json at $manifest_path"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          spctl -a -vv -t execute "$app_path"
+          xcrun stapler validate "$app_path"
 
   publish-updater-json:
     name: Publish consolidated latest.json
