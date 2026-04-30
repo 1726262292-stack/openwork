@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { DenDesktopConfig } from "../../../../app/lib/den";
-import { isUpdateAllowed } from "../../../../app/lib/version-gate";
+import { isAlphaUpdateAllowed, isUpdateAllowed } from "../../../../app/lib/version-gate";
 import type { ReleaseChannel } from "../../../../app/types";
 import { isElectronRuntime, isTauriRuntime, safeStringify } from "../../../../app/utils";
 
@@ -138,7 +138,12 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
         setUpdateStatus({ state: "idle", lastCheckedAt: Date.now() });
         return;
       }
-      if (update.version && !(await isUpdateAllowed(update.version, desktopConfig))) {
+      const allowed = update.version
+        ? releaseChannel === "alpha"
+          ? await isAlphaUpdateAllowed(update.version, desktopConfig)
+          : await isUpdateAllowed(update.version, desktopConfig)
+        : true;
+      if (!allowed) {
         tauriUpdateRef.current = null;
         setUpdateStatus({ state: "idle", lastCheckedAt: Date.now() });
         return;
@@ -212,7 +217,7 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
     } finally {
       unsubProgress?.();
     }
-  }, [desktopConfig, setError]);
+  }, [desktopConfig, releaseChannel, setError]);
 
   const checkForUpdates = useCallback(async () => {
     if (isTauriRuntime()) {
@@ -220,9 +225,11 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
       try {
         const { check } = await import("@tauri-apps/plugin-updater");
         const update = (await check()) as TauriUpdate | null;
-        const allowed = update?.version
-          ? await isUpdateAllowed(update.version, desktopConfig)
-          : true;
+        const allowed = !update?.version
+          ? true
+          : releaseChannel === "alpha"
+            ? await isAlphaUpdateAllowed(update.version, desktopConfig)
+            : await isUpdateAllowed(update.version, desktopConfig);
         if (!allowed) {
           tauriUpdateRef.current = null;
           setUpdateStatus({ state: "idle", lastCheckedAt: Date.now() });
@@ -276,7 +283,9 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
       }
 
       const availableAllowed = result.available && result.latestVersion
-        ? await isUpdateAllowed(result.latestVersion, desktopConfig)
+        ? releaseChannel === "alpha"
+          ? await isAlphaUpdateAllowed(result.latestVersion, desktopConfig)
+          : await isUpdateAllowed(result.latestVersion, desktopConfig)
         : result.available;
       const nextStatus: Exclude<SettingsUpdateStatus, null> = availableAllowed
         ? {
