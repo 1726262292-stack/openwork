@@ -12,6 +12,9 @@
     "light": "#3b82f6",
     "dark": "#011627"
   },
+  "api": {
+    "openapi": "openapi.json"
+  },
   "navigation": {
     "tabs": [
       {
@@ -78,7 +81,7 @@
       },
       {
         "tab": "API",
-        "openapi": "https://api.openworklabs.com/openapi.json"
+        "openapi": "/openapi.json"
       },
       {
         "tab": "Roadmap",
