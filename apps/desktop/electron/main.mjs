@@ -24,6 +24,7 @@ import { exportWorkspaceConfig, importWorkspaceConfig } from "./workspace-archiv
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const NATIVE_DEEP_LINK_EVENT = "openwork:deep-link-native";
 const TAURI_APP_IDENTIFIER = "com.differentai.openwork";
+const DESKTOP_PROTOCOL_SCHEME = "openwork";
 
 // Share the same on-disk state folder as the Tauri shell so in-place
 // migration is a no-op for almost every file. Done BEFORE whenReady so all
@@ -32,6 +33,9 @@ const TAURI_APP_IDENTIFIER = "com.differentai.openwork";
 // Override via OPENWORK_ELECTRON_USERDATA so dogfooders can isolate their
 // Electron install from the real Tauri app.
 app.setName("OpenWork");
+if (app.isPackaged) {
+  app.setAsDefaultProtocolClient(DESKTOP_PROTOCOL_SCHEME);
+}
 const userDataOverride = process.env.OPENWORK_ELECTRON_USERDATA?.trim();
 if (userDataOverride) {
   app.setPath("userData", userDataOverride);

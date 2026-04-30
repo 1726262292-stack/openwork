@@ -3,6 +3,10 @@
 # permissions. In-place migration from Tauri to Electron depends on this.
 appId: com.differentai.openwork
 productName: OpenWork
+protocols:
+  - name: OpenWork
+    schemes:
+      - openwork
 directories:
   output: dist-electron
 files:
