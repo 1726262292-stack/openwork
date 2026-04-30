@@ -1,48 +1,5 @@
 # OpenWork Host (Docker)
 
-## Dev testability stack (recommended for testing)
-
-One command, no custom Dockerfile. Uses `node:22-bookworm-slim` off the shelf.
-
-From the repo root:
-
-```bash
-./packaging/docker/dev-up.sh
-```
-
-Then open the printed Web UI URL (ports are randomized so you can run multiple stacks).
-
-What it does:
-- Starts **headless** (OpenCode + OpenWork server) on port 8787
-- Starts **web UI** (Vite dev server) on port 5173
-- Auto-generates and shares auth tokens between services
-- Web waits for headless health check before starting
-- Builds Linux binaries inside the container (no host binary conflicts)
-- Uses an isolated OpenCode dev state by default so the stack does not read your personal host config/auth/data
-
-If you want to seed the container from your host OpenCode state for debugging, run with `OPENWORK_DOCKER_DEV_MOUNT_HOST_OPENCODE=1`. This imports host config/auth into the isolated dev state instead of mounting live host state directly.
-
-Useful commands:
-- Logs: `docker compose -p <project> -f packaging/docker/docker-compose.dev.yml logs`
-- Tear down: `docker compose -p <project> -f packaging/docker/docker-compose.dev.yml down`
-- Health check: `curl http://localhost:<openwork_port>/health`
-
-Optional env vars (via `.env` or `export`):
-- `OPENWORK_TOKEN` — fixed client token
-- `OPENWORK_HOST_TOKEN` — fixed host/admin token
-- `OPENWORK_WORKSPACE` — host path to mount as workspace
-- `OPENWORK_PORT` — host port to map to container :8787
-- `WEB_PORT` — host port to map to container :5173
-- `SHARE_PORT` — host port to map to the local share service :3000
-- `OPENWORK_PUBLIC_HOST` — host name/IP used in printed LAN/public URLs (defaults to your machine hostname)
-- `OPENWORK_DOCKER_DEV_MOUNT_HOST_OPENCODE=1` — import host OpenCode config/auth into the isolated dev state
-- `OPENWORK_OPENCODE_CONFIG_DIR` — override the host OpenCode config source used for that optional import
-- `OPENWORK_OPENCODE_DATA_DIR` — override the host OpenCode data source used for that optional import
-
-The dev stack also starts the local share service automatically and points the OpenWork app at it, so share-link flows publish to a local service instead of `https://share.openworklabs.com`.
-
----
-
 ## Den local stack (Docker)
 
 One command for the Den control plane, local MySQL, and the cloud web app.
