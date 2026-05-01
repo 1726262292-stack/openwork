@@ -277,6 +277,18 @@ export function DenSettingsPanel(props: DenSettingsPanelProps) {
     [orgs, tr],
   );
 
+  const syncCurrentDenSettings = useCallback(() => {
+    const resolved = resolveDenBaseUrls(baseUrl);
+    writeDenSettings({
+      baseUrl: resolved.baseUrl,
+      apiBaseUrl: resolved.apiBaseUrl,
+      authToken: authToken || null,
+      activeOrgId: activeOrgId || null,
+      activeOrgSlug: activeOrg?.slug ?? null,
+      activeOrgName: activeOrg?.name ?? null,
+    });
+  }, [activeOrg, activeOrgId, authToken, baseUrl]);
+
   const client = useMemo(
     () => createDenClient({ baseUrl, token: authToken }),
     [authToken, baseUrl],
@@ -520,14 +532,8 @@ export function DenSettingsPanel(props: DenSettingsPanelProps) {
   );
 
   useEffect(() => {
-    writeDenSettings({
-      baseUrl,
-      authToken: authToken || null,
-      activeOrgId: activeOrgId || null,
-      activeOrgSlug: activeOrg?.slug ?? null,
-      activeOrgName: activeOrg?.name ?? null,
-    });
-  }, [activeOrg, activeOrgId, authToken, baseUrl]);
+    syncCurrentDenSettings();
+  }, [syncCurrentDenSettings]);
 
   const openControlPlane = useCallback(() => {
     props.openLink(resolveDenBaseUrls(baseUrl).baseUrl);
@@ -662,6 +668,7 @@ export function DenSettingsPanel(props: DenSettingsPanelProps) {
       if (!quiet) setSkillHubActionError(null);
 
       try {
+        syncCurrentDenSettings();
         await props.extensions.refreshCloudOrgSkillHubs({ force: true });
         if (!quiet) {
           const count = props.extensions.cloudOrgSkillHubs().length;
@@ -681,7 +688,7 @@ export function DenSettingsPanel(props: DenSettingsPanelProps) {
         setSkillHubsBusy(false);
       }
     },
-    [activeOrg, activeOrgId, authToken, props.extensions, tr],
+    [activeOrg, activeOrgId, authToken, props.extensions, syncCurrentDenSettings, tr],
   );
 
   const refreshSkills = useCallback(
@@ -693,6 +700,7 @@ export function DenSettingsPanel(props: DenSettingsPanelProps) {
       if (!quiet) setSkillActionError(null);
 
       try {
+        syncCurrentDenSettings();
         await props.extensions.refreshCloudOrgSkills({ force: true });
         if (!quiet) {
           const count = props.extensions.cloudOrgSkills().length;
@@ -716,7 +724,7 @@ export function DenSettingsPanel(props: DenSettingsPanelProps) {
         setSkillsBusy(false);
       }
     },
-    [activeOrg, activeOrgId, authToken, props.extensions, tr, tx],
+    [activeOrg, activeOrgId, authToken, props.extensions, syncCurrentDenSettings, tr, tx],
   );
 
   const refreshProviders = useCallback(
@@ -728,6 +736,7 @@ export function DenSettingsPanel(props: DenSettingsPanelProps) {
       setProviderActionError(null);
 
       try {
+        syncCurrentDenSettings();
         const items = await props.refreshCloudOrgProviders({ force: !quiet });
         if (!quiet) {
           setStatusMessage(
@@ -746,7 +755,7 @@ export function DenSettingsPanel(props: DenSettingsPanelProps) {
         setProvidersBusy(false);
       }
     },
-    [activeOrg, activeOrgId, authToken, props, tr],
+    [activeOrg, activeOrgId, authToken, props, syncCurrentDenSettings, tr],
   );
 
   const refreshMarketplaces = useCallback(
@@ -758,6 +767,7 @@ export function DenSettingsPanel(props: DenSettingsPanelProps) {
       if (!quiet) setPluginActionError(null);
 
       try {
+        syncCurrentDenSettings();
         await props.extensions.refreshCloudOrgMarketplaces({ force: true });
         if (!quiet) {
           const count = props.extensions.cloudOrgMarketplaces().length;
@@ -775,7 +785,7 @@ export function DenSettingsPanel(props: DenSettingsPanelProps) {
         setMarketplacesBusy(false);
       }
     },
-    [activeOrg, activeOrgId, authToken, props.extensions, tr],
+    [activeOrg, activeOrgId, authToken, props.extensions, syncCurrentDenSettings, tr],
   );
 
   useEffect(() => {
