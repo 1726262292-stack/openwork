@@ -3,7 +3,7 @@
  * i18n-audit.mjs — Find missing translations and improperly used translation keys.
  *
  * Usage:
- *   node scripts/i18n-audit.mjs              # full audit (default, excludes --hardcoded, --aliases, --prune, --sort)
+ *   node scripts/i18n-audit.mjs              # full audit (default, excludes --hardcoded, --prune, --sort)
  *   node scripts/i18n-audit.mjs --missing    # missing keys (in EN but not in locale)
  *   node scripts/i18n-audit.mjs --orphan     # orphan keys (in locale but not in EN)
  *   node scripts/i18n-audit.mjs --duplicates # duplicate keys in any locale
@@ -29,7 +29,7 @@ const LOCALES = ["ja", "zh", "vi", "pt-BR", "th", "fr", "ca", "es"];
 const EN_FILE = join(LOCALES_DIR, "en.ts");
 
 const mode = process.argv[2] ?? "--all";
-const EXCLUDED_FROM_ALL = new Set(["--hardcoded", "--aliases"]);
+const EXCLUDED_FROM_ALL = new Set(["--hardcoded"]);
 const shouldRun = (...modes) => (mode === "--all" && !modes.some((m) => EXCLUDED_FROM_ALL.has(m))) || modes.includes(mode);
 
 // ---------------------------------------------------------------------------
@@ -329,14 +329,15 @@ if (shouldRun("--aliases")) {
   const aliasSourceFiles = collectSourceFiles(APP_SRC, (dir) => dir.includes("locales"));
   const aliasPattern = /\b(?:translate|tr)\s*\(/g;
   const aliasDefPattern = /(?:const|function)\s+(?:translate|tr)\s*[=(]/;
+  const aliasSkipPattern = /translate\s*\(\s*[-\d]|translate\s*\(\s*0|props\.translate|:\s*\(key:\s*string\)|`translate\(/;
   const hits = [];
 
   for (const file of aliasSourceFiles) {
     const content = readFileSync(file, "utf-8");
     const lines = content.split("\n");
     for (let i = 0; i < lines.length; i++) {
-      // Skip alias definitions themselves
       if (aliasDefPattern.test(lines[i])) continue;
+      if (aliasSkipPattern.test(lines[i])) continue;
       if (aliasPattern.test(lines[i])) {
         hits.push({ file: file.replace(REPO_ROOT + "/", ""), line: i + 1, text: lines[i].trim() });
       }
