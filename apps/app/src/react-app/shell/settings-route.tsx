@@ -39,9 +39,11 @@ import { EnvironmentView } from "../domains/settings/pages/environment-view";
 import { ExtensionsView } from "../domains/settings/pages/extensions-view";
 import { McpView } from "../domains/settings/pages/mcp-view";
 import { RecoveryView } from "../domains/settings/pages/recovery-view";
+import { MessagingView } from "../domains/settings/pages/messaging-view";
 import { SkillsView } from "../domains/settings/pages/skills-view";
 import { UpdatesView } from "../domains/settings/pages/updates-view";
 import { useDebugViewModel } from "../domains/settings/state/debug-view-model";
+import { useMessagingViewProps } from "../domains/settings/state/messaging-view-state";
 import { useElectronUpdaterState } from "../domains/settings/state/electron-updater-state";
 import { useBootState } from "./boot-state";
 import { SettingsShell } from "../domains/settings/shell/settings-shell";
@@ -55,6 +57,10 @@ import {
   useWorkspaceShellLayout,
 } from "./workspace-shell-layout";
 import {
+  openworkServerInfo,
+  openworkServerRestart,
+  opencodeRouterInfo,
+  opencodeRouterRestart,
   engineStart,
   pickDirectory,
   resolveWorkspaceListSelectedId,
@@ -318,15 +324,6 @@ function applyThemeMode(mode: PersistedThemeMode) {
   document.documentElement.dataset.theme = resolved;
 }
 
-function PlaceholderSettingsView(props: { title: string; detail: string }) {
-  return (
-    <div className="rounded-[28px] border border-dls-border bg-dls-surface p-5 text-sm text-gray-10 md:p-6">
-      <div className="font-medium text-gray-12">{props.title}</div>
-      <div className="mt-2 leading-relaxed">{props.detail}</div>
-    </div>
-  );
-}
-
 export function SettingsRoute() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -543,7 +540,18 @@ export function SettingsRoute() {
         runtimeWorkspaceId: () => routeStateRef.current.runtimeWorkspaceId,
         activeClient: () => routeStateRef.current.activeClient,
         selectedWorkspaceDisplay: () => routeStateRef.current.selectedWorkspaceDisplay,
-        restartLocalServer: async () => false,
+        restartLocalServer: async () => {
+          if (!isDesktopRuntime()) return false;
+          try {
+            await openworkServerRestart({
+              remoteAccessEnabled:
+                readOpenworkServerSettings().remoteAccessEnabled === true,
+            });
+            return true;
+          } catch {
+            return false;
+          }
+        },
         createRemoteWorkspaceFlow: async () => false,
       }),
     [],
@@ -1049,10 +1057,6 @@ export function SettingsRoute() {
     void connectionsStore.refreshMcpServers();
   }, [activeClient, connectionsStore, providerAuthStore, selectedWorkspace?.id]);
 
-  if (route.redirectPath) {
-    return <Navigate to={route.redirectPath} replace />;
-  }
-
   const selectedWorkspaceName = selectedWorkspace?.displayNameResolved ?? t("session.workspace_fallback");
   const workspaceType = selectedWorkspace?.workspaceType ?? "local";
   const isRemoteWorkspace = workspaceType === "remote";
@@ -1205,6 +1209,65 @@ export function SettingsRoute() {
       setCreateWorkspaceRemoteBusy(false);
     }
   };
+
+  const handleReconnectMessagingServer = useCallback(async () => {
+    const ok = await openworkServerStore.reconnectOpenworkServer();
+    if (ok) {
+      await refreshRouteState();
+    }
+    return ok;
+  }, [openworkServerStore, refreshRouteState]);
+
+  const handleRestartLocalServer = useCallback(async () => {
+    if (!isDesktopRuntime()) return false;
+    try {
+      await openworkServerRestart({
+        remoteAccessEnabled:
+          readOpenworkServerSettings().remoteAccessEnabled === true,
+      });
+      await openworkServerStore.reconnectOpenworkServer();
+      await refreshRouteState();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [openworkServerStore, refreshRouteState]);
+
+  const handleRestartMessagingWorker = useCallback(async () => {
+    if (!isDesktopRuntime()) return false;
+    const workspacePath = selectedWorkspaceRoot.trim();
+    if (!workspacePath) return false;
+
+    try {
+      const info = await opencodeRouterInfo().catch(() => null);
+      await opencodeRouterRestart({
+        workspacePath,
+        opencodeUrl: info?.opencodeUrl ?? undefined,
+      });
+      await openworkServerStore.reconnectOpenworkServer();
+      await refreshRouteState();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [openworkServerStore, refreshRouteState, selectedWorkspaceRoot]);
+
+  const messagingViewProps = useMessagingViewProps({
+    busy,
+    openworkServerStatus: openworkServerSnapshot.openworkServerStatus,
+    openworkServerUrl: openworkServerSnapshot.openworkServerUrl,
+    openworkServerClient:
+      openworkClient ?? openworkServerSnapshot.openworkServerClient,
+    openworkReconnectBusy: openworkServerSnapshot.openworkReconnectBusy,
+    reconnectOpenworkServer: handleReconnectMessagingServer,
+    restartMessagingWorker: handleRestartMessagingWorker,
+    workspaceId: selectedWorkspace?.id ?? null,
+    selectedWorkspaceRoot,
+  });
+
+  if (route.redirectPath) {
+    return <Navigate to={route.redirectPath} replace />;
+  }
 
   const settingsView = (() => {
     switch (route.tab) {
@@ -1377,7 +1440,7 @@ export function SettingsRoute() {
             openworkReconnectBusy={openworkServerSnapshot.openworkReconnectBusy}
             reconnectOpenworkServer={openworkServerStore.reconnectOpenworkServer}
             engineInfo={null}
-            restartLocalServer={async () => false}
+            restartLocalServer={handleRestartLocalServer}
             stopHost={() => {}}
             developerMode={developerMode}
             toggleDeveloperMode={() => setDeveloperMode((current) => !current)}
@@ -1496,6 +1559,8 @@ export function SettingsRoute() {
             runtimeKey={environmentRuntimeKey}
           />
         );
+      case "messaging":
+        return <MessagingView {...messagingViewProps} />;
       case "debug":
         return <DebugView {...debugViewProps} />;
       default:
