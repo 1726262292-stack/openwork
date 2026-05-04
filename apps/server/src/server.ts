@@ -1479,6 +1479,10 @@ function createRoutes(
       summary: "Switched active workspace",
       timestamp: Date.now(),
     });
+    const connection = resolveWorkspaceOpencodeConnection(config, workspace);
+    if (connection.baseUrl?.trim()) {
+      await reloadOpencodeEngine(config, workspace);
+    }
     return jsonResponse({ activeId: workspace.id, workspace: serializeWorkspace(workspace), persisted: false });
   });
 
