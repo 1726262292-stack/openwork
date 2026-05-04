@@ -27,12 +27,16 @@ const REPO_ROOT = resolve(__dirname, "..");
 const LOCALES_DIR = join(REPO_ROOT, "apps/app/src/i18n/locales");
 const APP_SRC = join(REPO_ROOT, "apps/app/src");
 
-const LOCALES = ["ja", "zh", "vi", "pt-BR", "th", "fr", "ca", "es"];
+const LOCALES = ["ja", "zh", "vi", "pt-BR", "th", "fr", "ca", "es", "ru"];
 const EN_FILE = join(LOCALES_DIR, "en.ts");
 
 const PLURAL_SUFFIXES = ["zero", "one", "two", "few", "many", "other"];
 const PLURAL_SUFFIX_RE = /_(zero|one|two|few|many|other)$/;
 const stripPluralSuffix = (key) => key.replace(PLURAL_SUFFIX_RE, "");
+
+// Directory names skipped during the source scan. The "locales" dir is intentionally
+// skipped; otherwise translation keys will trivially match themselves.
+const SKIP_DIRS = ["locales", "node_modules", "target", "dist", "build", "out", "coverage"];
 
 const mode = process.argv[2] ?? "--all";
 const isCi = mode === "--ci";
@@ -159,27 +163,33 @@ if (shouldRun("--missing")) {
   console.log();
 }
 
+// Locales without plurals (e.g. Chinese, Japanese) use the bare key while en
+// defines suffixed variants — that's not orphan. The reverse (locale has a
+// suffix en doesn't) is also fine: the runtime falls back to en's bare or
+// other-suffix key.
+const enHasAnyPluralVariant = (key) =>
+  PLURAL_SUFFIXES.some((suffix) => enKeys.has(`${key}_${suffix}`));
+const isOrphan = (key) => {
+  if (enKeys.has(key)) return false;
+  if (enHasAnyPluralVariant(key)) return false;
+  const base = stripPluralSuffix(key);
+  if (base !== key) {
+    if (enKeys.has(base)) return false;
+    if (enHasAnyPluralVariant(base)) return false;
+  }
+  return true;
+};
+
 // --- 3. Orphan keys ---
-if (shouldRun("--orphan")) {
+const orphansByLocale = {};
+if (shouldRun("--orphan", "--prune")) {
   console.log("=== Orphan keys (in locale but not in en.ts) ===");
-  // Locales without plurals (e.g. Chinese, Japanese) use the bare key while en defines
-  // suffixed variants. Treat the bare key as valid if en has any plural
-  // variant of it. The reverse — locale has a suffix that en doesn't — is
-  // also fine since the runtime falls back to en's bare or other-suffix key.
-  const enHasAnyPluralVariant = (key) =>
-    PLURAL_SUFFIXES.some((suffix) => enKeys.has(`${key}_${suffix}`));
-  const isOrphan = (key) => {
-    if (enKeys.has(key)) return false;
-    if (enHasAnyPluralVariant(key)) return false;
-    const base = stripPluralSuffix(key);
-    if (base !== key && enKeys.has(base)) return false;
-    return true;
-  };
   for (const locale of LOCALES) {
     const file = join(LOCALES_DIR, `${locale}.ts`);
     if (!existsSync(file)) continue;
     const localeKeys = extractKeys(file);
     const orphans = [...localeKeys].filter(isOrphan);
+    orphansByLocale[locale] = orphans;
 
     if (orphans.length === 0) {
       console.log(`  ${locale}: ✓ no orphans`);
@@ -215,76 +225,41 @@ if (shouldRun("--duplicates")) {
 }
 
 // --- 5. Unused keys ---
+let unusedKeys = [];
 if (shouldRun("--unused", "--prune")) {
   console.log("=== Unused keys (in en.ts but never referenced in repo) ===");
 
-  // Search the ENTIRE repo (not just apps/app/src) for key references
-  const repoSourceFiles = collectSourceFiles(REPO_ROOT, (dir) =>
-    ["node_modules", ".git", "target", "dist", ".next", "locales"].some((x) => dir.includes(x)),
-  );
+  // Search the entire repo (not just apps/app/src) for key references.
+  const repoSourceFiles = collectSourceFiles(REPO_ROOT, (dir) => {
+    const name = basename(dir);
+    return name.startsWith(".") || SKIP_DIRS.includes(name);
+  });
   const allSource = repoSourceFiles.map((f) => readFileSync(f, "utf-8")).join("\n");
 
   // A plural-suffixed key (foo_one / foo_other) counts as "used" when the
   // base key (foo) is referenced — `t(key, { count })` resolves the suffix at
   // runtime so the source never names the suffixed variant directly.
-  const unused = [...enKeys].filter((key) => {
+  unusedKeys = [...enKeys].filter((key) => {
     if (allSource.includes(key)) return false;
     const base = stripPluralSuffix(key);
     if (base !== key && allSource.includes(base)) return false;
     return true;
   });
 
-  if (unused.length === 0) {
+  if (unusedKeys.length === 0) {
     console.log("  ✓ all keys referenced in source");
   } else {
-    console.log(`  ⚠ ${unused.length} potentially unused keys`);
+    console.log(`  ⚠ ${unusedKeys.length} potentially unused keys`);
     if (mode !== "--summary") {
-      for (const [prefix, count] of groupByPrefix(unused).slice(0, 15)) {
+      for (const [prefix, count] of groupByPrefix(unusedKeys).slice(0, 15)) {
         console.log(`    ${String(count).padStart(4)}  ${prefix}.*`);
       }
       console.log();
-      for (const key of unused) console.log(`    ${key}`);
+      for (const key of unusedKeys) console.log(`    ${key}`);
     }
     if (mode !== "--prune") {
       console.log();
       console.log("  (auto-fix with --prune option)");
-    }
-  }
-
-  // --- Prune mode ---
-  if (mode === "--prune" && unused.length > 0) {
-    console.log();
-    console.log(`  Pruning ${unused.length} unused keys from all locale files...`);
-    const unusedSet = new Set(unused);
-    const allLocaleFiles = ["en", ...LOCALES].map((l) => join(LOCALES_DIR, `${l}.ts`));
-
-    for (const file of allLocaleFiles) {
-      if (!existsSync(file)) continue;
-      const content = readFileSync(file, "utf-8");
-      const lines = content.split("\n");
-      const filtered = [];
-      let skipNextLine = false;
-
-      for (let i = 0; i < lines.length; i++) {
-        if (skipNextLine) {
-          skipNextLine = false;
-          continue;
-        }
-        const keyMatch = lines[i].match(/^\s*"([^"]+)"\s*:/);
-        if (keyMatch && unusedSet.has(keyMatch[1])) {
-          // Check if value is on the next line (multi-line entry)
-          if (!lines[i].includes('",') && !lines[i].includes('": "') && i + 1 < lines.length) {
-            skipNextLine = true;
-          }
-          continue; // skip this line
-        }
-        filtered.push(lines[i]);
-      }
-
-      writeFileSync(file, filtered.join("\n"));
-      const locale = basename(file, ".ts");
-      const removed = lines.length - filtered.length;
-      console.log(`    ${locale}: removed ${removed} lines`);
     }
   }
   console.log();
@@ -413,7 +388,11 @@ if (shouldRun("--placeholders")) {
       if (!localeValue) continue;
 
       const localePh = findPlaceholders(localeValue);
+      // {count} is optional in `_zero` / `_one` variants — the translator
+      // can write "No messages" or "1 message" instead of "{count} message".
+      const countOptional = /_(zero|one)$/.test(key);
       for (const ph of enPh) {
+        if (countOptional && ph === "{count}") continue;
         if (!localePh.includes(ph)) {
           console.log(`  ✗ ${locale}/${key}: missing placeholder ${ph}`);
           problems++;
@@ -596,6 +575,59 @@ if (mode === "--sort") {
     const locale = basename(file, ".ts");
     console.log(`  ${locale}: ${sortedKeys.length} keys sorted`);
   }
+  console.log();
+}
+
+// --- 12. Prune (destructive) ---
+// Runs last so the user sees the unused/orphan reports above before
+// keys are actually removed. Removes both unused-from-source keys (en
+// only) and per-locale orphans (keys missing from en).
+if (mode === "--prune") {
+  console.log("=== Pruning ===");
+  const unusedSet = new Set(unusedKeys);
+  const allLocaleFiles = ["en", ...LOCALES].map((l) => join(LOCALES_DIR, `${l}.ts`));
+  let totalRemoved = 0;
+
+  for (const file of allLocaleFiles) {
+    if (!existsSync(file)) continue;
+    const localeName = basename(file, ".ts");
+    const removeSet = new Set(unusedSet);
+    const orphans = orphansByLocale[localeName] ?? [];
+    for (const key of orphans) removeSet.add(key);
+    const orphanCount = orphans.length;
+    if (removeSet.size === 0) continue;
+
+    const content = readFileSync(file, "utf-8");
+    const lines = content.split("\n");
+    const filtered = [];
+    let skipNextLine = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      if (skipNextLine) {
+        skipNextLine = false;
+        continue;
+      }
+      const keyMatch = lines[i].match(/^\s*"([^"]+)"\s*:/);
+      if (keyMatch && removeSet.has(keyMatch[1])) {
+        // Multi-line entry: value on next line
+        if (!lines[i].includes('",') && !lines[i].includes('": "') && i + 1 < lines.length) {
+          skipNextLine = true;
+        }
+        continue;
+      }
+      filtered.push(lines[i]);
+    }
+
+    writeFileSync(file, filtered.join("\n"));
+    const removed = lines.length - filtered.length;
+    totalRemoved += removed;
+    const breakdown = orphanCount > 0
+      ? ` (${removed - orphanCount} unused, ${orphanCount} orphan)`
+      : "";
+    console.log(`  ${localeName}: removed ${removed} lines${breakdown}`);
+  }
+
+  if (totalRemoved === 0) console.log("  ✓ nothing to prune");
   console.log();
 }
 
