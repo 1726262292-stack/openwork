@@ -227,11 +227,9 @@ export function createOpenworkServerStore(options: CreateOpenworkServerStoreOpti
       resolvedOpenworkCapabilities,
       openworkServerCanWriteSkills:
         openworkServerReady &&
-        openworkServerWorkspaceReady &&
         (resolvedOpenworkCapabilities?.skills?.write ?? false),
       openworkServerCanWritePlugins:
         openworkServerReady &&
-        openworkServerWorkspaceReady &&
         (resolvedOpenworkCapabilities?.plugins?.write ?? false),
       openworkServerHostInfo: state.openworkServerHostInfo,
       openworkServerDiagnostics: state.openworkServerDiagnostics,
