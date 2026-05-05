@@ -234,7 +234,8 @@ export function useSessionScrollController(
       if (!nextContent) return;
 
       const nextHeight = nextContent.offsetHeight;
-      const grew = nextHeight > observedContentHeightRef.current + 1;
+      const previousContentHeight = observedContentHeightRef.current;
+      const grew = nextHeight > previousContentHeight + 1;
       observedContentHeightRef.current = nextHeight;
 
       // Only re-anchor to the bottom when we're already in follow-latest mode
@@ -262,8 +263,31 @@ export function useSessionScrollController(
     setMode("follow-latest");
     setTopClippedMessageId(null);
     observedContentHeightRef.current = 0;
-    queueMicrotask(() => scrollToBottom("auto"));
-  }, [options.selectedSessionId, scrollToBottom]);
+    queueMicrotask(() => {
+      const container = options.containerRef.current;
+      if (!container) return;
+
+      const messageEls = container.querySelectorAll("[data-message-id]");
+      const latest = messageEls[messageEls.length - 1] as HTMLElement | undefined;
+      if (!latest) {
+        scrollToBottom("auto");
+        return;
+      }
+
+      const latestHeight = latest.getBoundingClientRect().height;
+      const containerHeight = container.getBoundingClientRect().height;
+      if (latestHeight > containerHeight) {
+        setMode("manual-browse");
+        setTopClippedMessageId(null);
+        programmaticScrollRef.current = true;
+        latest.scrollIntoView({ block: "start" });
+        releaseProgrammaticScrollSoon();
+        return;
+      }
+
+      scrollToBottom("auto");
+    });
+  }, [options.containerRef, options.selectedSessionId, releaseProgrammaticScrollSoon, scrollToBottom]);
 
   useEffect(() => {
     void options.renderedMessages;

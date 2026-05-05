@@ -377,7 +377,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useEffect(() => {
     if (!currentSnapshot) return;
     seedSessionState(props.workspaceId, currentSnapshot);
-  }, [currentSnapshot, props.workspaceId]);
+  }, [currentSnapshot, props.sessionId, props.workspaceId]);
 
   useEffect(() => {
     if (!currentSnapshot) return;
