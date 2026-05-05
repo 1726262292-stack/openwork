@@ -128,7 +128,8 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
     };
   }, [onReleaseChannelChange, releaseChannel]);
 
-  const downloadUpdate = useCallback(async () => {
+  const downloadUpdate = useCallback(async (channelOverride?: ReleaseChannel) => {
+    const activeReleaseChannel = channelOverride ?? releaseChannel;
     if (isTauriRuntime()) {
       let update = tauriUpdateRef.current;
       if (!update) {
@@ -141,7 +142,7 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
         return;
       }
       const allowed = update.version
-        ? releaseChannel === "alpha"
+        ? activeReleaseChannel === "alpha"
           ? await isAlphaUpdateAllowed(update.version, desktopConfig)
           : await isUpdateAllowed(update.version, desktopConfig)
         : true;
@@ -221,7 +222,8 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
     }
   }, [desktopConfig, releaseChannel, setError]);
 
-  const checkForUpdates = useCallback(async () => {
+  const checkForUpdates = useCallback(async (channelOverride?: ReleaseChannel) => {
+    const activeReleaseChannel = channelOverride ?? releaseChannel;
     if (isTauriRuntime()) {
       setUpdateStatus({ state: "checking" });
       try {
@@ -229,7 +231,7 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
         const update = (await check()) as TauriUpdate | null;
         const allowed = !update?.version
           ? true
-          : releaseChannel === "alpha"
+          : activeReleaseChannel === "alpha"
             ? await isAlphaUpdateAllowed(update.version, desktopConfig)
             : await isUpdateAllowed(update.version, desktopConfig);
         if (!allowed) {
@@ -249,7 +251,7 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
           : { state: "idle", lastCheckedAt: Date.now() };
         setUpdateStatus(nextStatus);
         if (update && updateAutoDownload) {
-          await downloadUpdate();
+          await downloadUpdate(activeReleaseChannel);
         }
       } catch (error) {
         setUpdateStatus({ state: "error", message: describeError(error) });
@@ -284,8 +286,9 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
         return;
       }
 
+      const checkedReleaseChannel = result.channel ?? activeReleaseChannel;
       const availableAllowed = result.available && result.latestVersion
-        ? releaseChannel === "alpha"
+        ? checkedReleaseChannel === "alpha"
           ? await isAlphaUpdateAllowed(result.latestVersion, desktopConfig)
           : await isUpdateAllowed(result.latestVersion, desktopConfig)
         : result.available;
@@ -306,7 +309,7 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
           };
       setUpdateStatus(nextStatus);
       if (availableAllowed && updateAutoDownload) {
-        await downloadUpdate();
+        await downloadUpdate(checkedReleaseChannel);
       }
     } catch (error) {
       setUpdateStatus({ state: "error", message: describeError(error) });
@@ -356,12 +359,12 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
         if (state.channel && state.channel !== next) {
           onReleaseChannelChange(state.channel);
         }
-        setUpdateStatus({ state: "idle", lastCheckedAt: null });
+        await checkForUpdates(state.channel ?? next);
       } catch (error) {
         setUpdateStatus({ state: "error", message: describeError(error) });
       }
     },
-    [onReleaseChannelChange],
+    [checkForUpdates, onReleaseChannelChange],
   );
 
   return {
