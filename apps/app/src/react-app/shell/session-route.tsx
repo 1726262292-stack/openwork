@@ -192,6 +192,12 @@ function describeWorkspaceCreateError(error: unknown) {
   return message;
 }
 
+function focusPromptSoon() {
+  if (typeof window === "undefined") return;
+  const focus = () => window.dispatchEvent(new Event("openwork:focusPrompt"));
+  [0, 80, 240, 600].forEach((delay) => window.setTimeout(focus, delay));
+}
+
 const emptyPendingPermissions: PendingPermission[] = [];
 
 function useQueryCacheState<T>(queryKey: readonly unknown[] | null, fallback: T): T {
@@ -1726,6 +1732,7 @@ export function SessionRoute() {
         [workspaceId]: [session as any, ...(current[workspaceId] ?? [])],
       }));
       navigateToWorkspaceSession(workspaceId, session.id);
+      focusPromptSoon();
       void refreshRouteState();
     } catch (error) {
       const message = describeRouteError(error);
@@ -1868,6 +1875,8 @@ export function SessionRoute() {
         preset,
       });
       const createdId = resolveWorkspaceListSelectedId(list) || list.workspaces[list.workspaces.length - 1]?.id || "";
+      let targetWorkspaceId = createdId;
+      let targetWorkspace = list.workspaces.find((workspace) => workspace.id === createdId) ?? null;
       if (createdId) {
         await workspaceSetSelected(createdId).catch(() => undefined);
         await workspaceSetRuntimeActive(createdId).catch(() => undefined);
@@ -1878,23 +1887,45 @@ export function SessionRoute() {
       // is launched with a fixed --workspace list at boot and the bridge
       // write only updates desktop-side state).
       if (client) {
-        await client
+        const serverList = await client
           .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset })
-          .catch(() => undefined);
+          .catch(() => null);
+        targetWorkspaceId = serverList
+          ? resolveWorkspaceListSelectedId(serverList) || serverList.workspaces[serverList.workspaces.length - 1]?.id || targetWorkspaceId
+          : targetWorkspaceId;
+        targetWorkspace = serverList?.workspaces.find((workspace) => workspace.id === targetWorkspaceId) ?? targetWorkspace;
       }
       setCreateWorkspaceOpen(false);
       // Mark onboarding complete so the /welcome redirect never fires again.
       local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
       await refreshRouteState();
-      if (createdId) {
-        handleOpenSettings("/settings/general", createdId);
+      if (targetWorkspaceId) {
+        const workspacePath = targetWorkspace?.path?.trim() || folder;
+        const session = baseUrl && token
+          ? unwrap(await createClient(
+              `${(buildOpenworkWorkspaceBaseUrl(baseUrl, targetWorkspaceId) ?? baseUrl).replace(/\/+$/, "")}/opencode`,
+              workspacePath || undefined,
+              { token, mode: "openwork" },
+            ).session.create({ directory: workspacePath || undefined }))
+          : null;
+        setLegacySelectedWorkspaceId(targetWorkspaceId);
+        writeActiveWorkspaceId(targetWorkspaceId);
+        if (session?.id) {
+          writeLastSessionFor(targetWorkspaceId, session.id);
+          setSessionsByWorkspaceId((current) => ({
+            ...current,
+            [targetWorkspaceId]: [session as any, ...(current[targetWorkspaceId] ?? [])],
+          }));
+        }
+        navigateToWorkspaceSession(targetWorkspaceId, session?.id ?? null, { replace: true });
+        if (session?.id) focusPromptSoon();
       }
     } catch (error) {
       setCreateWorkspaceError(describeWorkspaceCreateError(error));
     } finally {
       setCreateWorkspaceBusy(false);
     }
-  }, [client, handleOpenSettings, local, refreshRouteState]);
+  }, [client, local, navigateToWorkspaceSession, refreshRouteState]);
 
   const handleCreateRemoteWorkspace = useCallback(async (input: {
     openworkHostUrl?: string | null;
