@@ -176,11 +176,8 @@ export function SessionPage(props: SessionPageProps) {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [todoExpanded, setTodoExpanded] = useState(true);
   const [browserPanelOpen, setBrowserPanelOpen] = useState(false);
+  const toggleBrowserPanel = useCallback(() => setBrowserPanelOpen((p) => !p), []);
   const [showDelayedSessionLoadingState, setShowDelayedSessionLoadingState] = useState(false);
-
-  const toggleBrowserPanel = useCallback(() => {
-    setBrowserPanelOpen((prev) => !prev);
-  }, []);
 
   const selectedSessionTitle = useMemo(
     () => sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
@@ -350,11 +347,7 @@ export function SessionPage(props: SessionPageProps) {
               {isElectronRuntime() ? (
                 <button
                   type="button"
-                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors ${
-                    browserPanelOpen
-                      ? "bg-dls-accent/10 text-dls-accent"
-                      : "text-gray-10 hover:bg-gray-2/70 hover:text-dls-text"
-                  }`}
+                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors ${browserPanelOpen ? "bg-dls-accent/10 text-dls-accent" : "text-gray-10 hover:bg-gray-2/70 hover:text-dls-text"}`}
                   onClick={toggleBrowserPanel}
                   title="Toggle browser panel"
                   aria-label="Toggle browser panel"
@@ -560,7 +553,6 @@ export function SessionPage(props: SessionPageProps) {
           />
         </main>
 
-        {/* Embedded browser panel */}
         {browserPanelOpen ? (
           <aside
             className="hidden min-h-0 shrink-0 overflow-hidden rounded-[24px] border border-dls-border bg-dls-surface shadow-[var(--dls-shell-shadow)] lg:flex lg:flex-col"

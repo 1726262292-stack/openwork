@@ -50,21 +50,9 @@ declare global {
         forward?: () => Promise<void>;
         reload?: () => Promise<void>;
         setBounds?: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
-        getState?: () => Promise<{
-          url: string;
-          title: string;
-          canGoBack: boolean;
-          canGoForward: boolean;
-          isLoading: boolean;
-        } | null>;
+        getState?: () => Promise<{ url: string; title: string; canGoBack: boolean; canGoForward: boolean; isLoading: boolean } | null>;
         destroy?: () => Promise<void>;
-        onStateChange?: (callback: (state: {
-          url: string;
-          title: string;
-          canGoBack: boolean;
-          canGoForward: boolean;
-          isLoading: boolean;
-        }) => void) => () => void;
+        onStateChange?: (callback: (state: { url: string; title: string; canGoBack: boolean; canGoForward: boolean; isLoading: boolean }) => void) => () => void;
       };
       meta?: {
         initialDeepLinks?: string[];

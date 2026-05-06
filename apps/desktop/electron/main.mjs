@@ -201,12 +201,10 @@ function createBrowserView() {
       partition: "persist:openwork-browser",
     },
   });
-  // Open external links from the embedded browser in the system browser
   browserView.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: "deny" };
   });
-  // Notify renderer of navigation events
   browserView.webContents.on("did-navigate", () => sendBrowserState());
   browserView.webContents.on("did-navigate-in-page", () => sendBrowserState());
   browserView.webContents.on("page-title-updated", () => sendBrowserState());
@@ -226,7 +224,7 @@ function sendBrowserState() {
       isLoading: browserView.webContents.isLoading(),
     });
   } catch {
-    // ignore — window may be closing
+    // window may be closing
   }
 }
 
@@ -236,7 +234,9 @@ function showBrowserView(bounds) {
   if (!mainWindow.contentView.children.includes(view)) {
     mainWindow.contentView.addChildView(view);
   }
-  view.setBounds(bounds);
+  if (bounds.width > 0 && bounds.height > 0) {
+    view.setBounds(bounds);
+  }
   browserViewVisible = true;
   if (!view.webContents.getURL()) {
     view.webContents.loadURL(BROWSER_DEFAULT_URL);
@@ -257,9 +257,80 @@ function hideBrowserView() {
 function destroyBrowserView() {
   hideBrowserView();
   if (browserView) {
-    browserView.webContents.close();
+    try { browserView.webContents.close(); } catch { /* already destroyed */ }
     browserView = null;
   }
+}
+
+// ── Resolve bundled chrome-devtools-mcp ────────────────────────────────
+// Returns ["node", "<abs-path-to-bin>"] or null.
+// Uses "node" (not process.execPath) because OpenCode spawns the command
+// and process.execPath in Electron is the Electron binary, not node.
+function resolveChromeDevtoolsMcpBin() {
+  try {
+    const require_ = createRequire(import.meta.url);
+    const pkgJsonPath = require_.resolve("chrome-devtools-mcp/package.json");
+    const binPath = path.join(path.dirname(pkgJsonPath), "build", "src", "index.js");
+    if (existsSync(binPath)) {
+      return ["node", binPath];
+    }
+  } catch {
+    // package not found
+  }
+  return null;
+}
+
+/**
+ * Seed chrome-devtools MCP into a workspace's opencode config so Control
+ * Chrome works out of the box.  Reads the existing config (jsonc or json),
+ * injects `mcp.chrome-devtools` if missing, and writes back.
+ */
+/**
+ * Returns true when the command looks like a generated npx/npm fallback
+ * or a bare binary name — i.e. not a user-customised command.
+ */
+function isLegacyChromeDevtoolsCommand(cmd) {
+  if (!Array.isArray(cmd) || cmd.length === 0) return true;
+  const first = String(cmd[0]);
+  // npx / npm exec path, or bare binary name without an absolute path
+  return first === "npx" || first === "npm" || first === "chrome-devtools-mcp" || first === "npm.cmd";
+}
+
+async function seedChromeDevtoolsMcp(workspaceDir) {
+  const jsoncPath = path.join(workspaceDir, "opencode.jsonc");
+  const jsonPath = path.join(workspaceDir, "opencode.json");
+  const configPath = existsSync(jsoncPath) ? jsoncPath : existsSync(jsonPath) ? jsonPath : null;
+
+  let config;
+  if (configPath) {
+    try { config = JSON.parse(await readFile(configPath, "utf8")); } catch { return; }
+  } else {
+    config = { $schema: "https://opencode.ai/config.json" };
+  }
+
+  if (!config.mcp || typeof config.mcp !== "object") config.mcp = {};
+
+  const resolved = resolveChromeDevtoolsMcpBin();
+  const bundledCommand = resolved ?? ["npx", "-y", "chrome-devtools-mcp@latest"];
+
+  // Inject if missing, or migrate if the existing entry uses a legacy
+  // npx / bare-binary command (not a user-customised path).
+  const existing = config.mcp["chrome-devtools"];
+  const needsInject = !existing;
+  const needsMigrate = existing && resolved && isLegacyChromeDevtoolsCommand(existing.command);
+
+  if (!needsInject && !needsMigrate) return;
+
+  config.mcp["chrome-devtools"] = {
+    type: "local",
+    command: bundledCommand,
+    // Preserve extra fields (environment, enabled, etc.)
+    ...(existing && typeof existing === "object" ? existing : {}),
+    command: bundledCommand,
+  };
+
+  const targetPath = configPath || jsoncPath;
+  await writeFile(targetPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
 function normalizePlatform(value) {
@@ -1003,6 +1074,10 @@ async function handleDesktopInvoke(event, command, ...args) {
       });
       await mkdir(path.join(folderPath, ".opencode"), { recursive: true });
       await writeWorkspaceOpenworkConfig(folderPath, defaultWorkspaceOpenworkConfig(folderPath, preset));
+
+      // Seed opencode.json with chrome-devtools MCP so Control Chrome works
+      // out of the box — no manual "Add connector" step needed.
+      await seedChromeDevtoolsMcp(folderPath);
       return mutateWorkspaceState((state) => {
         const workspacePathKey = normalizeWorkspacePathKey(workspace.path);
         state.workspaces = state.workspaces.filter(
@@ -1407,21 +1482,8 @@ async function handleDesktopInvoke(event, command, ...args) {
       window.webContents.setZoomFactor(factor);
       return true;
     }
-    case "resolveChromeDevtoolsMcpBin": {
-      // Resolve the bundled chrome-devtools-mcp bin path so the renderer
-      // can write a command to opencode.json that doesn't require npx.
-      try {
-        const require_ = createRequire(import.meta.url);
-        const pkgJsonPath = require_.resolve("chrome-devtools-mcp/package.json");
-        const binPath = path.join(path.dirname(pkgJsonPath), "build", "src", "index.js");
-        if (existsSync(binPath)) {
-          return [process.execPath, binPath];
-        }
-      } catch {
-        // package not found — fall through to null
-      }
-      return null;
-    }
+    case "resolveChromeDevtoolsMcpBin":
+      return resolveChromeDevtoolsMcpBin();
     default:
       throw new Error(`Electron desktop bridge method is not implemented yet: ${command}`);
   }
@@ -1643,16 +1705,11 @@ ipcMain.handle("openwork:shell:relaunch", async () => {
 });
 
 // ── Embedded browser IPC ────────────────────────────────────────────────
-ipcMain.handle("openwork:browser:show", (_event, bounds) => {
-  showBrowserView(bounds);
-});
-ipcMain.handle("openwork:browser:hide", () => {
-  hideBrowserView();
-});
+ipcMain.handle("openwork:browser:show", (_event, bounds) => showBrowserView(bounds));
+ipcMain.handle("openwork:browser:hide", () => hideBrowserView());
 ipcMain.handle("openwork:browser:navigate", (_event, url) => {
   if (!browserView) return;
   const target = typeof url === "string" && url.trim() ? url.trim() : BROWSER_DEFAULT_URL;
-  // Add protocol if missing
   const finalUrl = /^https?:\/\//i.test(target) ? target : `https://${target}`;
   browserView.webContents.loadURL(finalUrl);
 });
@@ -1662,11 +1719,9 @@ ipcMain.handle("openwork:browser:back", () => {
 ipcMain.handle("openwork:browser:forward", () => {
   if (browserView?.webContents.canGoForward()) browserView.webContents.goForward();
 });
-ipcMain.handle("openwork:browser:reload", () => {
-  browserView?.webContents.reload();
-});
+ipcMain.handle("openwork:browser:reload", () => browserView?.webContents.reload());
 ipcMain.handle("openwork:browser:bounds", (_event, bounds) => {
-  if (browserView && browserViewVisible) {
+  if (browserView && browserViewVisible && bounds.width > 0 && bounds.height > 0) {
     browserView.setBounds(bounds);
   }
 });
@@ -1680,9 +1735,7 @@ ipcMain.handle("openwork:browser:state", () => {
     isLoading: browserView.webContents.isLoading(),
   };
 });
-ipcMain.handle("openwork:browser:destroy", () => {
-  destroyBrowserView();
-});
+ipcMain.handle("openwork:browser:destroy", () => destroyBrowserView());
 
 registerMigrationIpc({ app, ipcMain });
 const { ensureAutoUpdater } = registerUpdaterIpc({ app, ipcMain, getMainWindow: () => mainWindow });

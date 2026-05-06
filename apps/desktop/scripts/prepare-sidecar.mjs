@@ -164,9 +164,7 @@ const orchestratorDir = resolve(__dirname, "..", "..", "orchestrator");
 
 // chrome-devtools-mcp: now bundled as a node_modules dependency of
 // @openwork/desktop (Electron resolves it directly). The Bun-compiled shim
-// sidecar is no longer built.  These variables are kept only so the
-// versions.json metadata block below can record the pinned version without
-// breaking the build.
+// sidecar is no longer built.
 const chromeDevtoolsBaseName = "chrome-devtools-mcp";
 const chromeDevtoolsName = isWindowsTarget ? `${chromeDevtoolsBaseName}.exe` : chromeDevtoolsBaseName;
 const chromeDevtoolsPath = join(sidecarDir, chromeDevtoolsName);
@@ -600,7 +598,6 @@ const versions = {
   },
   "chrome-devtools-mcp": {
     version: chromeDevtoolsMcpVersion,
-    // No longer a sidecar binary — bundled as a node_modules dependency.
     sha256: "bundled",
   },
 };

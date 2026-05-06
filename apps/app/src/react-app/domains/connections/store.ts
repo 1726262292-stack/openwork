@@ -499,14 +499,12 @@ export function createConnectionsStore(options: {
         }
 
         // For chrome-devtools in Electron, resolve the bundled binary so we
-        // don't need npx/npm at runtime.
+        // don't need npx/npm at runtime.  Only carry over -- prefixed flags
+        // from the original command (skip npx flags like -y).
         let resolvedCommand = entry.command;
         if (slug === CHROME_DEVTOOLS_MCP_ID && isElectronRuntime()) {
           const bundled = await resolveChromeDevtoolsMcpCommand();
-          // Preserve any extra args (e.g. --autoConnect) from the original
-          const extraArgs = entry.command.filter(
-            (arg) => arg.startsWith("--") || arg.startsWith("-"),
-          );
+          const extraArgs = entry.command.filter((arg) => arg.startsWith("--"));
           resolvedCommand = [...bundled, ...extraArgs];
         }
         mcpEntryConfig["command"] = resolvedCommand;
@@ -589,7 +587,7 @@ export function createConnectionsStore(options: {
               }
             : {
                 type: "local" as const,
-                command: entry.command!,
+                command: (mcpEntryConfig["command"] as string[]) ?? entry.command!,
                 enabled: true,
                 ...(mcpEnvironment ? { environment: mcpEnvironment } : {}),
               };
