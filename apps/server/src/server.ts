@@ -49,6 +49,9 @@ import {
   stripSensitiveWorkspaceExportData,
   type WorkspaceExportSensitiveMode,
 } from "./workspace-export-safety.js";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
+import { serve, type ServeResult } from "./serve-node.js";
 import pkg from "../package.json" with { type: "json" };
 import constants from "../../../constants.json" with { type: "json" };
 
@@ -215,7 +218,7 @@ interface RequestContext {
   actor?: Actor;
 }
 
-export function startServer(config: ServerConfig) {
+export async function startServer(config: ServerConfig): Promise<ServeResult> {
   const approvals = new ApprovalService(config.approval);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
@@ -359,9 +362,10 @@ export function startServer(config: ServerConfig) {
     },
   };
 
-  (serverOptions as { idleTimeout?: number }).idleTimeout = 120;
-
-  const server = Bun.serve(serverOptions);
+  const server = await serve({
+    ...serverOptions,
+    idleTimeout: 120,
+  });
 
   return server;
 }
@@ -502,13 +506,17 @@ async function proxyOpencodeRequest(input: {
   }
 
   const method = input.request.method.toUpperCase();
-  const body = method === "GET" || method === "HEAD" ? undefined : input.request.body;
+  // Buffer the request body so it can be forwarded reliably across Node.js
+  // stream boundaries (Readable.toWeb streams from the HTTP adapter aren't
+  // always accepted directly by Node's global fetch as a body).
+  const body = method === "GET" || method === "HEAD"
+    ? undefined
+    : await input.request.arrayBuffer().then((buf) => (buf.byteLength > 0 ? buf : undefined));
   if (isSessionCommandProxyRequest(method, proxyPath)) {
-    const bufferedBody = body ? await input.request.arrayBuffer() : undefined;
     void fetch(targetUrl, {
       method,
       headers,
-      body: bufferedBody,
+      body,
     }).catch(() => {
       // Command failures are surfaced through the OpenCode event stream.
     });
@@ -1792,7 +1800,8 @@ function createRoutes(
     headers.set("Content-Type", "application/octet-stream");
     headers.set("Content-Length", String(info.size));
     headers.set("Content-Disposition", `attachment; filename=\"${basename(relativePath)}\"`);
-    return new Response((Bun as any).file(absPath), { status: 200, headers });
+    const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
+    return new Response(stream, { status: 200, headers });
   });
 
   addRoute(routes, "POST", "/workspace/:id/inbox", "client", async (ctx) => {
@@ -1881,7 +1890,8 @@ function createRoutes(
     headers.set("Content-Type", "application/octet-stream");
     headers.set("Content-Length", String(info.size));
     headers.set("Content-Disposition", `attachment; filename="${basename(relativePath)}"`);
-    return new Response((Bun as any).file(absPath), { status: 200, headers });
+    const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
+    return new Response(stream, { status: 200, headers });
   });
 
   addRoute(routes, "POST", "/workspace/:id/files/sessions", "client", async (ctx) => {
