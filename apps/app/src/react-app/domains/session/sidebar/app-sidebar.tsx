@@ -395,7 +395,7 @@ export function AppSidebar(props: AppSidebarProps) {
         collapsible="offcanvas"
         className="mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
-        <div className="hidden h-10 mac:block mac:titlebar-drag"/>
+        <div className="hidden h-14 mac:block mac:titlebar-drag"/>
         <SidebarContent>
           
           {props.workspaceSessionGroups.map((group) => (
