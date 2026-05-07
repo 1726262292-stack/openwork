@@ -177,6 +177,36 @@ jobs:
             --x64 \
             --publish never
 
+      - name: Normalize Linux tarball root for AUR
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          tarballs=(apps/desktop/dist-electron/openwork-linux-x64-*.tar.gz)
+          if [ ${#tarballs[@]} -ne 1 ]; then
+            printf 'Expected exactly one Linux x64 tarball, found %s\n' "${#tarballs[@]}" >&2
+            printf '%s\n' "${tarballs[@]:-}" >&2
+            exit 1
+          fi
+
+          expected_root="openwork-linux-x64-${ELECTRON_VERSION}"
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+
+          tar -xzf "${tarballs[0]}" -C "$tmp_dir"
+          mapfile -t roots < <(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d)
+          if [ ${#roots[@]} -ne 1 ]; then
+            printf 'Expected one extracted root directory, found %s\n' "${#roots[@]}" >&2
+            exit 1
+          fi
+
+          if [ "$(basename "${roots[0]}")" != "$expected_root" ]; then
+            mv "${roots[0]}" "$tmp_dir/$expected_root"
+          fi
+
+          tar -C "$tmp_dir" -czf "${tarballs[0]}" "$expected_root"
+
       - name: Create AUR test prerelease
         shell: bash
         env:
