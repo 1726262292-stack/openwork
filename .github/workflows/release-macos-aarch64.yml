@@ -281,11 +281,6 @@ jobs:
             artifact: electron-windows-x64
             electron_args: "--win --x64"
             target_triple: x86_64-pc-windows-msvc
-          - platform: windows-2022
-            os_type: windows
-            artifact: electron-windows-arm64
-            electron_args: "--win --arm64"
-            target_triple: aarch64-pc-windows-msvc
 
     steps:
       - name: Checkout
