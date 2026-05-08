@@ -408,11 +408,25 @@ jobs:
             ${{ matrix.electron_args }} \
             --publish never
 
-      - name: Upload Electron dist artifact
+      - name: Upload Electron release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(apps/desktop/dist-electron/openwork-*)
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "No Electron release assets found in apps/desktop/dist-electron" >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Upload Electron updater manifest artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: apps/desktop/dist-electron/**
+          path: apps/desktop/dist-electron/latest*.yml
           if-no-files-found: error
 
   publish-electron-assets:
@@ -441,16 +455,16 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: Download Electron dist artifacts
+      - name: Download Electron updater manifest artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: electron-*
           path: ${{ runner.temp }}/electron-dist
 
-      - name: Upload release assets and merged updater manifests
+      - name: Upload merged updater manifests
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/release/publish-electron-assets.mjs "${{ runner.temp }}/electron-dist" "$RELEASE_TAG"
+        run: node scripts/release/publish-electron-assets.mjs --manifests-only "${{ runner.temp }}/electron-dist" "$RELEASE_TAG"
 
   release-orchestrator-sidecars:
     name: Build + Upload openwork-orchestrator Sidecars

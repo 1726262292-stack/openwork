@@ -3,10 +3,13 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 
-const [, , distRootArg, releaseTag] = process.argv;
+const args = process.argv.slice(2);
+const manifestsOnly = args.includes("--manifests-only");
+const positional = args.filter((arg) => arg !== "--manifests-only");
+const [distRootArg, releaseTag] = positional;
 
 if (!distRootArg || !releaseTag) {
-  console.error("Usage: node scripts/release/publish-electron-assets.mjs <dist-root> <release-tag>");
+  console.error("Usage: node scripts/release/publish-electron-assets.mjs [--manifests-only] <dist-root> <release-tag>");
   process.exit(2);
 }
 
@@ -187,7 +190,7 @@ for (const path of files.filter(isUpdaterManifest)) {
   manifestsByName.set(name, current);
 }
 
-if (releaseAssets.length === 0) {
+if (!manifestsOnly && releaseAssets.length === 0) {
   console.error(`No Electron release assets found under ${distRoot}`);
   process.exit(1);
 }
@@ -197,7 +200,9 @@ if (manifestsByName.size === 0) {
   process.exit(1);
 }
 
-runGh(["release", "upload", releaseTag, ...releaseAssets, "--repo", repo, "--clobber"]);
+if (!manifestsOnly) {
+  runGh(["release", "upload", releaseTag, ...releaseAssets, "--repo", repo, "--clobber"]);
+}
 
 for (const [name, paths] of [...manifestsByName.entries()].sort()) {
   const manifest = mergeManifests(name, paths);
