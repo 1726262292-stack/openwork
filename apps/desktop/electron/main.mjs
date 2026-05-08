@@ -168,8 +168,6 @@ function selectDownloadFile(files, arch) {
     matchingArch.find((file) => file.url.endsWith(`.${extension}`)) ||
     matchingArch.find((file) => file.url.endsWith(".zip")) ||
     matchingArch[0] ||
-    files.find((file) => file.url.endsWith(`.${extension}`)) ||
-    files[0] ||
     null
   );
 }
@@ -199,12 +197,13 @@ async function resolveArchitectureInfo() {
   const targetArch = systemArch === "arm64" || systemArch === "x64" ? systemArch : appArch;
   const assetName = `openwork-${platformDownloadSlug()}-${downloadAssetArch(targetArch)}-${version}.${downloadAssetExtension()}`;
   const latestDownloadUrl = await resolveCorrectArchitectureDownloadUrl(targetArch);
+  const hasCorrectArchitectureDownload = Boolean(latestDownloadUrl);
   return {
     appArch,
     appArchLabel: archLabel(appArch),
     systemArch,
     systemArchLabel: archLabel(systemArch),
-    mismatch: appArch !== systemArch && (systemArch === "arm64" || systemArch === "x64"),
+    mismatch: appArch !== systemArch && hasCorrectArchitectureDownload,
     platform: process.platform === "win32" ? "windows" : process.platform,
     version,
     downloadUrl: latestDownloadUrl || `${RELEASE_DOWNLOAD_BASE_URL}/${assetName}`,
