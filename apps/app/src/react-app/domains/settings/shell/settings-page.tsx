@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Cloud,
   Cog,
+  FolderLock,
   Paintbrush,
   Puzzle,
   RefreshCcw,
@@ -51,6 +52,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return Sparkles;
+    case "permissions":
+      return FolderLock;
     case "den":
       return Cloud;
     case "skills":
@@ -78,6 +81,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return "AI";
+    case "permissions":
+      return "Permissions";
     case "den":
       return t("settings.tab_cloud");
     case "skills":
@@ -96,6 +101,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return t("settings.tab_recovery");
     case "debug":
       return t("settings.tab_debug");
+    case "general":
+      return "Settings";
     default:
       return t("settings.tab_general");
   }
@@ -105,6 +112,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return "Models, providers, and reasoning";
+    case "permissions":
+      return "Authorized folders and file access";
     case "den":
       return t("settings.tab_description_den");
     case "skills":
@@ -123,13 +132,15 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return t("settings.tab_description_recovery");
     case "debug":
       return t("settings.tab_description_debug");
+    case "general":
+      return "Overview of all settings";
     default:
       return t("settings.tab_description_general");
   }
 }
 
 export function getWorkspaceSettingsTabs(): SettingsTab[] {
-  return ["general", "skills", "extensions", "advanced"];
+  return ["permissions", "skills", "extensions", "advanced"];
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
@@ -212,6 +223,24 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
+        {/* Top-level hub entry */}
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  type="button"
+                  isActive={props.activeTab === "general"}
+                  onClick={() => props.onSelectTab("general")}
+                >
+                  <Cog />
+                  <span>{getSettingsTabLabel("general")}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
         <SidebarGroup>
           <SidebarGroupLabel>{t("settings.group_workspace")}</SidebarGroupLabel>
           <SidebarGroupContent>
