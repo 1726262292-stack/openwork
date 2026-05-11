@@ -1,63 +1,151 @@
 /** @jsxImportSource react */
-import { ArrowUpRight, LifeBuoy, MessageCircle } from "lucide-react";
+import {
+  ArrowRight,
+  ArrowUpRight,
+  Cloud,
+  FolderLock,
+  LifeBuoy,
+  MessageCircle,
+  Paintbrush,
+  Puzzle,
+  RefreshCcw,
+  ShieldCheck,
+  Sparkles,
+  Terminal,
+  Wrench,
+} from "lucide-react";
 
 import { t } from "../../../../i18n";
-import {
-  AuthorizedFoldersPanel,
-  type AuthorizedFoldersPanelProps,
-} from "../panels/authorized-folders-panel";
+import type { SettingsTab } from "../../../../app/types";
 
 export type GeneralSettingsViewProps = {
-  authorizedFoldersPanel: AuthorizedFoldersPanelProps;
+  onNavigateTab: (tab: SettingsTab) => void;
+  developerMode: boolean;
   onSendFeedback: () => void;
   onJoinDiscord: () => void;
   onReportIssue: () => void;
 };
 
+const workspaceCards: { tab: SettingsTab; icon: typeof Sparkles; title: string; desc: string }[] = [
+  { tab: "permissions", icon: FolderLock, title: "Permissions", desc: "Authorized folders and file access." },
+  { tab: "skills", icon: Sparkles, title: "Skills", desc: "Install, create, and manage workspace skills." },
+  { tab: "extensions", icon: Puzzle, title: "Extensions", desc: "MCP servers, plugins, and integrations." },
+  { tab: "advanced", icon: Wrench, title: "Advanced", desc: "Runtime, engine, and developer options." },
+];
+
+const globalCards: { tab: SettingsTab; icon: typeof Sparkles; title: string; desc: string }[] = [
+  { tab: "ai", icon: Sparkles, title: "AI", desc: "Models, providers, and reasoning." },
+  { tab: "den", icon: Cloud, title: "Cloud", desc: "OpenWork Cloud account and organization." },
+  { tab: "appearance", icon: Paintbrush, title: "Appearance", desc: "Theme, font size, and display." },
+  { tab: "environment", icon: Terminal, title: "Environment", desc: "Environment variables and paths." },
+  { tab: "updates", icon: RefreshCcw, title: "Updates", desc: "App version and update channel." },
+  { tab: "recovery", icon: ShieldCheck, title: "Recovery", desc: "Reset onboarding and clear data." },
+];
+
+function SettingsCard(props: {
+  icon: typeof Sparkles;
+  title: string;
+  desc: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      className="flex items-center gap-3 rounded-2xl border border-dls-border bg-dls-surface p-4 text-left transition-colors hover:bg-dls-hover"
+    >
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-dls-border bg-dls-hover">
+        <props.icon size={16} className="text-dls-secondary" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-[13px] font-medium text-dls-text">{props.title}</div>
+        <div className="text-[11px] text-dls-secondary">{props.desc}</div>
+      </div>
+      <ArrowRight size={14} className="shrink-0 text-dls-secondary" />
+    </button>
+  );
+}
+
 export function GeneralSettingsView(props: GeneralSettingsViewProps) {
   return (
-    <div className="space-y-6 max-w-3xl w-full">
-      <AuthorizedFoldersPanel {...props.authorizedFoldersPanel} />
+    <div className="w-full max-w-3xl space-y-8">
+      {/* Workspace settings */}
+      <div className="space-y-3">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-dls-secondary">
+          Workspace
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {workspaceCards.map((card) => (
+            <SettingsCard
+              key={card.tab}
+              icon={card.icon}
+              title={card.title}
+              desc={card.desc}
+              onClick={() => props.onNavigateTab(card.tab)}
+            />
+          ))}
+        </div>
+      </div>
 
-      <div className="relative overflow-hidden rounded-2xl border border-dls-border bg-gradient-to-br from-slate-50 via-white to-slate-50 p-5">
-        <div className="relative space-y-4">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-dls-border bg-dls-hover px-2.5 py-1 text-[11px] font-medium text-dls-text">
-              <LifeBuoy size={12} />
-              {t("settings.feedback_badge")}
+      {/* Global settings */}
+      <div className="space-y-3">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-dls-secondary">
+          Global
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {globalCards.map((card) => (
+            <SettingsCard
+              key={card.tab}
+              icon={card.icon}
+              title={card.title}
+              desc={card.desc}
+              onClick={() => props.onNavigateTab(card.tab)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Feedback */}
+      <div className="space-y-3">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-dls-secondary">
+          Help
+        </div>
+        <div className="rounded-2xl border border-dls-border bg-dls-surface p-4">
+          <div className="space-y-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <LifeBuoy size={14} className="text-dls-secondary" />
+                <div className="text-[13px] font-medium text-dls-text">{t("settings.feedback_title")}</div>
+              </div>
+              <div className="mt-1 max-w-[58ch] text-[11px] text-dls-secondary">{t("settings.feedback_desc")}</div>
             </div>
-            <div className="text-sm font-semibold text-gray-12">{t("settings.feedback_title")}</div>
-            <div className="max-w-[58ch] text-xs text-gray-10">{t("settings.feedback_desc")}</div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-transparent bg-[#011627] px-4 text-xs font-semibold text-white transition-colors duration-150 active:scale-[0.98] hover:bg-black focus:outline-none focus:ring-2 focus:ring-[rgba(1,22,39,0.2)]"
-              onClick={props.onSendFeedback}
-            >
-              <MessageCircle size={14} />
-              {t("settings.send_feedback")}
-              <ArrowUpRight size={13} />
-            </button>
-
-            <button
-              type="button"
-              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition-colors hover:border-slate-300 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(1,22,39,0.15)]"
-              onClick={props.onJoinDiscord}
-            >
-              {t("settings.join_discord")}
-              <ArrowUpRight size={13} />
-            </button>
-
-            <button
-              type="button"
-              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-gray-7/60 bg-gray-1/70 px-3 text-xs font-medium text-gray-10 transition-colors hover:border-gray-7/80 hover:text-gray-12 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-7/40"
-              onClick={props.onReportIssue}
-            >
-              {t("settings.report_issue")}
-              <ArrowUpRight size={13} />
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full bg-[#011627] px-3.5 text-[11px] font-semibold text-white transition-colors hover:bg-black"
+                onClick={props.onSendFeedback}
+              >
+                <MessageCircle size={12} />
+                {t("settings.send_feedback")}
+                <ArrowUpRight size={11} />
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-dls-border bg-dls-surface px-3 text-[11px] font-medium text-dls-text transition-colors hover:bg-dls-hover"
+                onClick={props.onJoinDiscord}
+              >
+                {t("settings.join_discord")}
+                <ArrowUpRight size={11} />
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-dls-border bg-dls-surface px-3 text-[11px] font-medium text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
+                onClick={props.onReportIssue}
+              >
+                {t("settings.report_issue")}
+                <ArrowUpRight size={11} />
+              </button>
+            </div>
           </div>
         </div>
       </div>

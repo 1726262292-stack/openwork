@@ -32,6 +32,8 @@ import ProviderAuthModal from "../domains/connections/provider-auth/provider-aut
 import ConnectionsModals from "../domains/connections/modals";
 import { AiSettingsView } from "../domains/settings/pages/ai-view";
 import { GeneralSettingsView } from "../domains/settings/pages/general-view";
+import { AuthorizedFoldersPanel } from "../domains/settings/panels/authorized-folders-panel";
+import { SettingsStack } from "../domains/settings/settings-section";
 import { AdvancedView } from "../domains/settings/pages/advanced-view";
 import { AppearanceView } from "../domains/settings/pages/appearance-view";
 import { DebugView } from "../domains/settings/pages/debug-view";
@@ -278,6 +280,7 @@ function parseSettingsPath(pathname: string): {
   switch (head) {
     case "general":
     case "ai":
+    case "permissions":
     case "den":
     case "skills":
     case "advanced":
@@ -1434,23 +1437,30 @@ export function SettingsRoute() {
       case "general":
         return (
           <GeneralSettingsView
-            authorizedFoldersPanel={{
-              openworkServerClient: openworkClient,
-              openworkServerStatus: routeOpenworkStatus,
-              openworkServerCapabilities: routeOpenworkCapabilities,
-              runtimeWorkspaceId: selectedWorkspace?.id ?? null,
-              selectedWorkspaceRoot,
-              activeWorkspaceType: workspaceType,
-              onConfigUpdated: () => {
-                setConfigActionStatus(t("settings.config_updated"));
-                void providerAuthStore.refreshProviders();
-                void connectionsStore.refreshMcpServers();
-              },
-            }}
+            onNavigateTab={(tab) => navigate(selectedWorkspaceId ? workspaceSettingsRoute(selectedWorkspaceId, tab) : `/settings/${tab}`)}
+            developerMode={developerMode}
             onSendFeedback={() => platform.openLink(buildFeedbackUrl({ entrypoint: "settings" }))}
             onJoinDiscord={() => platform.openLink("https://discord.gg/VEhNQXxYMB")}
             onReportIssue={() => platform.openLink("https://github.com/different-ai/openwork/issues/new?template=bug.yml")}
           />
+        );
+      case "permissions":
+        return (
+          <SettingsStack>
+            <AuthorizedFoldersPanel
+              openworkServerClient={openworkClient}
+              openworkServerStatus={routeOpenworkStatus}
+              openworkServerCapabilities={routeOpenworkCapabilities}
+              runtimeWorkspaceId={selectedWorkspace?.id ?? null}
+              selectedWorkspaceRoot={selectedWorkspaceRoot}
+              activeWorkspaceType={workspaceType}
+              onConfigUpdated={() => {
+                setConfigActionStatus(t("settings.config_updated"));
+                void providerAuthStore.refreshProviders();
+                void connectionsStore.refreshMcpServers();
+              }}
+            />
+          </SettingsStack>
         );
       case "ai":
         return (
