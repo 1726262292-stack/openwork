@@ -3,13 +3,12 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "rootDir": "src",
-    "outDir": "dist",
     "strict": true,
     "esModuleInterop": true,
     "jsx": "react-jsx",
     "skipLibCheck": true,
-    "resolveJsonModule": true
+    "declaration": true,
+    "outDir": "dist"
   },
-  "include": ["src"]
+  "include": ["src", "emails"]
 }
