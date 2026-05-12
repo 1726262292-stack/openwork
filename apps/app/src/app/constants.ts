@@ -1,5 +1,7 @@
 import type { ModelRef, SuggestedPlugin } from "./types";
 import { t } from "../i18n";
+import { readDenBootstrapConfig } from "./lib/den";
+import { readDenBootstrapConfig } from "./lib/den";
 
 export const MODEL_PREF_KEY = "openwork.defaultModel";
 export const SESSION_MODEL_PREF_KEY = "openwork.sessionModels";
@@ -82,18 +84,15 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     get name() { return t("mcp.quick_connect_openwork_cloud_title"); },
     get description() { return t("mcp.quick_connect_openwork_cloud_desc"); },
-    command: ["npx", "-y", "openwork-ui-mcp"],
-    type: "local",
-    oauth: false,
-    kind: "mcp",
-    iconSrc: "/openwork-mark.svg",
-  },
-  {
-    get name() { return t("mcp.quick_connect_openwork_ui_title"); },
-    get description() { return t("mcp.quick_connect_openwork_ui_desc"); },
-    command: ["npx", "-y", "openwork-ui-mcp"],
-    type: "local",
-    oauth: false,
+    get url() {
+      try {
+        return `${readDenBootstrapConfig().baseUrl.replace(/\/+$/, "")}/mcp`;
+      } catch {
+        return "https://app.openworklabs.com/mcp";
+      }
+    },
+    type: "remote",
+    oauth: true,
     kind: "mcp",
     iconSrc: "/openwork-mark.svg",
   },
