@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useReducer, useRef, type SetStateAction } from "react";
+import { useEffect, useReducer, useRef, useState, type SetStateAction } from "react";
 import {
   BookOpen,
   CheckCircle2,
@@ -17,6 +17,7 @@ import {
   Plug2,
   Plus,
   Power,
+  Search,
   Settings2,
   Unplug,
   Zap,
@@ -24,6 +25,7 @@ import {
 
 import { type McpDirectoryInfo } from "../../../../app/constants";
 import { ExtensionCard } from "../../../design-system/extension-card";
+import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
 import {
   openDesktopPath,
   readOpencodeConfig,
@@ -56,10 +58,23 @@ export type ReactMcpStatus =
   | "disabled"
   | "disconnected";
 
+export type SkillItem = {
+  name: string;
+  description?: string;
+  trigger?: string;
+  path: string;
+};
+
 export type McpViewProps = {
   busy: boolean;
   selectedWorkspaceRoot: string;
   isRemoteWorkspace: boolean;
+  /** Installed skills to render alongside MCPs in the grid. */
+  installedSkills?: SkillItem[];
+  /** Uninstall a skill by name. */
+  uninstallSkill?: (name: string) => void;
+  /** Read skill content by name. */
+  readSkill?: (name: string) => Promise<{ content: string } | null>;
   readConfigFile?: (scope: "project" | "global") => Promise<OpencodeConfigFile | null>;
   showHeader?: boolean;
   mcpServers: McpServerEntry[];
@@ -167,8 +182,15 @@ const serviceIconBg = (name: string) => {
   return "bg-dls-hover border-dls-border";
 };
 
+type ExtensionFilter = "all" | "mcp" | "skill" | "plugin";
+
 export function McpView(props: McpViewProps) {
   const showHeader = props.showHeader !== false;
+  const [detailEntry, setDetailEntry] = useState<McpDirectoryInfo | null>(null);
+  const [detailSkill, setDetailSkill] = useState<SkillItem | null>(null);
+  const [detailSkillContent, setDetailSkillContent] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<ExtensionFilter>("all");
 
   const [localState, dispatchLocal] = useReducer(
     mcpViewLocalReducer,
@@ -359,13 +381,70 @@ export function McpView(props: McpViewProps) {
 
       <McpCustomAppCard onOpen={() => setAddMcpModalOpen(true)} />
 
+      {/* Search + filter */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dls-secondary" />
+          <input
+            className="w-full rounded-lg border border-dls-border bg-dls-surface py-2 pl-9 pr-3 text-xs text-dls-text placeholder:text-dls-secondary focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)]"
+            placeholder="Search extensions..."
+            value={search}
+            onChange={(e) => setSearch(e.currentTarget.value)}
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          {(["all", "mcp", "skill"] as const).map((f) => (
+            <button
+              key={f}
+              type="button"
+              className={`rounded-full border px-3 py-1 text-[11px] font-medium transition-colors ${
+                filter === f
+                  ? "border-dls-text/20 bg-dls-text/10 text-dls-text"
+                  : "border-dls-border text-dls-secondary hover:text-dls-text"
+              }`}
+              onClick={() => setFilter(f)}
+            >
+              {f === "all" ? "All" : f === "mcp" ? "MCPs" : "Skills"}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <McpQuickConnectSection
-        entries={quickConnectList}
+        entries={
+          quickConnectList.filter((entry) => {
+            if (filter === "skill") return false;
+            if (filter === "mcp" && (entry.kind ?? "mcp") !== "mcp") return false;
+            if (!search.trim()) return true;
+            const q = search.toLowerCase();
+            return entry.name.toLowerCase().includes(q) || entry.description.toLowerCase().includes(q);
+          })
+        }
+        installedSkills={
+          (props.installedSkills ?? []).filter((skill) => {
+            if (filter === "mcp") return false;
+            if (!search.trim()) return true;
+            const q = search.toLowerCase();
+            return skill.name.toLowerCase().includes(q) || (skill.description ?? "").toLowerCase().includes(q);
+          })
+        }
         busy={props.busy}
         connectingName={props.mcpConnectingName}
         isConfigured={isQuickConnectConfigured}
         statusForEntry={quickConnectStatus}
         onConnect={props.connectMcp}
+        onDetail={setDetailEntry}
+        onSkillDetail={(skill) => {
+          setDetailSkill(skill);
+          setDetailSkillContent(null);
+          if (props.readSkill) {
+            void props.readSkill(skill.name).then((result) => {
+              if (result?.content) {
+                setDetailSkillContent(result.content.slice(0, 2000));
+              }
+            });
+          }
+        }}
       />
 
       <McpConfiguredServersSection
@@ -451,6 +530,53 @@ export function McpView(props: McpViewProps) {
         open={chromeSetupOpen}
         onClose={() => setChromeSetupOpen(false)}
       />
+
+      {detailEntry ? (
+        <ExtensionDetailModal
+          open={!!detailEntry}
+          onClose={() => setDetailEntry(null)}
+          name={detailEntry.name}
+          description={detailEntry.description}
+          iconSlug={detailEntry.iconSlug}
+          iconSrc={detailEntry.iconSrc}
+          fallbackIcon={serviceIcon(detailEntry.name)}
+          kind={detailEntry.kind ?? "mcp"}
+          connected={isQuickConnectConfigured(detailEntry)}
+          connecting={props.mcpConnectingName === detailEntry.name}
+          url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
+          oauth={detailEntry.oauth}
+          onConnect={() => {
+            props.connectMcp(detailEntry);
+            setDetailEntry(null);
+          }}
+          onUninstall={isQuickConnectConfigured(detailEntry) ? () => {
+            const slug = getMcpIdentityKey(detailEntry);
+            props.removeMcp(slug);
+            setDetailEntry(null);
+          } : undefined}
+        />
+      ) : null}
+
+      {detailSkill ? (
+        <ExtensionDetailModal
+          open={!!detailSkill}
+          onClose={() => { setDetailSkill(null); setDetailSkillContent(null); }}
+          name={detailSkill.name}
+          description={detailSkill.description ?? "Installed skill"}
+          kind="skill"
+          connected={true}
+          path={detailSkill.path}
+          trigger={detailSkill.trigger}
+          contentPreview={detailSkillContent ?? undefined}
+          onReveal={detailSkill.path ? () => {
+            void revealDesktopItemInDir(detailSkill.path);
+          } : undefined}
+          onUninstall={props.uninstallSkill ? () => {
+            props.uninstallSkill?.(detailSkill.name);
+            setDetailSkill(null);
+          } : undefined}
+        />
+      ) : null}
     </section>
   );
 }
@@ -508,11 +634,14 @@ function McpCustomAppCard(props: { onOpen: () => void }) {
 
 function McpQuickConnectSection(props: {
   entries: McpDirectoryInfo[];
+  installedSkills?: SkillItem[];
   busy: boolean;
   connectingName: string | null;
   isConfigured: (entry: McpDirectoryInfo) => boolean;
   statusForEntry: (entry: McpDirectoryInfo) => { status: ReactMcpStatus } | undefined;
   onConnect: (entry: McpDirectoryInfo) => void;
+  onDetail: (entry: McpDirectoryInfo) => void;
+  onSkillDetail?: (skill: SkillItem) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -524,6 +653,7 @@ function McpQuickConnectSection(props: {
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {/* MCP entries */}
         {props.entries.map((entry) => {
           const configured = props.isConfigured(entry);
           const connecting = props.connectingName === entry.name;
@@ -541,13 +671,24 @@ function McpQuickConnectSection(props: {
               connected={configured}
               connecting={connecting}
               disabled={props.busy}
-              actionLabel={t("mcp.tap_to_connect")}
-              onClick={() => {
-                if (!configured) props.onConnect(entry);
-              }}
+              actionLabel={configured ? "View details" : t("mcp.tap_to_connect")}
+              onClick={() => props.onDetail(entry)}
             />
           );
         })}
+
+        {/* Installed skills */}
+        {(props.installedSkills ?? []).map((skill) => (
+          <ExtensionCard
+            key={`skill:${skill.name}`}
+            name={skill.name}
+            description={skill.description ?? "Installed skill"}
+            kind="skill"
+            connected={true}
+            actionLabel="View details"
+            onClick={() => props.onSkillDetail?.(skill)}
+          />
+        ))}
       </div>
     </div>
   );
