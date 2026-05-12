@@ -4,6 +4,7 @@ import { applyEdits, modify, parse, printParseErrorCode } from "jsonc-parser";
 
 import { t } from "../../../i18n";
 import {
+  getMcpServerName,
   MCP_QUICK_CONNECT,
   type McpDirectoryInfo,
 } from "../../../app/constants";
@@ -466,11 +467,28 @@ export function createConnectionsStore(options: {
       return;
     }
 
-    const slug = entry.id ?? entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const slug = entry.id ?? getMcpServerName(entry);
     const action = snapshot.mcpServers.some((server) => server.name === slug) ? "updated" : "added";
 
     try {
       mutateState((current) => ({ ...current, mcpStatus: null, mcpConnectingName: entry.name }));
+
+      // Resolve dynamic URLs for built-in MCPs
+      let resolvedUrl = entry.url;
+      let resolvedHeaders: Record<string, string> | undefined;
+      if (!resolvedUrl && entry.serverName === "openwork-ui") {
+        try {
+          const bridgeInfo = await (window as any).__OPENWORK_ELECTRON__?.invokeDesktop?.("getUiControlBridgeInfo");
+          if (bridgeInfo?.baseUrl) {
+            resolvedUrl = `${bridgeInfo.baseUrl}/mcp`;
+            if (bridgeInfo.token) {
+              resolvedHeaders = { Authorization: `Bearer ${bridgeInfo.token}` };
+            }
+          }
+        } catch {
+          // Bridge not available
+        }
+      }
 
       const mcpEntryConfig: Record<string, unknown> = {
         type: entryType,
@@ -478,11 +496,14 @@ export function createConnectionsStore(options: {
       };
 
       if (entryType === "remote") {
-        if (!entry.url) {
-          throw new Error("Missing MCP URL.");
+        if (!resolvedUrl) {
+          throw new Error("Missing MCP URL. Is the OpenWork desktop app running?");
         }
-        mcpEntryConfig["url"] = entry.url;
-        if (entry.oauth) {
+        mcpEntryConfig["url"] = resolvedUrl;
+        if (resolvedHeaders) {
+          mcpEntryConfig["headers"] = resolvedHeaders;
+        }
+        if (entry.oauth && !resolvedHeaders) {
           mcpEntryConfig["oauth"] = {};
         }
       }

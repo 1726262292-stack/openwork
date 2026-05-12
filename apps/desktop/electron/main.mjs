@@ -501,6 +501,20 @@ async function seedBrowserMcpConfig(workspaceDir) {
     changed = true;
   }
 
+  // UI control bridge
+  try {
+    const uiDiscovery = JSON.parse(await readFile(path.join(app.getPath("userData"), "openwork-ui-control.json"), "utf8"));
+    if (uiDiscovery?.baseUrl) {
+      const uiUrl = `${uiDiscovery.baseUrl}/mcp`;
+      if (config.mcp["openwork-ui"]?.url !== uiUrl) {
+        config.mcp["openwork-ui"] = { type: "remote", url: uiUrl };
+        changed = true;
+      }
+    }
+  } catch {
+    // UI control bridge not started yet — skip.
+  }
+
   // Remove legacy entries
   for (const key of ["chrome-devtools", "control-chrome"]) {
     if (config.mcp[key]) {
@@ -1753,6 +1767,13 @@ async function handleDesktopInvoke(event, command, ...args) {
         buildEpoch: process.env.OPENWORK_BUILD_EPOCH ?? null,
         openworkDevMode: process.env.OPENWORK_DEV_MODE === "1",
       };
+    case "getUiControlBridgeInfo":
+      try {
+        const raw = await readFile(path.join(app.getPath("userData"), "openwork-ui-control.json"), "utf8");
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
     case "getDesktopBootstrapConfig":
       return getDesktopBootstrapConfig();
     case "setDesktopBootstrapConfig":
