@@ -155,6 +155,15 @@ export type SessionPageProps = {
   notFoundMessage?: string | null;
   onRenameSession?: (sessionId: string, title: string) => Promise<void> | void;
   onDeleteSession?: (sessionId: string) => Promise<void> | void;
+  providerNotifications?: {
+    onboarding: import("../../../shell/use-provider-change-detection").ProviderOnboardingState;
+    toast: import("../../../shell/use-provider-change-detection").ProviderToastState;
+    orgName?: string;
+    acknowledgeAll: () => void;
+    switchDefault: (providerId: string, modelId: string) => void;
+    dismissOnboarding: () => void;
+    dismissToast: () => void;
+  };
 };
 
 function getSidebarInitialLoading(props: SessionPageSidebarProps) {
@@ -183,9 +192,7 @@ function sessionTitleForId(groups: WorkspaceSessionGroup[], id: string | null | 
 
 export function SessionPage(props: SessionPageProps) {
   const { config: shellConfig } = useShellConfig();
-  // Provider onboarding + new-provider notification (triggered by cloud sync)
-  const [showProviderOnboarding, setShowProviderOnboarding] = useState(false);
-  const [showProviderToast, setShowProviderToast] = useState(false);
+  const providerNotif = props.providerNotifications;
   useReactRenderWatchdog("SessionPage", {
     selectedSessionId: props.selectedSessionId,
     selectedWorkspaceId: props.selectedWorkspaceId,
@@ -454,23 +461,17 @@ export function SessionPage(props: SessionPageProps) {
                 </button>
               ) : null}
               {/* Revert/redo moved to per-message actions */}
-              {props.developerMode ? (
-                <>
-                  <button
-                    type="button"
-                    className="rounded-md px-2 py-1 text-[10px] font-medium text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
-                    onClick={() => setShowProviderOnboarding(true)}
-                  >
-                    Test onboarding
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-md px-2 py-1 text-[10px] font-medium text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
-                    onClick={() => setShowProviderToast(true)}
-                  >
-                    Test toast
-                  </button>
-                </>
+              {props.developerMode && providerNotif ? (
+                <button
+                  type="button"
+                  className="rounded-md px-2 py-1 text-[10px] font-medium text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
+                  onClick={() => {
+                    try { window.localStorage.removeItem("openwork.acknowledgedProviders"); } catch {}
+                  }}
+                  title="Clears acknowledged providers so onboarding triggers on next provider change"
+                >
+                  Reset provider notifications
+                </button>
               ) : null}
             </div>
           </header>
@@ -809,26 +810,37 @@ export function SessionPage(props: SessionPageProps) {
       />
 
       {/* Provider onboarding + new-provider notification */}
-      <ProviderOnboardingModal
-        open={showProviderOnboarding}
-        onClose={() => setShowProviderOnboarding(false)}
-        orgName="Acme Corp"
-        providers={[
-          { id: "anthropic", name: "Anthropic", recommended: true, recommendedModel: "Claude Sonnet 4" },
-          { id: "openai", name: "OpenAI", recommendedModel: "GPT-4.1" },
-          { id: "opencode", name: "OpenCode Zen", recommendedModel: "Big Pickle" },
-        ]}
-        onAcceptDefaults={() => setShowProviderOnboarding(false)}
-        onConfigureManually={() => setShowProviderOnboarding(false)}
-      />
-      <ProviderAddedToast
-        open={showProviderToast}
-        providerName="Anthropic"
-        providerId="anthropic"
-        modelName="Claude Sonnet 4"
-        onSwitchDefault={() => setShowProviderToast(false)}
-        onDismiss={() => setShowProviderToast(false)}
-      />
+      {providerNotif ? (
+        <>
+          <ProviderOnboardingModal
+            open={providerNotif.onboarding.show}
+            onClose={providerNotif.dismissOnboarding}
+            orgName={providerNotif.orgName ?? ""}
+            providers={providerNotif.onboarding.providers}
+            onAcceptDefaults={() => {
+              const rec = providerNotif.onboarding.providers.find((p) => p.recommended);
+              if (rec?.recommendedModelId) {
+                providerNotif.switchDefault(rec.id, rec.recommendedModelId);
+              }
+              providerNotif.acknowledgeAll();
+            }}
+            onConfigureManually={providerNotif.dismissOnboarding}
+          />
+          <ProviderAddedToast
+            open={providerNotif.toast.show}
+            providerName={providerNotif.toast.providerName}
+            providerId={providerNotif.toast.providerId}
+            modelName={providerNotif.toast.modelName}
+            onSwitchDefault={() => {
+              if (providerNotif.toast.providerId && providerNotif.toast.modelId) {
+                providerNotif.switchDefault(providerNotif.toast.providerId, providerNotif.toast.modelId);
+              }
+              providerNotif.acknowledgeAll();
+            }}
+            onDismiss={providerNotif.dismissToast}
+          />
+        </>
+      ) : null}
     </div>
   );
 }
