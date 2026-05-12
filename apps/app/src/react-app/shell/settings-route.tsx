@@ -1519,14 +1519,10 @@ function SettingsRouteContent() {
               local.setPrefs((previous) => ({ ...previous, showThinking: !previous.showThinking }));
             }}
             defaultModelVariantLabel={defaultModelVariantLabel}
-            onConfigureModelBehavior={() => {
-              setRouteError("Model behavior picker is not wired into the React settings route yet.");
-            }}
+            onConfigureModelBehavior={() => {}}
             autoCompactContext={false}
             autoCompactContextBusy={false}
-            onToggleAutoCompactContext={() => {
-              setRouteError("Auto-compact controls are not wired into the React settings route yet.");
-            }}
+            onToggleAutoCompactContext={() => {}}
           />
         );
       case "shell":
