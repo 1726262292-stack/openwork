@@ -42,6 +42,7 @@ import {
   withWorkspaceCloudImports,
   type CloudImportedProvider,
 } from "../../../../app/cloud/import-state";
+import { dispatchNewProviders } from "../../../../app/lib/provider-events";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 type CloudProviderSyncReason = "sign_in" | "app_launch" | "interval" | "settings_cloud_opened";
@@ -729,12 +730,49 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     return request;
   };
 
-  const applyProviderListState = (value: ProviderListResponse) => {
-    options.setProviders(value.all ?? []);
+  // Track whether the provider list has been loaded at least once.
+  // The first load (app startup) populates the initial state — we don't
+  // want to fire "new provider" events for providers that were already
+  // there. After the first load, any new provider IS genuinely new.
+  let providerListInitialized = false;
+
+  const applyProviderListState = (value: ProviderListResponse, opts?: { suppressNewProviderEvent?: boolean }) => {
+    const prevConnected = new Set(options.providerConnectedIds());
+    const nextConnected = value.connected ?? [];
+    const nextAll = value.all ?? [];
+    options.setProviders(nextAll);
     options.setProviderDefaults(value.default ?? {});
-    options.setProviderConnectedIds(value.connected ?? []);
+    options.setProviderConnectedIds(nextConnected);
     refreshSnapshot();
     emitChange();
+
+    if (!providerListInitialized) {
+      providerListInitialized = true;
+      return;
+    }
+
+    // Detect newly connected providers and fire a global event so
+    // the NewProvidersToast shows — regardless of which route is active.
+    if (!opts?.suppressNewProviderEvent) {
+      const newIds = nextConnected.filter((id) => !prevConnected.has(id));
+      if (newIds.length > 0) {
+        const infos = newIds.map((id) => {
+          const provider = nextAll.find((p) => (p.id ?? "") === id);
+          const models = provider?.models ?? {};
+          const firstModelId = Object.keys(models)[0];
+          return {
+            id,
+            name: provider?.name ?? id,
+            providerId: id,
+            firstModelId,
+            firstModelName: firstModelId
+              ? (models[firstModelId]?.name ?? firstModelId)
+              : undefined,
+          };
+        });
+        dispatchNewProviders({ providers: infos, source: "local_config" });
+      }
+    }
   };
 
   const removeProviderFromState = (providerId: string) => {
@@ -1396,6 +1434,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     const nextImportedProviders = state.importedCloudProviders;
+    const newlyImported: Array<{ id: string; name: string; providerId: string; firstModelId?: string; firstModelName?: string }> = [];
     for (const liveProvider of liveProviders) {
       if (processedLiveProviderIds.has(liveProvider.id)) {
         continue;
@@ -1407,6 +1446,14 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       try {
         await connectCloudProviderInternal(liveProvider.id, { silent: true });
         configChanged = true;
+        const firstModel = liveProvider.models[0] ?? null;
+        newlyImported.push({
+          id: liveProvider.id,
+          name: liveProvider.name,
+          providerId: liveProvider.providerId,
+          firstModelId: firstModel?.id,
+          firstModelName: firstModel?.name ?? firstModel?.id,
+        });
       } catch (error) {
         failures.push(logCloudProviderSyncError(reason, error));
       }
@@ -1414,6 +1461,15 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
     if (configChanged) {
       await refreshProviders({ dispose: true }).catch(() => null);
+    }
+
+    // Notify the UI about newly imported providers so the global toast
+    // can be shown regardless of which route is active.
+    if (newlyImported.length > 0) {
+      dispatchNewProviders({
+        providers: newlyImported,
+        source: reason === "sign_in" ? "sign_in" : "cloud_sync",
+      });
     }
 
     if (failures.length > 0) {
@@ -1469,7 +1525,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const provider = options.providers().find((entry) => entry.id === resolved) as
       | (ProviderListItem & { source?: string })
       | undefined;
-    const canDisableProvider = provider?.source === "config" || provider?.source === "custom";
+    // Allow disabling any provider — including built-in/env providers
+    // like "opencode" (Zen). The user should be able to hide any provider
+    // from the model list by adding it to disabled_providers in opencode.json.
+    const canDisableProvider = true;
 
     const disableProvider = async () => {
       const config = unwrap(await c.config.get());

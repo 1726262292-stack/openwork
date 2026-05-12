@@ -116,9 +116,11 @@ import {
 import { saveSessionDraft } from "../domains/session/sync/draft-store";
 import { useControlAction, type OpenworkControlAction } from "./control/control-provider";
 import { useReactRenderWatchdog } from "./react-render-watchdog";
-import { useProviderChangeDetection } from "./use-provider-change-detection";
+
 import { readDenSettings } from "../../app/lib/den";
 import { denSessionUpdatedEvent } from "../../app/lib/den-session-events";
+
+import { openModelPickerEvent } from "./new-providers-toast";
 import { getModelBehaviorSummary } from "../../app/lib/model-behavior";
 import { filterProviderList, mapConfigProvidersToList } from "../../app/utils/providers";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
@@ -499,25 +501,31 @@ export function SessionRoute() {
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
   const [providerConnectedIds, setProviderConnectedIds] = useState<string[]>([]);
+  const [disabledProviderIds, setDisabledProviderIds] = useState<string[]>([]);
   // Bump to re-filter provider list when den session changes (sign-in/out)
   const [denSessionVersion, setDenSessionVersion] = useState(0);
-  const [isDenSignedIn, setIsDenSignedIn] = useState<boolean>(() => !!readDenSettings().authToken?.trim());
   useEffect(() => {
-    const handler = () => {
-      setDenSessionVersion((v) => v + 1);
-      setIsDenSignedIn(!!readDenSettings().authToken?.trim());
-    };
+    const handler = () => setDenSessionVersion((v) => v + 1);
     window.addEventListener(denSessionUpdatedEvent, handler);
     return () => window.removeEventListener(denSessionUpdatedEvent, handler);
   }, []);
-  // Provider notifications are only shown while signed in. After sign-out
-  // we clear acknowledgedProviders, so without this gate the modal would
-  // re-trigger every time local providers (openai, opencode) re-appear.
-  const providerChangeDetection = useProviderChangeDetection(
-    providerConnectedIds,
-    providers as any,
-    isDenSignedIn,
-  );
+  // Provider IDs that were just added — used to highlight them as
+  // "Recently added" in the model picker even after they've been
+  // marked as seen in localStorage.
+  const [recentProviderIds, setRecentProviderIds] = useState<Set<string>>(new Set());
+  // Open model picker when the global toast's "Pick a new default?" is clicked
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const ids = (event as CustomEvent<{ newProviderIds?: string[] }>).detail?.newProviderIds;
+      if (ids && ids.length > 0) {
+        setRecentProviderIds(new Set(ids));
+      }
+      setModelPickerOpen(true);
+    };
+    window.addEventListener(openModelPickerEvent, handler);
+    return () => window.removeEventListener(openModelPickerEvent, handler);
+  }, []);
+
   const [permissionReplyBusy, setPermissionReplyBusy] = useState(false);
   const permissionReplyBusyRef = useRef(false);
   // Provider catalog cache. Used to compute the reasoning/thinking variant
@@ -1399,6 +1407,8 @@ export function SessionRoute() {
         : (value.connected ?? []).filter((id) => !isCloudProvider(id));
       setProviders(all);
       setProviderConnectedIds(connected);
+      // New-provider detection is handled globally by the provider auth
+      // store's applyProviderListState, which fires dispatchNewProviders.
     };
 
     void (async () => {
@@ -1412,6 +1422,7 @@ export function SessionRoute() {
         disabledProviders = Array.isArray(config.disabled_providers)
           ? config.disabled_providers
           : [];
+        if (!cancelled) setDisabledProviderIds(disabledProviders);
       } catch {
         // ignore config read failures and continue with provider discovery
       }
@@ -1535,10 +1546,22 @@ export function SessionRoute() {
           };
         }).data;
         if (cancelled || !data?.providers) return;
+        // Flag models from recently-added providers so they appear in
+        // the "Recently added" section at the top of the picker.
+        // Two sources: (1) providers not yet in the localStorage seen-set,
+        // (2) providers passed via the openModelPickerEvent from the toast.
+        let seenIds: Set<string>;
+        try {
+          const raw = window.localStorage.getItem("openwork.seenProviderIds");
+          seenIds = new Set(raw ? JSON.parse(raw) : []);
+        } catch {
+          seenIds = new Set();
+        }
         const options: ModelOption[] = [];
         for (const provider of data.providers) {
           const modelIds = Object.keys(provider.models);
           const hasModels = modelIds.length > 0;
+          const isNew = !seenIds.has(provider.id) || recentProviderIds.has(provider.id);
           for (const id of modelIds) {
             const model = provider.models[id];
             options.push({
@@ -1552,6 +1575,8 @@ export function SessionRoute() {
               behaviorValue: null,
               isFree: false,
               isConnected: hasModels,
+              isRecommended: isNew,
+              source: /^lpr_/i.test(provider.id) ? "cloud" as const : undefined,
             });
           }
         }
@@ -1563,7 +1588,7 @@ export function SessionRoute() {
     return () => {
       cancelled = true;
     };
-  }, [modelPickerOpen, opencodeClient, selectedWorkspaceRoot]);
+  }, [modelPickerOpen, opencodeClient, recentProviderIds, selectedWorkspaceRoot]);
 
   // Apply org-level restrictions (dev #1505) on top of the raw model list
   // so the picker never surfaces blocked options:
@@ -2330,17 +2355,6 @@ export function SessionRoute() {
       startupPhase={effectiveLoading ? "nativeInit" : "ready"}
       providerConnectedIds={providerConnectedIds}
       providers={providers}
-      providerNotifications={{
-        ...providerChangeDetection,
-        orgName: readDenSettings().activeOrgName?.trim() ?? "",
-        switchDefault: (providerId: string, modelId: string) => {
-          local.setPrefs((prev) => ({
-            ...prev,
-            defaultModel: { providerID: providerId, modelID: modelId },
-            modelVariant: null,
-          }));
-        },
-      }}
       mcpConnectedCount={0}
       onSendFeedback={() => {
         platform.openLink(
@@ -2603,12 +2617,25 @@ export function SessionRoute() {
         }));
         setModelPickerOpen(false);
       }}
+      disabledProviders={disabledProviderIds}
       onBehaviorChange={() => {}}
+      onToggleProvider={async (providerId, enable) => {
+        if (!opencodeClient) return;
+        try {
+          const config = unwrap(await opencodeClient.config.get()) as { disabled_providers?: string[] };
+          const current = Array.isArray(config.disabled_providers) ? config.disabled_providers : [];
+          const next = enable
+            ? current.filter((id: string) => id !== providerId)
+            : [...current, providerId];
+          await opencodeClient.config.update({ config: { ...config, disabled_providers: next } });
+          setDisabledProviderIds(next);
+        } catch {}
+      }}
       onOpenSettings={() => {
         setModelPickerOpen(false);
         handleOpenSettings("/settings/general");
       }}
-      onClose={() => setModelPickerOpen(false)}
+      onClose={() => { setModelPickerOpen(false); setRecentProviderIds(new Set()); }}
     />
     </WorkspaceProvider>
   );
