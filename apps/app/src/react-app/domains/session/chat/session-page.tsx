@@ -454,7 +454,24 @@ export function SessionPage(props: SessionPageProps) {
                 </button>
               ) : null}
               {/* Revert/redo moved to per-message actions */}
-
+              {props.developerMode ? (
+                <>
+                  <button
+                    type="button"
+                    className="rounded-md px-2 py-1 text-[10px] font-medium text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
+                    onClick={() => setShowProviderOnboarding(true)}
+                  >
+                    Test onboarding
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md px-2 py-1 text-[10px] font-medium text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
+                    onClick={() => setShowProviderToast(true)}
+                  >
+                    Test toast
+                  </button>
+                </>
+              ) : null}
             </div>
           </header>
 
@@ -795,15 +812,20 @@ export function SessionPage(props: SessionPageProps) {
       <ProviderOnboardingModal
         open={showProviderOnboarding}
         onClose={() => setShowProviderOnboarding(false)}
-        orgName=""
-        providers={[]}
+        orgName="Acme Corp"
+        providers={[
+          { id: "anthropic", name: "Anthropic", recommended: true, recommendedModel: "Claude Sonnet 4" },
+          { id: "openai", name: "OpenAI", recommendedModel: "GPT-4.1" },
+          { id: "opencode", name: "OpenCode Zen", recommendedModel: "Big Pickle" },
+        ]}
         onAcceptDefaults={() => setShowProviderOnboarding(false)}
         onConfigureManually={() => setShowProviderOnboarding(false)}
       />
       <ProviderAddedToast
         open={showProviderToast}
-        providerName=""
-        providerId=""
+        providerName="Anthropic"
+        providerId="anthropic"
+        modelName="Claude Sonnet 4"
         onSwitchDefault={() => setShowProviderToast(false)}
         onDismiss={() => setShowProviderToast(false)}
       />
