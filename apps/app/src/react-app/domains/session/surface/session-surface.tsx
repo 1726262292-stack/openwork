@@ -28,7 +28,9 @@ import { useControlAction, type OpenworkControlAction } from "../../../shell/con
 import { getReactQueryClient } from "../../../infra/query-client";
 import { ReactSessionComposer } from "./composer/composer";
 import { DevProfiler } from "../../../shell/dev-profiler";
+import { PaperGrainGradient } from "@openwork/ui/react";
 import { OwDotTicker } from "../../../shell/dot-ticker";
+import { useShellConfig } from "../../../shell/shell-config";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import type { ReactComposerNotice } from "./composer/notice";
 import { SessionDebugPanel } from "./debug-panel";
@@ -90,6 +92,8 @@ export type SessionSurfaceProps = {
   onChangeModel?: (model: { providerID: string; modelID: string }) => void;
   onUploadInboxFiles?: ((files: File[], options?: { notify?: boolean }) => void | Promise<unknown>) | null;
   onOpenSettingsSection?: ((section: "commands" | "skills" | "mcps" | "plugins") => void) | undefined;
+  onRevertToMessage?: (messageId: string) => void;
+  onForkAtMessage?: (messageId: string) => void;
 };
 
 function messageToReadableText(message: UIMessage) {
@@ -158,9 +162,20 @@ function messageHasVisibleAssistantOutput(message: UIMessage) {
 
 function AssistantWaitingCard() {
   return (
-    <div className="flex justify-start py-2" role="status" aria-live="polite">
-      <div className="inline-flex items-center gap-3 rounded-full px-3 py-1.5 text-[12px] text-dls-secondary">
-        <OwDotTicker size="sm" />
+    <div className="flex justify-start" role="status" aria-live="polite">
+      <div className="inline-flex items-center gap-1.5 px-1 py-1 text-[12px] text-dls-secondary">
+        <div style={{ width: 20, height: 20, borderRadius: "50%", overflow: "hidden" }}>
+          <PaperGrainGradient
+            speed={12}
+            softness={0.1}
+            intensity={1}
+            noise={0.05}
+            shape="sphere"
+            colors={["#818cf8", "#fb7185", "#fbbf24", "#34d399"]}
+            colorBack="#ffffff00"
+            style={{ backgroundColor: "#818cf8", width: "100%", height: "100%", borderRadius: "50%" }}
+          />
+        </div>
         <span>Thinking</span>
       </div>
     </div>
@@ -255,6 +270,7 @@ function revokeAttachmentPreview(attachment: { previewUrl?: string | undefined }
 
 export function SessionSurface(props: SessionSurfaceProps) {
   const local = useLocal();
+  const { config: shellConfig } = useShellConfig();
   const showThinking = local.prefs.showThinking;
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -892,7 +908,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   onChangeModel={props.onChangeModel}
                   onOpenModelPicker={props.onModelClick}
                 />
-              ) : (
+              ) : shellConfig.starterCards ? (
                 <div className="flex flex-1 flex-col items-center justify-end px-6 pb-4">
                   <div className="w-full max-w-[640px]">
                     <p className="mb-3 text-xs text-dls-secondary">Try one of these:</p>
@@ -933,7 +949,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     </div>
                   </div>
                 </div>
-              )
+              ) : null
             ) : (
               <DevProfiler id="SessionTranscript">
                 <>
@@ -943,6 +959,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     developerMode={props.developerMode}
                     showThinking={showThinking}
                     scrollElement={() => scrollRef.current}
+                    onRevertToMessage={props.onRevertToMessage}
+                    onForkAtMessage={props.onForkAtMessage}
                   />
                   {error ? (
                     <SessionErrorCard

@@ -40,6 +40,7 @@ import { ShareWorkspaceModal } from "../../workspace/share-workspace-modal";
 import { StatusBar, type StatusBarProps } from "./status-bar";
 import { OwDotTicker } from "../../../shell/dot-ticker";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
+import { useShellConfig } from "../../../shell/shell-config";
 import { isElectronRuntime } from "../../../../app/utils";
 import { BrowserPanel } from "../browser/browser-panel";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
@@ -179,6 +180,7 @@ function sessionTitleForId(groups: WorkspaceSessionGroup[], id: string | null | 
 }
 
 export function SessionPage(props: SessionPageProps) {
+  const { config: shellConfig } = useShellConfig();
   useReactRenderWatchdog("SessionPage", {
     selectedSessionId: props.selectedSessionId,
     selectedWorkspaceId: props.selectedWorkspaceId,
@@ -361,10 +363,12 @@ export function SessionPage(props: SessionPageProps) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top,rgba(74,111,255,0.12),transparent_42%),var(--app-bg,#0b1020)] text-dls-text mac:bg-transparent">
       <SidebarProvider
+        defaultOpen={shellConfig.sidebar}
         className={cn(
           "relative min-h-0 flex-1 mac:bg-transparent",
           leftSidebarResizing &&
             "**:data-[slot=sidebar-container]:transition-none **:data-[slot=sidebar-gap]:transition-none",
+          !shellConfig.sidebar && "**:data-[slot=sidebar-container]:hidden **:data-[slot=sidebar-gap]:hidden",
         )}
         style={sidebarProviderStyle}
       >
@@ -409,7 +413,7 @@ export function SessionPage(props: SessionPageProps) {
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
           <header className="z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
             <div className="flex min-w-0 items-center gap-3">
-              <SidebarTrigger className="mac:hidden" />
+              {shellConfig.sidebar ? <SidebarTrigger className="mac:hidden" /> : null}
               <h1 className="truncate text-[15px] font-semibold text-dls-text">
                 {showWorkspaceSetupEmptyState
                   ? t("session.create_or_connect_workspace")
@@ -444,40 +448,7 @@ export function SessionPage(props: SessionPageProps) {
                   <span className="hidden @lg/titlebar:inline">Browser</span>
                 </button>
               ) : null}
-              {props.history ? (
-                <>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={() => void props.history?.onUndo()}
-                    disabled={!props.history.canUndo || props.history.busyAction !== null}
-                    title={t("session.undo_title")}
-                    aria-label={t("session.undo_label")}
-                  >
-                    {props.history.busyAction === "undo" ? (
-                      <Loader2 size={16} className="animate-spin" />
-                    ) : (
-                      <Undo2 size={16} />
-                    )}
-                    <span className="hidden @lg/titlebar:inline">{t("session.revert_label")}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={() => void props.history?.onRedo()}
-                    disabled={!props.history.canRedo || props.history.busyAction !== null}
-                    title={t("session.redo_title")}
-                    aria-label={t("session.redo_aria_label")}
-                  >
-                    {props.history.busyAction === "redo" ? (
-                      <Loader2 size={16} className="animate-spin" />
-                    ) : (
-                      <Redo2 size={16} />
-                    )}
-                    <span className="hidden @lg/titlebar:inline">{t("session.redo_label")}</span>
-                  </button>
-                </>
-              ) : null}
+              {/* Revert/redo moved to per-message actions */}
             </div>
           </header>
 
@@ -718,22 +689,24 @@ export function SessionPage(props: SessionPageProps) {
             </div>
           ) : null}
 
-          <StatusBar
-            clientConnected={props.clientConnected}
-            openworkServerStatus={props.openworkServerStatus}
-            developerMode={props.developerMode}
-            settingsOpen={props.statusBar?.settingsOpen ?? false}
-            onSendFeedback={props.onSendFeedback}
-            onOpenSettings={props.onOpenSettings}
-            providerConnectedIds={props.providerConnectedIds}
-            mcpConnectedCount={props.mcpConnectedCount}
-            statusLabel={props.statusBar?.statusLabel}
-            statusDetail={props.statusBar?.statusDetail}
-            statusDotClass={props.statusBar?.statusDotClass}
-            statusPingClass={props.statusBar?.statusPingClass}
-            statusPulse={props.statusBar?.statusPulse}
-            showSettingsButton={props.statusBar?.showSettingsButton}
-          />
+          {shellConfig.statusBar ? (
+            <StatusBar
+              clientConnected={props.clientConnected}
+              openworkServerStatus={props.openworkServerStatus}
+              developerMode={props.developerMode}
+              settingsOpen={props.statusBar?.settingsOpen ?? false}
+              onSendFeedback={props.onSendFeedback}
+              onOpenSettings={props.onOpenSettings}
+              providerConnectedIds={props.providerConnectedIds}
+              mcpConnectedCount={props.mcpConnectedCount}
+              statusLabel={props.statusBar?.statusLabel}
+              statusDetail={props.statusBar?.statusDetail}
+              statusDotClass={props.statusBar?.statusDotClass}
+              statusPingClass={props.statusBar?.statusPingClass}
+              statusPulse={props.statusBar?.statusPulse}
+              showSettingsButton={props.statusBar?.showSettingsButton}
+            />
+          ) : null}
               </main>
             </ResizablePanel>
             {browserPanelOpen ? (
@@ -752,7 +725,7 @@ export function SessionPage(props: SessionPageProps) {
             ) : null}
           </ResizablePanelGroup>
         </SidebarInset>
-        <SidebarTrigger className="hidden mac:absolute mac:left-[64px] top-[3px] z-50 mac:flex titlebar-no-drag" />
+        {shellConfig.sidebar ? <SidebarTrigger className="hidden mac:absolute mac:left-[64px] top-[3px] z-50 mac:flex titlebar-no-drag" /> : null}
       </SidebarProvider>
 
       {props.providerAuthModal ? <ProviderAuthModal {...props.providerAuthModal} /> : null}

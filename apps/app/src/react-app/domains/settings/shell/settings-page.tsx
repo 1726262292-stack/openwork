@@ -47,11 +47,14 @@ import {
   SettingsPanelToolbarMessage,
   SettingsPanelToolbarStatus,
 } from "./panel";
+import { WorkspaceIcon } from "../../../design-system/workspace-icon";
 
 export function getSettingsTabIcon(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return Sparkles;
+    case "shell":
+      return Paintbrush;
     case "permissions":
       return FolderLock;
     case "den":
@@ -81,6 +84,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return "AI";
+    case "shell":
+      return "Customization";
     case "permissions":
       return "Permissions";
     case "den":
@@ -112,6 +117,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return "Models, providers, and reasoning";
+    case "shell":
+      return "Branding, visibility, and shell controls";
     case "permissions":
       return "Authorized folders and file access";
     case "den":
@@ -144,7 +151,7 @@ export function getWorkspaceSettingsTabs(): SettingsTab[] {
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
-  const tabs: SettingsTab[] = ["ai", "den", "appearance", "environment", "updates", "recovery"];
+  const tabs: SettingsTab[] = ["ai", "shell", "den", "appearance", "environment", "updates", "recovery"];
   if (developerMode) tabs.push("debug");
   return tabs;
 }
@@ -194,10 +201,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
               <DropdownMenuTrigger
                 render={
                   <SidebarMenuButton type="button">
-                    <span
-                      className="size-4 shrink-0 rounded-full"
-                      style={{ backgroundColor: props.selectedWorkspaceColor }}
-                    />
+                    <WorkspaceIcon seed={props.selectedWorkspaceName} sizeClass="size-4" />
                     <span className="truncate">{props.selectedWorkspaceName}</span>
                     <ChevronDown className="ml-auto" />
                   </SidebarMenuButton>
@@ -210,10 +214,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
                     onClick={() => props.onSelectWorkspace(workspace.id)}
                     disabled={workspace.id === props.selectedWorkspaceId}
                   >
-                    <span
-                      className="size-4 shrink-0 rounded-full"
-                      style={{ backgroundColor: workspace.color }}
-                    />
+                    <WorkspaceIcon seed={workspace.name} sizeClass="size-4" />
                     <span className="truncate">{workspace.name}</span>
                   </DropdownMenuItem>
                 ))}
