@@ -363,9 +363,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         workspacePath: root,
         config: config as never,
       });
-      if (!result.ok) {
+      const typed = result as { ok: boolean; stderr?: string; stdout?: string };
+      if (!typed.ok) {
         throw new Error(
-          result.stderr || result.stdout || "Failed to write .opencode/openwork.json",
+          typed.stderr || typed.stdout || "Failed to write .opencode/openwork.json",
         );
       }
       return true;
@@ -450,7 +451,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         openworkWorkspaceId,
         "project",
         content,
-      );
+      ) as { ok: boolean; stderr?: string; stdout?: string };
       if (!result.ok) {
         throw new Error(result.stderr || result.stdout || "Failed to write opencode.jsonc");
       }
@@ -458,7 +459,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     if (isLocalWorkspace && isDesktopRuntime() && root) {
-      const result = await writeOpencodeConfig("project", root, content);
+      const result = await writeOpencodeConfig("project", root, content) as { ok: boolean; stderr?: string; stdout?: string };
       if (!result.ok) {
         throw new Error(result.stderr || result.stdout || "Failed to write opencode.jsonc");
       }
@@ -472,7 +473,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     updater: (raw: string) => string,
     fallbackUpdate?: (config: Record<string, unknown>) => Record<string, unknown>,
   ) => {
-    const configFile = await readProjectConfigFile();
+    const configFile = await readProjectConfigFile() as { content?: string } | null;
     if (configFile) {
       const raw = configFile.content?.trim()
         ? configFile.content
@@ -549,7 +550,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
     if (previousProviderId && previousProviderId !== localProviderId) {
       updated = removeCloudProviderComment(updated, previousProviderId);
-      const previousEdits = modify(updated, ["provider", previousProviderId], {
+      const previousEdits = modify(updated, ["provider", previousProviderId], undefined, {
         formattingOptions: { insertSpaces: true, tabSize: 2 },
       });
       updated = applyEdits(updated, previousEdits);
@@ -579,7 +580,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       ? raw
       : '{\n  "$schema": "https://opencode.ai/config.json"\n}\n';
     updated = removeCloudProviderComment(updated, providerId);
-    const providerEdits = modify(updated, ["provider", providerId], {
+    const providerEdits = modify(updated, ["provider", providerId], undefined, {
       formattingOptions: { insertSpaces: true, tabSize: 2 },
     });
     updated = applyEdits(updated, providerEdits);
@@ -590,6 +591,38 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     });
     updated = applyEdits(updated, disabledEdits);
     return updated.endsWith("\n") ? updated : `${updated}\n`;
+  };
+
+  // Sweep all cloud-managed provider entries (keys matching /^lpr_/) from
+  // opencode.jsonc regardless of importedCloudProviders state. Returns the
+  // list of provider IDs that were removed so callers can also clear their
+  // auth credentials.
+  const sweepOrphanCloudProvidersFromConfig = async (): Promise<string[]> => {
+    const configFile = await readProjectConfigFile() as { content?: string } | null;
+    if (!configFile?.content?.trim()) return [];
+    const parsed = parse(configFile.content);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+    const providerSection = (parsed as Record<string, unknown>).provider;
+    if (
+      !providerSection ||
+      typeof providerSection !== "object" ||
+      Array.isArray(providerSection)
+    ) {
+      return [];
+    }
+    const orphanIds = Object.keys(providerSection as Record<string, unknown>).filter(
+      (key) => /^lpr_/i.test(key),
+    );
+    if (orphanIds.length === 0) return [];
+
+    await updateProjectConfigFile((raw) => {
+      let next = raw;
+      for (const id of orphanIds) {
+        next = formatConfigWithoutCloudProvider(next, id);
+      }
+      return next;
+    });
+    return orphanIds;
   };
 
   const assertCloudProviderImportSafe = async (
@@ -615,7 +648,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       );
     }
 
-    const configFile = await readProjectConfigFile();
+    const configFile = await readProjectConfigFile() as { content?: string } | null;
     if (!configFile?.content?.trim() || existingImported) {
       return;
     }
@@ -1584,14 +1617,59 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         cloudOrgProvidersLoadKey = "";
         cloudOrgProvidersInFlightKey = "";
         cloudOrgProvidersInFlight = null;
-        mutateState((current) => ({
-          ...current,
-          cloudOrgProviders: [],
-          providerAuthMethods: {},
-        }));
         const detail = (event as CustomEvent<DenSessionUpdatedDetail>).detail;
+
         if (detail?.status === "success") {
+          mutateState((current) => ({
+            ...current,
+            cloudOrgProviders: [],
+            providerAuthMethods: {},
+          }));
           void runCloudProviderSync("sign_in");
+        } else {
+          // Sign-out or error: remove all cloud-imported providers from the workspace
+          // Capture the full import records BEFORE clearing state
+          const importedProviders = { ...state.importedCloudProviders };
+          const importedIds = Object.keys(importedProviders);
+
+          // Best-effort cleanup: remove each cloud provider from opencode.jsonc
+          // BEFORE clearing state so removeCloudProviderInternal can find the records
+          void (async () => {
+            for (const cloudId of importedIds) {
+              try {
+                await removeCloudProviderInternal(cloudId, { silent: true });
+              } catch {
+                // Ignore individual removal failures during sign-out cleanup
+              }
+            }
+            // Final sweep: remove any orphan `lpr_*` provider keys that remain
+            // in opencode.jsonc but weren't tracked in importedCloudProviders
+            // (e.g. from a previous failed cleanup or external edit).
+            try {
+              const orphans = await sweepOrphanCloudProvidersFromConfig();
+              for (const providerId of orphans) {
+                try {
+                  await removeProviderAuthCredentials(providerId);
+                } catch {
+                  // Ignore auth removal failures for orphans
+                }
+              }
+              if (orphans.length > 0) {
+                options.markOpencodeConfigReloadRequired();
+              }
+            } catch {
+              // Ignore sweep failures during sign-out cleanup
+            }
+            // Clear state AFTER cleanup so the records are available during removal
+            mutateState((current) => ({
+              ...current,
+              cloudOrgProviders: [],
+              providerAuthMethods: {},
+              importedCloudProviders: {},
+            }));
+            refreshSnapshot();
+            emitChange();
+          })();
         }
       };
       window.addEventListener(
@@ -1605,7 +1683,41 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         );
       };
     }
-    void refreshImportedCloudProviders();
+    void refreshImportedCloudProviders().then((imported) => {
+      // Startup cleanup: if no auth token, remove any cloud providers that
+      // were left behind. Handles orphans from a previous sign-out that
+      // didn't clean up (e.g. crash, force-quit, external edit).
+      if (!hasCloudProviderSyncPrerequisites()) {
+        void (async () => {
+          // First: remove anything tracked in import state
+          if (imported && Object.keys(imported).length > 0) {
+            for (const cloudId of Object.keys(imported)) {
+              try {
+                await removeCloudProviderInternal(cloudId, { silent: true });
+              } catch {}
+            }
+          }
+          // Then: sweep any `lpr_*` keys that remain in opencode.jsonc
+          try {
+            const orphans = await sweepOrphanCloudProvidersFromConfig();
+            for (const providerId of orphans) {
+              try {
+                await removeProviderAuthCredentials(providerId);
+              } catch {}
+            }
+            if (orphans.length > 0) {
+              options.markOpencodeConfigReloadRequired();
+            }
+          } catch {}
+          mutateState((current) => ({
+            ...current,
+            importedCloudProviders: {},
+          }));
+          refreshSnapshot();
+          emitChange();
+        })();
+      }
+    });
     refreshSnapshot();
     emitChange();
   };

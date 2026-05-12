@@ -140,15 +140,19 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                 }`}
               >
                 {iconSrc ? (
-                  <img src={iconSrc} alt="" width={24} height={24} loading="lazy" style={{ display: "block" }} />
+                  <div className="flex size-8 items-center justify-center rounded-md bg-white">
+                    <img src={iconSrc} alt="" width={20} height={20} loading="lazy" style={{ display: "block" }} />
+                  </div>
                 ) : iconSlug ? (
-                  <img src={`https://cdn.simpleicons.org/${iconSlug}`} alt="" width={24} height={24} loading="lazy" style={{ display: "block" }} />
+                  <div className="flex size-8 items-center justify-center rounded-md bg-white">
+                    <img src={`https://cdn.simpleicons.org/${iconSlug}`} alt="" width={20} height={20} loading="lazy" style={{ display: "block" }} />
+                  </div>
                 ) : (
                   <FallbackIcon size={24} className="text-dls-secondary" />
                 )}
               </div>
               {connected ? (
-                <div className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full border-2 border-white bg-green-9">
+                <div className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full border-2 border-dls-surface bg-green-9">
                   <CheckCircle2 size={11} className="text-white" strokeWidth={3} />
                 </div>
               ) : null}

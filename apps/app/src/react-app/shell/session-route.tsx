@@ -116,6 +116,9 @@ import {
 import { saveSessionDraft } from "../domains/session/sync/draft-store";
 import { useControlAction, type OpenworkControlAction } from "./control/control-provider";
 import { useReactRenderWatchdog } from "./react-render-watchdog";
+import { useProviderChangeDetection } from "./use-provider-change-detection";
+import { readDenSettings } from "../../app/lib/den";
+import { denSessionUpdatedEvent } from "../../app/lib/den-session-events";
 import { getModelBehaviorSummary } from "../../app/lib/model-behavior";
 import { filterProviderList, mapConfigProvidersToList } from "../../app/utils/providers";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
@@ -496,6 +499,25 @@ export function SessionRoute() {
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
   const [providerConnectedIds, setProviderConnectedIds] = useState<string[]>([]);
+  // Bump to re-filter provider list when den session changes (sign-in/out)
+  const [denSessionVersion, setDenSessionVersion] = useState(0);
+  const [isDenSignedIn, setIsDenSignedIn] = useState<boolean>(() => !!readDenSettings().authToken?.trim());
+  useEffect(() => {
+    const handler = () => {
+      setDenSessionVersion((v) => v + 1);
+      setIsDenSignedIn(!!readDenSettings().authToken?.trim());
+    };
+    window.addEventListener(denSessionUpdatedEvent, handler);
+    return () => window.removeEventListener(denSessionUpdatedEvent, handler);
+  }, []);
+  // Provider notifications are only shown while signed in. After sign-out
+  // we clear acknowledgedProviders, so without this gate the modal would
+  // re-trigger every time local providers (openai, opencode) re-appear.
+  const providerChangeDetection = useProviderChangeDetection(
+    providerConnectedIds,
+    providers as any,
+    isDenSignedIn,
+  );
   const [permissionReplyBusy, setPermissionReplyBusy] = useState(false);
   const permissionReplyBusyRef = useRef(false);
   // Provider catalog cache. Used to compute the reasoning/thinking variant
@@ -694,13 +716,13 @@ export function SessionRoute() {
     refreshInFlightRef.current = true;
     setLoading(true);
     setRouteError(null);
-    let desktopList = null as Awaited<ReturnType<typeof workspaceBootstrap>> | null;
+    let desktopList: WorkspaceList | null = null;
     let desktopWorkspaces = workspacesRef.current;
     let routeReadyAfterRefresh = true;
     try {
       if (isDesktopRuntime()) {
         try {
-          desktopList = await workspaceBootstrap();
+          desktopList = await workspaceBootstrap() as WorkspaceList;
           desktopWorkspaces = (desktopList.workspaces ?? []).map(mapDesktopWorkspace);
         } catch (error) {
           const message = describeRouteError(error);
@@ -1075,7 +1097,7 @@ export function SessionRoute() {
     let cancelled = false;
     void engineInfo()
       .then((info) => {
-        if (!cancelled) setRouteEngineInfo(info);
+        if (!cancelled) setRouteEngineInfo(info as EngineInfo | null);
       })
       .catch(() => {
         if (!cancelled) setRouteEngineInfo(null);
@@ -1363,8 +1385,20 @@ export function SessionRoute() {
 
     const applyProviderState = (value: ProviderListResponse) => {
       if (cancelled) return;
-      setProviders((value.all ?? []) as ProviderListItem[]);
-      setProviderConnectedIds(value.connected ?? []);
+      // When not signed in, filter out cloud-managed providers (lpr_*)
+      // so stale entries from a previous session don't appear.
+      const hasCloudAuth = !!readDenSettings().authToken?.trim();
+      const isCloudProvider = (id: string) => /^lpr_/i.test(id);
+      const all = hasCloudAuth
+        ? ((value.all ?? []) as ProviderListItem[])
+        : ((value.all ?? []) as ProviderListItem[]).filter(
+            (p) => !isCloudProvider(p.id ?? ""),
+          );
+      const connected = hasCloudAuth
+        ? (value.connected ?? [])
+        : (value.connected ?? []).filter((id) => !isCloudProvider(id));
+      setProviders(all);
+      setProviderConnectedIds(connected);
     };
 
     void (async () => {
@@ -1419,7 +1453,7 @@ export function SessionRoute() {
     return () => {
       cancelled = true;
     };
-  }, [opencodeClient, selectedWorkspaceRoot]);
+  }, [opencodeClient, selectedWorkspaceRoot, denSessionVersion]);
 
   const modelLabel = local.prefs.defaultModel
     ? resolveModelDisplayName(local.prefs.defaultModel.modelID)
@@ -2162,10 +2196,10 @@ export function SessionRoute() {
         folderPath: folder,
         name: workspaceName,
         preset,
-      });
+      }) as WorkspaceList;
       const createdId = resolveWorkspaceListSelectedId(list) || list.workspaces[list.workspaces.length - 1]?.id || "";
       let targetWorkspaceId = createdId;
-      let targetWorkspace = list.workspaces.find((workspace) => workspace.id === createdId) ?? null;
+      let targetWorkspace = list.workspaces.find((workspace: WorkspaceInfo) => workspace.id === createdId) ?? null;
       if (createdId) {
         await workspaceSetSelected(createdId).catch(() => undefined);
         await workspaceSetRuntimeActive(createdId).catch(() => undefined);
@@ -2239,7 +2273,7 @@ export function SessionRoute() {
         displayName: input.displayName?.trim() || null,
         directory: input.directory?.trim() || null,
         remoteType: "openwork",
-      });
+      }) as WorkspaceList;
       const createdId = resolveWorkspaceListSelectedId(list) || list.workspaces[list.workspaces.length - 1]?.id || "";
       if (createdId) {
         await workspaceSetSelected(createdId).catch(() => undefined);
@@ -2296,6 +2330,17 @@ export function SessionRoute() {
       startupPhase={effectiveLoading ? "nativeInit" : "ready"}
       providerConnectedIds={providerConnectedIds}
       providers={providers}
+      providerNotifications={{
+        ...providerChangeDetection,
+        orgName: readDenSettings().activeOrgName?.trim() ?? "",
+        switchDefault: (providerId: string, modelId: string) => {
+          local.setPrefs((prev) => ({
+            ...prev,
+            defaultModel: { providerID: providerId, modelID: modelId },
+            modelVariant: null,
+          }));
+        },
+      }}
       mcpConnectedCount={0}
       onSendFeedback={() => {
         platform.openLink(
