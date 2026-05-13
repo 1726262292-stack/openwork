@@ -1,7 +1,4 @@
 /** @jsxImportSource react */
-import { Info } from "lucide-react";
-
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 
@@ -82,15 +79,11 @@ export function PreferencesView(props: PreferencesViewProps) {
               <Switch
                 aria-label={t("settings.auto_compact")}
                 checked={props.autoCompactContext}
-                disabled
+                disabled={props.busy || props.autoCompactContextBusy}
                 onCheckedChange={props.onToggleAutoCompactContext}
               />
             </LayoutSectionItemHeaderActions>
           </LayoutSectionItemHeader>
-          <Alert>
-            <Info />
-            <AlertDescription>{t("settings.auto_compact_unavailable")}</AlertDescription>
-          </Alert>
         </LayoutSectionItem>
       </LayoutSection>
     </LayoutStack>
