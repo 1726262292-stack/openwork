@@ -896,7 +896,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   </div>
                 )}
               </div>
-            ) : renderedMessages.length === 0 && !showAssistantWaitState && snapshot && snapshot.messages.length === 0 ? (
+            ) : renderedMessages.length === 0 && showAssistantWaitState ? (
+              <div className="px-6 py-12">
+                <AssistantWaitingCard />
+              </div>
+            ) : renderedMessages.length === 0 && snapshot && snapshot.messages.length === 0 ? (
               error ? (
                 <SessionErrorCard
                   error={error}
