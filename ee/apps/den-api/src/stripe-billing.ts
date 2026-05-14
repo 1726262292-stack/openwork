@@ -205,6 +205,7 @@ export async function createInferenceCheckoutSession(input: {
   return stripe().checkout.sessions.create({
     mode: "subscription",
     customer,
+    allow_promotion_codes: true,
     line_items: [{ price: priceId, quantity }],
     success_url: input.successUrl,
     cancel_url: input.cancelUrl,
