@@ -777,6 +777,7 @@ export const githubRepositorySchema = z.object({
   defaultBranch: z.string().trim().min(1).nullable(),
   hasPluginManifest: z.boolean().optional(),
   manifestKind: z.enum(["marketplace", "plugin"]).nullable().optional(),
+  manifestStandard: z.enum(["claude", "openai"]).nullable().optional(),
   marketplacePluginCount: z.number().int().nonnegative().nullable().optional(),
   private: z.boolean(),
 }).meta({ ref: "PluginArchGithubRepository" })
@@ -794,6 +795,7 @@ export const githubDiscoveryTreeSummarySchema = z.object({
 export const githubDiscoveredPluginSchema = z.object({
   key: z.string().trim().min(1),
   sourceKind: z.enum(["marketplace_entry", "plugin_manifest", "standalone_claude", "folder_inference"]),
+  standard: z.enum(["claude", "openai"]),
   rootPath: z.string(),
   displayName: z.string().trim().min(1),
   description: nullableStringSchema,
@@ -818,7 +820,7 @@ export const githubConnectorDiscoveryResponseSchema = pluginArchMutationResponse
   "PluginArchGithubConnectorDiscoveryResponse",
   z.object({
     autoImportNewPlugins: z.boolean(),
-    classification: z.enum(["claude_marketplace_repo", "claude_multi_plugin_repo", "claude_single_plugin_repo", "folder_inferred_repo", "unsupported"]),
+    classification: z.enum(["marketplace_repo", "multi_plugin_repo", "single_plugin_repo", "folder_inferred_repo", "unsupported"]),
     connectorInstance: connectorInstanceSchema,
     connectorTarget: connectorTargetSchema,
     discoveredPlugins: z.array(githubDiscoveredPluginSchema),

@@ -42,6 +42,7 @@ import {
   buildGithubRepoDiscovery,
   type GithubDiscoveredPlugin,
   type GithubDiscoveryClassification,
+  type GithubPluginStandard,
   type GithubMarketplaceInfo,
   type GithubDiscoveryTreeEntry,
 } from "./github-discovery.js"
@@ -159,6 +160,7 @@ type RepositorySummary = {
   hasPluginManifest?: boolean
   id: number
   manifestKind?: "marketplace" | "plugin" | null
+  manifestStandard?: "claude" | "openai" | null
   marketplacePluginCount?: number | null
   private: boolean
 }
@@ -2365,13 +2367,13 @@ function buildGithubConnectorDiscoverySteps(input: {
 }) {
   return [
     discoveryStep("completed", "read_repository_structure", "Read repository structure"),
-    discoveryStep(input.classification === "claude_marketplace_repo" ? "completed" : "warning", "check_marketplace_manifest", "Check for Claude marketplace manifest"),
+    discoveryStep(input.classification === "marketplace_repo" ? "completed" : "warning", "check_marketplace_manifest", "Check for supported marketplace manifests"),
     discoveryStep(
-      input.classification === "claude_single_plugin_repo" || input.classification === "claude_multi_plugin_repo"
+      input.classification === "single_plugin_repo" || input.classification === "multi_plugin_repo"
         ? "completed"
         : "warning",
       "check_plugin_manifests",
-      "Check for plugin manifests",
+      "Check for supported plugin manifests",
     ),
     discoveryStep(input.discoveredPlugins.length > 0 ? "completed" : "warning", "prepare_discovered_plugins", "Prepare discovered plugins"),
   ] satisfies GithubConnectorDiscoveryStep[]
@@ -2388,6 +2390,62 @@ function buildGithubDiscoveryImportPlans(input: { discoveredPlugins: GithubDisco
   ])) satisfies Record<string, GithubDiscoveryImportPlan[]>
 }
 
+function normalizeGithubPluginStandard(value: unknown): GithubPluginStandard | null {
+  return value === "claude" || value === "openai" ? value : null
+}
+
+function inferGithubPluginStandard(input: { key?: string | null; manifestPath?: string | null }) {
+  if (input.key?.startsWith("openai:")) return "openai" satisfies GithubPluginStandard
+  if (input.manifestPath?.includes(".codex-plugin/")) return "openai" satisfies GithubPluginStandard
+  return "claude" satisfies GithubPluginStandard
+}
+
+function normalizeGithubDiscoveryClassification(value: unknown): GithubDiscoveryClassification | null {
+  if (value === "marketplace_repo"
+    || value === "multi_plugin_repo"
+    || value === "single_plugin_repo"
+    || value === "folder_inferred_repo"
+    || value === "unsupported") {
+    return value
+  }
+  if (value === "claude_marketplace_repo") return "marketplace_repo"
+  if (value === "claude_multi_plugin_repo") return "multi_plugin_repo"
+  if (value === "claude_single_plugin_repo") return "single_plugin_repo"
+  return null
+}
+
+function normalizeGithubDiscoveredPlugin(entry: unknown): GithubDiscoveredPlugin | null {
+  if (!isRecord(entry)) {
+    return null
+  }
+
+  const standard = normalizeGithubPluginStandard(entry.standard) ?? inferGithubPluginStandard({
+    key: typeof entry.key === "string" ? entry.key : null,
+    manifestPath: typeof entry.manifestPath === "string" ? entry.manifestPath : null,
+  })
+
+  return {
+    ...entry,
+    standard,
+  } as GithubDiscoveredPlugin
+}
+
+function normalizeGithubMarketplaceInfo(entry: unknown, fallbackStandard: GithubPluginStandard | null) {
+  if (!isRecord(entry)) {
+    return null
+  }
+
+  const standard = normalizeGithubPluginStandard(entry.standard) ?? fallbackStandard
+  if (!standard) {
+    return null
+  }
+
+  return {
+    ...entry,
+    standard,
+  } as GithubMarketplaceInfo
+}
+
 function readGithubDiscoveryCache(config: Record<string, unknown> | null) {
   const cache = config && isRecord(config.githubDiscoveryCache) ? config.githubDiscoveryCache : null
   if (!cache) {
@@ -2398,13 +2456,18 @@ function readGithubDiscoveryCache(config: Record<string, unknown> | null) {
   const branch = typeof cache.branch === "string" ? cache.branch : null
   const ref = typeof cache.ref === "string" ? cache.ref : null
   const sourceRevisionRef = typeof cache.sourceRevisionRef === "string" ? cache.sourceRevisionRef : null
-  const discoveredPlugins = Array.isArray(cache.discoveredPlugins) ? cache.discoveredPlugins as GithubDiscoveredPlugin[] : null
+  const classification = normalizeGithubDiscoveryClassification(cache.classification)
+  const discoveredPlugins = Array.isArray(cache.discoveredPlugins)
+    ? cache.discoveredPlugins.map(normalizeGithubDiscoveredPlugin).filter((entry): entry is GithubDiscoveredPlugin => entry !== null)
+    : null
   const warnings = Array.isArray(cache.warnings) ? cache.warnings.filter((entry): entry is string => typeof entry === "string") : null
   const treeSummary = isRecord(cache.treeSummary) ? cache.treeSummary as GithubConnectorDiscoveryTreeSummary : null
   const importPlansByPluginKey = isRecord(cache.importPlansByPluginKey)
     ? cache.importPlansByPluginKey as Record<string, GithubDiscoveryImportPlan[]>
     : null
-  const classification = typeof cache.classification === "string" ? cache.classification as GithubDiscoveryClassification : null
+  const fallbackStandard = classification === "marketplace_repo" || classification === "single_plugin_repo" || classification === "multi_plugin_repo"
+    ? (discoveredPlugins?.[0]?.standard ?? "claude")
+    : null
 
   if (!repositoryFullName || !branch || !ref || !sourceRevisionRef || !discoveredPlugins || !warnings || !treeSummary || !importPlansByPluginKey || !classification) {
     return null
@@ -2415,7 +2478,7 @@ function readGithubDiscoveryCache(config: Record<string, unknown> | null) {
     classification,
     discoveredPlugins,
     importPlansByPluginKey,
-    marketplace: isRecord(cache.marketplace) || cache.marketplace === null ? cache.marketplace as GithubMarketplaceInfo | null : null,
+    marketplace: cache.marketplace === null ? null : normalizeGithubMarketplaceInfo(cache.marketplace, fallbackStandard),
     ref,
     repositoryFullName,
     sourceRevisionRef,
@@ -2581,12 +2644,19 @@ async function getGithubDiscoveryFileTexts(input: {
   const interestingPaths = new Set<string>()
   const knownPaths = new Set(input.treeEntries.map((entry) => entry.path))
 
-  if (knownPaths.has(".claude-plugin/marketplace.json")) {
-    interestingPaths.add(".claude-plugin/marketplace.json")
+  for (const manifestPath of [".claude-plugin/marketplace.json", ".agents/plugins/marketplace.json"]) {
+    if (knownPaths.has(manifestPath)) {
+      interestingPaths.add(manifestPath)
+    }
   }
 
   for (const entry of input.treeEntries) {
-    if (entry.path.endsWith(".claude-plugin/plugin.json") || entry.path.endsWith("/plugin.json") || entry.path === "plugin.json") {
+    if (
+      entry.path.endsWith(".claude-plugin/plugin.json")
+      || entry.path.endsWith(".codex-plugin/plugin.json")
+      || entry.path.endsWith("/plugin.json")
+      || entry.path === "plugin.json"
+    ) {
       interestingPaths.add(entry.path)
     }
   }
@@ -3379,7 +3449,7 @@ export async function applyGithubConnectorDiscovery(input: { autoImportNewPlugin
   const marketplaceName = marketplaceInfo?.name?.trim() || discovery.cache.repositoryFullName
   const marketplaceDescription = marketplaceInfo?.description?.trim()
     ?? `Imported from GitHub marketplace repository ${discovery.cache.repositoryFullName}.`
-  const createdMarketplace = discovery.cache.classification === "claude_marketplace_repo"
+  const createdMarketplace = discovery.cache.classification === "marketplace_repo"
     ? await ensureDiscoveryMarketplace({
         context: input.context,
         description: marketplaceDescription,
@@ -3481,6 +3551,7 @@ export async function listGithubRepositories(input: { connectorAccountId: Connec
         hasPluginManifest: repository.hasPluginManifest ?? false,
         id: repository.id,
         manifestKind: repository.manifestKind ?? null,
+        manifestStandard: repository.manifestStandard ?? null,
         marketplacePluginCount: repository.marketplacePluginCount ?? null,
         private: repository.private,
       })),
@@ -3501,6 +3572,7 @@ export async function listGithubRepositories(input: { connectorAccountId: Connec
       hasPluginManifest: Boolean(repository.hasPluginManifest),
       id: Number(repository.id),
       manifestKind: repository.manifestKind ?? null,
+      manifestStandard: repository.manifestStandard ?? null,
       marketplacePluginCount: repository.marketplacePluginCount ?? null,
       private: repository.private,
     })),

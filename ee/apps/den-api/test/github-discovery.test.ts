@@ -6,7 +6,7 @@ function blob(path: string): GithubDiscoveryTreeEntry {
 }
 
 describe("github discovery", () => {
-  test("classifies marketplace repos and resolves local plugin roots", () => {
+  test("classifies Claude marketplace repos and resolves local plugin roots", () => {
     const result = buildGithubRepoDiscovery({
       entries: [
         blob(".claude-plugin/marketplace.json"),
@@ -27,15 +27,73 @@ describe("github discovery", () => {
       },
     })
 
-    expect(result.classification).toBe("claude_marketplace_repo")
+    expect(result.classification).toBe("marketplace_repo")
     expect(result.discoveredPlugins).toHaveLength(1)
     expect(result.discoveredPlugins[0]).toMatchObject({
       displayName: "sales",
       rootPath: "plugins/sales",
       sourceKind: "marketplace_entry",
+      standard: "claude",
     })
     expect(result.discoveredPlugins[0]?.componentPaths.skills).toEqual(["plugins/sales/skills"])
     expect(result.discoveredPlugins[0]?.componentPaths.commands).toEqual(["plugins/sales/commands"])
+  })
+
+  test("classifies OpenAI marketplace repos and resolves plugin manifests from local entries", () => {
+    const result = buildGithubRepoDiscovery({
+      entries: [
+        blob(".agents/plugins/marketplace.json"),
+        blob("plugins/research/.codex-plugin/plugin.json"),
+        blob("plugins/research/skills/triage/SKILL.md"),
+        blob("plugins/research/.mcp.json"),
+      ],
+      fileTextByPath: {
+        ".agents/plugins/marketplace.json": JSON.stringify({
+          name: "local-example-plugins",
+          interface: { displayName: "Local Example Plugins" },
+          plugins: [
+            {
+              name: "research-helper",
+              source: {
+                source: "local",
+                path: "./plugins/research",
+              },
+              policy: {
+                authentication: "ON_INSTALL",
+                installation: "AVAILABLE",
+              },
+              category: "Productivity",
+            },
+          ],
+        }),
+        "plugins/research/.codex-plugin/plugin.json": JSON.stringify({
+          name: "research-helper",
+          version: "0.1.0",
+          description: "Bundle reusable skills and app integrations.",
+          skills: "./skills/",
+          mcpServers: "./.mcp.json",
+          interface: {
+            displayName: "Research Helper",
+            shortDescription: "Reusable skills and MCP servers",
+          },
+        }),
+      },
+    })
+
+    expect(result.classification).toBe("marketplace_repo")
+    expect(result.marketplace).toMatchObject({
+      name: "Local Example Plugins",
+      standard: "openai",
+    })
+    expect(result.discoveredPlugins).toHaveLength(1)
+    expect(result.discoveredPlugins[0]).toMatchObject({
+      displayName: "Research Helper",
+      rootPath: "plugins/research",
+      sourceKind: "marketplace_entry",
+      standard: "openai",
+    })
+    expect(result.discoveredPlugins[0]?.componentPaths.skills).toEqual(["plugins/research/skills"])
+    expect(result.discoveredPlugins[0]?.componentPaths.mcpServers).toEqual(["plugins/research/.mcp.json"])
   })
 
   test("treats marketplace source './' as the current repo root", () => {
@@ -61,19 +119,47 @@ describe("github discovery", () => {
       },
     })
 
-    expect(result.classification).toBe("claude_marketplace_repo")
+    expect(result.classification).toBe("marketplace_repo")
     expect(result.warnings).toEqual([])
     expect(result.discoveredPlugins).toHaveLength(1)
     expect(result.discoveredPlugins[0]).toMatchObject({
       displayName: "agent-browser",
       rootPath: "",
       sourceKind: "marketplace_entry",
+      standard: "claude",
       supported: true,
     })
     expect(result.discoveredPlugins[0]?.componentPaths.skills).toEqual(["skills/agent-browser"])
   })
 
-  test("treats non-Claude folder-only repos as unsupported", () => {
+  test("warns when an OpenAI plugin only exposes app bundles", () => {
+    const result = buildGithubRepoDiscovery({
+      entries: [
+        blob(".codex-plugin/plugin.json"),
+        blob(".app.json"),
+      ],
+      fileTextByPath: {
+        ".codex-plugin/plugin.json": JSON.stringify({
+          name: "app-only-plugin",
+          apps: "./.app.json",
+          interface: {
+            displayName: "App Only Plugin",
+          },
+        }),
+      },
+    })
+
+    expect(result.classification).toBe("single_plugin_repo")
+    expect(result.discoveredPlugins).toHaveLength(1)
+    expect(result.discoveredPlugins[0]).toMatchObject({
+      displayName: "App Only Plugin",
+      standard: "openai",
+      supported: false,
+    })
+    expect(result.discoveredPlugins[0]?.warnings[0]).toContain("OpenAI app bundle")
+  })
+
+  test("treats folder-only repos as unsupported without supported manifests", () => {
     const result = buildGithubRepoDiscovery({
       entries: [
         blob("Sales/skills/pitch/SKILL.md"),
@@ -88,7 +174,7 @@ describe("github discovery", () => {
 
     expect(result.classification).toBe("unsupported")
     expect(result.discoveredPlugins).toEqual([])
-    expect(result.warnings[0]).toContain("only supports Claude-compatible plugins and marketplaces")
+    expect(result.warnings[0]).toContain("supports Claude and OpenAI plugins and marketplaces")
   })
 
   test("treats standalone .claude directories as unsupported without plugin manifests", () => {
@@ -102,6 +188,6 @@ describe("github discovery", () => {
 
     expect(result.classification).toBe("unsupported")
     expect(result.discoveredPlugins).toEqual([])
-    expect(result.warnings[0]).toContain("only supports Claude-compatible plugins and marketplaces")
+    expect(result.warnings[0]).toContain("supports Claude and OpenAI plugins and marketplaces")
   })
 })

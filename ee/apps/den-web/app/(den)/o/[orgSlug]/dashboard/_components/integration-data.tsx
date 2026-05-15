@@ -19,6 +19,7 @@ export type IntegrationAccount = {
 };
 
 export type IntegrationRepoManifestKind = "marketplace" | "plugin" | null;
+export type IntegrationRepoManifestStandard = "claude" | "openai" | null;
 
 export type IntegrationRepo = {
   connectorInstanceId?: string;
@@ -28,6 +29,7 @@ export type IntegrationRepo = {
   description: string;
   hasPluginManifest?: boolean;
   manifestKind?: IntegrationRepoManifestKind;
+  manifestStandard?: IntegrationRepoManifestStandard;
   marketplacePluginCount?: number | null;
   hasPlugins: boolean;
   defaultBranch?: string | null;
@@ -87,6 +89,7 @@ export type GithubDiscoveredPlugin = {
   rootPath: string;
   selectedByDefault: boolean;
   sourceKind: string;
+  standard: "claude" | "openai";
   supported: boolean;
   warnings: string[];
 };
@@ -201,6 +204,20 @@ function asString(value: unknown): string | null {
 
 function asNullableString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function describeRepositoryManifest(
+  kind: IntegrationRepoManifestKind,
+  standard: IntegrationRepoManifestStandard,
+) {
+  const standardLabel = standard === "openai" ? "OpenAI" : standard === "claude" ? "Claude" : "Supported";
+  if (kind === "marketplace") {
+    return `${standardLabel} marketplace manifest detected.`;
+  }
+  if (kind === "plugin") {
+    return `${standardLabel} plugin manifest detected.`;
+  }
+  return "Repository available to connect.";
 }
 
 function parseGithubConnectorAccounts(payload: unknown) {
@@ -470,18 +487,19 @@ export function useGithubInstallCompletion(input: { installationId: number | nul
             const manifestKind: IntegrationRepoManifestKind = manifestKindValue === "marketplace" || manifestKindValue === "plugin"
               ? manifestKindValue
               : null;
+            const manifestStandardValue = entry.manifestStandard;
+            const manifestStandard: IntegrationRepoManifestStandard = manifestStandardValue === "claude" || manifestStandardValue === "openai"
+              ? manifestStandardValue
+              : null;
             return [{
               defaultBranch: asNullableString(entry.defaultBranch),
-              description: manifestKind === "marketplace"
-                ? "Claude marketplace manifest detected."
-                : manifestKind === "plugin"
-                  ? "Claude plugin manifest detected."
-                  : "Repository available to connect.",
+              description: describeRepositoryManifest(manifestKind, manifestStandard),
               fullName,
               hasPluginManifest: Boolean(entry.hasPluginManifest),
               hasPlugins: Boolean(entry.hasPluginManifest),
               id,
               manifestKind,
+              manifestStandard,
               marketplacePluginCount: typeof entry.marketplacePluginCount === "number" ? entry.marketplacePluginCount : null,
               name: toRepoName(fullName),
               private: Boolean(entry.private),
@@ -536,18 +554,19 @@ export function useGithubAccountRepositories(connectorAccountId: string | null) 
             const manifestKind: IntegrationRepoManifestKind = manifestKindValue === "marketplace" || manifestKindValue === "plugin"
               ? manifestKindValue
               : null;
+            const manifestStandardValue = entry.manifestStandard;
+            const manifestStandard: IntegrationRepoManifestStandard = manifestStandardValue === "claude" || manifestStandardValue === "openai"
+              ? manifestStandardValue
+              : null;
             return [{
               defaultBranch: asNullableString(entry.defaultBranch),
-              description: manifestKind === "marketplace"
-                ? "Claude marketplace manifest detected."
-                : manifestKind === "plugin"
-                  ? "Claude plugin manifest detected."
-                  : "Repository available to connect.",
+              description: describeRepositoryManifest(manifestKind, manifestStandard),
               fullName,
               hasPluginManifest: Boolean(entry.hasPluginManifest),
               hasPlugins: Boolean(entry.hasPluginManifest),
               id,
               manifestKind,
+              manifestStandard,
               marketplacePluginCount: typeof entry.marketplacePluginCount === "number" ? entry.marketplacePluginCount : null,
               name: toRepoName(fullName),
               private: Boolean(entry.private),
@@ -685,6 +704,7 @@ export function useGithubConnectorDiscovery(connectorInstanceId: string | null) 
               rootPath: typeof entry.rootPath === "string" ? entry.rootPath : "",
               selectedByDefault: Boolean(entry.selectedByDefault),
               sourceKind: asString(entry.sourceKind) ?? "folder_inference",
+              standard: entry.standard === "openai" ? "openai" : "claude",
               supported: Boolean(entry.supported),
               warnings: Array.isArray(entry.warnings)
                 ? entry.warnings.flatMap((candidate) => {

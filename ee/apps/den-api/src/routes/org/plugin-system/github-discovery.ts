@@ -8,10 +8,12 @@ export type GithubDiscoveryTreeEntry = {
   size: number | null
 }
 
+export type GithubPluginStandard = "claude" | "openai"
+
 export type GithubDiscoveryClassification =
-  | "claude_marketplace_repo"
-  | "claude_multi_plugin_repo"
-  | "claude_single_plugin_repo"
+  | "marketplace_repo"
+  | "multi_plugin_repo"
+  | "single_plugin_repo"
   | "folder_inferred_repo"
   | "unsupported"
 
@@ -51,6 +53,7 @@ export type GithubDiscoveredPlugin = {
   rootPath: string
   selectedByDefault: boolean
   sourceKind: GithubDiscoveredPluginSourceKind
+  standard: GithubPluginStandard
   supported: boolean
   warnings: string[]
 }
@@ -59,6 +62,7 @@ export type GithubMarketplaceInfo = {
   description: string | null
   name: string | null
   owner: string | null
+  standard: GithubPluginStandard
   version: string | null
 }
 
@@ -83,11 +87,56 @@ type MarketplaceEntry = {
 
 type PluginMetadata = {
   description: string | null
+  displayName: string | null
   metadata: Record<string, unknown>
   name: string | null
 }
 
+type ComponentBucket = keyof GithubDiscoveredPlugin["componentPaths"]
+
+type GithubDiscoveryStandardDefinition = {
+  defaultComponentCandidates: (rootPath: string) => Array<{ bucket: ComponentBucket; kind: "directory" | "file"; path: string }>
+  fallbackMetadataPath?: (rootPath: string) => string | null
+  id: GithubPluginStandard
+  label: string
+  marketplaceManifestPath: string
+  pluginManifestPath: string
+}
+
 const KNOWN_COMPONENT_SEGMENTS = ["skills", "commands", "agents"] as const
+
+const DISCOVERY_STANDARDS = [
+  {
+    defaultComponentCandidates: (rootPath) => [
+      { bucket: "skills", kind: "directory", path: joinPath(rootPath, "skills") },
+      { bucket: "skills", kind: "directory", path: joinPath(rootPath, ".claude/skills") },
+      { bucket: "commands", kind: "directory", path: joinPath(rootPath, "commands") },
+      { bucket: "commands", kind: "directory", path: joinPath(rootPath, ".claude/commands") },
+      { bucket: "agents", kind: "directory", path: joinPath(rootPath, "agents") },
+      { bucket: "agents", kind: "directory", path: joinPath(rootPath, ".claude/agents") },
+      { bucket: "hooks", kind: "file", path: joinPath(rootPath, "hooks/hooks.json") },
+      { bucket: "mcpServers", kind: "file", path: joinPath(rootPath, ".mcp.json") },
+      { bucket: "lspServers", kind: "file", path: joinPath(rootPath, ".lsp.json") },
+      { bucket: "monitors", kind: "file", path: joinPath(rootPath, "monitors/monitors.json") },
+      { bucket: "settings", kind: "file", path: joinPath(rootPath, "settings.json") },
+    ],
+    fallbackMetadataPath: (rootPath) => joinPath(rootPath, "plugin.json"),
+    id: "claude",
+    label: "Claude",
+    marketplaceManifestPath: ".claude-plugin/marketplace.json",
+    pluginManifestPath: ".claude-plugin/plugin.json",
+  },
+  {
+    defaultComponentCandidates: (rootPath) => [
+      { bucket: "skills", kind: "directory", path: joinPath(rootPath, "skills") },
+      { bucket: "mcpServers", kind: "file", path: joinPath(rootPath, ".mcp.json") },
+    ],
+    id: "openai",
+    label: "OpenAI",
+    marketplaceManifestPath: ".agents/plugins/marketplace.json",
+    pluginManifestPath: ".codex-plugin/plugin.json",
+  },
+] satisfies GithubDiscoveryStandardDefinition[]
 
 function normalizePath(value: string) {
   return value.trim().replace(/^\.\//, "").replace(/^\/+/, "").replace(/\/+$/, "")
@@ -164,34 +213,48 @@ function readJsonMap(fileTextByPath: Record<string, string | null | undefined>, 
   }
 }
 
-function readPluginMetadata(fileTextByPath: Record<string, string | null | undefined>, rootPath: string, manifestPath?: string | null): PluginMetadata {
-  const manifestCandidate = manifestPath ? normalizePath(manifestPath) : normalizePath(joinPath(rootPath, ".claude-plugin/plugin.json"))
+function readPluginMetadataFromManifest(manifest: Record<string, unknown>): PluginMetadata {
+  const interfaceMetadata = isRecord(manifest.interface) ? manifest.interface : null
+  return {
+    description: asString(interfaceMetadata?.shortDescription)
+      ?? asString(interfaceMetadata?.longDescription)
+      ?? asString(manifest.description),
+    displayName: asString(interfaceMetadata?.displayName) ?? asString(manifest.name),
+    metadata: manifest,
+    name: asString(manifest.name),
+  }
+}
+
+function readPluginMetadata(
+  fileTextByPath: Record<string, string | null | undefined>,
+  rootPath: string,
+  standard: GithubPluginStandard,
+  manifestPath?: string | null,
+): PluginMetadata {
+  const definition = DISCOVERY_STANDARDS.find((entry) => entry.id === standard)
+  const manifestCandidate = manifestPath
+    ? normalizePath(manifestPath)
+    : normalizePath(joinPath(rootPath, definition?.pluginManifestPath ?? ""))
   const explicitManifest = manifestCandidate ? readJsonMap(fileTextByPath, manifestCandidate) : null
   if (isRecord(explicitManifest)) {
-    return {
-      description: asString(explicitManifest.description),
-      metadata: explicitManifest,
-      name: asString(explicitManifest.name),
-    }
+    return readPluginMetadataFromManifest(explicitManifest)
   }
 
-  const fallbackPluginJson = readJsonMap(fileTextByPath, joinPath(rootPath, "plugin.json"))
+  const fallbackPath = definition?.fallbackMetadataPath?.(rootPath)
+  const fallbackPluginJson = fallbackPath ? readJsonMap(fileTextByPath, fallbackPath) : null
   if (isRecord(fallbackPluginJson)) {
-    return {
-      description: asString(fallbackPluginJson.description),
-      metadata: fallbackPluginJson,
-      name: asString(fallbackPluginJson.name),
-    }
+    return readPluginMetadataFromManifest(fallbackPluginJson)
   }
 
   return {
     description: null,
+    displayName: null,
     metadata: {},
     name: null,
   }
 }
 
-function collectComponentPaths(knownPaths: Set<string>, rootPath: string) {
+function collectComponentPaths(knownPaths: Set<string>, rootPath: string, standard: GithubPluginStandard) {
   const componentPaths = {
     agents: [] as string[],
     commands: [] as string[],
@@ -203,38 +266,28 @@ function collectComponentPaths(knownPaths: Set<string>, rootPath: string) {
     skills: [] as string[],
   }
 
-  const candidates: Array<[keyof typeof componentPaths, string]> = [
-    ["skills", joinPath(rootPath, "skills")],
-    ["skills", joinPath(rootPath, ".claude/skills")],
-    ["commands", joinPath(rootPath, "commands")],
-    ["commands", joinPath(rootPath, ".claude/commands")],
-    ["agents", joinPath(rootPath, "agents")],
-    ["agents", joinPath(rootPath, ".claude/agents")],
-    ["hooks", joinPath(rootPath, "hooks/hooks.json")],
-    ["mcpServers", joinPath(rootPath, ".mcp.json")],
-    ["lspServers", joinPath(rootPath, ".lsp.json")],
-    ["monitors", joinPath(rootPath, "monitors/monitors.json")],
-    ["settings", joinPath(rootPath, "settings.json")],
-  ]
+  const definition = DISCOVERY_STANDARDS.find((entry) => entry.id === standard)
+  const candidates = definition?.defaultComponentCandidates(rootPath) ?? []
 
-  for (const [bucket, candidate] of candidates) {
-    if (!candidate) continue
-    if (bucket === "hooks" || bucket === "mcpServers" || bucket === "lspServers" || bucket === "monitors" || bucket === "settings") {
-      if (hasPath(knownPaths, candidate)) {
-        componentPaths[bucket].push(candidate)
-      }
-      continue
-    }
-
-    if (hasDescendant(knownPaths, candidate)) {
-      componentPaths[bucket].push(candidate)
+  for (const candidate of candidates) {
+    if (!candidate.path) continue
+    const matches = candidate.kind === "directory"
+      ? hasDescendant(knownPaths, candidate.path)
+      : hasPath(knownPaths, candidate.path)
+    if (matches) {
+      componentPaths[candidate.bucket].push(candidate.path)
     }
   }
 
   return componentPaths
 }
 
-function readStringArray(value: unknown) {
+function readPathArray(value: unknown) {
+  if (typeof value === "string") {
+    const normalized = asString(value)
+    return normalized ? [normalized] : []
+  }
+
   return Array.isArray(value)
     ? value.flatMap((entry) => {
         const normalized = asString(entry)
@@ -243,34 +296,38 @@ function readStringArray(value: unknown) {
     : []
 }
 
+function resolveDeclaredPaths(input: {
+  knownPaths: Set<string>
+  rootPath: string
+  values: unknown
+} & { directory?: boolean; file?: boolean }) {
+  const paths: string[] = []
+  for (const value of readPathArray(input.values)) {
+    const candidate = joinPath(input.rootPath, value)
+    if (!candidate && !input.rootPath) {
+      continue
+    }
+    if ((input.directory && hasDescendant(input.knownPaths, candidate)) || (input.file && hasPath(input.knownPaths, candidate))) {
+      paths.push(candidate)
+    }
+  }
+  return paths
+}
+
 function declaredComponentPaths(input: {
   declared: Partial<Record<keyof GithubDiscoveredPlugin["componentPaths"], unknown>>
   knownPaths: Set<string>
   rootPath: string
 }) {
-  const collect = (values: unknown, { file, directory }: { file?: boolean; directory?: boolean }) => {
-    const paths: string[] = []
-    for (const value of readStringArray(values)) {
-      const candidate = joinPath(input.rootPath, value)
-      if (!candidate && !input.rootPath) {
-        continue
-      }
-      if ((directory && hasDescendant(input.knownPaths, candidate)) || (file && hasPath(input.knownPaths, candidate))) {
-        paths.push(candidate)
-      }
-    }
-    return paths
-  }
-
   return {
-    agents: collect(input.declared.agents, { directory: true }),
-    commands: collect(input.declared.commands, { directory: true }),
-    hooks: collect(input.declared.hooks, { file: true, directory: true }),
+    agents: resolveDeclaredPaths({ directory: true, knownPaths: input.knownPaths, rootPath: input.rootPath, values: input.declared.agents }),
+    commands: resolveDeclaredPaths({ directory: true, knownPaths: input.knownPaths, rootPath: input.rootPath, values: input.declared.commands }),
+    hooks: resolveDeclaredPaths({ directory: true, file: true, knownPaths: input.knownPaths, rootPath: input.rootPath, values: input.declared.hooks }),
     lspServers: [],
-    mcpServers: collect(input.declared.mcpServers, { file: true }),
+    mcpServers: resolveDeclaredPaths({ file: true, knownPaths: input.knownPaths, rootPath: input.rootPath, values: input.declared.mcpServers }),
     monitors: [],
-    settings: collect(input.declared.settings, { file: true }),
-    skills: collect(input.declared.skills, { directory: true }),
+    settings: resolveDeclaredPaths({ file: true, knownPaths: input.knownPaths, rootPath: input.rootPath, values: input.declared.settings }),
+    skills: resolveDeclaredPaths({ directory: true, knownPaths: input.knownPaths, rootPath: input.rootPath, values: input.declared.skills }),
   } satisfies GithubDiscoveredPlugin["componentPaths"]
 }
 
@@ -306,6 +363,33 @@ function componentKindsFromPaths(componentPaths: GithubDiscoveredPlugin["compone
   return kinds
 }
 
+function pluginManifestWarnings(input: {
+  knownPaths: Set<string>
+  metadata: PluginMetadata
+  rootPath: string
+  standard: GithubPluginStandard
+}) {
+  if (input.standard !== "openai") {
+    return []
+  }
+
+  const appPaths = resolveDeclaredPaths({
+    file: true,
+    knownPaths: input.knownPaths,
+    rootPath: input.rootPath,
+    values: input.metadata.metadata.apps,
+  })
+  if (appPaths.length === 0) {
+    return []
+  }
+
+  return [
+    appPaths.length === 1
+      ? `OpenAI app bundle ${appPaths[0]} is not imported yet. OpenWork will import the plugin's skills and MCP servers only.`
+      : "OpenAI app bundles are not imported yet. OpenWork will import the plugin's skills and MCP servers only.",
+  ]
+}
+
 function buildDiscoveredPlugin(input: {
   componentPathsOverride?: GithubDiscoveredPlugin["componentPaths"] | null
   description?: string | null
@@ -316,21 +400,33 @@ function buildDiscoveredPlugin(input: {
   manifestPath?: string | null
   rootPath: string
   sourceKind: GithubDiscoveredPluginSourceKind
+  standard: GithubPluginStandard
   supported?: boolean
   warnings?: string[]
 }) {
-  const metadata = readPluginMetadata(input.fileTextByPath, input.rootPath, input.manifestPath)
+  const metadata = readPluginMetadata(input.fileTextByPath, input.rootPath, input.standard, input.manifestPath)
   const manifestDeclaredPaths = declaredComponentPaths({
     declared: metadata.metadata,
     knownPaths: input.knownPaths,
     rootPath: input.rootPath,
   })
   const componentPaths = input.componentPathsOverride
-    ?? (hasAnyComponentPaths(manifestDeclaredPaths) ? manifestDeclaredPaths : collectComponentPaths(input.knownPaths, input.rootPath))
-  const displayName = input.displayName?.trim()
+    ?? (hasAnyComponentPaths(manifestDeclaredPaths) ? manifestDeclaredPaths : collectComponentPaths(input.knownPaths, input.rootPath, input.standard))
+  const displayName = metadata.displayName
+    || input.displayName?.trim()
     || metadata.name
     || basename(input.rootPath)
     || "Repository plugin"
+  const derivedWarnings = pluginManifestWarnings({
+    knownPaths: input.knownPaths,
+    metadata,
+    rootPath: input.rootPath,
+    standard: input.standard,
+  })
+  const warnings = [...(input.warnings ?? []), ...derivedWarnings]
+  const supported = input.supported === false
+    ? false
+    : !(warnings.length > 0 && !hasAnyComponentPaths(componentPaths))
 
   return {
     componentKinds: componentKindsFromPaths(componentPaths),
@@ -338,14 +434,23 @@ function buildDiscoveredPlugin(input: {
     description: input.description ?? metadata.description,
     displayName,
     key: input.key,
-    manifestPath: input.manifestPath ? normalizePath(input.manifestPath) : (hasPath(input.knownPaths, joinPath(input.rootPath, ".claude-plugin/plugin.json")) ? joinPath(input.rootPath, ".claude-plugin/plugin.json") : null),
+    manifestPath: input.manifestPath
+      ? normalizePath(input.manifestPath)
+      : (hasPath(input.knownPaths, joinPath(input.rootPath, discoveryDefinition(input.standard).pluginManifestPath))
+          ? joinPath(input.rootPath, discoveryDefinition(input.standard).pluginManifestPath)
+          : null),
     metadata: metadata.metadata,
     rootPath: normalizePath(input.rootPath),
-    selectedByDefault: input.supported !== false,
+    selectedByDefault: supported,
     sourceKind: input.sourceKind,
-    supported: input.supported !== false,
-    warnings: input.warnings ?? [],
+    standard: input.standard,
+    supported,
+    warnings,
   } satisfies GithubDiscoveredPlugin
+}
+
+function discoveryDefinition(standard: GithubPluginStandard) {
+  return DISCOVERY_STANDARDS.find((entry) => entry.id === standard) ?? DISCOVERY_STANDARDS[0]
 }
 
 function localMarketplaceRoot(entry: MarketplaceEntry) {
@@ -357,6 +462,11 @@ function localMarketplaceRoot(entry: MarketplaceEntry) {
     return null
   }
 
+  const sourceType = asString(entry.source.source)
+  if (sourceType && sourceType !== "local") {
+    return null
+  }
+
   if (typeof entry.source.url === "string") {
     return null
   }
@@ -365,11 +475,21 @@ function localMarketplaceRoot(entry: MarketplaceEntry) {
   return localPath ? normalizePath(localPath) : null
 }
 
-function pluginRootsFromManifests(entries: GithubDiscoveryTreeEntry[]) {
+function pluginRootFromManifestPath(path: string, standard: GithubPluginStandard) {
+  const normalizedPath = normalizePath(path)
+  const pluginManifestPath = discoveryDefinition(standard).pluginManifestPath
+  if (normalizedPath === pluginManifestPath) {
+    return ""
+  }
+
+  const suffix = `/${pluginManifestPath}`
+  return normalizedPath.endsWith(suffix) ? normalizedPath.slice(0, -suffix.length) : null
+}
+
+function pluginRootsFromManifests(entries: GithubDiscoveryTreeEntry[], standard: GithubPluginStandard) {
   return entries
-    .map((entry) => normalizePath(entry.path))
-    .filter((path) => path.endsWith(".claude-plugin/plugin.json"))
-    .map((path) => path.slice(0, -"/.claude-plugin/plugin.json".length))
+    .map((entry) => pluginRootFromManifestPath(entry.path, standard))
+    .filter((path): path is string => path !== null)
 }
 
 function inferredRootsFromKnownFolders(entries: GithubDiscoveryTreeEntry[]) {
@@ -395,6 +515,25 @@ function inferredRootsFromKnownFolders(entries: GithubDiscoveryTreeEntry[]) {
   return [...inferred]
 }
 
+function marketplaceInfoFromManifest(manifest: Record<string, unknown>, standard: GithubPluginStandard): GithubMarketplaceInfo {
+  const interfaceMetadata = isRecord(manifest.interface) ? manifest.interface : null
+  return {
+    description: asString(manifest.description)
+      ?? asString(interfaceMetadata?.shortDescription)
+      ?? asString(interfaceMetadata?.longDescription),
+    name: asString(interfaceMetadata?.displayName) ?? asString(manifest.name),
+    owner: isRecord(manifest.owner)
+      ? asString(manifest.owner.name) ?? asString(manifest.owner.login) ?? asString(manifest.owner)
+      : asString(manifest.owner),
+    standard,
+    version: asString(manifest.version),
+  }
+}
+
+function supportedManifestWarning() {
+  return "OpenWork currently supports Claude and OpenAI plugins and marketplaces. Add `.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json`, `.agents/plugins/marketplace.json`, or `.codex-plugin/plugin.json` to this repository."
+}
+
 export function buildGithubRepoDiscovery(input: {
   entries: GithubDiscoveryTreeEntry[]
   fileTextByPath: Record<string, string | null | undefined>
@@ -402,22 +541,27 @@ export function buildGithubRepoDiscovery(input: {
   const knownPaths = buildPathSet(input.entries)
   const warnings: string[] = []
 
-  if (hasPath(knownPaths, ".claude-plugin/marketplace.json")) {
-    const marketplaceJson = readJsonMap(input.fileTextByPath, ".claude-plugin/marketplace.json")
+  const marketplaceDefinitions = DISCOVERY_STANDARDS.filter((definition) => hasPath(knownPaths, definition.marketplaceManifestPath))
+  if (marketplaceDefinitions.length > 0) {
+    const definition = marketplaceDefinitions[0]
+    if (marketplaceDefinitions.length > 1) {
+      warnings.push(`Multiple marketplace manifests were detected. OpenWork is using the ${definition.label} marketplace manifest at ${definition.marketplaceManifestPath}.`)
+    }
+
+    const marketplaceJson = readJsonMap(input.fileTextByPath, definition.marketplaceManifestPath)
     const marketplaceEntries = isRecord(marketplaceJson) && Array.isArray(marketplaceJson.plugins)
       ? marketplaceJson.plugins.filter(isRecord) as MarketplaceEntry[]
       : []
 
-    const marketplaceInfo: GithubMarketplaceInfo = isRecord(marketplaceJson)
-      ? {
-          description: asString(marketplaceJson.description),
-          name: asString(marketplaceJson.name),
-          owner: isRecord(marketplaceJson.owner)
-            ? asString(marketplaceJson.owner.name) ?? asString(marketplaceJson.owner.login) ?? asString(marketplaceJson.owner)
-            : asString(marketplaceJson.owner),
-          version: asString(marketplaceJson.version),
-        }
-      : { description: null, name: null, owner: null, version: null }
+    const marketplaceInfo = isRecord(marketplaceJson)
+      ? marketplaceInfoFromManifest(marketplaceJson, definition.id)
+      : {
+          description: null,
+          name: null,
+          owner: null,
+          standard: definition.id,
+          version: null,
+        } satisfies GithubMarketplaceInfo
 
     const discoveredPlugins = marketplaceEntries.map((entry, index) => {
       const rootPath = localMarketplaceRoot(entry)
@@ -428,11 +572,12 @@ export function buildGithubRepoDiscovery(input: {
           description: asString(entry.description),
           displayName: asString(entry.name) ?? `Marketplace plugin ${index + 1}`,
           fileTextByPath: input.fileTextByPath,
-          key: `marketplace:${asString(entry.name) ?? index}`,
+          key: `${definition.id}:marketplace:${asString(entry.name) ?? index}`,
           knownPaths,
           manifestPath: null,
           rootPath: "",
           sourceKind: "marketplace_entry",
+          standard: definition.id,
           supported: false,
           warnings: [warning],
         })
@@ -446,35 +591,47 @@ export function buildGithubRepoDiscovery(input: {
         description: asString(entry.description),
         displayName: asString(entry.name),
         fileTextByPath: input.fileTextByPath,
-        key: `marketplace:${rootPath}`,
+        key: `${definition.id}:marketplace:${rootPath}`,
         knownPaths,
-        manifestPath: joinPath(rootPath, ".claude-plugin/plugin.json"),
+        manifestPath: joinPath(rootPath, definition.pluginManifestPath),
         rootPath,
         sourceKind: "marketplace_entry",
+        standard: definition.id,
       })
     })
 
     return {
-      classification: "claude_marketplace_repo",
+      classification: "marketplace_repo",
       discoveredPlugins,
       marketplace: marketplaceInfo,
       warnings,
     } satisfies GithubRepoDiscoveryResult
   }
 
-  const manifestRoots = [...new Set(pluginRootsFromManifests(input.entries))]
-  if (manifestRoots.length > 0) {
-    const discoveredPlugins = manifestRoots.map((rootPath) => buildDiscoveredPlugin({
+  const manifestPlugins = [...new Map(
+    DISCOVERY_STANDARDS.flatMap((definition) => pluginRootsFromManifests(input.entries, definition.id).map((rootPath) => [
+      `${definition.id}:${rootPath}`,
+      { rootPath, standard: definition.id },
+    ]))
+  ).values()]
+
+  if (manifestPlugins.length > 0) {
+    if (new Set(manifestPlugins.map((entry) => entry.standard)).size > 1) {
+      warnings.push("Multiple plugin standards were detected. OpenWork will import supported manifests from each standard.")
+    }
+
+    const discoveredPlugins = manifestPlugins.map(({ rootPath, standard }) => buildDiscoveredPlugin({
       fileTextByPath: input.fileTextByPath,
-      key: `manifest:${rootPath || "root"}`,
+      key: `${standard}:manifest:${rootPath || "root"}`,
       knownPaths,
-      manifestPath: joinPath(rootPath, ".claude-plugin/plugin.json"),
+      manifestPath: joinPath(rootPath, discoveryDefinition(standard).pluginManifestPath),
       rootPath,
       sourceKind: "plugin_manifest",
+      standard,
     }))
 
     return {
-      classification: manifestRoots.length === 1 && manifestRoots[0] === "" ? "claude_single_plugin_repo" : "claude_multi_plugin_repo",
+      classification: manifestPlugins.length === 1 ? "single_plugin_repo" : "multi_plugin_repo",
       discoveredPlugins,
       marketplace: null,
       warnings,
@@ -483,7 +640,7 @@ export function buildGithubRepoDiscovery(input: {
 
   // Intentionally disabled for now: directory-based inference can over-classify
   // arbitrary repos as plugins. Until we support a broader compatibility model,
-  // discovery should only accept explicit Claude plugin markers.
+  // discovery should only accept explicit marketplace or plugin manifests.
   // const inferredRoots = inferredRootsFromKnownFolders(input.entries)
   // const standaloneRoot = inferredRoots.includes("") && (
   //   hasDescendant(knownPaths, ".claude/skills")
@@ -499,16 +656,19 @@ export function buildGithubRepoDiscovery(input: {
   //     knownPaths,
   //     rootPath,
   //     sourceKind: standaloneRoot && rootPath === "" ? "standalone_claude" : "folder_inference",
+  //     standard: "claude",
   //   }))
   //
   //   return {
   //     classification: "folder_inferred_repo",
   //     discoveredPlugins,
+  //     marketplace: null,
   //     warnings,
   //   } satisfies GithubRepoDiscoveryResult
   // }
+  void inferredRootsFromKnownFolders
 
-  warnings.push("OpenWork currently only supports Claude-compatible plugins and marketplaces. Add `.claude-plugin/marketplace.json` or `.claude-plugin/plugin.json` to this repository.")
+  warnings.push(supportedManifestWarning())
 
   return {
     classification: "unsupported",

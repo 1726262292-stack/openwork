@@ -57,7 +57,15 @@ describe("github connector app helpers", () => {
           return new Response(JSON.stringify({ message: "not found" }), { status: 404 })
         }
 
+        if (String(url).endsWith("/contents/.agents/plugins/marketplace.json")) {
+          return new Response(JSON.stringify({ message: "not found" }), { status: 404 })
+        }
+
         if (String(url).endsWith("/contents/.claude-plugin/plugin.json")) {
+          return new Response(JSON.stringify({ message: "not found" }), { status: 404 })
+        }
+
+        if (String(url).endsWith("/contents/.codex-plugin/plugin.json")) {
           if (String(url).includes("different-ai/opencode")) {
             return new Response(JSON.stringify({ name: "plugin.json" }), { status: 200 })
           }
@@ -79,11 +87,13 @@ describe("github connector app helpers", () => {
       "https://api.github.com/installation/repositories",
       "https://api.github.com/repos/different-ai/openwork/contents/.claude-plugin/marketplace.json",
       "https://api.github.com/repos/different-ai/opencode/contents/.claude-plugin/marketplace.json",
+      "https://api.github.com/repos/different-ai/opencode/contents/.agents/plugins/marketplace.json",
       "https://api.github.com/repos/different-ai/opencode/contents/.claude-plugin/plugin.json",
+      "https://api.github.com/repos/different-ai/opencode/contents/.codex-plugin/plugin.json",
     ])
     expect(repositories).toEqual([
-      { defaultBranch: "main", fullName: "different-ai/openwork", hasPluginManifest: true, id: 42, manifestKind: "marketplace", marketplacePluginCount: 3, private: true },
-      { defaultBranch: "dev", fullName: "different-ai/opencode", hasPluginManifest: true, id: 99, manifestKind: "plugin", marketplacePluginCount: null, private: false },
+      { defaultBranch: "main", fullName: "different-ai/openwork", hasPluginManifest: true, id: 42, manifestKind: "marketplace", manifestStandard: "claude", marketplacePluginCount: 3, private: true },
+      { defaultBranch: "dev", fullName: "different-ai/opencode", hasPluginManifest: true, id: 99, manifestKind: "plugin", manifestStandard: "openai", marketplacePluginCount: null, private: false },
     ])
   })
 

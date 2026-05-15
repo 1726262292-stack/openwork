@@ -28,6 +28,7 @@ export type GithubConnectorAppConfig = {
 type GithubFetch = typeof fetch
 
 export type GithubManifestKind = "marketplace" | "plugin" | null
+export type GithubManifestStandard = "claude" | "openai" | null
 
 type GithubRepositorySummary = {
   defaultBranch: string | null
@@ -35,9 +36,17 @@ type GithubRepositorySummary = {
   hasPluginManifest?: boolean
   id: number
   manifestKind?: GithubManifestKind
+  manifestStandard?: GithubManifestStandard
   marketplacePluginCount?: number | null
   private: boolean
 }
+
+const SUPPORTED_GITHUB_REPOSITORY_MANIFESTS = [
+  { kind: "marketplace", path: ".claude-plugin/marketplace.json", standard: "claude" },
+  { kind: "marketplace", path: ".agents/plugins/marketplace.json", standard: "openai" },
+  { kind: "plugin", path: ".claude-plugin/plugin.json", standard: "claude" },
+  { kind: "plugin", path: ".codex-plugin/plugin.json", standard: "openai" },
+] as const
 
 export type GithubRepositoryTreeEntry = {
   id: string
@@ -387,6 +396,7 @@ export async function listGithubInstallationRepositories(input: { config: Github
       ...normalized,
       hasPluginManifest: manifest.manifestKind !== null,
       manifestKind: manifest.manifestKind,
+      manifestStandard: manifest.manifestStandard,
       marketplacePluginCount: manifest.marketplacePluginCount,
     })
   }
@@ -396,50 +406,57 @@ export async function listGithubInstallationRepositories(input: { config: Github
 
 async function detectRepositoryManifest(input: { fetchFn?: GithubFetch; ownerAndRepo: string; token: string }): Promise<{
   manifestKind: GithubManifestKind
+  manifestStandard: GithubManifestStandard
   marketplacePluginCount: number | null
 }> {
   const parts = splitRepositoryFullName(input.ownerAndRepo)
   if (!parts) {
-    return { manifestKind: null, marketplacePluginCount: null }
+    return { manifestKind: null, manifestStandard: null, marketplacePluginCount: null }
   }
 
-  const marketplaceResponse = await requestGithubJson<{ content?: string; encoding?: string }>({
-    allowStatuses: [404],
-    fetchFn: input.fetchFn,
-    headers: {
-      Authorization: `Bearer ${input.token}`,
-    },
-    path: `/repos/${encodeURIComponent(parts.owner)}/${encodeURIComponent(parts.repo)}/contents/.claude-plugin/marketplace.json`,
-  })
+  for (const manifest of SUPPORTED_GITHUB_REPOSITORY_MANIFESTS) {
+    const response = await requestGithubJson<{ content?: string; encoding?: string }>({
+      allowStatuses: [404],
+      fetchFn: input.fetchFn,
+      headers: {
+        Authorization: `Bearer ${input.token}`,
+      },
+      path: `/repos/${encodeURIComponent(parts.owner)}/${encodeURIComponent(parts.repo)}/contents/${manifest.path.split("/").map(encodeURIComponent).join("/")}`,
+    })
 
-  if (marketplaceResponse.ok && typeof marketplaceResponse.body?.content === "string" && marketplaceResponse.body.encoding === "base64") {
-    let marketplacePluginCount: number | null = null
-    try {
-      const decoded = Buffer.from(marketplaceResponse.body.content.replace(/\n/g, ""), "base64").toString("utf8")
-      const parsed = JSON.parse(decoded) as unknown
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Array.isArray((parsed as Record<string, unknown>).plugins)) {
-        marketplacePluginCount = ((parsed as Record<string, unknown>).plugins as unknown[]).length
-      }
-    } catch {
-      marketplacePluginCount = null
+    if (!response.ok) {
+      continue
     }
-    return { manifestKind: "marketplace", marketplacePluginCount }
+
+    if (manifest.kind === "marketplace") {
+      let marketplacePluginCount: number | null = null
+      if (typeof response.body?.content === "string" && response.body.encoding === "base64") {
+        try {
+          const decoded = Buffer.from(response.body.content.replace(/\n/g, ""), "base64").toString("utf8")
+          const parsed = JSON.parse(decoded) as unknown
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Array.isArray((parsed as Record<string, unknown>).plugins)) {
+            marketplacePluginCount = ((parsed as Record<string, unknown>).plugins as unknown[]).length
+          }
+        } catch {
+          marketplacePluginCount = null
+        }
+      }
+
+      return {
+        manifestKind: manifest.kind,
+        manifestStandard: manifest.standard,
+        marketplacePluginCount,
+      }
+    }
+
+    return {
+      manifestKind: manifest.kind,
+      manifestStandard: manifest.standard,
+      marketplacePluginCount: null,
+    }
   }
 
-  const pluginResponse = await requestGithubJson<unknown>({
-    allowStatuses: [404],
-    fetchFn: input.fetchFn,
-    headers: {
-      Authorization: `Bearer ${input.token}`,
-    },
-    path: `/repos/${encodeURIComponent(parts.owner)}/${encodeURIComponent(parts.repo)}/contents/.claude-plugin/plugin.json`,
-  })
-
-  if (pluginResponse.ok) {
-    return { manifestKind: "plugin", marketplacePluginCount: null }
-  }
-
-  return { manifestKind: null, marketplacePluginCount: null }
+  return { manifestKind: null, manifestStandard: null, marketplacePluginCount: null }
 }
 
 function splitRepositoryFullName(repositoryFullName: string) {

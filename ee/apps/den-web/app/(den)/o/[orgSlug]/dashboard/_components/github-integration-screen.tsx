@@ -728,6 +728,7 @@ function GithubConnectedAccountSelectionPhase({ connectorAccountId }: { connecto
                         fullName={repository.fullName}
                         defaultBranch={repository.defaultBranch ?? null}
                         manifestKind={repository.manifestKind ?? null}
+                        manifestStandard={repository.manifestStandard ?? null}
                         marketplacePluginCount={repository.marketplacePluginCount ?? null}
                         configuredInstanceId={configuredInstanceId}
                         configuredHref={configuredInstanceId ? `${getGithubIntegrationRoute(orgSlug)}?connectorInstanceId=${encodeURIComponent(configuredInstanceId)}` : null}
@@ -823,15 +824,20 @@ function GithubConnectedAccountSelectionPhase({ connectorAccountId }: { connecto
   );
 }
 
-function manifestLabel(kind: "marketplace" | "plugin" | null, marketplacePluginCount: number | null): string | null {
+function manifestLabel(
+  kind: "marketplace" | "plugin" | null,
+  standard: "claude" | "openai" | null,
+  marketplacePluginCount: number | null,
+): string | null {
+  const standardLabel = standard === "openai" ? "OpenAI" : standard === "claude" ? "Claude" : "Supported";
   if (kind === "marketplace") {
     if (marketplacePluginCount && marketplacePluginCount > 1) {
-      return `Claude Marketplace · ${marketplacePluginCount} plugins`;
+      return `${standardLabel} Marketplace · ${marketplacePluginCount} plugins`;
     }
-    return "Claude Marketplace Detected";
+    return `${standardLabel} Marketplace Detected`;
   }
   if (kind === "plugin") {
-    return "Claude Plugin Detected";
+    return `${standardLabel} Plugin Detected`;
   }
   return null;
 }
@@ -840,6 +846,7 @@ function RepositoryCard({
   fullName,
   defaultBranch,
   manifestKind,
+  manifestStandard,
   marketplacePluginCount,
   configuredInstanceId,
   configuredHref,
@@ -849,13 +856,14 @@ function RepositoryCard({
   fullName: string;
   defaultBranch: string | null;
   manifestKind: "marketplace" | "plugin" | null;
+  manifestStandard: "claude" | "openai" | null;
   marketplacePluginCount: number | null;
   configuredInstanceId: string | null;
   configuredHref: string | null;
   selected: boolean;
   onSelect: () => void;
 }) {
-  const badge = manifestLabel(manifestKind, marketplacePluginCount);
+  const badge = manifestLabel(manifestKind, manifestStandard, marketplacePluginCount);
   const isConfigured = Boolean(configuredInstanceId);
 
   const innerContent = (
@@ -1073,10 +1081,10 @@ function GithubDiscoveryPhase({ connectorInstanceId, onBack }: { connectorInstan
             ) : (
               <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-5 py-10 text-center">
                 <p className="text-[14px] font-medium tracking-[-0.02em] text-gray-800">
-                  No Claude-compatible plugins detected
+                  No supported plugins detected
                 </p>
                 <p className="mx-auto mt-2 max-w-[440px] text-[13px] leading-6 text-gray-500">
-                  OpenWork currently only supports Claude-compatible plugins and marketplaces. Add <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px]">.claude-plugin/marketplace.json</code> or <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px]">.claude-plugin/plugin.json</code> to this repository.
+                  OpenWork currently supports Claude and OpenAI plugin ecosystems. Add <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px]">.claude-plugin/marketplace.json</code>, <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px]">.claude-plugin/plugin.json</code>, <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px]">.agents/plugins/marketplace.json</code>, or <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px]">.codex-plugin/plugin.json</code> to this repository.
                 </p>
               </div>
             )}
@@ -1121,6 +1129,7 @@ function DiscoveredPluginCard({
     description: string | null;
     rootPath: string;
     sourceKind: string;
+    standard: "claude" | "openai";
     supported: boolean;
     componentKinds: string[];
     warnings: string[];
@@ -1157,6 +1166,9 @@ function DiscoveredPluginCard({
                 <h3 className="truncate text-[15px] font-semibold tracking-[-0.02em] text-gray-900">
                   {plugin.displayName}
                 </h3>
+                <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10.5px] font-medium uppercase tracking-[0.06em] text-gray-600">
+                  {plugin.standard === "openai" ? "OpenAI" : "Claude"}
+                </span>
                 {!plugin.supported ? (
                   <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10.5px] font-medium uppercase tracking-[0.06em] text-amber-700">
                     Unsupported
@@ -1279,7 +1291,7 @@ function DiscoveryLoadingState() {
         Discovering marketplaces and plugins in your repository
       </h2>
       <p className="mt-2 max-w-[460px] text-[13px] leading-[1.6] text-gray-500">
-        OpenWork is scanning the repo for Claude-compatible plugin and marketplace manifests.
+        OpenWork is scanning the repo for Claude and OpenAI plugin and marketplace manifests.
       </p>
     </section>
   );
