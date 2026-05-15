@@ -2,7 +2,7 @@
 import {
   createContext,
   useCallback,
-  use,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -13,13 +13,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 export type OpenworkControlSideEffect = "none" | "navigation" | "mutation" | "external";
 
-export type OpenworkControlActionArg = {
-  name: string;
-  type?: "string" | "number" | "boolean" | "object" | "array" | "unknown";
-  required?: boolean;
-  description?: string;
-};
-
 export type OpenworkControlActionMetadata = {
   id: string;
   label: string;
@@ -28,8 +21,6 @@ export type OpenworkControlActionMetadata = {
   requiresConfirmation: boolean;
   requiresArgs: boolean;
   hasPreviewArgs: boolean;
-  previewArgs?: unknown;
-  args?: OpenworkControlActionArg[];
   disabled: boolean;
   busy: boolean;
 };
@@ -63,22 +54,15 @@ export type OpenworkControlAction = {
   sideEffect?: OpenworkControlSideEffect;
   requiresConfirmation?: boolean;
   requiresArgs?: boolean;
-  args?: OpenworkControlActionArg[];
   previewArgs?: unknown;
   disabled?: boolean;
   targetRef?: OpenworkControlTargetRef;
   execute: (args: unknown, helpers: OpenworkControlHelpers) => unknown | Promise<unknown>;
 };
 
-type ControlActionRef = {
-  readonly current: OpenworkControlAction | null;
-};
-
-type RegisteredAction = {
-  id: string;
+type RegisteredAction = OpenworkControlAction & {
   order: number;
   token: symbol;
-  ref: ControlActionRef;
 };
 
 type SpotlightState = {
@@ -94,7 +78,7 @@ type OpenworkControlContextValue = {
   narration: string;
   busyActionId: string | null;
   actions: OpenworkControlActionMetadata[];
-  registerAction: (actionId: string, actionRef: ControlActionRef) => () => void;
+  registerAction: (action: OpenworkControlAction) => () => void;
   executeAction: (actionId: string, args?: unknown) => Promise<OpenworkControlResult>;
   snapshot: () => OpenworkControlSnapshot;
 };
@@ -116,14 +100,6 @@ declare global {
 
 const CONTROL_API_VERSION = 1;
 const OpenworkControlContext = createContext<OpenworkControlContextValue | null>(null);
-const SPOTLIGHT_TIMING_MS = Object.freeze({
-  missingTarget: 80,
-  scrollIntoView: 180,
-  target: 260,
-  press: 130,
-  release: 80,
-  done: 280,
-});
 
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -131,33 +107,21 @@ function describeError(error: unknown) {
   return error instanceof Error ? error.message : String(error || "Unknown error");
 }
 
-function returnedActionError(result: unknown) {
-  if (!result || typeof result !== "object") return null;
-  const payload = result as { ok?: unknown; error?: unknown };
-  if (payload.ok !== false) return null;
-  return typeof payload.error === "string" && payload.error.trim()
-    ? payload.error
-    : "Action returned an error.";
-}
-
 function isBrowser() {
   return typeof window !== "undefined" && typeof document !== "undefined";
 }
 
-function metadataForAction(registered: RegisteredAction, busyActionId: string | null): OpenworkControlActionMetadata {
-  const action = registered.ref.current;
+function metadataForAction(action: RegisteredAction, busyActionId: string | null): OpenworkControlActionMetadata {
   return {
-    id: registered.id,
-    label: action?.label ?? registered.id,
-    description: action?.description,
-    sideEffect: action?.sideEffect ?? "none",
-    requiresConfirmation: action?.requiresConfirmation === true,
-    requiresArgs: action?.requiresArgs === true,
-    hasPreviewArgs: action?.previewArgs !== undefined,
-    previewArgs: action?.previewArgs,
-    args: action?.args,
-    disabled: action?.disabled === true,
-    busy: busyActionId === registered.id,
+    id: action.id,
+    label: action.label,
+    description: action.description,
+    sideEffect: action.sideEffect ?? "none",
+    requiresConfirmation: action.requiresConfirmation === true,
+    requiresArgs: action.requiresArgs === true,
+    hasPreviewArgs: action.previewArgs !== undefined,
+    disabled: action.disabled === true,
+    busy: busyActionId === action.id,
   };
 }
 
@@ -190,8 +154,6 @@ export function OpenworkControlProvider({ children }: { children: ReactNode }) {
   const [busyActionId, setBusyActionId] = useState<string | null>(null);
   const [narration, setNarration] = useState("Control mode is off.");
   const [spotlight, setSpotlight] = useState<SpotlightState>({ visible: false, phase: "target", rect: null });
-  const busyActionIdRef = useRef<string | null>(null);
-  const spotlightRunRef = useRef(0);
 
   const route = `${location.pathname}${location.search}${location.hash}`;
   const enabled = enabledState;
@@ -201,15 +163,11 @@ export function OpenworkControlProvider({ children }: { children: ReactNode }) {
     setEnabledState(nextEnabled);
   }, []);
 
-  const listActionMetadata = useCallback((nextBusyActionId = busyActionId) => {
+  const actions = useMemo(() => {
     return Array.from(actionsRef.current.values())
       .sort((left, right) => left.order - right.order)
-      .map((action) => metadataForAction(action, nextBusyActionId));
+      .map((action) => metadataForAction(action, busyActionId));
   }, [busyActionId, version]);
-
-  const actions = useMemo(() => {
-    return listActionMetadata();
-  }, [listActionMetadata]);
 
   const snapshot = useCallback((): OpenworkControlSnapshot => ({
     version: CONTROL_API_VERSION,
@@ -218,41 +176,39 @@ export function OpenworkControlProvider({ children }: { children: ReactNode }) {
     status,
     busyActionId,
     narration,
-    actions: listActionMetadata(),
-  }), [busyActionId, enabled, listActionMetadata, narration, route, status]);
+    actions: Array.from(actionsRef.current.values())
+      .sort((left, right) => left.order - right.order)
+      .map((action) => metadataForAction(action, busyActionId)),
+  }), [busyActionId, enabled, narration, route, status]);
 
-  const registerAction = useCallback((actionId: string, actionRef: ControlActionRef) => {
-    const token = Symbol(actionId);
-    const previous = actionsRef.current.get(actionId);
-    actionsRef.current.set(actionId, {
-      id: actionId,
-      order: previous?.order ?? nextOrderRef.current++,
-      token,
-      ref: actionRef,
-    });
+  const registerAction = useCallback((action: OpenworkControlAction) => {
+    const token = Symbol(action.id);
+    const previous = actionsRef.current.get(action.id);
+    const registered = action as RegisteredAction;
+    registered.order = previous?.order ?? nextOrderRef.current++;
+    registered.token = token;
+    actionsRef.current.set(action.id, registered);
     setVersion((current) => current + 1);
 
     return () => {
-      const current = actionsRef.current.get(actionId);
+      const current = actionsRef.current.get(action.id);
       if (current?.token === token) {
-        actionsRef.current.delete(actionId);
+        actionsRef.current.delete(action.id);
         setVersion((value) => value + 1);
       }
     };
   }, []);
 
-  const playTargetChoreography = useCallback(async (action: OpenworkControlAction, runId: number) => {
+  const playTargetChoreography = useCallback(async (action: RegisteredAction) => {
     if (!isBrowser()) return;
-    const stillCurrent = () => spotlightRunRef.current === runId;
     const target = action.targetRef?.current;
     if (!target) {
-      await wait(SPOTLIGHT_TIMING_MS.missingTarget);
+      await wait(80);
       return;
     }
 
     target.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
-    await wait(SPOTLIGHT_TIMING_MS.scrollIntoView);
-    if (!stillCurrent() || !target.isConnected) return;
+    await wait(180);
     const rect = target.getBoundingClientRect();
     setSpotlight({
       visible: true,
@@ -264,65 +220,46 @@ export function OpenworkControlProvider({ children }: { children: ReactNode }) {
         height: rect.height,
       },
     });
-    await wait(SPOTLIGHT_TIMING_MS.target);
-    if (!stillCurrent()) return;
+    await wait(260);
     setSpotlight((current) => ({ ...current, phase: "press" }));
-    await wait(SPOTLIGHT_TIMING_MS.press);
-    if (!stillCurrent()) return;
+    await wait(130);
     setSpotlight((current) => ({ ...current, phase: "target" }));
-    await wait(SPOTLIGHT_TIMING_MS.release);
+    await wait(80);
   }, []);
 
   const executeAction = useCallback(async (actionId: string, args?: unknown): Promise<OpenworkControlResult> => {
-    const registered = actionsRef.current.get(actionId);
-    const action = registered?.ref.current;
-    if (!registered || !action) return { ok: false, actionId, error: `Unknown action: ${actionId}` };
+    const action = actionsRef.current.get(actionId);
+    if (!action) return { ok: false, actionId, error: `Unknown action: ${actionId}` };
     if (action.disabled) return { ok: false, actionId, error: `Action is disabled: ${action.label}` };
-    if (busyActionIdRef.current) return { ok: false, actionId, error: `Already acting: ${busyActionIdRef.current}` };
+    if (busyActionId) return { ok: false, actionId, error: `Already acting: ${busyActionId}` };
 
     if (action.requiresConfirmation && isBrowser()) {
       const confirmed = window.confirm(`Allow Control Mode to ${action.label}?`);
       if (!confirmed) return { ok: false, actionId, error: "User cancelled action." };
     }
 
-    const runId = spotlightRunRef.current + 1;
-    spotlightRunRef.current = runId;
-    busyActionIdRef.current = action.id;
     setEnabled(true);
     setBusyActionId(action.id);
     setNarration(`Moving to ${action.label}…`);
 
     try {
-      await playTargetChoreography(action, runId);
+      await playTargetChoreography(action);
       setNarration(`Running ${action.label}…`);
       const effectiveArgs = args === undefined ? action.previewArgs : args;
       const result = await action.execute(effectiveArgs, { setNarration });
-      const resultError = returnedActionError(result);
-      if (resultError) {
-        setNarration(`Could not ${action.label}: ${resultError}`);
-        if (spotlightRunRef.current === runId) {
-          setSpotlight({ visible: false, phase: "target", rect: null });
-        }
-        return { ok: false, actionId, error: resultError };
-      }
       setNarration(`Done: ${action.label}`);
-      await wait(SPOTLIGHT_TIMING_MS.done);
-      if (spotlightRunRef.current === runId) {
-        setSpotlight({ visible: false, phase: "target", rect: null });
-      }
+      await wait(280);
+      setSpotlight({ visible: false, phase: "target", rect: null });
       return { ok: true, actionId, result };
     } catch (error) {
       const message = describeError(error);
       setNarration(`Could not ${action.label}: ${message}`);
-      if (spotlightRunRef.current === runId) {
-        setSpotlight({ visible: false, phase: "target", rect: null });
-      }
+      setSpotlight({ visible: false, phase: "target", rect: null });
       return { ok: false, actionId, error: message };
     } finally {
-      if (busyActionIdRef.current === action.id) busyActionIdRef.current = null;
       setBusyActionId(null);
     }
-  }, [playTargetChoreography, setEnabled]);
+  }, [busyActionId, playTargetChoreography, setEnabled]);
 
   const value = useMemo<OpenworkControlContextValue>(() => ({
     enabled,
@@ -371,10 +308,6 @@ export function OpenworkControlProvider({ children }: { children: ReactNode }) {
   }, [executeAction, setEnabled, snapshot]);
 
   useEffect(() => {
-    busyActionIdRef.current = busyActionId;
-  }, [busyActionId]);
-
-  useEffect(() => {
     const next = snapshot();
     listenersRef.current.forEach((listener) => listener(next));
   }, [snapshot, version]);
@@ -388,7 +321,7 @@ export function OpenworkControlProvider({ children }: { children: ReactNode }) {
 }
 
 export function useOpenworkControl() {
-  return use(OpenworkControlContext);
+  return useContext(OpenworkControlContext);
 }
 
 export function useControlAction(action: OpenworkControlAction | null | false | undefined) {
@@ -400,7 +333,40 @@ export function useControlAction(action: OpenworkControlAction | null | false | 
 
   useEffect(() => {
     if (!registerAction || !actionId) return undefined;
-    return registerAction(actionId, latestActionRef);
+    const current = () => latestActionRef.current;
+    const proxy: OpenworkControlAction = {
+      id: actionId,
+      get label() {
+        return current()?.label ?? actionId;
+      },
+      get description() {
+        return current()?.description;
+      },
+      get sideEffect() {
+        return current()?.sideEffect;
+      },
+      get requiresConfirmation() {
+        return current()?.requiresConfirmation;
+      },
+      get requiresArgs() {
+        return current()?.requiresArgs;
+      },
+      get previewArgs() {
+        return current()?.previewArgs;
+      },
+      get disabled() {
+        return current()?.disabled;
+      },
+      get targetRef() {
+        return current()?.targetRef;
+      },
+      execute(args, helpers) {
+        const latest = current();
+        if (!latest) return undefined;
+        return latest.execute(args, helpers);
+      },
+    };
+    return registerAction(proxy);
   }, [actionId, registerAction]);
 }
 

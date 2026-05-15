@@ -1,25 +1,16 @@
 /** @jsxImportSource react */
 import type * as React from "react";
 import {
-  ArrowLeft,
   Bug,
-  ChevronDown,
-  CloudCog,
+  Cloud,
   Cog,
-  Container,
-  FolderLock,
-  Layout,
   Paintbrush,
   Puzzle,
   RefreshCcw,
   ShieldCheck,
-  SlidersHorizontal,
   Sparkles,
-  Store,
   Terminal,
-  UserCircle,
   Wrench,
-  Zap,
 } from "lucide-react";
 
 import {
@@ -28,17 +19,12 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
-  SidebarHeader,
+  SidebarInset,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarProvider,
 } from "@/components/ui/sidebar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { t } from "../../../../i18n";
 import type { SettingsTab } from "../../../../app/types";
 import {
@@ -53,32 +39,19 @@ import {
   SettingsPanelToolbarMessage,
   SettingsPanelToolbarStatus,
 } from "./panel";
-import { WorkspaceIcon } from "../../../design-system/workspace-icon";
 
 export function getSettingsTabIcon(tab: SettingsTab) {
   switch (tab) {
-    case "ai":
-      return Zap;
-    case "preferences":
-      return SlidersHorizontal;
-    case "shell":
-      return Layout;
-    case "permissions":
-      return FolderLock;
-    case "cloud-account":
-      return UserCircle;
-    case "cloud-marketplaces":
-      return Store;
-    case "cloud-workers":
-      return Container;
-    case "cloud-providers":
-      return CloudCog;
+    case "den":
+      return Cloud;
     case "skills":
       return Sparkles;
     case "extensions":
       return Puzzle;
     case "environment":
       return Terminal;
+    case "feature-preview":
+      return Sparkles;
     case "advanced":
       return Wrench;
     case "appearance":
@@ -96,28 +69,16 @@ export function getSettingsTabIcon(tab: SettingsTab) {
 
 export function getSettingsTabLabel(tab: SettingsTab) {
   switch (tab) {
-    case "ai":
-      return "AI Providers";
-    case "preferences":
-      return "Preferences";
-    case "shell":
-      return "Customization";
-    case "permissions":
-      return "Permissions";
-    case "cloud-account":
-      return t("settings.tab_cloud_account");
-    case "cloud-marketplaces":
-      return t("settings.tab_cloud_marketplaces");
-    case "cloud-workers":
-      return t("settings.tab_cloud_workers");
-    case "cloud-providers":
-      return t("settings.tab_cloud_providers");
+    case "den":
+      return t("settings.tab_cloud");
     case "skills":
       return t("settings.tab_skills");
     case "extensions":
       return t("settings.tab_extensions");
     case "environment":
       return t("settings.tab_environment");
+    case "feature-preview":
+      return t("settings.tab_feature_preview");
     case "advanced":
       return t("settings.tab_advanced");
     case "appearance":
@@ -128,8 +89,6 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return t("settings.tab_recovery");
     case "debug":
       return t("settings.tab_debug");
-    case "general":
-      return "Settings";
     default:
       return t("settings.tab_general");
   }
@@ -137,28 +96,16 @@ export function getSettingsTabLabel(tab: SettingsTab) {
 
 export function getSettingsTabDescription(tab: SettingsTab) {
   switch (tab) {
-    case "ai":
-      return "Connect services that provide AI models";
-    case "preferences":
-      return "Default model, reasoning, and compaction";
-    case "shell":
-      return "Branding, visibility, and shell controls";
-    case "permissions":
-      return "Authorized folders and file access";
-    case "cloud-account":
-      return t("settings.tab_description_cloud_account");
-    case "cloud-marketplaces":
-      return t("settings.tab_description_cloud_marketplaces");
-    case "cloud-workers":
-      return t("settings.tab_description_cloud_workers");
-    case "cloud-providers":
-      return t("settings.tab_description_cloud_providers");
+    case "den":
+      return t("settings.tab_description_den");
     case "skills":
       return t("settings.tab_description_skills");
     case "extensions":
       return t("settings.tab_description_extensions");
     case "environment":
       return t("settings.tab_description_environment");
+    case "feature-preview":
+      return t("settings.tab_description_feature_preview");
     case "advanced":
       return t("settings.tab_description_advanced");
     case "appearance":
@@ -169,29 +116,20 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return t("settings.tab_description_recovery");
     case "debug":
       return t("settings.tab_description_debug");
-    case "general":
-      return "Overview of all settings";
     default:
       return t("settings.tab_description_general");
   }
 }
 
 export function getWorkspaceSettingsTabs(): SettingsTab[] {
-  return ["preferences", "permissions", "extensions", "advanced"];
+  return ["general", "skills", "extensions", "advanced"];
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
-  const tabs: SettingsTab[] = ["ai", "shell", "appearance", "environment", "updates", "recovery"];
+  const tabs: SettingsTab[] = ["den", "feature-preview", "appearance", "environment", "updates", "recovery"];
   if (developerMode) tabs.push("debug");
   return tabs;
 }
-
-export const CLOUD_SETTINGS_TABS: SettingsTab[] = [
-  "cloud-account",
-  "cloud-marketplaces",
-  "cloud-workers",
-  "cloud-providers",
-];
 
 type SettingsPageProps = {
   activeTab: SettingsTab;
@@ -209,187 +147,100 @@ type SettingsPageProps = {
   children: React.ReactNode;
 };
 
-type SettingsSidebarProps = Pick<SettingsPageProps, "activeTab" | "onSelectTab" | "developerMode"> & {
-  onClose: () => void;
-  selectedWorkspaceId: string;
-  selectedWorkspaceName: string;
-  selectedWorkspaceColor: string;
-  workspaces: Array<{ id: string; name: string; color: string }>;
-  onSelectWorkspace: (workspaceId: string) => void;
-};
-
-export function SettingsSidebar(props: SettingsSidebarProps) {
+export function SettingsPage(props: SettingsPageProps) {
   const workspaceTabs = getWorkspaceSettingsTabs();
   const globalTabs = getGlobalSettingsTabs(props.developerMode);
-  const cloudTabs = CLOUD_SETTINGS_TABS;
 
   return (
-    <Sidebar className="mac:**:data-[sidebar=sidebar]:bg-transparent">
-      <div className="hidden h-10 mac:block mac:titlebar-drag" />
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton type="button" onClick={props.onClose}>
-              <ArrowLeft size={14} />
-              <span>{t("dashboard.back_to_app")}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <SidebarMenuButton type="button">
-                    <WorkspaceIcon seed={props.selectedWorkspaceName} sizeClass="size-4" />
-                    <span className="truncate">{props.selectedWorkspaceName}</span>
-                    <ChevronDown className="ml-auto" />
-                  </SidebarMenuButton>
-                }
-              />
-              <DropdownMenuContent className="w-(--anchor-width)">
-                {props.workspaces.map((workspace) => (
-                  <DropdownMenuItem
-                    key={workspace.id}
-                    onClick={() => props.onSelectWorkspace(workspace.id)}
-                    disabled={workspace.id === props.selectedWorkspaceId}
+    <SidebarProvider className="relative min-h-full min-w-0">
+        <Sidebar collapsible="none" className="absolute inset-0">
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupLabel>{t("settings.group_workspace")}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {workspaceTabs.map((tab) => {
+                    const Icon = getSettingsTabIcon(tab);
+                    return (
+                      <SidebarMenuItem key={tab}>
+                        <SidebarMenuButton
+                          type="button"
+                          isActive={props.activeTab === tab}
+                          onClick={() => props.onSelectTab(tab)}
+                        >
+                          <Icon />
+                          <span>{getSettingsTabLabel(tab)}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+
+            <SidebarGroup>
+              <SidebarGroupLabel>{t("settings.group_global")}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {globalTabs.map((tab) => {
+                    const Icon = getSettingsTabIcon(tab);
+                    return (
+                      <SidebarMenuItem key={tab}>
+                        <SidebarMenuButton
+                          type="button"
+                          isActive={props.activeTab === tab}
+                          onClick={() => props.onSelectTab(tab)}
+                        >
+                          <Icon />
+                          <span>{getSettingsTabLabel(tab)}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+        </Sidebar>
+
+        <SidebarInset className="h-full min-w-0 w-full max-w-full overflow-hidden">
+        <SettingsContent>
+          <SettingsPanel>
+            <SettingsPanelHeading>
+              <SettingsPanelTitle>{getSettingsTabLabel(props.activeTab)}</SettingsPanelTitle>
+              <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>
+            </SettingsPanelHeading>
+
+            {props.showUpdateToolbar && props.activeTab === "general" ? (
+              <SettingsPanelToolbar>
+                <SettingsPanelToolbarActions>
+                  <SettingsPanelToolbarStatus
+                    tone={props.updateToolbarTone}
+                    title={props.updateToolbarTitle}
+                    spinning={props.updateToolbarSpinning}
                   >
-                    <WorkspaceIcon seed={workspace.name} sizeClass="size-4" />
-                    <span className="truncate">{workspace.name}</span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarHeader>
-      <SidebarContent>
-        {/* Top-level hub entry */}
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  type="button"
-                  isActive={props.activeTab === "general"}
-                  onClick={() => props.onSelectTab("general")}
-                >
-                  <Cog />
-                  <span>{getSettingsTabLabel("general")}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>{t("settings.group_workspace")}</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {workspaceTabs.map((tab) => {
-                const Icon = getSettingsTabIcon(tab);
-                return (
-                  <SidebarMenuItem key={tab}>
-                    <SidebarMenuButton
-                      type="button"
-                      isActive={props.activeTab === tab}
-                      onClick={() => props.onSelectTab(tab)}
+                    {props.updateToolbarLabel}
+                  </SettingsPanelToolbarStatus>
+                  {props.updateToolbarActionLabel ? (
+                    <SettingsPanelToolbarButton
+                      onClick={props.onUpdateToolbarAction}
+                      disabled={props.updateToolbarDisabled}
+                      title={props.updateRestartBlockedMessage ?? ""}
                     >
-                      <Icon />
-                      <span>{getSettingsTabLabel(tab)}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>{t("settings.group_global")}</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {globalTabs.map((tab) => {
-                const Icon = getSettingsTabIcon(tab);
-                return (
-                  <SidebarMenuItem key={tab}>
-                    <SidebarMenuButton
-                      type="button"
-                      isActive={props.activeTab === tab}
-                      onClick={() => props.onSelectTab(tab)}
-                    >
-                      <Icon />
-                      <span>{getSettingsTabLabel(tab)}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>{t("settings.group_cloud")}</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {cloudTabs.map((tab) => {
-                const Icon = getSettingsTabIcon(tab);
-                return (
-                  <SidebarMenuItem key={tab}>
-                    <SidebarMenuButton
-                      type="button"
-                      isActive={props.activeTab === tab}
-                      onClick={() => props.onSelectTab(tab)}
-                    >
-                      <Icon />
-                      <span>{getSettingsTabLabel(tab)}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
-    </Sidebar>
-  );
-}
-
-export function SettingsPage(props: SettingsPageProps) {
-  return (
-    <SettingsContent>
-      <SettingsPanel>
-        <SettingsPanelHeading>
-          <SettingsPanelTitle>{getSettingsTabLabel(props.activeTab)}</SettingsPanelTitle>
-          <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>
-        </SettingsPanelHeading>
-
-        {props.showUpdateToolbar && props.activeTab === "general" ? (
-          <SettingsPanelToolbar>
-            <SettingsPanelToolbarActions>
-              <SettingsPanelToolbarStatus
-                tone={props.updateToolbarTone}
-                title={props.updateToolbarTitle}
-                spinning={props.updateToolbarSpinning}
-              >
-                {props.updateToolbarLabel}
-              </SettingsPanelToolbarStatus>
-              {props.updateToolbarActionLabel ? (
-                <SettingsPanelToolbarButton
-                  onClick={props.onUpdateToolbarAction}
-                  disabled={props.updateToolbarDisabled}
-                  title={props.updateRestartBlockedMessage ?? ""}
-                >
-                  {props.updateToolbarActionLabel}
-                </SettingsPanelToolbarButton>
-              ) : null}
-            </SettingsPanelToolbarActions>
-            {props.updateRestartBlockedMessage ? (
-              <SettingsPanelToolbarMessage>{props.updateRestartBlockedMessage}</SettingsPanelToolbarMessage>
+                      {props.updateToolbarActionLabel}
+                    </SettingsPanelToolbarButton>
+                  ) : null}
+                </SettingsPanelToolbarActions>
+                {props.updateRestartBlockedMessage ? (
+                  <SettingsPanelToolbarMessage>{props.updateRestartBlockedMessage}</SettingsPanelToolbarMessage>
+                ) : null}
+              </SettingsPanelToolbar>
             ) : null}
-          </SettingsPanelToolbar>
-        ) : null}
-      </SettingsPanel>
+          </SettingsPanel>
 
-      {props.children}
-    </SettingsContent>
+          {props.children}
+        </SettingsContent>
+        </SidebarInset>
+    </SidebarProvider>
   );
 }

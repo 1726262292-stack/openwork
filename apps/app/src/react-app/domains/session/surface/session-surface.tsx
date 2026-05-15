@@ -17,7 +17,6 @@ import type {
   ComposerPart,
   McpServerEntry,
   McpStatusMap,
-  ModelRef,
   SkillCard,
 } from "../../../../app/types";
 import {
@@ -28,15 +27,12 @@ import { useControlAction, type OpenworkControlAction } from "../../../shell/con
 import { getReactQueryClient } from "../../../infra/query-client";
 import { ReactSessionComposer } from "./composer/composer";
 import { DevProfiler } from "../../../shell/dev-profiler";
-import { PaperGrainGradient } from "@openwork/ui/react";
 import { OwDotTicker } from "../../../shell/dot-ticker";
-import { useShellConfig } from "../../../shell/shell-config";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import type { ReactComposerNotice } from "./composer/notice";
 import { SessionDebugPanel } from "./debug-panel";
 import { deriveRenderedSessionMessages, resolveRenderedSessionSnapshot } from "./session-render-state";
 import { SessionTranscript } from "./message-list";
-import { useLocal } from "../../../kernel/local-provider";
 import { deriveSessionRenderModel } from "../sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
 import {
@@ -47,7 +43,6 @@ import {
 
 const EMPTY_TRANSCRIPT: UIMessage[] = [];
 const IDLE_STATUS: SessionStatus = { type: "idle" };
-const DEFAULT_COMPOSER_CONTROL_TEXT = "Help me outline the next OpenWork task.";
 
 type SessionError = {
   message: string;
@@ -68,11 +63,6 @@ export type SessionSurfaceProps = {
   developerMode: boolean;
   modelLabel: string;
   onModelClick: () => void;
-  modelPickerOpen: boolean;
-  modelUnavailable?: boolean;
-  selectedModel: ModelRef;
-  onModelPickerOpenChange: (open: boolean) => void;
-  onModelChange: (model: ModelRef) => void;
   onSendDraft: (draft: ComposerDraft) => void;
   onDraftChange: (draft: ComposerDraft) => void;
   attachmentsEnabled: boolean;
@@ -93,8 +83,6 @@ export type SessionSurfaceProps = {
   onChangeModel?: (model: { providerID: string; modelID: string }) => void;
   onUploadInboxFiles?: ((files: File[], options?: { notify?: boolean }) => void | Promise<unknown>) | null;
   onOpenSettingsSection?: ((section: "commands" | "skills" | "mcps" | "plugins") => void) | undefined;
-  onRevertToMessage?: (messageId: string) => void;
-  onForkAtMessage?: (messageId: string) => void;
 };
 
 function messageToReadableText(message: UIMessage) {
@@ -116,10 +104,8 @@ function messageToReadableText(message: UIMessage) {
 
 function transcriptToText(messages: UIMessage[]) {
   return messages
-    .flatMap((message) => {
-      const text = messageToReadableText(message);
-      return text ? [text] : [];
-    })
+    .map(messageToReadableText)
+    .filter(Boolean)
     .join("\n\n---\n\n");
 }
 
@@ -130,13 +116,13 @@ function statusLabel(snapshot: OpenworkSessionSnapshot | undefined, busy: boolea
   return "Ready";
 }
 
-function controlTextArgument(args: unknown) {
+function controlTextArgument(args: unknown, fallback: string) {
   if (typeof args === "string") return args;
   if (args && typeof args === "object" && "text" in args) {
     const text = (args as { text?: unknown }).text;
     if (typeof text === "string") return text;
   }
-  return DEFAULT_COMPOSER_CONTROL_TEXT;
+  return fallback;
 }
 
 const waitForControl = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -163,20 +149,9 @@ function messageHasVisibleAssistantOutput(message: UIMessage) {
 
 function AssistantWaitingCard() {
   return (
-    <div className="flex justify-start" role="status" aria-live="polite">
-      <div className="inline-flex items-center gap-1.5 px-1 py-1 text-[12px] text-dls-secondary">
-        <div style={{ width: 20, height: 20, borderRadius: "50%", overflow: "hidden" }}>
-          <PaperGrainGradient
-            speed={12}
-            softness={0.1}
-            intensity={1}
-            noise={0.05}
-            shape="sphere"
-            colors={["#818cf8", "#fb7185", "#fbbf24", "#34d399"]}
-            colorBack="#ffffff00"
-            style={{ backgroundColor: "#818cf8", width: "100%", height: "100%", borderRadius: "50%" }}
-          />
-        </div>
+    <div className="flex justify-start py-2" role="status" aria-live="polite">
+      <div className="inline-flex items-center gap-3 rounded-full px-3 py-1.5 text-[12px] text-dls-secondary">
+        <OwDotTicker size="sm" />
         <span>Thinking</span>
       </div>
     </div>
@@ -270,9 +245,6 @@ function revokeAttachmentPreview(attachment: { previewUrl?: string | undefined }
 }
 
 export function SessionSurface(props: SessionSurfaceProps) {
-  const local = useLocal();
-  const { config: shellConfig } = useShellConfig();
-  const showThinking = local.prefs.showThinking;
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [mentions, setMentions] = useState<Record<string, "agent" | "file">>({});
@@ -404,7 +376,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useEffect(() => {
     if (!currentSnapshot) return;
     seedSessionState(props.workspaceId, currentSnapshot);
-  }, [currentSnapshot, props.sessionId, props.workspaceId]);
+  }, [currentSnapshot, props.workspaceId]);
 
   useEffect(() => {
     if (!currentSnapshot) return;
@@ -422,8 +394,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const liveStatus = statusState ?? snapshot?.status ?? IDLE_STATUS;
   const chatStreaming = sending || liveStatus.type === "busy" || liveStatus.type === "retry";
   const renderedMessages = useMemo(
-    () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
-    [snapshot, transcriptState],
+    () => deriveRenderedSessionMessages({ transcriptState, snapshot, includeLiveOnlyMessages: chatStreaming }),
+    [chatStreaming, snapshot, transcriptState],
   );
   const pendingSessionLoad = !snapshot && snapshotQuery.isLoading && renderedMessages.length === 0;
   const assistantOutputAfterAwaitStart = useMemo(() => {
@@ -644,8 +616,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const typeComposerText = useCallback(async (text: string) => {
     window.dispatchEvent(new Event("openwork:focusPrompt"));
-    setDraft(text);
-    await waitForControl(40);
+    setDraft("");
+    let next = "";
+    for (const char of text) {
+      next += char;
+      setDraft(next);
+      await waitForControl(char === "\n" ? 80 : 18);
+    }
   }, []);
 
   const composerSetTextControlAction = useMemo<OpenworkControlAction>(() => ({
@@ -654,11 +631,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
     description: "Replace the current session draft and type the supplied text visibly.",
     sideEffect: "none",
     requiresArgs: true,
-    args: [{ name: "text", type: "string", required: true, description: "Prompt text to place in the composer." }],
-    previewArgs: { text: DEFAULT_COMPOSER_CONTROL_TEXT },
+    previewArgs: { text: "Help me outline the next OpenWork task." },
     targetRef: composerShellRef,
     execute: async (args, helpers) => {
-      const text = controlTextArgument(args);
+      const text = controlTextArgument(args, "Help me outline the next OpenWork task.");
       helpers.setNarration(`Typing ${text.length.toLocaleString()} characters into the composer…`);
       await typeComposerText(text);
       props.onDraftChange(buildDraft(text, attachments));
@@ -672,13 +648,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     label: "Send the composer prompt",
     description: "Send the currently visible composer draft to the active session.",
     sideEffect: "mutation",
-    disabled: props.modelUnavailable || (!draft.trim() && attachments.length === 0) || model.transitionState !== "idle",
+    disabled: (!draft.trim() && attachments.length === 0) || model.transitionState !== "idle",
     targetRef: composerShellRef,
     execute: async () => {
       await handleSend();
       return true;
     },
-  }), [attachments.length, draft, handleSend, model.transitionState, props.modelUnavailable]);
+  }), [attachments.length, draft, handleSend, model.transitionState]);
   useControlAction(composerSendControlAction);
 
   const composerStopControlAction = useMemo<OpenworkControlAction>(() => ({
@@ -820,7 +796,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
     label: "Read the current session transcript",
     description: "Return the last messages from the current session transcript as readable text, including the session ID, title, and message count.",
     sideEffect: "none",
-    args: [{ name: "count", type: "number", required: false, description: "Number of recent messages to return, from 1 to 30. Defaults to 10." }],
     execute: (args) => {
       const count = typeof args === "object" && args !== null && "count" in args && typeof (args as { count?: unknown }).count === "number"
         ? Math.min(Math.max(1, (args as { count: number }).count), 30)
@@ -909,47 +884,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   onChangeModel={props.onChangeModel}
                   onOpenModelPicker={props.onModelClick}
                 />
-              ) : shellConfig.starterCards ? (
-                <div className="flex flex-1 flex-col items-center justify-end px-6 pb-4">
-                  <div className="w-full max-w-[640px]">
-                    <p className="mb-3 text-xs text-dls-secondary">Try one of these:</p>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        className="flex flex-1 items-start gap-2.5 rounded-xl border border-dls-border bg-dls-surface p-3 text-left transition-colors hover:bg-dls-hover"
-                        onClick={() => void typeComposerText("Create a sample CSV file with 20 rows of fake customer data (name, email, company, revenue). Then show me a summary of the data.")}
-                      >
-                        <img src="https://cdn.simpleicons.org/googlesheets" alt="" width={16} height={16} className="mt-0.5 shrink-0" />
-                        <div>
-                          <div className="text-[12px] font-medium text-dls-text">Edit a CSV</div>
-                          <div className="text-[11px] text-dls-secondary">Create a sample spreadsheet</div>
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex flex-1 items-start gap-2.5 rounded-xl border border-dls-border bg-dls-surface p-3 text-left transition-colors hover:bg-dls-hover"
-                        onClick={() => void typeComposerText("Open craigslist.org in the browser and search for couches for sale. Show me the top 5 results with prices.")}
-                      >
-                        <img src="https://cdn.simpleicons.org/googlechrome" alt="" width={16} height={16} className="mt-0.5 shrink-0" />
-                        <div>
-                          <div className="text-[12px] font-medium text-dls-text">Browse the web</div>
-                          <div className="text-[11px] text-dls-secondary">Search Craigslist for couches</div>
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex flex-1 items-start gap-2.5 rounded-xl border border-dls-border bg-dls-surface p-3 text-left transition-colors hover:bg-dls-hover"
-                        onClick={() => props.onOpenSettingsSection?.("mcps")}
-                      >
-                        <img src="https://cdn.simpleicons.org/hackthebox" alt="" width={16} height={16} className="mt-0.5 shrink-0" />
-                        <div>
-                          <div className="text-[12px] font-medium text-dls-text">Connect an extension</div>
-                          <div className="text-[11px] text-dls-secondary">Add MCPs and integrations</div>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-                </div>
               ) : null
             ) : (
               <DevProfiler id="SessionTranscript">
@@ -958,10 +892,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     messages={renderedMessages}
                     isStreaming={chatStreaming}
                     developerMode={props.developerMode}
-                    showThinking={showThinking}
                     scrollElement={() => scrollRef.current}
-                    onRevertToMessage={props.onRevertToMessage}
-                    onForkAtMessage={props.onForkAtMessage}
                   />
                   {error ? (
                     <SessionErrorCard
@@ -1016,13 +947,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onSend={handleSend}
         onStop={handleAbort}
         busy={chatStreaming}
-        disabled={model.transitionState !== "idle" || Boolean(props.modelUnavailable)}
-        modelUnavailable={Boolean(props.modelUnavailable)}
+        disabled={model.transitionState !== "idle"}
         statusLabel={statusLabel(snapshot ?? undefined, chatStreaming)}
-        modelPickerOpen={props.modelPickerOpen}
-        selectedModel={props.selectedModel}
-        onModelPickerOpenChange={props.onModelPickerOpenChange}
-        onModelChange={props.onModelChange}
+        modelLabel={props.modelLabel}
+        onModelClick={props.onModelClick}
         attachments={attachments}
         onAttachFiles={handleAttachFiles}
         onRemoveAttachment={handleRemoveAttachment}

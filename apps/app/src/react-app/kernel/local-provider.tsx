@@ -2,7 +2,7 @@
 import {
   createContext,
   useCallback,
-  use,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -32,6 +32,7 @@ export type LocalPreferences = {
   releaseChannel: ReleaseChannel;
   featureFlags: {
     microsandboxCreateSandbox: boolean;
+    realtimeControl: boolean;
   };
   /**
    * Set to true after the user completes the welcome/onboarding flow
@@ -60,7 +61,7 @@ const INITIAL_PREFS: LocalPreferences = {
   modelVariant: null,
   defaultModel: null,
   releaseChannel: "stable",
-  featureFlags: { microsandboxCreateSandbox: true },
+  featureFlags: { microsandboxCreateSandbox: false, realtimeControl: false },
   hasCompletedOnboarding: false,
 };
 
@@ -106,7 +107,7 @@ export function LocalProvider({ children }: LocalProviderProps) {
       defaultModel: readStoredDefaultModel(),
     };
   });
-  const ready = true;
+  const [ready, setReady] = useState(false);
   const migratedThinkingRef = useRef(false);
 
   useEffect(() => {
@@ -118,6 +119,11 @@ export function LocalProvider({ children }: LocalProviderProps) {
   }, [prefs]);
 
   useEffect(() => {
+    setReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
     if (typeof window === "undefined") return;
     if (migratedThinkingRef.current) return;
     migratedThinkingRef.current = true;
@@ -139,7 +145,7 @@ export function LocalProvider({ children }: LocalProviderProps) {
     } catch {
       // ignore
     }
-  }, []);
+  }, [ready]);
 
   const setUi = useCallback(
     (updater: (previous: LocalUIState) => LocalUIState) => {
@@ -164,7 +170,7 @@ export function LocalProvider({ children }: LocalProviderProps) {
 }
 
 export function useLocal(): LocalContextValue {
-  const context = use(LocalContext);
+  const context = useContext(LocalContext);
   if (!context) {
     throw new Error("Local context is missing");
   }

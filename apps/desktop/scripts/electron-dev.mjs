@@ -1,9 +1,11 @@
 import { spawn, spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import net from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
 const desktopRoot = resolve(__dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
 const electronSidecarDir = resolve(desktopRoot, "resources", "sidecars");
@@ -19,6 +21,7 @@ const portValue = Number.parseInt(process.env.PORT ?? "", 10);
 const devPort = Number.isFinite(portValue) && portValue > 0 ? portValue : 5173;
 const explicitStartUrl = process.env.OPENWORK_ELECTRON_START_URL?.trim() || "";
 const startUrl = explicitStartUrl || `http://localhost:${devPort}`;
+const launchWithMacOpen = process.platform === "darwin" && process.env.OPENWORK_ELECTRON_LAUNCH_WITH_OPEN === "1";
 const viteProbeUrls = explicitStartUrl
   ? [explicitStartUrl]
   : [
@@ -27,14 +30,10 @@ const viteProbeUrls = explicitStartUrl
       `http://localhost:${devPort}`,
     ];
 
-function needsShell(command) {
-  return process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
-}
-
 function run(command, args, options = {}) {
   return spawn(command, args, {
     stdio: ["ignore", "inherit", "inherit"],
-    shell: needsShell(command),
+    shell: process.platform === "win32",
     ...options,
   });
 }
@@ -42,7 +41,7 @@ function run(command, args, options = {}) {
 function runSync(command, args, options = {}) {
   const result = spawnSync(command, args, {
     stdio: "inherit",
-    shell: needsShell(command),
+    shell: process.platform === "win32",
     ...options,
   });
   if (result.status !== 0) {
@@ -197,10 +196,6 @@ process.once("SIGTERM", () => void stopAll(143));
 
 runSync(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], { cwd: desktopRoot });
 
-// Build the server TS → JS so Electron can import it in-process
-console.log("[electron-dev] Building openwork-server (tsc)...");
-runSync(pnpmCmd, ["--filter", "openwork-server", "build"], { cwd: repoRoot });
-
 const initialProbeUrls = [startUrl, ...viteProbeUrls].filter(Boolean);
 let viteReady = false;
 for (const candidate of initialProbeUrls) {
@@ -222,6 +217,7 @@ if (!viteReady) {
 if (!viteReady) {
   uiChild = run(pnpmCmd, ["-w", "dev:ui"], {
     cwd: repoRoot,
+    detached: process.platform !== "win32",
     env: {
       ...process.env,
       PORT: String(devPort),
@@ -233,22 +229,43 @@ if (!viteReady) {
 
 const resolvedStartUrl = await waitForVite(startUrl);
 
-// Optional Electron CDP for external debugging / raw CDP clients.
-// NOT required for the built-in browser (uses native webContents APIs).
-// Set OPENWORK_ELECTRON_REMOTE_DEBUG_PORT=9823 to enable.
-const cdpPortRaw = process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "";
+// Default Electron CDP on a stable dev port so chrome-devtools MCP / raw CDP
+// clients can attach without each launch picking a random port. Override with
+// OPENWORK_ELECTRON_REMOTE_DEBUG_PORT=<port> or set to "0" to disable.
+const defaultCdpPort = "9823";
+const cdpPortRaw = process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? defaultCdpPort;
 const cdpPort = cdpPortRaw === "" || cdpPortRaw === "0" ? "" : cdpPortRaw;
 
-electronChild = run(pnpmCmd, ["exec", "electron", "./electron/main.mjs"], {
-  cwd: desktopRoot,
-  env: {
-    ...process.env,
-    OPENWORK_DEV_MODE: process.env.OPENWORK_DEV_MODE ?? "1",
-    OPENWORK_DATA_DIR: process.env.OPENWORK_DATA_DIR ?? defaultDevDataDir,
-    OPENWORK_ELECTRON_START_URL: resolvedStartUrl,
-    ...(cdpPort ? { OPENWORK_ELECTRON_REMOTE_DEBUG_PORT: cdpPort } : {}),
-  },
-});
+if (launchWithMacOpen) {
+  const electronExecutable = require("electron");
+  const electronAppPath = resolve(electronExecutable, "../../..");
+  electronChild = run("open", [
+    "-n",
+    "-W",
+    electronAppPath,
+    "--env", `OPENWORK_DEV_MODE=${process.env.OPENWORK_DEV_MODE ?? "1"}`,
+    "--env", `OPENWORK_DATA_DIR=${process.env.OPENWORK_DATA_DIR ?? defaultDevDataDir}`,
+    "--env", `OPENWORK_ELECTRON_START_URL=${resolvedStartUrl}`,
+    ...(cdpPort ? ["--env", `OPENWORK_ELECTRON_REMOTE_DEBUG_PORT=${cdpPort}`] : []),
+    "--args",
+    resolve(desktopRoot, "electron/main.mjs"),
+  ], {
+    cwd: desktopRoot,
+    detached: false,
+  });
+} else {
+  electronChild = run(pnpmCmd, ["exec", "electron", "./electron/main.mjs"], {
+    cwd: desktopRoot,
+    detached: process.platform !== "win32",
+    env: {
+      ...process.env,
+      OPENWORK_DEV_MODE: process.env.OPENWORK_DEV_MODE ?? "1",
+      OPENWORK_DATA_DIR: process.env.OPENWORK_DATA_DIR ?? defaultDevDataDir,
+      OPENWORK_ELECTRON_START_URL: resolvedStartUrl,
+      ...(cdpPort ? { OPENWORK_ELECTRON_REMOTE_DEBUG_PORT: cdpPort } : {}),
+    },
+  });
+}
 
 if (cdpPort) {
   console.log(`[openwork] Electron CDP exposed at http://127.0.0.1:${cdpPort}`);
