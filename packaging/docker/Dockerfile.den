@@ -20,6 +20,7 @@ COPY ee/packages/utils /app/ee/packages/utils
 COPY ee/packages/den-db /app/ee/packages/den-db
 COPY ee/apps/den-api /app/ee/apps/den-api
 
+RUN pnpm --dir /app/packages/email run build
 RUN pnpm --dir /app/ee/packages/utils run build
 RUN pnpm --dir /app/packages/email run build
 RUN pnpm --dir /app/ee/packages/den-db run build
@@ -27,4 +28,4 @@ RUN pnpm --dir /app/ee/apps/den-api run build
 
 EXPOSE 8788
 
-CMD ["sh", "-lc", "yes | pnpm --dir /app/ee/packages/den-db run db:push && node ee/apps/den-api/dist/server.js"]
+CMD ["sh", "-lc", "cd /app/ee/packages/den-db && yes | node --import tsx ./node_modules/drizzle-kit/bin.cjs push --config drizzle.config.ts && node /app/ee/apps/den-api/dist/server.js"]

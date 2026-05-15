@@ -118,7 +118,7 @@ function resolveDesktopDenBaseUrl(request: Request) {
   const protocol = forwardedProto ?? new URL(request.url).protocol.replace(/:$/, "")
   const targetHost = forwardedHost ?? host
   if (!targetHost) {
-    return "https://app.openworklabs.com/api/den"
+    return env.desktopDenBaseUrl ?? `${env.betterAuthUrl}/api/den`
   }
 
   const origin = `${protocol}://${targetHost}`
