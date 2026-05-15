@@ -23,6 +23,7 @@
     "src/components/**/*",
     "src/i18n/**/*",
     "src/lib/**/*",
+    "src/overlay/**/*",
     "src/react-app/**/*",
     "src/app/lib/**/*",
     "src/app/bundles/**/*",

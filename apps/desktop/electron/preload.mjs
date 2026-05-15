@@ -30,6 +30,22 @@ function applyShellDocumentMarkers() {
   }
 }
 
+function notifyMenuOverlayDismiss() {
+  ipcRenderer.send("openwork:menu-overlay:dismiss");
+}
+
+function installMenuOverlayDismissListeners() {
+  try {
+    const target = window;
+    target.addEventListener("pointerdown", notifyMenuOverlayDismiss, { capture: true });
+    target.addEventListener("wheel", notifyMenuOverlayDismiss, { capture: true, passive: true });
+    target.addEventListener("keydown", notifyMenuOverlayDismiss, { capture: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 contextBridge.exposeInMainWorld("__OPENWORK_ELECTRON__", {
   invokeDesktop(command, ...args) {
     return ipcRenderer.invoke("openwork:desktop", command, ...args);
@@ -89,6 +105,13 @@ contextBridge.exposeInMainWorld("__OPENWORK_ELECTRON__", {
     reload() { return ipcRenderer.invoke("openwork:browser:reload"); },
     setBounds(bounds) { return ipcRenderer.invoke("openwork:browser:bounds", bounds); },
     getState() { return ipcRenderer.invoke("openwork:browser:state"); },
+    createTab(url) { return ipcRenderer.invoke("openwork:browser:createTab", url); },
+    closeTab(tabId) { return ipcRenderer.invoke("openwork:browser:closeTab", tabId); },
+    closeAllTabs() { return ipcRenderer.invoke("openwork:browser:closeAllTabs"); },
+    selectTab(tabId) { return ipcRenderer.invoke("openwork:browser:selectTab", tabId); },
+    reorderTabs(tabIds) { return ipcRenderer.invoke("openwork:browser:reorderTabs", tabIds); },
+    listTabs() { return ipcRenderer.invoke("openwork:browser:listTabs"); },
+    showTabContextMenu(tabId, point) { return ipcRenderer.invoke("openwork:browser:tabContextMenu", tabId, point); },
     destroy() { return ipcRenderer.invoke("openwork:browser:destroy"); },
     onStateChange(callback) {
       const handler = (_event, state) => callback(state);
@@ -130,4 +153,8 @@ ipcRenderer.on(NATIVE_MENU_TOGGLE_SIDEBAR_EVENT, () => {
 
 if (!applyShellDocumentMarkers() && typeof document !== "undefined") {
   document.addEventListener("DOMContentLoaded", applyShellDocumentMarkers, { once: true });
+}
+
+if (!installMenuOverlayDismissListeners() && typeof document !== "undefined") {
+  document.addEventListener("DOMContentLoaded", installMenuOverlayDismissListeners, { once: true });
 }

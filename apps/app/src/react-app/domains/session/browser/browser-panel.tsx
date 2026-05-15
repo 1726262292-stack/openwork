@@ -1,58 +1,81 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useReducer, useRef } from "react";
-import { ArrowLeft, ArrowRight, Globe, Loader2, RotateCw, X } from "lucide-react";
+import { useCallback, useEffect, useRef } from "react";
+import { ArrowLeft, ArrowRight, Globe, Loader2, Plus, RotateCw, X } from "lucide-react";
+import { Reorder, useDragControls } from "motion/react";
 import { isElectronRuntime } from "../../../../app/utils";
-
-type BrowserState = {
-  url: string;
-  title: string;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  isLoading: boolean;
-};
-
-type BrowserPanelState = {
-  browserState: BrowserState;
-  urlInput: string;
-};
-
-type BrowserPanelAction =
-  | { type: "browserStateChanged"; browserState: BrowserState; syncUrlInput: boolean }
-  | { type: "urlInputChanged"; value: string };
+import { Button } from "@/components/ui/button";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import {
+  getActiveTab,
+  type BrowserStatePayload,
+  type BrowserTabInfo,
+  useBrowserState,
+} from "./use-browser-state";
 
 type BrowserPanelProps = { onClose: () => void };
 
-const EMPTY_STATE: BrowserState = { url: "", title: "", canGoBack: false, canGoForward: false, isLoading: false };
-
-function browserPanelReducer(
-  state: BrowserPanelState,
-  action: BrowserPanelAction,
-): BrowserPanelState {
-  switch (action.type) {
-    case "browserStateChanged":
-      return {
-        browserState: action.browserState,
-        urlInput: action.syncUrlInput ? action.browserState.url : state.urlInput,
-      };
-    case "urlInputChanged":
-      return { ...state, urlInput: action.value };
+function getTabLabel(tab: BrowserTabInfo) {
+  if (tab.title) {
+    return tab.title;
   }
+
+  if (tab.url && tab.url !== "about:blank") {
+    return tab.url;
+  }
+
+  return "New tab";
+}
+
+function getNativeMenuPoint(
+  el: HTMLElement | null,
+  point?: { clientX: number; clientY: number },
+) {
+  const zoom = window.__OPENWORK_ZOOM_FACTOR__ ?? 1;
+
+  if (point) {
+    return {
+      x: Math.round(point.clientX / zoom),
+      y: Math.round(point.clientY / zoom),
+    };
+  }
+
+  if (!el) {
+    return undefined;
+  }
+
+  const rect = el.getBoundingClientRect();
+
+  return {
+    x: Math.round((rect.left + 8) / zoom),
+    y: Math.round((rect.bottom + 4) / zoom),
+  };
 }
 
 function getElectronBrowser() {
-  if (!isElectronRuntime()) return null;
-  return (window as Window).__OPENWORK_ELECTRON__?.browser ?? null;
+  if (!isElectronRuntime()) {
+    return null;
+  }
+
+  return window.__OPENWORK_ELECTRON__?.browser ?? null;
 }
 
 function computeBounds(el: HTMLElement, toolbar: HTMLElement) {
   const rect = el.getBoundingClientRect();
   const toolbarRect = toolbar.getBoundingClientRect();
+
   // Electron's WebContentsView.setBounds() uses the parent contentView's
   // coordinate space (CSS pixels at zoom=1). If the app has a font-zoom /
   // zoom factor, getBoundingClientRect() returns *zoomed* CSS pixels.
   // Dividing by the zoom factor gives the unzoomed coordinates that the
   // native view expects.
-  const zoom = (window as Window & { __OPENWORK_ZOOM_FACTOR__?: number }).__OPENWORK_ZOOM_FACTOR__ ?? 1;
+  const zoom = window.__OPENWORK_ZOOM_FACTOR__ ?? 1;
+
   return {
     x: Math.round(rect.x / zoom),
     y: Math.round((rect.y + toolbarRect.height) / zoom),
@@ -61,11 +84,110 @@ function computeBounds(el: HTMLElement, toolbar: HTMLElement) {
   };
 }
 
+type BrowserTabProps = {
+  tab: BrowserTabInfo;
+};
+
+function BrowserTab({ tab }: BrowserTabProps) {
+  const dragControls = useDragControls();
+  const tabRef = useRef<HTMLDivElement>(null);
+  const label = getTabLabel(tab);
+
+  const selectTab = () => {
+    getElectronBrowser()?.selectTab?.(tab.tabId);
+  };
+
+  const closeTab = () => {
+    getElectronBrowser()?.closeTab?.(tab.tabId);
+  };
+
+  const showTabContextMenu = (point?: { clientX: number; clientY: number }) => {
+    void getElectronBrowser()?.showTabContextMenu?.(
+      tab.tabId,
+      getNativeMenuPoint(tabRef.current, point),
+    );
+  };
+
+  return (
+    <Reorder.Item
+      as="div"
+      value={tab.tabId}
+      id={tab.tabId}
+      layout="position"
+      dragElastic={0}
+      dragListener={false}
+      dragControls={dragControls}
+      className="group relative w-44 min-w-0 shrink-0"
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        showTabContextMenu({ clientX: event.clientX, clientY: event.clientY });
+      }}
+    >
+      <div ref={tabRef} className="relative">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "w-full min-w-0 justify-start gap-2 px-2 pr-8 text-left text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground",
+            tab.isActive && "bg-muted/80 text-foreground",
+          )}
+          onClick={selectTab}
+          onPointerDown={(event) => {
+            if (event.button !== 0) {
+              return;
+            }
+
+            dragControls.start(event);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
+              return;
+            }
+
+            event.preventDefault();
+            showTabContextMenu();
+          }}
+          title={label}
+          aria-label={`Select tab: ${label}`}
+        >
+          {tab.favicon ? (
+            <img src={tab.favicon} alt="" className="size-3.5 shrink-0 rounded-[2px]" />
+          ) : tab.isLoading ? (
+            <Loader2 className="animate-spin" />
+          ) : (
+            <Globe />
+          )}
+          <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className={cn(
+            "absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100 focus:opacity-100",
+            tab.isActive && "text-foreground hover:bg-muted hover:text-foreground",
+          )}
+          title="Close tab"
+          aria-label={`Close tab: ${label}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            closeTab();
+          }}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+          }}
+        >
+          <X />
+        </Button>
+      </div>
+    </Reorder.Item>
+  );
+}
+
 export function BrowserPanel({ onClose }: BrowserPanelProps) {
-  const [state, dispatch] = useReducer(browserPanelReducer, {
-    browserState: EMPTY_STATE,
-    urlInput: "",
-  });
+  const [state, dispatch] = useBrowserState();
   const urlFocusedRef = useRef(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -76,15 +198,20 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
   // Subscribe to state changes from the main process
   useEffect(() => {
     const browser = getElectronBrowser();
-    if (!browser) return;
-    const unsub = browser.onStateChange?.((s: BrowserState) => {
+
+    if (!browser) {
+      return;
+    }
+
+    const unsub = browser.onStateChange?.((s: BrowserStatePayload) => {
       dispatch({
         type: "browserStateChanged",
         browserState: s,
         syncUrlInput: !urlFocusedRef.current,
       });
     });
-    browser.getState?.().then((s: BrowserState | null) => {
+
+    browser.getState?.().then((s: BrowserStatePayload | null) => {
       if (s) {
         dispatch({
           type: "browserStateChanged",
@@ -93,20 +220,31 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
         });
       }
     });
+
     return unsub;
   }, []);
 
   // Show the browser view when the panel mounts, keep bounds in sync, hide on unmount.
   useEffect(() => {
     const browser = getElectronBrowser();
-    if (!browser || !panelRef.current || !toolbarRef.current) return;
+
+    if (!browser || !panelRef.current || !toolbarRef.current) {
+      return;
+    }
+
     const panel = panelRef.current;
     const toolbar = toolbarRef.current;
 
     const syncBounds = () => {
       boundsFrameRef.current = null;
+
       const bounds = computeBounds(panel, toolbar);
-      if (bounds.width < 1 || bounds.height < 1) return; // not laid out yet
+
+      if (bounds.width < 1 || bounds.height < 1) {
+        return;
+      }
+
+      // not laid out yet
       if (!shownRef.current) {
         browser.show?.(bounds);
         shownRef.current = true;
@@ -114,6 +252,7 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
         browser.setBounds?.(bounds);
       }
     };
+
     const scheduleSyncBounds = () => {
       if (boundsFrameRef.current != null) return;
       boundsFrameRef.current = window.requestAnimationFrame(syncBounds);
@@ -123,17 +262,22 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
     syncBounds();
 
     const observer = new ResizeObserver(scheduleSyncBounds);
+
     observer.observe(panel);
     observer.observe(toolbar);
+
     window.addEventListener("resize", scheduleSyncBounds);
 
     return () => {
       observer.disconnect();
+
       window.removeEventListener("resize", scheduleSyncBounds);
+
       if (boundsFrameRef.current != null) {
         window.cancelAnimationFrame(boundsFrameRef.current);
         boundsFrameRef.current = null;
       }
+
       browser.hide?.();
       shownRef.current = false;
     };
@@ -143,6 +287,27 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
     getElectronBrowser()?.navigate?.(url ?? state.urlInput);
   }, [state.urlInput]);
 
+  const createTab = useCallback(() => {
+    getElectronBrowser()?.createTab?.();
+  }, []);
+
+  const reorderTabs = useCallback((tabIds: string[]) => {
+    dispatch({ type: "tabsReordered", tabIds });
+    getElectronBrowser()?.reorderTabs?.(tabIds);
+  }, []);
+
+  const back = useCallback(() => {
+    getElectronBrowser()?.back?.();
+  }, []);
+
+  const forward = useCallback(() => {
+    getElectronBrowser()?.forward?.();
+  }, []);
+
+  const reload = useCallback(() => {
+    getElectronBrowser()?.reload?.();
+  }, []);
+
   const handleUrlKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -151,51 +316,108 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
     }
   }, [navigate]);
 
+  const activeTab = getActiveTab(state);
   const browser = getElectronBrowser();
+
   if (!isElectronRuntime() || !browser) {
     return (
-      <div className="flex h-full items-center justify-center p-4 text-center text-dls-secondary">
+      <div className="flex h-full items-center justify-center p-4 text-center text-muted-foreground">
         <p className="text-sm">Browser panel is only available in the desktop app.</p>
       </div>
     );
   }
 
   return (
-    <div ref={panelRef} className="flex h-full flex-col">
-      <div ref={toolbarRef} className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
-        <button type="button" className="inline-flex size-7 items-center justify-center rounded-md text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:opacity-40" onClick={() => browser.back?.()} disabled={!state.browserState.canGoBack} title="Back" aria-label="Go back">
-          <ArrowLeft className="size-4" />
-        </button>
-        <button type="button" className="inline-flex size-7 items-center justify-center rounded-md text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:opacity-40" onClick={() => browser.forward?.()} disabled={!state.browserState.canGoForward} title="Forward" aria-label="Go forward">
-          <ArrowRight className="size-4" />
-        </button>
-        <button type="button" className="inline-flex size-7 items-center justify-center rounded-md text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text" onClick={() => browser.reload?.()} title="Reload" aria-label="Reload page">
-          {state.browserState.isLoading ? <Loader2 className="size-4 animate-spin" /> : <RotateCw className="size-4" />}
-        </button>
-        <div className="relative mx-1 flex min-w-0 flex-1 items-center">
-          <Globe className="absolute left-2 size-3.5 text-dls-secondary" />
-          <input
-            ref={urlInputRef}
-            type="text"
-            className="h-7 w-full rounded-md border border-dls-border bg-dls-background-secondary pl-7 pr-2 text-[12px] text-dls-text placeholder:text-dls-secondary focus:border-dls-accent focus:outline-none"
-            value={state.urlInput}
-            onChange={(e) =>
-              dispatch({ type: "urlInputChanged", value: e.target.value })
-            }
-            onKeyDown={handleUrlKeyDown}
-            onFocus={() => { urlFocusedRef.current = true; urlInputRef.current?.select(); }}
-            onBlur={() => { urlFocusedRef.current = false; }}
-            placeholder="Enter URL..."
-            spellCheck={false}
-            autoComplete="off"
-          />
+    <TooltipProvider delay={1000}>
+      <div ref={panelRef} className="flex h-full flex-col">
+        <div ref={toolbarRef} className="shrink-0 border-b border-border bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
+          <div className="flex h-10 items-center gap-1 border-b border-border/60 px-2">
+            <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
+              <Reorder.Group
+                as="div"
+                axis="x"
+                values={state.tabs.map((tab) => tab.tabId)}
+                onReorder={reorderTabs}
+                className="flex min-w-max items-center gap-1"
+              >
+                {state.tabs.map((tab) => (
+                  <BrowserTab
+                    key={tab.tabId}
+                    tab={tab}
+                  />
+                ))}
+              </Reorder.Group>
+            </div>
+            <Tooltip>
+              <TooltipTrigger
+                render={(
+                  <Button variant="ghost" size="icon-sm" onClick={createTab} aria-label="New tab">
+                    <Plus />
+                  </Button>
+                )}
+              />
+              <TooltipContent>New tab</TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="flex h-10 items-center gap-1 px-2">
+            <Tooltip>
+              <TooltipTrigger
+                render={(
+                  <Button variant="ghost" size="icon-sm" onClick={back} disabled={!activeTab.canGoBack} aria-label="Go back">
+                    <ArrowLeft />
+                  </Button>
+                )}
+              />
+              <TooltipContent>Back</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={(
+                  <Button variant="ghost" size="icon-sm" onClick={forward} disabled={!activeTab.canGoForward} aria-label="Go forward">
+                    <ArrowRight />
+                  </Button>
+                )}
+              />
+              <TooltipContent>Forward</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={(
+                  <Button variant="ghost" size="icon-sm" onClick={reload} aria-label="Reload page">
+                    {activeTab.isLoading ? <Loader2 className="animate-spin" /> : <RotateCw />}
+                  </Button>
+                )}
+              />
+              <TooltipContent>Reload</TooltipContent>
+            </Tooltip>
+            <InputGroup className="mx-1 h-7 flex-1 rounded-md">
+              <InputGroupInput
+                ref={urlInputRef}
+                type="text"
+                className="h-7"
+                value={state.urlInput}
+                onChange={(e) =>
+                  dispatch({ type: "urlInputChanged", value: e.target.value })
+                }
+                onKeyDown={handleUrlKeyDown}
+                onFocus={() => { urlFocusedRef.current = true; urlInputRef.current?.select(); }}
+                onBlur={() => { urlFocusedRef.current = false; }}
+                placeholder="Enter URL..."
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <InputGroupAddon align="inline-start" className="ps-2">
+                <Globe />
+              </InputGroupAddon>
+            </InputGroup>
+            <Button variant="ghost" size="icon-sm" onClick={onClose} title="Close browser" aria-label="Close browser panel">
+              <X />
+            </Button>
+          </div>
         </div>
-        <button type="button" className="inline-flex size-7 items-center justify-center rounded-md text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text" onClick={onClose} title="Close browser" aria-label="Close browser panel">
-          <X className="size-4" />
-        </button>
+        {/* WebContentsView renders in this area (managed by Electron main process) */}
+        <div className="min-h-0 flex-1" />
       </div>
-      {/* WebContentsView renders in this area (managed by Electron main process) */}
-      <div className="min-h-0 flex-1" />
-    </div>
+    </TooltipProvider>
   );
 }

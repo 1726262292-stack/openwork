@@ -32,6 +32,7 @@ import type { WorkspaceList } from "./desktop-types";
 
 declare global {
   interface Window {
+    __OPENWORK_ZOOM_FACTOR__?: number;
     __OPENWORK_ELECTRON__?: {
       invokeDesktop?: (command: string, ...args: unknown[]) => Promise<unknown>;
       shell?: {
@@ -87,9 +88,68 @@ declare global {
         forward?: () => Promise<void>;
         reload?: () => Promise<void>;
         setBounds?: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
-        getState?: () => Promise<{ url: string; title: string; canGoBack: boolean; canGoForward: boolean; isLoading: boolean } | null>;
+        getState?: () => Promise<{
+          url: string;
+          title: string;
+          canGoBack: boolean;
+          canGoForward: boolean;
+          isLoading: boolean;
+          activeTabId?: string | null;
+          tabs?: Array<{
+            tabId: string;
+            url: string;
+            title: string;
+            favicon?: string | null;
+            canGoBack: boolean;
+            canGoForward: boolean;
+            isLoading: boolean;
+            isActive: boolean;
+          }>;
+        } | null>;
+        createTab?: (url?: string) => Promise<{ tabId: string }>;
+        closeTab?: (tabId: string) => Promise<string | null>;
+        closeAllTabs?: () => Promise<string[]>;
+        selectTab?: (tabId: string) => Promise<string>;
+        reorderTabs?: (tabIds: string[]) => Promise<Array<{
+          tabId: string;
+          url: string;
+          title: string;
+          favicon?: string | null;
+          canGoBack: boolean;
+          canGoForward: boolean;
+          isLoading: boolean;
+          isActive: boolean;
+        }>>;
+        listTabs?: () => Promise<Array<{
+          tabId: string;
+          url: string;
+          title: string;
+          favicon?: string | null;
+          canGoBack: boolean;
+          canGoForward: boolean;
+          isLoading: boolean;
+          isActive: boolean;
+        }>>;
+        showTabContextMenu?: (tabId: string, point?: { x: number; y: number }) => Promise<void>;
         destroy?: () => Promise<void>;
-        onStateChange?: (callback: (state: { url: string; title: string; canGoBack: boolean; canGoForward: boolean; isLoading: boolean }) => void) => () => void;
+        onStateChange?: (callback: (state: {
+          url: string;
+          title: string;
+          canGoBack: boolean;
+          canGoForward: boolean;
+          isLoading: boolean;
+          activeTabId?: string | null;
+          tabs?: Array<{
+            tabId: string;
+            url: string;
+            title: string;
+            favicon?: string | null;
+            canGoBack: boolean;
+            canGoForward: boolean;
+            isLoading: boolean;
+            isActive: boolean;
+          }>;
+        }) => void) => () => void;
         onPanelOpened?: (callback: () => void) => () => void;
         onPanelClosed?: (callback: () => void) => () => void;
       };

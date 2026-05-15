@@ -34,6 +34,7 @@ class NativeSnapshot {
   #snapshotCounter = 0;
   #stableIdMap = new Map(); // backendDOMNodeId → uid (stable across snapshots)
   #debuggerReady = false;
+  #attachedWebContents = null;
 
   constructor(getWebContents) {
     this.#getWebContents = getWebContents;
@@ -42,6 +43,11 @@ class NativeSnapshot {
   #ensureDebugger() {
     const wc = this.#getWebContents();
     if (!wc || wc.isDestroyed()) throw new Error("No browser page available.");
+    if (this.#attachedWebContents && this.#attachedWebContents !== wc) {
+      try { this.#attachedWebContents.debugger?.detach(); } catch { /* ok */ }
+      this.#debuggerReady = false;
+      this.#attachedWebContents = null;
+    }
     if (!this.#debuggerReady) {
       try {
         wc.debugger.attach("1.3");
@@ -49,7 +55,11 @@ class NativeSnapshot {
         // Already attached — fine
       }
       this.#debuggerReady = true;
-      wc.once("destroyed", () => { this.#debuggerReady = false; });
+      this.#attachedWebContents = wc;
+      wc.once("destroyed", () => {
+        if (this.#attachedWebContents === wc) this.#attachedWebContents = null;
+        this.#debuggerReady = false;
+      });
     }
     return wc;
   }
@@ -170,8 +180,9 @@ class NativeSnapshot {
 
   /** Reset snapshot state. Call when the WebContentsView is destroyed. */
   reset() {
-    try { this.#getWebContents()?.debugger?.detach(); } catch { /* ok */ }
+    try { this.#attachedWebContents?.debugger?.detach(); } catch { /* ok */ }
     this.#debuggerReady = false;
+    this.#attachedWebContents = null;
     this.#nodes.clear();
     this.#stableIdMap.clear();
   }
@@ -183,12 +194,24 @@ class NativeSnapshot {
  * Create an MCP server for the built-in browser using native Electron APIs.
  *
  * @param {object}   opts
- * @param {Function} opts.getWebContents — () => webContents | null
+ * @param {Function} opts.getWebContents — () => active webContents | null
+ * @param {Function} [opts.listTabs]     — () => browser tab info[]
+ * @param {Function} [opts.createTab]    — (url?: string) => tabId
+ * @param {Function} [opts.closeTab]     — (tabId: string) => tabId | null
+ * @param {Function} [opts.selectTab]    — (tabId: string) => tabId
  * @param {Function} [opts.onToolCall]   — called before each tool
  * @param {Function} [opts.onHideBrowser] — called to close the browser panel
  * @returns {McpServer}
  */
-export function createNativeBuiltinServer({ getWebContents, onToolCall, onHideBrowser }) {
+export function createNativeBuiltinServer({
+  getWebContents,
+  listTabs,
+  createTab,
+  closeTab,
+  selectTab,
+  onToolCall,
+  onHideBrowser,
+}) {
   const server = new McpServer(
     { name: "openwork-browser", version: "0.2.0" },
     { capabilities: { logging: {} } },
@@ -203,6 +226,19 @@ export function createNativeBuiltinServer({ getWebContents, onToolCall, onHideBr
     const c = getWebContents();
     if (!c || c.isDestroyed()) throw new Error("Built-in browser is not open.");
     return c;
+  }
+
+  function tabs() {
+    return typeof listTabs === "function" ? listTabs() : [];
+  }
+
+  function resolveTabId(pageId) {
+    const availableTabs = tabs();
+    if (typeof pageId === "number") {
+      return availableTabs[pageId - 1]?.tabId ?? null;
+    }
+    const id = String(pageId ?? "").trim();
+    return availableTabs.some((tab) => tab.tabId === id) ? id : null;
   }
 
   /** Navigate and wait for the page to load. Simple event-based wait —
@@ -730,27 +766,68 @@ export function createNativeBuiltinServer({ getWebContents, onToolCall, onHideBr
     },
   );
 
-  // ── Page management (single-page) ─────────────────────────────────
+  // ── Page management ───────────────────────────────────────────────
 
   defineTool(
     "list_pages",
-    "Get a list of pages open in the browser.",
+    "Get a list of tabs open in the built-in browser. Use select_page before interacting with a non-selected tab.",
     {},
     async () => {
-      const w = wc();
-      return { content: [{ type: "text", text: JSON.stringify([{
-        pageId: 1, url: w.getURL(), title: w.getTitle(), selected: true,
-      }]) }] };
+      const pages = tabs().map((tab, index) => ({
+        pageId: tab.tabId,
+        index: index + 1,
+        url: tab.url,
+        title: tab.title,
+        selected: tab.isActive,
+        isLoading: tab.isLoading,
+        canGoBack: tab.canGoBack,
+        canGoForward: tab.canGoForward,
+      }));
+      return { content: [{ type: "text", text: JSON.stringify(pages, null, 2) }] };
     },
   );
 
   defineTool(
     "select_page",
-    "Select a page as context for future tool calls.",
-    { pageId: z.number().describe("Page ID to select.") },
+    "Select a tab as context for future tool calls. After switching tabs, take a fresh snapshot before using element uids.",
+    { pageId: z.union([z.string(), z.number()]).describe("Page ID from list_pages. Numeric 1-based indexes are also accepted.") },
     async (params) => {
-      if (params.pageId !== 1) throw new Error("Only page 1 exists in the built-in browser.");
-      return { content: [{ type: "text", text: "Page 1 selected." }] };
+      if (typeof selectTab !== "function") throw new Error("Tab selection is not available.");
+      const tabId = resolveTabId(params.pageId);
+      if (!tabId) throw new Error(`No such page: ${params.pageId}`);
+      await selectTab(tabId);
+      snap.reset();
+      return { content: [{ type: "text", text: `Page ${tabId} selected. Take a fresh snapshot before interacting.` }] };
+    },
+  );
+
+  defineTool(
+    "create_page",
+    "Create a new browser tab, optionally navigate it to a URL, and select it for future tool calls.",
+    {
+      url: z.string().optional().describe("Optional URL to open in the new tab."),
+    },
+    async (params) => {
+      if (typeof createTab !== "function") throw new Error("Tab creation is not available.");
+      const tabId = await createTab(params.url);
+      snap.reset();
+      return { content: [{ type: "text", text: `Created and selected page ${tabId}.` }] };
+    },
+  );
+
+  defineTool(
+    "close_page",
+    "Close a browser tab by page ID. If the selected tab is closed, another tab may become selected; take a fresh snapshot before interacting.",
+    {
+      pageId: z.union([z.string(), z.number()]).describe("Page ID from list_pages. Numeric 1-based indexes are also accepted."),
+    },
+    async (params) => {
+      if (typeof closeTab !== "function") throw new Error("Tab closing is not available.");
+      const tabId = resolveTabId(params.pageId);
+      if (!tabId) throw new Error(`No such page: ${params.pageId}`);
+      await closeTab(tabId);
+      snap.reset();
+      return { content: [{ type: "text", text: `Closed page ${tabId}.` }] };
     },
   );
 

@@ -248,12 +248,24 @@ async function startMcpHttpServer(mcpServerFactory, preferredPort = 0) {
  * Boot both MCP servers.
  *
  * @param {object}   opts
- * @param {Function} opts.getWebContents    — () => WebContents | null (built-in browser view)
+ * @param {Function} opts.getWebContents    — () => WebContents | null (active built-in browser tab)
+ * @param {Function} opts.listTabs          — () => BrowserTabInfo[]
+ * @param {Function} opts.createTab         — (url?: string) => tabId
+ * @param {Function} opts.closeTab          — (tabId: string) => tabId | null
+ * @param {Function} opts.selectTab         — (tabId: string) => tabId
  * @param {Function} opts.onBuiltinToolCall — called before each built-in browser tool (opens panel)
  * @param {Function} opts.onHideBrowser     — called to close the browser panel
  * @returns {{ builtinPort: number, externalPort: number, stop: () => Promise<void> }}
  */
-export async function startBrowserMcpServers({ getWebContents, onBuiltinToolCall, onHideBrowser }) {
+export async function startBrowserMcpServers({
+  getWebContents,
+  listTabs,
+  createTab,
+  closeTab,
+  selectTab,
+  onBuiltinToolCall,
+  onHideBrowser,
+}) {
   let externalBrowser = null;
 
   // ── Built-in browser: native Electron APIs ────────────────────────

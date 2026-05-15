@@ -101,6 +101,12 @@ export default defineConfig({
   },
   build: {
     target: "esnext",
+    rollupOptions: {
+      input: {
+        app: resolve(appRoot, "index.html"),
+        overlay: resolve(appRoot, "overlay.html"),
+      },
+    },
   },
   resolve: {
     alias: {

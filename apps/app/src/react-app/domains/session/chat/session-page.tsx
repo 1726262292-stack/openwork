@@ -444,9 +444,13 @@ export function SessionPage(props: SessionPageProps) {
 
             <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
               {isElectronRuntime() ? (
-                <button
-                  type="button"
-                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors ${browserPanelOpen ? "bg-dls-accent/10 text-dls-accent" : "text-gray-10 hover:bg-gray-2/70 hover:text-dls-text"}`}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "transition-colors",
+                    browserPanelOpen && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                  )}
                   onClick={toggleBrowserPanel}
                   title="Toggle browser panel"
                   aria-label="Toggle browser panel"
@@ -454,13 +458,13 @@ export function SessionPage(props: SessionPageProps) {
                 >
                   <Globe size={16} />
                   <span className="hidden @lg/titlebar:inline">Browser</span>
-                </button>
+                </Button>
               ) : null}
               {/* Revert/redo moved to per-message actions */}
               {props.developerMode ? (
-                <button
-                  type="button"
-                  className="rounded-md px-2 py-1 text-[10px] font-medium text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => {
                     try {
                       window.localStorage.removeItem("openwork.acknowledgedProviders");
@@ -470,7 +474,7 @@ export function SessionPage(props: SessionPageProps) {
                   title="Clears acknowledged providers + org onboarding so they trigger again"
                 >
                   Reset notifications
-                </button>
+                </Button>
               ) : null}
             </div>
           </header>
