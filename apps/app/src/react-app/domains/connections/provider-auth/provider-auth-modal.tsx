@@ -4,7 +4,6 @@ import {
   ChevronRight,
   Loader2,
   Search,
-  X,
 } from "lucide-react";
 import {
   useEffect,
@@ -14,10 +13,19 @@ import {
   type KeyboardEvent,
 } from "react";
 
-import { openDesktopUrl } from "../../../../app/lib/desktop";
-import { isDesktopRuntime } from "../../../../app/utils";
-import { compareProviders } from "../../../../app/utils/providers";
-import { Button } from "../../../design-system/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { openDesktopUrl } from "@/app/lib/desktop";
+import { isDesktopRuntime } from "@/app/utils";
+import { compareProviders } from "@/app/utils/providers";
+import { Button } from "@/components/ui/button";
 import { ProviderIcon } from "../../../design-system/provider-icon";
 import { TextInput } from "../../../design-system/text-input";
 import type {
@@ -688,38 +696,34 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     return "Paste a secret key that OpenWork stores locally on this device.";
   };
 
-  if (!props.open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 bg-gray-1/60 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto">
-      <div className="bg-gray-2 border border-gray-6/70 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col">
-        <div className="px-6 pt-6 pb-4 border-b border-gray-6/50 flex items-start justify-between gap-4">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-12">Connect providers</h3>
-            <p className="text-sm text-gray-11 mt-1">
-              Sign in to services or use providers managed by your organization.
-            </p>
-          </div>
-          <Button variant="ghost" className="!p-2 rounded-full" onClick={handleClose} aria-label="Close">
-            <X size={16} />
-          </Button>
-        </div>
+    <Dialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (!open) handleClose();
+      }}
+    >
+      <DialogContent className="flex max-h-[calc(100vh-2rem)] min-h-0 w-full max-w-lg flex-col overflow-hidden sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Connect providers</DialogTitle>
+          <DialogDescription>
+            Sign in to services or use providers managed by your organization.
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="px-6 py-4 flex flex-col gap-4 min-h-0">
-          <div className="min-h-[36px]">
-            {errorMessage ? (
-              <div className="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">
-                {errorMessage}
-              </div>
-            ) : props.loading ? (
-              <div className="rounded-xl border border-gray-6 bg-gray-1/60 px-4 py-3 text-sm text-gray-10 animate-pulse">
-                Loading providers…
-              </div>
-            ) : null}
-          </div>
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
+          {errorMessage ? (
+            <div className="rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11">
+              {errorMessage}
+            </div>
+          ) : props.loading ? (
+            <div className="rounded-xl border border-gray-6 bg-gray-1/60 px-4 py-3 text-sm text-gray-10 animate-pulse">
+              Loading providers…
+            </div>
+          ) : null}
 
           {!props.loading ? (
-            <div className="flex-1 space-y-2 overflow-y-auto pr-1 -mr-1">
+            <div className="-mr-1 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               {resolvedView === "list" ? (
                 <div className="space-y-3" role="presentation" onKeyDown={handleListKeyDown}>
                   <div className="relative flex items-center mb-1">
@@ -818,7 +822,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       <div className="text-sm font-medium text-gray-12">{selectedEntry.name}</div>
                       <div className="text-xs text-gray-10 mt-1">Choose how you'd like to connect.</div>
                     </div>
-                    <Button variant="ghost" onClick={handleBack} disabled={actionDisabled}>
+                    <Button variant="outline" onClick={handleBack} disabled={actionDisabled}>
                       Back
                     </Button>
                   </div>
@@ -854,7 +858,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                           : "Paste your API key to connect."}
                       </div>
                     </div>
-                    <Button variant="ghost" onClick={handleBack} disabled={actionDisabled}>
+                    <Button variant="outline" onClick={handleBack} disabled={actionDisabled}>
                       Back
                     </Button>
                   </div>
@@ -894,7 +898,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-[11px] text-gray-9">Keys are stored locally by OpenCode.</div>
                     <Button
-                      variant="secondary"
                       onClick={handleApiSubmit}
                       disabled={actionDisabled || !apiKeyInput.trim()}
                     >
@@ -911,7 +914,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       <div className="text-sm font-medium text-gray-12">{selectedEntry.name}</div>
                       <div className="text-xs text-gray-10 mt-1">Connect with the provider managed by your organization.</div>
                     </div>
-                    <Button variant="ghost" onClick={handleBack} disabled={actionDisabled}>
+                    <Button variant="outline" onClick={handleBack} disabled={actionDisabled}>
                       Back
                     </Button>
                   </div>
@@ -932,7 +935,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     <div className="text-[11px] text-gray-9">
                       OpenWork will install the provider config and use the credential stored for your org.
                     </div>
-                    <Button variant="secondary" onClick={handleCloudSubmit} disabled={actionDisabled}>
+                    <Button onClick={handleCloudSubmit} disabled={actionDisabled}>
                       {props.submitting ? "Connecting..." : "Connect provider"}
                     </Button>
                   </div>
@@ -967,7 +970,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       <div className="text-sm font-medium text-gray-12">{selectedEntry.name}</div>
                       <div className="text-xs text-gray-10 mt-1">Finish OAuth by pasting the authorization code.</div>
                     </div>
-                    <Button variant="ghost" onClick={handleBack} disabled={actionDisabled}>
+                    <Button variant="outline" onClick={handleBack} disabled={actionDisabled}>
                       Back
                     </Button>
                   </div>
@@ -1008,7 +1011,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       Open browser again
                     </Button>
                     <Button
-                      variant="secondary"
                       onClick={() => void handleOauthCodeSubmit()}
                       disabled={actionDisabled || !oauthCodeInput.trim()}
                     >
@@ -1025,7 +1027,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       <div className="text-sm font-medium text-gray-12">{selectedEntry.name}</div>
                       <div className="text-xs text-gray-10 mt-1">Waiting for browser confirmation.</div>
                     </div>
-                    <Button variant="ghost" onClick={handleBack} disabled={actionDisabled}>
+                    <Button variant="outline" onClick={handleBack} disabled={actionDisabled}>
                       Back
                     </Button>
                   </div>
@@ -1047,7 +1049,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                         <div className="text-[10px] uppercase tracking-wide text-gray-8">Confirmation code</div>
                         <div className="text-sm text-gray-12 font-mono break-all">{oauthDisplayCode}</div>
                       </div>
-                      <Button variant="ghost" className="text-xs shrink-0" onClick={() => void copyOauthDisplayCode()}>
+                      <Button variant="outline" size="sm" className="shrink-0" onClick={() => void copyOauthDisplayCode()}>
                         {oauthCodeCopied ? "Copied" : "Copy"}
                       </Button>
                     </div>
@@ -1085,15 +1087,18 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
           ) : null}
         </div>
 
-        <div className="px-6 pt-4 pb-6 border-t border-gray-6/50 flex flex-col gap-3">
+        <DialogFooter className="shrink-0 flex-col gap-3">
           <div className="min-h-[16px] text-xs text-gray-10">
             {props.submitting ? submittingLabel() : null}
           </div>
-          <Button variant="ghost" onClick={handleClose} disabled={actionDisabled}>
+          <DialogClose
+            disabled={actionDisabled}
+            render={<Button variant="outline" disabled={actionDisabled} />}
+          >
             Close
-          </Button>
-        </div>
-      </div>
-    </div>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
