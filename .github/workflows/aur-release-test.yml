@@ -1,0 +1,271 @@
+name: AUR Release Test
+
+on:
+  pull_request:
+    branches:
+      - dev
+    types:
+      - opened
+      - synchronize
+      - reopened
+  workflow_dispatch:
+    inputs:
+      push_to_aur:
+        description: "Push validated PKGBUILD/.SRCINFO to AUR"
+        required: false
+        type: boolean
+        default: true
+      aur_repo:
+        description: "AUR repo name"
+        required: false
+        type: string
+        default: openwork
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: aur-release-test-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  resolve-aur-test-release:
+    name: Resolve AUR test release
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'chore/aur-only-release-test'
+    runs-on: ubuntu-22.04
+    outputs:
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+      release_name: ${{ steps.resolve.outputs.release_name }}
+      release_body: ${{ steps.resolve.outputs.release_body }}
+      electron_version: ${{ steps.resolve.outputs.electron_version }}
+      source_ref: ${{ steps.resolve.outputs.source_ref }}
+      push_to_aur: ${{ steps.resolve.outputs.push_to_aur }}
+      aur_repo: ${{ steps.resolve.outputs.aur_repo }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Resolve release metadata
+        id: resolve
+        shell: bash
+        env:
+          INPUT_PUSH_TO_AUR: ${{ github.event.inputs.push_to_aur }}
+          INPUT_AUR_REPO: ${{ github.event.inputs.aur_repo }}
+          SOURCE_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const fs = require("node:fs");
+
+          const desktopPackage = JSON.parse(fs.readFileSync("apps/desktop/package.json", "utf8"));
+          const current = String(desktopPackage.version || "").trim();
+          const match = current.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+          if (!match) {
+            throw new Error(`Unsupported desktop version: ${current}`);
+          }
+
+          const [, major, minor, patch] = match;
+          const nextPatch = Number(patch) + 1;
+          const runNumber = process.env.GITHUB_RUN_NUMBER || "0";
+          const runAttempt = process.env.GITHUB_RUN_ATTEMPT || "1";
+          const sha = (process.env.GITHUB_SHA || "local").slice(0, 7);
+          const electronVersion = `${major}.${minor}.${nextPatch}+aurtest.${runNumber}.${runAttempt}.${sha}`;
+          const releaseTag = `aur-test-v${major}.${minor}.${nextPatch}-aurtest.${runNumber}.${runAttempt}-${sha}`;
+          const releaseName = `OpenWork AUR Test ${electronVersion}`;
+          const releaseBody = [
+            "AUR-only release test from a throwaway PR.",
+            "",
+            `Source ref: ${process.env.SOURCE_REF || process.env.GITHUB_SHA}`,
+            "This release is only intended to test Linux Electron tarball packaging and AUR publishing.",
+          ].join("\n");
+
+          console.log(`electron_version=${electronVersion}`);
+          console.log(`release_tag=${releaseTag}`);
+          console.log(`release_name=${releaseName}`);
+          console.log(`source_ref=${process.env.SOURCE_REF || process.env.GITHUB_SHA}`);
+          console.log(`push_to_aur=${(process.env.INPUT_PUSH_TO_AUR || "true") === "false" ? "false" : "true"}`);
+          console.log(`aur_repo=${process.env.INPUT_AUR_REPO || "openwork"}`);
+          console.log("release_body<<__OPENWORK_RELEASE_BODY_EOF__");
+          console.log(releaseBody);
+          console.log("__OPENWORK_RELEASE_BODY_EOF__");
+          NODE
+
+  build-linux-release:
+    name: Build Linux x64 release asset
+    needs: resolve-aur-test-release
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    outputs:
+      asset_url_x86_64: ${{ steps.upload.outputs.asset_url_x86_64 }}
+    env:
+      ELECTRON_VERSION: ${{ needs.resolve-aur-test-release.outputs.electron_version }}
+      RELEASE_TAG: ${{ needs.resolve-aur-test-release.outputs.release_tag }}
+      RELEASE_NAME: ${{ needs.resolve-aur-test-release.outputs.release_name }}
+      RELEASE_BODY: ${{ needs.resolve-aur-test-release.outputs.release_body }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve-aur-test-release.outputs.source_ref }}
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.27.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        continue-on-error: true
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: aur-test-linux-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            aur-test-linux-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Write AUR test package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+          const version = process.env.ELECTRON_VERSION;
+          for (const path of ["apps/desktop/package.json", "apps/app/package.json"]) {
+            const json = JSON.parse(fs.readFileSync(path, "utf8"));
+            json.version = version;
+            fs.writeFileSync(path, `${JSON.stringify(json, null, 2)}\n`);
+          }
+          NODE
+
+      - name: Build Electron app
+        shell: bash
+        env:
+          TARGET: x86_64-unknown-linux-gnu
+        run: pnpm --filter @openwork/desktop build:electron
+
+      - name: Package Linux x64 Electron release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pnpm --dir apps/desktop exec electron-builder \
+            --config electron-builder.yml \
+            --linux \
+            --x64 \
+            --publish never
+
+      - name: Normalize Linux tarball root for AUR
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          tarballs=(apps/desktop/dist-electron/openwork-linux-x64-*.tar.gz)
+          if [ ${#tarballs[@]} -ne 1 ]; then
+            printf 'Expected exactly one Linux x64 tarball, found %s\n' "${#tarballs[@]}" >&2
+            printf '%s\n' "${tarballs[@]:-}" >&2
+            exit 1
+          fi
+
+          expected_root="openwork-linux-x64-${ELECTRON_VERSION}"
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+
+          tar -xzf "${tarballs[0]}" -C "$tmp_dir"
+          mapfile -t roots < <(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d)
+          if [ ${#roots[@]} -ne 1 ]; then
+            printf 'Expected one extracted root directory, found %s\n' "${#roots[@]}" >&2
+            exit 1
+          fi
+
+          if [ "$(basename "${roots[0]}")" != "$expected_root" ]; then
+            mv "${roots[0]}" "$tmp_dir/$expected_root"
+          fi
+
+          tar -C "$tmp_dir" -czf "${tarballs[0]}" "$expected_root"
+
+      - name: Create AUR test prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          body_file="$RUNNER_TEMP/aur-test-release.md"
+          printf '%s\n' "$RELEASE_BODY" > "$body_file"
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "AUR test prerelease $RELEASE_TAG already exists; reusing it."
+            exit 0
+          fi
+
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$RELEASE_NAME" \
+            --notes-file "$body_file" \
+            --target "${{ needs.resolve-aur-test-release.outputs.source_ref }}" \
+            --prerelease
+
+      - name: Upload Linux x64 release asset
+        id: upload
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          tarballs=(apps/desktop/dist-electron/openwork-linux-x64-*.tar.gz)
+          if [ ${#tarballs[@]} -ne 1 ]; then
+            printf 'Expected exactly one Linux x64 tarball, found %s\n' "${#tarballs[@]}" >&2
+            printf '%s\n' "${tarballs[@]:-}" >&2
+            exit 1
+          fi
+
+          gh release upload "$RELEASE_TAG" "${tarballs[0]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+          asset_name=$(basename "${tarballs[0]}")
+          echo "asset_url_x86_64=https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${asset_name}" >> "$GITHUB_OUTPUT"
+
+  publish-aur:
+    name: Validate and publish AUR package
+    needs:
+      - resolve-aur-test-release
+      - build-linux-release
+    uses: ./.github/workflows/aur-validate.yml
+    with:
+      ref: ${{ needs.resolve-aur-test-release.outputs.source_ref }}
+      version: ${{ needs.resolve-aur-test-release.outputs.electron_version }}
+      arch: x86_64
+      mode: publish-ready
+      artifact_source: local-build-artifact
+      asset_url_x86_64: ${{ needs.build-linux-release.outputs.asset_url_x86_64 }}
+      push_to_aur: ${{ needs.resolve-aur-test-release.outputs.push_to_aur == 'true' }}
+      aur_repo: ${{ needs.resolve-aur-test-release.outputs.aur_repo }}
+    secrets:
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
