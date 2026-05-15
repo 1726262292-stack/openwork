@@ -11,8 +11,11 @@ import { registerOrgLlmProviderRoutes } from "./llm-providers.js"
 import { registerOrgMemberRoutes } from "./members.js"
 import { registerPluginArchRoutes } from "./plugin-system/routes.js"
 import { registerOrgRoleRoutes } from "./roles.js"
+import { registerOrgScimRoutes } from "./scim.js"
+import { registerOrgSsoRoutes } from "./sso.js"
 import { registerOrgSkillRoutes } from "./skills.js"
 import { registerOrgTeamRoutes } from "./teams.js"
+import { registerOrgTemplateRoutes } from "./templates.js"
 
 const LEGACY_ORG_PATH_PREFIX = "/v1/orgs/"
 
@@ -46,6 +49,8 @@ export function registerOrgRoutes<T extends { Variables: OrgRouteVariables }>(ap
   registerOrgBillingRoutes(app)
   registerOrgDesktopPolicyRoutes(app)
   registerOrgInferenceRoutes(app)
+  registerOrgScimRoutes(app)
+  registerOrgSsoRoutes(app)
   registerOrgInvitationRoutes(app)
   registerOrgLlmProviderRoutes(app)
   registerOrgMemberRoutes(app)
@@ -53,6 +58,7 @@ export function registerOrgRoutes<T extends { Variables: OrgRouteVariables }>(ap
   registerOrgRoleRoutes(app)
   registerOrgSkillRoutes(app)
   registerOrgTeamRoutes(app)
+  registerOrgTemplateRoutes(app)
 
   app.all("/v1/orgs/:orgId/*", async (c) => {
     const url = new URL(c.req.raw.url)

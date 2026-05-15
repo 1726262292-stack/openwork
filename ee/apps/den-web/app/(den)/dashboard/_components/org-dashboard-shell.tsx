@@ -16,6 +16,8 @@ import {
   LogOut,
   MessageSquare,
   Puzzle,
+  Share2,
+  Shield,
   SlidersHorizontal,
   Sparkles,
   Store,
@@ -37,6 +39,9 @@ import {
   getOrgSettingsRoute,
   getMarketplacesRoute,
   getPluginsRoute,
+  getSsoRoute,
+  getScimRoute,
+  getSharedSetupsRoute,
   getSkillHubsRoute,
 } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
@@ -104,14 +109,23 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
   if (pathname === dashboardRoot) {
     return "Home";
   }
+  if (pathname.startsWith(getSharedSetupsRoute(orgSlug))) {
+    return "Team Templates";
+  }
   if (pathname.startsWith(getMembersRoute(orgSlug))) {
     return "Members";
   }
   if (pathname.startsWith(getApiKeysRoute(orgSlug))) {
     return "API Keys";
   }
+  if (pathname.startsWith(getScimRoute(orgSlug))) {
+    return "SCIM";
+  }
+  if (pathname.startsWith(getSsoRoute(orgSlug))) {
+    return "SSO";
+  }
   if (pathname.startsWith(getBackgroundAgentsRoute(orgSlug))) {
-    return "Background Tasks";
+    return "Shared Workspaces";
   }
   if (pathname.startsWith(getCustomLlmProvidersRoute(orgSlug))) {
     return "LLM Providers";
@@ -233,6 +247,20 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
                 href: activeOrg ? getApiKeysRoute(activeOrg.slug) : "#",
                 label: "API Keys",
                 icon: KeyRound,
+              }]
+            : []),
+          ...(access.canManageScim
+            ? [{
+                href: activeOrg ? getScimRoute(activeOrg.slug) : "#",
+                label: "SCIM",
+                icon: Shield,
+              }]
+            : []),
+          ...(access.canManageSso
+            ? [{
+                href: activeOrg ? getSsoRoute(activeOrg.slug) : "#",
+                label: "SSO",
+                icon: Shield,
               }]
             : []),
           {

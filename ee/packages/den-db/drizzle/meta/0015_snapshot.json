@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "188b03c1-d4a1-4a63-bb6f-fa1d8c16fac0",
-  "prevId": "ff808bd7-356d-498b-912f-e79012796613",
+  "id": "0e0cffef-82ea-44a1-8536-9a0a7ce04603",
+  "prevId": "f4ab960c-7d2a-4be7-8f7e-970b19f08592",
   "tables": {
     "account": {
       "name": "account",
@@ -321,73 +321,6 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "jwks": {
-      "name": "jwks",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "public_key": {
-          "name": "public_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "private_key": {
-          "name": "private_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "alg": {
-          "name": "alg",
-          "type": "varchar(32)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "crv": {
-          "name": "crv",
-          "type": "varchar(32)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "jwks_id": {
-          "name": "jwks_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
     "session": {
       "name": "session",
       "columns": {
@@ -638,8 +571,8 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "oauthAccessToken": {
-      "name": "oauthAccessToken",
+    "external_identity": {
+      "name": "external_identity",
       "columns": {
         "id": {
           "name": "id",
@@ -648,51 +581,225 @@
           "notNull": true,
           "autoincrement": false
         },
-        "token": {
-          "name": "token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "client_id": {
-          "name": "client_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "session_id": {
-          "name": "session_id",
+        "organization_id": {
+          "name": "organization_id",
           "type": "varchar(64)",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "user_id": {
           "name": "user_id",
           "type": "varchar(64)",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
-        "reference_id": {
-          "name": "reference_id",
-          "type": "varchar(64)",
+        "source": {
+          "name": "source",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scim_provider_id": {
+          "name": "scim_provider_id",
+          "type": "varchar(255)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "refresh_id": {
-          "name": "refresh_id",
-          "type": "varchar(64)",
+        "sso_provider_id": {
+          "name": "sso_provider_id",
+          "type": "varchar(255)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "expires_at": {
-          "name": "expires_at",
+        "remote_id": {
+          "name": "remote_id",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "user_name": {
+          "name": "user_name",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "name_json": {
+          "name": "name_json",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "emails_json": {
+          "name": "emails_json",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "attributes_json": {
+          "name": "attributes_json",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "last_scim_sync_at": {
+          "name": "last_scim_sync_at",
           "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_sso_login_at": {
+          "name": "last_sso_login_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)"
+        }
+      },
+      "indexes": {
+        "external_identity_org_user": {
+          "name": "external_identity_org_user",
+          "columns": [
+            "organization_id",
+            "user_id"
+          ],
+          "isUnique": true
+        },
+        "external_identity_org_sso_remote": {
+          "name": "external_identity_org_sso_remote",
+          "columns": [
+            "organization_id",
+            "sso_provider_id",
+            "remote_id"
+          ],
+          "isUnique": true
+        },
+        "external_identity_org_scim_external": {
+          "name": "external_identity_org_scim_external",
+          "columns": [
+            "organization_id",
+            "scim_provider_id",
+            "external_id"
+          ],
+          "isUnique": true
+        },
+        "external_identity_org_email": {
+          "name": "external_identity_org_email",
+          "columns": [
+            "organization_id",
+            "email"
+          ],
+          "isUnique": false
+        },
+        "external_identity_sso_provider": {
+          "name": "external_identity_sso_provider",
+          "columns": [
+            "sso_provider_id"
+          ],
+          "isUnique": false
+        },
+        "external_identity_scim_provider": {
+          "name": "external_identity_scim_provider",
+          "columns": [
+            "scim_provider_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "external_identity_id": {
+          "name": "external_identity_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "scim_provider": {
+      "name": "scim_provider",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scim_token": {
+          "name": "scim_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -705,55 +812,35 @@
           "autoincrement": false,
           "default": "(now())"
         },
-        "scopes": {
-          "name": "scopes",
-          "type": "text",
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp(3)",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)"
         }
       },
       "indexes": {
-        "oauth_access_token_client_id": {
-          "name": "oauth_access_token_client_id",
+        "scim_provider_provider_id": {
+          "name": "scim_provider_provider_id",
           "columns": [
-            "client_id"
+            "provider_id"
           ],
-          "isUnique": false
+          "isUnique": true
         },
-        "oauth_access_token_session_id": {
-          "name": "oauth_access_token_session_id",
+        "scim_provider_organization_id": {
+          "name": "scim_provider_organization_id",
           "columns": [
-            "session_id"
+            "organization_id"
           ],
-          "isUnique": false
-        },
-        "oauth_access_token_user_id": {
-          "name": "oauth_access_token_user_id",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": false
-        },
-        "oauth_access_token_reference_id": {
-          "name": "oauth_access_token_reference_id",
-          "columns": [
-            "reference_id"
-          ],
-          "isUnique": false
-        },
-        "oauth_access_token_refresh_id": {
-          "name": "oauth_access_token_refresh_id",
-          "columns": [
-            "refresh_id"
-          ],
-          "isUnique": false
+          "isUnique": true
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "oauthAccessToken_id": {
-          "name": "oauthAccessToken_id",
+        "scim_provider_id": {
+          "name": "scim_provider_id",
           "columns": [
             "id"
           ]
@@ -762,8 +849,8 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "oauthClient": {
-      "name": "oauthClient",
+    "sso_connection": {
+      "name": "sso_connection",
       "columns": {
         "id": {
           "name": "id",
@@ -772,63 +859,189 @@
           "notNull": true,
           "autoincrement": false
         },
-        "client_id": {
-          "name": "client_id",
+        "organization_id": {
+          "name": "organization_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_id": {
+          "name": "provider_id",
           "type": "varchar(255)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "client_secret": {
-          "name": "client_secret",
+        "kind": {
+          "name": "kind",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "issuer": {
+          "name": "issuer",
+          "type": "varchar(2048)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "domain": {
+          "name": "domain",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'enabled'"
+        },
+        "sign_in_path": {
+          "name": "sign_in_path",
+          "type": "varchar(2048)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_tested_at": {
+          "name": "last_tested_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_error": {
+          "name": "last_error",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "disabled": {
-          "name": "disabled",
-          "type": "boolean",
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)"
+        }
+      },
+      "indexes": {
+        "sso_connection_organization_id": {
+          "name": "sso_connection_organization_id",
+          "columns": [
+            "organization_id"
+          ],
+          "isUnique": true
+        },
+        "sso_connection_provider_id": {
+          "name": "sso_connection_provider_id",
+          "columns": [
+            "provider_id"
+          ],
+          "isUnique": true
+        },
+        "sso_connection_domain": {
+          "name": "sso_connection_domain",
+          "columns": [
+            "domain"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "sso_connection_id": {
+          "name": "sso_connection_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "sso_provider": {
+      "name": "sso_provider",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "issuer": {
+          "name": "issuer",
+          "type": "varchar(2048)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "domain": {
+          "name": "domain",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "oidc_config": {
+          "name": "oidc_config",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
+          "autoincrement": false
+        },
+        "saml_config": {
+          "name": "saml_config",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "domain_verified": {
+          "name": "domain_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
           "autoincrement": false,
           "default": false
         },
-        "skip_consent": {
-          "name": "skip_consent",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "enable_end_session": {
-          "name": "enable_end_session",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "subject_type": {
-          "name": "subject_type",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "scopes": {
-          "name": "scopes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp(3)",
@@ -844,1023 +1057,42 @@
           "notNull": true,
           "autoincrement": false,
           "default": "CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)"
-        },
-        "name": {
-          "name": "name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "uri": {
-          "name": "uri",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "icon": {
-          "name": "icon",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "contacts": {
-          "name": "contacts",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "tos": {
-          "name": "tos",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "policy": {
-          "name": "policy",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "software_id": {
-          "name": "software_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "software_version": {
-          "name": "software_version",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "software_statement": {
-          "name": "software_statement",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "redirect_uris": {
-          "name": "redirect_uris",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "post_logout_redirect_uris": {
-          "name": "post_logout_redirect_uris",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "token_endpoint_auth_method": {
-          "name": "token_endpoint_auth_method",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "grant_types": {
-          "name": "grant_types",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "response_types": {
-          "name": "response_types",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "public": {
-          "name": "public",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "type": {
-          "name": "type",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "require_pkce": {
-          "name": "require_pkce",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "reference_id": {
-          "name": "reference_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
-        "oauth_client_client_id": {
-          "name": "oauth_client_client_id",
+        "sso_provider_provider_id": {
+          "name": "sso_provider_provider_id",
           "columns": [
-            "client_id"
+            "provider_id"
           ],
           "isUnique": true
         },
-        "oauth_client_user_id": {
-          "name": "oauth_client_user_id",
+        "sso_provider_domain": {
+          "name": "sso_provider_domain",
+          "columns": [
+            "domain"
+          ],
+          "isUnique": false
+        },
+        "sso_provider_organization_id": {
+          "name": "sso_provider_organization_id",
+          "columns": [
+            "organization_id"
+          ],
+          "isUnique": false
+        },
+        "sso_provider_user_id": {
+          "name": "sso_provider_user_id",
           "columns": [
             "user_id"
           ],
           "isUnique": false
-        },
-        "oauth_client_reference_id": {
-          "name": "oauth_client_reference_id",
-          "columns": [
-            "reference_id"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "oauthClient_id": {
-          "name": "oauthClient_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "oauthConsent": {
-      "name": "oauthConsent",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "client_id": {
-          "name": "client_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "reference_id": {
-          "name": "reference_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "scopes": {
-          "name": "scopes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)"
-        }
-      },
-      "indexes": {
-        "oauth_consent_client_id": {
-          "name": "oauth_consent_client_id",
-          "columns": [
-            "client_id"
-          ],
-          "isUnique": false
-        },
-        "oauth_consent_user_id": {
-          "name": "oauth_consent_user_id",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": false
-        },
-        "oauth_consent_reference_id": {
-          "name": "oauth_consent_reference_id",
-          "columns": [
-            "reference_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "oauthConsent_id": {
-          "name": "oauthConsent_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "oauthRefreshToken": {
-      "name": "oauthRefreshToken",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "token": {
-          "name": "token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "client_id": {
-          "name": "client_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "reference_id": {
-          "name": "reference_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "revoked": {
-          "name": "revoked",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "auth_time": {
-          "name": "auth_time",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "scopes": {
-          "name": "scopes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "oauth_refresh_token_client_id": {
-          "name": "oauth_refresh_token_client_id",
-          "columns": [
-            "client_id"
-          ],
-          "isUnique": false
-        },
-        "oauth_refresh_token_session_id": {
-          "name": "oauth_refresh_token_session_id",
-          "columns": [
-            "session_id"
-          ],
-          "isUnique": false
-        },
-        "oauth_refresh_token_user_id": {
-          "name": "oauth_refresh_token_user_id",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": false
-        },
-        "oauth_refresh_token_reference_id": {
-          "name": "oauth_refresh_token_reference_id",
-          "columns": [
-            "reference_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "oauthRefreshToken_id": {
-          "name": "oauthRefreshToken_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "inference_keys": {
-      "name": "inference_keys",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "org_membership_id": {
-          "name": "org_membership_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "key_hash": {
-          "name": "key_hash",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "key_prefix": {
-          "name": "key_prefix",
-          "type": "varchar(32)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "enum('active','revoked')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'active'"
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)"
-        }
-      },
-      "indexes": {
-        "inference_keys_key_hash": {
-          "name": "inference_keys_key_hash",
-          "columns": [
-            "key_hash"
-          ],
-          "isUnique": true
-        },
-        "inference_keys_organization_id": {
-          "name": "inference_keys_organization_id",
-          "columns": [
-            "organization_id"
-          ],
-          "isUnique": false
-        },
-        "inference_keys_org_membership_id": {
-          "name": "inference_keys_org_membership_id",
-          "columns": [
-            "org_membership_id"
-          ],
-          "isUnique": false
-        },
-        "inference_keys_status": {
-          "name": "inference_keys_status",
-          "columns": [
-            "status"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "inference_keys_id": {
-          "name": "inference_keys_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "inference_org_limit_policies": {
-      "name": "inference_org_limit_policies",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "window_type": {
-          "name": "window_type",
-          "type": "enum('five_hour','weekly','monthly')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "reset_strategy": {
-          "name": "reset_strategy",
-          "type": "enum('anchored','activity_based')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "anchor_at": {
-          "name": "anchor_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "current_bucket_id": {
-          "name": "current_bucket_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)"
-        }
-      },
-      "indexes": {
-        "inference_org_limit_policies_organization_id": {
-          "name": "inference_org_limit_policies_organization_id",
-          "columns": [
-            "organization_id"
-          ],
-          "isUnique": false
-        },
-        "inference_org_limit_policies_org_window_type": {
-          "name": "inference_org_limit_policies_org_window_type",
-          "columns": [
-            "organization_id",
-            "window_type"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "inference_org_limit_policies_id": {
-          "name": "inference_org_limit_policies_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "inference_org_upstream_provider_keys": {
-      "name": "inference_org_upstream_provider_keys",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "provider": {
-          "name": "provider",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'openrouter'"
-        },
-        "external_key_hash": {
-          "name": "external_key_hash",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "external_workspace_id": {
-          "name": "external_workspace_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "encrypted_api_key": {
-          "name": "encrypted_api_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "key_prefix": {
-          "name": "key_prefix",
-          "type": "varchar(32)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "enum('active','revoked')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'active'"
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)"
-        }
-      },
-      "indexes": {
-        "inference_org_upstream_provider_keys_organization_id": {
-          "name": "inference_org_upstream_provider_keys_organization_id",
-          "columns": [
-            "organization_id"
-          ],
-          "isUnique": false
-        },
-        "inference_org_upstream_provider_keys_org_provider": {
-          "name": "inference_org_upstream_provider_keys_org_provider",
-          "columns": [
-            "organization_id",
-            "provider"
-          ],
-          "isUnique": true
-        },
-        "inference_org_upstream_provider_keys_external_key_hash": {
-          "name": "inference_org_upstream_provider_keys_external_key_hash",
-          "columns": [
-            "external_key_hash"
-          ],
-          "isUnique": false
-        },
-        "inference_org_upstream_provider_keys_status": {
-          "name": "inference_org_upstream_provider_keys_status",
-          "columns": [
-            "status"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "inference_org_upstream_provider_keys_id": {
-          "name": "inference_org_upstream_provider_keys_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "inference_org_usage_buckets": {
-      "name": "inference_org_usage_buckets",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "policy_id": {
-          "name": "policy_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "window_start_at": {
-          "name": "window_start_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "window_end_at": {
-          "name": "window_end_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "limit_amount": {
-          "name": "limit_amount",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "used_amount": {
-          "name": "used_amount",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)"
-        }
-      },
-      "indexes": {
-        "inference_org_usage_buckets_org_window": {
-          "name": "inference_org_usage_buckets_org_window",
-          "columns": [
-            "organization_id",
-            "window_start_at",
-            "window_end_at"
-          ],
-          "isUnique": false
-        },
-        "inference_org_usage_buckets_policy_id": {
-          "name": "inference_org_usage_buckets_policy_id",
-          "columns": [
-            "policy_id"
-          ],
-          "isUnique": false
-        },
-        "inference_org_usage_buckets_policy_window": {
-          "name": "inference_org_usage_buckets_policy_window",
-          "columns": [
-            "policy_id",
-            "window_start_at",
-            "window_end_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "inference_org_usage_buckets_id": {
-          "name": "inference_org_usage_buckets_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "inference_usage_ledger_bucket_charges": {
-      "name": "inference_usage_ledger_bucket_charges",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "ledger_entry_id": {
-          "name": "ledger_entry_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "bucket_id": {
-          "name": "bucket_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "amount": {
-          "name": "amount",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {
-        "inference_usage_ledger_bucket_charges_bucket_id": {
-          "name": "inference_usage_ledger_bucket_charges_bucket_id",
-          "columns": [
-            "bucket_id"
-          ],
-          "isUnique": false
-        },
-        "inference_usage_ledger_bucket_charges_entry_bucket": {
-          "name": "inference_usage_ledger_bucket_charges_entry_bucket",
-          "columns": [
-            "ledger_entry_id",
-            "bucket_id"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "inference_usage_ledger_bucket_charges_id": {
-          "name": "inference_usage_ledger_bucket_charges_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "inference_usage_ledger_entries": {
-      "name": "inference_usage_ledger_entries",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "org_membership_id": {
-          "name": "org_membership_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "inference_key_id": {
-          "name": "inference_key_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "external_job_id": {
-          "name": "external_job_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "external_event_id": {
-          "name": "external_event_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "cost_amount": {
-          "name": "cost_amount",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "event_type": {
-          "name": "event_type",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "occurred_at": {
-          "name": "occurred_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {
-        "inference_usage_ledger_entries_organization_id": {
-          "name": "inference_usage_ledger_entries_organization_id",
-          "columns": [
-            "organization_id"
-          ],
-          "isUnique": false
-        },
-        "inference_usage_ledger_entries_org_membership_id": {
-          "name": "inference_usage_ledger_entries_org_membership_id",
-          "columns": [
-            "org_membership_id"
-          ],
-          "isUnique": false
-        },
-        "inference_usage_ledger_entries_inference_key_id": {
-          "name": "inference_usage_ledger_entries_inference_key_id",
-          "columns": [
-            "inference_key_id"
-          ],
-          "isUnique": false
-        },
-        "inference_usage_ledger_entries_external_event_id": {
-          "name": "inference_usage_ledger_entries_external_event_id",
-          "columns": [
-            "external_event_id"
-          ],
-          "isUnique": true
-        },
-        "inference_usage_ledger_entries_job_event_type": {
-          "name": "inference_usage_ledger_entries_job_event_type",
-          "columns": [
-            "external_job_id",
-            "event_type"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "inference_usage_ledger_entries_id": {
-          "name": "inference_usage_ledger_entries_id",
+        "sso_provider_id": {
+          "name": "sso_provider_id",
           "columns": [
             "id"
           ]
@@ -2300,6 +1532,103 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
+    "temp_template_sharing": {
+      "name": "temp_template_sharing",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "creator_member_id": {
+          "name": "creator_member_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "creator_user_id": {
+          "name": "creator_user_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "template_json": {
+          "name": "template_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)"
+        }
+      },
+      "indexes": {
+        "temp_template_sharing_org_id": {
+          "name": "temp_template_sharing_org_id",
+          "columns": [
+            "organization_id"
+          ],
+          "isUnique": false
+        },
+        "temp_template_sharing_creator_member_id": {
+          "name": "temp_template_sharing_creator_member_id",
+          "columns": [
+            "creator_member_id"
+          ],
+          "isUnique": false
+        },
+        "temp_template_sharing_creator_user_id": {
+          "name": "temp_template_sharing_creator_user_id",
+          "columns": [
+            "creator_user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "temp_template_sharing_id": {
+          "name": "temp_template_sharing_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
     "llm_provider_access": {
       "name": "llm_provider_access",
       "columns": {
@@ -2500,7 +1829,7 @@
         },
         "source": {
           "name": "source",
-          "type": "enum('models_dev','custom','openwork')",
+          "type": "enum('models_dev','custom')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -6159,84 +5488,6 @@
       "compositePrimaryKeys": {
         "rate_limit_id": {
           "name": "rate_limit_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "telemetry_event": {
-      "name": "telemetry_event",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "org_id": {
-          "name": "org_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "member_id": {
-          "name": "member_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "event_type": {
-          "name": "event_type",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "event_timestamp": {
-          "name": "event_timestamp",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {
-        "telemetry_event_org_id_type_ts": {
-          "name": "telemetry_event_org_id_type_ts",
-          "columns": [
-            "org_id",
-            "event_type",
-            "event_timestamp"
-          ],
-          "isUnique": false
-        },
-        "telemetry_event_org_id_member_id": {
-          "name": "telemetry_event_org_id_member_id",
-          "columns": [
-            "org_id",
-            "member_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "telemetry_event_id": {
-          "name": "telemetry_event_id",
           "columns": [
             "id"
           ]

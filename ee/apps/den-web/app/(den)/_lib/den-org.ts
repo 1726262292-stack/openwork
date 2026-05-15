@@ -104,6 +104,33 @@ export type DenOrgApiKey = {
   };
 };
 
+export type DenOrgScimConnection = {
+  id: string;
+  providerId: string;
+  organizationId: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type DenOrgSsoConnection = {
+  id: string;
+  providerId: string;
+  kind: "oidc" | "saml";
+  issuer: string;
+  domain: string;
+  status: string;
+  signInPath: string;
+  signInUrl: string;
+  redirectUrl: string;
+  acsUrl: string | null;
+  metadataUrl: string | null;
+  domainVerified: boolean;
+  lastTestedAt: string | null;
+  lastError: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
 export type DenOrgContext = {
   organization: {
     id: string;
@@ -138,6 +165,7 @@ export type DenOrgContext = {
 
 export type DenOrganizationMetadata = {
   allowedDesktopVersions?: string[];
+  requireSso?: boolean;
 } & Record<string, unknown>;
 
 export const DEN_ROLE_PERMISSION_OPTIONS = {
@@ -205,6 +233,11 @@ export function getAllowedDesktopVersionsFromMetadata(metadata: string | null): 
   return [...new Set(values.map((entry) => normalizeDesktopVersionString(entry)).filter((entry): entry is string => Boolean(entry)))];
 }
 
+export function getRequireSsoFromMetadata(metadata: string | null): boolean {
+  const parsed = parseOrganizationMetadata(metadata);
+  return parsed?.requireSso === true;
+}
+
 function parsePermissionRecord(value: unknown): Record<string, string[]> {
   if (!isRecord(value)) {
     return {};
@@ -241,6 +274,8 @@ export function getOrgAccessFlags(roleValue: string, isOwner: boolean) {
     canManageRoles: isOwner,
     canManageTeams: isAdmin,
     canManageApiKeys: isAdmin,
+    canManageScim: isAdmin,
+    canManageSso: isAdmin,
   };
 }
 
@@ -268,16 +303,16 @@ export function getMembersRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/members`;
 }
 
+export function getSharedSetupsRoute(orgSlug?: string | null): string {
+  return `${getOrgDashboardRoute(orgSlug)}/shared-setups`;
+}
+
 export function getBackgroundAgentsRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/background-agents`;
 }
 
 export function getCustomLlmProvidersRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/custom-llm-providers`;
-}
-
-export function getInferenceRoute(orgSlug?: string | null): string {
-  return `${getOrgDashboardRoute(orgSlug)}/inference`;
 }
 
 export function getLlmProvidersRoute(orgSlug?: string | null): string {
@@ -318,6 +353,14 @@ export function getOrgSettingsRoute(orgSlug?: string | null): string {
 
 export function getApiKeysRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/api-keys`;
+}
+
+export function getScimRoute(orgSlug?: string | null): string {
+  return `${getOrgDashboardRoute(orgSlug)}/scim`;
+}
+
+export function getSsoRoute(orgSlug?: string | null): string {
+  return `${getOrgDashboardRoute(orgSlug)}/sso`;
 }
 
 export function getSkillHubsRoute(orgSlug?: string | null): string {
@@ -720,4 +763,89 @@ export function parseOrgApiKeysPayload(payload: unknown): DenOrgApiKey[] {
       } satisfies DenOrgApiKey;
     })
     .filter((entry): entry is DenOrgApiKey => entry !== null);
+}
+
+export function parseOrgScimPayload(payload: unknown): {
+  baseUrl: string | null;
+  connection: DenOrgScimConnection | null;
+  scimToken: string | null;
+} {
+  if (!isRecord(payload)) {
+    return { baseUrl: null, connection: null, scimToken: null };
+  }
+
+  const rawConnection = isRecord(payload.connection) ? payload.connection : null;
+  const connection = rawConnection
+    ? (() => {
+        const id = asString(rawConnection.id);
+        const providerId = asString(rawConnection.providerId);
+        const organizationId = asString(rawConnection.organizationId);
+
+        if (!id || !providerId || !organizationId) {
+          return null;
+        }
+
+        return {
+          id,
+          providerId,
+          organizationId,
+          createdAt: asIsoString(rawConnection.createdAt),
+          updatedAt: asIsoString(rawConnection.updatedAt),
+        } satisfies DenOrgScimConnection;
+      })()
+    : null;
+
+  return {
+    baseUrl: asString(payload.baseUrl),
+    connection,
+    scimToken: asString(payload.scimToken),
+  };
+}
+
+export function parseOrgSsoPayload(payload: unknown): {
+  connection: DenOrgSsoConnection | null;
+} {
+  if (!isRecord(payload)) {
+    return { connection: null };
+  }
+
+  const rawConnection = isRecord(payload.connection) ? payload.connection : null;
+  const connection = rawConnection
+    ? (() => {
+        const id = asString(rawConnection.id);
+        const providerId = asString(rawConnection.providerId);
+        const kind = asString(rawConnection.kind);
+        const issuer = asString(rawConnection.issuer);
+        const domain = asString(rawConnection.domain);
+        const status = asString(rawConnection.status);
+        const signInPath = asString(rawConnection.signInPath);
+        const signInUrl = asString(rawConnection.signInUrl);
+        const redirectUrl = asString(rawConnection.redirectUrl);
+
+        if (!id || !providerId || !issuer || !domain || !status || !signInPath || !signInUrl || !redirectUrl || (kind !== "oidc" && kind !== "saml")) {
+          return null;
+        }
+
+        return {
+          id,
+          providerId,
+          kind,
+          issuer,
+          domain,
+          status,
+          signInPath,
+          signInUrl,
+          redirectUrl,
+          acsUrl: asString(rawConnection.acsUrl),
+          metadataUrl: asString(rawConnection.metadataUrl),
+          domainVerified: asBoolean(rawConnection.domainVerified),
+          lastTestedAt: asIsoString(rawConnection.lastTestedAt),
+          lastError: asString(rawConnection.lastError),
+          createdAt: asIsoString(rawConnection.createdAt),
+          updatedAt: asIsoString(rawConnection.updatedAt),
+        } satisfies DenOrgSsoConnection;
+      })()
+    : null;
+
+  return { connection };
 }
