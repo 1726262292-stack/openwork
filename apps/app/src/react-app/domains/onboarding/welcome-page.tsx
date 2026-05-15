@@ -1,35 +1,36 @@
 /** @jsxImportSource react */
-import {
-  FolderOpen,
-  MessageSquare,
-  MousePointerClick,
-  Users,
-  Share2,
-} from "lucide-react";
+import type { ReactNode } from "react";
+import { ShareIcon, UserGroupIcon } from "@heroicons/react/24/solid";
 import { PaperGrainGradient } from "@openwork/ui/react";
 
 import { t } from "../../../i18n";
+import {
+  Page,
+  PageBackground,
+  PageDescription,
+  PageHeader,
+  PageTitle,
+  PageTitlebarRegion,
+} from "@/components/page";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
 
-/* ------------------------------------------------------------------ */
-/*  Brand icon via Simple Icons CDN                                    */
-/* ------------------------------------------------------------------ */
+interface BrandIconProps {
+  slug: string;
+  className?: string;
+}
 
-function BrandIcon({ slug, size = 18 }: { slug: string; size?: number }) {
+function BrandIcon({ slug, className }: BrandIconProps) {
   return (
     <img
-      src={`https://cdn.simpleicons.org/${slug}`}
+      className={cn("block size-4", className)}
+      src={`https://cdn.simpleicons.org/${slug}/_/777b84`}
       alt=""
-      width={size}
-      height={size}
       loading="lazy"
-      style={{ display: "block" }}
     />
   );
 }
-
-/* ------------------------------------------------------------------ */
-/*  Capabilities + team features (right-side card content)             */
-/* ------------------------------------------------------------------ */
 
 const capabilities = [
   {
@@ -68,57 +69,46 @@ function ShowcasePanel() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h2 className="text-[20px] font-semibold tracking-[-0.01em] text-dls-text">
+        <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">
           Your computer,
           <br />
           but it works for you.
         </h2>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         {capabilities.map((cap) => (
           <div
             key={cap.title}
-            className="flex flex-col gap-1.5 rounded-xl border border-dls-border bg-dls-surface p-3"
+            className="flex flex-col gap-2.5 rounded-xl border border-border p-3"
           >
-            <BrandIcon slug={cap.slug} size={18} />
-            <div className="text-[12px] font-medium leading-tight text-dls-text">
+            <BrandIcon className="size-4" slug={cap.slug} />
+            <div className="text-sm font-medium leading-tight text-foreground">
               {cap.title}
             </div>
-            <div className="text-[11px] leading-snug text-dls-secondary">
+            <div className="text-xs leading-snug text-muted-foreground">
               {cap.desc}
             </div>
           </div>
         ))}
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <div className="flex items-start gap-2.5 rounded-xl border border-dls-border bg-dls-surface p-3">
-          <Share2
-            size={16}
-            className="mt-0.5 shrink-0 text-dls-secondary"
-            strokeWidth={1.5}
-          />
-          <div>
-            <div className="text-[12px] font-medium text-dls-text">
+        <div className="flex flex-col items-start gap-2.5 rounded-xl border border-border p-3">
+          <ShareIcon className="size-4 shrink-0 text-muted-foreground" />
+          <div className="flex flex-col gap-1.5">
+            <div className="text-sm font-medium text-foreground">
               Share in one link
             </div>
-            <div className="mt-0.5 text-[11px] leading-snug text-dls-secondary">
+            <div className="text-xs leading-snug text-muted-foreground">
               Package skills, MCPs, and configs for your team.
             </div>
           </div>
         </div>
-        <div className="flex items-start gap-2.5 rounded-xl border border-dls-border bg-dls-surface p-3">
-          <Users
-            size={16}
-            className="mt-0.5 shrink-0 text-dls-secondary"
-            strokeWidth={1.5}
-          />
-          <div>
-            <div className="text-[12px] font-medium text-dls-text">
+        <div className="flex flex-col items-start gap-2.5 rounded-xl border border-border p-3">
+          <UserGroupIcon className="size-4 shrink-0 text-muted-foreground" />
+          <div className="flex flex-col gap-1.5">
+            <div className="text-sm font-medium text-foreground">
               Provision your team
             </div>
-            <div className="mt-0.5 text-[11px] leading-snug text-dls-secondary">
+            <div className="text-xs leading-snug text-muted-foreground">
               Manage workspaces, models, and permissions.
             </div>
           </div>
@@ -128,91 +118,73 @@ function ShowcasePanel() {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  3-step onboarding list                                             */
-/* ------------------------------------------------------------------ */
-
-const steps = [
-  {
-    number: "1",
-    icon: FolderOpen,
-    title: "Select a folder",
-    desc: "Pick any folder on your machine to create a workspace.",
-  },
-  {
-    number: "2",
-    icon: MessageSquare,
-    title: "Chat",
-    desc: "Describe what you need. OpenWork handles the rest.",
-  },
-  {
-    number: "3",
-    icon: MousePointerClick,
-    title: "Interact",
-    desc: "Review results, approve actions, and iterate.",
-  },
-];
-
-/* ------------------------------------------------------------------ */
-/*  Main component                                                     */
-/* ------------------------------------------------------------------ */
-
 type WelcomePageProps = {
   onGetStarted: () => void;
 };
 
+type OnboardingStepProps = {
+  number: string;
+  title: string;
+  children: ReactNode;
+};
+
+function OnboardingStep({ number, title, children }: OnboardingStepProps) {
+  return (
+    <div className="flex items-start gap-4">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground/5 text-sm font-medium text-foreground">
+        {number}
+      </div>
+      <div className="flex flex-col gap-0.5 pt-1">
+        <div className="text-base font-medium text-foreground">{title}</div>
+        <div className="text-sm text-muted-foreground">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export function WelcomePage({ onGetStarted }: WelcomePageProps) {
   return (
-    <div className="relative min-h-screen bg-gray-3 text-dls-text">
-      {/* Subtle background texture */}
-      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-        <div className="absolute -left-[20%] -top-[30%] h-[70%] w-[60%] rounded-full bg-[radial-gradient(ellipse,rgba(14,51,217,0.06),transparent_70%)] blur-3xl" />
-        <div className="absolute -bottom-[20%] -right-[10%] h-[50%] w-[50%] rounded-full bg-[radial-gradient(ellipse,rgba(255,126,46,0.05),transparent_70%)] blur-3xl" />
-        <div className="absolute left-[30%] top-[60%] h-[40%] w-[40%] rounded-full bg-[radial-gradient(ellipse,rgba(255,227,64,0.04),transparent_70%)] blur-3xl" />
-      </div>
+    <Page className="min-h-screen">
+      <PageBackground />
 
-      {/* Titlebar drag region */}
-      <div className="absolute inset-x-0 top-0 z-20 h-10 mac:titlebar-drag" />
+      <PageTitlebarRegion />
 
-      <div className="relative z-10 flex min-h-screen">
+      <ScrollArea className="relative z-10">
+        <div className="flex min-h-screen">
         {/* ---- Left: onboarding steps ---- */}
         <div className="flex w-full flex-col items-center justify-center px-8 py-16 lg:w-[45%] lg:px-12">
-          <div className="w-full max-w-md space-y-10">
+          <div className="flex w-full max-w-md flex-col gap-10">
             {/* Header */}
-            <div className="space-y-2">
-              <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-                {t("welcome.title")}
-              </h1>
-              <p className="text-sm text-slate-500">{t("welcome.subtitle")}</p>
-            </div>
+            <PageHeader className="text-left">
+              <PageTitle>{t("welcome.title")}</PageTitle>
+              <PageDescription>{t("welcome.subtitle")}</PageDescription>
+            </PageHeader>
 
             {/* Steps */}
-            <div className="space-y-4">
-              {steps.map((step) => (
-                <div key={step.number} className="flex items-start gap-4">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#011627] text-[13px] font-semibold text-white">
-                    {step.number}
-                  </div>
-                  <div className="pt-1">
-                    <div className="text-[14px] font-medium text-slate-900">
-                      {step.title}
-                    </div>
-                    <div className="mt-0.5 text-[13px] text-slate-500">
-                      {step.desc}
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <h2 className="text-lg font-semibold tracking-tight text-foreground">
+                  Get started
+                </h2>
+              </div>
+              <OnboardingStep number="1" title="Select a folder">
+                Pick any folder on your machine to create a workspace.
+              </OnboardingStep>
+              <OnboardingStep number="2" title="Chat">
+                Describe what you need. OpenWork handles the rest.
+              </OnboardingStep>
+              <OnboardingStep number="3" title="Interact">
+                Review results, approve actions, and iterate.
+              </OnboardingStep>
             </div>
 
-            {/* CTA */}
-            <button
-              type="button"
+            <Button
+              size="lg"
+              className="w-full"
               onClick={onGetStarted}
-              className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#011627] text-sm font-semibold text-white transition-all hover:bg-black"
             >
               {t("welcome.get_started")}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -222,6 +194,7 @@ export function WelcomePage({ onGetStarted }: WelcomePageProps) {
             {/* Shader background */}
             <div className="absolute inset-0 z-0">
               <PaperGrainGradient
+                className="size-full bg-white"
                 speed={0}
                 scale={1}
                 rotation={0}
@@ -234,21 +207,17 @@ export function WelcomePage({ onGetStarted }: WelcomePageProps) {
                 frame={37706.748}
                 colors={["#0E33D9", "#FF7E2E", "#FFE340", "#000000"]}
                 colorBack="#00000000"
-                style={{
-                  backgroundColor: "#FFFFFF",
-                  width: "100%",
-                  height: "100%",
-                }}
               />
             </div>
 
             {/* Inner white card */}
-            <div className="relative z-10 m-3 rounded-2xl bg-gray-2 p-7">
+            <div className="relative z-10 m-3 rounded-2xl bg-background p-7">
               <ShowcasePanel />
             </div>
           </div>
         </div>
-      </div>
-    </div>
+        </div>
+      </ScrollArea>
+    </Page>
   );
 }

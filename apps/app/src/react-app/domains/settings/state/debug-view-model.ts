@@ -47,6 +47,13 @@ const OPENCODE_ENABLE_EXA_KEY = "openwork.opencodeEnableExa";
 
 type ResetModalMode = "onboarding" | "all";
 
+const ONBOARDING_LOCAL_STORAGE_KEYS = [
+  "openwork.acknowledgedProviders",
+  "openwork.orgOnboardingSeen",
+  "openwork.reloadAfterOrgOnboarding",
+  "openwork.seenProviderIds",
+];
+
 type UseDebugViewModelOptions = {
   developerMode: boolean;
   openworkServerStore: OpenworkServerStore;
@@ -78,6 +85,27 @@ function clearStoredString(key: string): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(key);
+  } catch {
+    // ignore persistence failures
+  }
+}
+
+function clearOpenworkLocalStorageForReset(mode: ResetModalMode): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (mode === "all") {
+      window.localStorage.clear();
+      return;
+    }
+    for (const key of ONBOARDING_LOCAL_STORAGE_KEYS) {
+      window.localStorage.removeItem(key);
+    }
+    const raw = window.localStorage.getItem("openwork.preferences");
+    if (raw) {
+      const prefs = JSON.parse(raw);
+      prefs.hasCompletedOnboarding = false;
+      window.localStorage.setItem("openwork.preferences", JSON.stringify(prefs));
+    }
   } catch {
     // ignore persistence failures
   }
@@ -829,11 +857,12 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       setResetModalBusy(true);
       setResetStatus(null);
       void resetOpenworkState(mode)
-        .then(() => {
+        .then(async () => {
+          clearOpenworkLocalStorageForReset(mode);
           setResetStatus(
             mode === "all"
               ? "Reset OpenWork state. Restart the app to see changes."
-              : "Reset onboarding state.",
+              : "Reset onboarding state. Restart the app to see changes.",
           );
           pushDeveloperLog(`reset_openwork_state mode=${mode}`);
         })

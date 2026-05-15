@@ -755,7 +755,6 @@ export function DebugView(props: DebugViewProps) {
                   </div>
                   <Button
                     variant="outline"
-                    size="lg"
                     className="shrink-0"
                     onClick={() => void props.onPickEngineBinary()}
                     disabled={props.busy}
@@ -764,7 +763,6 @@ export function DebugView(props: DebugViewProps) {
                   </Button>
                   <Button
                     variant="outline"
-                    size="lg"
                     className="shrink-0"
                     onClick={props.onClearEngineCustomBinPath}
                     disabled={props.busy || !props.engineCustomBinPath.trim()}
