@@ -115,7 +115,28 @@ export function snapshotToUIMessages(snapshot: OpenworkSessionSnapshot): UIMessa
           : [];
       }
       if (part.type === "tool") {
-        return [{ ...mapToolPart(part), providerMetadata: { opencode: { partId: part.id } } }];
+        const toolUIPart = { ...mapToolPart(part), providerMetadata: { opencode: { partId: part.id } } };
+        const record = part as Part & { state?: Record<string, unknown> };
+        const attachments = (record.state as Record<string, unknown> | undefined)?.attachments;
+        if (Array.isArray(attachments)) {
+          const fileParts = attachments
+            .filter((a: unknown) => {
+              const att = a as { url?: string; mime?: string };
+              return att.url && att.mime;
+            })
+            .map((a: unknown) => {
+              const att = a as { url: string; mime: string; filename?: string };
+              return {
+                type: "file" as const,
+                url: att.url,
+                filename: att.filename,
+                mediaType: att.mime,
+                providerMetadata: { opencode: { partId: part.id } },
+              };
+            });
+          return [toolUIPart, ...fileParts];
+        }
+        return [toolUIPart];
       }
       if (part.type === "step-start") {
         return [{ type: "step-start", providerMetadata: { opencode: { partId: part.id } } }];
@@ -222,6 +243,16 @@ function handleToolPart(
       output: current.output,
     });
     toolState.outputSent = true;
+    // Emit file chunks for tool attachments (e.g. MCP image content)
+    const attachments = current.attachments;
+    if (Array.isArray(attachments)) {
+      for (const att of attachments) {
+        const a = att as { url?: string; mime?: string; filename?: string };
+        if (a.url && a.mime) {
+          controller.enqueue({ type: "file", url: a.url, mediaType: a.mime });
+        }
+      }
+    }
     if (!toolState.stepFinished) {
       controller.enqueue({ type: "finish-step" });
       toolState.stepFinished = true;

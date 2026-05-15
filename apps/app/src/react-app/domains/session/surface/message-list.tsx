@@ -3,7 +3,7 @@ import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type Re
 import { isToolUIPart, type DynamicToolUIPart, type UIMessage } from "ai";
 import type { Part } from "@opencode-ai/sdk/v2/client";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Check, ChevronDown, CircleAlert, Copy, File as FileIcon, GitFork, Undo2 } from "lucide-react";
+import { Check, ChevronDown, CircleAlert, Copy, File as FileIcon } from "lucide-react";
 
 import { openDesktopPath, revealDesktopItemInDir } from "../../../../app/lib/desktop";
 import {
@@ -143,10 +143,6 @@ type SessionTranscriptProps = {
   ) => void;
   footer?: ReactNode;
   variant?: "default" | "nested";
-  /** Revert to this message (undo everything after it). */
-  onRevertToMessage?: (messageId: string) => void;
-  /** Fork the conversation at this message into a new session. */
-  onForkAtMessage?: (messageId: string) => void;
 };
 
 // 500 was too high for real-world OpenWork sessions: a handful of giant
@@ -242,20 +238,21 @@ function isAttachmentPart(part: TranscriptPart) {
 }
 
 function attachmentsForParts(parts: TranscriptPart[]) {
-  return parts.flatMap((part) => {
-      if (!isAttachmentPart(part)) return [];
+  return parts
+    .filter(isAttachmentPart)
+    .map((part) => {
       const record = part as {
         url?: string;
         filename?: string;
         mime?: string;
       };
-      const attachment = {
+      return {
         url: record.url ?? "",
         filename: record.filename ?? "attachment",
         mime: record.mime ?? "application/octet-stream",
       };
-      return attachment.url ? [attachment] : [];
-    });
+    })
+    .filter((attachment) => Boolean(attachment.url));
 }
 
 function partToText(part: TranscriptPart) {
@@ -442,20 +439,17 @@ function HighlightedPlainText(props: {
 
   // Split on paste tokens and render chips inline.
   const segments = props.text.split(PASTE_TOKEN_RE);
-  let segmentOffset = 0;
   return (
     <div ref={rootRef} className={props.className}>
-      {segments.map((segment) => {
-        const key = `${segmentOffset}:${segment}`;
-        segmentOffset += segment.length;
+      {segments.map((segment, index) => {
         const match = segment.match(/^\[pasted text (.+)\]$/);
         if (match?.[1]) {
           const pastedBody = props.pastedTextMap?.get(match[1]);
           if (pastedBody) {
-            return <PastedTextChip key={key} label={match[1]} text={pastedBody} />;
+            return <PastedTextChip key={index} label={match[1]} text={pastedBody} />;
           }
         }
-        return <span key={key}>{segment}</span>;
+        return <span key={index}>{segment}</span>;
       })}
     </div>
   );
@@ -466,6 +460,7 @@ function FileCard(props: {
   tone: "assistant" | "user";
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const isDataUrl = props.part.url?.startsWith("data:");
   const title = props.part.filename || (isDataUrl ? "Attached file" : props.part.url) || "File";
   const ext = props.part.filename?.split(".").pop()?.toLowerCase();
@@ -473,6 +468,47 @@ function FileCard(props: {
   const isImage = isImageAttachment(props.part.mediaType ?? "");
   const isDesktop = isDesktopRuntime();
   const hasPath = !isDataUrl && props.part.url && !props.part.url.startsWith("http");
+
+  // Generated images (data URL + image MIME from assistant) get a large preview
+  const isGeneratedImage = isImage && isDataUrl && props.tone === "assistant";
+
+  if (isGeneratedImage) {
+    return (
+      <div className="group relative max-w-lg">
+        <button
+          type="button"
+          className="block w-full overflow-hidden rounded-2xl border border-gray-6/40 bg-gray-1/40 transition-colors hover:border-gray-6/60"
+          onClick={() => setExpanded((v) => !v)}
+          title={expanded ? "Collapse image" : "Expand image"}
+        >
+          <img
+            src={props.part.url}
+            alt={title}
+            loading="lazy"
+            decoding="async"
+            className={`w-full object-contain transition-all ${expanded ? "max-h-[800px]" : "max-h-80"}`}
+          />
+        </button>
+        <div className="mt-2 flex items-center gap-2 px-1">
+          {badge ? (
+            <span className="inline-flex rounded-md bg-gray-3/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-10">
+              {badge}
+            </span>
+          ) : null}
+          <span className="truncate text-[12px] text-gray-10">{title}</span>
+          <a
+            href={props.part.url}
+            download={props.part.filename || `generated.${ext || "png"}`}
+            className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg text-gray-9 opacity-0 transition-all hover:bg-gray-3/60 hover:text-gray-12 group-hover:opacity-100"
+            title="Download image"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -483,12 +519,12 @@ function FileCard(props: {
       }`}
     >
       {isImage && props.part.url ? (
-        <div className="size-11 shrink-0 overflow-hidden rounded-xl border border-dls-border/60 bg-dls-surface">
-          <img src={props.part.url} alt={title} loading="lazy" decoding="async" className="size-full object-cover" />
+        <div className="h-11 w-11 shrink-0 overflow-hidden rounded-xl border border-dls-border/60 bg-dls-surface">
+          <img src={props.part.url} alt={title} loading="lazy" decoding="async" className="h-full w-full object-cover" />
         </div>
       ) : (
         <div
-          className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
             props.tone === "user" ? "bg-gray-3/60 text-gray-11" : "bg-gray-2/60 text-gray-10"
           }`}
         >
@@ -508,7 +544,7 @@ function FileCard(props: {
         <div className="relative">
           <button
             type="button"
-            className="flex size-8 items-center justify-center rounded-xl text-gray-9 opacity-0 transition-all hover:bg-gray-3/60 hover:text-gray-12 group-hover:opacity-100"
+            className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-9 opacity-0 transition-all hover:bg-gray-3/60 hover:text-gray-12 group-hover:opacity-100"
             onClick={() => setMenuOpen((value) => !value)}
             title="File actions"
           >
@@ -516,7 +552,7 @@ function FileCard(props: {
           </button>
           {menuOpen ? (
             <>
-              <button type="button" className="fixed inset-0 z-30 cursor-default border-0 bg-transparent p-0" aria-label="Close file actions" onClick={() => setMenuOpen(false)} />
+              <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
               <div className="absolute right-0 top-full z-40 mt-1 w-48 rounded-2xl border border-dls-border bg-dls-surface p-1.5 shadow-lg">
                 <button
                   type="button"
@@ -583,10 +619,7 @@ function StepRow(props: {
       ? (props.part as { text: string }).text
       : "";
     return (
-      <div
-        data-reasoning="true"
-        className="font-mono text-[13px] leading-[1.7] text-gray-8 whitespace-pre-wrap"
-      >
+      <div className="text-[14px] leading-[1.7] text-gray-9 whitespace-pre-wrap">
         <div className="max-w-[720px]">{cleanReasoningPreview(raw) || headline}</div>
       </div>
     );
@@ -701,234 +734,6 @@ function StepsContainer(props: {
   );
 }
 
-function messageGroupKey(messageId: string, group: MessageGroup) {
-  if (group.kind === "steps") return `${messageId}:steps:${group.id}`;
-  const partId = "id" in group.part && typeof group.part.id === "string" ? group.part.id : partToText(group.part);
-  return `${messageId}:text:${group.segment}:${partId}`;
-}
-
-function MessageBlockRow(props: {
-  block: MessageBlockItem;
-  blockIndex: number;
-  totalBlocks: number;
-  isNestedVariant: boolean;
-  shouldUseContentVisibility: boolean;
-  expandedStepIds: Set<string>;
-  onExpandedStepIdsChange: (updater: (current: Set<string>) => Set<string>) => void;
-  searchMatchMessageIds?: ReadonlySet<string>;
-  activeSearchMessageId?: string | null;
-  searchHighlightQuery?: string;
-  isStreaming: boolean;
-  latestAssistantMessageId: string;
-  onRevertToMessage?: (messageId: string) => void;
-  onForkAtMessage?: (messageId: string) => void;
-}) {
-  const block = props.block;
-  const blockMessageIds = block.kind === "steps-cluster" ? block.messageIds : [block.messageId];
-  const hasSearchMatch = blockMessageIds.some((id) => props.searchMatchMessageIds?.has(id));
-  const hasActiveSearchMatch = blockMessageIds.some((id) => id === props.activeSearchMessageId);
-  const searchOutlineClass = hasActiveSearchMatch
-    ? "outline outline-2 outline-amber-8/70 outline-offset-2 rounded-2xl"
-    : hasSearchMatch
-      ? "outline outline-1 outline-amber-7/50 outline-offset-1 rounded-2xl"
-      : "";
-  const perfStyle = props.shouldUseContentVisibility && props.blockIndex < props.totalBlocks - 12
-    ? { contentVisibility: "auto", containIntrinsicSize: "180px" } satisfies CSSProperties
-    : undefined;
-
-  if (block.kind === "steps-cluster") {
-    return (
-      <div
-        className={`flex group ${block.isUser ? "justify-end" : "justify-start"}`.trim()}
-        data-message-role={block.isUser ? "user" : "assistant"}
-        data-message-id={block.messageIds[0] ?? ""}
-        style={{ contain: "layout style paint", ...perfStyle }}
-      >
-        <div
-          className={`${
-            block.isUser
-              ? props.isNestedVariant
-                ? "relative max-w-[92%] rounded-[20px] border border-dls-border bg-dls-sidebar px-4 py-3 text-[14px] leading-relaxed text-dls-text"
-                : "relative max-w-[85%] rounded-[24px] border border-dls-border bg-dls-sidebar px-6 py-4 text-[15px] leading-relaxed text-dls-text"
-              : props.isNestedVariant
-                ? "w-full relative text-[14px] leading-[1.65] text-dls-text group"
-                : "w-full relative max-w-[760px] text-[15px] leading-[1.7] text-dls-text group"
-          } ${searchOutlineClass}`}
-        >
-          <StepsContainer
-            stepGroups={block.stepGroups}
-            isUser={block.isUser}
-            isNestedVariant={props.isNestedVariant}
-            expandedStepIds={props.expandedStepIds}
-            onExpandedStepIdsChange={props.onExpandedStepIdsChange}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  const groupSpacing = block.isUser ? "mb-3" : "mb-4";
-  const isSyntheticSessionError =
-    !block.isUser && block.messageId.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX);
-
-  if (isSyntheticSessionError) {
-    const messageText = block.renderableParts
-      .map((part) => partToText(part))
-      .join(" ")
-      .replace(/\s*\n+\s*/g, " ")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-
-    return (
-      <div
-        className="flex group justify-start"
-        data-message-role="assistant"
-        data-message-id={block.messageId}
-        style={{ contain: "layout style paint", ...perfStyle }}
-      >
-        <div className={`w-full relative ${props.isNestedVariant ? "" : "max-w-[650px]"} ${searchOutlineClass}`}>
-          <div
-            className="inline-flex max-w-full items-start gap-2 rounded-[18px] border border-red-7/20 bg-red-1/35 px-3 py-2 text-[13px] leading-5 text-red-12 shadow-sm"
-            role="alert"
-          >
-            <CircleAlert size={14} className="mt-0.5 shrink-0" />
-            <div className="min-w-0 break-words">{messageText}</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className={`flex group ${block.isUser ? "justify-end" : "justify-start"}`.trim()}
-      data-message-role={block.isUser ? "user" : "assistant"}
-      data-message-id={block.messageId}
-      style={{ contain: "layout style paint", ...perfStyle }}
-    >
-      <div
-        className={`${
-          block.isUser
-            ? props.isNestedVariant
-              ? "relative max-w-[92%] rounded-[20px] border border-dls-border bg-dls-sidebar px-4 py-3 text-[14px] leading-relaxed text-dls-text"
-              : "relative max-w-[85%] rounded-[24px] border border-dls-border bg-dls-sidebar px-6 py-4 text-[15px] leading-relaxed text-dls-text"
-            : props.isNestedVariant
-              ? "w-full relative text-[14px] leading-[1.65] text-dls-text antialiased group"
-              : "w-full relative max-w-[760px] text-[15px] leading-[1.72] text-dls-text antialiased group"
-        } ${searchOutlineClass}`}
-      >
-        {block.attachments.length > 0 ? (
-          <div className={block.isUser ? "mb-3 flex flex-wrap gap-2" : "mb-4 flex flex-wrap gap-2"}>
-            {block.attachments.map((attachment) => (
-              <FileCard
-                key={`${block.messageId}:${attachment.url}`}
-                part={{
-                  filename: attachment.filename,
-                  url: attachment.url,
-                  mediaType: attachment.mime,
-                }}
-                tone={block.isUser ? "user" : "assistant"}
-              />
-            ))}
-          </div>
-        ) : null}
-
-        {block.groups.map((group) => {
-          const highlightQuery = hasSearchMatch ? props.searchHighlightQuery : undefined;
-          const isStreamingLatestAssistant =
-            !block.isUser && props.isStreaming && block.messageId === props.latestAssistantMessageId;
-
-          return (
-            <div key={messageGroupKey(block.messageId, group)} className={group === block.groups.at(-1) ? "" : groupSpacing}>
-              {group.kind === "text" ? (() => {
-                if (group.part.type === "file") {
-                  const filePart = group.part as {
-                    filename?: string;
-                    url?: string;
-                    mime?: string;
-                  };
-                  return (
-                    <FileCard
-                      part={{
-                        filename: filePart.filename,
-                        url: filePart.url ?? "",
-                        mediaType: filePart.mime ?? "application/octet-stream",
-                      }}
-                      tone={block.isUser ? "user" : "assistant"}
-                    />
-                  );
-                }
-
-                const text = partToText(group.part);
-                if (block.isUser) {
-                  return (
-                    <HighlightedPlainText
-                      text={text}
-                      className="whitespace-pre-wrap break-words text-gray-12"
-                      highlightQuery={highlightQuery}
-                    />
-                  );
-                }
-
-                return (
-                  <MarkdownBlock
-                    text={text}
-                    streaming={isStreamingLatestAssistant}
-                    highlightQuery={highlightQuery}
-                  />
-                );
-              })() : null}
-
-              {group.kind === "steps" ? (
-                <StepsContainer
-                  stepGroups={[{
-                    id: group.id,
-                    parts: group.parts,
-                    mode: group.mode,
-                  }]}
-                  isUser={block.isUser}
-                  isInline={true}
-                  isNestedVariant={props.isNestedVariant}
-                  expandedStepIds={props.expandedStepIds}
-                  onExpandedStepIdsChange={props.onExpandedStepIdsChange}
-                />
-              ) : null}
-            </div>
-          );
-        })}
-
-        {!props.isNestedVariant ? (
-          <div className="absolute bottom-2 right-2 flex items-center gap-0.5 opacity-100 pointer-events-auto md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto md:group-focus-within:opacity-100 md:group-focus-within:pointer-events-auto transition-opacity select-none rounded-lg border border-dls-border bg-dls-surface p-0.5">
-            {props.onRevertToMessage ? (
-              <button
-                type="button"
-                className="flex size-7 items-center justify-center rounded-md text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
-                onClick={() => props.onRevertToMessage?.(block.messageId)}
-                title="Revert to here"
-                aria-label="Revert to this message"
-              >
-                <Undo2 size={14} />
-              </button>
-            ) : null}
-            {props.onForkAtMessage ? (
-              <button
-                type="button"
-                className="flex size-7 items-center justify-center rounded-md text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
-                onClick={() => props.onForkAtMessage?.(block.messageId)}
-                title="Fork from here"
-                aria-label="Fork conversation from this message"
-              >
-                <GitFork size={14} />
-              </button>
-            ) : null}
-            <CopyButton getText={() => messageToText(block.message)} />
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 function SessionTranscriptInner(props: SessionTranscriptProps) {
   const showThinking = props.showThinking ?? props.developerMode;
   const isNestedVariant = props.variant === "nested";
@@ -947,10 +752,9 @@ function SessionTranscriptInner(props: SessionTranscriptProps) {
       id: message.id,
       role: message.role,
       source: message,
-      parts: message.parts.flatMap((part, index) => {
-        const legacyPart = toLegacyPart(part, `${message.id}:${index}`);
-        return legacyPart ? [legacyPart] : [];
-      }),
+      parts: message.parts
+        .map((part, index) => toLegacyPart(part, `${message.id}:${index}`))
+        .filter((part): part is TranscriptPart => Boolean(part)),
     }));
   }, [props.messages]);
 
@@ -1147,6 +951,200 @@ function SessionTranscriptInner(props: SessionTranscriptProps) {
   // work reduces the chance that one large session makes the UI feel frozen.
   const shouldUseContentVisibility = !shouldVirtualize && messageBlocks.length > 24;
 
+  const blockPerfStyle = (index: number): CSSProperties | undefined => {
+    if (!shouldUseContentVisibility) return undefined;
+    const total = messageBlocks.length;
+      if (index >= total - 12) return undefined;
+      return {
+        contentVisibility: "auto",
+        containIntrinsicSize: "180px",
+      };
+    };
+
+  const renderBlock = (block: MessageBlockItem, blockIndex: number) => {
+    const blockMessageIds = block.kind === "steps-cluster" ? block.messageIds : [block.messageId];
+    const hasSearchMatch = blockMessageIds.some((id) => props.searchMatchMessageIds?.has(id));
+    const hasActiveSearchMatch = blockMessageIds.some((id) => id === props.activeSearchMessageId);
+    const searchOutlineClass = hasActiveSearchMatch
+      ? "outline outline-2 outline-amber-8/70 outline-offset-2 rounded-2xl"
+      : hasSearchMatch
+        ? "outline outline-1 outline-amber-7/50 outline-offset-1 rounded-2xl"
+        : "";
+
+    if (block.kind === "steps-cluster") {
+      return (
+        <div
+          key={`steps-${block.id}`}
+          className={`flex group ${block.isUser ? "justify-end" : "justify-start"}`.trim()}
+          data-message-role={block.isUser ? "user" : "assistant"}
+          data-message-id={block.messageIds[0] ?? ""}
+          style={{ contain: "layout style paint", ...blockPerfStyle(blockIndex) }}
+        >
+          <div
+            className={`${
+              block.isUser
+                ? isNestedVariant
+                  ? "relative max-w-[92%] rounded-[20px] border border-dls-border bg-dls-sidebar px-4 py-3 text-[14px] leading-relaxed text-dls-text"
+                  : "relative max-w-[85%] rounded-[24px] border border-dls-border bg-dls-sidebar px-6 py-4 text-[15px] leading-relaxed text-dls-text"
+                : isNestedVariant
+                  ? "w-full relative text-[14px] leading-[1.65] text-dls-text group"
+                  : "w-full relative max-w-[760px] text-[15px] leading-[1.7] text-dls-text group"
+            } ${searchOutlineClass}`}
+          >
+            <StepsContainer
+              stepGroups={block.stepGroups}
+              isUser={block.isUser}
+              isNestedVariant={isNestedVariant}
+              expandedStepIds={expandedStepIds}
+              onExpandedStepIdsChange={onExpandedStepIdsChange}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    const groupSpacing = block.isUser ? "mb-3" : "mb-4";
+    const isSyntheticSessionError =
+      !block.isUser && block.messageId.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX);
+
+    if (isSyntheticSessionError) {
+      const messageText = block.renderableParts
+        .map((part) => partToText(part))
+        .join(" ")
+        .replace(/\s*\n+\s*/g, " ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+
+      return (
+        <div
+          key={`error-${block.messageId}`}
+          className="flex group justify-start"
+          data-message-role="assistant"
+          data-message-id={block.messageId}
+          style={{ contain: "layout style paint", ...blockPerfStyle(blockIndex) }}
+        >
+          <div className={`w-full relative ${isNestedVariant ? "" : "max-w-[650px]"} ${searchOutlineClass}`}>
+            <div
+              className="inline-flex max-w-full items-start gap-2 rounded-[18px] border border-red-7/20 bg-red-1/35 px-3 py-2 text-[13px] leading-5 text-red-12 shadow-sm"
+              role="alert"
+            >
+              <CircleAlert size={14} className="mt-0.5 shrink-0" />
+              <div className="min-w-0 break-words">{messageText}</div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={`message-${block.messageId}`}
+        className={`flex group ${block.isUser ? "justify-end" : "justify-start"}`.trim()}
+        data-message-role={block.isUser ? "user" : "assistant"}
+        data-message-id={block.messageId}
+        style={{ contain: "layout style paint", ...blockPerfStyle(blockIndex) }}
+      >
+        <div
+          className={`${
+            block.isUser
+              ? isNestedVariant
+                ? "relative max-w-[92%] rounded-[20px] border border-dls-border bg-dls-sidebar px-4 py-3 text-[14px] leading-relaxed text-dls-text"
+                : "relative max-w-[85%] rounded-[24px] border border-dls-border bg-dls-sidebar px-6 py-4 text-[15px] leading-relaxed text-dls-text"
+              : isNestedVariant
+                ? "w-full relative text-[14px] leading-[1.65] text-dls-text antialiased group"
+                : "w-full relative max-w-[760px] text-[15px] leading-[1.72] text-dls-text antialiased group"
+          } ${searchOutlineClass}`}
+        >
+          {block.attachments.length > 0 ? (
+            <div className={block.isUser ? "mb-3 flex flex-wrap gap-2" : "mb-4 flex flex-wrap gap-2"}>
+              {block.attachments.map((attachment) => (
+                <FileCard
+                  key={`${block.messageId}:${attachment.url}`}
+                  part={{
+                    filename: attachment.filename,
+                    url: attachment.url,
+                    mediaType: attachment.mime,
+                  }}
+                  tone={block.isUser ? "user" : "assistant"}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {block.groups.map((group, index) => {
+            const highlightQuery = hasSearchMatch ? props.searchHighlightQuery : undefined;
+            const isStreamingLatestAssistant =
+              !block.isUser && props.isStreaming && block.messageId === latestAssistantMessageId;
+
+            return (
+              <div key={`${block.messageId}:${group.kind}:${index}`} className={index === block.groups.length - 1 ? "" : groupSpacing}>
+                {group.kind === "text" ? (() => {
+                  if (group.part.type === "file") {
+                    const filePart = group.part as {
+                      filename?: string;
+                      url?: string;
+                      mime?: string;
+                    };
+                    return (
+                      <FileCard
+                        part={{
+                          filename: filePart.filename,
+                          url: filePart.url ?? "",
+                          mediaType: filePart.mime ?? "application/octet-stream",
+                        }}
+                        tone={block.isUser ? "user" : "assistant"}
+                      />
+                    );
+                  }
+
+                  const text = partToText(group.part);
+                  if (block.isUser) {
+                    return (
+                      <HighlightedPlainText
+                        text={text}
+                        className="whitespace-pre-wrap break-words text-gray-12"
+                        highlightQuery={highlightQuery}
+                      />
+                    );
+                  }
+
+                  return (
+                    <MarkdownBlock
+                      text={text}
+                      streaming={isStreamingLatestAssistant}
+                      highlightQuery={highlightQuery}
+                    />
+                  );
+                })() : null}
+
+                {group.kind === "steps" ? (
+                  <StepsContainer
+                    stepGroups={[{
+                      id: group.id,
+                      parts: group.parts,
+                      mode: group.mode,
+                    }]}
+                    isUser={block.isUser}
+                    isInline={true}
+                    isNestedVariant={isNestedVariant}
+                    expandedStepIds={expandedStepIds}
+                    onExpandedStepIdsChange={onExpandedStepIdsChange}
+                  />
+                ) : null}
+              </div>
+            );
+          })}
+
+          {!isNestedVariant ? (
+            <div className="absolute bottom-2 right-2 flex justify-end opacity-100 pointer-events-auto md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto md:group-focus-within:opacity-100 md:group-focus-within:pointer-events-auto transition-opacity select-none">
+              <CopyButton getText={() => messageToText(block.message)} />
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className={isNestedVariant ? "pb-0" : "pb-10"} style={{ contain: "layout paint style" }}>
       {shouldVirtualize ? (
@@ -1179,47 +1177,14 @@ function SessionTranscriptInner(props: SessionTranscriptProps) {
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                <MessageBlockRow
-                  block={block}
-                  blockIndex={virtualRow.index}
-                  totalBlocks={messageBlocks.length}
-                  isNestedVariant={isNestedVariant}
-                  shouldUseContentVisibility={shouldUseContentVisibility}
-                  expandedStepIds={expandedStepIds}
-                  onExpandedStepIdsChange={onExpandedStepIdsChange}
-                  searchMatchMessageIds={props.searchMatchMessageIds}
-                  activeSearchMessageId={props.activeSearchMessageId}
-                  searchHighlightQuery={props.searchHighlightQuery}
-                  isStreaming={props.isStreaming}
-                  latestAssistantMessageId={latestAssistantMessageId}
-                  onRevertToMessage={props.onRevertToMessage}
-                  onForkAtMessage={props.onForkAtMessage}
-                />
+                {renderBlock(block, virtualRow.index)}
               </div>
             );
           })}
         </div>
       ) : (
         <div className={isNestedVariant ? "space-y-3" : "space-y-4"}>
-          {messageBlocks.map((block, index) => (
-            <MessageBlockRow
-              key={blockIdentityKey(block)}
-              block={block}
-              blockIndex={index}
-              totalBlocks={messageBlocks.length}
-              isNestedVariant={isNestedVariant}
-              shouldUseContentVisibility={shouldUseContentVisibility}
-              expandedStepIds={expandedStepIds}
-              onExpandedStepIdsChange={onExpandedStepIdsChange}
-              searchMatchMessageIds={props.searchMatchMessageIds}
-              activeSearchMessageId={props.activeSearchMessageId}
-              searchHighlightQuery={props.searchHighlightQuery}
-              isStreaming={props.isStreaming}
-              latestAssistantMessageId={latestAssistantMessageId}
-              onRevertToMessage={props.onRevertToMessage}
-              onForkAtMessage={props.onForkAtMessage}
-            />
-          ))}
+          {messageBlocks.map((block, index) => renderBlock(block, index))}
         </div>
       )}
 

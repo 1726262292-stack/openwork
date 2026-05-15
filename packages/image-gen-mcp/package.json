@@ -1,0 +1,30 @@
+{
+  "name": "openwork-image-gen-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for AI image generation — routes to OpenAI, xAI, or Google image APIs based on available credentials",
+  "author": "OpenWork <support@openworklabs.com>",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "openwork-image-gen-mcp": "index.mjs"
+  },
+  "files": [
+    "index.mjs"
+  ],
+  "scripts": {
+    "check": "node --check index.mjs",
+    "test": "node --check index.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/different-ai/openwork.git",
+    "directory": "packages/image-gen-mcp"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.76"
+  }
+}

@@ -7,7 +7,7 @@ import { normalizeEvent } from "../../../../app/utils";
 import type { OpencodeEvent, PendingPermission } from "../../../../app/types";
 import { snapshotToUIMessages } from "./usechat-adapter";
 import type { OpenworkSessionSnapshot } from "../../../../app/lib/openwork-server";
-import { mergeSnapshotIntoCachedMessages } from "./message-merge";
+import { mergeSnapshotIntoCachedMessages, messageListContainsAll } from "./message-merge";
 
 type SyncOptions = {
   workspaceId: string;
@@ -15,7 +15,7 @@ type SyncOptions = {
   openworkToken: string;
 };
 
-export type PendingDelta = {
+type PendingDelta = {
   sessionId: string;
   messageId: string;
   partId: string;
@@ -91,9 +91,9 @@ export function seedPermissionState(
   const now = Date.now();
   queryClient.setQueryData<PendingPermission[]>(permissionKey(workspaceId, sessionId), (current = []) => {
     const receivedAtById = new Map(current.map((permission) => [permission.id, permission.receivedAt]));
-    const seeded = permissions.flatMap((permission) =>
-      permission.sessionID === sessionId ? [withReceivedAt(permission, receivedAtById.get(permission.id) ?? now)] : [],
-    );
+    const seeded = permissions
+      .filter((permission) => permission.sessionID === sessionId)
+      .map((permission) => withReceivedAt(permission, receivedAtById.get(permission.id) ?? now));
     const seededIds = new Set(seeded.map((permission) => permission.id));
     const snapshotStartedAt = options.snapshotStartedAt;
     const liveAfterSnapshot =
@@ -302,27 +302,6 @@ function appendDelta(messages: UIMessage[], messageId: string, partId: string, d
   return nextMessages;
 }
 
-export function coalescePendingDeltas(items: PendingDelta[]) {
-  if (items.length < 2) return items;
-
-  const ordered: PendingDelta[] = [];
-  const byKey = new Map<string, PendingDelta>();
-  for (const item of items) {
-    const key = `${item.sessionId}\u0000${item.messageId}\u0000${item.partId}`;
-    const existing = byKey.get(key);
-    if (existing) {
-      existing.delta += item.delta;
-      existing.reasoning = existing.reasoning || item.reasoning;
-      continue;
-    }
-
-    const next = { ...item };
-    byKey.set(key, next);
-    ordered.push(next);
-  }
-  return ordered;
-}
-
 function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent) {
   const queryClient = getReactQueryClient();
 
@@ -390,34 +369,10 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     const mapped = toUIPart(part);
     if (!mapped) return;
     const pending = entry.pendingDeltas.get(part.id);
-    // Seed the new part with any deltas that arrived before this
-    // declaration. We deliberately ignore `pending.reasoning` — it
-    // can't be trusted because opencode emits `field: "text"` for
-    // both text and reasoning streams. The part's actual kind
-    // (`mapped.type`) is the source of truth.
-    //
-    // Both `pending.text` and `mapped.text` are cumulative views of the
-    // same stream, so we keep whichever is longer instead of
-    // concatenating (concatenation double-counts the bytes that landed
-    // in both). Without this, reasoning text shows up duplicated in the
-    // streaming UI.
     const seededPart =
-      pending && (mapped.type === "text" || mapped.type === "reasoning")
-        ? {
-            ...mapped,
-            text: pending.text.length > mapped.text.length ? pending.text : mapped.text,
-            state: "streaming" as const,
-          }
+      pending && ((mapped.type === "text" && !pending.reasoning) || (mapped.type === "reasoning" && pending.reasoning))
+        ? { ...mapped, text: `${mapped.text}${pending.text}`, state: "streaming" as const }
         : mapped;
-    // Drop any deltas for this partID still queued in the rAF flush
-    // buffer — they've already been incorporated into `mapped.text`.
-    // Without this, the rAF flush would re-append them on top of the
-    // cumulative text we just wrote, duplicating bytes mid-stream.
-    if (entry.deltaFlushBuffer.length > 0) {
-      entry.deltaFlushBuffer = entry.deltaFlushBuffer.filter(
-        (item) => item.partId !== part.id,
-      );
-    }
     queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, part.sessionID), (current = []) => {
       // If we already have this message, keep its role; otherwise infer
       // from the alternation pattern. Only the newly-stubbed case needs
@@ -427,7 +382,28 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       const existing = current.find((m) => m.id === part.messageID);
       const role = existing?.role ?? inferStubRole(current);
       const withMessage = upsertMessage(current, { id: part.messageID, role, parts: [] });
-      return upsertPart(withMessage, part.messageID, part.id, seededPart);
+      let result = upsertPart(withMessage, part.messageID, part.id, seededPart);
+      // Emit tool attachments (e.g. MCP image content) as file parts
+      if (part.type === "tool") {
+        const record = part as Part & { state?: Record<string, unknown> };
+        const attachments = (record.state as Record<string, unknown> | undefined)?.attachments;
+        if (Array.isArray(attachments)) {
+          for (const att of attachments) {
+            const a = att as { id?: string; url?: string; mime?: string; filename?: string };
+            if (a.url && a.mime) {
+              const filePart: UIMessage["parts"][number] = {
+                type: "file",
+                url: a.url,
+                filename: a.filename,
+                mediaType: a.mime,
+                providerMetadata: { opencode: { partId: a.id ?? part.id } },
+              };
+              result = upsertPart(result, part.messageID, a.id ?? `${part.id}-att`, filePart);
+            }
+          }
+        }
+      }
+      return result;
     });
     if (pending) entry.pendingDeltas.delete(part.id);
     return;
@@ -443,17 +419,13 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     };
     if (!props.sessionID || !props.messageID || !props.partID || !props.delta) return;
     if (!isTrackedSession(entry, props.sessionID)) return;
-    // Note: we do NOT trust `props.field` to disambiguate reasoning vs
-    // text. Opencode emits `field: "text"` for both kinds; the actual
-    // distinction lives on the part's `type`, which we only see via
-    // `message.part.updated`. The flusher resolves the kind at apply
-    // time, falling back to `pendingDeltas` if the part hasn't been
-    // declared yet.
+    // Buffer this delta and let the frame flusher apply all queued deltas
+    // for this entry in a single setQueryData call per affected session.
     entry.deltaFlushBuffer.push({
       sessionId: props.sessionID!,
       messageId: props.messageID!,
       partId: props.partID!,
-      reasoning: false,
+      reasoning: props.field === "reasoning",
       delta: props.delta!,
     });
     scheduleDeltaFlush(entry, workspaceId);
@@ -485,7 +457,7 @@ function scheduleDeltaFlush(entry: SyncEntry, workspaceId: string) {
 
 function flushDeltas(entry: SyncEntry, workspaceId: string) {
   const queryClient = getReactQueryClient();
-  const pending = coalescePendingDeltas(entry.deltaFlushBuffer);
+  const pending = entry.deltaFlushBuffer;
   entry.deltaFlushBuffer = [];
 
   // Group by session id so each transcript cache is touched at most once
@@ -502,7 +474,6 @@ function flushDeltas(entry: SyncEntry, workspaceId: string) {
       transcriptKey(workspaceId, sessionId),
       (current = []) => {
         let next = current;
-        const nextById = new Map(next.map((message) => [message.id, message]));
         // Track which message shells we've ensured exist this flush so we
         // don't call upsertMessage for the same message on every delta.
         const ensuredMessageIds = new Set<string>();
@@ -512,32 +483,20 @@ function flushDeltas(entry: SyncEntry, workspaceId: string) {
             // state; otherwise infer it from the alternation pattern
             // so the brief "stub before message.updated" window doesn't
             // mislabel the message's bubble style.
-            const existing = nextById.get(item.messageId);
+            const existing = next.find((m) => m.id === item.messageId);
             const role = existing?.role ?? inferStubRole(next);
-            const ensuredMessage = { id: item.messageId, role, parts: existing?.parts ?? [] };
-            next = upsertMessage(next, ensuredMessage);
-            nextById.set(item.messageId, ensuredMessage);
+            next = upsertMessage(next, { id: item.messageId, role, parts: [] });
             ensuredMessageIds.add(item.messageId);
           }
-          // Resolve the part kind from the transcript instead of trusting
-          // the inbound delta event (opencode emits `field: "text"` for
-          // both text and reasoning parts). If the part hasn't been
-          // declared yet via `message.part.updated`, defer the delta into
-          // `entry.pendingDeltas` so the part can be created with the
-          // correct kind later. Without this, every delta lands as a text
-          // part — and reasoning content leaks into the response markdown
-          // until the next reload reconstructs the transcript from the
-          // snapshot.
-          const ownerMessage = nextById.get(item.messageId);
-          const ownerPartsById = new Map(
-            (ownerMessage?.parts ?? []).flatMap((part) => {
-              const id = part.type === "dynamic-tool" ? part.toolCallId : getPartMetadataId(part);
-              return id ? [[id, part] as const] : [];
-            }),
+          next = appendDelta(next, item.messageId, item.partId, item.delta, item.reasoning);
+          // If the delta landed on a synthetic "no matching part" case, keep
+          // the text so a later message.part.updated event can stitch it.
+          const message = next.find((m) => m.id === item.messageId);
+          const matched = message?.parts.some((part) =>
+            (part.type === "dynamic-tool" && part.toolCallId === item.partId) ||
+              getPartMetadataId(part) === item.partId,
           );
-          const ownerPart = ownerPartsById.get(item.partId);
-
-          if (!ownerPart) {
+          if (!matched) {
             const existing = entry.pendingDeltas.get(item.partId) ?? {
               messageId: item.messageId,
               reasoning: item.reasoning,
@@ -545,11 +504,7 @@ function flushDeltas(entry: SyncEntry, workspaceId: string) {
             };
             existing.text += item.delta;
             entry.pendingDeltas.set(item.partId, existing);
-            continue;
           }
-
-          const reasoning = ownerPart.type === "reasoning";
-          next = appendDelta(next, item.messageId, item.partId, item.delta, reasoning);
         }
         return next;
       },
@@ -644,10 +599,20 @@ export function seedSessionState(workspaceId: string, snapshot: OpenworkSessionS
   const incoming = snapshotToUIMessages(snapshot);
   const existing = queryClient.getQueryData<UIMessage[]>(key);
 
-  if (existing && existing.length > 0 && incoming.length > 0) {
-    // Server snapshots can lag the event stream even after OpenCode reports
-    // idle. Merge rather than replace so a just-finished answer cannot vanish
-    // until the next reload reconstructs it from persisted state.
+  if (
+    existing &&
+    existing.length > 0 &&
+    (
+      snapshot.status.type === "busy" ||
+      snapshot.status.type === "retry" ||
+      (existing.length > incoming.length && messageListContainsAll(existing, incoming))
+    )
+  ) {
+    // During active streaming the server snapshot may have empty/stale text
+    // for in-progress parts while the cache already accumulated text via
+    // deltas.  Merge so we never overwrite longer cached text with shorter
+    // server text. Also preserve a longer cache when a remount first sees an
+    // older snapshot before the fresh snapshot request returns.
     const merged = mergeSnapshotIntoCachedMessages(incoming, existing);
     queryClient.setQueryData(key, merged);
   } else {
