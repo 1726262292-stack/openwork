@@ -103,6 +103,14 @@ export type ComposerAttachment = {
   kind: "image" | "file";
   file: File;
   previewUrl?: string;
+  sourcePath?: string;
+  inlineLabel?: string;
+};
+
+export type ComposerAttachmentInput = {
+  file: File;
+  sourcePath?: string;
+  inlineLabel?: string;
 };
 
 export type SlashCommandOption = {

@@ -4,7 +4,10 @@ import type { Agent } from "@opencode-ai/sdk/v2/client";
 import { ArrowUp, ChevronRight, FileText, Paperclip, Plug, Settings, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import type { CloudImportedPlugin, CloudImportedPluginFile } from "../../../../../app/cloud/import-state";
-import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelRef, SkillCard, SlashCommandOption } from "../../../../../app/types";
+import { clipboardFilePaths as readDesktopClipboardFilePaths, pickFile } from "../../../../../app/lib/desktop";
+import type { ComposerAttachment, ComposerAttachmentInput, McpServerEntry, McpStatusMap, ModelRef, SkillCard, SlashCommandOption } from "../../../../../app/types";
+import { isDesktopRuntime } from "../../../../../app/utils";
+import type { IncomingFile } from "../use-file-preparation";
 import { t } from "../../../../../i18n";
 import { ModelBehaviorSelect } from "../../../../../components/model-behavior-select";
 import { ModelSelect } from "../../../../../components/model-select";
@@ -46,7 +49,7 @@ type ComposerProps = {
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
   attachments: ComposerAttachment[];
-  onAttachFiles: (files: File[]) => void;
+  onAttachFiles: (files: ComposerAttachmentInput[]) => void;
   onRemoveAttachment: (id: string) => void;
   attachmentsEnabled: boolean;
   attachmentsDisabledReason: string | null;
@@ -74,13 +77,15 @@ type ComposerProps = {
   notice: ReactComposerNoticeData | null;
   onNotice: (notice: ReactComposerNoticeData) => void;
   onPasteText: (text: string) => void;
-  onUnsupportedFileLinks: (links: string[]) => void;
+  onInsertPastedFileReferences: (references: string[], options?: { asFileMentions?: boolean }) => void;
   pastedText: PastedTextChip[];
   onRevealPastedText: (id: string) => void;
   onRemovePastedText: (id: string) => void;
   isRemoteWorkspace: boolean;
   isSandboxWorkspace: boolean;
   onUploadInboxFiles?: ((files: File[]) => void | Promise<unknown>) | null;
+  onIncomingFiles?: ((files: IncomingFile[]) => void) | null;
+  sendDisabled?: boolean;
   draftScopeKey?: string;
   compactTopSpacing?: boolean;
 };
@@ -117,6 +122,78 @@ function parseClipboardUriList(clipboard: DataTransfer) {
     links.push(normalized);
   }
   return links;
+}
+
+function fileUrlToPath(value: string) {
+  const trimmed = value.trim();
+  if (!FILE_URL_RE.test(trimmed)) return "";
+  try {
+    const url = new URL(trimmed);
+    let path = decodeURIComponent(url.pathname);
+    if (url.host && url.host !== "localhost") {
+      path = `//${url.host}${path}`;
+    }
+    if (/^\/[a-zA-Z]:\//.test(path)) {
+      path = path.slice(1);
+    }
+    return path;
+  } catch {
+    try {
+      return decodeURIComponent(trimmed.replace(/^file:\/\//i, ""));
+    } catch {
+      return trimmed.replace(/^file:\/\//i, "");
+    }
+  }
+}
+
+function normalizeClipboardFilePath(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (FILE_URL_RE.test(trimmed)) return fileUrlToPath(trimmed);
+  if (trimmed.startsWith("/") || /^[a-zA-Z]:\\/.test(trimmed)) return trimmed;
+  return "";
+}
+
+function clipboardFilePaths(clipboard: DataTransfer, includePlainText: boolean) {
+  const candidates = parseClipboardUriList(clipboard);
+  if (includePlainText) {
+    candidates.push(...(clipboard.getData("text/plain") ?? "").split(/\r?\n/));
+  }
+
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const path = normalizeClipboardFilePath(candidate);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    paths.push(path);
+  }
+  return paths;
+}
+
+function filenameFromPath(path: string) {
+  const normalized = path.replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
+function pathForClipboardFile(file: File, index: number, paths: string[]) {
+  const nativePath = normalizeClipboardFilePath(String((file as File & { path?: unknown }).path ?? ""));
+  if (nativePath) return nativePath;
+
+  const indexedPath = paths[index];
+  if (indexedPath && (paths.length === 1 || paths.length === index + 1 || filenameFromPath(indexedPath) === file.name)) {
+    return indexedPath;
+  }
+
+  if (!file.name) return indexedPath ?? "";
+  return paths.find((path) => filenameFromPath(path) === file.name) ?? indexedPath ?? "";
+}
+
+function looksLikeAbsoluteFilePath(value: string) {
+  const firstToken = value.trim().split(/\s+/, 1)[0] ?? "";
+  if (/^[a-zA-Z]:\\/.test(firstToken)) return true;
+  return firstToken.startsWith("/") && (firstToken.slice(1).includes("/") || /\.[^/.]+$/.test(firstToken));
 }
 
 function formatBytes(size: number) {
@@ -299,7 +376,7 @@ export function ReactSessionComposer(props: ComposerProps) {
     draftRef.current = props.draft;
   }, [props.draft]);
 
-  const slashMatch = props.draft.match(/^\/(\S*)$/);
+  const slashMatch = looksLikeAbsoluteFilePath(props.draft) ? null : props.draft.match(/^\/(\S*)$/);
   const slashOpenNext = Boolean(slashMatch);
   const slashQuery = slashMatch?.[1] ?? "";
   const mentionMatch = props.draft.match(/@([^\s@]*)$/);
@@ -764,34 +841,42 @@ export function ReactSessionComposer(props: ComposerProps) {
     }
   };
 
-  const addAttachments = async (inputFiles: File[]) => {
-    if (!inputFiles.length) return;
+  const addAttachments = async (inputFiles: ComposerAttachmentInput[], options?: { insertImageReferences?: boolean }) => {
+    if (!inputFiles.length) return [];
     if (!props.attachmentsEnabled) {
       props.onNotice({
         title: props.attachmentsDisabledReason ?? t("composer.attachments_unavailable"),
         tone: "warning",
       });
-      return;
+      return [];
     }
 
-    const accepted: File[] = [];
+    const accepted: ComposerAttachmentInput[] = [];
     const oversize: string[] = [];
 
-    for (const original of inputFiles) {
+    for (const input of inputFiles) {
+      const original = input.file;
       const processed = original.type.startsWith("image/") ? await compressImageFile(original) : original;
       if (processed.size > MAX_ATTACHMENT_BYTES) {
         oversize.push(processed.name || original.name);
         continue;
       }
-      accepted.push(processed);
+      accepted.push({ ...input, file: processed });
     }
 
     if (accepted.length) {
       props.onAttachFiles(accepted);
+      if (options?.insertImageReferences) {
+        const references = accepted.flatMap((input) => {
+          if (!input.inlineLabel) return [];
+          return [input.sourcePath ? `${input.inlineLabel} ${input.sourcePath}` : input.inlineLabel];
+        });
+        if (references.length) props.onInsertPastedFileReferences(references);
+      }
       props.onNotice({
         title:
           accepted.length === 1
-            ? t("composer.uploaded_single_file", { name: accepted[0]?.name ?? t("composer.file_kind") })
+            ? t("composer.uploaded_single_file", { name: accepted[0]?.file.name ?? t("composer.file_kind") })
             : t("composer.uploaded_multiple_files", { count: accepted.length }),
         tone: "success",
       });
@@ -807,6 +892,7 @@ export function ReactSessionComposer(props: ComposerProps) {
       });
     }
 
+    return accepted;
   };
 
   const activeMcpItems = mcpServers.map((entry) => ({
@@ -1007,8 +1093,9 @@ export function ReactSessionComposer(props: ComposerProps) {
               onPasteText={props.onPasteText}
               onPaste={(event) => {
                 // Paste policy:
-                // 1. Actual files on the clipboard -> attach them.
-                // 2. Explicit text/uri-list (drag from Finder / browser) -> insert links.
+                // 1. Clipboard files -> non-images become paths; images attach
+                //    as before and add an inline [img N] path reference.
+                // 2. Explicit text/uri-list (drag from Finder / browser) -> insert file paths/links.
                 // 3. Plain text -> DO NOTHING. Let Lexical's PlainTextPlugin
                 //    handle the paste natively so newlines render correctly
                 //    and no content is silently dropped. Previous behavior
@@ -1018,7 +1105,36 @@ export function ReactSessionComposer(props: ComposerProps) {
                 const files = Array.from(event.clipboardData?.files ?? []);
                 if (files.length) {
                   event.preventDefault();
-                  void addAttachments(files);
+                  const browserPaths = event.clipboardData ? clipboardFilePaths(event.clipboardData, true) : [];
+
+                  const processFiles = (nativePaths: string[]) => {
+                    const allPaths = [...browserPaths, ...nativePaths];
+                    let imageIndex = props.attachments.filter(isImageAttachment).length;
+                    const images: ComposerAttachmentInput[] = [];
+                    const incoming: IncomingFile[] = [];
+
+                    files.forEach((file, index) => {
+                      const nativePath = pathForClipboardFile(file, index, allPaths);
+                      if (file.type.startsWith("image/")) {
+                        imageIndex += 1;
+                        images.push({ file, sourcePath: nativePath || undefined, inlineLabel: `[img ${imageIndex}]` });
+                        return;
+                      }
+                      incoming.push({ file, nativePath: nativePath || undefined });
+                    });
+
+                    if (images.length) void addAttachments(images, { insertImageReferences: true });
+                    if (incoming.length && props.onIncomingFiles) props.onIncomingFiles(incoming);
+                  };
+
+                  // In Electron, ask the main process for real OS clipboard file paths
+                  if (isDesktopRuntime()) {
+                    void readDesktopClipboardFilePaths()
+                      .then((paths) => processFiles(Array.isArray(paths) ? paths : []))
+                      .catch(() => processFiles([]));
+                  } else {
+                    processFiles([]);
+                  }
                   return;
                 }
 
@@ -1027,7 +1143,10 @@ export function ReactSessionComposer(props: ComposerProps) {
                   : [];
                 if (uriList.length) {
                   event.preventDefault();
-                  props.onUnsupportedFileLinks(uriList);
+                  const filePaths = event.clipboardData ? clipboardFilePaths(event.clipboardData, false) : [];
+                  const filePathSet = new Set(filePaths);
+                  const unsupportedLinks = uriList.filter((link) => !filePathSet.has(normalizeClipboardFilePath(link)));
+                  props.onInsertPastedFileReferences([...filePaths, ...unsupportedLinks]);
                   props.onNotice({
                     title: t("composer.inserted_links_unsupported"),
                     tone: "info",
@@ -1081,7 +1200,23 @@ export function ReactSessionComposer(props: ComposerProps) {
                 setDropzoneActive(false);
                 if (!files.length) return;
                 event.preventDefault();
-                void addAttachments(files);
+                const dtPaths = event.dataTransfer ? clipboardFilePaths(event.dataTransfer, true) : [];
+                let imageIndex = props.attachments.filter(isImageAttachment).length;
+                const images: ComposerAttachmentInput[] = [];
+                const incoming: IncomingFile[] = [];
+                files.forEach((file, index) => {
+                  // In Electron, drag-drop File objects have a non-standard .path property
+                  const electronPath = String((file as File & { path?: unknown }).path ?? "").trim();
+                  const nativePath = electronPath || pathForClipboardFile(file, index, dtPaths);
+                  if (file.type.startsWith("image/")) {
+                    imageIndex += 1;
+                    images.push({ file, sourcePath: nativePath || undefined, inlineLabel: `[img ${imageIndex}]` });
+                    return;
+                  }
+                  incoming.push({ file, nativePath: nativePath || undefined });
+                });
+                if (images.length) void addAttachments(images, { insertImageReferences: true });
+                if (incoming.length && props.onIncomingFiles) props.onIncomingFiles(incoming);
               }}
             />
 
@@ -1097,7 +1232,21 @@ export function ReactSessionComposer(props: ComposerProps) {
                   className="hidden"
                   onChange={(event) => {
                     const files = Array.from(event.currentTarget.files ?? []);
-                    if (files.length) void addAttachments(files);
+                    if (!files.length) { event.currentTarget.value = ""; return; }
+                    // Browser file picker: File objects have no native path
+                    const images: ComposerAttachmentInput[] = [];
+                    const incoming: IncomingFile[] = [];
+                    let imageIndex = props.attachments.filter(isImageAttachment).length;
+                    files.forEach((file) => {
+                      if (file.type.startsWith("image/")) {
+                        imageIndex += 1;
+                        images.push({ file, inlineLabel: `[img ${imageIndex}]` });
+                        return;
+                      }
+                      incoming.push({ file });
+                    });
+                    if (images.length) void addAttachments(images, { insertImageReferences: true });
+                    if (incoming.length && props.onIncomingFiles) props.onIncomingFiles(incoming);
                     event.currentTarget.value = "";
                   }}
                 />
@@ -1108,6 +1257,18 @@ export function ReactSessionComposer(props: ComposerProps) {
                   }`}
                   onClick={() => {
                     if (!props.attachmentsEnabled) return;
+                    if (isDesktopRuntime()) {
+                      void pickFile({ title: t("composer.attach_files"), multiple: true }).then((result) => {
+                        const paths = Array.isArray(result) ? result : result ? [String(result)] : [];
+                        if (!paths.length) return;
+                        const incoming: IncomingFile[] = paths.map((p) => {
+                          const name = filenameFromPath(p);
+                          return { file: new File([], name || "file"), nativePath: p };
+                        });
+                        if (props.onIncomingFiles) props.onIncomingFiles(incoming);
+                      });
+                      return;
+                    }
                     fileInput?.click();
                   }}
                   disabled={!props.attachmentsEnabled}
@@ -1307,9 +1468,9 @@ export function ReactSessionComposer(props: ComposerProps) {
                   <button
                     type="button"
                     onClick={canSend ? props.onSend : props.busy ? props.onStop : undefined}
-                    disabled={props.disabled || (!canSend && !props.busy)}
+                    disabled={props.disabled || Boolean(props.sendDisabled) || (!canSend && !props.busy)}
                     className={`inline-flex h-9 max-h-9 items-center gap-2 rounded-full px-4 text-[13px] font-medium transition-colors ${
-                      !canSend || props.disabled
+                      !canSend || props.disabled || props.sendDisabled
                         ? "bg-gray-4 text-gray-10"
                         : "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
                     }`}

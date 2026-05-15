@@ -1224,6 +1224,15 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       } satisfies OpenworkInboxUploadResult;
     },
 
+    copyInbox: (workspaceId: string, payload: { sourcePath: string; path?: string }) =>
+      requestJson<OpenworkInboxUploadResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/inbox/copy`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: payload,
+        timeoutMs: timeouts.binary,
+      }),
+
     listInbox: (workspaceId: string) =>
       requestJson<OpenworkInboxList>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/inbox`, {
         token,

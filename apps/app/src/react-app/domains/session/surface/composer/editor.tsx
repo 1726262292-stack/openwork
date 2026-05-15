@@ -343,13 +343,19 @@ function appendSegmentWithNewlines(
   return current;
 }
 
+function looksLikeAbsoluteFilePath(value: string) {
+  const firstToken = value.trim().split(/\s+/, 1)[0] ?? "";
+  if (/^[a-zA-Z]:\\/.test(firstToken)) return true;
+  return firstToken.startsWith("/") && (firstToken.slice(1).includes("/") || /\.[^/.]+$/.test(firstToken));
+}
+
 function setPrompt(value: string, mentions: Record<string, "agent" | "file">, pastedText?: Array<{ label: string; lines: number }>) {
   const root = $getRoot();
   root.clear();
   let paragraph = $createParagraphNode();
   root.append(paragraph);
 
-  const slashMatch = value.match(/^\/(\S+)\s(.*)$/s);
+  const slashMatch = looksLikeAbsoluteFilePath(value) ? null : value.match(/^\/(\S+)\s(.*)$/s);
   if (slashMatch?.[1]) {
     paragraph.append($createComposerSlashCommandNode(slashMatch[1]));
     paragraph.append($createTextNode(" "));

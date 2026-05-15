@@ -13,6 +13,7 @@ import type {
 } from "../../../../app/lib/openwork-server";
 import type {
   ComposerAttachment,
+  ComposerAttachmentInput,
   ComposerDraft,
   ComposerPart,
   McpServerEntry,
@@ -44,6 +45,11 @@ import {
   statusKey as reactStatusKey,
   transcriptKey as reactTranscriptKey,
 } from "../sync/session-sync";
+import { useFilePreparation, type IncomingFile } from "./use-file-preparation";
+import {
+  readAuthorizedFoldersFromConfig,
+  mergeAuthorizedFoldersIntoExternalDirectory,
+} from "../../settings/panels/authorized-folders-panel-state";
 
 const EMPTY_TRANSCRIPT: UIMessage[] = [];
 const IDLE_STATUS: SessionStatus = { type: "idle" };
@@ -269,6 +275,19 @@ function revokeAttachmentPreview(attachment: { previewUrl?: string | undefined }
   URL.revokeObjectURL(attachment.previewUrl);
 }
 
+function looksLikeAbsoluteFilePath(value: string) {
+  const firstToken = value.trim().split(/\s+/, 1)[0] ?? "";
+  if (/^[a-zA-Z]:\\/.test(firstToken)) return true;
+  return firstToken.startsWith("/") && (firstToken.slice(1).includes("/") || /\.[^/.]+$/.test(firstToken));
+}
+
+function parseSlashCommand(value: string) {
+  if (looksLikeAbsoluteFilePath(value)) return null;
+  const match = value.trim().match(/^\/([^\s]+)\s*(.*)$/);
+  if (!match) return null;
+  return { name: match[1] ?? "", arguments: match[2] ?? "" };
+}
+
 export function SessionSurface(props: SessionSurfaceProps) {
   const local = useLocal();
   const { config: shellConfig } = useShellConfig();
@@ -370,6 +389,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
         mimeType: attachment.mimeType,
         size: attachment.size,
         kind: attachment.kind,
+        sourcePath: attachment.sourcePath,
+        inlineLabel: attachment.inlineLabel,
       })),
       mentions,
       pasteParts: pasteParts.map((part) => ({
@@ -474,7 +495,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const buildDraft = useCallback((text: string, nextAttachments: ComposerAttachment[]): ComposerDraft => {
     const trimmed = text.trim();
-    const slashMatch = trimmed.match(/^\/([^\s]+)\s*(.*)$/);
+    const command = parseSlashCommand(trimmed);
     const parts: ComposerPart[] = text.split(/(\[pasted text [^\]]+\]|@[^\s@]+)/).flatMap((segment) => {
       if (!segment) return [] as ComposerDraft["parts"];
       const pasteMatch = segment.match(/^\[pasted text (.+)\]$/);
@@ -504,7 +525,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       attachments: nextAttachments,
       text,
       resolvedText: resolved,
-      command: slashMatch ? { name: slashMatch[1] ?? "", arguments: slashMatch[2] ?? "" } : undefined,
+      command: command ?? undefined,
     };
   }, [mentions, pasteParts]);
 
@@ -519,6 +540,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const handleSend = useCallback(async () => {
     const text = draft.trim();
     if (!text && attachments.length === 0) return;
+    if (filePrep.preparing) {
+      setNotice({ title: "Files are still preparing.", description: "Wait for uploads to finish before sending.", tone: "info" });
+      return;
+    }
     // Intentionally allow sending while the assistant is still streaming.
     // OpenCode accepts follow-up user turns mid-run and queues them; if the
     // backend can't accept the follow-up it'll surface an error via the
@@ -565,29 +590,45 @@ export function SessionSurface(props: SessionSurfaceProps) {
     props.onDraftChange(buildDraft(draft, attachments));
   }, [attachments, buildDraft, draft, props.onDraftChange]);
 
-  const handleAttachFiles = (files: File[]) => {
+  const appendDraftReferences = (references: string[], options?: { asFileMentions?: boolean }) => {
+    const values = references.map((reference) => reference.trim()).filter(Boolean);
+    const text = values.map((reference) => options?.asFileMentions ? `@${reference}` : reference).join("\n");
+    if (!text) return;
+    if (options?.asFileMentions) {
+      setMentions((current) => {
+        const next = { ...current };
+        for (const reference of values) next[reference] = "file";
+        return next;
+      });
+    }
+    setDraft((current) => `${current}${current && !current.endsWith("\n") ? "\n" : ""}${text}`);
+  };
+
+  const handleAttachFiles = (inputs: ComposerAttachmentInput[]) => {
     if (!props.attachmentsEnabled) {
       setNotice({ title: props.attachmentsDisabledReason ?? "Attachments are unavailable.", tone: "warning" });
       return;
     }
-    const oversized = files.filter((file) => file.size > 25 * 1024 * 1024);
-    const accepted = files.filter((file) => file.size <= 25 * 1024 * 1024);
+    const oversized = inputs.filter((input) => input.file.size > 25 * 1024 * 1024);
+    const accepted = inputs.filter((input) => input.file.size <= 25 * 1024 * 1024);
     if (oversized.length) {
       setNotice({
-        title: oversized.length === 1 ? `${oversized[0]?.name ?? "File"} is too large` : `${oversized.length} files are too large`,
+        title: oversized.length === 1 ? `${oversized[0]?.file.name ?? "File"} is too large` : `${oversized.length} files are too large`,
         description: "Files over 25 MB were skipped.",
         tone: "warning",
       });
     }
     if (!accepted.length) return;
-    const next = accepted.map((file) => ({
-      id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
-      name: file.name,
-      mimeType: file.type || "application/octet-stream",
-      size: file.size,
-      kind: file.type.startsWith("image/") ? "image" as const : "file" as const,
-      file,
-      previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
+    const next = accepted.map((input) => ({
+      id: `${input.file.name}-${input.file.lastModified}-${Math.random().toString(36).slice(2)}`,
+      name: input.file.name,
+      mimeType: input.file.type || "application/octet-stream",
+      size: input.file.size,
+      kind: input.file.type.startsWith("image/") ? "image" as const : "file" as const,
+      file: input.file,
+      previewUrl: input.file.type.startsWith("image/") ? URL.createObjectURL(input.file) : undefined,
+      sourcePath: input.sourcePath,
+      inlineLabel: input.inlineLabel,
     }));
     setAttachments((current) => [...current, ...next]);
     setNotice({
@@ -601,6 +642,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
       const target = current.find((item) => item.id === id);
       if (target?.previewUrl) {
         URL.revokeObjectURL(target.previewUrl);
+      }
+      if (target?.inlineLabel) {
+        const reference = target.sourcePath ? `${target.inlineLabel} ${target.sourcePath}` : target.inlineLabel;
+        setDraft((draftValue) => draftValue.replace(reference, "").replace(/\n{3,}/g, "\n\n"));
       }
       return current.filter((item) => item.id !== id);
     });
@@ -637,10 +682,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     });
   };
 
-  const handleUnsupportedFileLinks = (links: string[]) => {
-    if (!links.length) return;
-    setDraft((current) => `${current}${current && !current.endsWith("\n") ? "\n" : ""}${links.join("\n")}`);
-  };
+  const handleInsertPastedFileReferences = (references: string[], options?: { asFileMentions?: boolean }) => appendDraftReferences(references, options);
 
   const typeComposerText = useCallback(async (text: string) => {
     window.dispatchEvent(new Event("openwork:focusPrompt"));
@@ -758,6 +800,79 @@ export function SessionSurface(props: SessionSurfaceProps) {
         tone: "warning",
       });
       throw nextError;
+    }
+  };
+
+  const filePrep = useFilePreparation({ client: props.client, workspaceId: props.workspaceId });
+
+  // Reset file preparation state when session changes
+  useEffect(() => {
+    filePrep.reset();
+  }, [props.sessionId]);
+
+  /**
+   * Grant OpenCode permission to access a directory by adding it to
+   * `permission.external_directory` in the workspace config.
+   */
+  const grantPathPermission = async (dirPath: string) => {
+    try {
+      const currentConfig = await props.client.getConfig(props.workspaceId);
+      const opencodeConfig = (currentConfig.opencode ?? {}) as Record<string, unknown>;
+      const current = readAuthorizedFoldersFromConfig(opencodeConfig);
+      // Check if already authorized
+      if (current.folders.some((f) => dirPath.startsWith(f) || dirPath === f)) return;
+      const nextFolders = [...current.folders, dirPath];
+      const nextExternalDirectory = mergeAuthorizedFoldersIntoExternalDirectory(nextFolders, current.hiddenEntries);
+      await props.client.patchConfig(props.workspaceId, {
+        opencode: { permission: { external_directory: nextExternalDirectory } },
+      });
+    } catch {
+      // Permission grant is best-effort; the agent can still prompt for access
+    }
+  };
+
+  const parentDirFromPath = (path: string) => {
+    const normalized = path.replace(/\\/g, "/");
+    const lastSlash = normalized.lastIndexOf("/");
+    return lastSlash <= 0 ? "/" : normalized.slice(0, lastSlash);
+  };
+
+  const handleIncomingFiles = (files: IncomingFile[]) => {
+    const { references, jobs } = filePrep.prepare(files);
+
+    // Insert file mentions into the draft immediately
+    if (references.length) {
+      appendDraftReferences(references, { asFileMentions: true });
+    }
+
+    // For desktop paths, grant permission to the parent directory
+    const dirsToAuthorize = new Set<string>();
+    for (const item of files) {
+      if (item.nativePath) {
+        dirsToAuthorize.add(parentDirFromPath(item.nativePath));
+      }
+    }
+    for (const dir of dirsToAuthorize) {
+      void grantPathPermission(dir);
+    }
+
+    // Show notice for errors
+    const errors = jobs.filter((j) => j.status === "error");
+    if (errors.length) {
+      setNotice({
+        title: errors.length === 1
+          ? `${errors[0]?.name ?? "File"} could not be prepared`
+          : `${errors.length} files could not be prepared`,
+        description: errors[0]?.error,
+        tone: "warning",
+      });
+    } else if (references.length && !jobs.some((j) => j.status === "preparing")) {
+      setNotice({
+        title: references.length === 1
+          ? `Added ${references[0]?.split("/").pop() ?? "file"}`
+          : `Added ${references.length} files`,
+        tone: "success",
+      });
     }
   };
 
@@ -1052,13 +1167,15 @@ export function SessionSurface(props: SessionSurfaceProps) {
         notice={notice}
         onNotice={setNotice}
         onPasteText={handlePasteText}
-        onUnsupportedFileLinks={handleUnsupportedFileLinks}
+        onInsertPastedFileReferences={handleInsertPastedFileReferences}
         pastedText={pasteParts}
         onRevealPastedText={handleRevealPastedText}
         onRemovePastedText={handleRemovePastedText}
         isRemoteWorkspace={props.isRemoteWorkspace}
           isSandboxWorkspace={props.isSandboxWorkspace}
-          onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
+           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
+          onIncomingFiles={handleIncomingFiles}
+          sendDisabled={filePrep.preparing}
         />
         </DevProfiler>
       </div>

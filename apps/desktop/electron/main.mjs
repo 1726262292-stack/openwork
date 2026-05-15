@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, Menu, WebContentsView, dialog, ipcMain, nativeImage, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, clipboard, Menu, WebContentsView, dialog, ipcMain, nativeImage, nativeTheme, shell } from "electron";
 import { registerMigrationIpc } from "./migration.mjs";
 import { startBrowserMcpServers } from "./browser-mcp.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
@@ -2019,6 +2019,29 @@ async function handleDesktopInvoke(event, command, ...args) {
       });
       if (result.canceled) return null;
       return options.multiple ? result.filePaths : (result.filePaths[0] ?? null);
+    }
+    case "clipboardFilePaths": {
+      // Read file paths from the OS clipboard (macOS: public.file-url,
+      // Windows: FileNameW/FileName, Linux: text/uri-list).
+      const paths = [];
+      const seen = new Set();
+      for (const format of clipboard.availableFormats()) {
+        if (!/file|uri|name/i.test(format)) continue;
+        try {
+          const buf = clipboard.readBuffer(format);
+          if (!buf?.length) continue;
+          for (const raw of buf.toString("utf8").split(/[\r\n\0]+/)) {
+            let part = raw.trim().replace(/^\uFEFF/, "").replace(/^"|"$/g, "");
+            if (!part || part.startsWith("#")) continue;
+            if (part.startsWith("file:")) {
+              try { part = decodeURIComponent(new URL(part).pathname); } catch { part = part.replace(/^file:\/\//i, ""); }
+            }
+            if (process.platform === "win32" && /^\/[a-zA-Z]:\//.test(part)) part = part.slice(1);
+            if (path.isAbsolute(part) && !seen.has(part)) { seen.add(part); paths.push(part); }
+          }
+        } catch { /* skip unreadable format */ }
+      }
+      return paths;
     }
     case "saveFile": {
       const options = args[0] ?? {};

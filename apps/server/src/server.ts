@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile, writeFile, rm, readdir, rename, stat, appendFile, mkdir } from "node:fs/promises";
+import { copyFile, readFile, writeFile, rm, readdir, rename, stat, appendFile, mkdir } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
@@ -1880,6 +1880,55 @@ function createRoutes(
     });
 
     return jsonResponse({ ok: true, path: relativePath, bytes: file.size });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/inbox/copy", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    if (!resolveInboxEnabled()) {
+      throw new ApiError(404, "inbox_disabled", "Workspace inbox is disabled");
+    }
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const payload = await readJsonBody(ctx.request) as { sourcePath?: unknown; path?: unknown };
+    const sourcePath = typeof payload.sourcePath === "string" ? payload.sourcePath.trim() : "";
+    if (!sourcePath) {
+      throw new ApiError(400, "source_path_required", "sourcePath is required");
+    }
+    const sourceInfo = await stat(sourcePath).catch(() => null);
+    if (!sourceInfo?.isFile()) {
+      throw new ApiError(404, "source_file_not_found", "Source file not found");
+    }
+
+    const requestedPath = typeof payload.path === "string" && payload.path.trim()
+      ? payload.path.trim()
+      : basename(sourcePath);
+    const relativePath = normalizeWorkspaceRelativePath(requestedPath, { allowSubdirs: true });
+    const inboxRoot = resolveInboxDir(workspace.path);
+    const dest = resolveSafeChildPath(inboxRoot, relativePath);
+
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "workspace.inbox.copy",
+      summary: `Copy ${sourcePath} to inbox`,
+      paths: [sourcePath, dest],
+    });
+
+    await ensureDir(dirname(dest));
+    const tmp = `${dest}.tmp-${shortId()}`;
+    await copyFile(sourcePath, tmp);
+    await rename(tmp, dest);
+
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "workspace.inbox.copy",
+      target: dest,
+      summary: `Copied ${sourcePath} to inbox as ${relativePath}`,
+      timestamp: Date.now(),
+    });
+
+    return jsonResponse({ ok: true, path: relativePath, bytes: sourceInfo.size });
   });
 
   addRoute(routes, "GET", "/workspace/:id/artifacts", "client", async (ctx) => {
