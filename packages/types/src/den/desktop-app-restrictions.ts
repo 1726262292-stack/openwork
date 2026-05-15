@@ -1,9 +1,22 @@
 import { z } from "zod"
 
 export const desktopAppRestrictionsSchema = z.object({
+  // Category B: Org-level policies (cloud-only, not user-togglable)
   disallowNonCloudModels: z.boolean().optional(),
   blockZenModel: z.boolean().optional(),
   blockMultipleWorkspaces: z.boolean().optional(),
+  blockSettingsAccess: z.boolean().optional(),
+  restrictExtensions: z.boolean().optional(),
+
+  // Category A: UI customization overrides (cloud overrides local user prefs)
+  // When set, these take precedence over the user's local toggle.
+  showStatusBar: z.boolean().optional(),
+  showDocsButton: z.boolean().optional(),
+  showFeedbackButton: z.boolean().optional(),
+  showCloudSignin: z.boolean().optional(),
+  showStarterCards: z.boolean().optional(),
+  showModelPicker: z.boolean().optional(),
+  showAddWorkspace: z.boolean().optional(),
 }).meta({ ref: "DenDesktopAppRestrictions" })
 
 export type DesktopAppRestrictions = z.infer<typeof desktopAppRestrictionsSchema>
@@ -44,11 +57,16 @@ function normalizeAllowedDesktopVersions(value: unknown): string[] | undefined {
 export function normalizeDesktopAppRestrictions(value: unknown): DesktopAppRestrictions {
   const parsed = desktopAppRestrictionsSchema.safeParse(value)
   if (parsed.success) {
-    return {
-      ...(parsed.data.disallowNonCloudModels === true ? { disallowNonCloudModels: true } : {}),
-      ...(parsed.data.blockZenModel === true ? { blockZenModel: true } : {}),
-      ...(parsed.data.blockMultipleWorkspaces === true ? { blockMultipleWorkspaces: true } : {}),
+    // Only emit keys that are explicitly set (not undefined).
+    // Boolean `true` keys are restrictions/overrides; boolean `false`
+    // keys are explicit "allow" signals from the org.
+    const result: DesktopAppRestrictions = {}
+    for (const [key, val] of Object.entries(parsed.data)) {
+      if (val !== undefined) {
+        (result as Record<string, unknown>)[key] = val
+      }
     }
+    return result
   }
 
   const legacy = value as {

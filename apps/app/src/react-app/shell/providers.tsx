@@ -6,6 +6,7 @@ import { hydrateOpenworkServerSettingsFromEnv } from "../../app/lib/openwork-ser
 import { isDesktopRuntime } from "../../app/utils";
 import { DenAuthProvider } from "../domains/cloud/den-auth-provider";
 import { DesktopConfigProvider } from "../domains/cloud/desktop-config-provider";
+import { EffectiveConfigProvider } from "./effective-config";
 import { RestrictionNoticeProvider } from "../domains/cloud/restriction-notice-provider";
 import { StatusToastsProvider } from "../domains/shell-feedback/status-toasts";
 import { LocalProvider } from "../kernel/local-provider";
@@ -66,13 +67,15 @@ export function AppProviders({ children }: AppProvidersProps) {
           <DesktopRuntimeBoot />
           <DenAuthProvider>
             <DesktopConfigProvider>
-              <RestrictionNoticeProvider>
-                <LocalProvider>
-                  <StatusToastsProvider>
-                    <ReloadCoordinatorProvider>{children}</ReloadCoordinatorProvider>
-                  </StatusToastsProvider>
-                </LocalProvider>
-              </RestrictionNoticeProvider>
+              <EffectiveConfigProvider>
+                <RestrictionNoticeProvider>
+                  <LocalProvider>
+                    <StatusToastsProvider>
+                      <ReloadCoordinatorProvider>{children}</ReloadCoordinatorProvider>
+                    </StatusToastsProvider>
+                  </LocalProvider>
+                </RestrictionNoticeProvider>
+              </EffectiveConfigProvider>
             </DesktopConfigProvider>
           </DenAuthProvider>
         </ArchitectureMismatchGate>

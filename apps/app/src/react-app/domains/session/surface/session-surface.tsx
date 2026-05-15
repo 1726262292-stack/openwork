@@ -30,7 +30,7 @@ import { ReactSessionComposer } from "./composer/composer";
 import { DevProfiler } from "../../../shell/dev-profiler";
 import { PaperGrainGradient } from "@openwork/ui/react";
 import { OwDotTicker } from "../../../shell/dot-ticker";
-import { useShellConfig } from "../../../shell/shell-config";
+import { useEffectiveConfig } from "../../../shell/effective-config";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import type { ReactComposerNotice } from "./composer/notice";
 import { SessionDebugPanel } from "./debug-panel";
@@ -69,7 +69,6 @@ export type SessionSurfaceProps = {
   modelLabel: string;
   onModelClick: () => void;
   modelPickerOpen: boolean;
-  modelUnavailable?: boolean;
   selectedModel: ModelRef;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
@@ -271,7 +270,7 @@ function revokeAttachmentPreview(attachment: { previewUrl?: string | undefined }
 
 export function SessionSurface(props: SessionSurfaceProps) {
   const local = useLocal();
-  const { config: shellConfig } = useShellConfig();
+  const effectiveConfig = useEffectiveConfig();
   const showThinking = local.prefs.showThinking;
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -672,13 +671,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     label: "Send the composer prompt",
     description: "Send the currently visible composer draft to the active session.",
     sideEffect: "mutation",
-    disabled: props.modelUnavailable || (!draft.trim() && attachments.length === 0) || model.transitionState !== "idle",
+    disabled: (!draft.trim() && attachments.length === 0) || model.transitionState !== "idle",
     targetRef: composerShellRef,
     execute: async () => {
       await handleSend();
       return true;
     },
-  }), [attachments.length, draft, handleSend, model.transitionState, props.modelUnavailable]);
+  }), [attachments.length, draft, handleSend, model.transitionState]);
   useControlAction(composerSendControlAction);
 
   const composerStopControlAction = useMemo<OpenworkControlAction>(() => ({
@@ -897,11 +896,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   </div>
                 )}
               </div>
-            ) : renderedMessages.length === 0 && showAssistantWaitState ? (
-              <div className="px-6 py-12">
-                <AssistantWaitingCard />
-              </div>
-            ) : renderedMessages.length === 0 && snapshot && snapshot.messages.length === 0 ? (
+            ) : renderedMessages.length === 0 && !showAssistantWaitState && snapshot && snapshot.messages.length === 0 ? (
               error ? (
                 <SessionErrorCard
                   error={error}
@@ -909,7 +904,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   onChangeModel={props.onChangeModel}
                   onOpenModelPicker={props.onModelClick}
                 />
-              ) : shellConfig.starterCards ? (
+              ) : effectiveConfig.starterCards ? (
                 <div className="flex flex-1 flex-col items-center justify-end px-6 pb-4">
                   <div className="w-full max-w-[640px]">
                     <p className="mb-3 text-xs text-dls-secondary">Try one of these:</p>
@@ -1016,8 +1011,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onSend={handleSend}
         onStop={handleAbort}
         busy={chatStreaming}
-        disabled={model.transitionState !== "idle" || Boolean(props.modelUnavailable)}
-        modelUnavailable={Boolean(props.modelUnavailable)}
+        disabled={model.transitionState !== "idle"}
         statusLabel={statusLabel(snapshot ?? undefined, chatStreaming)}
         modelPickerOpen={props.modelPickerOpen}
         selectedModel={props.selectedModel}

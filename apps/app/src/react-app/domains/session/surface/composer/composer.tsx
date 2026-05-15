@@ -7,6 +7,7 @@ import type { CloudImportedPlugin, CloudImportedPluginFile } from "../../../../.
 import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelRef, SkillCard, SlashCommandOption } from "../../../../../app/types";
 import { t } from "../../../../../i18n";
 import { ModelBehaviorSelect } from "../../../../../components/model-behavior-select";
+import { useEffectiveConfig } from "../../../../shell/effective-config";
 import { ModelSelect } from "../../../../../components/model-select";
 import { LexicalPromptEditor } from "./editor";
 import {
@@ -39,7 +40,6 @@ type ComposerProps = {
   onStop: () => void | Promise<void>;
   busy: boolean;
   disabled: boolean;
-  modelUnavailable?: boolean;
   statusLabel: string;
   modelPickerOpen: boolean;
   selectedModel: ModelRef;
@@ -245,6 +245,7 @@ function pluginSlashCommandName(file: CloudImportedPluginFile) {
 }
 
 export function ReactSessionComposer(props: ComposerProps) {
+  const effectiveConfig = useEffectiveConfig();
   let fileInput: HTMLInputElement | undefined;
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
@@ -1394,15 +1395,14 @@ export function ReactSessionComposer(props: ComposerProps) {
             </div>
             */}
 
-            <ModelSelect
-              open={props.modelPickerOpen}
-              value={props.selectedModel}
-              onOpenChange={props.onModelPickerOpenChange}
-              onChange={props.onModelChange}
-              disabled={props.busy}
-            />
-            {props.modelUnavailable ? (
-              <span className="text-xs font-medium text-red-10">Model no longer available</span>
+            {effectiveConfig.modelPicker ? (
+              <ModelSelect
+                open={props.modelPickerOpen}
+                value={props.selectedModel}
+                onOpenChange={props.onModelPickerOpenChange}
+                onChange={props.onModelChange}
+                disabled={props.busy}
+              />
             ) : null}
 
             <ModelBehaviorSelect

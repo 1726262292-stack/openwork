@@ -162,6 +162,16 @@ export function OrgSettingsScreen() {
   const [allowZenModelEnabled, setAllowZenModelEnabled] = useState(true);
   const [allowMultipleWorkspacesEnabled, setAllowMultipleWorkspacesEnabled] =
     useState(true);
+  // Category A: UI customization overrides (undefined = no override, true = show, false = hide)
+  const [uiOverrides, setUiOverrides] = useState<Record<string, boolean | undefined>>({
+    showStatusBar: undefined,
+    showDocsButton: undefined,
+    showFeedbackButton: undefined,
+    showCloudSignin: undefined,
+    showStarterCards: undefined,
+    showModelPicker: undefined,
+    showAddWorkspace: undefined,
+  });
   const [domainEditModeEnabled, setDomainEditModeEnabled] = useState(false);
   const [desktopVersionOptions, setDesktopVersionOptions] = useState<string[]>(
     [],
@@ -228,6 +238,17 @@ export function OrgSettingsScreen() {
       orgContext.organization.desktopAppRestrictions.blockMultipleWorkspaces !==
         true,
     );
+    // Load Category A UI overrides from existing restrictions
+    const r = orgContext.organization.desktopAppRestrictions as Record<string, unknown>;
+    setUiOverrides({
+      showStatusBar: typeof r.showStatusBar === "boolean" ? r.showStatusBar : undefined,
+      showDocsButton: typeof r.showDocsButton === "boolean" ? r.showDocsButton : undefined,
+      showFeedbackButton: typeof r.showFeedbackButton === "boolean" ? r.showFeedbackButton : undefined,
+      showCloudSignin: typeof r.showCloudSignin === "boolean" ? r.showCloudSignin : undefined,
+      showStarterCards: typeof r.showStarterCards === "boolean" ? r.showStarterCards : undefined,
+      showModelPicker: typeof r.showModelPicker === "boolean" ? r.showModelPicker : undefined,
+      showAddWorkspace: typeof r.showAddWorkspace === "boolean" ? r.showAddWorkspace : undefined,
+    });
     setDomainEditModeEnabled(false);
   }, [orgContext]);
 
@@ -400,6 +421,10 @@ export function OrgSettingsScreen() {
           ...(!allowMultipleWorkspacesEnabled
             ? { blockMultipleWorkspaces: true }
             : {}),
+          // Category A: UI customization overrides (only include keys that are explicitly set)
+          ...Object.fromEntries(
+            Object.entries(uiOverrides).filter(([, v]) => typeof v === "boolean"),
+          ),
         },
         ...(desktopVersionOptions.length > 0
           ? {
@@ -643,6 +668,59 @@ export function OrgSettingsScreen() {
                 onChange={setAllowMultipleWorkspacesEnabled}
               />
             </div>
+          </div>
+        </DenCard>
+
+        <DenCard size="spacious" className="grid gap-6">
+          <div className="grid gap-2">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-gray-400">
+              Desktop app
+            </p>
+            <h2 className="text-[24px] font-semibold tracking-[-0.04em] text-gray-900">
+              UI customization
+            </h2>
+            <p className="text-[14px] text-gray-500">
+              Override layout preferences for all users in this organization.
+              Unset options let users choose for themselves.
+            </p>
+          </div>
+
+          <div className="grid gap-4">
+            {([
+              { key: "showStatusBar", label: "Status bar", desc: "Bottom bar with connection status, docs, and feedback links." },
+              { key: "showDocsButton", label: "Documentation link", desc: "Docs button in the status bar." },
+              { key: "showFeedbackButton", label: "Feedback button", desc: "Feedback link in the status bar." },
+              { key: "showCloudSignin", label: "Cloud sign-in prompt", desc: "Sign-in button shown to unauthenticated users." },
+              { key: "showStarterCards", label: "Task suggestions", desc: "Starter task cards in empty sessions." },
+              { key: "showModelPicker", label: "Model picker", desc: "Model selection in the composer." },
+              { key: "showAddWorkspace", label: "New workspace button", desc: "Button to create or join workspaces." },
+            ] as const).map(({ key, label, desc }) => (
+              <div key={key} className="flex items-start justify-between gap-4 rounded-[24px] border border-gray-200 bg-white px-5 py-4">
+                <div className="grid gap-1 pr-4">
+                  <p className="text-[15px] font-medium text-gray-900">{label}</p>
+                  <p className="text-[13px] text-gray-500">{desc}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Three-state: unset (user decides), show, hide */}
+                  <select
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-[13px] text-gray-700 focus:border-gray-400 focus:outline-none disabled:opacity-50"
+                    disabled={!isOwner}
+                    value={uiOverrides[key] === undefined ? "unset" : uiOverrides[key] ? "show" : "hide"}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setUiOverrides((prev) => ({
+                        ...prev,
+                        [key]: val === "unset" ? undefined : val === "show",
+                      }));
+                    }}
+                  >
+                    <option value="unset">User decides</option>
+                    <option value="show">Always show</option>
+                    <option value="hide">Always hide</option>
+                  </select>
+                </div>
+              </div>
+            ))}
           </div>
         </DenCard>
 

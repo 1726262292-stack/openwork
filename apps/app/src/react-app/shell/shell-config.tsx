@@ -5,27 +5,24 @@ import { createContext, useCallback, use, useMemo, useState, type ReactNode } fr
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
+/**
+ * User-level layout preferences stored in localStorage.
+ * Each key can be overridden by the org's cloud config (DesktopConfig).
+ * When cloud sets a value, it takes precedence — see useEffectiveConfig.
+ */
 export type ShellConfig = {
-  /** Display name shown in the title bar, sidebar, and welcome page. */
-  appName: string;
   /** Show the bottom status bar (connection status, docs, feedback). */
   statusBar: boolean;
-  /** Show the left sidebar with workspace/session list. */
-  sidebar: boolean;
   /** Show the Docs button in the status bar. */
   docsButton: boolean;
   /** Show the Feedback button in the status bar. */
   feedbackButton: boolean;
   /** Show the Cloud sign-in button when not signed in. */
   cloudSignin: boolean;
-  /** Show the welcome/onboarding page for new users. */
-  welcomePage: boolean;
   /** Show starter task cards in empty sessions. */
   starterCards: boolean;
   /** Show the model picker / model change UI. */
   modelPicker: boolean;
-  /** Show the built-in browser panel. */
-  browser: boolean;
   /** Show the "Add workspace" button. */
   addWorkspace: boolean;
 };
@@ -35,16 +32,12 @@ export type ShellConfig = {
 /* ------------------------------------------------------------------ */
 
 export const DEFAULT_SHELL_CONFIG: ShellConfig = {
-  appName: "OpenWork",
   statusBar: true,
-  sidebar: true,
   docsButton: true,
   feedbackButton: true,
   cloudSignin: true,
-  welcomePage: true,
   starterCards: true,
   modelPicker: true,
-  browser: true,
   addWorkspace: true,
 };
 
@@ -54,7 +47,7 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
 
 const STORAGE_KEY = "openwork.shell-config";
 
-function readShellConfig(): ShellConfig {
+export function readShellConfig(): ShellConfig {
   if (typeof window === "undefined") return DEFAULT_SHELL_CONFIG;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);

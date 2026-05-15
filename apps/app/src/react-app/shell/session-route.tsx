@@ -11,6 +11,7 @@ import {
 import { useNavigate, useParams } from "react-router-dom";
 import type {
   AgentPartInput,
+  ConfigProvidersResponse,
   FilePartInput,
   ProviderListResponse,
   TextPartInput,
@@ -59,9 +60,7 @@ import type {
   TodoItem,
   WorkspacePreset,
   WorkspaceConnectionState,
-  Client,
   ProviderListItem,
-  WorkspaceDisplay,
   WorkspaceSessionGroup,
 } from "../../app/types";
 import { buildFeedbackUrl } from "../../app/lib/feedback";
@@ -88,11 +87,9 @@ import {
 } from "../domains/session/sync/session-sync";
 import { CreateRemoteWorkspaceModal } from "../domains/workspace/create-remote-workspace-modal";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
-import { createProviderAuthStore } from "../domains/connections/provider-auth/store";
 import { useRemoteAccessRestart } from "../domains/workspace/remote-access-restart";
 import { RenameWorkspaceModal } from "../domains/workspace/rename-workspace-modal";
 import { useRemoteWorkspaceConnectionEditor } from "../domains/workspace/use-remote-workspace-connection-editor";
-import { useCloudProviderAutoSync } from "../domains/cloud/use-cloud-provider-auto-sync";
 import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
   getRemoteWorkspaceConnectionKey,
@@ -119,13 +116,14 @@ import {
 import { saveSessionDraft } from "../domains/session/sync/draft-store";
 import { useControlAction, type OpenworkControlAction } from "./control/control-provider";
 import { useReactRenderWatchdog } from "./react-render-watchdog";
+import { useEffectiveConfig } from "./effective-config";
 
 import { readDenSettings } from "../../app/lib/den";
 import { denSessionUpdatedEvent } from "../../app/lib/den-session-events";
 
-import { openModelPickerEvent, pendingModelPickerProviderIdsKey } from "./new-providers-toast";
+import { openModelPickerEvent } from "./new-providers-toast";
 import { getModelBehaviorSummary } from "../../app/lib/model-behavior";
-import { filterProviderList } from "../../app/utils/providers";
+import { filterProviderList, mapConfigProvidersToList } from "../../app/utils/providers";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
 import { resolveOpenworkConnection } from "./openwork-connection";
 import { useReloadCoordinator } from "./reload-coordinator";
@@ -134,13 +132,6 @@ import { useStatusToasts } from "../domains/shell-feedback/status-toasts";
 import { useSessionControlActions } from "../domains/session/control/session-control-actions";
 import { legacySessionRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { WorkspaceProvider } from "./workspace-provider";
-import {
-  ensureProviderListQuery,
-  getConnectedProviderItems,
-  isModelAvailableInConnectedProviders,
-  refreshProviderListQueries,
-  useProviderListQuery,
-} from "../domains/connections/provider-list-query";
 
 type RouteWorkspace = OpenworkWorkspaceInfo & {
   displayNameResolved: string;
@@ -202,16 +193,6 @@ function workspaceLabel(workspace: OpenworkWorkspaceInfo) {
     t("session.workspace_fallback")
   );
 }
-
-const emptyWorkspaceDisplay: WorkspaceDisplay = {
-  id: "",
-  name: "",
-  path: "",
-  preset: "default",
-  workspaceType: "local",
-};
-
-const reloadAfterOrgOnboardingKey = "openwork.reloadAfterOrgOnboarding";
 
 function describeRouteError(error: unknown) {
   if (error instanceof Error) {
@@ -440,6 +421,7 @@ export function SessionRoute() {
   const local = useLocal();
   const reloadCoordinator = useReloadCoordinator();
   const { showToast } = useStatusToasts();
+  const effectiveConfig = useEffectiveConfig();
   const checkDesktopRestriction = useCheckDesktopRestriction();
   const restrictionNotice = useRestrictionNotice();
   const params = useParams<{ workspaceId?: string; sessionId?: string }>();
@@ -516,12 +498,10 @@ export function SessionRoute() {
   // session "Pick a model" button navigated to /settings/general, which is a
   // dead-end). Loads providers lazily when the modal opens.
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [modelPickerInitialTab, setModelPickerInitialTab] = useState<"default" | "available">("default");
   const [compactModelPickerOpen, setCompactModelPickerOpen] = useState(false);
   const [modelPickerQuery, setModelPickerQuery] = useState("");
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
-  const [providerDefaults, setProviderDefaults] = useState<Record<string, string>>({});
   const [providerConnectedIds, setProviderConnectedIds] = useState<string[]>([]);
   const [disabledProviderIds, setDisabledProviderIds] = useState<string[]>([]);
   // Bump to re-filter provider list when den session changes (sign-in/out)
@@ -538,36 +518,14 @@ export function SessionRoute() {
   // Open model picker when the global toast's "Pick a new default?" is clicked
   useEffect(() => {
     const handler = (event: Event) => {
-      try {
-        window.localStorage.removeItem(pendingModelPickerProviderIdsKey);
-      } catch {}
-      const detail = (event as CustomEvent<{ newProviderIds?: string[]; initialTab?: "default" | "available" }>).detail;
-      const ids = detail?.newProviderIds;
+      const ids = (event as CustomEvent<{ newProviderIds?: string[] }>).detail?.newProviderIds;
       if (ids && ids.length > 0) {
         setRecentProviderIds(new Set(ids));
       }
-      setModelPickerInitialTab(detail?.initialTab ?? "default");
       setModelPickerOpen(true);
     };
     window.addEventListener(openModelPickerEvent, handler);
     return () => window.removeEventListener(openModelPickerEvent, handler);
-  }, []);
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(pendingModelPickerProviderIdsKey);
-      if (!raw) return;
-      window.localStorage.removeItem(pendingModelPickerProviderIdsKey);
-      const parsed = JSON.parse(raw);
-      const ids = Array.isArray(parsed) ? parsed : parsed?.newProviderIds;
-      if (Array.isArray(ids) && ids.every((id) => typeof id === "string")) {
-        setRecentProviderIds(new Set(ids));
-      }
-      setModelPickerInitialTab(parsed?.initialTab === "available" ? "available" : "default");
-      setModelPickerOpen(true);
-    } catch {
-      window.localStorage.removeItem(pendingModelPickerProviderIdsKey);
-    }
   }, []);
 
   const [permissionReplyBusy, setPermissionReplyBusy] = useState(false);
@@ -958,7 +916,6 @@ export function SessionRoute() {
       return false;
     }
     await endpoint.client.reloadEngine(endpoint.workspaceId);
-    await refreshProviderListQueries(getReactQueryClient());
     setEngineReloadVersion((v) => v + 1);
     try {
       window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
@@ -976,27 +933,6 @@ export function SessionRoute() {
       activeSessions: () => activeReloadBlockingSessions,
     });
   }, [activeReloadBlockingSessions, client, reloadCoordinator, reloadWorkspaceEngineFromUi, selectedWorkspaceId]);
-
-  useEffect(() => {
-    if (!reloadCoordinator.canReloadWorkspaceEngine) return;
-    try {
-      if (window.localStorage.getItem(reloadAfterOrgOnboardingKey) !== "1") return;
-    } catch {
-      return;
-    }
-    if (!reloadCoordinator.reloadPending) {
-      reloadCoordinator.markReloadRequired("config", {
-        type: "config",
-        name: "opencode.json",
-        action: "updated",
-      });
-      return;
-    }
-    try {
-      window.localStorage.removeItem(reloadAfterOrgOnboardingKey);
-    } catch {}
-    void reloadCoordinator.reloadWorkspaceEngine();
-  }, [reloadCoordinator, reloadCoordinator.canReloadWorkspaceEngine, reloadCoordinator.reloadPending]);
 
   useEffect(() => {
     if (!client || !selectedWorkspaceId) return;
@@ -1377,105 +1313,9 @@ export function SessionRoute() {
         : null,
     [opencodeBaseUrl, selectedWorkspaceError, selectedWorkspaceRoot, selectedWorkspaceServerToken],
   );
-  const providerListQuery = useProviderListQuery({
-    client: opencodeClient,
-    baseUrl: opencodeBaseUrl,
-    directory: selectedWorkspaceRoot || undefined,
-  });
-  const selectedModelUnavailable = Boolean(
-    local.prefs.defaultModel &&
-      providerListQuery.data &&
-      !isModelAvailableInConnectedProviders(providerListQuery.data, local.prefs.defaultModel),
-  );
   const canCreateTask = Boolean(
-    opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
+    opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError,
   );
-
-  const sessionProviderAuthStateRef = useRef({
-    opencodeClient: opencodeClient as Client | null,
-    providers,
-    providerDefaults,
-    providerConnectedIds,
-    disabledProviderIds,
-    selectedWorkspace,
-    selectedWorkspaceEndpoint,
-    selectedWorkspaceRoot,
-  });
-  sessionProviderAuthStateRef.current = {
-    opencodeClient,
-    providers,
-    providerDefaults,
-    providerConnectedIds,
-    disabledProviderIds,
-    selectedWorkspace,
-    selectedWorkspaceEndpoint,
-    selectedWorkspaceRoot,
-  };
-
-  const sessionProviderAuthStore = useMemo(
-    () =>
-      createProviderAuthStore({
-        client: () => sessionProviderAuthStateRef.current.opencodeClient,
-        providers: () => sessionProviderAuthStateRef.current.providers,
-        providerDefaults: () => sessionProviderAuthStateRef.current.providerDefaults,
-        providerConnectedIds: () => sessionProviderAuthStateRef.current.providerConnectedIds,
-        disabledProviders: () => sessionProviderAuthStateRef.current.disabledProviderIds,
-        selectedWorkspaceDisplay: () =>
-          sessionProviderAuthStateRef.current.selectedWorkspace
-            ? ({
-                ...sessionProviderAuthStateRef.current.selectedWorkspace,
-                name: workspaceLabel(sessionProviderAuthStateRef.current.selectedWorkspace),
-              } as WorkspaceDisplay)
-            : emptyWorkspaceDisplay,
-        selectedWorkspaceRoot: () => sessionProviderAuthStateRef.current.selectedWorkspaceRoot,
-        runtimeWorkspaceId: () => sessionProviderAuthStateRef.current.selectedWorkspaceEndpoint?.workspaceId ?? null,
-        openworkServer: {
-          getSnapshot: () => ({
-            openworkServerStatus: sessionProviderAuthStateRef.current.selectedWorkspaceEndpoint ? "connected" : "disconnected",
-            openworkServerClient: sessionProviderAuthStateRef.current.selectedWorkspaceEndpoint?.client ?? null,
-            openworkServerCapabilities: sessionProviderAuthStateRef.current.selectedWorkspaceEndpoint
-              ? {
-                  config: { read: true, write: true },
-                }
-              : null,
-          }),
-        } as never,
-        setProviders,
-        setProviderDefaults,
-        setProviderConnectedIds,
-        setDisabledProviders: setDisabledProviderIds,
-        markOpencodeConfigReloadRequired: () => {
-          reloadCoordinator.markReloadRequired("config", {
-            type: "config",
-            name: "opencode.json",
-            action: "updated",
-          });
-        },
-      }),
-    [reloadCoordinator],
-  );
-
-  useEffect(() => {
-    sessionProviderAuthStore.start();
-    return () => {
-      sessionProviderAuthStore.dispose();
-    };
-  }, [sessionProviderAuthStore]);
-
-  useEffect(() => {
-    sessionProviderAuthStore.syncFromOptions();
-  }, [
-    opencodeClient,
-    selectedWorkspace?.id,
-    selectedWorkspace?.workspaceType,
-    selectedWorkspaceEndpoint?.workspaceId,
-    selectedWorkspaceRoot,
-    sessionProviderAuthStore,
-  ]);
-
-  // Session is where forced sign-in lands. Keep org-managed cloud providers in
-  // sync here so sign-in applies opencode.json changes before Settings opens.
-  useCloudProviderAutoSync(sessionProviderAuthStore.runCloudProviderSync);
   const permissionQueryKey = useMemo(
     () =>
       selectedWorkspaceId && selectedSessionId
@@ -1547,7 +1387,6 @@ export function SessionRoute() {
   useEffect(() => {
     if (!opencodeClient) {
       setProviders([]);
-      setProviderDefaults({});
       setProviderConnectedIds([]);
       return;
     }
@@ -1593,26 +1432,41 @@ export function SessionRoute() {
       try {
         applyProviderState(
           filterProviderList(
-            await ensureProviderListQuery(getReactQueryClient(), {
-              client: opencodeClient,
-              baseUrl: opencodeBaseUrl,
-              directory: selectedWorkspaceRoot || undefined,
-            }),
+            unwrap(await opencodeClient.provider.list()),
             disabledProviders,
           ),
         );
       } catch {
-        if (cancelled) return;
-        setProviders([]);
-        setProviderDefaults({});
-        setProviderConnectedIds([]);
+        try {
+          const fallback = unwrap(
+            await opencodeClient.config.providers({
+              directory: selectedWorkspaceRoot || undefined,
+            }),
+          ) as ConfigProvidersResponse;
+          applyProviderState(
+            filterProviderList(
+              {
+                all: mapConfigProvidersToList(
+                  fallback.providers,
+                ) as ProviderListResponse["all"],
+                connected: [],
+                default: fallback.default,
+              },
+              disabledProviders,
+            ),
+          );
+        } catch {
+          if (cancelled) return;
+          setProviders([]);
+          setProviderConnectedIds([]);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [opencodeBaseUrl, opencodeClient, selectedWorkspaceRoot, denSessionVersion]);
+  }, [opencodeClient, selectedWorkspaceRoot, denSessionVersion]);
 
   const modelLabel = local.prefs.defaultModel
     ? resolveModelDisplayName(local.prefs.defaultModel.modelID)
@@ -1623,14 +1477,28 @@ export function SessionRoute() {
   // model supports — without waiting for the model picker to open. Cached
   // as providerID → modelID → ProviderModel.
   useEffect(() => {
-    const data = providerListQuery.data;
-    if (!data?.all) return;
-    const next: Record<string, Record<string, any>> = {};
-    for (const provider of data.all) {
-      next[provider.id] = { ...(provider.models ?? {}) };
-    }
-    setProviderCatalog(next);
-  }, [providerListQuery.data]);
+    if (!opencodeClient) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await opencodeClient.config.providers({
+          directory: selectedWorkspaceRoot || undefined,
+        });
+        const data = (res as { data?: { providers?: Array<{ id: string; models: Record<string, any> }> } }).data;
+        if (cancelled || !data?.providers) return;
+        const next: Record<string, Record<string, any>> = {};
+        for (const provider of data.providers) {
+          next[provider.id] = { ...(provider.models ?? {}) };
+        }
+        setProviderCatalog(next);
+      } catch {
+        // best-effort cache; UI will fall back to empty variant options.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [opencodeClient, selectedWorkspaceRoot]);
 
   // Compute behavior (reasoning/thinking variant) options for the current
   // default model. This is what the composer renders as its variant pill.
@@ -1667,12 +1535,19 @@ export function SessionRoute() {
     let cancelled = false;
     void (async () => {
       try {
-        const data = await ensureProviderListQuery(getReactQueryClient(), {
-          client: opencodeClient,
-          baseUrl: opencodeBaseUrl,
+        const res = await opencodeClient.config.providers({
           directory: selectedWorkspaceRoot || undefined,
         });
-        if (cancelled || !data?.all) return;
+        const data = (res as {
+          data?: {
+            providers?: Array<{
+              id: string;
+              name: string;
+              models: Record<string, { id: string; name: string }>;
+            }>;
+          };
+        }).data;
+        if (cancelled || !data?.providers) return;
         // Flag models from recently-added providers so they appear in
         // the "Recently added" section at the top of the picker.
         // Two sources: (1) providers not yet in the localStorage seen-set,
@@ -1685,8 +1560,9 @@ export function SessionRoute() {
           seenIds = new Set();
         }
         const options: ModelOption[] = [];
-        for (const provider of getConnectedProviderItems(data)) {
+        for (const provider of data.providers) {
           const modelIds = Object.keys(provider.models);
+          const hasModels = modelIds.length > 0;
           const isNew = !seenIds.has(provider.id) || recentProviderIds.has(provider.id);
           for (const id of modelIds) {
             const model = provider.models[id];
@@ -1700,7 +1576,7 @@ export function SessionRoute() {
               behaviorDescription: "",
               behaviorValue: null,
               isFree: false,
-              isConnected: true,
+              isConnected: hasModels,
               isRecommended: isNew,
               source: /^lpr_/i.test(provider.id) ? "cloud" as const : undefined,
             });
@@ -1714,13 +1590,14 @@ export function SessionRoute() {
     return () => {
       cancelled = true;
     };
-  }, [modelPickerOpen, opencodeBaseUrl, opencodeClient, recentProviderIds, selectedWorkspaceRoot]);
+  }, [modelPickerOpen, opencodeClient, recentProviderIds, selectedWorkspaceRoot]);
 
   // Apply org-level restrictions (dev #1505) on top of the raw model list
   // so the picker never surfaces blocked options:
   //   - `blockZenModel` hides the built-in OpenCode provider entries
-  //   - `disallowNonCloudModels` hides providers that OpenCode does not report
-  //     as connected through the provider list endpoint.
+  //   - `disallowNonCloudModels` hides providers that aren't currently
+  //     connected via cloud (a provider with models[] filled counts as
+  //     connected in this list — see the loader above)
   const allowedModelOptions = useMemo(() => {
     const restrictToCloud = checkDesktopRestriction({
       restriction: "disallowNonCloudModels",
@@ -1797,7 +1674,6 @@ export function SessionRoute() {
         setModelPickerOpen(true);
       },
       modelPickerOpen: compactModelPickerOpen,
-      modelUnavailable: selectedModelUnavailable,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
       onModelPickerOpenChange: setCompactModelPickerOpen,
       onModelChange: (model: ModelRef) => {
@@ -1816,7 +1692,6 @@ export function SessionRoute() {
       onSendDraft: async (draft: ComposerDraft) => {
         const text = (draft.resolvedText ?? draft.text).trim();
         if (!text && draft.attachments.length === 0) return;
-        if (selectedModelUnavailable) return;
 
         if (draft.mode === "shell") {
           await shellInSession(opencodeClient, selectedSessionId, text);
@@ -1948,7 +1823,6 @@ export function SessionRoute() {
     opencodeClient,
     selectedAgent,
     selectedSessionId,
-    selectedModelUnavailable,
     selectedWorkspace,
     selectedWorkspaceId,
     selectedWorkspaceRoot,
@@ -2446,11 +2320,7 @@ export function SessionRoute() {
   }, [local, refreshRouteState]);
 
   return (
-    <WorkspaceProvider
-      client={opencodeClient}
-      opencodeBaseUrl={opencodeBaseUrl}
-      selectedWorkspaceRoot={selectedWorkspaceRoot}
-    >
+    <WorkspaceProvider client={opencodeClient} selectedWorkspaceRoot={selectedWorkspaceRoot}>
     {opencodeClient && selectedWorkspaceEndpoint && opencodeBaseUrl && selectedWorkspaceServerToken ? (
       <ReactSessionRuntime
         // Use the server-side workspace id (the one without the `rem_`
@@ -2599,6 +2469,7 @@ export function SessionRoute() {
         onEditWorkspaceConnection: remoteWorkspaceConnectionEditor.open,
         onForgetWorkspace: (id) => void handleForgetWorkspace(id),
         onOpenCreateWorkspace: handleOpenCreateWorkspace,
+        showAddWorkspace: effectiveConfig.addWorkspace,
         onReorderWorkspaces: handleReorderWorkspaces,
       }}
       surface={surfaceProps}
@@ -2735,7 +2606,6 @@ export function SessionRoute() {
     <ModelPickerModal
       open={modelPickerOpen}
       options={allowedModelOptions}
-      initialTab={modelPickerInitialTab}
       query={modelPickerQuery}
       setQuery={setModelPickerQuery}
       target="default"

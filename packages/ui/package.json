@@ -8,6 +8,11 @@
       "development": "./src/react/index.ts",
       "default": "./src/react/index.ts"
     },
+    "./react/customization": {
+      "types": "./src/react/customization/index.ts",
+      "development": "./src/react/customization/index.ts",
+      "default": "./src/react/customization/index.ts"
+    },
     "./solid": {
       "types": "./src/solid/index.ts",
       "development": "./src/solid/index.ts",

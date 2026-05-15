@@ -18,7 +18,7 @@ import type {
   WorkspaceSessionGroup,
 } from "../../../../app/types";
 import type { ShareWorkspaceModalProps } from "../../workspace/types";
-import { Button } from "@/components/ui/button";
+import { Button } from "../../../design-system/button";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import ProviderAuthModal, { type ProviderAuthModalProps } from "../../connections/provider-auth/provider-auth-modal";
 import { PermissionApprovalModal } from "./permission-approval-modal";
@@ -40,8 +40,7 @@ import { ShareWorkspaceModal } from "../../workspace/share-workspace-modal";
 import { StatusBar, type StatusBarProps } from "./status-bar";
 import { OwDotTicker } from "../../../shell/dot-ticker";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
-import { useShellConfig } from "../../../shell/shell-config";
-import { useUiStateStore } from "../../../shell/ui-state-store";
+import { useEffectiveConfig } from "../../../shell/effective-config";
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { BrowserPanel } from "../browser/browser-panel";
@@ -97,6 +96,7 @@ export type SessionPageSidebarProps = {
   onEditWorkspaceConnection: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
+  showAddWorkspace: boolean;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
 };
 
@@ -182,13 +182,7 @@ function sessionTitleForId(groups: WorkspaceSessionGroup[], id: string | null | 
 }
 
 export function SessionPage(props: SessionPageProps) {
-  const { config: shellConfig } = useShellConfig();
-  const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
-  const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
-  const browserPanelOpen = useUiStateStore((state) => state.browserPanelOpen);
-  const openBrowserPanel = useUiStateStore((state) => state.openBrowserPanel);
-  const closeBrowserPanel = useUiStateStore((state) => state.closeBrowserPanel);
-  const toggleBrowserPanel = useUiStateStore((state) => state.toggleBrowserPanel);
+  const effectiveConfig = useEffectiveConfig();
 
   useReactRenderWatchdog("SessionPage", {
     selectedSessionId: props.selectedSessionId,
@@ -206,7 +200,9 @@ export function SessionPage(props: SessionPageProps) {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [sessionActionId, setSessionActionId] = useState<string | null>(null);
   const [todoExpanded, setTodoExpanded] = useState(true);
+  const [browserPanelOpen, setBrowserPanelOpen] = useState(false);
   const browserPanelRef = usePanelRef();
+  const toggleBrowserPanel = useCallback(() => setBrowserPanelOpen((p) => !p), []);
 
   // Sync browser panel state with Electron main process IPC events.
   // When the agent calls a built-in browser tool, the main process opens
@@ -217,10 +213,10 @@ export function SessionPage(props: SessionPageProps) {
     if (!isElectronRuntime()) return;
     const browser = (window as Window).__OPENWORK_ELECTRON__?.browser;
     if (!browser) return;
-    const unsubOpen = browser.onPanelOpened?.(openBrowserPanel);
-    const unsubClose = browser.onPanelClosed?.(closeBrowserPanel);
+    const unsubOpen = browser.onPanelOpened?.(() => setBrowserPanelOpen(true));
+    const unsubClose = browser.onPanelClosed?.(() => setBrowserPanelOpen(false));
     return () => { unsubOpen?.(); unsubClose?.(); };
-  }, [closeBrowserPanel, openBrowserPanel]);
+  }, []);
   const {
     leftSidebarResizing,
     leftSidebarWidth,
@@ -370,13 +366,11 @@ export function SessionPage(props: SessionPageProps) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top,rgba(74,111,255,0.12),transparent_42%),var(--app-bg,#0b1020)] text-dls-text mac:bg-transparent">
       <SidebarProvider
-        open={sidebarOpen}
-        onOpenChange={setSidebarOpen}
+        defaultOpen={true}
         className={cn(
           "relative min-h-0 flex-1 mac:bg-transparent",
           leftSidebarResizing &&
             "**:data-[slot=sidebar-container]:transition-none **:data-[slot=sidebar-gap]:transition-none",
-          !shellConfig.sidebar && "**:data-[slot=sidebar-container]:hidden **:data-[slot=sidebar-gap]:hidden",
         )}
         style={sidebarProviderStyle}
       >
@@ -408,6 +402,7 @@ export function SessionPage(props: SessionPageProps) {
           onEditWorkspaceConnection={props.sidebar.onEditWorkspaceConnection}
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
+          showAddWorkspace={props.sidebar.showAddWorkspace}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
         />
@@ -421,7 +416,7 @@ export function SessionPage(props: SessionPageProps) {
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
           <header className="z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
             <div className="flex min-w-0 items-center gap-3">
-              {shellConfig.sidebar ? <SidebarTrigger className="mac:hidden" /> : null}
+              <SidebarTrigger className="mac:hidden" />
               <h1 className="truncate text-[15px] font-semibold text-dls-text">
                 {showWorkspaceSetupEmptyState
                   ? t("session.create_or_connect_workspace")
@@ -557,9 +552,11 @@ export function SessionPage(props: SessionPageProps) {
                           {t("workspace.empty_state_body")}
                         </p>
                       </div>
-                      <div className="flex justify-center">
-                        <Button onClick={props.sidebar.onOpenCreateWorkspace}>{t("workspace.create_workspace")}</Button>
-                      </div>
+                      {props.sidebar.showAddWorkspace ? (
+                        <div className="flex justify-center">
+                          <Button onClick={props.sidebar.onOpenCreateWorkspace}>{t("workspace.create_workspace")}</Button>
+                        </div>
+                      ) : null}
                     </div>
                   ) : showSelectedWorkspaceError ? (
                     <div className="px-6 py-16">
@@ -571,14 +568,14 @@ export function SessionPage(props: SessionPageProps) {
                         <div className="mt-4 flex flex-wrap gap-2">
                           <Button
                             variant="outline"
-                            size="sm"
+                            className="px-3 py-1.5 text-xs"
                             onClick={() => void Promise.resolve(props.sidebar.onTestWorkspaceConnection(props.selectedWorkspaceId))}
                           >
                             {t("workspace_list.test_connection")}
                           </Button>
                           <Button
                             variant="outline"
-                            size="sm"
+                            className="px-3 py-1.5 text-xs"
                             onClick={() => props.sidebar.onEditWorkspaceConnection(props.selectedWorkspaceId)}
                           >
                             {t("workspace_list.edit_connection")}
@@ -586,7 +583,7 @@ export function SessionPage(props: SessionPageProps) {
                           {props.sidebar.workspaceConnectionStateById[props.selectedWorkspaceId]?.status === "error" ? (
                             <Button
                               variant="outline"
-                              size="sm"
+                              className="px-3 py-1.5 text-xs"
                               onClick={() => void Promise.resolve(props.sidebar.onRecoverWorkspace(props.selectedWorkspaceId))}
                             >
                               {t("workspace_list.recover")}
@@ -712,7 +709,7 @@ export function SessionPage(props: SessionPageProps) {
             </div>
           ) : null}
 
-          {shellConfig.statusBar ? (
+          {effectiveConfig.statusBar ? (
             <StatusBar
               clientConnected={props.clientConnected}
               openworkServerStatus={props.openworkServerStatus}
@@ -742,13 +739,13 @@ export function SessionPage(props: SessionPageProps) {
                   maxSize="70%"
                   className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                 >
-                  <BrowserPanel onClose={closeBrowserPanel} />
+                  <BrowserPanel onClose={toggleBrowserPanel} />
                 </ResizablePanel>
               </>
             ) : null}
           </ResizablePanelGroup>
         </SidebarInset>
-        {shellConfig.sidebar ? <SidebarTrigger className="hidden mac:absolute mac:left-[64px] top-[3px] z-50 mac:flex titlebar-no-drag" /> : null}
+        <SidebarTrigger className="hidden mac:absolute mac:left-[64px] top-[3px] z-50 mac:flex titlebar-no-drag" />
       </SidebarProvider>
 
       {props.providerAuthModal ? <ProviderAuthModal {...props.providerAuthModal} /> : null}

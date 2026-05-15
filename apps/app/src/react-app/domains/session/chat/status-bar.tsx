@@ -7,7 +7,7 @@ import { buildDenAuthUrl, readDenBootstrapConfig } from "../../../../app/lib/den
 import { usePlatform } from "../../../kernel/platform";
 import { useDenAuth } from "../../cloud/den-auth-provider";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
-import { useShellConfig } from "../../../shell/shell-config";
+import { useEffectiveConfig } from "../../../shell/effective-config";
 import type { OpenworkServerStatus } from "../../../../app/lib/openwork-server";
 
 const DOCS_URL = "https://openworklabs.com/docs";
@@ -108,7 +108,7 @@ function deriveStatusCopy(props: StatusBarProps): StatusCopy {
 export function StatusBar(props: StatusBarProps) {
   const platform = usePlatform();
   const denAuth = useDenAuth();
-  const { config: shellConfig } = useShellConfig();
+  const effectiveConfig = useEffectiveConfig();
   const docsButtonRef = useRef<HTMLButtonElement>(null);
   const feedbackButtonRef = useRef<HTMLButtonElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
@@ -181,7 +181,7 @@ export function StatusBar(props: StatusBarProps) {
         </div>
 
         <div className="flex items-center gap-1.5">
-          {shellConfig.cloudSignin && !denAuth.isSignedIn && denAuth.status !== "checking" ? (
+          {effectiveConfig.cloudSignin && !denAuth.isSignedIn && denAuth.status !== "checking" ? (
             <button
               type="button"
               className="inline-flex h-7 items-center gap-1.5 rounded-full bg-dls-accent px-2.5 text-[11px] font-medium text-[var(--dls-accent-fg)] transition-colors hover:bg-[var(--dls-accent-hover)]"
@@ -194,7 +194,7 @@ export function StatusBar(props: StatusBarProps) {
               <span>Sign in</span>
             </button>
           ) : null}
-          {shellConfig.docsButton ? (
+          {effectiveConfig.docsButton ? (
             <button
               ref={docsButtonRef}
               type="button"
@@ -207,7 +207,7 @@ export function StatusBar(props: StatusBarProps) {
               <span className="text-[11px] font-medium">{t("status.docs")}</span>
             </button>
           ) : null}
-          {shellConfig.feedbackButton ? (
+          {effectiveConfig.feedbackButton ? (
             <button
               ref={feedbackButtonRef}
               type="button"
