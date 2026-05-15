@@ -20,8 +20,11 @@ import { useCheckDesktopRestriction } from "@/react-app/domains/cloud/desktop-co
 import { getConnectedProviderItems, useProviderListQuery } from "@/react-app/domains/connections/provider-list-query";
 import {
   Command,
+  CommandCollection,
   CommandEmpty,
   CommandGroup,
+  CommandGroupLabel,
+  CommandHeader,
   CommandInput,
   CommandItem,
   CommandList,
@@ -126,8 +129,8 @@ function groupByProvider(modelOptions: ModelOption[]) {
   }
 
   return [...groups.entries()].map(([providerLabel, options]) => ({
-    providerLabel,
-    options,
+    value: providerLabel,
+    items: options,
   }));
 }
 
@@ -237,58 +240,54 @@ export function ModelSelect({
         </TooltipContent>
       </Tooltip>
       <PopoverContent
-        className="w-72 gap-0 p-0"
+        className="h-80 max-h-(--available-height) w-72 gap-0 overflow-hidden p-px **:data-[slot=scroll-area-viewport]:data-has-overflow-y:pe-0.5"
         align="start"
         initialFocus={false}
       >
-        <Command
-          value={`${value.providerID}:${value.modelID}`}
-          filter={(value, search, keywords) => {
-            const haystack = (keywords ?? []).join(" ").toLowerCase();
-
-            return haystack.includes(search.toLowerCase()) ? 1 : 0;
-          }}
-        >
-          <CommandInput
-            ref={searchInputRef}
-            value={search}
-            onValueChange={setSearch}
-            placeholder="Search models..."
-          />
+        <Command items={groups} value={search} onValueChange={setSearch}>
+          <CommandHeader>
+            <CommandInput
+              ref={searchInputRef}
+              placeholder="Search models..."
+            />
+          </CommandHeader>
+          <CommandEmpty>No models found.</CommandEmpty>
           <CommandList>
-            <CommandEmpty>No models found.</CommandEmpty>
-            {groups.map((group) => (
+            {(group) => (
               <CommandGroup
-                key={group.providerLabel}
-                heading={group.providerLabel}
+                key={group.value}
+                items={group.items}
               >
-                {group.options.map((option) => (
-                  <CommandItem
-                    key={`${option.providerID}:${option.modelID}`}
-                    value={`${option.providerID}:${option.modelID}`}
-                    keywords={[option.title, group.providerLabel]}
-                    onSelect={() => handleSelect(option)}
-                    data-checked={isSameModel(value, option)}
-                  >
-                    <ProviderIcon
-                      providerId={option.providerID}
-                      providerName={option.description}
-                      className="size-3.5 opacity-70"
-                      size={14}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-foreground">
-                        {option.title}
+                <CommandGroupLabel>{group.value}</CommandGroupLabel>
+                <CommandCollection>
+                  {(option: ModelOption) => (
+                    <CommandItem
+                      className="gap-2"
+                      key={`${option.providerID}:${option.modelID}`}
+                      value={`${option.providerID}:${option.modelID}`}
+                      onClick={() => handleSelect(option)}
+                      data-checked={isSameModel(value, option)}
+                    >
+                      <ProviderIcon
+                        providerId={option.providerID}
+                        providerName={option.description}
+                        className="size-3.5 opacity-70"
+                        size={14}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-foreground">
+                          {option.title}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {option.description ??
+                            getProviderDisplayName(option.providerID)}
+                        </span>
                       </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {option.description ??
-                          getProviderDisplayName(option.providerID)}
-                      </span>
-                    </span>
-                  </CommandItem>
-                ))}
+                    </CommandItem>
+                  )}
+                </CommandCollection>
               </CommandGroup>
-            ))}
+            )}
           </CommandList>
           {/* Link to full model picker */}
           <div className="border-t border-border px-2 py-1.5">
