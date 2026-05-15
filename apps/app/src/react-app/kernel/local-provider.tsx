@@ -53,10 +53,11 @@ const LocalContext = createContext<LocalContextValue | undefined>(undefined);
 
 const UI_STORAGE_KEY = "openwork.ui";
 const PREFS_STORAGE_KEY = "openwork.preferences";
+export const DEFAULT_SHOW_THINKING = true;
 
 const INITIAL_UI: LocalUIState = { view: "settings", tab: "general" };
 const INITIAL_PREFS: LocalPreferences = {
-  showThinking: false,
+  showThinking: DEFAULT_SHOW_THINKING,
   modelVariant: null,
   defaultModel: null,
   releaseChannel: "stable",

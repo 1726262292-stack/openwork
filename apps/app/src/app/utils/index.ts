@@ -1027,7 +1027,7 @@ export function summarizeStep(part: Part): { title: string; detail?: string; isS
   if (part.type === "reasoning") {
     const record = part as any;
     const text = typeof record.text === "string" ? cleanReasoningText(record.text) : "";
-    if (!text) return { title: "Thinking", toolCategory: "tool" };
+    if (!text) return { title: "Reasoning", toolCategory: "tool" };
 
     const lines = text
       .split(/\r?\n/)
@@ -1035,6 +1035,9 @@ export function summarizeStep(part: Part): { title: string; detail?: string; isS
         const trimmed = line.trim();
         return trimmed ? [trimmed] : [];
       });
+    if (/^(?:thinking|reasoning)\s*(?::|-|–|—)?\s*$/i.test(lines[0] ?? "")) {
+      lines.shift();
+    }
     const compact = lines.join(" ");
 
     let headline = "";
@@ -1053,8 +1056,8 @@ export function summarizeStep(part: Part): { title: string; detail?: string; isS
       }
     }
 
-    headline = headline.replace(/^thinking[:\s-]*/i, "").trim();
-    const title = truncateStepText(headline || "Thinking", 96);
+    headline = headline.replace(/^(?:thinking|reasoning)\s*(?::|-|–|—)\s*/i, "").trim();
+    const title = truncateStepText(headline || "Reasoning", 96);
     return { title, detail: detail || undefined, toolCategory: "tool" };
   }
 

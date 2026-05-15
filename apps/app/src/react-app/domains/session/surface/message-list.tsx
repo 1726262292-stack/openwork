@@ -12,6 +12,7 @@ import {
   type StepGroupMode,
 } from "../../../../app/types";
 import { groupMessageParts, isDesktopRuntime, summarizeStep } from "../../../../app/utils";
+import { DEFAULT_SHOW_THINKING } from "../../../kernel/local-provider";
 import { MarkdownBlock } from "./markdown";
 import { applyTextHighlights } from "./text-highlights";
 
@@ -318,12 +319,17 @@ function humanMediaType(raw: string) {
 }
 
 function cleanReasoningPreview(value: string) {
-  return value
+  const cleaned = value
     .replace(/\[REDACTED\]/g, "")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/__([^_]+)__/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\s+\n/g, "\n")
+    .trim();
+
+  return cleaned
+    .replace(/^(?:thinking|reasoning)\s*(?::|-|–|—)\s*/i, "")
+    .replace(/^(?:thinking|reasoning)\s*\r?\n+/i, "")
     .trim();
 }
 
@@ -582,12 +588,15 @@ function StepRow(props: {
     const raw = typeof (props.part as { text?: unknown }).text === "string"
       ? (props.part as { text: string }).text
       : "";
+    const text = cleanReasoningPreview(raw);
+    if (!text) return null;
+
     return (
       <div
         data-reasoning="true"
-        className="font-mono text-[13px] leading-[1.7] text-gray-8 whitespace-pre-wrap"
+        className="max-w-[720px] rounded-2xl border border-violet-6/20 bg-violet-2/20 px-4 py-3 text-[14px] leading-7 text-gray-10 shadow-sm"
       >
-        <div className="max-w-[720px]">{cleanReasoningPreview(raw) || headline}</div>
+        <div className="whitespace-pre-wrap break-words">{text}</div>
       </div>
     );
   }
@@ -930,7 +939,7 @@ function MessageBlockRow(props: {
 }
 
 function SessionTranscriptInner(props: SessionTranscriptProps) {
-  const showThinking = props.showThinking ?? props.developerMode;
+  const showThinking = props.showThinking ?? DEFAULT_SHOW_THINKING;
   const isNestedVariant = props.variant === "nested";
   const [internalExpandedStepIds, setInternalExpandedStepIds] = useState<Set<string>>(
     () => new Set(),
