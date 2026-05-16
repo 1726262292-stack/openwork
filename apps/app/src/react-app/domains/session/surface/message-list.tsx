@@ -3,7 +3,19 @@ import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type Re
 import { isToolUIPart, type DynamicToolUIPart, type UIMessage } from "ai";
 import type { Part } from "@opencode-ai/sdk/v2/client";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Check, ChevronDown, CircleAlert, Copy, File as FileIcon, GitFork, Undo2 } from "lucide-react";
+import {
+  Box,
+  Check,
+  ChevronDown,
+  CircleAlert,
+  Copy,
+  File as FileIcon,
+  Folder,
+  GitFork,
+  Search,
+  Terminal,
+  Undo2,
+} from "lucide-react";
 
 import { openDesktopPath, revealDesktopItemInDir } from "../../../../app/lib/desktop";
 import {
@@ -333,6 +345,17 @@ function cleanReasoningPreview(value: string) {
     .trim();
 }
 
+function splitReasoningPreview(value: string) {
+  const clean = cleanReasoningPreview(value);
+  if (!clean) return { headline: "", body: "" };
+  const lines = clean.split(/\r?\n/).flatMap((line) => {
+    const trimmed = line.trim();
+    return trimmed ? [trimmed] : [];
+  });
+  if (lines.length <= 1) return { headline: "", body: clean };
+  return { headline: lines[0] ?? "", body: lines.slice(1).join("\n") };
+}
+
 function formatStructuredValue(value: unknown) {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return value.trim();
@@ -351,6 +374,61 @@ function hasStructuredValue(value: unknown) {
     return Object.keys(value as Record<string, unknown>).length > 0;
   }
   return true;
+}
+
+function formatElapsed(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
+}
+
+function ActivityHeader(props: { active: boolean }) {
+  const startedAtRef = useRef(Date.now());
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!props.active) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [props.active]);
+
+  return (
+    <div className="mb-7 font-sans">
+      <div className="mb-4 text-[17px] leading-none text-[#7b7f83] antialiased">
+        Working for {formatElapsed(now - startedAtRef.current)}
+      </div>
+      <div className="h-px w-full bg-[#dddddd]" />
+    </div>
+  );
+}
+
+function ToolActivityIcon(props: { category?: string }) {
+  const className = "mt-[6px] size-[17px] shrink-0 text-[#9a9da0]";
+  switch (props.category) {
+    case "terminal":
+      return <Terminal className={className} strokeWidth={1.9} />;
+    case "read":
+    case "edit":
+    case "write":
+      return <FileIcon className={className} strokeWidth={1.9} />;
+    case "glob":
+      return <Folder className={className} strokeWidth={1.9} />;
+    case "search":
+      return <Search className={className} strokeWidth={1.9} />;
+    default:
+      return <Box className={className} strokeWidth={1.9} />;
+  }
+}
+
+function toolStatusText(status?: string) {
+  if (!status) return null;
+  const normalized = status.toLowerCase();
+  if (normalized.includes("approval") || normalized.includes("pending")) return "Awaiting approval";
+  if (normalized.includes("running") || normalized.includes("progress")) return "In progress";
+  if (normalized.includes("error") || normalized.includes("failed")) return "Failed";
+  return null;
 }
 
 async function openFileWithOS(path: string) {
@@ -583,29 +661,33 @@ function StepRow(props: {
     props.part.type === "tool" &&
     (hasStructuredValue(toolInput) || hasStructuredValue(toolOutput) || Boolean(toolError));
   const headline = summary.title?.trim() || "Step updates progress";
+  const statusText = toolStatusText(summary.status);
 
   if (props.part.type === "reasoning") {
     const raw = typeof (props.part as { text?: unknown }).text === "string"
       ? (props.part as { text: string }).text
       : "";
-    const text = cleanReasoningPreview(raw);
-    if (!text) return null;
+    const preview = splitReasoningPreview(raw);
+    if (!preview.headline && !preview.body) return null;
 
     return (
       <div
         data-reasoning="true"
-        className="max-w-[720px] rounded-2xl border border-violet-6/20 bg-violet-2/20 px-4 py-3 text-[14px] leading-7 text-gray-10 shadow-sm"
+        className="whitespace-pre-wrap font-sans text-[14px] leading-[1.65] text-[#1f2328] antialiased"
       >
-        <div className="whitespace-pre-wrap break-words">{text}</div>
+        <div className="max-w-[760px]">
+          {preview.headline ? <div className="mb-2 text-[#6f7478]">{preview.headline}</div> : null}
+          <div>{preview.body || headline}</div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="text-[14px] text-gray-9">
+    <div className="font-sans text-[14px] leading-[1.65] text-[#9a9da0] antialiased">
       <button
         type="button"
-        className="w-full text-left transition-colors hover:text-dls-text disabled:cursor-default"
+        className="w-full text-left transition-colors hover:text-[#1f2328] disabled:cursor-default"
         aria-expanded={expandable ? props.expanded : undefined}
         disabled={!expandable}
         onClick={() => {
@@ -613,20 +695,22 @@ function StepRow(props: {
           props.onToggle();
         }}
       >
-        <span className="inline-flex max-w-[720px] items-start gap-1.5 leading-relaxed align-top">
+        <span className="inline-flex max-w-[760px] items-start gap-3 align-top">
+          <ToolActivityIcon category={summary.toolCategory} />
           <span className="min-w-0 break-words">{headline}</span>
           {expandable ? (
             <ChevronDown
-              size={14}
-              className={`mt-[2px] shrink-0 text-gray-8 transition-transform ${
+              size={15}
+              className={`mt-[7px] shrink-0 text-[#9a9da0] transition-transform ${
                 props.expanded ? "" : "-rotate-90"
               }`}
             />
           ) : null}
         </span>
       </button>
+      {statusText ? <div className="ml-7 mt-2 text-[14px] leading-[1.65] text-[#a5a8ab]">{statusText}</div> : null}
       {props.expanded ? (
-        <div className="mt-3 ml-[22px] space-y-3">
+        <div className="mt-3 ml-7 space-y-3">
           {hasStructuredValue(toolInput) ? (
             <div>
               <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-8">Request</div>
@@ -662,6 +746,7 @@ function StepsContainer(props: {
   isUser: boolean;
   isInline?: boolean;
   isNestedVariant: boolean;
+  isActive: boolean;
   expandedStepIds: Set<string>;
   onExpandedStepIdsChange: (updater: (current: Set<string>) => Set<string>) => void;
 }) {
@@ -678,18 +763,19 @@ function StepsContainer(props: {
   };
 
   return (
-    <div className={props.isInline ? (props.isUser ? "mt-3" : "mt-4") : ""}>
+    <div className={props.isInline ? (props.isUser ? "mt-3" : "mt-7") : ""}>
+      {!props.isUser && !props.isNestedVariant && props.isActive ? <ActivityHeader active={props.isActive} /> : null}
       <div
         data-scrollable={!props.isNestedVariant ? "true" : undefined}
         className={
           !props.isNestedVariant
-            ? "max-h-[420px] overflow-y-auto pr-3"
+            ? "max-h-[520px] overflow-y-auto pr-3"
             : ""
         }
       >
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-7">
           {props.stepGroups.map((group) => (
-            <div key={group.id} className="flex flex-col gap-4">
+            <div key={group.id} className="flex flex-col gap-7">
               {group.parts.map((part, index) => {
                 const rowId = `${group.id}:${index}`;
                 return (
@@ -768,6 +854,7 @@ function MessageBlockRow(props: {
             stepGroups={block.stepGroups}
             isUser={block.isUser}
             isNestedVariant={props.isNestedVariant}
+            isActive={props.isStreaming && block.messageIds.includes(props.latestAssistantMessageId)}
             expandedStepIds={props.expandedStepIds}
             onExpandedStepIdsChange={props.onExpandedStepIdsChange}
           />
@@ -898,6 +985,7 @@ function MessageBlockRow(props: {
                   isUser={block.isUser}
                   isInline={true}
                   isNestedVariant={props.isNestedVariant}
+                  isActive={isStreamingLatestAssistant}
                   expandedStepIds={props.expandedStepIds}
                   onExpandedStepIdsChange={props.onExpandedStepIdsChange}
                 />
