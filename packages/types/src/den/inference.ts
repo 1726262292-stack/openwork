@@ -72,9 +72,15 @@ export const INFERENCE_MODEL_ALIASES = {
     enabled: true,
     usageFactor: 1,
   },
-  "google/gemini-3-flash-preview": {
-    upstreamModel: "google/gemini-3-flash-preview",
-    displayName: "OpenWork: Gemini 3 Flash Preview",
+  "minimax/minimax-m2.7": {
+    upstreamModel: "minimax/minimax-m2.7",
+    displayName: "OpenWork: MiniMax M2.7",
+    enabled: true,
+    usageFactor: 1,
+  },
+  "z-ai/glm-5.1": {
+    upstreamModel: "z-ai/glm-5.1",
+    displayName: "OpenWork: GLM-5.1",
     enabled: true,
     usageFactor: 1,
   },
