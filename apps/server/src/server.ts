@@ -779,6 +779,8 @@ export function normalizeWorkspaceRelativePath(input: string, options: { allowSu
   let normalized = raw.replace(/\\/g, "/");
   normalized = normalized.replace(/^\/+/, "");
   normalized = normalized.replace(/^\.\//, "");
+  normalized = normalized.replace(/^workspaces\/[^/]+\//i, "");
+  normalized = normalized.replace(/^workspace\/(?:ws_[^/]+|\d+|[0-9a-f-]{6,})\//i, "");
   normalized = normalized.replace(/^workspace\//, "");
   normalized = normalized.replace(/^\/+/, "");
 
@@ -799,7 +801,31 @@ export function normalizeWorkspaceRelativePath(input: string, options: { allowSu
 
 export function isSupportedWorkspaceTextFilePath(relativePath: string): boolean {
   const lowered = relativePath.toLowerCase();
-  return [".md", ".mdx", ".markdown", ".json", ".jsonc", ".ts", ".js", ".mjs", ".cjs", ".txt"].some((ext) =>
+  return [
+    ".md",
+    ".mdx",
+    ".markdown",
+    ".csv",
+    ".tsv",
+    ".json",
+    ".jsonc",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".xml",
+    ".html",
+    ".htm",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".css",
+    ".scss",
+    ".txt",
+    ".log",
+  ].some((ext) =>
     lowered.endsWith(ext),
   );
 }
@@ -831,6 +857,126 @@ function decodeArtifactId(id: string): string {
   } catch {
     throw new ApiError(400, "invalid_artifact", "Artifact id is invalid");
   }
+}
+
+function contentTypeForPath(path: string): string {
+  const lowered = path.toLowerCase();
+  if (lowered.endsWith(".html") || lowered.endsWith(".htm")) return "text/html; charset=utf-8";
+  if (lowered.endsWith(".svg")) return "image/svg+xml";
+  if (lowered.endsWith(".png")) return "image/png";
+  if (lowered.endsWith(".jpg") || lowered.endsWith(".jpeg")) return "image/jpeg";
+  if (lowered.endsWith(".gif")) return "image/gif";
+  if (lowered.endsWith(".webp")) return "image/webp";
+  if (lowered.endsWith(".pdf")) return "application/pdf";
+  if (lowered.endsWith(".csv")) return "text/csv; charset=utf-8";
+  if (lowered.endsWith(".tsv")) return "text/tab-separated-values; charset=utf-8";
+  if (lowered.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (lowered.endsWith(".xls")) return "application/vnd.ms-excel";
+  if (lowered.endsWith(".ods")) return "application/vnd.oasis.opendocument.spreadsheet";
+  if (isSupportedWorkspaceTextFilePath(path)) return "text/plain; charset=utf-8";
+  return "application/octet-stream";
+}
+
+type ArtifactTargetInput = {
+  kind?: unknown;
+  value?: unknown;
+  name?: unknown;
+  preview?: unknown;
+  confidence?: unknown;
+  reason?: unknown;
+};
+
+function artifactPreviewForPath(path: string): string {
+  const lowered = path.toLowerCase();
+  if (/\.(md|markdown|mdx)$/.test(lowered)) return "markdown";
+  if (/\.(csv|tsv|xlsx|xls|ods)$/.test(lowered)) return "sheet";
+  if (/\.(png|jpe?g|gif|webp|svg)$/.test(lowered)) return "image";
+  if (lowered.endsWith(".pdf")) return "pdf";
+  if (/\.(html|htm)$/.test(lowered)) return "html";
+  if (isSupportedWorkspaceTextFilePath(path)) return "text";
+  return "external";
+}
+
+function normalizeUrlTarget(value: string): string | null {
+  try {
+    const url = new URL(value.trim());
+    if (!["http:", "https:", "ws:", "wss:"].includes(url.protocol)) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, input: unknown): Promise<Array<Record<string, unknown>>> {
+  const targets = Array.isArray(input) ? input.slice(0, 80) : [];
+  const results = new Map<string, Record<string, unknown>>();
+
+  for (const item of targets) {
+    if (!item || typeof item !== "object") continue;
+    const target = item as ArtifactTargetInput;
+    const kind = target.kind === "url" ? "url" : "file";
+    const rawValue = typeof target.value === "string" ? target.value.trim() : "";
+    if (!rawValue) continue;
+    const confidence = typeof target.confidence === "number" && Number.isFinite(target.confidence) ? target.confidence : 0;
+    const reason = typeof target.reason === "string" ? target.reason : "server";
+
+    if (kind === "url") {
+      const url = normalizeUrlTarget(rawValue);
+      if (!url) continue;
+      const key = `url:${url}`;
+      const next = {
+        id: key,
+        kind: "url",
+        value: url,
+        name: typeof target.name === "string" && target.name.trim() ? target.name.trim() : url,
+        preview: "browser",
+        confidence,
+        reason,
+        exists: true,
+      };
+      const previous = results.get(key);
+      if (!previous || confidence >= Number(previous.confidence ?? 0)) results.set(key, next);
+      continue;
+    }
+
+    let relativePath: string;
+    try {
+      relativePath = normalizeWorkspaceRelativePath(rawValue, { allowSubdirs: true });
+    } catch {
+      continue;
+    }
+    const key = `file:${relativePath.toLowerCase()}`;
+    const absPath = resolveSafeChildPath(workspaceRoot, relativePath);
+    let existsFile = false;
+    let size: number | undefined;
+    let updatedAt: number | undefined;
+    let kindValue: "file" | "dir" | "other" | undefined;
+    if (await exists(absPath)) {
+      const info = await stat(absPath);
+      kindValue = info.isFile() ? "file" : info.isDirectory() ? "dir" : "other";
+      existsFile = info.isFile();
+      size = info.size;
+      updatedAt = info.mtimeMs;
+    }
+    const next = {
+      id: key,
+      kind: "file",
+      value: relativePath,
+      name: basename(relativePath),
+      preview: artifactPreviewForPath(relativePath),
+      confidence,
+      reason,
+      exists: existsFile,
+      fileKind: kindValue,
+      size,
+      updatedAt,
+      contentType: contentTypeForPath(relativePath),
+    };
+    const previous = results.get(key);
+    if (!previous || confidence >= Number(previous.confidence ?? 0)) results.set(key, next);
+  }
+
+  return Array.from(results.values());
 }
 
 function encodeInboxId(path: string): string {
@@ -1916,6 +2062,13 @@ function createRoutes(
     return new Response(stream, { status: 200, headers });
   });
 
+  addRoute(routes, "POST", "/workspace/:id/artifacts/resolve", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const items = await resolveWorkspaceArtifactTargets(workspace.path, (body as Record<string, unknown>).targets);
+    return jsonResponse({ items });
+  });
+
   addRoute(routes, "POST", "/workspace/:id/files/sessions", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
@@ -2275,7 +2428,7 @@ function createRoutes(
     const requested = (ctx.url.searchParams.get("path") ?? "").trim();
     const relativePath = normalizeWorkspaceRelativePath(requested, { allowSubdirs: true });
     if (!isSupportedWorkspaceTextFilePath(relativePath)) {
-      throw new ApiError(400, "invalid_path", "Only Markdown and OpenCode plugin text files are supported");
+      throw new ApiError(400, "invalid_path", "Only supported text artifact files can be read inline");
     }
 
     const absPath = resolveSafeChildPath(workspace.path, relativePath);
@@ -2296,6 +2449,107 @@ function createRoutes(
     return jsonResponse({ path: relativePath, content, bytes: info.size, updatedAt: info.mtimeMs });
   });
 
+  addRoute(routes, "GET", "/workspace/:id/files/stat", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const requested = (ctx.url.searchParams.get("path") ?? "").trim();
+    const relativePath = normalizeWorkspaceRelativePath(requested, { allowSubdirs: true });
+    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    if (!(await exists(absPath))) {
+      return jsonResponse({ ok: true, path: relativePath, exists: false });
+    }
+    const info = await stat(absPath);
+    return jsonResponse({
+      ok: true,
+      path: relativePath,
+      exists: true,
+      kind: info.isFile() ? "file" : info.isDirectory() ? "dir" : "other",
+      size: info.size,
+      updatedAt: info.mtimeMs,
+    });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/files/raw", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const requested = (ctx.url.searchParams.get("path") ?? "").trim();
+    const relativePath = normalizeWorkspaceRelativePath(requested, { allowSubdirs: true });
+    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    if (!(await exists(absPath))) {
+      throw new ApiError(404, "file_not_found", "File not found");
+    }
+    const info = await stat(absPath);
+    if (!info.isFile()) {
+      throw new ApiError(404, "file_not_found", "File not found");
+    }
+
+    const headers = new Headers();
+    headers.set("Content-Type", contentTypeForPath(relativePath));
+    headers.set("Content-Length", String(info.size));
+    headers.set("Content-Disposition", `inline; filename="${basename(relativePath)}"`);
+    const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
+    return new Response(stream, { status: 200, headers });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/files/raw", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const requestedPath = String(body.path ?? "");
+    const relativePath = normalizeWorkspaceRelativePath(requestedPath, { allowSubdirs: true });
+    if (typeof body.dataBase64 !== "string") {
+      throw new ApiError(400, "invalid_payload", "dataBase64 must be a string");
+    }
+    let bytes: Buffer;
+    try {
+      bytes = Buffer.from(body.dataBase64, "base64");
+    } catch {
+      throw new ApiError(400, "invalid_payload", "dataBase64 is invalid");
+    }
+    const maxBytes = FILE_SESSION_MAX_FILE_BYTES;
+    if (bytes.byteLength > maxBytes) {
+      throw new ApiError(413, "file_too_large", "File exceeds size limit", { maxBytes, size: bytes.byteLength });
+    }
+
+    const baseUpdatedAtRaw = body.baseUpdatedAt;
+    const baseUpdatedAt =
+      typeof baseUpdatedAtRaw === "number" && Number.isFinite(baseUpdatedAtRaw) ? baseUpdatedAtRaw : null;
+    const force = body.force === true;
+    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    const before = (await exists(absPath)) ? await stat(absPath) : null;
+    if (before && !before.isFile()) {
+      throw new ApiError(400, "invalid_path", "Path must point to a file");
+    }
+    const beforeUpdatedAt = before ? before.mtimeMs : null;
+    if (!force && beforeUpdatedAt !== null && baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt) {
+      throw new ApiError(409, "conflict", "File changed since it was loaded", { baseUpdatedAt, currentUpdatedAt: beforeUpdatedAt });
+    }
+
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "workspace.file.write",
+      summary: `Write ${relativePath}`,
+      paths: [absPath],
+    });
+
+    await ensureDir(dirname(absPath));
+    const tmp = `${absPath}.tmp-${shortId()}`;
+    await writeFile(tmp, bytes);
+    await rename(tmp, absPath);
+    const after = await stat(absPath);
+    const revision = fileRevision(after);
+    recordWorkspaceFileEvent(workspace.id, { type: "write", path: relativePath, revision });
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "workspace.file.write",
+      target: absPath,
+      summary: `Wrote ${relativePath}`,
+      timestamp: Date.now(),
+    });
+    return jsonResponse({ ok: true, path: relativePath, bytes: bytes.byteLength, updatedAt: after.mtimeMs, revision });
+  });
+
   addRoute(routes, "POST", "/workspace/:id/files/content", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -2305,7 +2559,7 @@ function createRoutes(
     const requestedPath = String(body.path ?? "");
     const relativePath = normalizeWorkspaceRelativePath(requestedPath, { allowSubdirs: true });
     if (!isSupportedWorkspaceTextFilePath(relativePath)) {
-      throw new ApiError(400, "invalid_path", "Only Markdown and OpenCode plugin text files are supported");
+      throw new ApiError(400, "invalid_path", "Only supported text artifact files can be edited inline");
     }
 
     if (typeof body.content !== "string") {
@@ -3116,6 +3370,7 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
     throw new ApiError(403, "workspace_unauthorized", "Workspace is not authorized");
   }
   if (!config.readOnly) {
+    await ensureWorkspaceFiles(resolvedWorkspace, workspace.preset ?? "starter");
     await repairCommands(resolvedWorkspace);
   }
   return { ...workspace, path: resolvedWorkspace };

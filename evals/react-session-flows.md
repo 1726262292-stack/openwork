@@ -97,6 +97,88 @@ Known regressions this catches:
 
 ---
 
+## Flow 1A — Artifact pane opens generated spreadsheet/markdown targets
+
+**Why**: Artifact opening must be deterministic from tool/file outputs, not a
+one-off LLM convention. This catches regressions in target extraction,
+classification, right-pane mode switching, and artifact preview fallbacks.
+
+Steps:
+1. Run this once in an existing workspace, then create a new workspace and run
+   it again there. The default OpenWork agent should include artifact guidance
+   in both cases.
+2. Hover the workspace header in the sidebar → click **New task**.
+3. Fill the composer:
+   `Create reports/artifact-eval.csv with three rows of sample revenue data, reports/artifact-eval.xlsx with the same data, reports/artifact-eval.md summarizing it, and reports/index.html with a tiny HTML preview. Mention all four file paths when done.`
+4. Click **Run task** and wait until the status bar returns to **Ready**.
+5. Observe the right pane.
+
+Pass criteria:
+- The right pane opens automatically after the run completes.
+- The pane has an **Artifact** tab/button state in the titlebar.
+- The artifact pane only auto-opens a file after the OpenWork server confirms
+  it exists on the workspace filesystem.
+- The artifact pane shows `artifact-eval.csv` and `artifact-eval.xlsx` in the
+  same spreadsheet grid renderer, `artifact-eval.md` as rendered markdown, and
+  `index.html` as a sandboxed HTML preview.
+- The artifact pane includes a per-session artifact strip when multiple files
+  are detected.
+- CSV/XLSX spreadsheet artifacts allow editing cells and saving through the
+  OpenWork server.
+- Markdown/text-backed artifacts expose an **Edit** action and can save through
+  the OpenWork server write API.
+- CSV/XLSX/Markdown artifacts expose a **Download artifact** action backed by
+  the OpenWork server, so it works for local and remote workspaces.
+- Clicking **Browser** still restores the browser panel without losing the
+  selected artifact button.
+- There are no console errors from `ArtifactPanel`, `deriveOpenTargets`, or
+  the right pane resize layout.
+
+Tool recipe:
+```
+chrome-devtools_click { uid: <New task button> }
+chrome-devtools_click { uid: <composer textbox> }
+chrome-devtools_type_text { text: "Create reports/artifact-eval.csv with three rows of sample revenue data, reports/artifact-eval.xlsx with the same data, reports/artifact-eval.md summarizing it, and reports/index.html with a tiny HTML preview. Mention all four file paths when done." }
+chrome-devtools_click { uid: <Run task> }
+chrome-devtools_wait_for { text: ["Ready"], timeout: 60000 }
+chrome-devtools_take_snapshot
+chrome-devtools_list_console_messages { types: ["error"] }
+chrome-devtools_take_screenshot
+```
+
+Known regressions this catches:
+- Tool output paths are not extracted from live transcript messages.
+- `.csv`/`.md` targets are classified as unsupported external files.
+- `.xlsx` targets are detected but cannot be read, edited, saved, or downloaded.
+- The client performs one stat call per mentioned file instead of a single
+  server-side artifact resolve call.
+- Rendered paths like `Workspace/32423/reports/artifact-eval.md` are not
+  normalized before reading.
+- Missing files auto-open before the server confirms they exist.
+- The right pane remains browser-only and cannot display artifacts.
+- Browser automation tabs are overwritten by file previews.
+
+---
+
+## Flow 1B — Local preview URLs and socket hints open through browser mode
+
+**Why**: React/UI previews and running local services should use the browser
+pane, not the artifact renderer. WebSocket hints should not break URL parsing.
+
+Steps:
+1. In a new task, ask the agent to create a minimal HTML or React preview and
+   start a local server, then mention both `http://localhost:<port>` and any
+   `ws://localhost:<port>/...` socket endpoint it uses.
+2. Wait until the run completes.
+
+Pass criteria:
+- The `http://localhost:<port>` target opens in a browser tab.
+- Any `ws://localhost:<port>/...` target is extracted without corrupting the
+  artifact list; selecting it opens the sibling HTTP URL in browser mode.
+- No socket URL is routed through markdown/CSV artifact preview.
+
+---
+
 ## Flow 2 — Add a new session
 
 Steps:

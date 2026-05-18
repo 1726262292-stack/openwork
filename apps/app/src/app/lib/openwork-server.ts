@@ -175,6 +175,16 @@ export type OpenworkWorkspaceFileWriteResult = {
   revision?: string;
 };
 
+function arrayBufferToBase64(data: ArrayBuffer): string {
+  const bytes = new Uint8Array(data);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
 export type OpenworkCommandItem = {
   name: string;
   description?: string;
@@ -249,6 +259,29 @@ export type OpenworkArtifactItem = {
 
 export type OpenworkArtifactList = {
   items: OpenworkArtifactItem[];
+};
+
+export type OpenworkResolvedArtifactTarget = {
+  id: string;
+  kind: "file" | "url";
+  value: string;
+  name: string;
+  preview: "browser" | "markdown" | "sheet" | "image" | "pdf" | "html" | "text" | "external";
+  confidence: number;
+  reason: string;
+  exists?: boolean;
+  size?: number;
+  updatedAt?: number;
+  contentType?: string;
+};
+
+export type OpenworkWorkspaceFileStat = {
+  ok: boolean;
+  path: string;
+  exists: boolean;
+  kind?: "file" | "dir" | "other";
+  size?: number;
+  updatedAt?: number;
 };
 
 export type OpenworkInboxItem = {
@@ -1244,6 +1277,13 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         { token, hostToken },
       ),
 
+    statWorkspaceFile: (workspaceId: string, path: string) =>
+      requestJson<OpenworkWorkspaceFileStat>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/files/stat?path=${encodeURIComponent(path)}`,
+        { token, hostToken },
+      ),
+
     writeWorkspaceFile: (
       workspaceId: string,
       payload: { path: string; content: string; baseUpdatedAt?: number | null; force?: boolean },
@@ -1259,11 +1299,55 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         },
       ),
 
+    writeWorkspaceBinaryFile: (
+      workspaceId: string,
+      payload: { path: string; data: ArrayBuffer; baseUpdatedAt?: number | null; force?: boolean },
+    ) =>
+      requestJson<OpenworkWorkspaceFileWriteResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/files/raw`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: {
+            path: payload.path,
+            dataBase64: arrayBufferToBase64(payload.data),
+            baseUpdatedAt: payload.baseUpdatedAt,
+            force: payload.force,
+          },
+        },
+      ),
+
+    downloadWorkspaceFile: (workspaceId: string, path: string) =>
+      requestBinary(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/files/raw?path=${encodeURIComponent(path)}`,
+        { token, hostToken, timeoutMs: timeouts.binary },
+      ),
+
     listArtifacts: (workspaceId: string) =>
       requestJson<OpenworkArtifactList>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/artifacts`, {
         token,
         hostToken,
       }),
+
+    resolveArtifacts: (
+      workspaceId: string,
+      targets: Array<{
+        kind: "file" | "url";
+        value: string;
+        name?: string;
+        preview?: string;
+        confidence?: number;
+        reason?: string;
+      }>,
+    ) =>
+      requestJson<{ items: OpenworkResolvedArtifactTarget[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/artifacts/resolve`,
+        { token, hostToken, method: "POST", body: { targets } },
+      ),
 
     downloadArtifact: (workspaceId: string, artifactId: string) =>
       requestBinary(

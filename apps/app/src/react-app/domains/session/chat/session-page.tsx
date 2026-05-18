@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { Globe, Loader2, Redo2, Undo2, Zap } from "lucide-react";
+import { FileText, Globe, Loader2, Redo2, Undo2, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { type OpenworkServerClient, type OpenworkServerStatus } from "../../../../app/lib/openwork-server";
@@ -44,6 +44,8 @@ import { useUiStateStore } from "../../../shell/ui-state-store";
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { BrowserPanel } from "../browser/browser-panel";
+import { ArtifactPanel } from "../artifacts/artifact-panel";
+import type { OpenTarget } from "../artifacts/open-target";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { cn } from "@/lib/utils";
 
@@ -188,6 +190,10 @@ export function SessionPage(props: SessionPageProps) {
   const openBrowserPanel = useUiStateStore((state) => state.openBrowserPanel);
   const closeBrowserPanel = useUiStateStore((state) => state.closeBrowserPanel);
   const toggleBrowserPanel = useUiStateStore((state) => state.toggleBrowserPanel);
+  const [rightPaneMode, setRightPaneMode] = useState<"browser" | "artifact">("browser");
+  const [artifactTarget, setArtifactTarget] = useState<OpenTarget | null>(null);
+  const [artifactTargets, setArtifactTargets] = useState<OpenTarget[]>([]);
+  const artifactFileTargets = useMemo(() => artifactTargets.filter((target) => target.kind === "file"), [artifactTargets]);
 
   useReactRenderWatchdog("SessionPage", {
     selectedSessionId: props.selectedSessionId,
@@ -237,10 +243,46 @@ export function SessionPage(props: SessionPageProps) {
     if (browserPanelOpen) return;
     setBrowserPanelDefaultWidth(browserPanelWidth);
   }, [browserPanelOpen, browserPanelWidth]);
+  useEffect(() => {
+    setArtifactTarget(null);
+    setArtifactTargets([]);
+    setRightPaneMode("browser");
+  }, [props.selectedSessionId]);
   const commitBrowserPanelWidth = useCallback(() => {
     const size = browserPanelRef.current?.getSize();
     if (size?.inPixels) setBrowserPanelWidth(Math.round(size.inPixels));
   }, [browserPanelRef, setBrowserPanelWidth]);
+  const browserUrlForTarget = useCallback((target: OpenTarget) => {
+    if (/^wss?:\/\//i.test(target.value)) return target.value.replace(/^ws:/i, "http:").replace(/^wss:/i, "https:");
+    return target.value;
+  }, []);
+  const openTarget = useCallback((target: OpenTarget, options?: { auto?: boolean }) => {
+    if (target.kind === "url" || target.preview === "browser") {
+      const url = browserUrlForTarget(target);
+      if (isElectronRuntime()) {
+        setRightPaneMode("browser");
+        openBrowserPanel();
+        void window.__OPENWORK_ELECTRON__?.browser?.createTab?.(url);
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
+    if (options?.auto && artifactTarget?.id === target.id) return;
+    setArtifactTarget(target);
+    setRightPaneMode("artifact");
+    openBrowserPanel();
+  }, [artifactTarget?.id, browserUrlForTarget, openBrowserPanel]);
+  const handleOpenTargetsChange = useCallback((targets: OpenTarget[]) => {
+    setArtifactTargets(targets);
+    setArtifactTarget((current) => {
+      if (!current) return current;
+      return targets.find((target) => target.id === current.id || target.value === current.value) ?? current;
+    });
+  }, []);
+  const closeRightPane = useCallback(() => {
+    closeBrowserPanel();
+  }, [closeBrowserPanel]);
   const [showDelayedSessionLoadingState, setShowDelayedSessionLoadingState] = useState(false);
 
   const selectedSessionTitle = useMemo(
@@ -448,6 +490,26 @@ export function SessionPage(props: SessionPageProps) {
                   <span className="hidden @lg/titlebar:inline">Browser</span>
                 </Button>
               ) : null}
+              {artifactTarget || artifactFileTargets.length > 0 ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "transition-colors",
+                    browserPanelOpen && rightPaneMode === "artifact" && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                  )}
+                  onClick={() => {
+                    setRightPaneMode("artifact");
+                    openBrowserPanel();
+                  }}
+                  title="Open artifact panel"
+                  aria-label="Open artifact panel"
+                  aria-pressed={browserPanelOpen && rightPaneMode === "artifact"}
+                >
+                  <FileText size={16} />
+                  <span className="hidden @lg/titlebar:inline">Artifact{artifactFileTargets.length > 1 ? `s ${artifactFileTargets.length}` : ""}</span>
+                </Button>
+              ) : null}
               {/* Revert/redo moved to per-message actions */}
               {props.developerMode ? (
                 <Button
@@ -531,6 +593,8 @@ export function SessionPage(props: SessionPageProps) {
                   permissionReplyBusy={props.permissionReplyBusy}
                   respondPermission={props.respondPermission}
                   safeStringify={props.safeStringify}
+                  onOpenTarget={openTarget}
+                  onOpenTargetsChange={handleOpenTargetsChange}
                 />
               ) : null}
 
@@ -690,7 +754,20 @@ export function SessionPage(props: SessionPageProps) {
                   maxSize="70%"
                   className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                 >
-                  <BrowserPanel onClose={closeBrowserPanel} />
+                  {rightPaneMode === "artifact" && artifactTarget && props.openworkServerClient && props.runtimeWorkspaceId ? (
+                    <ArtifactPanel
+                      client={props.openworkServerClient}
+                      workspaceId={props.runtimeWorkspaceId}
+                      workspaceRoot={props.selectedWorkspaceRoot}
+                      isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+                      target={artifactTarget}
+                      targets={artifactFileTargets}
+                      onSelectTarget={openTarget}
+                      onClose={closeRightPane}
+                    />
+                  ) : (
+                    <BrowserPanel onClose={closeRightPane} />
+                  )}
                 </ResizablePanel>
               </>
             ) : null}

@@ -44,6 +44,7 @@ import { useLocal } from "../../../kernel/local-provider";
 import { deriveSessionRenderModel } from "../sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
 import { PermissionApprovalPanel } from "../chat/permission-approval-modal";
+import { deriveOpenTargets, shouldAutoOpenTarget, type OpenTarget } from "../artifacts/open-target";
 import {
   seedSessionState,
   statusKey as reactStatusKey,
@@ -105,6 +106,8 @@ export type SessionSurfaceProps = {
   onOpenSettingsSection?: ((section: "commands" | "skills" | "mcps" | "plugins") => void) | undefined;
   onRevertToMessage?: (messageId: string) => void;
   onForkAtMessage?: (messageId: string) => void;
+  onOpenTarget?: (target: OpenTarget, options?: { auto?: boolean }) => void;
+  onOpenTargetsChange?: (targets: OpenTarget[]) => void;
 };
 
 function messageToReadableText(message: UIMessage) {
@@ -356,8 +359,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const [toolMcpStatus, setToolMcpStatus] = useState<string | null>(null);
   const [toolMcpStatuses, setToolMcpStatuses] = useState<McpStatusMap>({});
   const [toolImportedPlugins, setToolImportedPlugins] = useState<CloudImportedPlugin[]>([]);
+  const [verifiedOpenTargets, setVerifiedOpenTargets] = useState<OpenTarget[]>([]);
   const composerShellRef = useRef<HTMLDivElement>(null);
   const hydratedKeyRef = useRef<string | null>(null);
+  const autoOpenedTargetRef = useRef<string | null>(null);
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
   attachmentsRef.current = attachments;
   const opencodeClient = useMemo(
@@ -410,6 +415,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setMentions({});
     setPasteParts([]);
     setNotice(null);
+    autoOpenedTargetRef.current = null;
+    setVerifiedOpenTargets([]);
   }, [props.sessionId]);
 
   useEffect(() => {
@@ -493,6 +500,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
     () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
     [snapshot, transcriptState],
   );
+  const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
+  const openTargetsFingerprint = useMemo(
+    () => openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|"),
+    [openTargets],
+  );
+  const autoOpenTarget = verifiedOpenTargets.find(shouldAutoOpenTarget) ?? null;
   const pendingSessionLoad = !snapshot && snapshotQuery.isLoading && renderedMessages.length === 0;
   const assistantOutputAfterAwaitStart = useMemo(() => {
     if (awaitingAssistantBaseline === null) return false;
@@ -511,6 +524,35 @@ export function SessionSurface(props: SessionSurfaceProps) {
     showAssistantWaitState,
     hasSnapshot: Boolean(snapshot),
   });
+
+  useEffect(() => {
+    if (!autoOpenTarget || chatStreaming) return;
+    if (autoOpenedTargetRef.current === autoOpenTarget.id) return;
+    autoOpenedTargetRef.current = autoOpenTarget.id;
+    props.onOpenTarget?.(autoOpenTarget, { auto: true });
+  }, [autoOpenTarget, chatStreaming, props.onOpenTarget]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function verifyTargets() {
+      if (!openTargets.length) {
+        setVerifiedOpenTargets([]);
+        return;
+      }
+      try {
+        const response = await props.client.resolveArtifacts(props.workspaceId, openTargets);
+        if (!cancelled) setVerifiedOpenTargets(response.items as OpenTarget[]);
+      } catch {
+        if (!cancelled) setVerifiedOpenTargets(openTargets.map((target) => ({ ...target, exists: target.kind === "url" })));
+      }
+    }
+    void verifyTargets();
+    return () => { cancelled = true; };
+  }, [openTargetsFingerprint, props.client, props.workspaceId]);
+
+  useEffect(() => {
+    props.onOpenTargetsChange?.(verifiedOpenTargets);
+  }, [props.onOpenTargetsChange, verifiedOpenTargets]);
 
   useEffect(() => {
     if (!pendingSessionLoad) {
