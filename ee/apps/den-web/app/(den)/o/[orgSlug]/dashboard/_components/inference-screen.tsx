@@ -185,7 +185,7 @@ export function InferenceScreen() {
 
   async function toggleEnabled() {
     if (!status) return;
-    if (status.enabled) {
+    if (status.enabled || !status.subscribed) {
       router.push(getBillingRoute(activeOrg?.slug));
       return;
     }
@@ -222,6 +222,7 @@ export function InferenceScreen() {
 
   const enabled = status?.enabled === true;
   const cardTitle = enabled ? "OpenWork Models enabled" : "Enable OpenWork Models";
+  const actionLabel = enabled ? "Manage subscription" : status?.subscribed === false ? "Subscribe" : "Enable";
 
   return (
     <DashboardPageTemplate
@@ -249,7 +250,7 @@ export function InferenceScreen() {
               </h2>
             </div>
             <DenButton type="button" onClick={toggleEnabled} loading={saving || loading} variant={enabled ? "secondary" : "primary"}>
-              {enabled ? "Manage subscription" : "Enable"}
+              {actionLabel}
             </DenButton>
           </div>
         </section>

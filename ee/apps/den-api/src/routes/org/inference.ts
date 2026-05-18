@@ -2,9 +2,7 @@ import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { getInferenceStatus, setInferenceEnabled } from "../../inference.js"
-import { createInferenceCheckoutSession, organizationHasActiveInferenceSubscription } from "../../stripe-billing.js"
-import { getRequiredUserEmail } from "../../user.js"
-import { env } from "../../env.js"
+import { organizationHasActiveInferenceSubscription } from "../../stripe-billing.js"
 import { jsonValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import type { OrgRouteVariables } from "./shared.js"
@@ -96,26 +94,11 @@ export function registerOrgInferenceRoutes<T extends { Variables: OrgRouteVariab
       if (input.enabled) {
         const subscribed = await organizationHasActiveInferenceSubscription(payload.organization.id)
         if (!subscribed) {
-          const user = c.get("user")
-          const email = getRequiredUserEmail(user)
-          if (!email) {
-            return c.json({ error: "user_email_required" }, 400)
-          }
-          const origin = new URL(c.req.raw.url).origin
-          const session = await createInferenceCheckoutSession({
-            organizationId: payload.organization.id,
-            orgMemberId: payload.currentMember.id,
-            email,
-            name: user.name ?? email,
-            successUrl: env.stripe.billingSuccessUrl ?? `${origin}/dashboard/billing/stripe/checking?session_id={CHECKOUT_SESSION_ID}`,
-            cancelUrl: env.stripe.billingCancelUrl ?? `${origin}/dashboard/billing`,
-          })
           return c.json({
             inference: {
               ...await getInferenceStatus(payload.organization.id),
               subscribed: false,
             },
-            checkoutUrl: session.url,
           })
         }
       }

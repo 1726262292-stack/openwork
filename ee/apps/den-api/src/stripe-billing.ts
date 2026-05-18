@@ -111,6 +111,32 @@ async function findInferenceSubscriptionByStripeId(stripeSubscriptionId: string)
     .then((rows) => rows[0] ?? null)
 }
 
+async function findStripeCustomerIdByOrg(organizationId: string) {
+  return db
+    .select({ stripeCustomerId: OrgSubscriptionTable.stripe_customer_id })
+    .from(OrgSubscriptionTable)
+    .where(eq(OrgSubscriptionTable.organization_id, organizationId as OrgId))
+    .limit(1)
+    .then((rows) => rows[0]?.stripeCustomerId ?? null)
+}
+
+function stripeSearchLiteral(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")
+}
+
+async function findStripeCustomerIdByOrgMetadata(organizationId: string) {
+  try {
+    const customers = await stripe().customers.search({
+      query: `metadata['org_id']:'${stripeSearchLiteral(organizationId)}'`,
+      limit: 1,
+    })
+    return customers.data[0]?.id ?? null
+  } catch (error) {
+    console.warn("[stripe-billing] failed to search customers by org metadata", error)
+    return null
+  }
+}
+
 export async function organizationHasActiveInferenceSubscription(organizationId: OrgId) {
   const row = await findInferenceSubscriptionByOrg(organizationId)
   return Boolean(row && ACTIVE_STATUSES.has(row.status))
@@ -173,20 +199,45 @@ export async function upsertInferenceSubscriptionFromStripe(subscription: Stripe
   return findInferenceSubscriptionByStripeId(subscription.id)
 }
 
-async function ensureStripeCustomer(input: { organizationId: OrgId; orgMemberId: MemberId; email: string; name: string }) {
-  const existing = await findInferenceSubscriptionByOrg(input.organizationId)
-  if (existing?.stripe_customer_id) {
-    return existing.stripe_customer_id
+export async function findOrCreateStripeCustomer(input: {
+  email: string
+  name: string
+  organizationId?: string | null
+  metadata?: Stripe.MetadataParam
+  existingCustomerId?: string | null
+}) {
+  const existingCustomerId = input.existingCustomerId?.trim()
+  if (existingCustomerId) {
+    return existingCustomerId
+  }
+
+  const organizationId = input.organizationId?.trim()
+  if (organizationId) {
+    const dbCustomerId = await findStripeCustomerIdByOrg(organizationId)
+    if (dbCustomerId) {
+      return dbCustomerId
+    }
+
+    const stripeCustomerId = await findStripeCustomerIdByOrgMetadata(organizationId)
+    if (stripeCustomerId) {
+      return stripeCustomerId
+    }
+  }
+
+  const email = input.email.trim()
+  if (!email) {
+    throw new Error("stripe_customer_email_missing")
+  }
+
+  const existing = await stripe().customers.list({ email, limit: 1 })
+  if (existing.data[0]) {
+    return existing.data[0].id
   }
 
   const customer = await stripe().customers.create({
-    email: input.email,
+    email,
     name: input.name,
-    metadata: {
-      org_id: input.organizationId,
-      created_by_org_member_id: input.orgMemberId,
-      openwork_product: "openwork_models",
-    },
+    metadata: input.metadata,
   })
   return customer.id
 }
@@ -201,7 +252,16 @@ export async function createInferenceCheckoutSession(input: {
 }) {
   const priceId = requireInferencePriceId()
   const quantity = Math.max(1, await activeMemberCount(input.organizationId))
-  const customer = await ensureStripeCustomer(input)
+  const customer = await findOrCreateStripeCustomer({
+    organizationId: input.organizationId,
+    email: input.email,
+    name: input.name,
+    metadata: {
+      org_id: input.organizationId,
+      created_by_org_member_id: input.orgMemberId,
+      openwork_product: "openwork_models",
+    },
+  })
   return stripe().checkout.sessions.create({
     mode: "subscription",
     customer,
