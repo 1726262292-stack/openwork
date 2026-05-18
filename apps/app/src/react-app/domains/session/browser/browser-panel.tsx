@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { ArrowLeft, ArrowRight, Globe, Loader2, Plus, RotateCw, X } from "lucide-react";
 import { Reorder, useDragControls } from "motion/react";
 import { isElectronRuntime } from "../../../../app/utils";
@@ -65,9 +65,8 @@ function getElectronBrowser() {
   return window.__OPENWORK_ELECTRON__?.browser ?? null;
 }
 
-function computeBounds(el: HTMLElement, toolbar: HTMLElement) {
+function computeBounds(el: HTMLElement) {
   const rect = el.getBoundingClientRect();
-  const toolbarRect = toolbar.getBoundingClientRect();
 
   // Electron's WebContentsView.setBounds() uses the parent contentView's
   // coordinate space (CSS pixels at zoom=1). If the app has a font-zoom /
@@ -78,10 +77,23 @@ function computeBounds(el: HTMLElement, toolbar: HTMLElement) {
 
   return {
     x: Math.round(rect.x / zoom),
-    y: Math.round((rect.y + toolbarRect.height) / zoom),
+    y: Math.round(rect.y / zoom),
     width: Math.round(rect.width / zoom),
-    height: Math.round((rect.height - toolbarRect.height) / zoom),
+    height: Math.round(rect.height / zoom),
   };
+}
+
+function sameBounds(
+  left: { x: number; y: number; width: number; height: number } | null,
+  right: { x: number; y: number; width: number; height: number },
+) {
+  return Boolean(
+    left &&
+      left.x === right.x &&
+      left.y === right.y &&
+      left.width === right.width &&
+      left.height === right.height,
+  );
 }
 
 type BrowserTabProps = {
@@ -189,11 +201,11 @@ function BrowserTab({ tab }: BrowserTabProps) {
 export function BrowserPanel({ onClose }: BrowserPanelProps) {
   const [state, dispatch] = useBrowserState();
   const urlFocusedRef = useRef(false);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const toolbarRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const shownRef = useRef(false);
   const boundsFrameRef = useRef<number | null>(null);
+  const lastBoundsRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
 
   // Subscribe to state changes from the main process
   useEffect(() => {
@@ -224,54 +236,80 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
     return unsub;
   }, []);
 
+  // Correct stale native bounds after every render/Fast Refresh pass. The
+  // WebContentsView is owned by Electron main process, so it can keep painting
+  // at old coordinates even when React has re-rendered the pane.
+  useLayoutEffect(() => {
+    const browser = getElectronBrowser();
+    const content = contentRef.current;
+    if (!browser || !content) return;
+    const bounds = computeBounds(content);
+    if (bounds.width < 1 || bounds.height < 1) return;
+    browser.setBounds?.(bounds);
+    lastBoundsRef.current = bounds;
+  });
+
   // Show the browser view when the panel mounts, keep bounds in sync, hide on unmount.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const browser = getElectronBrowser();
 
-    if (!browser || !panelRef.current || !toolbarRef.current) {
+    if (!browser || !contentRef.current) {
       return;
     }
 
-    const panel = panelRef.current;
-    const toolbar = toolbarRef.current;
+    const content = contentRef.current;
+    browser.hide?.();
+    shownRef.current = false;
+    lastBoundsRef.current = null;
 
     const syncBounds = () => {
-      boundsFrameRef.current = null;
-
-      const bounds = computeBounds(panel, toolbar);
+      const bounds = computeBounds(content);
 
       if (bounds.width < 1 || bounds.height < 1) {
+        if (shownRef.current) {
+          browser.hide?.();
+          shownRef.current = false;
+          lastBoundsRef.current = null;
+        }
         return;
       }
 
-      // not laid out yet
       if (!shownRef.current) {
         browser.show?.(bounds);
         shownRef.current = true;
-      } else {
+        lastBoundsRef.current = bounds;
+        return;
+      }
+
+      if (!sameBounds(lastBoundsRef.current, bounds)) {
         browser.setBounds?.(bounds);
+        lastBoundsRef.current = bounds;
       }
     };
 
-    const scheduleSyncBounds = () => {
-      if (boundsFrameRef.current != null) return;
-      boundsFrameRef.current = window.requestAnimationFrame(syncBounds);
+    const watchBounds = () => {
+      syncBounds();
+      boundsFrameRef.current = window.requestAnimationFrame(watchBounds);
     };
 
-    // Initial show (may be zero-dimension if layout hasn't settled)
-    syncBounds();
+    boundsFrameRef.current = window.requestAnimationFrame(watchBounds);
 
     const observer = new ResizeObserver(scheduleSyncBounds);
 
-    observer.observe(panel);
-    observer.observe(toolbar);
+    function scheduleSyncBounds() {
+      syncBounds();
+    }
+
+    observer.observe(content);
 
     window.addEventListener("resize", scheduleSyncBounds);
+    window.addEventListener("scroll", scheduleSyncBounds, true);
 
     return () => {
       observer.disconnect();
 
       window.removeEventListener("resize", scheduleSyncBounds);
+      window.removeEventListener("scroll", scheduleSyncBounds, true);
 
       if (boundsFrameRef.current != null) {
         window.cancelAnimationFrame(boundsFrameRef.current);
@@ -280,6 +318,7 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
 
       browser.hide?.();
       shownRef.current = false;
+      lastBoundsRef.current = null;
     };
   }, []);
 
@@ -329,8 +368,8 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
 
   return (
     <TooltipProvider delay={1000}>
-      <div ref={panelRef} className="flex h-full flex-col">
-        <div ref={toolbarRef} className="shrink-0 border-b border-border bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
+      <div className="flex h-full flex-col">
+        <div className="shrink-0 border-b border-border bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
           <div className="flex h-10 items-center gap-1 border-b border-border/60 px-2">
             <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
               <Reorder.Group
@@ -416,7 +455,7 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
           </div>
         </div>
         {/* WebContentsView renders in this area (managed by Electron main process) */}
-        <div className="min-h-0 flex-1" />
+        <div ref={contentRef} className="min-h-0 flex-1 overflow-hidden" />
       </div>
     </TooltipProvider>
   );
