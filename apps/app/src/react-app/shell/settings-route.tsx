@@ -14,6 +14,11 @@ import {
 } from "../../app/lib/openwork-server";
 import { resolveWorkspaceEndpoint } from "../../app/lib/workspace-endpoint";
 import { buildOpenworkEnvRuntimeKey } from "../../app/lib/openwork-env-runtime";
+import {
+  getInitialThemeMode,
+  setThemeMode as setAppThemeMode,
+  type ThemeMode,
+} from "../../app/theme";
 import type {
   Client,
   ProviderListItem,
@@ -255,9 +260,6 @@ function folderNameFromPath(path: string) {
   return parts[parts.length - 1] ?? "workspace";
 }
 
-type PersistedThemeMode = "light" | "dark" | "system";
-
-const SETTINGS_THEME_KEY = "openwork.react.settings.theme-mode";
 const SETTINGS_HIDE_TITLEBAR_KEY = "openwork.react.settings.hide-titlebar";
 const SETTINGS_UPDATE_AUTO_CHECK_KEY = "openwork.react.settings.update-auto-check";
 const SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY = "openwork.react.settings.update-auto-download";
@@ -385,23 +387,6 @@ function settingsPathForRoute(route: ReturnType<typeof parseSettingsPath>) {
   return route.tab;
 }
 
-function readStoredThemeMode(): PersistedThemeMode {
-  if (typeof window === "undefined") return "system";
-  try {
-    const raw = window.localStorage.getItem(SETTINGS_THEME_KEY);
-    return raw === "light" || raw === "dark" || raw === "system" ? raw : "system";
-  } catch {
-    return "system";
-  }
-}
-
-function applyThemeMode(mode: PersistedThemeMode) {
-  if (typeof document === "undefined" || typeof window === "undefined") return;
-  const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
-  const resolved = mode === "system" ? (prefersDark ? "dark" : "light") : mode;
-  document.documentElement.dataset.theme = resolved;
-}
-
 function SettingsRouteContent() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -446,7 +431,7 @@ function SettingsRouteContent() {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("openwork.developerMode") === "1";
   });
-  const [themeMode, setThemeMode] = useState<PersistedThemeMode>(readStoredThemeMode);
+  const [themeMode, setThemeModeState] = useState<ThemeMode>(getInitialThemeMode);
   const [hideTitlebar, setHideTitlebar] = useState(() => readStoredBoolean(SETTINGS_HIDE_TITLEBAR_KEY, false));
   const [updateAutoCheck, setUpdateAutoCheck] = useState(() =>
     readStoredBoolean(SETTINGS_UPDATE_AUTO_CHECK_KEY, true),
@@ -899,11 +884,7 @@ function SettingsRouteContent() {
   }, [route.tab]);
 
   useEffect(() => {
-    applyThemeMode(themeMode);
-    void window.__OPENWORK_ELECTRON__?.invokeDesktop?.("__setNativeTheme", themeMode);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(SETTINGS_THEME_KEY, themeMode);
-    }
+    setAppThemeMode(themeMode);
   }, [themeMode]);
 
   useEffect(() => {
@@ -1846,7 +1827,7 @@ function SettingsRouteContent() {
           <AppearanceView
             busy={busy}
             themeMode={themeMode}
-            setThemeMode={setThemeMode}
+            setThemeMode={setThemeModeState}
             language={currentLocale() as Language}
             setLanguage={setLocale}
             hideTitlebar={hideTitlebar}
