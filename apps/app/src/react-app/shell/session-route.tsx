@@ -101,7 +101,7 @@ import {
 } from "../domains/workspace/remote-workspace-diagnostics";
 import { useShareWorkspaceState } from "../domains/workspace/share-workspace-state";
 import { ModelPickerModal } from "../domains/session/modals/model-picker-modal";
-import { CommandPalette, type SessionOption as PaletteSessionOption } from "./command-palette";
+import { CommandPalette, type AccessibleTargetOption, type SessionOption as PaletteSessionOption } from "./command-palette";
 import { getDisplaySessionTitle } from "../../app/lib/session-title";
 import { useBootState } from "./boot-state";
 import {
@@ -135,6 +135,7 @@ import { useStatusToasts } from "../domains/shell-feedback/status-toasts";
 import { useSessionControlActions } from "../domains/session/control/session-control-actions";
 import { legacySessionRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { WorkspaceProvider } from "./workspace-provider";
+import type { OpenTarget } from "../domains/session/artifacts/open-target";
 import {
   ensureProviderListQuery,
   getConnectedProviderItems,
@@ -514,6 +515,7 @@ export function SessionRoute() {
   const [renameWorkspaceTitle, setRenameWorkspaceTitle] = useState("");
   const [renameWorkspaceBusy, setRenameWorkspaceBusy] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [paletteAccessibleTargets, setPaletteAccessibleTargets] = useState<OpenTarget[]>([]);
   // Model picker modal state (ported from settings-route; previously the
   // session "Pick a model" button navigated to /settings/general, which is a
   // dead-end). Loads providers lazily when the modal opens.
@@ -571,6 +573,9 @@ export function SessionRoute() {
       window.localStorage.removeItem(pendingModelPickerProviderIdsKey);
     }
   }, []);
+  useEffect(() => {
+    setPaletteAccessibleTargets([]);
+  }, [selectedSessionId, selectedWorkspaceId]);
 
   const [permissionReplyBusy, setPermissionReplyBusy] = useState(false);
   const permissionReplyBusyRef = useRef(false);
@@ -2729,6 +2734,7 @@ export function SessionRoute() {
         statusPulse: true,
       } : undefined}
       notFoundMessage={routeNotFoundMessage}
+      onAccessibleTargetsChange={setPaletteAccessibleTargets}
     />
     <CreateWorkspaceModal
       open={createWorkspaceOpen}
@@ -2778,6 +2784,21 @@ export function SessionRoute() {
       }}
       onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)}
       onOpenSettings={(route) => handleOpenSettings(route ?? "/settings/general")}
+      accessibleTargets={paletteAccessibleTargets}
+      onOpenAccessibleTarget={(target) => {
+        try {
+          window.dispatchEvent(new CustomEvent("openwork-open-accessible-target", { detail: target }));
+        } catch {
+          // ignore event dispatch failures
+        }
+      }}
+      onHideAccessibleTarget={(target) => {
+        try {
+          window.dispatchEvent(new CustomEvent("openwork-hide-accessible-target", { detail: target }));
+        } catch {
+          // ignore event dispatch failures
+        }
+      }}
       sessions={paletteSessionOptions}
     />
     <ModelPickerModal

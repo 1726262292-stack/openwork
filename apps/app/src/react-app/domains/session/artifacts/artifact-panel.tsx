@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { Download, ExternalLink, Loader2, X } from "lucide-react";
+import { Download, ExternalLink, FileText, Loader2, X } from "lucide-react";
 
 import type { OpenworkServerClient } from "../../../../app/lib/openwork-server";
 import { openDesktopPath } from "../../../../app/lib/desktop";
@@ -39,6 +39,24 @@ function absoluteWorkspacePath(root: string, path: string) {
   return cleanRoot ? `${cleanRoot}/${cleanPath}` : cleanPath;
 }
 
+function ArtifactTargetIcon({ target, className = "size-3.5" }: { target: OpenTarget; className?: string }) {
+  if (target.preview === "sheet") {
+    return (
+      <span className={cn("inline-flex min-w-5 shrink-0 items-center justify-center rounded-[4px] border border-emerald-500/30 bg-emerald-500/10 px-0.5 text-[7px] font-bold leading-none text-emerald-700", className)}>
+        XLS
+      </span>
+    );
+  }
+  if (target.preview === "markdown") {
+    return (
+      <span className={cn("inline-flex shrink-0 items-center justify-center rounded-[4px] border border-primary/25 bg-primary/10 font-bold leading-none text-primary", className, "text-[7px]")}>
+        MD
+      </span>
+    );
+  }
+  return <FileText className={cn(className, "shrink-0 text-primary")} />;
+}
+
 export function ArtifactPanel({ client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, targets = [], onSelectTarget, onClose }: ArtifactPanelProps) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [editing, setEditing] = useState(false);
@@ -47,6 +65,7 @@ export function ArtifactPanel({ client, workspaceId, workspaceRoot, isRemoteWork
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const canReadAsText = ["markdown", "text", "sheet", "html"].includes(target.preview) && !/\.(xlsx|xls|ods)$/i.test(target.value);
   const canEditText = target.kind === "file" && canReadAsText;
+  const isDirectTextEdit = canEditText && target.preview === "markdown";
   const externalPath = useMemo(() => target.kind === "file" ? absoluteWorkspacePath(workspaceRoot, target.value) : target.value, [target.kind, target.value, workspaceRoot]);
 
   useEffect(() => {
@@ -170,13 +189,16 @@ export function ArtifactPanel({ client, workspaceId, workspaceRoot, isRemoteWork
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-2">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-foreground">{target.name}</div>
+          <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
+            <ArtifactTargetIcon target={target} className="size-4" />
+            <span className="truncate">{target.name}</span>
+          </div>
           <div className="truncate text-[11px] text-muted-foreground">
             {target.value}{target.exists === false ? " · missing" : target.size ? ` · ${target.size} bytes` : ""}
           </div>
         </div>
         {canEditText && state.status === "text" ? (
-          editing ? (
+          editing || isDirectTextEdit ? (
             <>
               <Button variant="ghost" size="sm" onClick={() => { setDraft(state.content); setEditing(false); }} disabled={saving}>Discard</Button>
               <Button variant="default" size="sm" onClick={() => void save()} disabled={saving || draft === state.content}>{saving ? "Saving" : "Save"}</Button>
@@ -204,7 +226,7 @@ export function ArtifactPanel({ client, workspaceId, workspaceRoot, isRemoteWork
               key={item.id}
               type="button"
               className={cn(
-                "max-w-44 shrink-0 truncate rounded-md border px-2 py-1 text-left text-[11px] transition-colors",
+                "flex max-w-44 shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-left text-[11px] transition-colors",
                 item.id === target.id
                   ? "border-primary/40 bg-primary/10 text-primary"
                   : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -213,7 +235,8 @@ export function ArtifactPanel({ client, workspaceId, workspaceRoot, isRemoteWork
               title={`${item.value}${item.exists === false ? " (missing)" : ""}`}
               onClick={() => onSelectTarget?.(item)}
             >
-              {item.name}{item.exists === false ? " · missing" : ""}
+              <ArtifactTargetIcon target={item} />
+              <span className="truncate">{item.name}{item.exists === false ? " · missing" : ""}</span>
             </button>
           ))}
         </div>
@@ -224,7 +247,7 @@ export function ArtifactPanel({ client, workspaceId, workspaceRoot, isRemoteWork
           <div className="flex h-full items-center justify-center text-muted-foreground"><Loader2 className="size-4 animate-spin" /></div>
         ) : state.status === "error" ? (
           <div className="p-4 text-sm text-muted-foreground">{state.message}</div>
-        ) : editing && state.status === "text" ? (
+        ) : state.status === "text" && (editing || isDirectTextEdit) ? (
           <Suspense fallback={<div className="flex h-full items-center justify-center text-muted-foreground"><Loader2 className="size-4 animate-spin" /></div>}>
             <ArtifactTextEditor value={draft} language={target.preview === "markdown" ? "markdown" : "text"} onChange={setDraft} />
           </Suspense>

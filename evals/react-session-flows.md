@@ -115,9 +115,12 @@ Steps:
 
 Pass criteria:
 - The right pane opens automatically after the run completes.
-- The pane has an **Artifact** tab/button state in the titlebar.
+- The right-side rail shows compact Browser and Artifact icon buttons, and the
+  Artifact icon is active while the artifact pane is visible.
 - The artifact pane only auto-opens a file after the OpenWork server confirms
   it exists on the workspace filesystem.
+- Searching or listing implementation files such as `package.json` does not
+  populate the artifact rail; only previewable deliverables are shown there.
 - The artifact pane shows `artifact-eval.csv` and `artifact-eval.xlsx` in the
   same spreadsheet grid renderer, `artifact-eval.md` as rendered markdown, and
   `index.html` as a sandboxed HTML preview.
@@ -125,8 +128,8 @@ Pass criteria:
   are detected.
 - CSV/XLSX spreadsheet artifacts allow editing cells and saving through the
   OpenWork server.
-- Markdown/text-backed artifacts expose an **Edit** action and can save through
-  the OpenWork server write API.
+- Markdown artifacts open directly in the text editor and can save through the
+  OpenWork server write API without switching into a separate edit view.
 - CSV/XLSX/Markdown artifacts expose a **Download artifact** action backed by
   the OpenWork server, so it works for local and remote workspaces.
 - Clicking **Browser** still restores the browser panel without losing the
@@ -157,6 +160,8 @@ Known regressions this catches:
 - Missing files auto-open before the server confirms they exist.
 - The right pane remains browser-only and cannot display artifacts.
 - Browser automation tabs are overwritten by file previews.
+- Generic project search results such as many `package.json` files flood the
+  artifact rail.
 
 ---
 
@@ -193,12 +198,26 @@ Pass criteria:
   an extra click.
 - Composer model label is whatever is saved as default (e.g.
   `opencode/minimax-m2.5-free`).
+- No **"Reload required"** toast appears when the new session is created or
+  while the session route polls workspace events.
 
 Known regressions this catches:
 - `onCreateTaskInWorkspace` silently failing because the route has no
   OpenCode client.
 - Created session not landing in the sidebar list (sidebar not refreshed
   after create).
+- Routine workspace resolution rewrites `opencode.jsonc`, causing a stale
+  **"Reload required"** toast after every new session.
+
+Tool recipe add-on for the reload toast regression:
+```
+chrome-devtools_click { uid: <New task button> }
+chrome-devtools_wait_for { text: ["Describe your task"], timeout: 15000 }
+chrome-devtools_evaluate_script { function: "() => new Promise((resolve) => setTimeout(() => resolve(document.body.innerText), 4500))" }
+```
+
+Expected result: the returned body text does not contain `Reload required` or
+`Config 'opencode.jsonc' was updated`.
 
 ---
 

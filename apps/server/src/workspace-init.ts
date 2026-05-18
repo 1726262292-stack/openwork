@@ -125,9 +125,9 @@ async function ensureOpencodeConfig(workspaceRoot: string): Promise<void> {
     ? { ...data }
     : { $schema: "https://opencode.ai/config.json" };
 
-  if (typeof next.default_agent !== "string" || !next.default_agent.trim()) {
-    next.default_agent = "openwork";
-  }
+  if (typeof next.default_agent === "string" && next.default_agent.trim()) return;
+
+  next.default_agent = "openwork";
 
   await writeJsoncFile(path, next);
 }

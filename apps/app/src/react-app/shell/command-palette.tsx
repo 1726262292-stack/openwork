@@ -4,6 +4,7 @@ import {
   useMemo,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 
 import { t } from "@/i18n";
@@ -22,18 +23,27 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { Button } from "@/components/ui/button";
-import { ChevronLeftIcon } from "lucide-react";
+import { ChevronLeftIcon, Chrome, FileText } from "lucide-react";
 
 export type PaletteItem = {
   id: string;
   title: string;
   detail?: string;
   meta?: string;
+  icon?: ReactNode;
   searchText?: string;
   action: () => void;
 };
 
-type PaletteMode = "root" | "sessions";
+export type AccessibleTargetOption = {
+  id: string;
+  kind: "url" | "file";
+  value: string;
+  name: string;
+  preview: string;
+};
+
+type PaletteMode = "root" | "sessions" | "accessible-items";
 
 export type SessionOption = {
   workspaceId: string;
@@ -44,6 +54,25 @@ export type SessionOption = {
   searchText: string;
   isActive: boolean;
 };
+
+function targetIcon(target: AccessibleTargetOption) {
+  if (target.kind === "url") return <Chrome className="size-4 text-primary" />;
+  if (target.preview === "sheet") {
+    return (
+      <span className="inline-flex h-4 min-w-6 shrink-0 items-center justify-center rounded-[4px] border border-emerald-500/30 bg-emerald-500/10 px-0.5 text-[7px] font-bold leading-none text-emerald-700">
+        XLS
+      </span>
+    );
+  }
+  if (target.preview === "markdown") {
+    return (
+      <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-primary/25 bg-primary/10 text-[8px] font-bold leading-none text-primary">
+        MD
+      </span>
+    );
+  }
+  return <FileText className="size-4 text-primary" />;
+}
 
 export type CommandPaletteProps = {
   open: boolean;
@@ -56,6 +85,10 @@ export type CommandPaletteProps = {
   onOpenSettings: (route?: string) => void;
   /** Optional — open a URL in the user's browser. Falls back to window.open. */
   onOpenUrl?: (url: string) => void;
+  /** Optional: current session servers/artifacts exposed through Cmd/Ctrl+K. */
+  accessibleTargets?: AccessibleTargetOption[];
+  onOpenAccessibleTarget?: (target: AccessibleTargetOption) => void;
+  onHideAccessibleTarget?: (target: AccessibleTargetOption) => void;
   /** Optional: sessions for the second mode. */
   sessions: SessionOption[];
 };
@@ -83,6 +116,8 @@ export function CommandPalette(props: CommandPaletteProps) {
     }
   };
 
+  const accessibleTargetCount = props.accessibleTargets?.length ?? 0;
+
   const rootItems = useMemo<PaletteItem[]>(() => [
     {
       id: "new-session",
@@ -103,6 +138,17 @@ export function CommandPalette(props: CommandPaletteProps) {
       meta: t("session.cmd_sessions_meta"),
       action: () => {
         setMode("sessions");
+      },
+    },
+    {
+      id: "accessible-items",
+      title: "Accessible items",
+      detail: accessibleTargetCount > 0
+        ? `Open ${accessibleTargetCount.toLocaleString()} servers and artifacts detected in this session`
+        : "No servers or artifacts detected in this session yet",
+      meta: "Session",
+      action: () => {
+        setMode("accessible-items");
       },
     },
     {
@@ -187,7 +233,7 @@ export function CommandPalette(props: CommandPaletteProps) {
         props.onOpenSettings("/settings/updates");
       },
     },
-  ], [props]);
+  ], [accessibleTargetCount, props]);
 
   const sessionItems = useMemo<PaletteItem[]>(
     () =>
@@ -206,6 +252,36 @@ export function CommandPalette(props: CommandPaletteProps) {
       })),
     [props],
   );
+
+  const accessibleItems = useMemo<PaletteItem[]>(() => {
+    const targets = props.accessibleTargets ?? [];
+    return [
+      ...targets.map((target) => ({
+        id: `accessible:${target.id}`,
+        title: target.name || target.value,
+        detail: target.value,
+        meta: target.kind === "url" ? "Server" : "Artifact",
+        icon: targetIcon(target),
+        searchText: `${target.name} ${target.value} ${target.preview}`.toLowerCase(),
+        action: () => {
+          props.onClose();
+          props.onOpenAccessibleTarget?.(target);
+        },
+      })),
+      ...targets.map((target) => ({
+        id: `accessible-hide:${target.id}`,
+        title: `Stop tracking ${target.name || target.value}`,
+        detail: target.value,
+        meta: "Hide",
+        icon: targetIcon(target),
+        searchText: `stop tracking hide ${target.name} ${target.value} ${target.preview}`.toLowerCase(),
+        action: () => {
+          props.onClose();
+          props.onHideAccessibleTarget?.(target);
+        },
+      })),
+    ];
+  }, [props]);
 
   const handleEscape = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
@@ -236,7 +312,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     }
   };
 
-  const items = mode === "sessions" ? sessionItems : rootItems;
+  const items = mode === "sessions" ? sessionItems : mode === "accessible-items" ? accessibleItems : rootItems;
 
   return (
     <CommandDialog open={props.open} onOpenChange={handleOpenChange}>
@@ -244,12 +320,14 @@ export function CommandPalette(props: CommandPaletteProps) {
         <CommandDialogTitle>
           {mode === "sessions"
             ? t("session.palette_title_sessions")
-            : t("session.palette_title_actions")
+            : mode === "accessible-items"
+              ? "Accessible items"
+              : t("session.palette_title_actions")
           }
         </CommandDialogTitle>
         <Command key={mode} items={items}>
           <CommandHeader className="flex items-center gap-0">
-            {mode === "sessions" && (
+            {mode !== "root" && (
               <Button variant="outline" size="icon-sm" className="rounded-xl" onClick={() => setMode("root")}>
                 <ChevronLeftIcon className="size-4" />
                 <span className="sr-only">{t("common.back")}</span>
@@ -260,13 +338,15 @@ export function CommandPalette(props: CommandPaletteProps) {
               placeholder={
                 mode === "sessions"
                   ? t("session.palette_placeholder_sessions")
-                  : t("session.palette_placeholder_actions")
+                  : mode === "accessible-items"
+                    ? "Search servers and artifacts..."
+                    : t("session.palette_placeholder_actions")
               }
               onKeyDown={handleBackspace}
             />
           </CommandHeader>
           <CommandPanel>
-            <CommandEmpty>{t("session.palette_no_matches")}</CommandEmpty>
+            <CommandEmpty>{mode === "accessible-items" ? "No accessible items found for this session." : t("session.palette_no_matches")}</CommandEmpty>
             <CommandList>
               {(item: PaletteItem) => (
                 <CommandItem
@@ -274,6 +354,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                   value={item.id}
                   onClick={item.action}
                 >
+                  {item.icon ? <span className="mr-2 shrink-0">{item.icon}</span> : null}
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{item.title}</div>
                     {item.detail ? (

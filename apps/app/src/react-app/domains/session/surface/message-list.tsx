@@ -7,6 +7,7 @@ import {
   Box,
   Check,
   ChevronDown,
+  Chrome,
   CircleAlert,
   Copy,
   File as FileIcon,
@@ -27,6 +28,12 @@ import { groupMessageParts, isDesktopRuntime, summarizeStep } from "../../../../
 import { DEFAULT_SHOW_THINKING } from "../../../kernel/local-provider";
 import { MarkdownBlock } from "./markdown";
 import { applyTextHighlights } from "./text-highlights";
+import {
+  deriveOpenTargets,
+  isCollectibleArtifactTarget,
+  isLocalhostBrowserTarget,
+  type OpenTarget,
+} from "../artifacts/open-target";
 
 type TranscriptPart = Part;
 
@@ -160,6 +167,8 @@ type SessionTranscriptProps = {
   onRevertToMessage?: (messageId: string) => void;
   /** Fork the conversation at this message into a new session. */
   onForkAtMessage?: (messageId: string) => void;
+  openTargets?: OpenTarget[];
+  onOpenTarget?: (target: OpenTarget) => void;
 };
 
 // 500 was too high for real-world OpenWork sessions: a handful of giant
@@ -773,6 +782,66 @@ function messageGroupKey(messageId: string, group: MessageGroup) {
   return `${messageId}:text:${group.segment}:${partId}`;
 }
 
+function inlineOpenTargetsForMessage(message: UIMessage, verifiedTargets: OpenTarget[] | undefined) {
+  const verifiedById = new Map((verifiedTargets ?? []).map((target) => [target.id, target] as const));
+  const inlineTargets = new Map<string, OpenTarget>();
+  for (const candidate of deriveOpenTargets([message])) {
+    const verified = verifiedById.get(candidate.id);
+    if (candidate.kind === "url" && isLocalhostBrowserTarget(candidate)) {
+      inlineTargets.set(candidate.id, verified ?? candidate);
+      continue;
+    }
+    if (verified && isCollectibleArtifactTarget(verified)) {
+      inlineTargets.set(verified.id, verified);
+    }
+  }
+  return Array.from(inlineTargets.values()).slice(0, 4);
+}
+
+function OpenTargetIcon(props: { target: OpenTarget }) {
+  if (props.target.kind === "url") return <Chrome size={12} className="shrink-0 text-primary" />;
+  if (props.target.preview === "sheet") {
+    return (
+      <span className="inline-flex h-3.5 min-w-5 shrink-0 items-center justify-center rounded-[3px] border border-emerald-500/30 bg-emerald-500/10 px-0.5 text-[6px] font-bold leading-none text-emerald-700">
+        XLS
+      </span>
+    );
+  }
+  if (props.target.preview === "markdown") {
+    return (
+      <span className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-[3px] border border-primary/25 bg-primary/10 text-[7px] font-bold leading-none text-primary">
+        MD
+      </span>
+    );
+  }
+  return <FileIcon size={12} className="shrink-0 text-primary" />;
+}
+
+function OpenableTargetsStrip(props: { targets: OpenTarget[]; onOpenTarget: (target: OpenTarget) => void }) {
+  if (!props.targets.length) return null;
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] leading-none">
+      <span className="mr-0.5 text-dls-secondary">Openable items</span>
+      {props.targets.map((target) => {
+        const isBrowser = target.kind === "url";
+        return (
+          <button
+            key={target.id}
+            type="button"
+            className="inline-flex max-w-[220px] items-center gap-1.5 rounded-full border border-dls-border bg-dls-surface px-2 py-1.5 text-dls-text transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+            title={target.value}
+            onClick={() => props.onOpenTarget(target)}
+          >
+            <OpenTargetIcon target={target} />
+            <span className="truncate">{target.name || target.value}</span>
+            <span className="text-dls-secondary">{isBrowser ? "Open browser" : "Open artifact"}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function MessageBlockRow(props: {
   block: MessageBlockItem;
   blockIndex: number;
@@ -788,6 +857,8 @@ function MessageBlockRow(props: {
   latestAssistantMessageId: string;
   onRevertToMessage?: (messageId: string) => void;
   onForkAtMessage?: (messageId: string) => void;
+  openTargets?: OpenTarget[];
+  onOpenTarget?: (target: OpenTarget) => void;
 }) {
   const block = props.block;
   const blockMessageIds = block.kind === "steps-cluster" ? block.messageIds : [block.messageId];
@@ -837,6 +908,9 @@ function MessageBlockRow(props: {
   const groupSpacing = block.isUser ? "mb-3" : "mb-4";
   const isSyntheticSessionError =
     !block.isUser && block.messageId.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX);
+  const inlineOpenTargets = block.kind === "message" && !block.isUser && props.onOpenTarget
+    ? inlineOpenTargetsForMessage(block.message, props.openTargets)
+    : [];
 
   if (isSyntheticSessionError) {
     const messageText = block.renderableParts
@@ -964,6 +1038,8 @@ function MessageBlockRow(props: {
             </div>
           );
         })}
+
+        {props.onOpenTarget ? <OpenableTargetsStrip targets={inlineOpenTargets} onOpenTarget={props.onOpenTarget} /> : null}
 
         {!props.isNestedVariant ? (
           <div className="absolute bottom-2 right-2 flex items-center gap-0.5 opacity-100 pointer-events-auto md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto md:group-focus-within:opacity-100 md:group-focus-within:pointer-events-auto transition-opacity select-none rounded-lg border border-dls-border bg-dls-surface p-0.5">
@@ -1262,6 +1338,8 @@ function SessionTranscriptInner(props: SessionTranscriptProps) {
                   latestAssistantMessageId={latestAssistantMessageId}
                   onRevertToMessage={props.onRevertToMessage}
                   onForkAtMessage={props.onForkAtMessage}
+                  openTargets={props.openTargets}
+                  onOpenTarget={props.onOpenTarget}
                 />
               </div>
             );
@@ -1286,6 +1364,8 @@ function SessionTranscriptInner(props: SessionTranscriptProps) {
               latestAssistantMessageId={latestAssistantMessageId}
               onRevertToMessage={props.onRevertToMessage}
               onForkAtMessage={props.onForkAtMessage}
+              openTargets={props.openTargets}
+              onOpenTarget={props.onOpenTarget}
             />
           ))}
         </div>

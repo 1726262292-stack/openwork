@@ -44,7 +44,7 @@ import { useLocal } from "../../../kernel/local-provider";
 import { deriveSessionRenderModel } from "../sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
 import { PermissionApprovalPanel } from "../chat/permission-approval-modal";
-import { deriveOpenTargets, shouldAutoOpenTarget, type OpenTarget } from "../artifacts/open-target";
+import { deriveOpenTargets, selectAutoOpenTarget, type OpenTarget } from "../artifacts/open-target";
 import {
   seedSessionState,
   statusKey as reactStatusKey,
@@ -505,7 +505,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     () => openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|"),
     [openTargets],
   );
-  const autoOpenTarget = verifiedOpenTargets.find(shouldAutoOpenTarget) ?? null;
+  const autoOpenTarget = selectAutoOpenTarget(verifiedOpenTargets);
   const pendingSessionLoad = !snapshot && snapshotQuery.isLoading && renderedMessages.length === 0;
   const assistantOutputAfterAwaitStart = useMemo(() => {
     if (awaitingAssistantBaseline === null) return false;
@@ -1072,6 +1072,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     scrollElement={() => scrollRef.current}
                     onRevertToMessage={props.onRevertToMessage}
                     onForkAtMessage={props.onForkAtMessage}
+                    openTargets={verifiedOpenTargets}
+                    onOpenTarget={props.onOpenTarget}
                   />
                   {error ? (
                     <SessionErrorCard

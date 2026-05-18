@@ -34,4 +34,21 @@ describe("ensureWorkspaceFiles", () => {
       expect(agent).toContain("OpenWork Artifacts");
     });
   });
+
+  test("does not rewrite an existing valid opencode config", async () => {
+    await withWorkspace(async (root) => {
+      const configPath = join(root, "opencode.jsonc");
+      const config = `{
+  // User formatting should survive routine workspace resolution.
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "custom"
+}
+`;
+      await writeFile(configPath, config, "utf8");
+
+      await ensureWorkspaceFiles(root, "starter");
+
+      expect(await readFile(configPath, "utf8")).toBe(config);
+    });
+  });
 });

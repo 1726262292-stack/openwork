@@ -85,6 +85,9 @@ Chrome DevTools MCP. Every tool takes `browser_url` as the first argument.
 - [`react-session-flows.md`](./react-session-flows.md) — core
   session/settings flows verified during the React port cutover, including
   long streaming interruption coverage.
+- [`openable-items-flow.md`](./openable-items-flow.md) — inline openable-item
+  chips, Cmd/Ctrl+K inventory, artifact/browser opening, icon checks, and
+  screenshot evidence requirements.
 - [`onboarding-welcome-flows.md`](./onboarding-welcome-flows.md) — the 7
   onboarding/welcome flows covering first-run experience and folder
   explanation.
