@@ -25,7 +25,7 @@ export type RestrictionNoticeModalProps = {
  *
  * Purposefully framework-free except for the shared Button: this is
  * a thin, declarative surface driven by the cloud domain when an org gates
- * a feature (allowZenModel, allowNonCloudModels, allowMultipleWorkspaces).
+ * a feature (allowZenModel, allowCustomProviders, allowMultipleWorkspaces).
  */
 export function RestrictionNoticeModal(props: RestrictionNoticeModalProps) {
   return (

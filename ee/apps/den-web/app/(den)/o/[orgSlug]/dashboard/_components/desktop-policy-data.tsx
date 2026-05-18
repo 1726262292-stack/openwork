@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { DesktopPolicyDefinition, DesktopPolicyValue } from "@openwork/types/den/desktop-policies";
+import {
+  desktopPolicyKeys,
+  normalizeDesktopPolicyValue,
+  type DesktopPolicyDefinition,
+  type DesktopPolicyValue,
+} from "@openwork/types/den/desktop-policies";
 import { getErrorMessage, requestJson } from "../../../../_lib/den-flow";
 
 export type DenDesktopPolicyAssignment = {
@@ -44,13 +49,12 @@ function asIsoString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+function isDesktopPolicyKey(value: string | null): value is DesktopPolicyDefinition["id"] {
+  return value !== null && desktopPolicyKeys.includes(value as DesktopPolicyDefinition["id"]);
+}
+
 function asPolicy(value: unknown): DesktopPolicyValue {
-  if (!isRecord(value)) return {};
-  return {
-    ...(typeof value.allowNonCloudModels === "boolean" ? { allowNonCloudModels: value.allowNonCloudModels } : {}),
-    ...(typeof value.allowZenModel === "boolean" ? { allowZenModel: value.allowZenModel } : {}),
-    ...(typeof value.allowMultipleWorkspaces === "boolean" ? { allowMultipleWorkspaces: value.allowMultipleWorkspaces } : {}),
-  };
+  return normalizeDesktopPolicyValue(value);
 }
 
 function asAssignment(value: unknown): DenDesktopPolicyAssignment | null {
@@ -71,12 +75,7 @@ function asDefinition(value: unknown): DesktopPolicyDefinition | null {
   const name = asString(value.name);
   const description = asString(value.description);
   const userNotice = asString(value.userNotice);
-  if (
-    (id !== "allowNonCloudModels" && id !== "allowZenModel" && id !== "allowMultipleWorkspaces") ||
-    !name ||
-    !description ||
-    !userNotice
-  ) {
+  if (!isDesktopPolicyKey(id) || !name || !description || !userNotice) {
     return null;
   }
   return {

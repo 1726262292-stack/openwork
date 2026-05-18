@@ -1390,7 +1390,7 @@ export function SessionRoute() {
           checkRestriction: checkDesktopRestriction,
         }) ||
         (
-          checkDesktopRestriction({ restriction: "allowNonCloudModels" }) &&
+          checkDesktopRestriction({ restriction: "allowCustomProviders" }) &&
           !providerConnectedIds.some(
             (providerId) => providerId.trim() === local.prefs.defaultModel?.providerID.trim(),
           )
@@ -1747,11 +1747,11 @@ export function SessionRoute() {
   // Apply org-level restrictions (dev #1505) on top of the raw model list
   // so the picker never surfaces blocked options:
   //   - `allowZenModel` hides the built-in OpenCode provider entries when false
-  //   - `allowNonCloudModels` hides providers that OpenCode does not report
+  //   - `allowCustomProviders` hides providers that OpenCode does not report
   //     as connected through the provider list endpoint.
   const allowedModelOptions = useMemo(() => {
     const restrictToCloud = checkDesktopRestriction({
-      restriction: "allowNonCloudModels",
+      restriction: "allowCustomProviders",
     });
     return modelOptions.filter((option) => {
       if (

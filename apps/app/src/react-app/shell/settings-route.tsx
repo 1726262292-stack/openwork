@@ -750,7 +750,7 @@ function SettingsRouteContent() {
   }, [cloudSession.baseUrl, navigate, platform, providerAuthStore, selectedWorkspaceId]);
 
   const handleOpenProviderAuth = useCallback(() => {
-    if (checkDesktopRestriction({ restriction: "allowNonCloudModels" })) {
+    if (checkDesktopRestriction({ restriction: "allowCustomProviders" })) {
       restrictionNotice.show({
         title: "Adding custom providers is disabled",
         message: "Your organization administrator has disabled adding custom providers.",

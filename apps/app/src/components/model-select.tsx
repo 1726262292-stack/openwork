@@ -71,11 +71,11 @@ function useModelOptions(open: boolean) {
   // Apply org-level restrictions (dev #1505) on top of the raw model list
   // so the picker never surfaces blocked options:
   //   - `allowZenModel` hides the built-in OpenCode provider entries when false
-  //   - `allowNonCloudModels` hides providers that OpenCode does not report
+  //   - `allowCustomProviders` hides providers that OpenCode does not report
   //     as connected through the provider list endpoint.
   return React.useMemo(() => {
     const restrictToCloud = checkDesktopRestriction({
-      restriction: "allowNonCloudModels",
+      restriction: "allowCustomProviders",
     });
 
     const options = getConnectedProviderItems(data)

@@ -15,7 +15,7 @@ function roleIncludesOwner(roleValue: string) {
 function legacyRestrictionsToPolicy(value: unknown): Required<DesktopPolicyValue> {
   const restrictions = normalizeDesktopAppRestrictions(value)
   return {
-    allowNonCloudModels: restrictions.disallowNonCloudModels !== true,
+    allowCustomProviders: restrictions.disallowNonCloudModels !== true,
     allowZenModel: restrictions.blockZenModel !== true,
     allowMultipleWorkspaces: restrictions.blockMultipleWorkspaces !== true,
   }

@@ -4,7 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Laptop } from "lucide-react";
-import type { DesktopPolicyValue } from "@openwork/types/den/desktop-policies";
+import {
+  desktopPolicyDefaults,
+  desktopPolicyKeys,
+  type DesktopPolicyValue,
+} from "@openwork/types/den/desktop-policies";
 import { DashboardPageTemplate } from "../../../../_components/ui/dashboard-page-template";
 import { DenButton } from "../../../../_components/ui/button";
 import { DenInput } from "../../../../_components/ui/input";
@@ -27,23 +31,21 @@ type PolicyDraft = {
 
 const EMPTY_DRAFT: PolicyDraft = {
   policyName: "New desktop policy",
-  policy: {
-    allowNonCloudModels: true,
-    allowZenModel: true,
-    allowMultipleWorkspaces: true,
-  },
+  policy: { ...desktopPolicyDefaults },
   memberIds: [],
   teamIds: [],
 };
 
+function requiredPolicyValue(value: DesktopPolicyValue): Required<DesktopPolicyValue> {
+  return Object.fromEntries(
+    desktopPolicyKeys.map((key) => [key, value[key] === true]),
+  ) as Required<DesktopPolicyValue>;
+}
+
 function draftFromPolicy(policy: DenDesktopPolicy): PolicyDraft {
   return {
     policyName: policy.policyName,
-    policy: {
-      allowNonCloudModels: policy.policy.allowNonCloudModels === true,
-      allowZenModel: policy.policy.allowZenModel === true,
-      allowMultipleWorkspaces: policy.policy.allowMultipleWorkspaces === true,
-    },
+    policy: requiredPolicyValue(policy.policy),
     memberIds: policy.assignments.flatMap((assignment) => (assignment.orgMemberId ? [assignment.orgMemberId] : [])),
     teamIds: policy.assignments.flatMap((assignment) => (assignment.teamId ? [assignment.teamId] : [])),
   };
