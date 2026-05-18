@@ -1,5 +1,11 @@
 /** @jsxImportSource react */
-import { FolderOpen, MessageSquare, MousePointerClick, Users, Share2 } from "lucide-react";
+import {
+  FolderOpen,
+  MessageSquare,
+  MousePointerClick,
+  Users,
+  Share2,
+} from "lucide-react";
 import { PaperGrainGradient } from "@openwork/ui/react";
 
 import { t } from "../../../i18n";
@@ -26,12 +32,36 @@ function BrandIcon({ slug, size = 18 }: { slug: string; size?: number }) {
 /* ------------------------------------------------------------------ */
 
 const capabilities = [
-  { slug: "googlesheets", title: "Edit spreadsheets", desc: "Create, clean, and transform CSV and Excel files." },
-  { slug: "googlechrome", title: "Control your browser", desc: "Automate Chrome for repetitive web tasks." },
-  { slug: "apple", title: "Organize files", desc: "Read, write, and manage files and folders." },
-  { slug: "zapier", title: "Automate tasks", desc: "Build reusable workflows with skills and commands." },
-  { slug: "medium", title: "Generate content", desc: "Draft documents, emails, and reports." },
-  { slug: "stripe", title: "Connect to APIs", desc: "Plug into external services and tools via MCP." },
+  {
+    slug: "googlesheets",
+    title: "Edit spreadsheets",
+    desc: "Create, clean, and transform CSV and Excel files.",
+  },
+  {
+    slug: "googlechrome",
+    title: "Control your browser",
+    desc: "Automate Chrome for repetitive web tasks.",
+  },
+  {
+    slug: "apple",
+    title: "Organize files",
+    desc: "Read, write, and manage files and folders.",
+  },
+  {
+    slug: "zapier",
+    title: "Automate tasks",
+    desc: "Build reusable workflows with skills and commands.",
+  },
+  {
+    slug: "medium",
+    title: "Generate content",
+    desc: "Draft documents, emails, and reports.",
+  },
+  {
+    slug: "stripe",
+    title: "Connect to APIs",
+    desc: "Plug into external services and tools via MCP.",
+  },
 ];
 
 function ShowcasePanel() {
@@ -64,7 +94,11 @@ function ShowcasePanel() {
 
       <div className="grid grid-cols-2 gap-2">
         <div className="flex items-start gap-2.5 rounded-xl border border-dls-border bg-dls-surface p-3">
-          <Share2 size={16} className="mt-0.5 shrink-0 text-dls-secondary" strokeWidth={1.5} />
+          <Share2
+            size={16}
+            className="mt-0.5 shrink-0 text-dls-secondary"
+            strokeWidth={1.5}
+          />
           <div>
             <div className="text-[12px] font-medium text-dls-text">
               Share in one link
@@ -75,7 +109,11 @@ function ShowcasePanel() {
           </div>
         </div>
         <div className="flex items-start gap-2.5 rounded-xl border border-dls-border bg-dls-surface p-3">
-          <Users size={16} className="mt-0.5 shrink-0 text-dls-secondary" strokeWidth={1.5} />
+          <Users
+            size={16}
+            className="mt-0.5 shrink-0 text-dls-secondary"
+            strokeWidth={1.5}
+          />
           <div>
             <div className="text-[12px] font-medium text-dls-text">
               Provision your team
@@ -125,7 +163,7 @@ type WelcomePageProps = {
 
 export function WelcomePage({ onGetStarted }: WelcomePageProps) {
   return (
-    <div className="relative min-h-screen bg-[#fafbfc] text-dls-text">
+    <div className="relative min-h-screen bg-gray-3 text-dls-text">
       {/* Subtle background texture */}
       <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
         <div className="absolute -left-[20%] -top-[30%] h-[70%] w-[60%] rounded-full bg-[radial-gradient(ellipse,rgba(14,51,217,0.06),transparent_70%)] blur-3xl" />
@@ -145,18 +183,13 @@ export function WelcomePage({ onGetStarted }: WelcomePageProps) {
               <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
                 {t("welcome.title")}
               </h1>
-              <p className="text-sm text-slate-500">
-                {t("welcome.subtitle")}
-              </p>
+              <p className="text-sm text-slate-500">{t("welcome.subtitle")}</p>
             </div>
 
             {/* Steps */}
             <div className="space-y-4">
               {steps.map((step) => (
-                <div
-                  key={step.number}
-                  className="flex items-start gap-4"
-                >
+                <div key={step.number} className="flex items-start gap-4">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#011627] text-[13px] font-semibold text-white">
                     {step.number}
                   </div>
@@ -201,12 +234,16 @@ export function WelcomePage({ onGetStarted }: WelcomePageProps) {
                 frame={37706.748}
                 colors={["#0E33D9", "#FF7E2E", "#FFE340", "#000000"]}
                 colorBack="#00000000"
-                style={{ backgroundColor: "#FFFFFF", width: "100%", height: "100%" }}
+                style={{
+                  backgroundColor: "#FFFFFF",
+                  width: "100%",
+                  height: "100%",
+                }}
               />
             </div>
 
             {/* Inner white card */}
-            <div className="relative z-10 m-3 rounded-2xl bg-white p-7">
+            <div className="relative z-10 m-3 rounded-2xl bg-gray-2 p-7">
               <ShowcasePanel />
             </div>
           </div>
