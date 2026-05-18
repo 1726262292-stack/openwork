@@ -779,6 +779,8 @@ export function normalizeWorkspaceRelativePath(input: string, options: { allowSu
   let normalized = raw.replace(/\\/g, "/");
   normalized = normalized.replace(/^\/+/, "");
   normalized = normalized.replace(/^\.\//, "");
+  normalized = normalized.replace(/^workspaces\/[^/]+\//i, "");
+  normalized = normalized.replace(/^workspace\/(?:ws_[^/]+|\d+|[0-9a-f-]{6,})\//i, "");
   normalized = normalized.replace(/^workspace\//, "");
   normalized = normalized.replace(/^\/+/, "");
 
@@ -811,6 +813,8 @@ export function isSupportedWorkspaceTextFilePath(relativePath: string): boolean 
     ".yml",
     ".toml",
     ".xml",
+    ".html",
+    ".htm",
     ".ts",
     ".tsx",
     ".js",
@@ -853,6 +857,19 @@ function decodeArtifactId(id: string): string {
   } catch {
     throw new ApiError(400, "invalid_artifact", "Artifact id is invalid");
   }
+}
+
+function contentTypeForPath(path: string): string {
+  const lowered = path.toLowerCase();
+  if (lowered.endsWith(".html") || lowered.endsWith(".htm")) return "text/html; charset=utf-8";
+  if (lowered.endsWith(".svg")) return "image/svg+xml";
+  if (lowered.endsWith(".png")) return "image/png";
+  if (lowered.endsWith(".jpg") || lowered.endsWith(".jpeg")) return "image/jpeg";
+  if (lowered.endsWith(".gif")) return "image/gif";
+  if (lowered.endsWith(".webp")) return "image/webp";
+  if (lowered.endsWith(".pdf")) return "application/pdf";
+  if (isSupportedWorkspaceTextFilePath(path)) return "text/plain; charset=utf-8";
+  return "application/octet-stream";
 }
 
 function encodeInboxId(path: string): string {
@@ -2316,6 +2333,46 @@ function createRoutes(
 
     const content = await readFile(absPath, "utf8");
     return jsonResponse({ path: relativePath, content, bytes: info.size, updatedAt: info.mtimeMs });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/files/stat", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const requested = (ctx.url.searchParams.get("path") ?? "").trim();
+    const relativePath = normalizeWorkspaceRelativePath(requested, { allowSubdirs: true });
+    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    if (!(await exists(absPath))) {
+      return jsonResponse({ ok: true, path: relativePath, exists: false });
+    }
+    const info = await stat(absPath);
+    return jsonResponse({
+      ok: true,
+      path: relativePath,
+      exists: true,
+      kind: info.isFile() ? "file" : info.isDirectory() ? "dir" : "other",
+      size: info.size,
+      updatedAt: info.mtimeMs,
+    });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/files/raw", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const requested = (ctx.url.searchParams.get("path") ?? "").trim();
+    const relativePath = normalizeWorkspaceRelativePath(requested, { allowSubdirs: true });
+    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    if (!(await exists(absPath))) {
+      throw new ApiError(404, "file_not_found", "File not found");
+    }
+    const info = await stat(absPath);
+    if (!info.isFile()) {
+      throw new ApiError(404, "file_not_found", "File not found");
+    }
+
+    const headers = new Headers();
+    headers.set("Content-Type", contentTypeForPath(relativePath));
+    headers.set("Content-Length", String(info.size));
+    headers.set("Content-Disposition", `inline; filename="${basename(relativePath)}"`);
+    const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
+    return new Response(stream, { status: 200, headers });
   });
 
   addRoute(routes, "POST", "/workspace/:id/files/content", "client", async (ctx) => {

@@ -12,13 +12,25 @@ export type OpenTarget = {
   preview: OpenTargetPreview;
   confidence: number;
   reason: string;
+  exists?: boolean;
+  size?: number;
+  updatedAt?: number;
 };
+
+const WORKSPACES_PREFIX_PATTERN = /^workspaces\/[^/]+\//i;
+const WORKSPACE_ID_PREFIX_PATTERN = /^workspace\/(?:ws_[^/]+|\d+|[0-9a-f-]{6,})\//i;
 
 const FILE_PATTERN = /(?:^|[\s"'`([{])((?:\.{1,2}[/\\]|~[/\\]|[/\\])?[\w.\-]+(?:[/\\][\w.\-]+)+\.[a-z][a-z0-9]{0,9}|[\w.\-]+\.[a-z][a-z0-9]{0,9})/gi;
 const URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/gi;
+const SOCKET_PATTERN = /(?:ws|wss):\/\/[^\s)\]}>"']+/gi;
 
 function normalizePath(path: string) {
-  return path.trim().replace(/[\\]+/g, "/").replace(/^\.\//, "");
+  return path
+    .trim()
+    .replace(/[\\]+/g, "/")
+    .replace(/^\.\//, "")
+    .replace(WORKSPACES_PREFIX_PATTERN, "")
+    .replace(WORKSPACE_ID_PREFIX_PATTERN, "");
 }
 
 function basename(value: string) {
@@ -84,6 +96,10 @@ function scanText(map: Map<string, OpenTarget>, text: string, confidence: number
   for (const match of text.matchAll(URL_PATTERN)) {
     if (match[0]) addTarget(map, targetFromUrl(match[0], confidence, reason));
   }
+  SOCKET_PATTERN.lastIndex = 0;
+  for (const match of text.matchAll(SOCKET_PATTERN)) {
+    if (match[0]) addTarget(map, targetFromUrl(match[0], confidence, reason));
+  }
   FILE_PATTERN.lastIndex = 0;
   for (const match of text.matchAll(FILE_PATTERN)) {
     if (match[1]) addTarget(map, targetFromFile(match[1], confidence, reason));
@@ -121,6 +137,6 @@ export function deriveOpenTargets(messages: UIMessage[]): OpenTarget[] {
 }
 
 export function shouldAutoOpenTarget(target: OpenTarget): boolean {
-  if (target.kind === "url") return /https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(target.value);
-  return target.confidence >= 65 && ["markdown", "sheet", "image", "pdf", "html"].includes(target.preview);
+  if (target.kind === "url") return /(?:https?|wss?):\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(target.value);
+  return target.exists === true && target.confidence >= 65 && ["markdown", "sheet", "image", "pdf", "html"].includes(target.preview);
 }

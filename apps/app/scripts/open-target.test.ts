@@ -17,6 +17,7 @@ describe("open target classification", () => {
     expect(classifyOpenTarget("customers.csv", "file")).toBe("sheet");
     expect(classifyOpenTarget("forecast.xlsx", "file")).toBe("sheet");
     expect(classifyOpenTarget("diagram.svg", "file")).toBe("image");
+    expect(classifyOpenTarget("dist/index.html", "file")).toBe("html");
     expect(classifyOpenTarget("http://localhost:5173", "url")).toBe("browser");
   });
 });
@@ -30,6 +31,24 @@ describe("deriveOpenTargets", () => {
     expect(targets.map((target) => target.value)).toContain("reports/revenue.xlsx");
     expect(targets.map((target) => target.value)).toContain("http://localhost:5173");
     expect(targets.find((target) => target.value === "reports/revenue.xlsx")?.preview).toBe("sheet");
+  });
+
+  it("extracts websocket URLs so local socket/dev-server hints stay visible", () => {
+    const targets = deriveOpenTargets([
+      message("msg_1", "assistant", "Socket open at ws://localhost:5173/socket and preview at dist/index.html"),
+    ]);
+
+    expect(targets.map((target) => target.value)).toContain("ws://localhost:5173/socket");
+    expect(targets.map((target) => target.value)).toContain("dist/index.html");
+  });
+
+  it("normalizes Workspace/<id>/ prefixes from artifact paths", () => {
+    const targets = deriveOpenTargets([
+      message("msg_1", "assistant", "See Workspace/32423/reports/artifact-eval.md and Workspace/32423/reports/artifact-eval.csv"),
+    ]);
+
+    expect(targets.map((target) => target.value)).toContain("reports/artifact-eval.md");
+    expect(targets.map((target) => target.value)).toContain("reports/artifact-eval.csv");
   });
 
   it("prefers explicit dynamic tool metadata over prose guesses", () => {
@@ -58,7 +77,8 @@ describe("deriveOpenTargets", () => {
     const csv = targets.find((target) => target.value === "data/customers.csv");
     const externalUrl = targets.find((target) => target.value === "https://example.com");
 
-    expect(csv && shouldAutoOpenTarget(csv)).toBe(true);
+    expect(csv && shouldAutoOpenTarget({ ...csv, exists: true })).toBe(true);
+    expect(csv && shouldAutoOpenTarget({ ...csv, exists: false })).toBe(false);
     expect(externalUrl && shouldAutoOpenTarget(externalUrl)).toBe(false);
   });
 });

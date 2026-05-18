@@ -107,6 +107,7 @@ export type SessionSurfaceProps = {
   onRevertToMessage?: (messageId: string) => void;
   onForkAtMessage?: (messageId: string) => void;
   onOpenTarget?: (target: OpenTarget, options?: { auto?: boolean }) => void;
+  onOpenTargetsChange?: (targets: OpenTarget[]) => void;
 };
 
 function messageToReadableText(message: UIMessage) {
@@ -358,6 +359,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const [toolMcpStatus, setToolMcpStatus] = useState<string | null>(null);
   const [toolMcpStatuses, setToolMcpStatuses] = useState<McpStatusMap>({});
   const [toolImportedPlugins, setToolImportedPlugins] = useState<CloudImportedPlugin[]>([]);
+  const [verifiedOpenTargets, setVerifiedOpenTargets] = useState<OpenTarget[]>([]);
   const composerShellRef = useRef<HTMLDivElement>(null);
   const hydratedKeyRef = useRef<string | null>(null);
   const autoOpenedTargetRef = useRef<string | null>(null);
@@ -414,6 +416,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setPasteParts([]);
     setNotice(null);
     autoOpenedTargetRef.current = null;
+    setVerifiedOpenTargets([]);
   }, [props.sessionId]);
 
   useEffect(() => {
@@ -498,7 +501,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     [snapshot, transcriptState],
   );
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
-  const autoOpenTarget = openTargets.find(shouldAutoOpenTarget) ?? null;
+  const autoOpenTarget = verifiedOpenTargets.find(shouldAutoOpenTarget) ?? null;
   const pendingSessionLoad = !snapshot && snapshotQuery.isLoading && renderedMessages.length === 0;
   const assistantOutputAfterAwaitStart = useMemo(() => {
     if (awaitingAssistantBaseline === null) return false;
@@ -524,6 +527,37 @@ export function SessionSurface(props: SessionSurfaceProps) {
     autoOpenedTargetRef.current = autoOpenTarget.id;
     props.onOpenTarget?.(autoOpenTarget, { auto: true });
   }, [autoOpenTarget, chatStreaming, props.onOpenTarget]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function verifyTargets() {
+      const verified = await Promise.all(openTargets.map(async (target) => {
+        if (target.kind !== "file") return { ...target, exists: true };
+        try {
+          const stat = await props.client.statWorkspaceFile(props.workspaceId, target.value);
+          const normalizedName = stat.path.split("/").filter(Boolean).pop() ?? target.name;
+          return {
+            ...target,
+            id: `file:${stat.path.toLowerCase()}`,
+            value: stat.path,
+            name: normalizedName,
+            exists: stat.exists && stat.kind === "file",
+            size: stat.size,
+            updatedAt: stat.updatedAt,
+          } satisfies OpenTarget;
+        } catch {
+          return { ...target, exists: false } satisfies OpenTarget;
+        }
+      }));
+      if (!cancelled) setVerifiedOpenTargets(verified);
+    }
+    void verifyTargets();
+    return () => { cancelled = true; };
+  }, [openTargets, props.client, props.workspaceId]);
+
+  useEffect(() => {
+    props.onOpenTargetsChange?.(verifiedOpenTargets);
+  }, [props.onOpenTargetsChange, verifiedOpenTargets]);
 
   useEffect(() => {
     if (!pendingSessionLoad) {

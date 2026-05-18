@@ -251,6 +251,15 @@ export type OpenworkArtifactList = {
   items: OpenworkArtifactItem[];
 };
 
+export type OpenworkWorkspaceFileStat = {
+  ok: boolean;
+  path: string;
+  exists: boolean;
+  kind?: "file" | "dir" | "other";
+  size?: number;
+  updatedAt?: number;
+};
+
 export type OpenworkInboxItem = {
   id: string;
   name?: string;
@@ -1244,6 +1253,13 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         { token, hostToken },
       ),
 
+    statWorkspaceFile: (workspaceId: string, path: string) =>
+      requestJson<OpenworkWorkspaceFileStat>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/files/stat?path=${encodeURIComponent(path)}`,
+        { token, hostToken },
+      ),
+
     writeWorkspaceFile: (
       workspaceId: string,
       payload: { path: string; content: string; baseUpdatedAt?: number | null; force?: boolean },
@@ -1257,6 +1273,13 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
           method: "POST",
           body: payload,
         },
+      ),
+
+    downloadWorkspaceFile: (workspaceId: string, path: string) =>
+      requestBinary(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/files/raw?path=${encodeURIComponent(path)}`,
+        { token, hostToken, timeoutMs: timeouts.binary },
       ),
 
     listArtifacts: (workspaceId: string) =>

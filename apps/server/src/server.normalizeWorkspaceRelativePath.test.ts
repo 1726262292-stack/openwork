@@ -11,6 +11,11 @@ describe("normalizeWorkspaceRelativePath", () => {
     expect(normalizeWorkspaceRelativePath("workspace/dir/notes.md", { allowSubdirs: true })).toBe("dir/notes.md");
   });
 
+  test("strips Workspace/<id>/ prefix from rendered artifact paths", () => {
+    expect(normalizeWorkspaceRelativePath("Workspace/32423/reports/artifact-eval.md", { allowSubdirs: true })).toBe("reports/artifact-eval.md");
+    expect(normalizeWorkspaceRelativePath("workspaces/demo/reports/artifact-eval.csv", { allowSubdirs: true })).toBe("reports/artifact-eval.csv");
+  });
+
   test("strips /workspace/ prefix", () => {
     expect(normalizeWorkspaceRelativePath("/workspace/notes.md", { allowSubdirs: true })).toBe("notes.md");
     expect(normalizeWorkspaceRelativePath("//workspace/dir/notes.md", { allowSubdirs: true })).toBe("dir/notes.md");
@@ -42,6 +47,7 @@ describe("isSupportedWorkspaceTextFilePath", () => {
     expect(isSupportedWorkspaceTextFilePath("logs/run.log")).toBe(true);
     expect(isSupportedWorkspaceTextFilePath("config/app.yaml")).toBe(true);
     expect(isSupportedWorkspaceTextFilePath("styles/app.css")).toBe(true);
+    expect(isSupportedWorkspaceTextFilePath("dist/index.html")).toBe(true);
   });
 
   test("keeps accepting OpenCode config/plugin text file extensions", () => {

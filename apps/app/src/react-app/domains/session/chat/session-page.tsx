@@ -192,6 +192,8 @@ export function SessionPage(props: SessionPageProps) {
   const toggleBrowserPanel = useUiStateStore((state) => state.toggleBrowserPanel);
   const [rightPaneMode, setRightPaneMode] = useState<"browser" | "artifact">("browser");
   const [artifactTarget, setArtifactTarget] = useState<OpenTarget | null>(null);
+  const [artifactTargets, setArtifactTargets] = useState<OpenTarget[]>([]);
+  const artifactFileTargets = useMemo(() => artifactTargets.filter((target) => target.kind === "file"), [artifactTargets]);
 
   useReactRenderWatchdog("SessionPage", {
     selectedSessionId: props.selectedSessionId,
@@ -241,18 +243,28 @@ export function SessionPage(props: SessionPageProps) {
     if (browserPanelOpen) return;
     setBrowserPanelDefaultWidth(browserPanelWidth);
   }, [browserPanelOpen, browserPanelWidth]);
+  useEffect(() => {
+    setArtifactTarget(null);
+    setArtifactTargets([]);
+    setRightPaneMode("browser");
+  }, [props.selectedSessionId]);
   const commitBrowserPanelWidth = useCallback(() => {
     const size = browserPanelRef.current?.getSize();
     if (size?.inPixels) setBrowserPanelWidth(Math.round(size.inPixels));
   }, [browserPanelRef, setBrowserPanelWidth]);
+  const browserUrlForTarget = useCallback((target: OpenTarget) => {
+    if (/^wss?:\/\//i.test(target.value)) return target.value.replace(/^ws:/i, "http:").replace(/^wss:/i, "https:");
+    return target.value;
+  }, []);
   const openTarget = useCallback((target: OpenTarget, options?: { auto?: boolean }) => {
     if (target.kind === "url" || target.preview === "browser") {
+      const url = browserUrlForTarget(target);
       if (isElectronRuntime()) {
         setRightPaneMode("browser");
         openBrowserPanel();
-        void window.__OPENWORK_ELECTRON__?.browser?.createTab?.(target.value);
+        void window.__OPENWORK_ELECTRON__?.browser?.createTab?.(url);
       } else {
-        window.open(target.value, "_blank", "noopener,noreferrer");
+        window.open(url, "_blank", "noopener,noreferrer");
       }
       return;
     }
@@ -260,7 +272,14 @@ export function SessionPage(props: SessionPageProps) {
     setArtifactTarget(target);
     setRightPaneMode("artifact");
     openBrowserPanel();
-  }, [artifactTarget?.id, openBrowserPanel]);
+  }, [artifactTarget?.id, browserUrlForTarget, openBrowserPanel]);
+  const handleOpenTargetsChange = useCallback((targets: OpenTarget[]) => {
+    setArtifactTargets(targets);
+    setArtifactTarget((current) => {
+      if (!current) return current;
+      return targets.find((target) => target.id === current.id || target.value === current.value) ?? current;
+    });
+  }, []);
   const closeRightPane = useCallback(() => {
     closeBrowserPanel();
   }, [closeBrowserPanel]);
@@ -471,7 +490,7 @@ export function SessionPage(props: SessionPageProps) {
                   <span className="hidden @lg/titlebar:inline">Browser</span>
                 </Button>
               ) : null}
-              {artifactTarget ? (
+              {artifactTarget || artifactFileTargets.length > 0 ? (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -488,7 +507,7 @@ export function SessionPage(props: SessionPageProps) {
                   aria-pressed={browserPanelOpen && rightPaneMode === "artifact"}
                 >
                   <FileText size={16} />
-                  <span className="hidden @lg/titlebar:inline">Artifact</span>
+                  <span className="hidden @lg/titlebar:inline">Artifact{artifactFileTargets.length > 1 ? `s ${artifactFileTargets.length}` : ""}</span>
                 </Button>
               ) : null}
               {/* Revert/redo moved to per-message actions */}
@@ -575,6 +594,7 @@ export function SessionPage(props: SessionPageProps) {
                   respondPermission={props.respondPermission}
                   safeStringify={props.safeStringify}
                   onOpenTarget={openTarget}
+                  onOpenTargetsChange={handleOpenTargetsChange}
                 />
               ) : null}
 
@@ -739,7 +759,10 @@ export function SessionPage(props: SessionPageProps) {
                       client={props.openworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
+                      isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
                       target={artifactTarget}
+                      targets={artifactFileTargets}
+                      onSelectTarget={openTarget}
                       onClose={closeRightPane}
                     />
                   ) : (
