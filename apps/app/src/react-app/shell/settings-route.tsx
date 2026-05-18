@@ -80,6 +80,7 @@ import {
 } from "../../app/lib/desktop";
 import { isDesktopProviderBlocked } from "../../app/cloud/desktop-app-restrictions";
 import { useCheckDesktopRestriction, useDesktopConfig } from "../domains/cloud/desktop-config-provider";
+import { useRestrictionNotice } from "../domains/cloud/restriction-notice-provider";
 import { useCloudProviderAutoSync } from "../domains/cloud/use-cloud-provider-auto-sync";
 import {
   isDesktopRuntime,
@@ -410,6 +411,7 @@ function SettingsRouteContent() {
   const local = useLocal();
   const platform = usePlatform();
   const checkDesktopRestriction = useCheckDesktopRestriction();
+  const restrictionNotice = useRestrictionNotice();
   const desktopConfig = useDesktopConfig();
   const reloadCoordinator = useReloadCoordinator();
   const route = parseSettingsPath(location.pathname);
@@ -674,6 +676,7 @@ function SettingsRouteContent() {
         providerDefaults: () => routeStateRef.current.providerDefaults,
         providerConnectedIds: () => routeStateRef.current.providerConnectedIds,
         disabledProviders: () => routeStateRef.current.disabledProviders,
+        checkDesktopAppRestriction: checkDesktopRestriction,
         selectedWorkspaceDisplay: () => routeStateRef.current.selectedWorkspaceDisplay,
         selectedWorkspaceRoot: () => routeStateRef.current.selectedWorkspaceRoot,
         runtimeWorkspaceId: () => routeStateRef.current.runtimeWorkspaceId,
@@ -691,7 +694,7 @@ function SettingsRouteContent() {
           });
         },
       }),
-    [openworkServerStore, reloadCoordinator.markReloadRequired],
+    [checkDesktopRestriction, openworkServerStore, reloadCoordinator.markReloadRequired],
   );
   const extensionsStore = useMemo(
     () =>
@@ -745,6 +748,31 @@ function SettingsRouteContent() {
       platform.openLink(getDenInferenceUrl(cloudSession.baseUrl));
     }, 0);
   }, [cloudSession.baseUrl, navigate, platform, providerAuthStore, selectedWorkspaceId]);
+
+  const handleOpenProviderAuth = useCallback(() => {
+    if (checkDesktopRestriction({ restriction: "disallowNonCloudModels" })) {
+      restrictionNotice.show({
+        title: "Adding custom providers is disabled",
+        message: "Your organization administrator has disabled adding custom providers.",
+      });
+      return;
+    }
+
+    void providerAuthStore.openProviderAuthModal();
+  }, [checkDesktopRestriction, providerAuthStore, restrictionNotice]);
+
+  useEffect(() => {
+    if (!activeClient || !selectedWorkspaceId) return;
+
+    void providerAuthStore
+      .ensureProjectProviderDisabledState(
+        "opencode",
+        checkDesktopRestriction({ restriction: "blockZenModel" }),
+      )
+      .catch((error) => {
+        console.warn("[desktop-app-restrictions] failed to sync Zen restriction", error);
+      });
+  }, [activeClient, checkDesktopRestriction, disabledProviders, providerAuthStore, selectedWorkspaceId, selectedWorkspaceRoot]);
 
   const shareWorkspaceState = useShareWorkspaceState({
     workspaces,
@@ -1382,6 +1410,18 @@ function SettingsRouteContent() {
   };
 
   const handleOpenCreateWorkspace = () => {
+    if (
+      workspaces.length > 0 &&
+      checkDesktopRestriction({ restriction: "blockMultipleWorkspaces" })
+    ) {
+      restrictionNotice.show({
+        title: "Additional workspaces are restricted",
+        message:
+          "Your organization administrator has restricted access to adding additional workspaces.",
+      });
+      return;
+    }
+
     setCreateWorkspaceError(null);
     setCreateWorkspaceRemoteError(null);
     setCreateWorkspaceOpen(true);
@@ -1643,7 +1683,7 @@ function SettingsRouteContent() {
             providerConnectError={providerAuthSnapshot.providerAuthError}
             providerDisconnectStatus={configActionStatus}
             providerDisconnectError={null}
-            onOpenProviderAuth={() => providerAuthStore.openProviderAuthModal()}
+            onOpenProviderAuth={handleOpenProviderAuth}
             onDisconnectProvider={async (providerId) => {
               await providerAuthStore.disconnectProvider(providerId);
             }}

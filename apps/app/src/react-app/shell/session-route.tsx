@@ -1384,8 +1384,22 @@ export function SessionRoute() {
   });
   const selectedModelUnavailable = Boolean(
     local.prefs.defaultModel &&
-      providerListQuery.data &&
-      !isModelAvailableInConnectedProviders(providerListQuery.data, local.prefs.defaultModel),
+      (
+        isDesktopProviderBlocked({
+          providerId: local.prefs.defaultModel.providerID,
+          checkRestriction: checkDesktopRestriction,
+        }) ||
+        (
+          checkDesktopRestriction({ restriction: "disallowNonCloudModels" }) &&
+          !providerConnectedIds.some(
+            (providerId) => providerId.trim() === local.prefs.defaultModel?.providerID.trim(),
+          )
+        ) ||
+        (
+          providerListQuery.data &&
+          !isModelAvailableInConnectedProviders(providerListQuery.data, local.prefs.defaultModel)
+        )
+      ),
   );
   const canCreateTask = Boolean(
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
@@ -1420,6 +1434,7 @@ export function SessionRoute() {
         providerDefaults: () => sessionProviderAuthStateRef.current.providerDefaults,
         providerConnectedIds: () => sessionProviderAuthStateRef.current.providerConnectedIds,
         disabledProviders: () => sessionProviderAuthStateRef.current.disabledProviderIds,
+        checkDesktopAppRestriction: checkDesktopRestriction,
         selectedWorkspaceDisplay: () =>
           sessionProviderAuthStateRef.current.selectedWorkspace
             ? ({
@@ -1452,7 +1467,7 @@ export function SessionRoute() {
           });
         },
       }),
-    [reloadCoordinator],
+    [checkDesktopRestriction, reloadCoordinator],
   );
 
   useEffect(() => {
@@ -1461,6 +1476,19 @@ export function SessionRoute() {
       sessionProviderAuthStore.dispose();
     };
   }, [sessionProviderAuthStore]);
+
+  useEffect(() => {
+    if (!opencodeClient || !selectedWorkspaceId) return;
+
+    void sessionProviderAuthStore
+      .ensureProjectProviderDisabledState(
+        "opencode",
+        checkDesktopRestriction({ restriction: "blockZenModel" }),
+      )
+      .catch((error) => {
+        console.warn("[desktop-app-restrictions] failed to sync Zen restriction", error);
+      });
+  }, [checkDesktopRestriction, disabledProviderIds, opencodeClient, selectedWorkspaceId, selectedWorkspaceRoot, sessionProviderAuthStore]);
 
   useEffect(() => {
     sessionProviderAuthStore.syncFromOptions();

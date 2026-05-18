@@ -44,6 +44,10 @@ import {
   type CloudImportedProvider,
 } from "../../../../app/cloud/import-state";
 import { dispatchNewProviders } from "../../../../app/lib/provider-events";
+import {
+  isDesktopProviderBlocked,
+  type DesktopAppRestrictionChecker,
+} from "../../../../app/cloud/desktop-app-restrictions";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 type CloudProviderSyncReason = "sign_in" | "app_launch" | "interval" | "settings_cloud_opened";
@@ -87,6 +91,7 @@ type CreateProviderAuthStoreOptions = {
   providerDefaults: () => Record<string, string>;
   providerConnectedIds: () => string[];
   disabledProviders: () => string[];
+  checkDesktopAppRestriction: DesktopAppRestrictionChecker;
   selectedWorkspaceDisplay: () => WorkspaceDisplay;
   selectedWorkspaceRoot: () => string;
   runtimeWorkspaceId: () => string | null;
@@ -170,6 +175,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     for (const provider of options.providers()) {
       const id = provider.id?.trim();
       if (!id) continue;
+      if (isDesktopProviderBlocked({ providerId: id, checkRestriction: options.checkDesktopAppRestriction })) continue;
       merged.set(id, {
         id,
         name: provider.name?.trim() || id,
@@ -180,6 +186,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     for (const provider of state.cloudOrgProviders) {
       const id = provider.providerId.trim();
       if (!id || merged.has(id)) continue;
+      if (isDesktopProviderBlocked({ providerId: id, checkRestriction: options.checkDesktopAppRestriction })) continue;
       merged.set(id, {
         id,
         name: provider.name.trim() || id,
@@ -496,6 +503,99 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const next = fallbackUpdate(config);
     await c.config.update({ config: next });
     return true;
+  };
+
+  const normalizeDisabledProviders = (value: unknown) =>
+    Array.isArray(value)
+      ? [
+          ...new Set(
+            value
+              .filter((entry): entry is string => typeof entry === "string")
+              .map((entry) => entry.trim())
+              .filter(Boolean),
+          ),
+        ]
+      : [];
+
+  const formatConfigWithProviderDisabledState = (
+    raw: string,
+    providerId: string,
+    disabled: boolean,
+  ) => {
+    const resolvedProviderId = providerId.trim();
+    let updated = raw.trim()
+      ? raw
+      : '{\n  "$schema": "https://opencode.ai/config.json"\n}\n';
+    const parsed = parse(updated) as Record<string, unknown> | undefined;
+    const currentDisabled = normalizeDisabledProviders(parsed?.disabled_providers);
+    const nextDisabled = disabled
+      ? [...currentDisabled.filter((entry) => entry !== resolvedProviderId), resolvedProviderId]
+      : currentDisabled.filter((entry) => entry !== resolvedProviderId);
+
+    const disabledEdits = modify(
+      updated,
+      ["disabled_providers"],
+      nextDisabled.length ? nextDisabled : undefined,
+      { formattingOptions: { insertSpaces: true, tabSize: 2 } },
+    );
+    updated = applyEdits(updated, disabledEdits);
+    return updated.endsWith("\n") ? updated : `${updated}\n`;
+  };
+
+  const ensureProjectProviderDisabledState = async (
+    providerId: string,
+    disabled: boolean,
+  ) => {
+    const resolvedProviderId = providerId.trim();
+    if (!resolvedProviderId) {
+      throw new Error(t("providers.provider_id_required"));
+    }
+
+    const currentDisabled = normalizeDisabledProviders(options.disabledProviders());
+    const nextDisabled = disabled
+      ? [...currentDisabled.filter((entry) => entry !== resolvedProviderId), resolvedProviderId]
+      : currentDisabled.filter((entry) => entry !== resolvedProviderId);
+
+    if (
+      nextDisabled.length === currentDisabled.length &&
+      nextDisabled.every((entry, index) => entry === currentDisabled[index])
+    ) {
+      return false;
+    }
+
+    const updatedConfig = await updateProjectConfigFile(
+      (raw) => formatConfigWithProviderDisabledState(raw, resolvedProviderId, disabled),
+      (config) => {
+        const nextConfig = { ...config };
+        if (nextDisabled.length) {
+          nextConfig.disabled_providers = nextDisabled;
+        } else {
+          delete nextConfig.disabled_providers;
+        }
+        return nextConfig;
+      },
+    );
+
+    if (!updatedConfig) {
+      throw new Error("Could not update opencode.jsonc for this workspace.");
+    }
+
+    options.setDisabledProviders(nextDisabled);
+    options.markOpencodeConfigReloadRequired();
+    refreshSnapshot();
+    emitChange();
+    return true;
+  };
+
+  const assertProviderAllowedByDesktopPolicy = (providerId: string) => {
+    if (
+      isDesktopProviderBlocked({
+        providerId,
+        checkRestriction: options.checkDesktopAppRestriction,
+      })
+    ) {
+      throw new Error(`${providerId} is blocked by your organization desktop policy.`);
+    }
   };
 
   const escapeRegExp = (value: string) =>
@@ -928,6 +1028,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     for (const provider of availableProviders ?? []) {
       const id = provider.id?.trim();
       if (!id) continue;
+      if (isDesktopProviderBlocked({ providerId: id, checkRestriction: options.checkDesktopAppRestriction })) continue;
       if (!Array.isArray(provider.env) || provider.env.length === 0) continue;
       const existing = merged[id] ?? [];
       if (existing.some((method) => method.type === "api")) continue;
@@ -936,6 +1037,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
     const availableProvidersById = new Map((availableProviders ?? []).map((provider) => [provider.id, provider]));
     for (const [id, providerMethods] of Object.entries(merged)) {
+      if (isDesktopProviderBlocked({ providerId: id, checkRestriction: options.checkDesktopAppRestriction })) {
+        delete merged[id];
+        continue;
+      }
       const provider = availableProvidersById.get(id);
       const normalizedId = id.trim().toLowerCase();
       const normalizedName = provider?.name?.trim().toLowerCase() ?? "";
@@ -952,6 +1057,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     for (const provider of cloudProviders) {
       const id = provider.providerId.trim();
       if (!id) continue;
+      if (isDesktopProviderBlocked({ providerId: id, checkRestriction: options.checkDesktopAppRestriction })) continue;
       const existing = merged[id] ?? [];
       if (
         existing.some(
@@ -1007,6 +1113,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       if (!resolved) {
         throw new Error(t("providers.provider_id_required"));
       }
+      assertProviderAllowedByDesktopPolicy(resolved);
 
       const methods = authMethods[resolved];
       if (!methods || !methods.length) {
@@ -1102,6 +1209,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (!resolved) {
       throw new Error(t("providers.provider_id_required"));
     }
+    assertProviderAllowedByDesktopPolicy(resolved);
 
     if (!Number.isInteger(methodIndex) || methodIndex < 0) {
       throw new Error(t("providers.oauth_method_required"));
@@ -1176,6 +1284,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (!trimmed) {
       throw new Error(t("providers.api_key_required"));
     }
+    assertProviderAllowedByDesktopPolicy(providerId);
 
     try {
       await c.auth.set({ providerID: providerId, auth: { type: "api", key: trimmed } });
@@ -1214,6 +1323,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         token,
       });
       const provider = await den.getOrgLlmProviderConnection(orgId, cloudProviderId);
+      assertProviderAllowedByDesktopPolicy(provider.providerId);
       const existingImported = state.importedCloudProviders[cloudProviderId] ?? null;
       const localProviderId = getCloudManagedProviderId(provider);
       const apiKey = provider.apiKey?.trim() ?? "";
@@ -1510,38 +1620,13 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       return await removeCloudProvider(trackedImport.cloudProviderId);
     }
 
-    const provider = options.providers().find((entry) => entry.id === resolved) as
-      | (ProviderListItem & { source?: string })
-      | undefined;
     // Allow disabling any provider — including built-in/env providers
     // like "opencode" (Zen). The user should be able to hide any provider
     // from the model list by adding it to disabled_providers in opencode.json.
     const canDisableProvider = true;
 
     const disableProvider = async () => {
-      const config = unwrap(await c.config.get());
-      const disabledProviders = Array.isArray(config.disabled_providers)
-        ? config.disabled_providers
-        : [];
-      if (disabledProviders.includes(resolved)) {
-        return false;
-      }
-
-      const next = [...disabledProviders, resolved];
-      options.setDisabledProviders(next);
-      try {
-        const result = await c.config.update({
-          config: { ...config, disabled_providers: next },
-        });
-        assertNoClientError(result);
-        options.markOpencodeConfigReloadRequired();
-      } catch (error) {
-        options.setDisabledProviders(disabledProviders);
-        throw error;
-      }
-      refreshSnapshot();
-      emitChange();
-      return true;
+      return await ensureProjectProviderDisabledState(resolved, true);
     };
 
     try {
@@ -1795,6 +1880,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     connectCloudProvider,
     removeCloudProvider,
     disconnectProvider,
+    ensureProjectProviderDisabledState,
     openProviderAuthModal,
     closeProviderAuthModal,
   };
