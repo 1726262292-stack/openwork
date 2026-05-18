@@ -1,6 +1,6 @@
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
-import { desktopConfigSchema } from "@openwork/types/den/desktop-app-restrictions"
+import { desktopConfigSchema } from "@openwork/types/den/desktop-policies"
 import { z } from "zod"
 import { jsonValidator, requireUserMiddleware, resolveOrganizationContextMiddleware, resolveUserOrganizationsMiddleware, type OrganizationContextVariables, type UserOrganizationsContext } from "../../middleware/index.js"
 import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
@@ -8,6 +8,7 @@ import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import { resolveUserOrganizations, setSessionActiveOrganization } from "../../orgs.js"
 import type { AuthContextVariables } from "../../session.js"
 import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
+import { calculateDesktopPolicyForOrgMember } from "../../desktop-policies.js"
 
 const meResponseSchema = z.object({
   user: z.object({}).passthrough(),
@@ -143,12 +144,17 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
     }),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
-    (c) => {
+    async (c) => {
       const organization = c.get("organizationContext").organization
+      const currentMember = c.get("organizationContext").currentMember
       const metadata = normalizeOrganizationMetadata(organization.metadata).metadata
+      const desktopPolicy = await calculateDesktopPolicyForOrgMember({
+        organizationId: organization.id,
+        orgMemberId: currentMember.id,
+      })
 
       return c.json({
-        ...organization.desktopAppRestrictions,
+        ...desktopPolicy,
         ...(Array.isArray(metadata.allowedDesktopVersions)
           ? { allowedDesktopVersions: metadata.allowedDesktopVersions }
           : {}),

@@ -94,9 +94,9 @@ type DesktopConfigState = {
  * React port of the Solid `DesktopConfigProvider`
  * (`apps/app/src/app/cloud/desktop-config-provider.tsx` on dev).
  *
- * Fetches the org-scoped "desktop app restrictions" config (new
- * `packages/types/den/desktop-app-restrictions.ts` shape) and caches it in
- * localStorage so gates like `blockZenModel` can apply immediately on the
+ * Fetches the org-scoped desktop policy config
+ * (`packages/types/den/desktop-policies.ts` shape) and caches it in
+ * localStorage so gates like `allowZenModel` can apply immediately on the
  * next boot without waiting for the HTTP round-trip. Re-fetches on Den
  * session / settings events and on a one-hour interval.
  */
@@ -233,8 +233,8 @@ export function useDesktopConfig(): DesktopConfigStore {
 }
 
 /**
- * Convenience hook that returns the raw `DesktopAppRestrictions` flags
- * (e.g. `{ blockZenModel: true }`). Callers usually just want the flags,
+ * Convenience hook that returns the raw desktop policy flags
+ * (e.g. `{ allowZenModel: true }`). Callers usually just want the flags,
  * not the loading state — feature gates should read through this.
  */
 export function useOrgRestrictions(): DenDesktopConfig {
@@ -253,7 +253,7 @@ export function useCheckDesktopRestriction(): DesktopAppRestrictionChecker {
 /**
  * Single-restriction hook — returns true/false for a specific key.
  * Use this at feature sites that only care about one flag
- * (e.g. `useDesktopRestriction("blockMultipleWorkspaces")`).
+ * (e.g. `useDesktopRestriction("allowMultipleWorkspaces")`).
  */
 export function useDesktopRestriction(
   restriction: Parameters<DesktopAppRestrictionChecker>[0]["restriction"],

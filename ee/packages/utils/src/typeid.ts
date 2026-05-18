@@ -50,6 +50,8 @@ export const idTypesMapNameToPrefix = {
   llmProvider: "lpr",
   llmProviderModel: "lpm",
   llmProviderAccess: "lpa",
+  desktopPolicy: "dpo",
+  desktopPolicyMember: "dpm",
   organizationRole: "orl",
   adminAllowlist: "aal",
   worker: "wrk",

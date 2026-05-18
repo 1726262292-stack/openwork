@@ -12,6 +12,7 @@ import {
   FileText,
   Home,
   KeyRound,
+  Laptop,
   LogOut,
   MessageSquare,
   Puzzle,
@@ -27,6 +28,7 @@ import {
   getApiKeysRoute,
   getBillingRoute,
   getCustomLlmProvidersRoute,
+  getDesktopPoliciesRoute,
   getOrgAccessFlags,
   getIntegrationsRoute,
   getInferenceRoute,
@@ -114,6 +116,9 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
   if (pathname.startsWith(getCustomLlmProvidersRoute(orgSlug))) {
     return "LLM Providers";
   }
+  if (pathname.startsWith(getDesktopPoliciesRoute(orgSlug))) {
+    return "Desktop Policies";
+  }
   if (pathname.startsWith(getInferenceRoute(orgSlug))) {
     return "OpenWork Models";
   }
@@ -186,6 +191,11 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
       href: activeOrg ? getCustomLlmProvidersRoute(activeOrg.slug) : "#",
       label: "LLM Providers",
       icon: Cpu,
+    },
+    {
+      href: activeOrg ? getDesktopPoliciesRoute(activeOrg.slug) : "#",
+      label: "Desktop Policies",
+      icon: Laptop,
     },
     // NOTE: Skill Hubs soft-disabled — uncomment to re-enable
     // {

@@ -113,6 +113,13 @@
       "when": 1778739941884,
       "tag": "0016_uneven_puppet_master",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1779129600000,
+      "tag": "0017_desktop_policies",
+      "breakpoints": true
     }
   ]
 }

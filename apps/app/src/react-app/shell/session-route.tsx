@@ -1390,7 +1390,7 @@ export function SessionRoute() {
           checkRestriction: checkDesktopRestriction,
         }) ||
         (
-          checkDesktopRestriction({ restriction: "disallowNonCloudModels" }) &&
+          checkDesktopRestriction({ restriction: "allowNonCloudModels" }) &&
           !providerConnectedIds.some(
             (providerId) => providerId.trim() === local.prefs.defaultModel?.providerID.trim(),
           )
@@ -1483,7 +1483,7 @@ export function SessionRoute() {
     void sessionProviderAuthStore
       .ensureProjectProviderDisabledState(
         "opencode",
-        checkDesktopRestriction({ restriction: "blockZenModel" }),
+        checkDesktopRestriction({ restriction: "allowZenModel" }),
       )
       .catch((error) => {
         console.warn("[desktop-app-restrictions] failed to sync Zen restriction", error);
@@ -1746,12 +1746,12 @@ export function SessionRoute() {
 
   // Apply org-level restrictions (dev #1505) on top of the raw model list
   // so the picker never surfaces blocked options:
-  //   - `blockZenModel` hides the built-in OpenCode provider entries
-  //   - `disallowNonCloudModels` hides providers that OpenCode does not report
+  //   - `allowZenModel` hides the built-in OpenCode provider entries when false
+  //   - `allowNonCloudModels` hides providers that OpenCode does not report
   //     as connected through the provider list endpoint.
   const allowedModelOptions = useMemo(() => {
     const restrictToCloud = checkDesktopRestriction({
-      restriction: "disallowNonCloudModels",
+      restriction: "allowNonCloudModels",
     });
     return modelOptions.filter((option) => {
       if (
@@ -1985,13 +1985,13 @@ export function SessionRoute() {
   ]);
 
   const handleOpenCreateWorkspace = useCallback(() => {
-    // Respect the org-level `blockMultipleWorkspaces` restriction (dev
+    // Respect the org-level `allowMultipleWorkspaces` restriction (dev
     // #1505). If the checker returns true, the admin has disabled
     // adding further workspaces; surface a friendly notice instead of
     // opening the modal.
     if (
       workspaces.length > 0 &&
-      checkDesktopRestriction({ restriction: "blockMultipleWorkspaces" })
+      checkDesktopRestriction({ restriction: "allowMultipleWorkspaces" })
     ) {
       restrictionNotice.show({
         title: "Additional workspaces are restricted",

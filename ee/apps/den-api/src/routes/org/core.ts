@@ -1,6 +1,5 @@
 import { eq } from "@openwork-ee/den-db/drizzle"
 import { OrganizationTable } from "@openwork-ee/den-db/schema"
-import { desktopAppRestrictionsSchema } from "@openwork/types/den/desktop-app-restrictions"
 import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
@@ -29,9 +28,8 @@ const createOrganizationSchema = z.object({
 const updateOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
   allowedEmailDomains: z.array(z.string().trim().min(1).max(255)).max(100).nullable().optional(),
-  desktopAppRestrictions: desktopAppRestrictionsSchema.optional(),
   allowedDesktopVersions: z.array(z.string().trim().min(1).max(32)).max(200).nullable().optional(),
-}).refine((value) => value.name !== undefined || value.allowedEmailDomains !== undefined || value.desktopAppRestrictions !== undefined || value.allowedDesktopVersions !== undefined, {
+}).refine((value) => value.name !== undefined || value.allowedEmailDomains !== undefined || value.allowedDesktopVersions !== undefined, {
   message: "Provide at least one organization field to update.",
 })
 
@@ -270,7 +268,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
     describeRoute({
       tags: ["Organizations"],
       summary: "Update organization",
-      description: "Updates organization fields that workspace owners are allowed to change, including the display name, allowed invitation email domains, and desktop app restrictions. The slug is immutable to avoid breaking dashboard URLs.",
+      description: "Updates organization fields that workspace owners are allowed to change, including the display name, allowed invitation email domains, and allowed desktop versions. The slug is immutable to avoid breaking dashboard URLs.",
       responses: {
         200: jsonResponse("Organization updated successfully.", organizationResponseSchema),
         400: jsonResponse("The organization update request body was invalid or contained malformed email domains.", invalidEmailDomainSchema),
@@ -307,7 +305,6 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         organizationId: payload.organization.id,
         name: input.name,
         allowedEmailDomains: normalizedDomains.domains,
-        desktopAppRestrictions: input.desktopAppRestrictions,
         allowedDesktopVersions: input.allowedDesktopVersions,
       })
 

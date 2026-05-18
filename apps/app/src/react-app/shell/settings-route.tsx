@@ -750,7 +750,7 @@ function SettingsRouteContent() {
   }, [cloudSession.baseUrl, navigate, platform, providerAuthStore, selectedWorkspaceId]);
 
   const handleOpenProviderAuth = useCallback(() => {
-    if (checkDesktopRestriction({ restriction: "disallowNonCloudModels" })) {
+    if (checkDesktopRestriction({ restriction: "allowNonCloudModels" })) {
       restrictionNotice.show({
         title: "Adding custom providers is disabled",
         message: "Your organization administrator has disabled adding custom providers.",
@@ -767,7 +767,7 @@ function SettingsRouteContent() {
     void providerAuthStore
       .ensureProjectProviderDisabledState(
         "opencode",
-        checkDesktopRestriction({ restriction: "blockZenModel" }),
+        checkDesktopRestriction({ restriction: "allowZenModel" }),
       )
       .catch((error) => {
         console.warn("[desktop-app-restrictions] failed to sync Zen restriction", error);
@@ -1412,7 +1412,7 @@ function SettingsRouteContent() {
   const handleOpenCreateWorkspace = () => {
     if (
       workspaces.length > 0 &&
-      checkDesktopRestriction({ restriction: "blockMultipleWorkspaces" })
+      checkDesktopRestriction({ restriction: "allowMultipleWorkspaces" })
     ) {
       restrictionNotice.show({
         title: "Additional workspaces are restricted",
@@ -1981,7 +1981,7 @@ function SettingsRouteContent() {
         workerType={providerAuthSnapshot.providerAuthWorkerType}
         // Hide any provider the org blocks at the desktop layer so users
         // can't connect a forbidden one (dev #1505). Same helper covers
-        // opencode-provider gating via the `blockZenModel` restriction.
+        // opencode-provider gating via the `allowZenModel` restriction.
         // We also strip the matching key from `authMethods` because the
         // modal builds its entry list from `Object.keys(authMethods)`,
         // not from `providers`.

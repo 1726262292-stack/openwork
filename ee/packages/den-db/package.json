@@ -21,6 +21,11 @@
       "development": "./src/schema/auth.ts",
       "default": "./dist/schema/auth.js"
     },
+    "./schema/desktop-policies": {
+      "types": "./src/schema/desktop-policies.ts",
+      "development": "./src/schema/desktop-policies.ts",
+      "default": "./dist/schema/desktop-policies.js"
+    },
     "./schema/inference": {
       "types": "./src/schema/inference.ts",
       "development": "./src/schema/inference.ts",
