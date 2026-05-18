@@ -799,7 +799,29 @@ export function normalizeWorkspaceRelativePath(input: string, options: { allowSu
 
 export function isSupportedWorkspaceTextFilePath(relativePath: string): boolean {
   const lowered = relativePath.toLowerCase();
-  return [".md", ".mdx", ".markdown", ".json", ".jsonc", ".ts", ".js", ".mjs", ".cjs", ".txt"].some((ext) =>
+  return [
+    ".md",
+    ".mdx",
+    ".markdown",
+    ".csv",
+    ".tsv",
+    ".json",
+    ".jsonc",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".xml",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".css",
+    ".scss",
+    ".txt",
+    ".log",
+  ].some((ext) =>
     lowered.endsWith(ext),
   );
 }
@@ -2275,7 +2297,7 @@ function createRoutes(
     const requested = (ctx.url.searchParams.get("path") ?? "").trim();
     const relativePath = normalizeWorkspaceRelativePath(requested, { allowSubdirs: true });
     if (!isSupportedWorkspaceTextFilePath(relativePath)) {
-      throw new ApiError(400, "invalid_path", "Only Markdown and OpenCode plugin text files are supported");
+      throw new ApiError(400, "invalid_path", "Only supported text artifact files can be read inline");
     }
 
     const absPath = resolveSafeChildPath(workspace.path, relativePath);
@@ -2305,7 +2327,7 @@ function createRoutes(
     const requestedPath = String(body.path ?? "");
     const relativePath = normalizeWorkspaceRelativePath(requestedPath, { allowSubdirs: true });
     if (!isSupportedWorkspaceTextFilePath(relativePath)) {
-      throw new ApiError(400, "invalid_path", "Only Markdown and OpenCode plugin text files are supported");
+      throw new ApiError(400, "invalid_path", "Only supported text artifact files can be edited inline");
     }
 
     if (typeof body.content !== "string") {

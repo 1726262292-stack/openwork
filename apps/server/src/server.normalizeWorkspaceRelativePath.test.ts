@@ -36,7 +36,15 @@ describe("normalizeWorkspaceRelativePath", () => {
 });
 
 describe("isSupportedWorkspaceTextFilePath", () => {
-  test("accepts plugin import text file extensions", () => {
+  test("accepts workspace text artifact extensions", () => {
+    expect(isSupportedWorkspaceTextFilePath("reports/revenue.csv")).toBe(true);
+    expect(isSupportedWorkspaceTextFilePath("reports/revenue.tsv")).toBe(true);
+    expect(isSupportedWorkspaceTextFilePath("logs/run.log")).toBe(true);
+    expect(isSupportedWorkspaceTextFilePath("config/app.yaml")).toBe(true);
+    expect(isSupportedWorkspaceTextFilePath("styles/app.css")).toBe(true);
+  });
+
+  test("keeps accepting OpenCode config/plugin text file extensions", () => {
     expect(isSupportedWorkspaceTextFilePath(".opencode/tools/cloud.ts")).toBe(true);
     expect(isSupportedWorkspaceTextFilePath(".opencode/mcps/cloud.json")).toBe(true);
     expect(isSupportedWorkspaceTextFilePath(".opencode/plugins/cloud.txt")).toBe(true);
