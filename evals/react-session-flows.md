@@ -181,6 +181,9 @@ Pass criteria:
 - Any `ws://localhost:<port>/...` target is extracted without corrupting the
   artifact list; selecting it opens the sibling HTTP URL in browser mode.
 - No socket URL is routed through markdown/CSV artifact preview.
+- Screenshot evidence shows the native browser content clipped to the right
+  pane content area; it must not overlap the transcript, composer, titlebar, or
+  rail.
 
 ---
 
