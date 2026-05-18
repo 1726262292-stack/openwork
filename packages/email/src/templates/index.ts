@@ -21,6 +21,12 @@ export const emailSubjects: { [Template in EmailTemplate]: (props: EmailTemplate
   feedback: ({ name, source }) => `OpenWork feedback from ${name}${source ? ` (${source})` : ""}`,
 }
 
+export const emailReplyTo: { [Template in EmailTemplate]: (props: EmailTemplateProps[Template]) => string | undefined } = {
+  verification: () => undefined,
+  organizationInvite: () => undefined,
+  feedback: ({ email }) => email,
+}
+
 export function renderEmailTemplate<Template extends EmailTemplate>(
   template: Template,
   props: EmailTemplateProps[Template],

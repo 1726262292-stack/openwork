@@ -8,6 +8,7 @@ export {
 } from "./send-email.js"
 export {
   emailSubjects,
+  emailReplyTo,
   renderEmailTemplate,
   type EmailTemplate,
   type EmailTemplateProps,
