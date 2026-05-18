@@ -44,6 +44,7 @@ import { useLocal } from "../../../kernel/local-provider";
 import { deriveSessionRenderModel } from "../sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
 import { PermissionApprovalPanel } from "../chat/permission-approval-modal";
+import { deriveOpenTargets, shouldAutoOpenTarget, type OpenTarget } from "../artifacts/open-target";
 import {
   seedSessionState,
   statusKey as reactStatusKey,
@@ -105,6 +106,7 @@ export type SessionSurfaceProps = {
   onOpenSettingsSection?: ((section: "commands" | "skills" | "mcps" | "plugins") => void) | undefined;
   onRevertToMessage?: (messageId: string) => void;
   onForkAtMessage?: (messageId: string) => void;
+  onOpenTarget?: (target: OpenTarget, options?: { auto?: boolean }) => void;
 };
 
 function messageToReadableText(message: UIMessage) {
@@ -358,6 +360,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const [toolImportedPlugins, setToolImportedPlugins] = useState<CloudImportedPlugin[]>([]);
   const composerShellRef = useRef<HTMLDivElement>(null);
   const hydratedKeyRef = useRef<string | null>(null);
+  const autoOpenedTargetRef = useRef<string | null>(null);
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
   attachmentsRef.current = attachments;
   const opencodeClient = useMemo(
@@ -410,6 +413,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setMentions({});
     setPasteParts([]);
     setNotice(null);
+    autoOpenedTargetRef.current = null;
   }, [props.sessionId]);
 
   useEffect(() => {
@@ -493,6 +497,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
     () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
     [snapshot, transcriptState],
   );
+  const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
+  const autoOpenTarget = openTargets.find(shouldAutoOpenTarget) ?? null;
   const pendingSessionLoad = !snapshot && snapshotQuery.isLoading && renderedMessages.length === 0;
   const assistantOutputAfterAwaitStart = useMemo(() => {
     if (awaitingAssistantBaseline === null) return false;
@@ -511,6 +517,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     showAssistantWaitState,
     hasSnapshot: Boolean(snapshot),
   });
+
+  useEffect(() => {
+    if (!autoOpenTarget || chatStreaming) return;
+    if (autoOpenedTargetRef.current === autoOpenTarget.id) return;
+    autoOpenedTargetRef.current = autoOpenTarget.id;
+    props.onOpenTarget?.(autoOpenTarget, { auto: true });
+  }, [autoOpenTarget, chatStreaming, props.onOpenTarget]);
 
   useEffect(() => {
     if (!pendingSessionLoad) {

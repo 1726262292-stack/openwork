@@ -97,6 +97,49 @@ Known regressions this catches:
 
 ---
 
+## Flow 1A — Artifact pane opens generated spreadsheet/markdown targets
+
+**Why**: Artifact opening must be deterministic from tool/file outputs, not a
+one-off LLM convention. This catches regressions in target extraction,
+classification, right-pane mode switching, and artifact preview fallbacks.
+
+Steps:
+1. Hover the workspace header in the sidebar → click **New task**.
+2. Fill the composer:
+   `Create reports/artifact-eval.csv with three rows of sample revenue data and reports/artifact-eval.md summarizing it. Mention both file paths when done.`
+3. Click **Run task** and wait until the status bar returns to **Ready**.
+4. Observe the right pane.
+
+Pass criteria:
+- The right pane opens automatically after the run completes.
+- The pane has an **Artifact** tab/button state in the titlebar.
+- The artifact pane shows either `artifact-eval.csv` as a table preview or
+  `artifact-eval.md` as rendered markdown.
+- Clicking **Browser** still restores the browser panel without losing the
+  selected artifact button.
+- There are no console errors from `ArtifactPanel`, `deriveOpenTargets`, or
+  the right pane resize layout.
+
+Tool recipe:
+```
+chrome-devtools_click { uid: <New task button> }
+chrome-devtools_click { uid: <composer textbox> }
+chrome-devtools_type_text { text: "Create reports/artifact-eval.csv with three rows of sample revenue data and reports/artifact-eval.md summarizing it. Mention both file paths when done." }
+chrome-devtools_click { uid: <Run task> }
+chrome-devtools_wait_for { text: ["Ready"], timeout: 60000 }
+chrome-devtools_take_snapshot
+chrome-devtools_list_console_messages { types: ["error"] }
+chrome-devtools_take_screenshot
+```
+
+Known regressions this catches:
+- Tool output paths are not extracted from live transcript messages.
+- `.csv`/`.md` targets are classified as unsupported external files.
+- The right pane remains browser-only and cannot display artifacts.
+- Browser automation tabs are overwritten by file previews.
+
+---
+
 ## Flow 2 — Add a new session
 
 Steps:

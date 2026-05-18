@@ -22,6 +22,7 @@
     "test:todos": "node scripts/todos.mjs",
     "test:permissions": "node scripts/permissions.mjs",
     "test:remote-diagnostics": "bun test scripts/remote-workspace-diagnostics.test.ts",
+    "test:open-target": "bun test scripts/open-target.test.ts",
     "test:dev-log": "bun scripts/dev-log.ts",
     "test:session-error-recovery": "bun scripts/session-error-recovery.ts",
     "test:session-scope": "bun scripts/session-scope.ts",
