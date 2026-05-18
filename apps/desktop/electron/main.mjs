@@ -29,15 +29,16 @@ import {
   selectOpenworkWorkspaceForConnection,
 } from "./remote-workspace.mjs";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const NATIVE_DEEP_LINK_EVENT = "openwork:deep-link-native";
 const NATIVE_MENU_OPEN_SETTINGS_EVENT = "openwork:native-menu:open-settings";
 const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "openwork:native-menu:toggle-sidebar";
 const TAURI_APP_IDENTIFIER = "com.differentai.openwork";
 const DEV_APP_IDENTIFIER = "com.differentai.openwork.dev";
-const DESKTOP_PROTOCOL_SCHEME = "openwork";
 const isDevMode = process.env.OPENWORK_DEV_MODE === "1";
-const APP_NAME = isDevMode ? "OpenWork - Dev" : "OpenWork";
+const DESKTOP_PROTOCOL_SCHEME = isDevMode ? "openwork-dev" : "openwork";
+const APP_NAME = isDevMode ? "OpenWork-Dev" : "OpenWork";
 const APP_IDENTIFIER = isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER;
 const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/different-ai/openwork/releases/latest/download";
 const RELEASE_PAGE_URL = "https://github.com/different-ai/openwork/releases/latest";
@@ -50,9 +51,12 @@ const DOCS_PAGE_URL = "https://openworklabs.com/docs";
 // Override via OPENWORK_ELECTRON_USERDATA so dogfooders can isolate their
 // Electron install from the real Tauri app.
 app.setName(APP_NAME);
+process.title = APP_NAME;
 app.setAppUserModelId(APP_IDENTIFIER);
 if (app.isPackaged) {
   app.setAsDefaultProtocolClient(DESKTOP_PROTOCOL_SCHEME);
+} else if (isDevMode) {
+  app.setAsDefaultProtocolClient(DESKTOP_PROTOCOL_SCHEME, process.execPath, [__filename]);
 }
 const userDataOverride = process.env.OPENWORK_ELECTRON_USERDATA?.trim();
 if (userDataOverride) {

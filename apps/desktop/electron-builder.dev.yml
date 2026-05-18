@@ -1,0 +1,34 @@
+# Development shell bundle. This intentionally uses a different app identity and
+# URL scheme so local development never takes over production openwork:// links.
+appId: com.differentai.openwork.dev
+productName: OpenWork-Dev
+protocols:
+  - name: OpenWork Dev
+    schemes:
+      - openwork-dev
+directories:
+  output: dist-electron-dev
+files:
+  - electron/**/*
+  - server/**/*
+  - package.json
+extraResources:
+  - from: resources/sidecars
+    to: sidecars
+asar: true
+npmRebuild: false
+afterPack: scripts/electron-after-pack.cjs
+mac:
+  icon: resources/icons/dev/icon-dev.icns
+  category: public.app-category.developer-tools
+  target:
+    - dir
+linux:
+  icon: resources/icons/dev/icon.png
+  target:
+    - dir
+win:
+  icon: resources/icons/icon.ico
+  target:
+    - dir
+artifactName: openwork-dev-${os}-${arch}-${version}.${ext}

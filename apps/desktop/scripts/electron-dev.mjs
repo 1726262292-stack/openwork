@@ -1,12 +1,25 @@
 import { spawn, spawnSync } from "node:child_process";
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import net from "node:net";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
 const electronSidecarDir = resolve(desktopRoot, "resources", "sidecars");
+const devBundleOutputDir = resolve(desktopRoot, "dist-electron-dev");
+const packagedServerRoot = resolve(desktopRoot, "server");
 const defaultDevDataDir = resolve(
   process.env.HOME ?? process.env.USERPROFILE ?? repoRoot,
   ".openwork",
@@ -19,6 +32,7 @@ const portValue = Number.parseInt(process.env.PORT ?? "", 10);
 const devPort = Number.isFinite(portValue) && portValue > 0 ? portValue : 5173;
 const explicitStartUrl = process.env.OPENWORK_ELECTRON_START_URL?.trim() || "";
 const startUrl = explicitStartUrl || `http://localhost:${devPort}`;
+const useDevBundle = process.env.OPENWORK_ELECTRON_DEV_BUNDLE !== "0";
 const viteProbeUrls = explicitStartUrl
   ? [explicitStartUrl]
   : [
@@ -48,6 +62,72 @@ function runSync(command, args, options = {}) {
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
+}
+
+function findPath(root, predicate, maxDepth = 5) {
+  if (!existsSync(root) || maxDepth < 0) return null;
+  for (const entry of readdirSync(root)) {
+    const fullPath = join(root, entry);
+    const stats = statSync(fullPath);
+    if (predicate(fullPath, entry, stats)) return fullPath;
+    if (stats.isDirectory()) {
+      const found = findPath(fullPath, predicate, maxDepth - 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function resolveDevBundleExecutable() {
+  if (process.platform === "darwin") {
+    const appBundle = findPath(devBundleOutputDir, (_fullPath, entry, stats) => stats.isDirectory() && entry === "OpenWork-Dev.app");
+    if (!appBundle) return null;
+    const macosDir = join(appBundle, "Contents", "MacOS");
+    const preferred = join(macosDir, "OpenWork-Dev");
+    if (existsSync(preferred)) return preferred;
+    return findPath(macosDir, (_fullPath, _entry, stats) => stats.isFile(), 1);
+  }
+
+  if (process.platform === "win32") {
+    return findPath(devBundleOutputDir, (_fullPath, entry, stats) => stats.isFile() && entry === "OpenWork-Dev.exe");
+  }
+
+  return findPath(devBundleOutputDir, (_fullPath, entry, stats) => stats.isFile() && entry === "OpenWork-Dev");
+}
+
+function buildDevBundle() {
+  console.log("[electron-dev] Packaging OpenWork-Dev Electron shell...");
+  runSync(pnpmCmd, ["exec", "electron-builder", "--config", "electron-builder.dev.yml", "--dir", "--publish", "never"], {
+    cwd: desktopRoot,
+    env: {
+      ...process.env,
+      OPENWORK_DEV_MODE: process.env.OPENWORK_DEV_MODE ?? "1",
+    },
+  });
+  const executable = resolveDevBundleExecutable();
+  if (!executable) {
+    throw new Error(`Unable to find packaged OpenWork-Dev executable in ${devBundleOutputDir}`);
+  }
+  return executable;
+}
+
+function stageServerForBundle() {
+  const serverDistDir = resolve(repoRoot, "apps", "server", "dist");
+  const constantsSrc = resolve(repoRoot, "constants.json");
+  copyFileSync(constantsSrc, resolve(serverDistDir, "constants.json"));
+  const serverJsPath = resolve(serverDistDir, "server.js");
+  const serverJsSrc = readFileSync(serverJsPath, "utf8");
+  const patched = serverJsSrc.replace(
+    /from\s+["']\.\.\/\.\.\/\.\.\/constants\.json["']/,
+    'from "./constants.json"',
+  );
+  if (patched !== serverJsSrc) {
+    writeFileSync(serverJsPath, patched, "utf8");
+  }
+  rmSync(packagedServerRoot, { recursive: true, force: true });
+  mkdirSync(packagedServerRoot, { recursive: true });
+  cpSync(serverDistDir, resolve(packagedServerRoot, "dist"), { recursive: true });
+  copyFileSync(resolve(repoRoot, "apps", "server", "package.json"), resolve(packagedServerRoot, "package.json"));
 }
 
 async function fetchWithTimeout(url, timeoutMs = 4000) {
@@ -200,6 +280,7 @@ runSync(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdi
 // Build the server TS → JS so Electron can import it in-process
 console.log("[electron-dev] Building openwork-server (tsc)...");
 runSync(pnpmCmd, ["--filter", "openwork-server", "build"], { cwd: repoRoot });
+stageServerForBundle();
 
 const initialProbeUrls = [startUrl, ...viteProbeUrls].filter(Boolean);
 let viteReady = false;
@@ -239,7 +320,10 @@ const resolvedStartUrl = await waitForVite(startUrl);
 const cdpPortRaw = process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "";
 const cdpPort = cdpPortRaw === "" || cdpPortRaw === "0" ? "" : cdpPortRaw;
 
-electronChild = run(pnpmCmd, ["exec", "electron", "./electron/main.mjs"], {
+const electronCommand = useDevBundle ? buildDevBundle() : pnpmCmd;
+const electronArgs = useDevBundle ? [] : ["exec", "electron", "./electron/main.mjs"];
+
+electronChild = run(electronCommand, electronArgs, {
   cwd: desktopRoot,
   env: {
     ...process.env,
