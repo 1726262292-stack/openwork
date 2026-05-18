@@ -2,6 +2,17 @@ import { create } from "zustand";
 
 export const PERSISTED_UI_STATE_KEY = "openwork:ui-state:v1";
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
+const LEGACY_WORKSPACE_LEFT_SIDEBAR_WIDTH_KEY = "openwork.workspace-shell.left-width.v1";
+const LEGACY_WORKSPACE_RIGHT_SIDEBAR_EXPANDED_KEY = "openwork.workspace-shell.right-expanded.v3";
+const LEGACY_WORKSPACE_RIGHT_SIDEBAR_WIDTH_KEY = "openwork.workspace-shell.right-width.v1";
+
+export const DEFAULT_WORKSPACE_LEFT_SIDEBAR_WIDTH = 260;
+export const MIN_WORKSPACE_LEFT_SIDEBAR_WIDTH = 220;
+export const MAX_WORKSPACE_LEFT_SIDEBAR_WIDTH = 420;
+export const DEFAULT_WORKSPACE_RIGHT_SIDEBAR_COLLAPSED_WIDTH = 72;
+export const DEFAULT_WORKSPACE_RIGHT_SIDEBAR_EXPANDED_WIDTH = 520;
+export const MIN_WORKSPACE_RIGHT_SIDEBAR_WIDTH = 320;
+export const MAX_WORKSPACE_RIGHT_SIDEBAR_WIDTH = 960;
 
 export const SIDE_PANEL_ITEMS = ["browser", "artifacts", "extensions"] as const;
 export type SidePanelItem = (typeof SIDE_PANEL_ITEMS)[number];
@@ -9,19 +20,78 @@ export type SidePanelState = Record<string, SidePanelItem | null>;
 
 export type PersistedUiState = {
   sidePanelState?: SidePanelState;
+  applicationMenuVisible?: boolean;
+  workspaceLeftSidebarWidth?: number;
+  workspaceRightSidebarExpanded?: boolean;
+  workspaceRightSidebarExpandedWidth?: number;
 };
 
 export type UiState = {
   sidebarOpen: boolean;
   sidePanelState: SidePanelState;
   applicationMenuVisible: boolean;
+  workspaceLeftSidebarWidth: number;
+  workspaceLeftSidebarResizing: boolean;
+  workspaceRightSidebarExpanded: boolean;
+  workspaceRightSidebarExpandedWidth: number;
 };
 
 const initialState: UiState = {
   sidebarOpen: true,
   sidePanelState: {},
   applicationMenuVisible: false,
+  workspaceLeftSidebarWidth: DEFAULT_WORKSPACE_LEFT_SIDEBAR_WIDTH,
+  workspaceLeftSidebarResizing: false,
+  workspaceRightSidebarExpanded: false,
+  workspaceRightSidebarExpandedWidth: DEFAULT_WORKSPACE_RIGHT_SIDEBAR_EXPANDED_WIDTH,
 };
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizeNumber(value: unknown, min: number, max: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+
+  return clampNumber(value, min, max);
+}
+
+function readLegacyNumber(key: string, min: number, max: number) {
+  if (globalThis.window === undefined) {
+    return null;
+  }
+
+  const parsed = Number(window.localStorage.getItem(key));
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return clampNumber(parsed, min, max);
+}
+
+function readLegacyWorkspaceLayoutState() {
+  if (globalThis.window === undefined) {
+    return {};
+  }
+
+  const rightSidebarExpanded = window.localStorage.getItem(LEGACY_WORKSPACE_RIGHT_SIDEBAR_EXPANDED_KEY);
+
+  return {
+    workspaceLeftSidebarWidth: readLegacyNumber(
+      LEGACY_WORKSPACE_LEFT_SIDEBAR_WIDTH_KEY,
+      MIN_WORKSPACE_LEFT_SIDEBAR_WIDTH,
+      MAX_WORKSPACE_LEFT_SIDEBAR_WIDTH,
+    ) ?? undefined,
+    workspaceRightSidebarExpanded: rightSidebarExpanded == null ? undefined : rightSidebarExpanded === "1",
+    workspaceRightSidebarExpandedWidth: readLegacyNumber(
+      LEGACY_WORKSPACE_RIGHT_SIDEBAR_WIDTH_KEY,
+      MIN_WORKSPACE_RIGHT_SIDEBAR_WIDTH,
+      MAX_WORKSPACE_RIGHT_SIDEBAR_WIDTH,
+    ) ?? undefined,
+  } satisfies Partial<PersistedUiState>;
+}
 
 function isSidePanelItem(value: unknown): value is SidePanelItem {
   return SIDE_PANEL_ITEMS.includes(value as SidePanelItem);
@@ -66,9 +136,14 @@ function readPersistedUiState(): UiState {
   try {
     const raw = window.localStorage.getItem(PERSISTED_UI_STATE_KEY);
     const sidebarOpen = readSidebarCookieOpen() ?? initialState.sidebarOpen;
+    const legacyLayoutState = readLegacyWorkspaceLayoutState();
 
     if (!raw) {
-      return { ...initialState, sidebarOpen };
+      return {
+        ...initialState,
+        ...legacyLayoutState,
+        sidebarOpen,
+      };
     }
 
     const parsed: PersistedUiState = JSON.parse(raw);
@@ -78,6 +153,21 @@ function readPersistedUiState(): UiState {
       ...initialState,
       sidebarOpen,
       sidePanelState,
+      applicationMenuVisible: parsed.applicationMenuVisible ?? initialState.applicationMenuVisible,
+      workspaceLeftSidebarWidth: normalizeNumber(
+        parsed.workspaceLeftSidebarWidth,
+        MIN_WORKSPACE_LEFT_SIDEBAR_WIDTH,
+        MAX_WORKSPACE_LEFT_SIDEBAR_WIDTH,
+      ) ?? legacyLayoutState.workspaceLeftSidebarWidth ?? initialState.workspaceLeftSidebarWidth,
+      workspaceRightSidebarExpanded:
+        parsed.workspaceRightSidebarExpanded ??
+        legacyLayoutState.workspaceRightSidebarExpanded ??
+        initialState.workspaceRightSidebarExpanded,
+      workspaceRightSidebarExpandedWidth: normalizeNumber(
+        parsed.workspaceRightSidebarExpandedWidth,
+        MIN_WORKSPACE_RIGHT_SIDEBAR_WIDTH,
+        MAX_WORKSPACE_RIGHT_SIDEBAR_WIDTH,
+      ) ?? legacyLayoutState.workspaceRightSidebarExpandedWidth ?? initialState.workspaceRightSidebarExpandedWidth,
     };
   } catch {
     return initialState;
@@ -94,6 +184,10 @@ export function persistUiState(state: UiState): void {
       PERSISTED_UI_STATE_KEY,
       JSON.stringify({
         sidePanelState: state.sidePanelState,
+        applicationMenuVisible: state.applicationMenuVisible,
+        workspaceLeftSidebarWidth: state.workspaceLeftSidebarWidth,
+        workspaceRightSidebarExpanded: state.workspaceRightSidebarExpanded,
+        workspaceRightSidebarExpandedWidth: state.workspaceRightSidebarExpandedWidth,
       } satisfies PersistedUiState),
     );
   } catch {
@@ -161,6 +255,56 @@ export function setApplicationMenuVisible(state: UiState, visible: boolean): UiS
   };
 }
 
+export function setWorkspaceLeftSidebarWidth(state: UiState, width: number): UiState {
+  const nextWidth = clampNumber(width, MIN_WORKSPACE_LEFT_SIDEBAR_WIDTH, MAX_WORKSPACE_LEFT_SIDEBAR_WIDTH);
+  if (state.workspaceLeftSidebarWidth === nextWidth) {
+    return state;
+  }
+
+  return {
+    ...state,
+    workspaceLeftSidebarWidth: nextWidth,
+  };
+}
+
+export function setWorkspaceLeftSidebarResizing(state: UiState, resizing: boolean): UiState {
+  if (state.workspaceLeftSidebarResizing === resizing) {
+    return state;
+  }
+
+  return {
+    ...state,
+    workspaceLeftSidebarResizing: resizing,
+  };
+}
+
+export function setWorkspaceRightSidebarExpanded(state: UiState, expanded: boolean): UiState {
+  if (state.workspaceRightSidebarExpanded === expanded) {
+    return state;
+  }
+
+  return {
+    ...state,
+    workspaceRightSidebarExpanded: expanded,
+  };
+}
+
+export function setWorkspaceRightSidebarExpandedWidth(state: UiState, width: number): UiState {
+  const nextWidth = clampNumber(width, MIN_WORKSPACE_RIGHT_SIDEBAR_WIDTH, MAX_WORKSPACE_RIGHT_SIDEBAR_WIDTH);
+  if (state.workspaceRightSidebarExpandedWidth === nextWidth) {
+    return state;
+  }
+
+  return {
+    ...state,
+    workspaceRightSidebarExpandedWidth: nextWidth,
+  };
+}
+
+export function toggleWorkspaceRightSidebar(state: UiState): UiState {
+  return setWorkspaceRightSidebarExpanded(state, !state.workspaceRightSidebarExpanded);
+}
+
 function syncApplicationMenuVisible(visible: boolean): void {
   void globalThis.window?.__OPENWORK_ELECTRON__?.invokeDesktop?.("__setApplicationMenuVisible", visible);
 }
@@ -171,6 +315,11 @@ type UiStateStore = UiState & {
   setSidePanelState: (sessionId: string | null | undefined, panel: SidePanelItem | null) => void;
   toggleSidePanelState: (sessionId: string | null | undefined, panel: SidePanelItem) => void;
   setApplicationMenuVisible: (visible: boolean) => void;
+  setWorkspaceLeftSidebarWidth: (width: number) => void;
+  setWorkspaceLeftSidebarResizing: (resizing: boolean) => void;
+  setWorkspaceRightSidebarExpanded: (expanded: boolean) => void;
+  setWorkspaceRightSidebarExpandedWidth: (width: number) => void;
+  toggleWorkspaceRightSidebar: () => void;
 };
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
@@ -183,6 +332,11 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setApplicationMenuVisible(state, visible));
     syncApplicationMenuVisible(visible);
   },
+  setWorkspaceLeftSidebarWidth: (width) => set((state) => setWorkspaceLeftSidebarWidth(state, width)),
+  setWorkspaceLeftSidebarResizing: (resizing) => set((state) => setWorkspaceLeftSidebarResizing(state, resizing)),
+  setWorkspaceRightSidebarExpanded: (expanded) => set((state) => setWorkspaceRightSidebarExpanded(state, expanded)),
+  setWorkspaceRightSidebarExpandedWidth: (width) => set((state) => setWorkspaceRightSidebarExpandedWidth(state, width)),
+  toggleWorkspaceRightSidebar: () => set((state) => toggleWorkspaceRightSidebar(state)),
 }));
 
 syncApplicationMenuVisible(useUiStateStore.getState().applicationMenuVisible);
