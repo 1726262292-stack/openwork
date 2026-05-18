@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { ExternalLink, FileText, Loader2, X } from "lucide-react";
+import { Download, ExternalLink, Loader2, X } from "lucide-react";
 
 import type { OpenworkServerClient } from "../../../../app/lib/openwork-server";
 import { openDesktopPath } from "../../../../app/lib/desktop";
@@ -11,6 +11,9 @@ import type { OpenTarget } from "./open-target";
 
 const ArtifactTextEditor = lazy(() =>
   import("./artifact-text-editor").then((module) => ({ default: module.ArtifactTextEditor })),
+);
+const ArtifactSpreadsheetEditor = lazy(() =>
+  import("./artifact-spreadsheet-editor").then((module) => ({ default: module.ArtifactSpreadsheetEditor })),
 );
 
 type ArtifactPanelProps = {
@@ -28,59 +31,12 @@ type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "text"; content: string; updatedAt: number | null }
-  | { status: "binary"; url: string; contentType: string | null };
+  | { status: "binary"; url: string; data: ArrayBuffer; contentType: string | null; updatedAt: number | null };
 
 function absoluteWorkspacePath(root: string, path: string) {
   const cleanRoot = root.trim().replace(/[/\\]+$/, "");
   const cleanPath = path.trim().replace(/^\.\//, "");
   return cleanRoot ? `${cleanRoot}/${cleanPath}` : cleanPath;
-}
-
-function parseDelimited(content: string, delimiter: string) {
-  return content
-    .split(/\r?\n/)
-    .filter((line) => line.trim().length > 0)
-    .slice(0, 200)
-    .map((line) => line.split(delimiter).map((cell) => cell.replace(/^"|"$/g, "")));
-}
-
-function SheetPreview(props: { target: OpenTarget; content?: string }) {
-  const ext = props.target.name.toLowerCase().split(".").pop();
-  if (ext === "xlsx" || ext === "xls" || ext === "ods") {
-    return (
-      <div className="flex h-full items-center justify-center p-6 text-center">
-        <div className="max-w-sm rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <div className="mx-auto mb-3 flex size-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-            <FileText className="size-5" />
-          </div>
-          <div className="text-sm font-medium text-foreground">Spreadsheet preview needs a parser</div>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            OpenWork detected this spreadsheet reliably. Full .xlsx rendering can be added with a lazy-loaded parser; for now open it externally.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const rows = parseDelimited(props.content ?? "", ext === "tsv" ? "\t" : ",");
-  if (!rows.length) return <div className="p-4 text-sm text-muted-foreground">No rows to preview.</div>;
-  return (
-    <div className="h-full overflow-auto p-3">
-      <table className="w-full border-collapse text-xs">
-        <tbody>
-          {rows.map((row, rowIndex) => (
-            <tr key={rowIndex}>
-              {row.slice(0, 40).map((cell, cellIndex) => (
-                <td key={cellIndex} className="max-w-[220px] truncate border border-border px-2 py-1 align-top">
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
 }
 
 export function ArtifactPanel({ client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, targets = [], onSelectTarget, onClose }: ArtifactPanelProps) {
@@ -121,7 +77,7 @@ export function ArtifactPanel({ client, workspaceId, workspaceRoot, isRemoteWork
         }
         const result = await client.downloadWorkspaceFile(workspaceId, target.value);
         objectUrl = URL.createObjectURL(new Blob([result.data], { type: result.contentType ?? "application/octet-stream" }));
-        if (!cancelled) setState({ status: "binary", url: objectUrl, contentType: result.contentType });
+        if (!cancelled) setState({ status: "binary", url: objectUrl, data: result.data, contentType: result.contentType, updatedAt: target.updatedAt ?? null });
       } catch (error) {
         if (!cancelled) setState({ status: "error", message: error instanceof Error ? error.message : "Failed to load artifact" });
       }
@@ -134,9 +90,8 @@ export function ArtifactPanel({ client, workspaceId, workspaceRoot, isRemoteWork
     };
   }, [canReadAsText, client, target, workspaceId]);
 
-  const openExternal = async () => {
-    if (target.kind === "url") window.open(target.value, "_blank", "noopener,noreferrer");
-    else if (isRemoteWorkspace) {
+  const download = async () => {
+    if (target.kind === "url") return;
       const result = await client.downloadWorkspaceFile(workspaceId, target.value);
       const url = URL.createObjectURL(new Blob([result.data], { type: result.contentType ?? "application/octet-stream" }));
       const anchor = document.createElement("a");
@@ -144,8 +99,14 @@ export function ArtifactPanel({ client, workspaceId, workspaceRoot, isRemoteWork
       anchor.download = target.name;
       anchor.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } else {
+  };
+
+  const openExternal = async () => {
+    if (target.kind === "url") window.open(target.value, "_blank", "noopener,noreferrer");
+    else if (!isRemoteWorkspace) {
       void openDesktopPath(externalPath);
+    } else {
+      await download();
     }
   };
 
@@ -169,6 +130,42 @@ export function ArtifactPanel({ client, workspaceId, workspaceRoot, isRemoteWork
     }
   };
 
+  const saveTextContent = async (content: string) => {
+    if (target.kind !== "file") return;
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      const baseUpdatedAt = state.status === "text" ? state.updatedAt : target.updatedAt ?? null;
+      const result = await client.writeWorkspaceFile(workspaceId, { path: target.value, content, baseUpdatedAt });
+      setState({ status: "text", content, updatedAt: result.updatedAt ?? null });
+      setDraft(content);
+      setSaveMessage("Saved");
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : "Save failed");
+      throw error;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveBinaryContent = async (data: ArrayBuffer) => {
+    if (target.kind !== "file") return;
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      const baseUpdatedAt = state.status === "binary" ? state.updatedAt : target.updatedAt ?? null;
+      const result = await client.writeWorkspaceBinaryFile(workspaceId, { path: target.value, data, baseUpdatedAt });
+      const url = URL.createObjectURL(new Blob([data], { type: state.status === "binary" ? state.contentType ?? "application/octet-stream" : "application/octet-stream" }));
+      setState({ status: "binary", url, data, contentType: state.status === "binary" ? state.contentType : null, updatedAt: result.updatedAt ?? null });
+      setSaveMessage("Saved");
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : "Save failed");
+      throw error;
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-2">
@@ -187,6 +184,11 @@ export function ArtifactPanel({ client, workspaceId, workspaceRoot, isRemoteWork
           ) : (
             <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>
           )
+        ) : null}
+        {target.kind === "file" ? (
+          <Button variant="ghost" size="icon-sm" onClick={() => void download()} aria-label="Download artifact" title="Download artifact">
+            <Download />
+          </Button>
         ) : null}
         <Button variant="ghost" size="icon-sm" onClick={() => void openExternal()} aria-label={isRemoteWorkspace ? "Download artifact" : "Open externally"} title={isRemoteWorkspace ? "Download artifact" : "Open externally"}>
           <ExternalLink />
@@ -229,7 +231,16 @@ export function ArtifactPanel({ client, workspaceId, workspaceRoot, isRemoteWork
         ) : target.preview === "markdown" && state.status === "text" ? (
           <div className="h-full overflow-auto p-4"><MarkdownBlock text={state.content} /></div>
         ) : target.preview === "sheet" ? (
-          <SheetPreview target={target} content={state.status === "text" ? state.content : undefined} />
+          <Suspense fallback={<div className="flex h-full items-center justify-center text-muted-foreground"><Loader2 className="size-4 animate-spin" /></div>}>
+            <ArtifactSpreadsheetEditor
+              name={target.name}
+              text={state.status === "text" ? state.content : undefined}
+              data={state.status === "binary" ? state.data : undefined}
+              saving={saving}
+              onSaveText={saveTextContent}
+              onSaveBinary={saveBinaryContent}
+            />
+          </Suspense>
         ) : target.preview === "html" && state.status === "text" ? (
           <iframe srcDoc={state.content} title={target.name} className="h-full w-full border-0" sandbox="allow-scripts allow-same-origin" />
         ) : target.preview === "image" && state.status === "binary" ? (

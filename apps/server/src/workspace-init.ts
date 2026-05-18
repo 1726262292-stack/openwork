@@ -6,6 +6,18 @@ import { ApiError } from "./errors.js";
 import { openworkConfigPath, opencodeConfigPath } from "./workspace-files.js";
 import { readJsoncFile, writeJsoncFile } from "./jsonc.js";
 
+const OPENWORK_ARTIFACT_GUIDANCE = `<!-- OPENWORK_ARTIFACTS_START -->
+## OpenWork Artifacts
+
+OpenWork can preview, edit, and download standard artifacts when you create or update them in the workspace.
+
+- Prefer standard output files for user-visible deliverables: Markdown (\`.md\`), CSV (\`.csv\`), Excel workbooks (\`.xlsx\`), and browser previews (\`index.html\` or a local \`http://localhost:<port>\` URL).
+- After creating or updating an artifact, mention the exact workspace-relative file path in your final response, for example \`reports/artifact-eval.md\` or \`reports/artifact-eval.xlsx\`.
+- Do not invent \`Workspace/<id>/...\` paths unless a tool returns them; prefer clean workspace-relative paths.
+- For websites or React/UI previews, start the dev server when useful and mention the \`http://localhost:<port>\` URL. Socket URLs such as \`ws://localhost:<port>/...\` are diagnostic hints, not primary preview links.
+- For spreadsheets, use \`.csv\` for simple tabular data and \`.xlsx\` when the user asks for Excel/XLS specifically.
+<!-- OPENWORK_ARTIFACTS_END -->`;
+
 const OPENWORK_AGENT = `---
 description: OpenWork default agent
 mode: primary
@@ -62,6 +74,8 @@ Hard rule: never copy private memory into repo files. Store only redacted summar
 - If you change code, run the smallest meaningful test.
 - If steps repeat, factor them into a skill.
 - Prefer clear, practical steps over abstract explanations.
+
+${OPENWORK_ARTIFACT_GUIDANCE}
 `;
 
 type WorkspaceOpenworkConfig = {
@@ -121,9 +135,20 @@ async function ensureOpencodeConfig(workspaceRoot: string): Promise<void> {
 async function ensureOpenworkAgent(workspaceRoot: string): Promise<void> {
   const agentsDir = join(workspaceRoot, ".opencode", "agents");
   const agentPath = join(agentsDir, "openwork.md");
-  if (await exists(agentPath)) return;
   await ensureDir(agentsDir);
-  await writeFile(agentPath, OPENWORK_AGENT.endsWith("\n") ? OPENWORK_AGENT : `${OPENWORK_AGENT}\n`, "utf8");
+  if (!(await exists(agentPath))) {
+    await writeFile(agentPath, OPENWORK_AGENT.endsWith("\n") ? OPENWORK_AGENT : `${OPENWORK_AGENT}\n`, "utf8");
+    return;
+  }
+  const current = await readFile(agentPath, "utf8");
+  const start = "<!-- OPENWORK_ARTIFACTS_START -->";
+  const end = "<!-- OPENWORK_ARTIFACTS_END -->";
+  const startIndex = current.indexOf(start);
+  const endIndex = current.indexOf(end);
+  const next = startIndex >= 0 && endIndex > startIndex
+    ? `${current.slice(0, startIndex)}${OPENWORK_ARTIFACT_GUIDANCE}${current.slice(endIndex + end.length)}`
+    : `${current.trimEnd()}\n\n${OPENWORK_ARTIFACT_GUIDANCE}\n`;
+  if (next !== current) await writeFile(agentPath, next, "utf8");
 }
 
 export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: string): Promise<void> {

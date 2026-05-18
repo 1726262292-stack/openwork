@@ -501,6 +501,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
     [snapshot, transcriptState],
   );
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
+  const openTargetsFingerprint = useMemo(
+    () => openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|"),
+    [openTargets],
+  );
   const autoOpenTarget = verifiedOpenTargets.find(shouldAutoOpenTarget) ?? null;
   const pendingSessionLoad = !snapshot && snapshotQuery.isLoading && renderedMessages.length === 0;
   const assistantOutputAfterAwaitStart = useMemo(() => {
@@ -531,29 +535,20 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useEffect(() => {
     let cancelled = false;
     async function verifyTargets() {
-      const verified = await Promise.all(openTargets.map(async (target) => {
-        if (target.kind !== "file") return { ...target, exists: true };
-        try {
-          const stat = await props.client.statWorkspaceFile(props.workspaceId, target.value);
-          const normalizedName = stat.path.split("/").filter(Boolean).pop() ?? target.name;
-          return {
-            ...target,
-            id: `file:${stat.path.toLowerCase()}`,
-            value: stat.path,
-            name: normalizedName,
-            exists: stat.exists && stat.kind === "file",
-            size: stat.size,
-            updatedAt: stat.updatedAt,
-          } satisfies OpenTarget;
-        } catch {
-          return { ...target, exists: false } satisfies OpenTarget;
-        }
-      }));
-      if (!cancelled) setVerifiedOpenTargets(verified);
+      if (!openTargets.length) {
+        setVerifiedOpenTargets([]);
+        return;
+      }
+      try {
+        const response = await props.client.resolveArtifacts(props.workspaceId, openTargets);
+        if (!cancelled) setVerifiedOpenTargets(response.items as OpenTarget[]);
+      } catch {
+        if (!cancelled) setVerifiedOpenTargets(openTargets.map((target) => ({ ...target, exists: target.kind === "url" })));
+      }
     }
     void verifyTargets();
     return () => { cancelled = true; };
-  }, [openTargets, props.client, props.workspaceId]);
+  }, [openTargetsFingerprint, props.client, props.workspaceId]);
 
   useEffect(() => {
     props.onOpenTargetsChange?.(verifiedOpenTargets);
