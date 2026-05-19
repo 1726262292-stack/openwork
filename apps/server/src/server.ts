@@ -14,6 +14,7 @@ import { ApiError, formatError } from "./errors.js";
 import { readJsoncFile, updateJsoncPath, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
 import { recordAudit, readAuditEntries, readLastAudit } from "./audit.js";
 import { ReloadEventStore } from "./events.js";
+import { computeReloadFingerprint } from "./reload-fingerprint.js";
 import { startReloadWatchers } from "./reload-watcher.js";
 import { opencodeConfigPath, openworkConfigPath, projectCommandsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId } from "./utils.js";
@@ -65,6 +66,11 @@ const FILE_SESSION_MAX_BATCH_ITEMS = 64;
 const FILE_SESSION_MAX_FILE_BYTES = 5_000_000;
 const FILE_SESSION_CATALOG_DEFAULT_LIMIT = 2000;
 const FILE_SESSION_CATALOG_MAX_LIMIT = 10000;
+
+const reloadBaselineRefreshers = new WeakMap<
+  ServerConfig,
+  (workspaceId: string, reasons?: ReloadReason[]) => Promise<void>
+>();
 
 type LogLevel = "info" | "warn" | "error";
 
@@ -238,6 +244,9 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
   const env = new EnvService();
   const logger = createServerLogger(config);
   let watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
+  const refreshWorkspaceReloadBaseline = (workspaceId: string, reasons?: ReloadReason[]) =>
+    watcherHandle.refreshWorkspace(workspaceId, reasons);
+  reloadBaselineRefreshers.set(config, refreshWorkspaceReloadBaseline);
   const restartReloadWatchers = () => {
     watcherHandle.close();
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
@@ -389,7 +398,14 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     idleTimeout: 120,
   });
 
-  return server;
+  return {
+    ...server,
+    stop: () => {
+      watcherHandle.close();
+      reloadBaselineRefreshers.delete(config);
+      server.stop();
+    },
+  };
 }
 
 function matchRoute(routes: Route[], method: string, path: string) {
@@ -1747,8 +1763,13 @@ function createRoutes(
       paths: [configPath],
     });
 
-    await ensureDir(dirname(configPath));
-    await writeFile(configPath, content.endsWith("\n") ? content : `${content}\n`, "utf8");
+    const nextContent = content.endsWith("\n") ? content : `${content}\n`;
+    const current = await readRawOpencodeConfig(configPath);
+    const changed = !current.exists || current.content !== nextContent;
+    if (changed) {
+      await ensureDir(dirname(configPath));
+      await writeFile(configPath, nextContent, "utf8");
+    }
 
     await recordAudit(workspace.path, {
       id: shortId(),
@@ -1760,7 +1781,7 @@ function createRoutes(
       timestamp: Date.now(),
     });
 
-    if (scope === "project") {
+    if (scope === "project" && changed) {
       emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
     }
 
@@ -1863,6 +1884,10 @@ function createRoutes(
       paths: [opencode ? opencodeConfigPath(workspace.path) : null, openwork ? openworkConfigPath(workspace.path) : null].filter(Boolean) as string[],
     });
 
+    const configFingerprintBefore = opencode
+      ? await computeReloadFingerprint(workspace.path, "config")
+      : null;
+
     if (opencode) {
       const configPath = opencodeConfigPath(workspace.path);
       const nextOpencode = ensurePlainObject(opencode);
@@ -1904,7 +1929,7 @@ function createRoutes(
       timestamp: Date.now(),
     });
 
-    if (opencode) {
+    if (opencode && configFingerprintBefore !== await computeReloadFingerprint(workspace.path, "config")) {
       emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(opencodeConfigPath(workspace.path)));
     }
 
@@ -3162,6 +3187,7 @@ function createRoutes(
         409,
       );
     }
+    const configFingerprintBefore = await computeReloadFingerprint(workspace.path, "config");
     await importWorkspace(workspace, body, latestPreview);
     await recordAudit(workspace.path, {
       id: shortId(),
@@ -3172,7 +3198,9 @@ function createRoutes(
       summary: summarizeWorkspaceImportApplied(latestPreview),
       timestamp: Date.now(),
     });
-    emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(opencodeConfigPath(workspace.path)));
+    if (configFingerprintBefore !== await computeReloadFingerprint(workspace.path, "config")) {
+      emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(opencodeConfigPath(workspace.path)));
+    }
     return jsonResponse({ ok: true, preview: publicWorkspaceImportPreview(latestPreview) });
   });
 
@@ -3370,10 +3398,23 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
     throw new ApiError(403, "workspace_unauthorized", "Workspace is not authorized");
   }
   if (!config.readOnly) {
-    await ensureWorkspaceFiles(resolvedWorkspace, workspace.preset ?? "starter");
-    await repairCommands(resolvedWorkspace);
+    const ensured = await ensureWorkspaceFiles(resolvedWorkspace, workspace.preset ?? "starter");
+    const bootstrapReloadReasons = new Set<ReloadReason>(ensured.reloadReasons);
+    if (await repairCommands(resolvedWorkspace)) {
+      bootstrapReloadReasons.add("commands");
+    }
+    if (bootstrapReloadReasons.size > 0) {
+      await reloadBaselineRefreshers.get(config)?.(workspace.id, Array.from(bootstrapReloadReasons));
+      reloadOpencodeEngineAfterInternalBootstrap(config, { ...workspace, path: resolvedWorkspace });
+    }
   }
   return { ...workspace, path: resolvedWorkspace };
+}
+
+function reloadOpencodeEngineAfterInternalBootstrap(config: ServerConfig, workspace: WorkspaceInfo): void {
+  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
+  if (!connection.baseUrl?.trim()) return;
+  void reloadOpencodeEngine(config, workspace).catch(() => undefined);
 }
 
 async function isAuthorizedRoot(workspacePath: string, roots: string[]): Promise<boolean> {

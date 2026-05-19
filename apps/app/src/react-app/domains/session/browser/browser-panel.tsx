@@ -65,6 +65,12 @@ function getElectronBrowser() {
   return window.__OPENWORK_ELECTRON__?.browser ?? null;
 }
 
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    getElectronBrowser()?.hide?.();
+  });
+}
+
 function computeBounds(el: HTMLElement) {
   const rect = el.getBoundingClientRect();
 
@@ -258,9 +264,15 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
     }
 
     const content = contentRef.current;
-    browser.hide?.();
-    shownRef.current = false;
-    lastBoundsRef.current = null;
+    let disposed = false;
+
+    const resetNativeView = async () => {
+      await browser.hide?.();
+      if (disposed) return;
+      shownRef.current = false;
+      lastBoundsRef.current = null;
+      boundsFrameRef.current = window.requestAnimationFrame(watchBounds);
+    };
 
     const syncBounds = () => {
       const bounds = computeBounds(content);
@@ -292,7 +304,7 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
       boundsFrameRef.current = window.requestAnimationFrame(watchBounds);
     };
 
-    boundsFrameRef.current = window.requestAnimationFrame(watchBounds);
+    void resetNativeView();
 
     const observer = new ResizeObserver(scheduleSyncBounds);
 
@@ -306,6 +318,7 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
     window.addEventListener("scroll", scheduleSyncBounds, true);
 
     return () => {
+      disposed = true;
       observer.disconnect();
 
       window.removeEventListener("resize", scheduleSyncBounds);

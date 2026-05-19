@@ -5,6 +5,7 @@ import { ensureDir, exists } from "./utils.js";
 import { ApiError } from "./errors.js";
 import { openworkConfigPath, opencodeConfigPath } from "./workspace-files.js";
 import { readJsoncFile, writeJsoncFile } from "./jsonc.js";
+import type { ReloadReason } from "./types.js";
 
 const OPENWORK_ARTIFACT_GUIDANCE = `<!-- OPENWORK_ARTIFACTS_START -->
 ## OpenWork Artifacts
@@ -92,15 +93,20 @@ type WorkspaceOpenworkConfig = {
   } | null;
 };
 
+type EnsureWorkspaceFilesResult = {
+  changed: boolean;
+  reloadReasons: ReloadReason[];
+};
+
 function normalizePreset(preset: string | null | undefined): string {
   const trimmed = preset?.trim() ?? "";
   if (!trimmed) return "starter";
   return trimmed;
 }
 
-async function ensureWorkspaceOpenworkConfig(workspaceRoot: string, preset: string): Promise<void> {
+async function ensureWorkspaceOpenworkConfig(workspaceRoot: string, preset: string): Promise<boolean> {
   const path = openworkConfigPath(workspaceRoot);
-  if (await exists(path)) return;
+  if (await exists(path)) return false;
   const now = Date.now();
   const config: WorkspaceOpenworkConfig = {
     version: 1,
@@ -114,31 +120,30 @@ async function ensureWorkspaceOpenworkConfig(workspaceRoot: string, preset: stri
   };
   await ensureDir(join(workspaceRoot, ".opencode"));
   await writeFile(path, JSON.stringify(config, null, 2) + "\n", "utf8");
+  return true;
 }
 
-async function ensureOpencodeConfig(workspaceRoot: string): Promise<void> {
+async function ensureOpencodeConfig(workspaceRoot: string): Promise<boolean> {
   const path = opencodeConfigPath(workspaceRoot);
-  const { data } = await readJsoncFile<Record<string, unknown>>(path, {
+  if (await exists(path)) {
+    await readJsoncFile<Record<string, unknown>>(path, {});
+    return false;
+  }
+
+  await writeJsoncFile(path, {
     $schema: "https://opencode.ai/config.json",
+    default_agent: "openwork",
   });
-  const next: Record<string, unknown> = data && typeof data === "object" && !Array.isArray(data)
-    ? { ...data }
-    : { $schema: "https://opencode.ai/config.json" };
-
-  if (typeof next.default_agent === "string" && next.default_agent.trim()) return;
-
-  next.default_agent = "openwork";
-
-  await writeJsoncFile(path, next);
+  return true;
 }
 
-async function ensureOpenworkAgent(workspaceRoot: string): Promise<void> {
+async function ensureOpenworkAgent(workspaceRoot: string): Promise<boolean> {
   const agentsDir = join(workspaceRoot, ".opencode", "agents");
   const agentPath = join(agentsDir, "openwork.md");
   await ensureDir(agentsDir);
   if (!(await exists(agentPath))) {
     await writeFile(agentPath, OPENWORK_AGENT.endsWith("\n") ? OPENWORK_AGENT : `${OPENWORK_AGENT}\n`, "utf8");
-    return;
+    return true;
   }
   const current = await readFile(agentPath, "utf8");
   const start = "<!-- OPENWORK_ARTIFACTS_START -->";
@@ -148,18 +153,27 @@ async function ensureOpenworkAgent(workspaceRoot: string): Promise<void> {
   const next = startIndex >= 0 && endIndex > startIndex
     ? `${current.slice(0, startIndex)}${OPENWORK_ARTIFACT_GUIDANCE}${current.slice(endIndex + end.length)}`
     : `${current.trimEnd()}\n\n${OPENWORK_ARTIFACT_GUIDANCE}\n`;
-  if (next !== current) await writeFile(agentPath, next, "utf8");
+  if (next !== current) {
+    await writeFile(agentPath, next, "utf8");
+    return true;
+  }
+  return false;
 }
 
-export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: string): Promise<void> {
+export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: string): Promise<EnsureWorkspaceFilesResult> {
   const preset = normalizePreset(presetInput);
   if (!workspaceRoot.trim()) {
     throw new ApiError(400, "invalid_workspace_path", "workspace path is required");
   }
   await ensureDir(workspaceRoot);
-  await ensureOpencodeConfig(workspaceRoot);
-  await ensureOpenworkAgent(workspaceRoot);
-  await ensureWorkspaceOpenworkConfig(workspaceRoot, preset);
+  const reloadReasons = new Set<ReloadReason>();
+  if (await ensureOpencodeConfig(workspaceRoot)) reloadReasons.add("config");
+  if (await ensureOpenworkAgent(workspaceRoot)) reloadReasons.add("agents");
+  const openworkConfigChanged = await ensureWorkspaceOpenworkConfig(workspaceRoot, preset);
+  return {
+    changed: openworkConfigChanged || reloadReasons.size > 0,
+    reloadReasons: Array.from(reloadReasons),
+  };
 }
 
 export async function readRawOpencodeConfig(path: string): Promise<{ exists: boolean; content: string | null }> {

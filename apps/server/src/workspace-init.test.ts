@@ -17,10 +17,14 @@ async function withWorkspace(fn: (root: string) => Promise<void>) {
 describe("ensureWorkspaceFiles", () => {
   test("creates default agent with artifact guidance for new workspaces", async () => {
     await withWorkspace(async (root) => {
-      await ensureWorkspaceFiles(root, "starter");
+      const result = await ensureWorkspaceFiles(root, "starter");
       const agent = await readFile(join(root, ".opencode", "agents", "openwork.md"), "utf8");
       expect(agent).toContain("OpenWork Artifacts");
       expect(agent).toContain("reports/artifact-eval.xlsx");
+      expect(result.reloadReasons.sort()).toEqual(["agents", "config"]);
+
+      const secondResult = await ensureWorkspaceFiles(root, "starter");
+      expect(secondResult).toEqual({ changed: false, reloadReasons: [] });
     });
   });
 
@@ -28,10 +32,11 @@ describe("ensureWorkspaceFiles", () => {
     await withWorkspace(async (root) => {
       await mkdir(join(root, ".opencode", "agents"), { recursive: true });
       await writeFile(join(root, ".opencode", "agents", "openwork.md"), "---\ndescription: Old\n---\n\nOld instructions\n", "utf8");
-      await ensureWorkspaceFiles(root, "starter");
+      const result = await ensureWorkspaceFiles(root, "starter");
       const agent = await readFile(join(root, ".opencode", "agents", "openwork.md"), "utf8");
       expect(agent).toContain("Old instructions");
       expect(agent).toContain("OpenWork Artifacts");
+      expect(result.reloadReasons.sort()).toEqual(["agents", "config"]);
     });
   });
 
@@ -46,9 +51,27 @@ describe("ensureWorkspaceFiles", () => {
 `;
       await writeFile(configPath, config, "utf8");
 
-      await ensureWorkspaceFiles(root, "starter");
+      const result = await ensureWorkspaceFiles(root, "starter");
 
       expect(await readFile(configPath, "utf8")).toBe(config);
+      expect(result.reloadReasons).not.toContain("config");
+    });
+  });
+
+  test("does not add a default agent to an existing valid opencode config", async () => {
+    await withWorkspace(async (root) => {
+      const configPath = join(root, "opencode.jsonc");
+      const config = `{
+  // Existing project configs must not trigger reload events on route reads.
+  "$schema": "https://opencode.ai/config.json"
+}
+`;
+      await writeFile(configPath, config, "utf8");
+
+      const result = await ensureWorkspaceFiles(root, "starter");
+
+      expect(await readFile(configPath, "utf8")).toBe(config);
+      expect(result.reloadReasons).not.toContain("config");
     });
   });
 });

@@ -88,6 +88,9 @@ Chrome DevTools MCP. Every tool takes `browser_url` as the first argument.
 - [`openable-items-flow.md`](./openable-items-flow.md) — inline openable-item
   chips, Cmd/Ctrl+K inventory, artifact/browser opening, icon checks, and
   screenshot evidence requirements.
+- [`reload-events-flow.md`](./reload-events-flow.md) — reload-required toast
+  suppression on boot/no-op writes and positive coverage for real runtime config
+  changes.
 - [`onboarding-welcome-flows.md`](./onboarding-welcome-flows.md) — the 7
   onboarding/welcome flows covering first-run experience and folder
   explanation.
