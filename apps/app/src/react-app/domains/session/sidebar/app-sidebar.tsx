@@ -39,7 +39,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSkeleton,
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
@@ -79,8 +78,6 @@ import type { SessionListItem, SessionTreeState } from "./utils";
 import { cn } from "@/lib/utils";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
 
-const WORKSPACE_MENU_SKELETON_ROWS = ["short", "medium", "compact"];
-
 type SessionActionsProps = {
   className: string;
   sessionId: string;
@@ -96,9 +93,9 @@ function SessionActions({ className, sessionId }: SessionActionsProps) {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="size-4"
+      <DropdownMenuTrigger className="size-6 text-muted-foreground"
         render={
-          <Button variant="ghost" size="icon-sm" className={cn("size-4", className)}>
+          <Button variant="ghost" size="icon-sm" className={cn("size-6", className)}>
             <MoreHorizontal className="size-4" />
           </Button>
         }
@@ -172,7 +169,7 @@ function WorkspaceActionsMenu({ workspace, isConnectionActionBusy, canRecover, c
           <Button
             variant="ghost"
             size="icon"
-            className={className}
+            className={cn("size-6", className)}
             onClick={(e) => {
               e.stopPropagation();
             }}
@@ -499,14 +496,14 @@ export function AppSidebar(props: AppSidebarProps) {
             layoutScroll
             data-slot="sidebar-content"
             data-sidebar="content"
-            className="no-scrollbar flex min-h-0 flex-1 flex-col gap-2 overflow-auto [--radius:var(--radius-xl)] group-data-[collapsible=icon]:overflow-hidden"
+            className="no-scrollbar flex min-h-0 flex-1 flex-col gap-px overflow-auto [--radius:var(--radius-xl)] group-data-[collapsible=icon]:overflow-hidden"
           >
             <Reorder.Group
               as="div"
               axis="y"
               values={props.workspaceSessionGroups.map((group) => group.workspace.id)}
               onReorder={(workspaceIds) => props.onReorderWorkspaces?.(workspaceIds)}
-              className="flex flex-col gap-2"
+              className="flex flex-col gap-px"
             >
               {props.workspaceSessionGroups.map((group, index) => (
                 <WorkspaceReorderItem
@@ -616,7 +613,10 @@ function WorkspaceHeader({
   return (
     <SidebarMenuButton
       {...props}
-      className={cn("h-8 group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10", statusLabel && "h-10")}
+      className={cn(
+        "group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10",
+        statusLabel && "h-10",
+      )}
       onClick={(event) => {
         onClick?.(event);
         handleSelectWorkspace();
@@ -625,21 +625,21 @@ function WorkspaceHeader({
       <WorkspaceIcon seed={workspaceLabel(workspace)} sizeClass="size-4" />
       <div
         className={cn(
-          "min-w-0 flex-1 cursor-grab touch-none transition-[padding] duration-75 active:cursor-grabbing group-hover/menu-item:pr-12 group-focus-within/menu-item:pr-12 group-hover/workspace-header:pr-12 group-focus-within/workspace-header:pr-12",
+          "min-w-0 flex-1 cursor-grab touch-none transition-[padding] duration-75 active:cursor-grabbing group-hover/workspace-header:pr-16 group-has-[[data-workspace-actions]:focus-within]/workspace-header:pr-16 group-has-data-popup-open/workspace-header:pr-11 group-hover/workspace-header:group-has-data-popup-open/workspace-header:pr-16 pr-2",
           isLoading && "pr-6",
         )}
         onPointerDown={onTitlePointerDown}
       >
         <span className="block truncate">{workspaceLabel(workspace)}</span>
         {statusLabel ? (
-          <span className={`block text-xs ${isError ? "text-destructive" : "text-muted-foreground"}`}>
+          <span className={cn("block text-xs", isError ? "text-destructive" : "text-muted-foreground")}>
             {statusLabel}
           </span>
         ) : null}
       </div>
       <span className="ml-auto flex items-center gap-1 pl-0">
         {isLoading ? (
-          <Loader2 className="size-4 animate-spin text-muted-foreground transition-opacity group-hover/menu-item:opacity-0 group-hover/workspace-header:opacity-0" />
+          <Loader2 className="size-4 animate-spin text-muted-foreground transition-opacity group-hover/workspace-header:opacity-0" />
         ) : null}
       </span>
     </SidebarMenuButton>
@@ -738,11 +738,11 @@ function WorkspaceSidebarGroup({
                 isLoading={group.status === "loading" || isConnecting}
                 onTitlePointerDown={onWorkspaceTitlePointerDown}
               />
-              <div className="absolute right-8 top-1/2 flex -translate-y-1/2 items-center gap-1">
+              <div data-workspace-actions className="group/workspace-actions absolute right-9 top-1/2 flex -translate-y-1/2 items-center gap-1">
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-6 text-muted-foreground opacity-0 group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100"
+                  className="size-6 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-actions:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation();
                     ctx.onCreateTaskInWorkspace(workspace.id);
@@ -756,13 +756,13 @@ function WorkspaceSidebarGroup({
                   workspace={workspace}
                   isConnectionActionBusy={isConnectionActionBusy}
                   canRecover={canRecover}
-                  className="size-6 text-muted-foreground opacity-0 group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 data-popup-open:opacity-100"
+                  className="size-6 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-actions:opacity-100 data-popup-open:opacity-100"
                 />
               </div>
               <Button
                 variant="ghost"
                 size="icon"
-                className="absolute right-1 top-1/2 size-6 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                className="absolute right-2 top-1/2 size-6 -translate-y-1/2 text-muted-foreground flex items-center justify-center group/expand-collapse-button"
                 aria-label={isExpanded ? t("sidebar.collapse") : t("sidebar.expand")}
                 aria-expanded={isExpanded}
                 onClick={(e) => {
@@ -770,11 +770,11 @@ function WorkspaceSidebarGroup({
                   ctx.toggleWorkspaceExpanded(workspace.id);
                 }}
               >
-                <ChevronRight className={cn("size-4 transition-transform duration-200", isExpanded && "rotate-90")} />
+                <ChevronRight className={cn("size-4 transition-transform duration-200 text-muted-foreground group-hover/expand-collapse-button:text-foreground", isExpanded && "rotate-90")} />
               </Button>
             </div>
 
-            <CollapsibleContent className="pt-1">
+            <CollapsibleContent className="pt-px">
               <SidebarMenuSub>
                 {showRemoteConnectionIssue ? (
                   <RemoteConnectionIssueCard
@@ -792,15 +792,7 @@ function WorkspaceSidebarGroup({
                       ctx.onEditWorkspaceConnection(workspace.id);
                     }}
                   />
-                ) : showInitialLoading ? (
-                  <>
-                    {WORKSPACE_MENU_SKELETON_ROWS.map((rowId) => (
-                      <SidebarMenuSubItem key={`skeleton-${rowId}`}>
-                        <SidebarMenuSkeleton showIcon />
-                      </SidebarMenuSubItem>
-                    ))}
-                  </>
-                ) : group.status === "loading" && group.sessions.length === 0 ? (
+                ) : showInitialLoading || (group.status === "loading" && group.sessions.length === 0) ? (
                   <SidebarMenuSubItem>
                     <SidebarMenuSubButton aria-disabled className="text-muted-foreground text-xs truncate">
                       <span className="truncate">{t("workspace.loading_tasks")}</span>
@@ -898,7 +890,7 @@ function SessionMenuItem({ session, tree, workspaceId, forcedExpandedSessionIds,
             <CollapsibleTrigger
               render={
                 <SidebarMenuSubButton
-                  className={cn(depth > 0 && "ps-13")}
+                  className={cn("relative", depth > 0 && "ps-13")}
                   isActive={isSelected}
                   onClick={openSession}
                   onPointerEnter={prefetchSession}
@@ -906,12 +898,12 @@ function SessionMenuItem({ session, tree, workspaceId, forcedExpandedSessionIds,
                 >
                   {isSessionActive ? <span className="size-1.5 shrink-0 rounded-full bg-amber-500" /> : null}
                   <span
-                    className="min-w-0 flex-1 truncate transition-[padding] duration-75 group-hover/menu-sub-item:pe-5 group-focus-within/menu-sub-item:pe-5"
+                    className="min-w-0 flex-1 truncate transition-[padding] duration-75 group-hover/menu-sub-item:pe-12 group-has-data-popup-open/menu-sub-item:pe-12 pe-4"
                     title={displayTitle}
                   >
                     {displayTitle}
                   </span>
-                  <span className="ml-auto flex shrink-0 items-center pl-0">
+                  <span className="flex items-center justify-center size-6 absolute right-2 top-1/2 -translate-y-1/2">
                     <ChevronRight className="size-4 text-muted-foreground transition-transform duration-200 group-data-open/session-collapsible:rotate-90 hover:text-foreground" />
                   </span>
                 </SidebarMenuSubButton>
@@ -935,7 +927,7 @@ function SessionMenuItem({ session, tree, workspaceId, forcedExpandedSessionIds,
           onClick={openSession}
           onPointerEnter={prefetchSession}
           onFocus={prefetchSession}
-          className={cn("transition-[padding] duration-75 group-hover/menu-sub-item:pe-8 group-focus-within/menu-sub-item:pe-8", depth > 0 && "ps-13")}
+          className={cn("transition-[padding] duration-75 group-hover/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8", depth > 0 && "ps-13")}
         >
           {isSessionActive ? <span className="size-1.5 shrink-0 rounded-full bg-amber-500" /> : null}
           <span className="truncate" title={displayTitle}>{displayTitle}</span>
@@ -943,7 +935,7 @@ function SessionMenuItem({ session, tree, workspaceId, forcedExpandedSessionIds,
       </SessionContextMenu>
       <SessionActions
         sessionId={session.id}
-        className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover/menu-sub-item:opacity-100 data-popup-open:opacity-100"
+        className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/menu-sub-item:opacity-100 data-popup-open:opacity-100"
       />
     </SidebarMenuSubItem>
   );
