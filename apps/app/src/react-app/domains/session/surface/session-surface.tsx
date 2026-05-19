@@ -215,7 +215,7 @@ function assistantFallbackText(messages: UIMessage[], baseline: number) {
     .trim();
 }
 
-function AssistantWaitingCard({ label = "Thinking", collapseLayout = false }: { label?: string; collapseLayout?: boolean }) {
+function AssistantWaitingCard({ label = t("session.assistant_thinking"), collapseLayout = false }: { label?: string; collapseLayout?: boolean }) {
   const content = (
     <div className="flex justify-start" role="status" aria-live="polite">
       <div className="inline-flex items-center gap-1.5 px-1 py-1 text-[12px] text-dls-secondary">
@@ -249,7 +249,7 @@ function AssistantNoVisibleOutputCard(props: { text: string }) {
   return (
     <div className="font-mono text-[13px] leading-[1.7] text-gray-8 whitespace-pre-wrap" role="status" aria-live="polite">
       <div className="max-w-[720px]">
-        {props.text || "The agent responded with nothing. Try again."}
+        {props.text || t("session.assistant_empty_response")}
       </div>
     </div>
   );
@@ -258,7 +258,7 @@ function AssistantNoVisibleOutputCard(props: { text: string }) {
 function AssistantStatusSpacer() {
   return (
     <div className="invisible" aria-hidden="true">
-      <AssistantWaitingCard label="Responding" collapseLayout />
+      <AssistantWaitingCard label={t("session.assistant_responding")} collapseLayout />
     </div>
   );
 }
@@ -599,7 +599,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const assistantStatusFooter = showAssistantWaitState ? (
     <AssistantWaitingCard collapseLayout />
   ) : showAssistantRespondingState ? (
-    <AssistantWaitingCard label="Responding" collapseLayout />
+    <AssistantWaitingCard label={t("session.assistant_responding")} collapseLayout />
   ) : showNoVisibleAssistantOutput ? (
     <AssistantNoVisibleOutputCard text={noVisibleAssistantOutputText} />
   ) : reserveAssistantStatusSpace ? (
