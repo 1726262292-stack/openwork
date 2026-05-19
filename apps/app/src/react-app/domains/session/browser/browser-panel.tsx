@@ -1,8 +1,9 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, type MouseEvent } from "react";
 import { ArrowLeft, ArrowRight, Globe, Loader2, Plus, RotateCw, X } from "lucide-react";
-import { Reorder, useDragControls } from "motion/react";
-import { isElectronRuntime } from "../../../../app/utils";
+import { useDragControls } from "motion/react";
+import { isElectronRuntime } from "@/app/utils";
+import { PanelTab, PanelTabClose, PanelTabItem, PanelTabList } from "@/components/panel-tabs";
 import { Button } from "@/components/ui/button";
 import {
   InputGroup,
@@ -10,7 +11,6 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import {
   getActiveTab,
   type BrowserStatePayload,
@@ -125,30 +125,19 @@ function BrowserTab({ tab }: BrowserTabProps) {
   };
 
   return (
-    <Reorder.Item
-      as="div"
+    <PanelTabItem
       value={tab.tabId}
       id={tab.tabId}
-      layout="position"
-      dragElastic={0}
-      dragListener={false}
       dragControls={dragControls}
-      className="group relative w-44 min-w-0 shrink-0"
-      onContextMenu={(event) => {
+      onContextMenu={(event: MouseEvent<HTMLDivElement>) => {
         event.preventDefault();
         event.stopPropagation();
         showTabContextMenu({ clientX: event.clientX, clientY: event.clientY });
       }}
     >
       <div ref={tabRef} className="relative">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className={cn(
-            "w-full min-w-0 justify-start gap-2 px-2 pr-8 text-left text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground",
-            tab.isActive && "bg-muted/80 text-foreground",
-          )}
+        <PanelTab
+          active={tab.isActive}
           onClick={selectTab}
           onPointerDown={(event) => {
             if (event.button !== 0) {
@@ -176,29 +165,10 @@ function BrowserTab({ tab }: BrowserTabProps) {
             <Globe />
           )}
           <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          className={cn(
-            "absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100 focus:opacity-100",
-            tab.isActive && "text-foreground hover:bg-muted hover:text-foreground",
-          )}
-          title="Close tab"
-          aria-label={`Close tab: ${label}`}
-          onClick={(event) => {
-            event.stopPropagation();
-            closeTab();
-          }}
-          onPointerDown={(event) => {
-            event.stopPropagation();
-          }}
-        >
-          <X />
-        </Button>
+        </PanelTab>
+        <PanelTabClose active={tab.isActive} label={label} onClose={closeTab} />
       </div>
-    </Reorder.Item>
+    </PanelTabItem>
   );
 }
 
@@ -383,12 +353,9 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
         <div className="shrink-0 border-b border-border bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
           <div className="flex h-10 items-center gap-1 border-b border-border/60 px-2">
             <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
-              <Reorder.Group
-                as="div"
-                axis="x"
+              <PanelTabList
                 values={state.tabs.map((tab) => tab.tabId)}
                 onReorder={reorderTabs}
-                className="flex min-w-max items-center gap-1"
               >
                 {state.tabs.map((tab) => (
                   <BrowserTab
@@ -396,7 +363,7 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
                     tab={tab}
                   />
                 ))}
-              </Reorder.Group>
+              </PanelTabList>
             </div>
             <Tooltip>
               <TooltipTrigger
