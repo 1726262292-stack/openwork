@@ -174,8 +174,49 @@ function messageHasVisibleAssistantOutput(message: UIMessage) {
   });
 }
 
-function AssistantWaitingCard() {
-  return (
+function formatAssistantFallbackValue(value: unknown) {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value.trim();
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function assistantFallbackPartToText(part: UIMessage["parts"][number]) {
+  if (part.type === "text" || part.type === "reasoning") return part.text.trim();
+  if (part.type === "file") return (part.filename ?? part.url).trim();
+
+  const record = part as Record<string, unknown>;
+  const toolName = typeof record.toolName === "string" ? record.toolName : null;
+  if (toolName) {
+    if (typeof record.errorText === "string" && record.errorText.trim()) {
+      return `[tool:${toolName}] ${record.errorText.trim()}`;
+    }
+    const output = formatAssistantFallbackValue(record.output);
+    if (output) return `[tool:${toolName}] ${output}`;
+    const input = formatAssistantFallbackValue(record.input);
+    if (input) return `[tool:${toolName}] ${input}`;
+    return `[tool:${toolName}]`;
+  }
+
+  const unknown = formatAssistantFallbackValue(record);
+  return unknown === "{}" ? "" : unknown;
+}
+
+function assistantFallbackText(messages: UIMessage[], baseline: number) {
+  return messages
+    .slice(baseline)
+    .filter((message) => message.role === "assistant")
+    .flatMap((message) => message.parts.map(assistantFallbackPartToText))
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+}
+
+function AssistantWaitingCard({ label = "Thinking", collapseLayout = false }: { label?: string; collapseLayout?: boolean }) {
+  const content = (
     <div className="flex justify-start" role="status" aria-live="polite">
       <div className="inline-flex items-center gap-1.5 px-1 py-1 text-[12px] text-dls-secondary">
         <div style={{ width: 20, height: 20, borderRadius: "50%", overflow: "hidden" }}>
@@ -190,8 +231,34 @@ function AssistantWaitingCard() {
             style={{ backgroundColor: "#818cf8", width: "100%", height: "100%", borderRadius: "50%" }}
           />
         </div>
-        <span>Thinking</span>
+        <span>{label}</span>
       </div>
+    </div>
+  );
+
+  if (collapseLayout) {
+    return <div className="h-px overflow-visible">{content}</div>;
+  }
+
+  return (
+    content
+  );
+}
+
+function AssistantNoVisibleOutputCard(props: { text: string }) {
+  return (
+    <div className="font-mono text-[13px] leading-[1.7] text-gray-8 whitespace-pre-wrap" role="status" aria-live="polite">
+      <div className="max-w-[720px]">
+        {props.text || "The agent responded with nothing. Try again."}
+      </div>
+    </div>
+  );
+}
+
+function AssistantStatusSpacer() {
+  return (
+    <div className="invisible" aria-hidden="true">
+      <AssistantWaitingCard label="Responding" collapseLayout />
     </div>
   );
 }
@@ -353,6 +420,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const [sending, setSending] = useState(false);
   const [showDelayedLoading, setShowDelayedLoading] = useState(false);
   const [awaitingAssistantBaseline, setAwaitingAssistantBaseline] = useState<number | null>(null);
+  const [noVisibleAssistantOutputBaseline, setNoVisibleAssistantOutputBaseline] = useState<number | null>(null);
   const [rendered, setRendered] = useState<{ sessionId: string; snapshot: OpenworkSessionSnapshot } | null>(null);
   const [toolSkills, setToolSkills] = useState<SkillCard[]>([]);
   const [toolMcpServers, setToolMcpServers] = useState<McpServerEntry[]>([]);
@@ -403,6 +471,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setSending(false);
     setShowDelayedLoading(false);
     setAwaitingAssistantBaseline(null);
+    setNoVisibleAssistantOutputBaseline(null);
     // Clear draft + attachments + mentions on session change so typed text
     // doesn't bleed across sessions (and across workspaces). The sessionId
     // effectively changes when the workspace changes too because the route
@@ -513,7 +582,29 @@ export function SessionSurface(props: SessionSurfaceProps) {
       .slice(awaitingAssistantBaseline)
       .some(messageHasVisibleAssistantOutput);
   }, [awaitingAssistantBaseline, renderedMessages]);
+  const noVisibleAssistantOutputText = useMemo(() => {
+    if (noVisibleAssistantOutputBaseline === null) return "";
+    return assistantFallbackText(renderedMessages, noVisibleAssistantOutputBaseline);
+  }, [noVisibleAssistantOutputBaseline, renderedMessages]);
+  const assistantOutputAfterNoVisibleFallback = useMemo(() => {
+    if (noVisibleAssistantOutputBaseline === null) return false;
+    return renderedMessages
+      .slice(noVisibleAssistantOutputBaseline)
+      .some(messageHasVisibleAssistantOutput);
+  }, [noVisibleAssistantOutputBaseline, renderedMessages]);
   const showAssistantWaitState = awaitingAssistantBaseline !== null && !assistantOutputAfterAwaitStart;
+  const showAssistantRespondingState = awaitingAssistantBaseline !== null && assistantOutputAfterAwaitStart && chatStreaming;
+  const showNoVisibleAssistantOutput = noVisibleAssistantOutputBaseline !== null && !assistantOutputAfterNoVisibleFallback;
+  const reserveAssistantStatusSpace = awaitingAssistantBaseline !== null && assistantOutputAfterAwaitStart && !chatStreaming;
+  const assistantStatusFooter = showAssistantWaitState ? (
+    <AssistantWaitingCard collapseLayout />
+  ) : showAssistantRespondingState ? (
+    <AssistantWaitingCard label="Responding" collapseLayout />
+  ) : showNoVisibleAssistantOutput ? (
+    <AssistantNoVisibleOutputCard text={noVisibleAssistantOutputText} />
+  ) : reserveAssistantStatusSpace ? (
+    <AssistantStatusSpacer />
+  ) : null;
   useReactRenderWatchdog("SessionSurface", {
     sessionId: props.sessionId,
     workspaceId: props.workspaceId,
@@ -522,6 +613,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
     sending,
     pendingSessionLoad,
     showAssistantWaitState,
+    showAssistantRespondingState,
+    noVisibleAssistantOutputBaseline,
     hasSnapshot: Boolean(snapshot),
   });
 
@@ -566,11 +659,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useEffect(() => {
     if (awaitingAssistantBaseline === null) return;
     if (assistantOutputAfterAwaitStart) {
-      setAwaitingAssistantBaseline(null);
       return;
     }
     if (sending || liveStatus.type !== "idle" || renderedMessages.length <= awaitingAssistantBaseline) return;
-    const id = window.setTimeout(() => setAwaitingAssistantBaseline(null), 1200);
+    const id = window.setTimeout(() => {
+      setNoVisibleAssistantOutputBaseline(awaitingAssistantBaseline);
+      setAwaitingAssistantBaseline(null);
+    }, 1200);
     return () => window.clearTimeout(id);
   }, [assistantOutputAfterAwaitStart, awaitingAssistantBaseline, liveStatus.type, renderedMessages.length, sending]);
 
@@ -637,6 +732,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setError(null);
     setSending(true);
     setAwaitingAssistantBaseline(renderedMessages.length);
+    setNoVisibleAssistantOutputBaseline(null);
     try {
       const nextDraft = buildDraft(text, attachments);
       await props.onSendDraft(nextDraft);
@@ -650,6 +746,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       setError(parsed);
       setDraft("");
       setAwaitingAssistantBaseline(null);
+      setNoVisibleAssistantOutputBaseline(null);
       setSending(false);
     }
   }, [attachments, buildDraft, draft, props.onDraftChange, props.onSendDraft, renderedMessages.length]);
@@ -1074,6 +1171,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     onForkAtMessage={props.onForkAtMessage}
                     openTargets={verifiedOpenTargets}
                     onOpenTarget={props.onOpenTarget}
+                    footer={assistantStatusFooter}
                   />
                   {error ? (
                     <SessionErrorCard
@@ -1083,7 +1181,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       onOpenModelPicker={props.onModelClick}
                     />
                   ) : null}
-                  {showAssistantWaitState ? <AssistantWaitingCard /> : null}
                 </>
               </DevProfiler>
             )}

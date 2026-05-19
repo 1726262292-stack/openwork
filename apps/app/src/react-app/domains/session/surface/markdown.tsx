@@ -34,6 +34,33 @@ function MarkdownCodeBlock(props: { className?: string; children: React.ReactNod
 }
 
 const markdownComponents: Components = {
+  p({ children }) {
+    return <p className="my-3 leading-relaxed">{children}</p>;
+  },
+  h1({ children }) {
+    return <h1 className="my-5 text-xl font-semibold">{children}</h1>;
+  },
+  h2({ children }) {
+    return <h2 className="my-4 text-lg font-semibold">{children}</h2>;
+  },
+  h3({ children }) {
+    return <h3 className="my-3 text-base font-semibold">{children}</h3>;
+  },
+  ul({ children }) {
+    return <ul className="my-3 list-disc pl-6">{children}</ul>;
+  },
+  ol({ children }) {
+    return <ol className="my-3 list-decimal pl-6">{children}</ol>;
+  },
+  li({ children }) {
+    return <li className="my-1">{children}</li>;
+  },
+  strong({ children }) {
+    return <strong className="font-semibold">{children}</strong>;
+  },
+  em({ children }) {
+    return <em className="italic">{children}</em>;
+  },
   a({ href, children }) {
     return (
       <a
@@ -82,15 +109,6 @@ const markdownComponents: Components = {
 };
 
 const markdownClassName = `markdown-content max-w-none text-gray-12
-  [&_strong]:font-semibold
-  [&_em]:italic
-  [&_h1]:my-5 [&_h1]:text-xl [&_h1]:font-semibold
-  [&_h2]:my-4 [&_h2]:text-lg [&_h2]:font-semibold
-  [&_h3]:my-3 [&_h3]:text-base [&_h3]:font-semibold
-  [&_p]:my-3 [&_p]:leading-relaxed
-  [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6
-  [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6
-  [&_li]:my-1
 `.trim();
 
 function MarkdownBlockInner(props: {
