@@ -4,6 +4,18 @@ import type { UIMessage } from "ai";
 export type OpenTargetKind = "url" | "file";
 export type OpenTargetPreview = "browser" | "markdown" | "sheet" | "image" | "pdf" | "html" | "text" | "external";
 
+export interface TextData {
+  kind: "text";
+  data: string;
+}
+
+export interface BinaryData {
+  kind: "binary";
+  data: ArrayBuffer;
+}
+
+export type Data = TextData | BinaryData;
+
 export type OpenTarget = {
   id: string;
   kind: OpenTargetKind;
@@ -113,7 +125,10 @@ export function isLocalhostBrowserTarget(target: OpenTarget) {
 }
 
 function browserTargetScore(target: OpenTarget) {
-  if (!isLocalhostBrowserTarget(target)) return -1;
+  if (!isLocalhostBrowserTarget(target)) {
+    return -1;
+  }
+
   try {
     const url = new URL(target.value);
     let score = target.confidence;
@@ -128,31 +143,40 @@ function browserTargetScore(target: OpenTarget) {
 
 export function selectAutoOpenTarget(targets: OpenTarget[]): OpenTarget | null {
   const browserTargets = targets.filter(isLocalhostBrowserTarget);
+
   if (browserTargets.length > 0) {
     return [...browserTargets].sort((left, right) => browserTargetScore(right) - browserTargetScore(left))[0] ?? null;
   }
+
   return targets.find(shouldAutoOpenTarget) ?? null;
 }
 
 function scanText(map: Map<string, OpenTarget>, text: string, confidence: number, reason: string) {
-  if (!text) return;
+  if (!text) {
+    return;
+  }
+
   URL_PATTERN.lastIndex = 0;
+
   for (const match of text.matchAll(URL_PATTERN)) {
     if (match[0]) addTarget(map, targetFromUrl(match[0], confidence, reason));
   }
+
   SOCKET_PATTERN.lastIndex = 0;
+
   for (const match of text.matchAll(SOCKET_PATTERN)) {
     if (match[0]) addTarget(map, targetFromUrl(match[0], confidence, reason));
   }
+
   FILE_PATTERN.lastIndex = 0;
+
   for (const match of text.matchAll(FILE_PATTERN)) {
     if (match[1]) addTarget(map, targetFromFile(match[1], confidence, reason));
   }
 }
 
-function isDiscoveryTool(toolName: unknown) {
-  if (typeof toolName !== "string") return false;
-  return ["glob", "grep", "search", "find"].includes(toolName.toLowerCase());
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
 }
 
 export function deriveOpenTargets(messages: UIMessage[]): OpenTarget[] {
@@ -160,25 +184,34 @@ export function deriveOpenTargets(messages: UIMessage[]): OpenTarget[] {
 
   for (const message of messages) {
     for (const part of message.parts) {
-      const record = part as any;
-      if (part.type === "text" && typeof record.text === "string") {
-        scanText(targets, record.text, message.role === "assistant" ? 65 : 40, "message");
+      if (part.type === "text" && typeof part.text === "string") {
+        scanText(targets, part.text, message.role === "assistant" ? 65 : 40, "message");
         continue;
       }
-      if (part.type === "dynamic-tool") {
-        const discoveryTool = isDiscoveryTool(record.toolName);
-        const values = [record.input, record.output].flatMap((value) => {
-          if (discoveryTool || !value || typeof value !== "object") return [];
-          const entries = value as Record<string, unknown>;
-          return [entries.path, entries.file, ...(Array.isArray(entries.files) ? entries.files : [])];
-        });
-        for (const value of values) {
-          if (typeof value === "string") addTarget(targets, targetFromFile(value, 95, "tool metadata"));
-        }
-        if (!discoveryTool) {
-          scanText(targets, JSON.stringify(record.output ?? record.input ?? ""), 75, "tool output");
-        }
+
+      if (part.type !== "dynamic-tool") {
+        continue;
       }
+
+      const isDiscoveryTool = ["glob", "grep", "search", "find"].includes(part.toolName.toLowerCase());
+        
+        const values = [part.input, part.output].flatMap((value) => {
+          if (isDiscoveryTool || !isObject(value)) {
+            return [];
+          }
+
+          return [value.path, value.file, ...(Array.isArray(value.files) ? value.files : [])];
+        });
+
+        for (const value of values) {
+          if (typeof value === "string") {
+            addTarget(targets, targetFromFile(value, 95, "tool metadata"));
+          }
+        }
+
+        if (!isDiscoveryTool) {
+          scanText(targets, JSON.stringify(part.output ?? part.input ?? ""), 75, "tool output");
+        }
     }
   }
 
@@ -188,6 +221,9 @@ export function deriveOpenTargets(messages: UIMessage[]): OpenTarget[] {
 }
 
 export function shouldAutoOpenTarget(target: OpenTarget): boolean {
-  if (target.kind === "url") return isLocalhostBrowserTarget(target);
+  if (target.kind === "url") {
+    return isLocalhostBrowserTarget(target);
+  }
+
   return target.exists === true && target.confidence >= 65 && ["markdown", "sheet", "image", "pdf", "html"].includes(target.preview);
 }
