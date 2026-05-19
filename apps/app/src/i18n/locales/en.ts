@@ -828,6 +828,7 @@ export default {
   "session.export_desktop_only_local": "Export is available for local workers in the desktop app.",
   "session.export_local_only": "Export is only supported for local workers.",
   "session.loading_detail": "Pulling in the latest messages for this task.",
+  "session.preparing_workspace": "Preparing workspace",
   "session.model": "Model",
   "session.new_task": "New task",
   "session.open": "Open",

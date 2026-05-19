@@ -57,11 +57,7 @@ const STARTUP_SKELETON_ROWS = [
 
 type StatusBarOverrides = Pick<
   StatusBarProps,
-  | "statusLabel"
-  | "statusDetail"
-  | "statusDotClass"
-  | "statusPingClass"
-  | "statusPulse"
+  | "loading"
   | "showSettingsButton"
   | "settingsOpen"
 >;
@@ -803,11 +799,7 @@ export function SessionPage(props: SessionPageProps) {
               onOpenSettings={props.onOpenSettings}
               providerConnectedIds={props.providerConnectedIds}
               mcpConnectedCount={props.mcpConnectedCount}
-              statusLabel={props.statusBar?.statusLabel}
-              statusDetail={props.statusBar?.statusDetail}
-              statusDotClass={props.statusBar?.statusDotClass}
-              statusPingClass={props.statusBar?.statusPingClass}
-              statusPulse={props.statusBar?.statusPulse}
+              loading={props.statusBar?.loading ?? false}
               showSettingsButton={props.statusBar?.showSettingsButton}
             />
           ) : null}

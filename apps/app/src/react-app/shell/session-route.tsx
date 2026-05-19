@@ -2726,13 +2726,7 @@ export function SessionRoute() {
             }
           : undefined
       }
-      statusBar={showPreparingStatus ? {
-        statusLabel: "Preparing workspace",
-        statusDetail: t("session.loading_detail"),
-        statusDotClass: "bg-amber-9",
-        statusPingClass: "bg-amber-9/35 animate-ping",
-        statusPulse: true,
-      } : undefined}
+      statusBar={{ loading: showPreparingStatus }}
       notFoundMessage={routeNotFoundMessage}
       onAccessibleTargetsChange={setPaletteAccessibleTargets}
     />
