@@ -40,8 +40,8 @@ function getNativeMenuPoint(
 
   if (point) {
     return {
-      x: Math.round(point.clientX / zoom),
-      y: Math.round(point.clientY / zoom),
+      x: Math.round(point.clientX * zoom),
+      y: Math.round(point.clientY * zoom),
     };
   }
 
@@ -52,8 +52,8 @@ function getNativeMenuPoint(
   const rect = el.getBoundingClientRect();
 
   return {
-    x: Math.round((rect.left + 8) / zoom),
-    y: Math.round((rect.bottom + 4) / zoom),
+    x: Math.round((rect.left + 8) * zoom),
+    y: Math.round((rect.bottom + 4) * zoom),
   };
 }
 
@@ -73,19 +73,17 @@ if (import.meta.hot) {
 
 function computeBounds(el: HTMLElement) {
   const rect = el.getBoundingClientRect();
-
-  // Electron's WebContentsView.setBounds() uses the parent contentView's
-  // coordinate space (CSS pixels at zoom=1). If the app has a font-zoom /
-  // zoom factor, getBoundingClientRect() returns *zoomed* CSS pixels.
-  // Dividing by the zoom factor gives the unzoomed coordinates that the
-  // native view expects.
   const zoom = window.__OPENWORK_ZOOM_FACTOR__ ?? 1;
 
+  // WebContentsView bounds use the BrowserWindow contentView coordinate space.
+  // Renderer client rects are reported in zoomed CSS pixels, so convert back to
+  // contentView coordinates by applying the desktop zoom factor. Dividing by the
+  // zoom factor shifts the native browser into the transcript.
   return {
-    x: Math.round(rect.x / zoom),
-    y: Math.round(rect.y / zoom),
-    width: Math.round(rect.width / zoom),
-    height: Math.round(rect.height / zoom),
+    x: Math.round(rect.x * zoom),
+    y: Math.round(rect.y * zoom),
+    width: Math.round(rect.width * zoom),
+    height: Math.round(rect.height * zoom),
   };
 }
 

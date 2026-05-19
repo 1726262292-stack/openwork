@@ -184,6 +184,9 @@ Pass criteria:
 - Screenshot evidence shows the native browser content clipped to the right
   pane content area; it must not overlap the transcript, composer, titlebar, or
   rail.
+- For this specific containment check, use an OS/window screenshot such as
+  `screencapture`; CDP screenshots only capture the React renderer and can miss
+  Electron `WebContentsView` overlays.
 
 ---
 
