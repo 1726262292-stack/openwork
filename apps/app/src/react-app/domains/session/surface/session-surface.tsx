@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
@@ -29,7 +29,6 @@ import {
   recordInspectorEvent,
 } from "../../../shell/app-inspector";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
-import { getReactQueryClient } from "../../../infra/query-client";
 import { ReactSessionComposer } from "./composer/composer";
 import { DevProfiler } from "../../../shell/dev-profiler";
 import { PaperGrainGradient } from "@openwork/ui/react";
@@ -155,15 +154,12 @@ function controlTextArgument(args: unknown) {
 const waitForControl = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 function useSharedQueryState<T>(queryKey: readonly unknown[], fallback: T) {
-  const queryClient = getReactQueryClient();
-  // useSyncExternalStore requires getSnapshot to return the same reference
-  // while the external store has not changed. Callers must pass stable
-  // fallbacks for empty cache states.
-  return useSyncExternalStore(
-    (callback) => queryClient.getQueryCache().subscribe(callback),
-    () => (queryClient.getQueryData<T>(queryKey) ?? fallback),
-    () => fallback,
-  );
+  const query = useQuery<T, Error, T, readonly unknown[]>({
+    queryKey,
+    queryFn: async () => fallback,
+    enabled: false,
+  });
+  return query.data ?? fallback;
 }
 
 function messageHasVisibleAssistantOutput(message: UIMessage) {

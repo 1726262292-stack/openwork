@@ -13,6 +13,7 @@ type SyncOptions = {
   workspaceId: string;
   baseUrl: string;
   openworkToken: string;
+  onSessionUpdated?: (update: { sessionId: string; info: Record<string, unknown> }) => void;
 };
 
 export type PendingDelta = {
@@ -30,6 +31,7 @@ type SyncEntry = {
   disposeTimer: ReturnType<typeof setTimeout> | null;
   trackedSessionRefs: Map<string, number>;
   retainedSessionTimers: Map<string, ReturnType<typeof setTimeout>>;
+  sessionUpdatedListeners: Set<NonNullable<SyncOptions["onSessionUpdated"]>>;
   pendingDeltas: Map<string, { messageId: string; reasoning: boolean; text: string }>;
   // Coalesce rapid-fire delta events from the SSE stream into one cache
   // commit per animation frame. Without this, a long response produces a
@@ -76,6 +78,22 @@ function shouldRetrySyncSubscribe(error: unknown) {
 
 function isTrackedSession(entry: SyncEntry, sessionId: string) {
   return (entry.trackedSessionRefs.get(sessionId) ?? 0) > 0 || entry.retainedSessionTimers.has(sessionId);
+}
+
+function getSessionUpdatedInfo(event: OpencodeEvent) {
+  if (event.type !== "session.updated") return null;
+  const props = event.properties;
+  if (!props || typeof props !== "object") return null;
+  const record = props as { sessionID?: unknown; info?: unknown };
+  const info = record.info;
+  if (!info || typeof info !== "object") return null;
+  const sessionId = typeof record.sessionID === "string"
+    ? record.sessionID
+    : typeof (info as { id?: unknown }).id === "string"
+      ? (info as { id: string }).id
+      : "";
+  if (!sessionId) return null;
+  return { sessionId, info: info as Record<string, unknown> };
 }
 
 function isLiveStatus(status: SessionStatus | null | undefined) {
@@ -375,6 +393,14 @@ export function coalescePendingDeltas(items: PendingDelta[]) {
 function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent) {
   const queryClient = getReactQueryClient();
   const input = entry.input;
+
+  if (event.type === "session.updated") {
+    const update = getSessionUpdatedInfo(event);
+    if (!update) return;
+    if (!isTrackedSession(entry, update.sessionId)) return;
+    for (const listener of entry.sessionUpdatedListeners) listener(update);
+    return;
+  }
 
   if (event.type === "session.status") {
     const props = (event.properties ?? {}) as { sessionID?: string; status?: SessionStatus };
@@ -692,6 +718,7 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
       clearTimeout(existing.disposeTimer);
       existing.disposeTimer = null;
     }
+    if (input.onSessionUpdated) existing.sessionUpdatedListeners.add(input.onSessionUpdated);
     existing.refs += 1;
     return () => releaseWorkspaceSessionSync(input);
   }
@@ -703,6 +730,7 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
     disposeTimer: null,
     trackedSessionRefs: new Map(),
     retainedSessionTimers: new Map(),
+    sessionUpdatedListeners: new Set(input.onSessionUpdated ? [input.onSessionUpdated] : []),
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
     deltaFlushScheduled: false,
@@ -718,6 +746,7 @@ function releaseWorkspaceSessionSync(input: SyncOptions) {
   const key = syncKey(input);
   const existing = syncs.get(key);
   if (!existing) return;
+  if (input.onSessionUpdated) existing.sessionUpdatedListeners.delete(input.onSessionUpdated);
   existing.refs -= 1;
   if (existing.refs > 0) return;
   if (existing.retainedSessionTimers.size === 0) {
@@ -792,6 +821,7 @@ export function __createWorkspaceSessionSyncForTest(input: SyncOptions) {
     disposeTimer: null,
     trackedSessionRefs: new Map(),
     retainedSessionTimers: new Map(),
+    sessionUpdatedListeners: new Set(),
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
     deltaFlushScheduled: false,

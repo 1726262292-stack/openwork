@@ -9,6 +9,7 @@ type ReactSessionRuntimeProps = {
   activeSessionIds?: string[];
   opencodeBaseUrl: string;
   openworkToken: string;
+  onSessionUpdated?: (update: { sessionId: string; info: Record<string, unknown> }) => void;
 };
 
 export function ReactSessionRuntime(props: ReactSessionRuntimeProps) {
@@ -17,6 +18,7 @@ export function ReactSessionRuntime(props: ReactSessionRuntimeProps) {
       workspaceId: props.workspaceId,
       baseUrl: props.opencodeBaseUrl,
       openworkToken: props.openworkToken,
+      onSessionUpdated: props.onSessionUpdated,
     };
     const releaseWorkspace = ensureWorkspaceSessionSync(input);
     const releaseSessions = trackWorkspaceSessionsSync(input, [props.sessionId, ...(props.activeSessionIds ?? [])]);
@@ -24,7 +26,7 @@ export function ReactSessionRuntime(props: ReactSessionRuntimeProps) {
       releaseSessions();
       releaseWorkspace();
     };
-  }, [props.workspaceId, props.sessionId, props.activeSessionIds, props.opencodeBaseUrl, props.openworkToken]);
+  }, [props.workspaceId, props.sessionId, props.activeSessionIds, props.opencodeBaseUrl, props.openworkToken, props.onSessionUpdated]);
 
   return null;
 }

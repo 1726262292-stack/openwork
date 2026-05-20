@@ -1057,38 +1057,21 @@ export function SessionRoute() {
     };
   }, [client, endpointForWorkspace, reloadCoordinator, selectedWorkspace, selectedWorkspaceId]);
 
-  useEffect(() => {
-    if (!client || !selectedWorkspaceId || !selectedSessionId) return;
-    const endpoint = endpointForWorkspace(selectedWorkspace);
-    if (!endpoint) return;
-    let cancelled = false;
-
-    const refreshSelectedSessionTitle = async () => {
-      try {
-        const response = await endpoint.client.getSession(endpoint.workspaceId, selectedSessionId);
-        if (cancelled || !response.item) return;
-        setSessionsByWorkspaceId((current) => {
-          const list = current[selectedWorkspaceId] ?? [];
-          const index = list.findIndex((session: any) => session?.id === selectedSessionId);
-          if (index < 0) return current;
-          const nextSession = { ...list[index], ...response.item };
-          if (JSON.stringify(nextSession) === JSON.stringify(list[index])) return current;
-          const nextList = [...list];
-          nextList[index] = nextSession;
-          return { ...current, [selectedWorkspaceId]: nextList };
-        });
-      } catch {
-        // Best-effort title sync; the session surface still owns messages.
-      }
-    };
-
-    void refreshSelectedSessionTitle();
-    const interval = window.setInterval(() => void refreshSelectedSessionTitle(), 3_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [client, endpointForWorkspace, selectedSessionId, selectedWorkspace, selectedWorkspaceId]);
+  const handleRuntimeSessionUpdated = useCallback((update: { sessionId: string; info: Record<string, unknown> }) => {
+    if (!selectedWorkspaceId) return;
+    setSessionsByWorkspaceId((current) => {
+      const list = current[selectedWorkspaceId] ?? [];
+      const index = list.findIndex((session: any) => session?.id === update.sessionId);
+      if (index < 0) return current;
+      const nextSession = { ...list[index], ...update.info, id: update.sessionId };
+      if (JSON.stringify(nextSession) === JSON.stringify(list[index])) return current;
+      const nextList = [...list];
+      nextList[index] = nextSession;
+      const next = { ...current, [selectedWorkspaceId]: nextList };
+      sessionsByWorkspaceIdRef.current = next;
+      return next;
+    });
+  }, [selectedWorkspaceId]);
 
   useEffect(() => {
     workspacesRef.current = workspaces;
@@ -2517,6 +2500,7 @@ export function SessionRoute() {
         activeSessionIds={activeSelectedWorkspaceSessionIds}
         opencodeBaseUrl={opencodeBaseUrl}
         openworkToken={selectedWorkspaceServerToken}
+        onSessionUpdated={handleRuntimeSessionUpdated}
       />
     ) : null}
     <SessionPage
