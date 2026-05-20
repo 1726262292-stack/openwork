@@ -58,6 +58,7 @@ const kindLabel: Record<ExtensionKind, string> = {
   plugin: "Plugin",
   skill: "Skill",
   "ui-control": "UI Control",
+  extension: "OpenWork Extension",
 };
 
 const kindDesc: Record<ExtensionKind, string> = {
@@ -65,6 +66,7 @@ const kindDesc: Record<ExtensionKind, string> = {
   plugin: "Extends OpenWork with additional capabilities managed by your organization.",
   skill: "A reusable workflow that your agent can execute on demand.",
   "ui-control": "Lets another MCP client inspect and drive this OpenWork desktop UI through a local stdio wrapper.",
+  extension: "An OpenWork extension that adds tools, providers, or integrations to your workspace.",
 };
 
 const uiControlClientConfig = `{

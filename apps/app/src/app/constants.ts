@@ -16,7 +16,7 @@ export const DEFAULT_MODEL: ModelRef = {
 
 export const SUGGESTED_PLUGINS: SuggestedPlugin[] = [];
 
-export type ExtensionKind = "mcp" | "plugin" | "skill" | "ui-control";
+export type ExtensionKind = "mcp" | "plugin" | "skill" | "ui-control" | "extension";
 
 export type McpDirectoryInfo = {
   id?: string;
@@ -57,7 +57,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: true,
     kind: "mcp",
     iconSlug: "notion",
-    iconSrc: "https://cdn.simpleicons.org/notion",
+    iconSrc: "/ext-notion.svg",
   },
   {
     get name() { return t("mcp.quick_connect_linear_title"); },
@@ -68,7 +68,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: true,
     kind: "mcp",
     iconSlug: "linear",
-    iconSrc: "https://cdn.simpleicons.org/linear",
+    iconSrc: "/ext-linear.svg",
   },
   {
     get name() { return t("mcp.quick_connect_sentry_title"); },
@@ -79,7 +79,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: true,
     kind: "mcp",
     iconSlug: "sentry",
-    iconSrc: "https://cdn.simpleicons.org/sentry",
+    iconSrc: "/ext-sentry.svg",
   },
   {
     get name() { return t("mcp.quick_connect_stripe_title"); },
@@ -90,7 +90,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: true,
     kind: "mcp",
     iconSlug: "stripe",
-    iconSrc: "https://cdn.simpleicons.org/stripe",
+    iconSrc: "/ext-stripe.svg",
   },
   {
     get name() { return t("mcp.quick_connect_context7_title"); },
@@ -101,7 +101,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: false,
     kind: "mcp",
     iconSlug: "semanticscholar",
-    iconSrc: "https://cdn.simpleicons.org/semanticscholar",
+    iconSrc: "/ext-context7.svg",
   },
   {
     get name() { return t("mcp.quick_connect_openwork_cloud_title"); },
@@ -136,8 +136,8 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     serverName: "openai-image-gen",
     description: "Generate image artifacts with gpt-image-2.",
     oauth: false,
-    kind: "plugin",
-    iconSrc: "https://cdn.openai.com/API/logo-assets/openai-logomark.svg",
+    kind: "extension",
+    iconSrc: "/ext-openai.svg",
   },
   {
     id: "ollama",
@@ -145,7 +145,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     serverName: "ollama",
     description: "Local model provider at http://localhost:11434.",
     oauth: false,
-    kind: "plugin",
-    iconSrc: "https://ollama.com/public/ollama.png",
+    kind: "extension",
+    iconSrc: "/ext-ollama.svg",
   },
 ];

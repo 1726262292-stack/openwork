@@ -31,6 +31,7 @@ const kindLabel: Record<ExtensionKind, string> = {
   plugin: "Plugin",
   skill: "Skill",
   "ui-control": "UI Control",
+  extension: "OpenWork Extension",
 };
 
 const kindStyle: Record<ExtensionKind, string> = {
@@ -38,6 +39,7 @@ const kindStyle: Record<ExtensionKind, string> = {
   plugin: "bg-violet-3 text-violet-11",
   skill: "bg-amber-3 text-amber-11",
   "ui-control": "bg-blue-3 text-blue-11",
+  extension: "bg-teal-3 text-teal-11",
 };
 
 /**
