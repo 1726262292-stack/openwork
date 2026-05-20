@@ -139,6 +139,10 @@ import type { OpenTarget } from "../domains/session/artifacts/open-target";
 import { Button } from "@/components/ui/button";
 import { SettingsPane, type SettingsPaneTab } from "../domains/session/settings/settings-pane";
 import { AuthorizedFoldersPanel } from "../domains/settings/panels/authorized-folders-panel";
+import { ExtensionCard } from "../design-system/extension-card";
+import { ExtensionDetailModal } from "../design-system/extension-detail-modal";
+import { MCP_QUICK_CONNECT, getMcpServerName } from "../../app/constants";
+import { getExtensionConfigSlot } from "../domains/settings/extension-registry";
 import {
   ensureProviderListQuery,
   getConnectedProviderItems,
@@ -520,6 +524,7 @@ export function SessionRoute() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [paletteAccessibleTargets, setPaletteAccessibleTargets] = useState<OpenTarget[]>([]);
   const [settingsPaneTab, setSettingsPaneTab] = useState<SettingsPaneTab>("extensions");
+  const [paneDetailEntry, setPaneDetailEntry] = useState<typeof MCP_QUICK_CONNECT[number] | null>(null);
   // Model picker modal state (ported from settings-route; previously the
   // session "Pick a model" button navigated to /settings/general, which is a
   // dead-end). Loads providers lazily when the modal opens.
@@ -2564,11 +2569,67 @@ export function SessionRoute() {
           }}
           onOpenFullSettings={(path) => handleOpenSettings(path)}
           extensionsSlot={
-            <div className="text-sm text-muted-foreground">
-              <p className="mb-3">Manage extensions from the full settings screen.</p>
-              <Button variant="outline" onClick={() => handleOpenSettings("/settings/extensions")}>
-                Open Extensions
-              </Button>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-3">
+                {MCP_QUICK_CONNECT.map((entry) => {
+                  const id = entry.serverName ?? getMcpServerName(entry);
+                  const isConnected = entry.kind === "extension"
+                    ? (id === "openai-image-gen" ? imageExtensionInstalled : providerConnectedIds.includes(id))
+                    : false;
+                  return (
+                    <ExtensionCard
+                      key={id}
+                      name={entry.name}
+                      description={entry.description}
+                      iconSlug={entry.iconSlug}
+                      iconSrc={entry.iconSrc}
+                      kind={entry.kind ?? "mcp"}
+                      connected={isConnected}
+                      actionLabel={isConnected ? "Configure" : "Tap to connect"}
+                      onClick={() => setPaneDetailEntry(entry)}
+                    />
+                  );
+                })}
+              </div>
+              {paneDetailEntry ? (() => {
+                const configCtx = {
+                  imageExtension: {
+                    busy: imageExtensionBusy || imageGenerationBusy,
+                    status: imageExtensionStatus ?? imageGenerationStatus,
+                    error: imageExtensionError ?? imageGenerationError,
+                    envKeyDetected: providers.some((p) => p.id === "openai" && p.source === "env") || providerConnectedIds.includes("openai"),
+                    onInstall: installOpenAiImageExtension,
+                    onTestGenerate: generateOpenAiTestImage,
+                  },
+                  localProvider: {
+                    busy: localProviderBusy,
+                    status: localProviderStatus,
+                    error: localProviderError,
+                    onInstall: installLocalProvider,
+                  },
+                };
+                const configSlot = getExtensionConfigSlot(paneDetailEntry, configCtx);
+                const id = paneDetailEntry.serverName ?? getMcpServerName(paneDetailEntry);
+                const isConnected = paneDetailEntry.kind === "extension"
+                  ? (id === "openai-image-gen" ? imageExtensionInstalled : providerConnectedIds.includes(id))
+                  : false;
+                return (
+                  <ExtensionDetailModal
+                    open
+                    onClose={() => setPaneDetailEntry(null)}
+                    name={paneDetailEntry.name}
+                    description={paneDetailEntry.description}
+                    iconSlug={paneDetailEntry.iconSlug}
+                    iconSrc={paneDetailEntry.iconSrc}
+                    kind={paneDetailEntry.kind ?? "mcp"}
+                    connected={isConnected}
+                    url={typeof paneDetailEntry.url === "string" ? paneDetailEntry.url : undefined}
+                    oauth={paneDetailEntry.oauth}
+                    configSlot={configSlot}
+                    onConnect={configSlot ? undefined : () => setPaneDetailEntry(null)}
+                  />
+                );
+              })() : null}
             </div>
           }
           providersSlot={
