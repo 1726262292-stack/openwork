@@ -42,7 +42,7 @@ export function OpenAiImageExtensionCard(props: OpenAiImageExtensionCardProps) {
             {props.installed ? <CheckCircle2 size={18} /> : <Image size={18} />}
           </div>
           <div className="min-w-0">
-            <LayoutSectionItemTitle>OpenAI Image Generation</LayoutSectionItemTitle>
+            <LayoutSectionItemTitle>OpenAI Image Gen</LayoutSectionItemTitle>
             <LayoutSectionItemDescription>
               OpenWork extension backed by an OpenCode plugin. Generates PNG artifacts with <code>{OPENAI_IMAGE_MODEL}</code>.
             </LayoutSectionItemDescription>

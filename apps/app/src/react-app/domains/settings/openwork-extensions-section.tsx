@@ -1,6 +1,8 @@
 /** @jsxImportSource react */
-import { Cpu } from "lucide-react";
+import { useState } from "react";
+import { Bot, Image } from "lucide-react";
 
+import { ExtensionCard } from "../../design-system/extension-card";
 import { OpenAiImageExtensionCard, type OpenAiImageExtensionCardProps } from "./openai-image-extension-card";
 import {
   LOCAL_PROVIDER_EXTENSIONS,
@@ -19,27 +21,60 @@ export type OpenWorkExtensionsSectionProps = {
   };
 };
 
+type SelectedExtension = "openai-image-generation" | string | null;
+
 export function OpenWorkExtensionsSection(props: OpenWorkExtensionsSectionProps) {
+  const [selectedExtension, setSelectedExtension] = useState<SelectedExtension>(null);
+  const selectedLocalProvider = LOCAL_PROVIDER_EXTENSIONS.find((extension) => extension.id === selectedExtension) ?? null;
+
   return (
-    <details className="group" open>
-      <summary className="flex cursor-pointer items-center gap-2 rounded-lg px-1 py-2 text-sm font-medium text-dls-secondary transition-colors hover:text-dls-text">
-        <Cpu size={14} />
-        <span>OpenWork Extensions</span>
-      </summary>
-      <div className="mt-3 grid gap-3">
-        <OpenAiImageExtensionCard {...props.openAiImageExtension} showOpenPlugins={false} />
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-dls-secondary">
+          Available apps
+        </h3>
+        <span className="text-[11px] text-dls-secondary">One-click connect</span>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <ExtensionCard
+          name="OpenAI Image Gen"
+          description="Generate image artifacts with gpt-image-2."
+          fallbackIcon={Image}
+          kind="plugin"
+          connected={props.openAiImageExtension.installed}
+          connecting={props.openAiImageExtension.installBusy || props.openAiImageExtension.generationBusy}
+          actionLabel={props.openAiImageExtension.installed ? "Configure" : "Tap to connect"}
+          onClick={() => setSelectedExtension("openai-image-generation")}
+        />
         {LOCAL_PROVIDER_EXTENSIONS.map((extension) => (
-          <LocalProviderExtensionCard
+          <ExtensionCard
             key={extension.id}
-            extension={extension}
-            installed={props.localProviderExtensions.connectedProviderIds.includes(extension.id)}
-            busy={props.localProviderExtensions.busy}
-            status={props.localProviderExtensions.status}
-            error={props.localProviderExtensions.error}
-            onInstall={props.localProviderExtensions.onInstall}
+            name={extension.label}
+            description={`Local model provider at ${extension.baseURL}.`}
+            fallbackIcon={Bot}
+            kind="plugin"
+            connected={props.localProviderExtensions.connectedProviderIds.includes(extension.id)}
+            connecting={props.localProviderExtensions.busy && selectedExtension === extension.id}
+            actionLabel={props.localProviderExtensions.connectedProviderIds.includes(extension.id) ? "Configure" : "Tap to connect"}
+            onClick={() => setSelectedExtension(extension.id)}
           />
         ))}
       </div>
-    </details>
+
+      {selectedExtension === "openai-image-generation" ? (
+        <OpenAiImageExtensionCard {...props.openAiImageExtension} showOpenPlugins={false} />
+      ) : null}
+      {selectedLocalProvider ? (
+        <LocalProviderExtensionCard
+          extension={selectedLocalProvider}
+          installed={props.localProviderExtensions.connectedProviderIds.includes(selectedLocalProvider.id)}
+          busy={props.localProviderExtensions.busy}
+          status={props.localProviderExtensions.status}
+          error={props.localProviderExtensions.error}
+          onInstall={props.localProviderExtensions.onInstall}
+        />
+      ) : null}
+    </div>
   );
 }
