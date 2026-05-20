@@ -31,7 +31,6 @@ import {
 } from "../../app/lib/workspace-endpoint";
 import { buildOpenworkEnvRuntimeKey } from "../../app/lib/openwork-env-runtime";
 import {
-  desktopFetch,
   engineInfo,
   revealDesktopItemInDir,
   pickDirectory,
@@ -144,15 +143,6 @@ import {
   refreshProviderListQueries,
   useProviderListQuery,
 } from "../domains/connections/provider-list-query";
-import type { LocalProviderInstallInput } from "../domains/session/settings/session-settings-panel";
-import {
-  IMAGE_GENERATION_EXTENSION_CONFIG_PATH,
-  IMAGE_GENERATION_PLUGIN_CONTENT,
-  IMAGE_GENERATION_PLUGIN_PATH,
-  OPENAI_IMAGE_MODEL,
-  openAiImageResponseToArrayBuffer,
-  slugifyImageArtifactName,
-} from "../domains/settings/openai-image-extension";
 
 type RouteWorkspace = OpenworkWorkspaceInfo & {
   displayNameResolved: string;
@@ -187,28 +177,6 @@ function serializeSDKError(error: unknown): string {
     }
   }
   return String(error);
-}
-
-async function requestOpenAiImage(input: { apiKey: string; prompt: string; model: string }) {
-  const response = await desktopFetch("https://api.openai.com/v1/images/generations", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${input.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: input.model,
-      prompt: input.prompt,
-      size: "1024x1024",
-      quality: "auto",
-    }),
-  });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    const message = payload?.error?.message || payload?.message || "OpenAI image generation failed.";
-    throw Object.assign(new Error(message), { payload, status: response.status, model: input.model });
-  }
-  return { payload, model: input.model };
 }
 
 function folderNameFromPath(path: string) {
@@ -560,16 +528,6 @@ export function SessionRoute() {
   const [providerDefaults, setProviderDefaults] = useState<Record<string, string>>({});
   const [providerConnectedIds, setProviderConnectedIds] = useState<string[]>([]);
   const [disabledProviderIds, setDisabledProviderIds] = useState<string[]>([]);
-  const [localProviderBusy, setLocalProviderBusy] = useState(false);
-  const [localProviderStatus, setLocalProviderStatus] = useState<string | null>(null);
-  const [localProviderError, setLocalProviderError] = useState<string | null>(null);
-  const [imageExtensionInstalled, setImageExtensionInstalled] = useState(false);
-  const [imageExtensionBusy, setImageExtensionBusy] = useState(false);
-  const [imageExtensionStatus, setImageExtensionStatus] = useState<string | null>(null);
-  const [imageExtensionError, setImageExtensionError] = useState<string | null>(null);
-  const [imageGenerationBusy, setImageGenerationBusy] = useState(false);
-  const [imageGenerationStatus, setImageGenerationStatus] = useState<string | null>(null);
-  const [imageGenerationError, setImageGenerationError] = useState<string | null>(null);
   // Bump to re-filter provider list when den session changes (sign-in/out)
   const [denSessionVersion, setDenSessionVersion] = useState(0);
   useEffect(() => {
@@ -1462,220 +1420,6 @@ export function SessionRoute() {
   const canCreateTask = Boolean(
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
-
-  useEffect(() => {
-    const endpoint = selectedWorkspaceEndpoint;
-    if (!endpoint?.client || !endpoint.workspaceId) {
-      setImageExtensionInstalled(false);
-      return;
-    }
-
-    let cancelled = false;
-    void endpoint.client.listPlugins(endpoint.workspaceId, { includeGlobal: false })
-      .then((result) => {
-        if (cancelled) return;
-        setImageExtensionInstalled(
-          result.items.some((item) =>
-            item.spec.includes("openwork-image-generation") ||
-            item.path?.includes("openwork-image-generation") === true,
-          ),
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setImageExtensionInstalled(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedWorkspaceEndpoint]);
-
-  const handleInstallLocalProvider = useCallback(async (input: LocalProviderInstallInput) => {
-    const endpoint = selectedWorkspaceEndpoint;
-    const workspaceId = endpoint?.workspaceId?.trim() ?? "";
-    const openworkClient = endpoint?.client ?? null;
-    const modelId = input.modelId.trim();
-    if (!openworkClient || !workspaceId) {
-      setLocalProviderError("OpenWork server is not connected for this workspace.");
-      return;
-    }
-    if (!modelId) {
-      setLocalProviderError("Model ID is required.");
-      return;
-    }
-
-    setLocalProviderBusy(true);
-    setLocalProviderStatus(null);
-    setLocalProviderError(null);
-    try {
-      await openworkClient.patchConfig(workspaceId, {
-        opencode: {
-          provider: {
-            [input.providerId]: {
-              npm: "@ai-sdk/openai-compatible",
-              name: input.name,
-              options: { baseURL: input.baseURL },
-              models: {
-                [modelId]: { name: input.modelName.trim() || modelId },
-              },
-            },
-          },
-        },
-      });
-
-      if (input.setDefault) {
-        local.setPrefs((previous) => ({
-          ...previous,
-          defaultModel: { providerID: input.providerId, modelID: modelId },
-          modelVariant: null,
-        }));
-      }
-
-      reloadCoordinator.markReloadRequired("config", {
-        type: "config",
-        name: "opencode.json",
-        action: "updated",
-      });
-
-      try {
-        await openworkClient.reloadEngine(workspaceId);
-      } catch {
-        // The reload toast still lets the user retry if the immediate reload fails.
-      }
-      await refreshProviderListQueries(getReactQueryClient());
-      try {
-        window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
-      } catch {
-        // ignore browser event dispatch failures
-      }
-      await refreshRouteState();
-      setRecentProviderIds((current) => new Set(current).add(input.providerId));
-      setLocalProviderStatus(`Added ${input.name} with ${modelId}.`);
-    } catch (error) {
-      setLocalProviderError(describeRouteError(error));
-    } finally {
-      setLocalProviderBusy(false);
-    }
-  }, [local, refreshRouteState, reloadCoordinator, selectedWorkspaceEndpoint]);
-
-  const handleInstallImageGenerationExtension = useCallback(async (apiKey: string) => {
-    const endpoint = selectedWorkspaceEndpoint;
-    const workspaceId = endpoint?.workspaceId?.trim() ?? "";
-    const openworkClient = endpoint?.client ?? null;
-    const resolvedApiKey = apiKey.trim();
-    if (!openworkClient || !workspaceId) {
-      setImageExtensionError("OpenWork server is not connected for this workspace.");
-      return;
-    }
-    if (!resolvedApiKey) {
-      setImageExtensionError("OpenAI API key is required.");
-      return;
-    }
-
-    setImageExtensionBusy(true);
-    setImageExtensionStatus(null);
-    setImageExtensionError(null);
-    try {
-      const encoder = new TextEncoder();
-      await openworkClient.writeWorkspaceBinaryFile(workspaceId, {
-        path: IMAGE_GENERATION_PLUGIN_PATH,
-        data: encoder.encode(IMAGE_GENERATION_PLUGIN_CONTENT).buffer,
-        force: true,
-      });
-      await openworkClient.writeWorkspaceBinaryFile(workspaceId, {
-        path: IMAGE_GENERATION_EXTENSION_CONFIG_PATH,
-        data: encoder.encode(JSON.stringify({
-          id: "openai-image-generation",
-          name: "OpenAI Image Generation",
-          type: "openwork-extension",
-          model: OPENAI_IMAGE_MODEL,
-          env: ["OPENAI_API_KEY"],
-        }, null, 2)).buffer,
-        force: true,
-      });
-      await openworkClient.upsertUserEnv([{ key: "OPENAI_API_KEY", value: resolvedApiKey }]);
-      await openworkClient.writeWorkspaceBinaryFile(workspaceId, {
-        path: ".opencode/package.json",
-        data: encoder.encode(JSON.stringify({
-          dependencies: {
-            "@opencode-ai/plugin": "1.14.38",
-          },
-        }, null, 2)).buffer,
-        force: true,
-      });
-      reloadCoordinator.markReloadRequired("plugins", {
-        type: "plugin",
-        name: "openwork-image-generation",
-        action: "added",
-      });
-      try {
-        await openworkClient.reloadEngine(workspaceId);
-      } catch {
-        // The reload toast still lets the user retry if the immediate reload fails.
-      }
-      setImageExtensionInstalled(true);
-      setImageExtensionStatus("Installed OpenAI image_generate and saved the extension API key for this workspace.");
-    } catch (error) {
-      setImageExtensionError(describeRouteError(error));
-    } finally {
-      setImageExtensionBusy(false);
-    }
-  }, [reloadCoordinator, selectedWorkspaceEndpoint]);
-
-  const handleGenerateTestImage = useCallback(async (input: { apiKey: string; prompt: string }) => {
-    const endpoint = selectedWorkspaceEndpoint;
-    const workspaceId = endpoint?.workspaceId?.trim() ?? "";
-    const openworkClient = endpoint?.client ?? null;
-    const apiKey = input.apiKey.trim();
-    const prompt = input.prompt.trim();
-    if (!openworkClient || !workspaceId) {
-      setImageGenerationError("OpenWork server is not connected for this workspace.");
-      return;
-    }
-    if (!apiKey) {
-      setImageGenerationError("OpenAI API key is required.");
-      return;
-    }
-    if (!prompt) {
-      setImageGenerationError("Prompt is required.");
-      return;
-    }
-
-    setImageGenerationBusy(true);
-    setImageGenerationStatus(null);
-    setImageGenerationError(null);
-    try {
-      const result = await requestOpenAiImage({ apiKey, prompt, model: OPENAI_IMAGE_MODEL });
-      const data = await openAiImageResponseToArrayBuffer(result.payload);
-      const fileName = `${slugifyImageArtifactName(prompt)}.png`;
-      await openworkClient.writeWorkspaceBinaryFile(workspaceId, {
-        path: `artifacts/${fileName}`,
-        data,
-        force: true,
-      });
-      setImageGenerationStatus(`Generated artifacts/${fileName} with ${result.model}.`);
-      try {
-        window.dispatchEvent(new CustomEvent("openwork-open-accessible-target", {
-          detail: {
-            id: `manual-image:${fileName}`,
-            kind: "file",
-            value: `artifacts/${fileName}`,
-            name: fileName,
-            preview: "image",
-            confidence: 100,
-            reason: "Generated by OpenAI Image Generation extension",
-            exists: true,
-          },
-        }));
-      } catch {
-        // ignore event dispatch failures
-      }
-    } catch (error) {
-      setImageGenerationError(describeRouteError(error));
-    } finally {
-      setImageGenerationBusy(false);
-    }
-  }, [selectedWorkspaceEndpoint]);
 
   const sessionProviderAuthStateRef = useRef({
     opencodeClient: opencodeClient as Client | null,
@@ -2805,52 +2549,6 @@ export function SessionRoute() {
         );
       }}
       onOpenSettings={() => handleOpenSettings("/settings/general")}
-      settings={{
-        providers,
-        providerConnectedIds,
-        selectedModel: local.prefs.defaultModel ?? null,
-        localProviderBusy,
-        localProviderStatus,
-        localProviderError,
-        onInstallLocalProvider: handleInstallLocalProvider,
-        openworkServerClient: selectedWorkspaceEndpoint?.client ?? client,
-        openworkServerStatus: selectedWorkspaceEndpoint?.client || client ? "connected" : "disconnected",
-        openworkServerCapabilities: selectedWorkspaceEndpoint?.client || client
-          ? {
-              config: { read: true, write: true },
-              plugins: { read: true, write: true },
-              skills: { read: true, write: true, source: "openwork" },
-              mcp: { read: true, write: true },
-              commands: { read: true, write: true },
-            }
-          : null,
-        runtimeWorkspaceId: selectedWorkspaceEndpoint?.workspaceId ?? null,
-        selectedWorkspaceRoot,
-        activeWorkspaceType: selectedWorkspace?.workspaceType ?? "local",
-        onAuthorizedFoldersUpdated: () => {
-          reloadCoordinator.markReloadRequired("config", {
-            type: "config",
-            name: "opencode.json",
-            action: "updated",
-          });
-          try {
-            window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
-          } catch {
-            // ignore browser event dispatch failures
-          }
-          void refreshRouteState();
-        },
-        imageExtensionInstalled,
-        imageExtensionBusy,
-        imageExtensionStatus,
-        imageExtensionError,
-        imageGenerationBusy,
-        imageGenerationStatus,
-        imageGenerationError,
-        onInstallImageExtension: handleInstallImageGenerationExtension,
-        onGenerateTestImage: handleGenerateTestImage,
-        onOpenFullSettings: (path) => handleOpenSettings(path),
-      }}
       sidebar={{
         workspaceSessionGroups,
         selectedWorkspaceId,

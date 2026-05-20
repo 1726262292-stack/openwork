@@ -6,7 +6,9 @@ import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
-import { OpenAiImageExtensionCard, type OpenAiImageExtensionCardProps } from "../openai-image-extension-card";
+import { type OpenAiImageExtensionCardProps } from "../openai-image-extension-card";
+import type { LocalProviderInstallInput } from "../local-provider-extension-card";
+import { OpenWorkExtensionsSection } from "../openwork-extensions-section";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins";
 
@@ -41,6 +43,13 @@ export type ExtensionsViewProps = {
   mcpView: ReactNode;
   onRefresh: () => void;
   openAiImageExtension?: OpenAiImageExtensionCardProps;
+  localProviderExtensions?: {
+    connectedProviderIds: string[];
+    busy: boolean;
+    status: string | null;
+    error: string | null;
+    onInstall: (input: LocalProviderInstallInput) => void | Promise<void>;
+  };
   initialSection?: ExtensionsSection;
   setSectionRoute?: (tab: "mcp" | "skills" | "plugins") => void;
   showHeader?: boolean;
@@ -73,16 +82,11 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       {/* All extensions: MCPs + skills in one view */}
       {props.mcpView}
 
-      {props.openAiImageExtension ? (
-        <details className="group" open>
-          <summary className="flex cursor-pointer items-center gap-2 rounded-lg px-1 py-2 text-sm font-medium text-dls-secondary transition-colors hover:text-dls-text">
-            <Cpu size={14} />
-            <span>OpenWork Extensions</span>
-          </summary>
-          <div className="mt-3">
-            <OpenAiImageExtensionCard {...props.openAiImageExtension} showOpenPlugins={false} />
-          </div>
-        </details>
+      {props.openAiImageExtension && props.localProviderExtensions ? (
+        <OpenWorkExtensionsSection
+          openAiImageExtension={props.openAiImageExtension}
+          localProviderExtensions={props.localProviderExtensions}
+        />
       ) : null}
 
       {/* OpenCode plugins -- advanced, collapsed */}

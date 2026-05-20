@@ -167,7 +167,6 @@ export function AiSettingsView(props: AiSettingsViewProps) {
         <LayoutSectionItemFootnote>{t("settings.api_keys_info")}</LayoutSectionItemFootnote>
       </LayoutSection>
 
-
     </LayoutStack>
   );
 }

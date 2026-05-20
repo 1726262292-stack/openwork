@@ -48,12 +48,6 @@ import { ArtifactPanel } from "../artifacts/artifact-panel";
 import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, type OpenTarget } from "../artifacts/open-target";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { cn } from "@/lib/utils";
-import { useControlAction } from "../../../shell/control/control-provider";
-import {
-  SessionSettingsPanel,
-  type SessionSettingsPanelProps,
-  type SessionSettingsSection,
-} from "../settings/session-settings-panel";
 
 const STARTUP_SKELETON_ROWS = [
   { id: "intro", titleWidth: "42%", bodyWidth: "88%" },
@@ -147,7 +141,6 @@ export type SessionPageProps = {
   sessionLoadingById: (sessionId: string | null) => boolean;
   shareWorkspaceModal?: ShareWorkspaceModalProps | null;
   providerAuthModal?: ProviderAuthModalProps | null;
-  settings?: Omit<SessionSettingsPanelProps, "activeSection" | "onSectionChange" | "onClose"> | null;
   activePermission?: PendingPermission | null;
   permissionReplyBusy?: boolean;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
@@ -226,8 +219,7 @@ export function SessionPage(props: SessionPageProps) {
   const browserPanelOpen = useUiStateStore((state) => state.browserPanelOpen);
   const openBrowserPanel = useUiStateStore((state) => state.openBrowserPanel);
   const closeBrowserPanel = useUiStateStore((state) => state.closeBrowserPanel);
-  const [rightPaneMode, setRightPaneMode] = useState<"browser" | "artifact" | "settings">("browser");
-  const [settingsPaneSection, setSettingsPaneSection] = useState<SessionSettingsSection>("local-models");
+  const [rightPaneMode, setRightPaneMode] = useState<"browser" | "artifact">("browser");
   const [artifactTarget, setArtifactTarget] = useState<OpenTarget | null>(null);
   const [openTargets, setOpenTargets] = useState<OpenTarget[]>([]);
   const [hiddenAccessibleTargetIds, setHiddenAccessibleTargetIds] = useState<Set<string>>(() => new Set());
@@ -242,7 +234,6 @@ export function SessionPage(props: SessionPageProps) {
   const hasArtifactTargets = artifactTargetCount > 0;
   const browserRailActive = browserPanelOpen && rightPaneMode === "browser";
   const artifactRailActive = browserPanelOpen && rightPaneMode === "artifact";
-  const settingsRailActive = browserPanelOpen && rightPaneMode === "settings";
 
   useReactRenderWatchdog("SessionPage", {
     selectedSessionId: props.selectedSessionId,
@@ -371,62 +362,6 @@ export function SessionPage(props: SessionPageProps) {
     preserveRightPaneModeOnPanelOpenRef.current = true;
     openBrowserPanel();
   }, [artifactRailActive, closeBrowserPanel, hasArtifactTargets, openBrowserPanel]);
-  const openSettingsRailPane = useCallback((section: SessionSettingsSection = "local-models") => {
-    if (!props.settings) {
-      props.onOpenSettings();
-      return;
-    }
-    setSettingsPaneSection(section);
-    setRightPaneMode("settings");
-    openBrowserPanel();
-  }, [openBrowserPanel, props]);
-  const toggleSettingsRailPane = useCallback(() => {
-    if (settingsRailActive) {
-      closeBrowserPanel();
-      return;
-    }
-    openSettingsRailPane(settingsPaneSection);
-  }, [closeBrowserPanel, openSettingsRailPane, settingsPaneSection, settingsRailActive]);
-  useControlAction(useMemo(() => props.settings ? ({
-    id: "settings.open",
-    label: "Open settings pane",
-    description: "Open Settings in the right pane without leaving the current session.",
-    sideEffect: "navigation" as const,
-    execute: () => {
-      openSettingsRailPane("local-models");
-      return { ok: true, pane: "settings" };
-    },
-  }) : null, [openSettingsRailPane, props.settings]));
-  useControlAction(useMemo(() => props.settings ? ({
-    id: "settings.providers.local",
-    label: "Open local model setup",
-    description: "Open Settings in the right pane to add Ollama, LM Studio, or llama.cpp.",
-    sideEffect: "navigation" as const,
-    execute: () => {
-      openSettingsRailPane("local-models");
-      return { ok: true, pane: "local-models" };
-    },
-  }) : null, [openSettingsRailPane, props.settings]));
-  useControlAction(useMemo(() => props.settings ? ({
-    id: "settings.authorized_folders",
-    label: "Open authorized folders",
-    description: "Open Settings in the right pane to authorize folders for file access.",
-    sideEffect: "navigation" as const,
-    execute: () => {
-      openSettingsRailPane("authorized-folders");
-      return { ok: true, pane: "authorized-folders" };
-    },
-  }) : null, [openSettingsRailPane, props.settings]));
-  useControlAction(useMemo(() => props.settings ? ({
-    id: "extensions.image_generation",
-    label: "Open image generation extension",
-    description: "Open the Image Generation extension setup in the right pane.",
-    sideEffect: "navigation" as const,
-    execute: () => {
-      openSettingsRailPane("image-generation");
-      return { ok: true, pane: "image-generation" };
-    },
-  }) : null, [openSettingsRailPane, props.settings]));
   const removeAccessibleTarget = useCallback((target: OpenTarget) => {
     setHiddenAccessibleTargetIds((current) => new Set(current).add(target.id));
     setArtifactTarget((current) => current?.id === target.id ? null : current);
@@ -838,7 +773,7 @@ export function SessionPage(props: SessionPageProps) {
                             type="button"
                             className="flex w-full items-start gap-3 rounded-xl border border-dls-border bg-dls-surface p-3.5 text-left transition-colors hover:bg-dls-hover"
                             onClick={() => {
-                              openSettingsRailPane("image-generation");
+                              props.onOpenSettings?.();
                             }}
                           >
                             <img src="https://cdn.simpleicons.org/hackthebox" alt="" width={20} height={20} className="mt-0.5 shrink-0" />
@@ -882,14 +817,7 @@ export function SessionPage(props: SessionPageProps) {
                   maxSize="70%"
                   className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                 >
-                  {rightPaneMode === "settings" && props.settings ? (
-                    <SessionSettingsPanel
-                      {...props.settings}
-                      activeSection={settingsPaneSection}
-                      onSectionChange={setSettingsPaneSection}
-                      onClose={closeRightPane}
-                    />
-                  ) : rightPaneMode === "artifact" && visibleArtifactTarget && props.openworkServerClient && props.runtimeWorkspaceId ? (
+                  {rightPaneMode === "artifact" && visibleArtifactTarget && props.openworkServerClient && props.runtimeWorkspaceId ? (
                     <ArtifactPanel
                       client={props.openworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
@@ -944,22 +872,16 @@ export function SessionPage(props: SessionPageProps) {
                 </span>
               ) : null}
             </Button>
-            {props.settings ? (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className={cn(
-                  "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                  settingsRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-                )}
-                onClick={toggleSettingsRailPane}
-                title="Settings"
-                aria-label="Settings"
-                aria-pressed={settingsRailActive}
-              >
-                <Settings2 size={17} />
-              </Button>
-            ) : null}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="rounded-xl transition-colors hover:bg-muted hover:text-foreground"
+              onClick={props.onOpenSettings}
+              title="Settings"
+              aria-label="Settings"
+            >
+              <Settings2 size={17} />
+            </Button>
           </aside>
           </div>
         </SidebarInset>

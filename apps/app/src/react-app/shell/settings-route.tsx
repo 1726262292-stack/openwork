@@ -131,6 +131,7 @@ import {
   openAiImageResponseToArrayBuffer,
   slugifyImageArtifactName,
 } from "../domains/settings/openai-image-extension";
+import type { LocalProviderInstallInput } from "../domains/settings/local-provider-extension-card";
 
 type RouteWorkspace = OpenworkWorkspaceInfo & {
   displayNameResolved: string;
@@ -489,6 +490,9 @@ function SettingsRouteContent() {
   const [modelPickerInitialTab, setModelPickerInitialTab] = useState<"default" | "available">("default");
   const [modelPickerQuery, setModelPickerQuery] = useState("");
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
+  const [localProviderBusy, setLocalProviderBusy] = useState(false);
+  const [localProviderStatus, setLocalProviderStatus] = useState<string | null>(null);
+  const [localProviderError, setLocalProviderError] = useState<string | null>(null);
   const [imageExtensionInstalled, setImageExtensionInstalled] = useState(false);
   const [imageExtensionBusy, setImageExtensionBusy] = useState(false);
   const [imageExtensionStatus, setImageExtensionStatus] = useState<string | null>(null);
@@ -968,6 +972,62 @@ function SettingsRouteContent() {
       setImageGenerationBusy(false);
     }
   }, [openworkClient, runtimeWorkspaceId, selectedWorkspaceEndpoint]);
+
+  const installLocalProvider = useCallback(async (input: LocalProviderInstallInput) => {
+    const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
+    const workspaceId = runtimeWorkspaceId?.trim() ?? "";
+    const modelId = input.modelId.trim();
+    if (!client || !workspaceId) {
+      setLocalProviderError("OpenWork server is not connected for this workspace.");
+      return;
+    }
+    if (!modelId) {
+      setLocalProviderError("Model ID is required.");
+      return;
+    }
+
+    setLocalProviderBusy(true);
+    setLocalProviderStatus(null);
+    setLocalProviderError(null);
+    try {
+      await client.patchConfig(workspaceId, {
+        opencode: {
+          provider: {
+            [input.providerId]: {
+              npm: "@ai-sdk/openai-compatible",
+              name: input.name,
+              options: { baseURL: input.baseURL },
+              models: { [modelId]: { name: input.modelName.trim() || modelId } },
+            },
+          },
+        },
+      });
+      if (input.setDefault) {
+        local.setPrefs((previous) => ({
+          ...previous,
+          defaultModel: { providerID: input.providerId, modelID: modelId },
+          modelVariant: null,
+        }));
+      }
+      reloadCoordinator.markReloadRequired("config", { type: "config", name: "opencode.json", action: "updated" });
+      try {
+        await client.reloadEngine(workspaceId);
+      } catch {
+        // The reload toast still lets the user retry if the immediate reload fails.
+      }
+      await refreshProviderListQueries(getReactQueryClient());
+      try {
+        window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
+      } catch {
+        // ignore browser event dispatch failures
+      }
+      setLocalProviderStatus(`Added ${input.name} with ${modelId}.`);
+    } catch (error) {
+      setLocalProviderError(describeRouteError(error));
+    } finally {
+      setLocalProviderBusy(false);
+    }
+  }, [local, openworkClient, reloadCoordinator, runtimeWorkspaceId, selectedWorkspaceEndpoint]);
 
   useEffect(() => {
     const openFromPending = (raw: string | null) => {
@@ -1895,6 +1955,13 @@ function SettingsRouteContent() {
               generationError: imageGenerationError,
               onInstall: installOpenAiImageExtension,
               onGenerateTestImage: generateOpenAiTestImage,
+            }}
+            localProviderExtensions={{
+              connectedProviderIds: providerConnectedIds,
+              busy: localProviderBusy,
+              status: localProviderStatus,
+              error: localProviderError,
+              onInstall: installLocalProvider,
             }}
             mcpView={
               <McpView
