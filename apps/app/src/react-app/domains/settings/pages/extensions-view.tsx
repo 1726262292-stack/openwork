@@ -6,9 +6,6 @@ import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
-import { type OpenAiImageExtensionCardProps } from "../openai-image-extension-card";
-import type { LocalProviderInstallInput } from "../local-provider-extension-card";
-import { OpenWorkExtensionsSection } from "../openwork-extensions-section";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins";
 
@@ -42,14 +39,6 @@ export type ExtensionsViewProps = {
   /** The MCP view (quick-connect grid + configured servers). Skills are injected into it. */
   mcpView: ReactNode;
   onRefresh: () => void;
-  openAiImageExtension?: OpenAiImageExtensionCardProps;
-  localProviderExtensions?: {
-    connectedProviderIds: string[];
-    busy: boolean;
-    status: string | null;
-    error: string | null;
-    onInstall: (input: LocalProviderInstallInput) => void | Promise<void>;
-  };
   initialSection?: ExtensionsSection;
   setSectionRoute?: (tab: "mcp" | "skills" | "plugins") => void;
   showHeader?: boolean;
@@ -81,13 +70,6 @@ export function ExtensionsView(props: ExtensionsViewProps) {
 
       {/* All extensions: MCPs + skills in one view */}
       {props.mcpView}
-
-      {props.openAiImageExtension && props.localProviderExtensions ? (
-        <OpenWorkExtensionsSection
-          openAiImageExtension={props.openAiImageExtension}
-          localProviderExtensions={props.localProviderExtensions}
-        />
-      ) : null}
 
       {/* OpenCode plugins -- advanced, collapsed */}
       {pluginCount > 0 ? (

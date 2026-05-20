@@ -1945,24 +1945,6 @@ function SettingsRouteContent() {
               void connectionsStore.refreshMcpServers();
               void extensionsStore.refreshPlugins();
             }}
-            openAiImageExtension={{
-              installed: imageExtensionInstalled,
-              installBusy: imageExtensionBusy,
-              installStatus: imageExtensionStatus,
-              installError: imageExtensionError,
-              generationBusy: imageGenerationBusy,
-              generationStatus: imageGenerationStatus,
-              generationError: imageGenerationError,
-              onInstall: installOpenAiImageExtension,
-              onGenerateTestImage: generateOpenAiTestImage,
-            }}
-            localProviderExtensions={{
-              connectedProviderIds: providerConnectedIds,
-              busy: localProviderBusy,
-              status: localProviderStatus,
-              error: localProviderError,
-              onInstall: installLocalProvider,
-            }}
             mcpView={
               <McpView
                 busy={busy}
@@ -1977,6 +1959,33 @@ function SettingsRouteContent() {
                 setSelectedMcp={(name) => connectionsStore.setSelectedMcp(name)}
                 quickConnect={connectionsStore.quickConnect}
                 connectMcp={(entry) => {
+                  if (entry.kind === "plugin") {
+                    const id = entry.serverName ?? entry.name;
+                    if (id === "openai-image-gen") {
+                      // OpenAI Image Gen needs an API key; prompt handled by detail modal.
+                      // For now, just install with empty key (user configures in Settings -> Environment).
+                      void installOpenAiImageExtension("");
+                    } else {
+                      // Local provider extensions (ollama, lmstudio, llama-cpp)
+                      const LOCAL_PROVIDERS: Record<string, { name: string; baseURL: string; defaultModelId: string }> = {
+                        ollama: { name: "Ollama (local)", baseURL: "http://localhost:11434/v1", defaultModelId: "qwen2.5-coder:7b" },
+                        lmstudio: { name: "LM Studio (local)", baseURL: "http://127.0.0.1:1234/v1", defaultModelId: "google/gemma-3n-e4b" },
+                        "llama-cpp": { name: "llama-server (local)", baseURL: "http://127.0.0.1:8080/v1", defaultModelId: "qwen3-coder:a3b" },
+                      };
+                      const preset = LOCAL_PROVIDERS[id];
+                      if (preset) {
+                        void installLocalProvider({
+                          providerId: id === "llama-cpp" ? "llama.cpp" : id,
+                          name: preset.name,
+                          baseURL: preset.baseURL,
+                          modelId: preset.defaultModelId,
+                          modelName: preset.defaultModelId,
+                          setDefault: true,
+                        });
+                      }
+                    }
+                    return;
+                  }
                   void connectionsStore.connectMcp(entry);
                 }}
                 authorizeMcp={(entry) => {
