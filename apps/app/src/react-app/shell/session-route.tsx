@@ -89,7 +89,7 @@ import {
 } from "../domains/session/sync/session-sync";
 import { CreateRemoteWorkspaceModal } from "../domains/workspace/create-remote-workspace-modal";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
-import { createProviderAuthStore } from "../domains/connections/provider-auth/store";
+import { createProviderAuthStore, useProviderAuthStoreSnapshot } from "../domains/connections/provider-auth/store";
 import { useRemoteAccessRestart } from "../domains/workspace/remote-access-restart";
 import { RenameWorkspaceModal } from "../domains/workspace/rename-workspace-modal";
 import { useRemoteWorkspaceConnectionEditor } from "../domains/workspace/use-remote-workspace-connection-editor";
@@ -1523,6 +1523,7 @@ export function SessionRoute() {
   // Session is where forced sign-in lands. Keep org-managed cloud providers in
   // sync here so sign-in applies opencode.json changes before Settings opens.
   useCloudProviderAutoSync(sessionProviderAuthStore.runCloudProviderSync);
+  const sessionProviderAuthSnapshot = useProviderAuthStoreSnapshot(sessionProviderAuthStore);
   const permissionQueryKey = useMemo(
     () =>
       selectedWorkspaceId && selectedSessionId
@@ -2552,6 +2553,29 @@ export function SessionRoute() {
         );
       }}
       onOpenSettings={() => handleOpenSettings("/settings/general")}
+      providerAuthModal={sessionProviderAuthSnapshot.providerAuthModalOpen ? {
+        open: true,
+        loading: false,
+        submitting: sessionProviderAuthSnapshot.providerAuthBusy,
+        error: sessionProviderAuthSnapshot.providerAuthError,
+        preferredProviderId: sessionProviderAuthSnapshot.providerAuthPreferredProviderId,
+        workerType: sessionProviderAuthSnapshot.providerAuthWorkerType,
+        providers: sessionProviderAuthSnapshot.providerAuthProviders.filter(
+          (provider) => !isDesktopProviderBlocked({ providerId: provider.id, checkRestriction: checkDesktopRestriction }),
+        ),
+        connectedProviderIds: providerConnectedIds,
+        authMethods: Object.fromEntries(
+          Object.entries(sessionProviderAuthSnapshot.providerAuthMethods).filter(
+            ([providerId]) => !isDesktopProviderBlocked({ providerId, checkRestriction: checkDesktopRestriction }),
+          ),
+        ),
+        onSelect: sessionProviderAuthStore.startProviderAuth,
+        onSubmitApiKey: sessionProviderAuthStore.submitProviderApiKey,
+        onConnectCloudProvider: sessionProviderAuthStore.connectCloudProvider,
+        onSubmitOAuth: sessionProviderAuthStore.completeProviderAuthOAuth,
+        onRefreshProviders: sessionProviderAuthStore.refreshProviders,
+        onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
+      } : null}
       settingsSlot={
         <SettingsPane
           activeTab={settingsPaneTab}
