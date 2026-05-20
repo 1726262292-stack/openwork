@@ -657,6 +657,7 @@ async function ensureMenuOverlayView() {
     webPreferences: {
       // Electron only runs ESM preload scripts reliably with sandbox disabled.
       // Keep the bridge isolated and node-free for the React overlay document.
+      backgroundThrottling: false,
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
@@ -779,6 +780,7 @@ function createBrowserTab(url = "about:blank", { select = true } = {}) {
   const tabId = createBrowserTabId();
   const view = new WebContentsView({
     webPreferences: {
+      backgroundThrottling: false,
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -2758,6 +2760,9 @@ async function createMainWindow() {
     ...windowAppearanceOptions,
     ...(APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty() ? { icon: APP_ICON_IMAGE } : {}),
     webPreferences: {
+      // The renderer owns session dispatch + event streams; keep it running
+      // while hidden/minimized so background tasks are not interrupted.
+      backgroundThrottling: false,
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
