@@ -49,6 +49,8 @@ export type ExtensionDetailModalProps = {
   onConnect?: () => void;
   /** Uninstall/disconnect handler. Shown when connected. */
   onUninstall?: () => void;
+  /** Extension-specific configuration UI rendered inside the modal body. */
+  configSlot?: React.ReactNode;
 };
 
 const kindLabel: Record<ExtensionKind, string> = {
@@ -161,6 +163,7 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
     onReveal,
     onConnect,
     onUninstall,
+    configSlot,
   } = props;
 
   return (
@@ -317,6 +320,8 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                 </div>
               </div>
             ) : null}
+
+            {configSlot}
           </div>
         </div>
 

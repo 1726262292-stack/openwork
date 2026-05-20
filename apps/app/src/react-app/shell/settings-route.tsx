@@ -36,6 +36,8 @@ import { createProviderAuthStore, useProviderAuthStoreSnapshot } from "../domain
 import ProviderAuthModal from "../domains/connections/provider-auth/provider-auth-modal";
 import ConnectionsModals from "../domains/connections/modals";
 import { AiSettingsView } from "../domains/settings/pages/ai-view";
+import { OpenAiImageGenConfig } from "../domains/settings/openai-image-gen-config";
+import { OllamaConfig } from "../domains/settings/ollama-config";
 import { PreferencesView } from "../domains/settings/pages/preferences-view";
 import { ShellCustomizationView } from "../domains/settings/pages/shell-view";
 import { GeneralSettingsView } from "../domains/settings/pages/general-view";
@@ -1959,23 +1961,32 @@ function SettingsRouteContent() {
                 setSelectedMcp={(name) => connectionsStore.setSelectedMcp(name)}
                 quickConnect={connectionsStore.quickConnect}
                 connectMcp={(entry) => {
-                  if (entry.kind === "plugin") {
-                    const id = entry.serverName ?? entry.name;
-                    if (id === "openai-image-gen") {
-                      void installOpenAiImageExtension("");
-                    } else if (id === "ollama") {
-                      void installLocalProvider({
-                        providerId: OLLAMA_PROVIDER_CONFIG.providerId,
-                        name: OLLAMA_PROVIDER_CONFIG.name,
-                        baseURL: OLLAMA_PROVIDER_CONFIG.baseURL,
-                        modelId: OLLAMA_PROVIDER_CONFIG.defaultModelId,
-                        modelName: OLLAMA_PROVIDER_CONFIG.defaultModelId,
-                        setDefault: true,
-                      });
-                    }
-                    return;
-                  }
                   void connectionsStore.connectMcp(entry);
+                }}
+                configSlotForEntry={(entry) => {
+                  const id = entry.serverName ?? entry.name;
+                  if (id === "openai-image-gen") {
+                    return (
+                      <OpenAiImageGenConfig
+                        busy={imageExtensionBusy || imageGenerationBusy}
+                        status={imageExtensionStatus ?? imageGenerationStatus}
+                        error={imageExtensionError ?? imageGenerationError}
+                        onInstall={installOpenAiImageExtension}
+                        onTestGenerate={generateOpenAiTestImage}
+                      />
+                    );
+                  }
+                  if (id === "ollama") {
+                    return (
+                      <OllamaConfig
+                        busy={localProviderBusy}
+                        status={localProviderStatus}
+                        error={localProviderError}
+                        onInstall={installLocalProvider}
+                      />
+                    );
+                  }
+                  return null;
                 }}
                 authorizeMcp={(entry) => {
                   void connectionsStore.authorizeMcp(entry);

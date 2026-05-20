@@ -90,6 +90,8 @@ export type McpViewProps = {
   logoutMcpAuth: (name: string) => Promise<void> | void;
   removeMcp: (name: string) => void;
   setMcpEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
+  /** Return extension-specific config UI for the detail modal. */
+  configSlotForEntry?: (entry: McpDirectoryInfo) => React.ReactNode | null;
 };
 
 const statusDot = (status: ReactMcpStatus) => {
@@ -552,33 +554,38 @@ export function McpView(props: McpViewProps) {
         onClose={() => setChromeSetupOpen(false)}
       />
 
-      {detailEntry ? (
-        <ExtensionDetailModal
-          open={!!detailEntry}
-          onClose={() => setDetailEntry(null)}
-          name={detailEntry.name}
-          description={detailEntry.description}
-          iconSlug={detailEntry.iconSlug}
-          iconSrc={detailEntry.iconSrc}
-          fallbackIcon={serviceIcon(detailEntry.name)}
-          kind={detailEntry.kind ?? "mcp"}
-          connected={isQuickConnectConfigured(detailEntry)}
-          connecting={props.mcpConnectingName === detailEntry.name}
-          launchCommand={detailEntry.serverName === "openwork-ui" ? openworkUiMcpCommand ?? undefined : undefined}
-          environment={detailEntry.serverName === "openwork-ui" ? openworkUiMcpEnvironment ?? undefined : undefined}
-          url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
-          oauth={detailEntry.oauth}
-          onConnect={() => {
-            props.connectMcp(detailEntry);
-            setDetailEntry(null);
-          }}
-          onUninstall={isQuickConnectConfigured(detailEntry) ? () => {
-            const slug = getMcpIdentityKey(detailEntry);
-            props.removeMcp(slug);
-            setDetailEntry(null);
-          } : undefined}
-        />
-      ) : null}
+      {detailEntry ? (() => {
+        const extensionConfigSlot = props.configSlotForEntry?.(detailEntry) ?? null;
+        const hasConfigSlot = extensionConfigSlot !== null;
+        return (
+          <ExtensionDetailModal
+            open={!!detailEntry}
+            onClose={() => setDetailEntry(null)}
+            name={detailEntry.name}
+            description={detailEntry.description}
+            iconSlug={detailEntry.iconSlug}
+            iconSrc={detailEntry.iconSrc}
+            fallbackIcon={serviceIcon(detailEntry.name)}
+            kind={detailEntry.kind ?? "mcp"}
+            connected={isQuickConnectConfigured(detailEntry)}
+            connecting={props.mcpConnectingName === detailEntry.name}
+            launchCommand={detailEntry.serverName === "openwork-ui" ? openworkUiMcpCommand ?? undefined : undefined}
+            environment={detailEntry.serverName === "openwork-ui" ? openworkUiMcpEnvironment ?? undefined : undefined}
+            url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
+            oauth={detailEntry.oauth}
+            configSlot={extensionConfigSlot}
+            onConnect={hasConfigSlot ? undefined : () => {
+              props.connectMcp(detailEntry);
+              setDetailEntry(null);
+            }}
+            onUninstall={isQuickConnectConfigured(detailEntry) ? () => {
+              const slug = getMcpIdentityKey(detailEntry);
+              props.removeMcp(slug);
+              setDetailEntry(null);
+            } : undefined}
+          />
+        );
+      })() : null}
 
       {detailSkill ? (
         <ExtensionDetailModal
