@@ -66,6 +66,7 @@ import { createExtensionsStore, useExtensionsStoreSnapshot } from "../domains/se
 import { usePlatform } from "../kernel/platform";
 import { useLocal } from "../kernel/local-provider";
 import {
+  desktopFetch,
   openworkServerInfo,
   openworkServerRestart,
   engineStart,
@@ -122,6 +123,14 @@ import { workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-route
 import { getReactQueryClient } from "../infra/query-client";
 import { ensureProviderListQuery, getConnectedProviderItems, refreshProviderListQueries } from "../domains/connections/provider-list-query";
 import { openModelPickerEvent, pendingModelPickerProviderIdsKey } from "./new-providers-toast";
+import {
+  IMAGE_GENERATION_EXTENSION_CONFIG_PATH,
+  IMAGE_GENERATION_PLUGIN_CONTENT,
+  IMAGE_GENERATION_PLUGIN_PATH,
+  OPENAI_IMAGE_MODEL,
+  openAiImageResponseToArrayBuffer,
+  slugifyImageArtifactName,
+} from "../domains/settings/openai-image-extension";
 
 type RouteWorkspace = OpenworkWorkspaceInfo & {
   displayNameResolved: string;
@@ -175,6 +184,26 @@ function describeWorkspaceCreateError(error: unknown) {
     return `${message}\n\nOpenWork could not read the workspace config before the filesystem timed out. This often happens when the folder is still syncing from iCloud Drive or another remote folder. Wait for the folder to finish downloading, move the workspace to a local folder, or try again.`;
   }
   return message;
+}
+
+async function requestOpenAiImage(input: { apiKey: string; prompt: string }) {
+  const response = await desktopFetch("https://api.openai.com/v1/images/generations", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: OPENAI_IMAGE_MODEL,
+      prompt: input.prompt,
+    }),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = payload?.error?.message || payload?.message || "OpenAI image generation failed.";
+    throw Object.assign(new Error(message), { payload, status: response.status, model: OPENAI_IMAGE_MODEL });
+  }
+  return payload;
 }
 
 function mergeRouteWorkspaces(
@@ -460,6 +489,13 @@ function SettingsRouteContent() {
   const [modelPickerInitialTab, setModelPickerInitialTab] = useState<"default" | "available">("default");
   const [modelPickerQuery, setModelPickerQuery] = useState("");
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
+  const [imageExtensionInstalled, setImageExtensionInstalled] = useState(false);
+  const [imageExtensionBusy, setImageExtensionBusy] = useState(false);
+  const [imageExtensionStatus, setImageExtensionStatus] = useState<string | null>(null);
+  const [imageExtensionError, setImageExtensionError] = useState<string | null>(null);
+  const [imageGenerationBusy, setImageGenerationBusy] = useState(false);
+  const [imageGenerationStatus, setImageGenerationStatus] = useState<string | null>(null);
+  const [imageGenerationError, setImageGenerationError] = useState<string | null>(null);
   const emptyWorkspaceDisplay = useMemo<WorkspaceDisplay>(
     () => ({
       id: "",
@@ -820,6 +856,118 @@ function SettingsRouteContent() {
   useEffect(() => {
     setActiveClient(opencodeClient);
   }, [opencodeClient]);
+
+  useEffect(() => {
+    const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
+    const workspaceId = runtimeWorkspaceId?.trim() ?? "";
+    if (!client || !workspaceId) {
+      setImageExtensionInstalled(false);
+      return;
+    }
+
+    let cancelled = false;
+    void client.listPlugins(workspaceId, { includeGlobal: false })
+      .then((result) => {
+        if (cancelled) return;
+        setImageExtensionInstalled(
+          result.items.some((item) =>
+            item.spec.includes("openwork-image-generation") ||
+            item.path?.includes("openwork-image-generation") === true,
+          ),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setImageExtensionInstalled(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [openworkClient, runtimeWorkspaceId, selectedWorkspaceEndpoint]);
+
+  const installOpenAiImageExtension = useCallback(async (apiKey: string) => {
+    const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
+    const workspaceId = runtimeWorkspaceId?.trim() ?? "";
+    const resolvedApiKey = apiKey.trim();
+    if (!client || !workspaceId) {
+      setImageExtensionError("OpenWork server is not connected for this workspace.");
+      return;
+    }
+    if (!resolvedApiKey) {
+      setImageExtensionError("OpenAI API key is required.");
+      return;
+    }
+
+    setImageExtensionBusy(true);
+    setImageExtensionStatus(null);
+    setImageExtensionError(null);
+    try {
+      const encoder = new TextEncoder();
+      await client.writeWorkspaceBinaryFile(workspaceId, {
+        path: IMAGE_GENERATION_PLUGIN_PATH,
+        data: encoder.encode(IMAGE_GENERATION_PLUGIN_CONTENT).buffer,
+        force: true,
+      });
+      await client.writeWorkspaceBinaryFile(workspaceId, {
+        path: IMAGE_GENERATION_EXTENSION_CONFIG_PATH,
+        data: encoder.encode(JSON.stringify({
+          id: "openai-image-generation",
+          name: "OpenAI Image Generation",
+          type: "openwork-extension",
+          model: OPENAI_IMAGE_MODEL,
+          env: ["OPENAI_API_KEY"],
+        }, null, 2)).buffer,
+        force: true,
+      });
+      await client.writeWorkspaceBinaryFile(workspaceId, {
+        path: ".opencode/package.json",
+        data: encoder.encode(JSON.stringify({ dependencies: { "@opencode-ai/plugin": "1.14.38" } }, null, 2)).buffer,
+        force: true,
+      });
+      await client.upsertUserEnv([{ key: "OPENAI_API_KEY", value: resolvedApiKey }]);
+      reloadCoordinator.markReloadRequired("plugins", { type: "plugin", name: "openwork-image-generation", action: "added" });
+      setImageExtensionInstalled(true);
+      setImageExtensionStatus("Installed OpenAI image_generate and saved OPENAI_API_KEY through OpenWork environment variables.");
+    } catch (error) {
+      setImageExtensionError(describeRouteError(error));
+    } finally {
+      setImageExtensionBusy(false);
+    }
+  }, [openworkClient, reloadCoordinator, runtimeWorkspaceId, selectedWorkspaceEndpoint]);
+
+  const generateOpenAiTestImage = useCallback(async (input: { apiKey: string; prompt: string }) => {
+    const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
+    const workspaceId = runtimeWorkspaceId?.trim() ?? "";
+    const apiKey = input.apiKey.trim();
+    const prompt = input.prompt.trim();
+    if (!client || !workspaceId) {
+      setImageGenerationError("OpenWork server is not connected for this workspace.");
+      return;
+    }
+    if (!apiKey) {
+      setImageGenerationError("OpenAI API key is required.");
+      return;
+    }
+    if (!prompt) {
+      setImageGenerationError("Prompt is required.");
+      return;
+    }
+
+    setImageGenerationBusy(true);
+    setImageGenerationStatus(null);
+    setImageGenerationError(null);
+    try {
+      const payload = await requestOpenAiImage({ apiKey, prompt });
+      const data = await openAiImageResponseToArrayBuffer(payload);
+      const fileName = `${slugifyImageArtifactName(prompt)}.png`;
+      await client.writeWorkspaceBinaryFile(workspaceId, { path: `artifacts/${fileName}`, data, force: true });
+      setImageGenerationStatus(`Generated artifacts/${fileName} with ${OPENAI_IMAGE_MODEL}.`);
+    } catch (error) {
+      setImageGenerationError(describeRouteError(error));
+    } finally {
+      setImageGenerationBusy(false);
+    }
+  }, [openworkClient, runtimeWorkspaceId, selectedWorkspaceEndpoint]);
 
   useEffect(() => {
     const openFromPending = (raw: string | null) => {
@@ -1736,6 +1884,17 @@ function SettingsRouteContent() {
             onRefresh={() => {
               void connectionsStore.refreshMcpServers();
               void extensionsStore.refreshPlugins();
+            }}
+            openAiImageExtension={{
+              installed: imageExtensionInstalled,
+              installBusy: imageExtensionBusy,
+              installStatus: imageExtensionStatus,
+              installError: imageExtensionError,
+              generationBusy: imageGenerationBusy,
+              generationStatus: imageGenerationStatus,
+              generationError: imageGenerationError,
+              onInstall: installOpenAiImageExtension,
+              onGenerateTestImage: generateOpenAiTestImage,
             }}
             mcpView={
               <McpView

@@ -387,10 +387,6 @@ export function SessionPage(props: SessionPageProps) {
     }
     openSettingsRailPane(settingsPaneSection);
   }, [closeBrowserPanel, openSettingsRailPane, settingsPaneSection, settingsRailActive]);
-  const openSettingsFromStatus = useCallback(() => {
-    openSettingsRailPane("local-models");
-  }, [openSettingsRailPane]);
-
   useControlAction(useMemo(() => props.settings ? ({
     id: "settings.open",
     label: "Open settings pane",
@@ -865,9 +861,9 @@ export function SessionPage(props: SessionPageProps) {
               clientConnected={props.clientConnected}
               openworkServerStatus={props.openworkServerStatus}
               developerMode={props.developerMode}
-              settingsOpen={settingsRailActive || (props.statusBar?.settingsOpen ?? false)}
+              settingsOpen={props.statusBar?.settingsOpen ?? false}
               onSendFeedback={props.onSendFeedback}
-              onOpenSettings={openSettingsFromStatus}
+              onOpenSettings={props.onOpenSettings}
               providerConnectedIds={props.providerConnectedIds}
               mcpConnectedCount={props.mcpConnectedCount}
               loading={props.statusBar?.loading ?? false}

@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useMemo, useState } from "react";
-import { Bot, CheckCircle2, FolderLock, Image, Loader2, Settings2, X } from "lucide-react";
+import { Bot, FolderLock, Image, Loader2, Settings2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { TextInput } from "../../../design-system/text-input";
@@ -8,6 +8,7 @@ import type { OpenworkServerCapabilities, OpenworkServerClient, OpenworkServerSt
 import type { ModelRef, ProviderListItem } from "../../../../app/types";
 import { cn } from "@/lib/utils";
 import { AuthorizedFoldersPanel } from "../../settings/panels/authorized-folders-panel";
+import { OpenAiImageExtensionCard } from "../../settings/openai-image-extension-card";
 
 export type SessionSettingsSection = "local-models" | "authorized-folders" | "image-generation";
 
@@ -114,8 +115,6 @@ export function SessionSettingsPanel(props: SessionSettingsPanelProps) {
     Object.fromEntries(LOCAL_PROVIDER_PRESETS.map((preset) => [preset.id, preset.defaultModelId])),
   );
   const [setDefault, setSetDefault] = useState(true);
-  const [imageApiKey, setImageApiKey] = useState("");
-  const [imagePrompt, setImagePrompt] = useState("A high-contrast product screenshot of OpenWork generating an image artifact, clean UI, neon teal accents");
   const modelId = modelIdByPreset[selectedPreset.id] ?? selectedPreset.defaultModelId;
 
   const connectedLocalProviders = useMemo(() => {
@@ -292,84 +291,22 @@ export function SessionSettingsPanel(props: SessionSettingsPanelProps) {
               <div className="space-y-1">
                 <h2 className="text-base font-semibold">Image generation extension</h2>
                 <p className="text-sm leading-6 text-muted-foreground">
-                  Install an OpenCode plugin that exposes image_generate, stores an extension-scoped OpenAI API key, and writes generated PNG artifacts into this workspace.
+                  Install the OpenWork extension backed by an OpenCode plugin and OpenWork environment variable.
                 </p>
               </div>
-
-              <div className="rounded-2xl border border-border bg-muted/30 p-4">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-xl bg-primary/10 p-2 text-primary">
-                    {props.imageExtensionInstalled ? <CheckCircle2 size={18} /> : <Image size={18} />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium">
-                      {props.imageExtensionInstalled ? "Installed" : "Starter extension"}
-                    </div>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      Uses OpenAI image generation with <code>gpt-image-2</code> only. The key is stored in this workspace&apos;s extension config, not in app source.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <TextInput
-                label="OpenAI API key"
-                type="password"
-                value={imageApiKey}
-                onChange={(event) => setImageApiKey(event.currentTarget.value)}
-                placeholder="sk-..."
+              <OpenAiImageExtensionCard
+                installed={props.imageExtensionInstalled}
+                installBusy={props.imageExtensionBusy}
+                installStatus={props.imageExtensionStatus}
+                installError={props.imageExtensionError}
+                generationBusy={props.imageGenerationBusy}
+                generationStatus={props.imageGenerationStatus}
+                generationError={props.imageGenerationError}
+                onInstall={props.onInstallImageExtension}
+                onGenerateTestImage={props.onGenerateTestImage}
+                onOpenPlugins={() => props.onOpenFullSettings("/settings/extensions/plugins")}
+                showOpenPlugins
               />
-
-              <label className="block space-y-1.5 text-sm">
-                <span className="text-xs font-medium text-muted-foreground">Test prompt</span>
-                <textarea
-                  value={imagePrompt}
-                  onChange={(event) => setImagePrompt(event.currentTarget.value)}
-                  rows={4}
-                  className="w-full resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/50"
-                />
-              </label>
-
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => void props.onInstallImageExtension(imageApiKey)} disabled={props.imageExtensionBusy || !imageApiKey.trim()}>
-                  {props.imageExtensionBusy ? <Loader2 className="size-4 animate-spin" /> : <Image className="size-4" />}
-                  {props.imageExtensionInstalled ? "Update extension" : "Install extension"}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => void props.onGenerateTestImage({ apiKey: imageApiKey, prompt: imagePrompt })}
-                  disabled={props.imageGenerationBusy || !imageApiKey.trim() || !imagePrompt.trim()}
-                >
-                  {props.imageGenerationBusy ? <Loader2 className="size-4 animate-spin" /> : <Image className="size-4" />}
-                  Generate test image
-                </Button>
-                <Button variant="outline" onClick={() => props.onOpenFullSettings("/settings/extensions/plugins")}>Open extensions</Button>
-              </div>
-
-              {props.imageExtensionStatus ? (
-                <div className="rounded-xl border border-green-6 bg-green-2 px-3 py-2 text-sm text-green-11">
-                  {props.imageExtensionStatus}
-                </div>
-              ) : null}
-              {props.imageExtensionError ? (
-                <div className="rounded-xl border border-red-6 bg-red-2 px-3 py-2 text-sm text-red-11">
-                  {props.imageExtensionError}
-                </div>
-              ) : null}
-              {props.imageGenerationStatus ? (
-                <div className="rounded-xl border border-green-6 bg-green-2 px-3 py-2 text-sm text-green-11">
-                  {props.imageGenerationStatus}
-                </div>
-              ) : null}
-              {props.imageGenerationError ? (
-                <div className="rounded-xl border border-red-6 bg-red-2 px-3 py-2 text-sm text-red-11">
-                  {props.imageGenerationError}
-                </div>
-              ) : null}
-
-              <div className="rounded-xl border border-border px-3 py-2 text-xs text-muted-foreground">
-                Try after reload: <code className="text-foreground">Use image_generate to create an image of a neon owl working in OpenWork.</code>
-              </div>
             </div>
           ) : null}
         </div>

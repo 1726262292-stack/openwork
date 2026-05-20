@@ -6,6 +6,7 @@ import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
+import { OpenAiImageExtensionCard, type OpenAiImageExtensionCardProps } from "../openai-image-extension-card";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins";
 
@@ -39,6 +40,7 @@ export type ExtensionsViewProps = {
   /** The MCP view (quick-connect grid + configured servers). Skills are injected into it. */
   mcpView: ReactNode;
   onRefresh: () => void;
+  openAiImageExtension?: OpenAiImageExtensionCardProps;
   initialSection?: ExtensionsSection;
   setSectionRoute?: (tab: "mcp" | "skills" | "plugins") => void;
   showHeader?: boolean;
@@ -70,6 +72,18 @@ export function ExtensionsView(props: ExtensionsViewProps) {
 
       {/* All extensions: MCPs + skills in one view */}
       {props.mcpView}
+
+      {props.openAiImageExtension ? (
+        <details className="group" open>
+          <summary className="flex cursor-pointer items-center gap-2 rounded-lg px-1 py-2 text-sm font-medium text-dls-secondary transition-colors hover:text-dls-text">
+            <Cpu size={14} />
+            <span>OpenWork Extensions</span>
+          </summary>
+          <div className="mt-3">
+            <OpenAiImageExtensionCard {...props.openAiImageExtension} showOpenPlugins={false} />
+          </div>
+        </details>
+      ) : null}
 
       {/* OpenCode plugins -- advanced, collapsed */}
       {pluginCount > 0 ? (

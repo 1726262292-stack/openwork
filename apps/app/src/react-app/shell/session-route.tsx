@@ -145,99 +145,18 @@ import {
   useProviderListQuery,
 } from "../domains/connections/provider-list-query";
 import type { LocalProviderInstallInput } from "../domains/session/settings/session-settings-panel";
+import {
+  IMAGE_GENERATION_EXTENSION_CONFIG_PATH,
+  IMAGE_GENERATION_PLUGIN_CONTENT,
+  IMAGE_GENERATION_PLUGIN_PATH,
+  OPENAI_IMAGE_MODEL,
+  openAiImageResponseToArrayBuffer,
+  slugifyImageArtifactName,
+} from "../domains/settings/openai-image-extension";
 
 type RouteWorkspace = OpenworkWorkspaceInfo & {
   displayNameResolved: string;
 };
-
-const IMAGE_GENERATION_PLUGIN_PATH = ".opencode/plugins/openwork-image-generation.ts";
-const IMAGE_GENERATION_EXTENSION_CONFIG_PATH = ".opencode/openwork-extensions/openai-image-generation.json";
-const OPENAI_IMAGE_MODEL_PRIMARY = "gpt-image-2";
-const IMAGE_GENERATION_PLUGIN_CONTENT = `import { tool } from "@opencode-ai/plugin"
-
-const CONFIG_PATH = ".opencode/openwork-extensions/openai-image-generation.json"
-const PRIMARY_MODEL = "gpt-image-2"
-
-const readConfig = async (root) => {
-  const { readFile } = await import("node:fs/promises")
-  const { join } = await import("node:path")
-  const apiKeyFromEnv = process.env.OPENAI_API_KEY || process.env.OPENWORK_OPENAI_IMAGE_API_KEY || ""
-  try {
-    const raw = await readFile(join(root, CONFIG_PATH), "utf8")
-    const parsed = JSON.parse(raw)
-    const apiKey = String(parsed?.env?.OPENAI_API_KEY || parsed?.apiKey || apiKeyFromEnv || "").trim()
-    return { apiKey, model: String(parsed?.model || PRIMARY_MODEL) }
-  } catch {
-    return { apiKey: apiKeyFromEnv.trim(), model: PRIMARY_MODEL }
-  }
-}
-
-const generateImage = async ({ apiKey, model, prompt }) => {
-  const response = await fetch("https://api.openai.com/v1/images/generations", {
-    method: "POST",
-    headers: {
-      "Authorization": "Bearer " + apiKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      prompt,
-      size: "1024x1024",
-      quality: "auto",
-    }),
-  })
-  const payload = await response.json().catch(() => null)
-  if (!response.ok) {
-    const message = payload?.error?.message || payload?.message || "OpenAI image generation failed"
-    throw Object.assign(new Error(message), { payload, status: response.status, model })
-  }
-  return { payload, model }
-}
-
-const slugify = (value) => String(value)
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, "-")
-  .replace(/^-+|-+$/g, "")
-  .slice(0, 48) || "openwork-image"
-
-export const OpenWorkImageGeneration = async () => ({
-  tool: {
-    image_generate: tool({
-      description: "Generate a PNG image artifact using OpenAI image generation with gpt-image-2.",
-      args: {
-        prompt: tool.schema.string().describe("Image prompt to turn into an artifact."),
-        filename: tool.schema.string().optional().describe("Optional output filename without extension."),
-      },
-      async execute(args, context) {
-        const { mkdir, writeFile } = await import("node:fs/promises")
-        const { join } = await import("node:path")
-        const prompt = String(args.prompt || "").trim() || "OpenWork image"
-        const root = context.directory || context.worktree || process.cwd()
-        const config = await readConfig(root)
-        if (!config.apiKey) throw new Error("OpenAI API key missing. Configure the OpenAI Image Generation extension in OpenWork.")
-        const result = await generateImage({ apiKey: config.apiKey, model: PRIMARY_MODEL, prompt })
-        const first = result.payload?.data?.[0]
-        let bytes
-        if (first?.b64_json) {
-          bytes = Buffer.from(first.b64_json, "base64")
-        } else if (first?.url) {
-          const imageResponse = await fetch(first.url)
-          if (!imageResponse.ok) throw new Error("Generated image URL could not be downloaded")
-          bytes = Buffer.from(await imageResponse.arrayBuffer())
-        } else {
-          throw new Error("OpenAI did not return image data")
-        }
-        const fileName = slugify(args.filename || prompt) + ".png"
-        const outputDir = join(root, "artifacts")
-        await mkdir(outputDir, { recursive: true })
-        const outputPath = join(outputDir, fileName)
-        await writeFile(outputPath, bytes)
-        return "Generated image artifact at artifacts/" + fileName + " using " + result.model
-      },
-    }),
-  },
-})
-`;
 
 function mapDesktopWorkspace(workspace: WorkspaceInfo): RouteWorkspace {
   return {
@@ -268,36 +187,6 @@ function serializeSDKError(error: unknown): string {
     }
   }
   return String(error);
-}
-
-function slugifyImageArtifactName(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48) || "openwork-image";
-}
-
-function base64ToArrayBuffer(value: string) {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes.buffer;
-}
-
-async function openAiImageResponseToArrayBuffer(payload: any) {
-  const first = payload?.data?.[0];
-  if (typeof first?.b64_json === "string" && first.b64_json.trim()) {
-    return base64ToArrayBuffer(first.b64_json);
-  }
-  if (typeof first?.url === "string" && first.url.trim()) {
-    const imageResponse = await fetch(first.url);
-    if (!imageResponse.ok) throw new Error("Generated image URL could not be downloaded.");
-    return await imageResponse.arrayBuffer();
-  }
-  throw new Error("OpenAI did not return image data.");
 }
 
 async function requestOpenAiImage(input: { apiKey: string; prompt: string; model: string }) {
@@ -1699,11 +1588,12 @@ export function SessionRoute() {
           id: "openai-image-generation",
           name: "OpenAI Image Generation",
           type: "openwork-extension",
-          model: OPENAI_IMAGE_MODEL_PRIMARY,
-          env: { OPENAI_API_KEY: resolvedApiKey },
+          model: OPENAI_IMAGE_MODEL,
+          env: ["OPENAI_API_KEY"],
         }, null, 2)).buffer,
         force: true,
       });
+      await openworkClient.upsertUserEnv([{ key: "OPENAI_API_KEY", value: resolvedApiKey }]);
       await openworkClient.writeWorkspaceBinaryFile(workspaceId, {
         path: ".opencode/package.json",
         data: encoder.encode(JSON.stringify({
@@ -1755,7 +1645,7 @@ export function SessionRoute() {
     setImageGenerationStatus(null);
     setImageGenerationError(null);
     try {
-      const result = await requestOpenAiImage({ apiKey, prompt, model: OPENAI_IMAGE_MODEL_PRIMARY });
+      const result = await requestOpenAiImage({ apiKey, prompt, model: OPENAI_IMAGE_MODEL });
       const data = await openAiImageResponseToArrayBuffer(result.payload);
       const fileName = `${slugifyImageArtifactName(prompt)}.png`;
       await openworkClient.writeWorkspaceBinaryFile(workspaceId, {
