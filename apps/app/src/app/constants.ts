@@ -57,6 +57,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: true,
     kind: "mcp",
     iconSlug: "notion",
+    iconSrc: "https://cdn.simpleicons.org/notion",
   },
   {
     get name() { return t("mcp.quick_connect_linear_title"); },
@@ -67,6 +68,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: true,
     kind: "mcp",
     iconSlug: "linear",
+    iconSrc: "https://cdn.simpleicons.org/linear",
   },
   {
     get name() { return t("mcp.quick_connect_sentry_title"); },
@@ -77,6 +79,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: true,
     kind: "mcp",
     iconSlug: "sentry",
+    iconSrc: "https://cdn.simpleicons.org/sentry",
   },
   {
     get name() { return t("mcp.quick_connect_stripe_title"); },
@@ -87,6 +90,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: true,
     kind: "mcp",
     iconSlug: "stripe",
+    iconSrc: "https://cdn.simpleicons.org/stripe",
   },
   {
     get name() { return t("mcp.quick_connect_context7_title"); },
@@ -97,6 +101,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: false,
     kind: "mcp",
     iconSlug: "semanticscholar",
+    iconSrc: "https://cdn.simpleicons.org/semanticscholar",
   },
   {
     get name() { return t("mcp.quick_connect_openwork_cloud_title"); },
@@ -132,7 +137,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     description: "Generate image artifacts with gpt-image-2.",
     oauth: false,
     kind: "plugin",
-    iconSlug: "openai",
+    iconSrc: "https://cdn.openai.com/API/logo-assets/openai-logomark.svg",
   },
   {
     id: "ollama",
@@ -141,21 +146,6 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     description: "Local model provider at http://localhost:11434.",
     oauth: false,
     kind: "plugin",
-  },
-  {
-    id: "lmstudio",
-    name: "LM Studio",
-    serverName: "lmstudio",
-    description: "Local model provider at http://127.0.0.1:1234.",
-    oauth: false,
-    kind: "plugin",
-  },
-  {
-    id: "llama-cpp",
-    name: "llama.cpp",
-    serverName: "llama-cpp",
-    description: "Local model provider at http://127.0.0.1:8080.",
-    oauth: false,
-    kind: "plugin",
+    iconSrc: "https://ollama.com/public/ollama.png",
   },
 ];
