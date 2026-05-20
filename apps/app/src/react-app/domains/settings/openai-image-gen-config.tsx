@@ -11,6 +11,7 @@ export type OpenAiImageGenConfigProps = {
   busy: boolean;
   status: string | null;
   error: string | null;
+  envKeyDetected: boolean;
   onInstall: (apiKey: string) => void | Promise<void>;
   onTestGenerate: (input: { apiKey: string; prompt: string }) => void | Promise<void>;
 };
@@ -20,6 +21,7 @@ registerExtensionConfig("openai-image-gen", (ctx) => (
     busy={ctx.imageExtension.busy}
     status={ctx.imageExtension.status}
     error={ctx.imageExtension.error}
+    envKeyDetected={ctx.imageExtension.envKeyDetected}
     onInstall={ctx.imageExtension.onInstall}
     onTestGenerate={ctx.imageExtension.onTestGenerate}
   />
@@ -39,13 +41,22 @@ export function OpenAiImageGenConfig(props: OpenAiImageGenConfigProps) {
           Configuration
         </div>
 
+        {props.envKeyDetected ? (
+          <div className="rounded-xl border border-amber-6 bg-amber-2 px-3 py-2 text-xs text-amber-11">
+            <div className="font-medium">OPENAI_API_KEY detected in environment</div>
+            <div className="mt-1">
+              The OpenAI provider is already connected via an environment variable. The key you set here in the extension config will take precedence for image generation.
+            </div>
+          </div>
+        ) : null}
+
         <TextInput
           label="OpenAI API key"
           type="password"
           value={apiKey}
           onChange={(event) => setApiKey(event.currentTarget.value)}
           placeholder="sk-..."
-          hint="Stored through OpenWork environment variables as OPENAI_API_KEY."
+          hint="Stored in the extension config. Takes precedence over OPENAI_API_KEY environment variable."
         />
 
         <TextInput

@@ -1963,6 +1963,7 @@ function SettingsRouteContent() {
                     busy: imageExtensionBusy || imageGenerationBusy,
                     status: imageExtensionStatus ?? imageGenerationStatus,
                     error: imageExtensionError ?? imageGenerationError,
+                    envKeyDetected: providers.some((p) => p.id === "openai" && p.source === "env") || providerConnectedIds.includes("openai"),
                     onInstall: installOpenAiImageExtension,
                     onTestGenerate: generateOpenAiTestImage,
                   },

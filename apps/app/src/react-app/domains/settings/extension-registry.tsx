@@ -11,6 +11,7 @@ export type ExtensionConfigContext = {
     busy: boolean;
     status: string | null;
     error: string | null;
+    envKeyDetected: boolean;
     onInstall: (apiKey: string) => void | Promise<void>;
     onTestGenerate: (input: { apiKey: string; prompt: string }) => void | Promise<void>;
   };
