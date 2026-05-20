@@ -894,10 +894,10 @@ function SettingsRouteContent() {
   }, [openworkClient, runtimeWorkspaceId, selectedWorkspaceEndpoint]);
 
   const installOpenAiImageExtension = useCallback(async (apiKey: string) => {
-    const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
+    const workspaceClient = selectedWorkspaceEndpoint?.client ?? openworkClient;
     const workspaceId = runtimeWorkspaceId?.trim() ?? "";
     const resolvedApiKey = apiKey.trim();
-    if (!client || !workspaceId) {
+    if (!workspaceClient || !workspaceId) {
       setImageExtensionError("OpenWork server is not connected for this workspace.");
       return;
     }
@@ -911,12 +911,12 @@ function SettingsRouteContent() {
     setImageExtensionError(null);
     try {
       const encoder = new TextEncoder();
-      await client.writeWorkspaceBinaryFile(workspaceId, {
+      await workspaceClient.writeWorkspaceBinaryFile(workspaceId, {
         path: IMAGE_GENERATION_PLUGIN_PATH,
         data: encoder.encode(IMAGE_GENERATION_PLUGIN_CONTENT).buffer,
         force: true,
       });
-      await client.writeWorkspaceBinaryFile(workspaceId, {
+      await workspaceClient.writeWorkspaceBinaryFile(workspaceId, {
         path: IMAGE_GENERATION_EXTENSION_CONFIG_PATH,
         data: encoder.encode(JSON.stringify({
           id: "openai-image-generation",
@@ -927,12 +927,15 @@ function SettingsRouteContent() {
         }, null, 2)).buffer,
         force: true,
       });
-      await client.writeWorkspaceBinaryFile(workspaceId, {
+      await workspaceClient.writeWorkspaceBinaryFile(workspaceId, {
         path: ".opencode/package.json",
         data: encoder.encode(JSON.stringify({ dependencies: { "@opencode-ai/plugin": "1.14.38" } }, null, 2)).buffer,
         force: true,
       });
-      await client.upsertUserEnv([{ key: "OPENAI_API_KEY", value: resolvedApiKey }]);
+      // upsertUserEnv requires the host token; use openworkClient which carries it.
+      if (openworkClient) {
+        await openworkClient.upsertUserEnv([{ key: "OPENAI_API_KEY", value: resolvedApiKey }]);
+      }
       reloadCoordinator.markReloadRequired("plugins", { type: "plugin", name: "openwork-image-generation", action: "added" });
       setImageExtensionInstalled(true);
       setImageExtensionStatus("Installed OpenAI image_generate and saved OPENAI_API_KEY through OpenWork environment variables.");
@@ -1980,6 +1983,12 @@ function SettingsRouteContent() {
                     onInstall: installLocalProvider,
                   },
                 })}
+                isExtensionConnected={(entry) => {
+                  const id = entry.serverName ?? entry.name;
+                  if (id === "openai-image-gen") return imageExtensionInstalled;
+                  if (id === "ollama") return providerConnectedIds.includes("ollama");
+                  return false;
+                }}
                 authorizeMcp={(entry) => {
                   void connectionsStore.authorizeMcp(entry);
                 }}

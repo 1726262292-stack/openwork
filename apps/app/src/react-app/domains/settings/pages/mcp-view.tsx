@@ -92,6 +92,8 @@ export type McpViewProps = {
   setMcpEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   /** Return extension-specific config UI for the detail modal. */
   configSlotForEntry?: (entry: McpDirectoryInfo) => React.ReactNode | null;
+  /** Check if an extension-kind entry is connected/active. */
+  isExtensionConnected?: (entry: McpDirectoryInfo) => boolean;
 };
 
 const statusDot = (status: ReactMcpStatus) => {
@@ -453,7 +455,11 @@ export function McpView(props: McpViewProps) {
         }
         busy={props.busy}
         connectingName={props.mcpConnectingName}
-        isConfigured={isQuickConnectConfigured}
+        isConfigured={(entry) =>
+          entry.kind === "extension"
+            ? (props.isExtensionConnected?.(entry) ?? false)
+            : isQuickConnectConfigured(entry)
+        }
         statusForEntry={quickConnectStatus}
         onConnect={props.connectMcp}
         onDetail={setDetailEntry}
@@ -557,6 +563,9 @@ export function McpView(props: McpViewProps) {
       {detailEntry ? (() => {
         const extensionConfigSlot = props.configSlotForEntry?.(detailEntry) ?? null;
         const hasConfigSlot = extensionConfigSlot !== null;
+        const isConnected = detailEntry.kind === "extension"
+          ? (props.isExtensionConnected?.(detailEntry) ?? false)
+          : isQuickConnectConfigured(detailEntry);
         return (
           <ExtensionDetailModal
             open={!!detailEntry}
@@ -567,7 +576,7 @@ export function McpView(props: McpViewProps) {
             iconSrc={detailEntry.iconSrc}
             fallbackIcon={serviceIcon(detailEntry.name)}
             kind={detailEntry.kind ?? "mcp"}
-            connected={isQuickConnectConfigured(detailEntry)}
+            connected={isConnected}
             connecting={props.mcpConnectingName === detailEntry.name}
             launchCommand={detailEntry.serverName === "openwork-ui" ? openworkUiMcpCommand ?? undefined : undefined}
             environment={detailEntry.serverName === "openwork-ui" ? openworkUiMcpEnvironment ?? undefined : undefined}
