@@ -1,0 +1,47 @@
+/** @jsxImportSource react */
+import type { ReactNode } from "react";
+import type { McpDirectoryInfo } from "../../../app/constants";
+
+/**
+ * Context bag that the settings route passes to extension config factories.
+ * Each extension picks what it needs; unused fields are ignored.
+ */
+export type ExtensionConfigContext = {
+  imageExtension: {
+    busy: boolean;
+    status: string | null;
+    error: string | null;
+    onInstall: (apiKey: string) => void | Promise<void>;
+    onTestGenerate: (input: { apiKey: string; prompt: string }) => void | Promise<void>;
+  };
+  localProvider: {
+    busy: boolean;
+    status: string | null;
+    error: string | null;
+    onInstall: (input: {
+      providerId: string;
+      name: string;
+      baseURL: string;
+      modelId: string;
+      modelName: string;
+      setDefault: boolean;
+    }) => void | Promise<void>;
+  };
+};
+
+export type ExtensionConfigFactory = (ctx: ExtensionConfigContext) => ReactNode;
+
+const registry = new Map<string, ExtensionConfigFactory>();
+
+export function registerExtensionConfig(id: string, factory: ExtensionConfigFactory) {
+  registry.set(id, factory);
+}
+
+export function getExtensionConfigSlot(
+  entry: McpDirectoryInfo,
+  ctx: ExtensionConfigContext,
+): ReactNode | null {
+  const id = entry.serverName ?? entry.name;
+  const factory = registry.get(id);
+  return factory ? factory(ctx) : null;
+}

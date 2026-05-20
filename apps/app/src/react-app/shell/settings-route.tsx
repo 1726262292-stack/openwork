@@ -36,8 +36,10 @@ import { createProviderAuthStore, useProviderAuthStoreSnapshot } from "../domain
 import ProviderAuthModal from "../domains/connections/provider-auth/provider-auth-modal";
 import ConnectionsModals from "../domains/connections/modals";
 import { AiSettingsView } from "../domains/settings/pages/ai-view";
-import { OpenAiImageGenConfig } from "../domains/settings/openai-image-gen-config";
-import { OllamaConfig } from "../domains/settings/ollama-config";
+// Side-effect imports: register extension config components into the registry.
+import "../domains/settings/openai-image-gen-config";
+import "../domains/settings/ollama-config";
+import { getExtensionConfigSlot, type ExtensionConfigContext } from "../domains/settings/extension-registry";
 import { PreferencesView } from "../domains/settings/pages/preferences-view";
 import { ShellCustomizationView } from "../domains/settings/pages/shell-view";
 import { GeneralSettingsView } from "../domains/settings/pages/general-view";
@@ -1963,31 +1965,21 @@ function SettingsRouteContent() {
                 connectMcp={(entry) => {
                   void connectionsStore.connectMcp(entry);
                 }}
-                configSlotForEntry={(entry) => {
-                  const id = entry.serverName ?? entry.name;
-                  if (id === "openai-image-gen") {
-                    return (
-                      <OpenAiImageGenConfig
-                        busy={imageExtensionBusy || imageGenerationBusy}
-                        status={imageExtensionStatus ?? imageGenerationStatus}
-                        error={imageExtensionError ?? imageGenerationError}
-                        onInstall={installOpenAiImageExtension}
-                        onTestGenerate={generateOpenAiTestImage}
-                      />
-                    );
-                  }
-                  if (id === "ollama") {
-                    return (
-                      <OllamaConfig
-                        busy={localProviderBusy}
-                        status={localProviderStatus}
-                        error={localProviderError}
-                        onInstall={installLocalProvider}
-                      />
-                    );
-                  }
-                  return null;
-                }}
+                configSlotForEntry={(entry) => getExtensionConfigSlot(entry, {
+                  imageExtension: {
+                    busy: imageExtensionBusy || imageGenerationBusy,
+                    status: imageExtensionStatus ?? imageGenerationStatus,
+                    error: imageExtensionError ?? imageGenerationError,
+                    onInstall: installOpenAiImageExtension,
+                    onTestGenerate: generateOpenAiTestImage,
+                  },
+                  localProvider: {
+                    busy: localProviderBusy,
+                    status: localProviderStatus,
+                    error: localProviderError,
+                    onInstall: installLocalProvider,
+                  },
+                })}
                 authorizeMcp={(entry) => {
                   void connectionsStore.authorizeMcp(entry);
                 }}

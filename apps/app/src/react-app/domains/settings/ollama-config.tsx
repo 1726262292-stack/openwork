@@ -6,6 +6,16 @@ import { Button } from "@/components/ui/button";
 import { TextInput } from "../../design-system/text-input";
 import { surfaceCardClass } from "../workspace/modal-styles";
 import { OLLAMA_PROVIDER_CONFIG } from "./openai-image-extension";
+import { registerExtensionConfig } from "./extension-registry";
+
+registerExtensionConfig("ollama", (ctx) => (
+  <OllamaConfig
+    busy={ctx.localProvider.busy}
+    status={ctx.localProvider.status}
+    error={ctx.localProvider.error}
+    onInstall={ctx.localProvider.onInstall}
+  />
+));
 
 export type OllamaConfigProps = {
   busy: boolean;

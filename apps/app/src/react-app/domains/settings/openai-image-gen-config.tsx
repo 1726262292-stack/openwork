@@ -5,6 +5,7 @@ import { Image, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TextInput } from "../../design-system/text-input";
 import { surfaceCardClass } from "../workspace/modal-styles";
+import { registerExtensionConfig } from "./extension-registry";
 
 export type OpenAiImageGenConfigProps = {
   busy: boolean;
@@ -13,6 +14,16 @@ export type OpenAiImageGenConfigProps = {
   onInstall: (apiKey: string) => void | Promise<void>;
   onTestGenerate: (input: { apiKey: string; prompt: string }) => void | Promise<void>;
 };
+
+registerExtensionConfig("openai-image-gen", (ctx) => (
+  <OpenAiImageGenConfig
+    busy={ctx.imageExtension.busy}
+    status={ctx.imageExtension.status}
+    error={ctx.imageExtension.error}
+    onInstall={ctx.imageExtension.onInstall}
+    onTestGenerate={ctx.imageExtension.onTestGenerate}
+  />
+));
 
 export function OpenAiImageGenConfig(props: OpenAiImageGenConfigProps) {
   const [apiKey, setApiKey] = useState("");
