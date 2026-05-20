@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { FileText, Globe, Zap } from "lucide-react";
+import { FileText, Globe, Settings2, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { type OpenworkServerClient, type OpenworkServerStatus } from "../../../../app/lib/openwork-server";
@@ -48,6 +48,12 @@ import { ArtifactPanel } from "../artifacts/artifact-panel";
 import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, type OpenTarget } from "../artifacts/open-target";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { cn } from "@/lib/utils";
+import { useControlAction } from "../../../shell/control/control-provider";
+import {
+  SessionSettingsPanel,
+  type SessionSettingsPanelProps,
+  type SessionSettingsSection,
+} from "../settings/session-settings-panel";
 
 const STARTUP_SKELETON_ROWS = [
   { id: "intro", titleWidth: "42%", bodyWidth: "88%" },
@@ -141,6 +147,7 @@ export type SessionPageProps = {
   sessionLoadingById: (sessionId: string | null) => boolean;
   shareWorkspaceModal?: ShareWorkspaceModalProps | null;
   providerAuthModal?: ProviderAuthModalProps | null;
+  settings?: Omit<SessionSettingsPanelProps, "activeSection" | "onSectionChange" | "onClose"> | null;
   activePermission?: PendingPermission | null;
   permissionReplyBusy?: boolean;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
@@ -219,7 +226,8 @@ export function SessionPage(props: SessionPageProps) {
   const browserPanelOpen = useUiStateStore((state) => state.browserPanelOpen);
   const openBrowserPanel = useUiStateStore((state) => state.openBrowserPanel);
   const closeBrowserPanel = useUiStateStore((state) => state.closeBrowserPanel);
-  const [rightPaneMode, setRightPaneMode] = useState<"browser" | "artifact">("browser");
+  const [rightPaneMode, setRightPaneMode] = useState<"browser" | "artifact" | "settings">("browser");
+  const [settingsPaneSection, setSettingsPaneSection] = useState<SessionSettingsSection>("local-models");
   const [artifactTarget, setArtifactTarget] = useState<OpenTarget | null>(null);
   const [openTargets, setOpenTargets] = useState<OpenTarget[]>([]);
   const [hiddenAccessibleTargetIds, setHiddenAccessibleTargetIds] = useState<Set<string>>(() => new Set());
@@ -234,6 +242,7 @@ export function SessionPage(props: SessionPageProps) {
   const hasArtifactTargets = artifactTargetCount > 0;
   const browserRailActive = browserPanelOpen && rightPaneMode === "browser";
   const artifactRailActive = browserPanelOpen && rightPaneMode === "artifact";
+  const settingsRailActive = browserPanelOpen && rightPaneMode === "settings";
 
   useReactRenderWatchdog("SessionPage", {
     selectedSessionId: props.selectedSessionId,
@@ -362,6 +371,66 @@ export function SessionPage(props: SessionPageProps) {
     preserveRightPaneModeOnPanelOpenRef.current = true;
     openBrowserPanel();
   }, [artifactRailActive, closeBrowserPanel, hasArtifactTargets, openBrowserPanel]);
+  const openSettingsRailPane = useCallback((section: SessionSettingsSection = "local-models") => {
+    if (!props.settings) {
+      props.onOpenSettings();
+      return;
+    }
+    setSettingsPaneSection(section);
+    setRightPaneMode("settings");
+    openBrowserPanel();
+  }, [openBrowserPanel, props]);
+  const toggleSettingsRailPane = useCallback(() => {
+    if (settingsRailActive) {
+      closeBrowserPanel();
+      return;
+    }
+    openSettingsRailPane(settingsPaneSection);
+  }, [closeBrowserPanel, openSettingsRailPane, settingsPaneSection, settingsRailActive]);
+  const openSettingsFromStatus = useCallback(() => {
+    openSettingsRailPane("local-models");
+  }, [openSettingsRailPane]);
+
+  useControlAction(useMemo(() => props.settings ? ({
+    id: "settings.open",
+    label: "Open settings pane",
+    description: "Open Settings in the right pane without leaving the current session.",
+    sideEffect: "navigation" as const,
+    execute: () => {
+      openSettingsRailPane("local-models");
+      return { ok: true, pane: "settings" };
+    },
+  }) : null, [openSettingsRailPane, props.settings]));
+  useControlAction(useMemo(() => props.settings ? ({
+    id: "settings.providers.local",
+    label: "Open local model setup",
+    description: "Open Settings in the right pane to add Ollama, LM Studio, or llama.cpp.",
+    sideEffect: "navigation" as const,
+    execute: () => {
+      openSettingsRailPane("local-models");
+      return { ok: true, pane: "local-models" };
+    },
+  }) : null, [openSettingsRailPane, props.settings]));
+  useControlAction(useMemo(() => props.settings ? ({
+    id: "settings.authorized_folders",
+    label: "Open authorized folders",
+    description: "Open Settings in the right pane to authorize folders for file access.",
+    sideEffect: "navigation" as const,
+    execute: () => {
+      openSettingsRailPane("authorized-folders");
+      return { ok: true, pane: "authorized-folders" };
+    },
+  }) : null, [openSettingsRailPane, props.settings]));
+  useControlAction(useMemo(() => props.settings ? ({
+    id: "extensions.image_generation",
+    label: "Open image generation extension",
+    description: "Open the Image Generation extension setup in the right pane.",
+    sideEffect: "navigation" as const,
+    execute: () => {
+      openSettingsRailPane("image-generation");
+      return { ok: true, pane: "image-generation" };
+    },
+  }) : null, [openSettingsRailPane, props.settings]));
   const removeAccessibleTarget = useCallback((target: OpenTarget) => {
     setHiddenAccessibleTargetIds((current) => new Set(current).add(target.id));
     setArtifactTarget((current) => current?.id === target.id ? null : current);
@@ -369,7 +438,9 @@ export function SessionPage(props: SessionPageProps) {
   useEffect(() => {
     const open = (event: Event) => {
       const requested = (event as CustomEvent<OpenTarget>).detail;
-      const target = accessibleTargets.find((item) => item.id === requested?.id || item.value === requested?.value);
+      const target = accessibleTargets.find((item) => item.id === requested?.id || item.value === requested?.value) ?? (
+        requested?.kind && requested?.value ? requested : null
+      );
       if (target) openTarget(target);
     };
     const hide = (event: Event) => {
@@ -771,7 +842,7 @@ export function SessionPage(props: SessionPageProps) {
                             type="button"
                             className="flex w-full items-start gap-3 rounded-xl border border-dls-border bg-dls-surface p-3.5 text-left transition-colors hover:bg-dls-hover"
                             onClick={() => {
-                              props.onOpenSettings?.();
+                              openSettingsRailPane("image-generation");
                             }}
                           >
                             <img src="https://cdn.simpleicons.org/hackthebox" alt="" width={20} height={20} className="mt-0.5 shrink-0" />
@@ -794,9 +865,9 @@ export function SessionPage(props: SessionPageProps) {
               clientConnected={props.clientConnected}
               openworkServerStatus={props.openworkServerStatus}
               developerMode={props.developerMode}
-              settingsOpen={props.statusBar?.settingsOpen ?? false}
+              settingsOpen={settingsRailActive || (props.statusBar?.settingsOpen ?? false)}
               onSendFeedback={props.onSendFeedback}
-              onOpenSettings={props.onOpenSettings}
+              onOpenSettings={openSettingsFromStatus}
               providerConnectedIds={props.providerConnectedIds}
               mcpConnectedCount={props.mcpConnectedCount}
               loading={props.statusBar?.loading ?? false}
@@ -805,7 +876,7 @@ export function SessionPage(props: SessionPageProps) {
           ) : null}
               </main>
             </ResizablePanel>
-            {browserPanelOpen ? (
+              {browserPanelOpen ? (
               <>
                 <ResizableHandle withHandle className="hidden lg:flex" />
                 <ResizablePanel
@@ -815,7 +886,14 @@ export function SessionPage(props: SessionPageProps) {
                   maxSize="70%"
                   className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                 >
-                  {rightPaneMode === "artifact" && visibleArtifactTarget && props.openworkServerClient && props.runtimeWorkspaceId ? (
+                  {rightPaneMode === "settings" && props.settings ? (
+                    <SessionSettingsPanel
+                      {...props.settings}
+                      activeSection={settingsPaneSection}
+                      onSectionChange={setSettingsPaneSection}
+                      onClose={closeRightPane}
+                    />
+                  ) : rightPaneMode === "artifact" && visibleArtifactTarget && props.openworkServerClient && props.runtimeWorkspaceId ? (
                     <ArtifactPanel
                       client={props.openworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
@@ -870,6 +948,22 @@ export function SessionPage(props: SessionPageProps) {
                 </span>
               ) : null}
             </Button>
+            {props.settings ? (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className={cn(
+                  "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
+                  settingsRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                )}
+                onClick={toggleSettingsRailPane}
+                title="Settings"
+                aria-label="Settings"
+                aria-pressed={settingsRailActive}
+              >
+                <Settings2 size={17} />
+              </Button>
+            ) : null}
           </aside>
           </div>
         </SidebarInset>

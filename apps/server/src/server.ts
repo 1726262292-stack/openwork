@@ -1891,10 +1891,15 @@ function createRoutes(
     if (opencode) {
       const configPath = opencodeConfigPath(workspace.path);
       const nextOpencode = ensurePlainObject(opencode);
-      const { permission, ...topLevelUpdates } = nextOpencode;
+      const { permission, provider, ...topLevelUpdates } = nextOpencode;
 
       if (Object.keys(topLevelUpdates).length) {
         await updateJsoncTopLevel(configPath, topLevelUpdates);
+      }
+
+      const providerUpdate = ensurePlainObject(provider);
+      for (const [providerId, providerConfig] of Object.entries(providerUpdate)) {
+        await updateJsoncPath(configPath, ["provider", providerId], providerConfig);
       }
 
       const permissionUpdate = ensurePlainObject(permission);

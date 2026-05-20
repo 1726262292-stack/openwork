@@ -802,6 +802,8 @@ function SettingsRouteContent() {
     [baseUrl, selectedWorkspace, token],
   );
   const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "";
+  const runtimeWorkspaceId = selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspace?.id ?? null;
+  routeStateRef.current.runtimeWorkspaceId = runtimeWorkspaceId;
 
   const opencodeClient = useMemo(() => {
     if (!selectedWorkspaceEndpoint || !selectedWorkspaceEndpoint.token) return null;
@@ -1602,7 +1604,7 @@ function SettingsRouteContent() {
     openworkReconnectBusy: openworkServerSnapshot.openworkReconnectBusy,
     reconnectOpenworkServer: handleReconnectMessagingServer,
     restartMessagingWorker: handleRestartMessagingWorker,
-    workspaceId: selectedWorkspace?.id ?? null,
+    workspaceId: runtimeWorkspaceId,
     selectedWorkspaceRoot,
   });
 
@@ -1640,7 +1642,7 @@ function SettingsRouteContent() {
               openworkServerClient={openworkClient}
               openworkServerStatus={routeOpenworkStatus}
               openworkServerCapabilities={routeOpenworkCapabilities}
-              runtimeWorkspaceId={selectedWorkspace?.id ?? null}
+              runtimeWorkspaceId={runtimeWorkspaceId}
               selectedWorkspaceRoot={selectedWorkspaceRoot}
               activeWorkspaceType={workspaceType}
               onConfigUpdated={() => {
@@ -1850,7 +1852,7 @@ function SettingsRouteContent() {
               openworkServerUrl: openworkServerSnapshot.openworkServerUrl,
               openworkServerSettings: openworkServerSnapshot.openworkServerSettings,
               openworkServerHostInfo: openworkServerSnapshot.openworkServerHostInfo,
-              runtimeWorkspaceId: selectedWorkspace?.id ?? null,
+              runtimeWorkspaceId,
               updateOpenworkServerSettings: openworkServerStore.updateOpenworkServerSettings,
               resetOpenworkServerSettings: openworkServerStore.resetOpenworkServerSettings,
               testOpenworkServerConnection: openworkServerStore.testOpenworkServerConnection,

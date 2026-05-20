@@ -311,9 +311,10 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
     getElectronBrowser()?.createTab?.();
   }, []);
 
-  const reorderTabs = useCallback((tabIds: string[]) => {
-    dispatch({ type: "tabsReordered", tabIds });
-    getElectronBrowser()?.reorderTabs?.(tabIds);
+  const reorderTabs = useCallback((tabIds: unknown[]) => {
+    const nextTabIds = tabIds.filter((tabId): tabId is string => typeof tabId === "string");
+    dispatch({ type: "tabsReordered", tabIds: nextTabIds });
+    getElectronBrowser()?.reorderTabs?.(nextTabIds);
   }, []);
 
   const back = useCallback(() => {
