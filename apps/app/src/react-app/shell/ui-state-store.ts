@@ -3,23 +3,45 @@ import { create } from "zustand";
 export const PERSISTED_UI_STATE_KEY = "openwork:ui-state:v1";
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 
+export const SIDE_PANEL_ITEMS = ["browser", "artifacts", "extensions"] as const;
+export type SidePanelItem = (typeof SIDE_PANEL_ITEMS)[number];
+export type SidePanelState = Record<string, SidePanelItem | null>;
+
 export type PersistedUiState = {
   sidebarOpen: boolean;
-  browserPanelOpen?: boolean;
+  sidePanelState?: SidePanelState;
   applicationMenuVisible?: boolean;
 };
 
 export type UiState = {
   sidebarOpen: boolean;
-  browserPanelOpen: boolean;
+  sidePanelState: SidePanelState;
   applicationMenuVisible: boolean;
 };
 
 const initialState: UiState = {
   sidebarOpen: true,
-  browserPanelOpen: false,
+  sidePanelState: {},
   applicationMenuVisible: false,
 };
+
+function isSidePanelItem(value: unknown): value is SidePanelItem {
+  return SIDE_PANEL_ITEMS.includes(value as SidePanelItem);
+}
+
+function normalizeSidePanelState(value: unknown): SidePanelState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return initialState.sidePanelState;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, SidePanelItem | null] => (
+        typeof entry[0] === "string" && (entry[1] === null || isSidePanelItem(entry[1]))
+      ),
+    ),
+  );
+}
 
 function readSidebarCookieOpen(): boolean | null {
   if (globalThis.window === undefined) {
@@ -45,7 +67,7 @@ function readPersistedUiState(): UiState {
 
   try {
     const raw = window.localStorage.getItem(PERSISTED_UI_STATE_KEY);
-    
+
     if (!raw) {
       const sidebarOpen = readSidebarCookieOpen();
 
@@ -57,13 +79,13 @@ function readPersistedUiState(): UiState {
     }
 
     const parsed: PersistedUiState = JSON.parse(raw);
-    const browserPanelOpen = parsed.browserPanelOpen ?? initialState.browserPanelOpen;
+    const sidePanelState = normalizeSidePanelState(parsed.sidePanelState);
     const applicationMenuVisible = parsed.applicationMenuVisible ?? initialState.applicationMenuVisible;
 
     return {
       ...initialState,
       sidebarOpen: parsed.sidebarOpen,
-      browserPanelOpen,
+      sidePanelState,
       applicationMenuVisible,
     };
   } catch {
@@ -81,7 +103,7 @@ export function persistUiState(state: UiState): void {
       PERSISTED_UI_STATE_KEY,
       JSON.stringify({
         sidebarOpen: state.sidebarOpen,
-        browserPanelOpen: state.browserPanelOpen,
+        sidePanelState: state.sidePanelState,
         applicationMenuVisible: state.applicationMenuVisible,
       } satisfies PersistedUiState),
     );
@@ -105,19 +127,38 @@ export function toggleSidebar(state: UiState): UiState {
   return setSidebarOpen(state, !state.sidebarOpen);
 }
 
-export function setBrowserPanelOpen(state: UiState, open: boolean): UiState {
-  if (state.browserPanelOpen === open) {
+export function getSidePanelState(state: UiState, sessionId: string | null | undefined): SidePanelItem | null {
+  if (!sessionId) {
+    return null;
+  }
+
+  return state.sidePanelState[sessionId] ?? null;
+}
+
+export function setSidePanelState(
+  state: UiState,
+  sessionId: string | null | undefined,
+  panel: SidePanelItem | null,
+): UiState {
+  if (!sessionId || getSidePanelState(state, sessionId) === panel) {
     return state;
   }
 
   return {
     ...state,
-    browserPanelOpen: open,
+    sidePanelState: {
+      ...state.sidePanelState,
+      [sessionId]: panel,
+    },
   };
 }
 
-export function toggleBrowserPanel(state: UiState): UiState {
-  return setBrowserPanelOpen(state, !state.browserPanelOpen);
+export function toggleSidePanelState(
+  state: UiState,
+  sessionId: string | null | undefined,
+  panel: SidePanelItem,
+): UiState {
+  return setSidePanelState(state, sessionId, getSidePanelState(state, sessionId) === panel ? null : panel);
 }
 
 export function setApplicationMenuVisible(state: UiState, visible: boolean): UiState {
@@ -138,9 +179,8 @@ function syncApplicationMenuVisible(visible: boolean): void {
 type UiStateStore = UiState & {
   setSidebarOpen: (open: boolean) => void;
   toggleSidebar: () => void;
-  openBrowserPanel: () => void;
-  closeBrowserPanel: () => void;
-  toggleBrowserPanel: () => void;
+  setSidePanelState: (sessionId: string | null | undefined, panel: SidePanelItem | null) => void;
+  toggleSidePanelState: (sessionId: string | null | undefined, panel: SidePanelItem) => void;
   setApplicationMenuVisible: (visible: boolean) => void;
 };
 
@@ -148,9 +188,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   ...readPersistedUiState(),
   setSidebarOpen: (open) => set((state) => setSidebarOpen(state, open)),
   toggleSidebar: () => set((state) => toggleSidebar(state)),
-  openBrowserPanel: () => set((state) => setBrowserPanelOpen(state, true)),
-  closeBrowserPanel: () => set((state) => setBrowserPanelOpen(state, false)),
-  toggleBrowserPanel: () => set((state) => toggleBrowserPanel(state)),
+  setSidePanelState: (sessionId, panel) => set((state) => setSidePanelState(state, sessionId, panel)),
+  toggleSidePanelState: (sessionId, panel) => set((state) => toggleSidePanelState(state, sessionId, panel)),
   setApplicationMenuVisible: (visible) => {
     set((state) => setApplicationMenuVisible(state, visible));
     syncApplicationMenuVisible(visible);
