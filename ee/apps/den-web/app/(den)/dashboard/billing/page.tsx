@@ -1,1 +1,5 @@
-export { default } from "../../o/[orgSlug]/dashboard/billing/page";
+import { BillingDashboardScreen } from "../_components/billing-dashboard-screen";
+
+export default function BillingPage() {
+  return <BillingDashboardScreen />;
+}

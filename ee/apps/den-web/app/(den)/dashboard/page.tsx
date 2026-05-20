@@ -1,1 +1,5 @@
-export { default } from "../o/[orgSlug]/dashboard/page";
+import { DashboardOverviewScreen } from "./_components/dashboard-overview-screen";
+
+export default function OrgDashboardPage() {
+  return <DashboardOverviewScreen />;
+}

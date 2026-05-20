@@ -1,1 +1,5 @@
-export { default } from "../../o/[orgSlug]/dashboard/custom-llm-providers/page";
+import { LlmProvidersScreen } from "../_components/llm-providers-screen";
+
+export default function CustomLlmProvidersPage() {
+  return <LlmProvidersScreen />;
+}

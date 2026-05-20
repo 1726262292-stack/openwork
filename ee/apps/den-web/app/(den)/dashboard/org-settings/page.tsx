@@ -1,1 +1,5 @@
-export { default } from "../../o/[orgSlug]/dashboard/org-settings/page";
+import { OrgSettingsScreen } from "../_components/org-settings-screen";
+
+export default function OrgSettingsPage() {
+  return <OrgSettingsScreen />;
+}

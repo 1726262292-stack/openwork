@@ -1,1 +1,5 @@
-export { default } from "../../o/[orgSlug]/dashboard/background-agents/page";
+import { BackgroundAgentsScreen } from "../_components/background-agents-screen";
+
+export default function BackgroundAgentsPage() {
+  return <BackgroundAgentsScreen />;
+}

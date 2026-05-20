@@ -1,1 +1,5 @@
-export { default } from "../../../../o/[orgSlug]/dashboard/skill-hubs/skills/new/page";
+import { SkillEditorScreen } from "../../../_components/skill-editor-screen";
+
+export default function NewSkillPage() {
+  return <SkillEditorScreen />;
+}

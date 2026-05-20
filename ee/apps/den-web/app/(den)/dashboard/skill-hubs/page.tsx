@@ -1,1 +1,5 @@
-export { default } from "../../o/[orgSlug]/dashboard/skill-hubs/page";
+import { SkillHubsScreen } from "../_components/skill-hubs-screen";
+
+export default function SkillHubsPage() {
+  return <SkillHubsScreen />;
+}
