@@ -1620,32 +1620,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       return await removeCloudProvider(trackedImport.cloudProviderId);
     }
 
-    // Allow disabling any provider — including built-in/env providers
-    // like "opencode" (Zen). The user should be able to hide any provider
-    // from the model list by adding it to disabled_providers in opencode.json.
-    const canDisableProvider = true;
-
-    const disableProvider = async () => {
-      return await ensureProjectProviderDisabledState(resolved, true);
-    };
-
     try {
       await removeProviderAuthCredentials(resolved);
-      let updated = await refreshProviders({ dispose: true });
-      if (canDisableProvider && Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
-        const disabled = await disableProvider();
-        if (disabled && updated) {
-          updated = filterProviderList(updated, options.disabledProviders() ?? []);
-          applyProviderListState(updated);
-        }
-        if (!Array.isArray(updated?.connected) || !updated.connected.includes(resolved)) {
-          return disabled
-            ? `${t("providers.disconnected_prefix")} ${resolved} ${t("providers.disabled_in_config_suffix")}`
-            : `${t("providers.disconnected_prefix")} ${resolved}.`;
-        }
-      }
-
+      const updated = await refreshProviders({ dispose: true });
       if (Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
+        // Provider is still connected (e.g. via env var). Just remove
+        // stored credentials; do NOT add to disabled_providers.
         return `Removed stored credentials for ${resolved}${t("providers.still_connected_suffix")}`;
       }
       removeProviderFromState(resolved);
