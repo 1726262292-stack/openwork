@@ -923,6 +923,7 @@ function SettingsRouteContent() {
           name: "OpenAI Image Generation",
           type: "openwork-extension",
           model: OPENAI_IMAGE_MODEL,
+          apiKey: resolvedApiKey,
           env: ["OPENAI_API_KEY"],
         }, null, 2)).buffer,
         force: true,

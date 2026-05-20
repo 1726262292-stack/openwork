@@ -31,7 +31,8 @@ const readConfig = async (root) => {
   try {
     const raw = await readFile(join(root, CONFIG_PATH), "utf8")
     const parsed = JSON.parse(raw)
-    return { apiKey: apiKeyFromEnv.trim(), extensionId: String(parsed?.id || "openai-image-generation") }
+    const configKey = String(parsed?.apiKey || "").trim()
+    return { apiKey: configKey || apiKeyFromEnv.trim() }
   } catch {
     return { apiKey: apiKeyFromEnv.trim() }
   }
