@@ -136,6 +136,9 @@ import { useSessionControlActions } from "../domains/session/control/session-con
 import { legacySessionRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { WorkspaceProvider } from "./workspace-provider";
 import type { OpenTarget } from "../domains/session/artifacts/open-target";
+import { Button } from "@/components/ui/button";
+import { SettingsPane, type SettingsPaneTab } from "../domains/session/settings/settings-pane";
+import { AuthorizedFoldersPanel } from "../domains/settings/panels/authorized-folders-panel";
 import {
   ensureProviderListQuery,
   getConnectedProviderItems,
@@ -516,6 +519,7 @@ export function SessionRoute() {
   const [renameWorkspaceBusy, setRenameWorkspaceBusy] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [paletteAccessibleTargets, setPaletteAccessibleTargets] = useState<OpenTarget[]>([]);
+  const [settingsPaneTab, setSettingsPaneTab] = useState<SettingsPaneTab>("extensions");
   // Model picker modal state (ported from settings-route; previously the
   // session "Pick a model" button navigated to /settings/general, which is a
   // dead-end). Loads providers lazily when the modal opens.
@@ -2547,6 +2551,78 @@ export function SessionRoute() {
         );
       }}
       onOpenSettings={() => handleOpenSettings("/settings/general")}
+      settingsSlot={
+        <SettingsPane
+          activeTab={settingsPaneTab}
+          onTabChange={setSettingsPaneTab}
+          onClose={() => {
+            try {
+              window.dispatchEvent(new CustomEvent("openwork-close-right-pane"));
+            } catch {
+              // ignore
+            }
+          }}
+          onOpenFullSettings={(path) => handleOpenSettings(path)}
+          extensionsSlot={
+            <div className="text-sm text-muted-foreground">
+              <p className="mb-3">Manage extensions from the full settings screen.</p>
+              <Button variant="outline" onClick={() => handleOpenSettings("/settings/extensions")}>
+                Open Extensions
+              </Button>
+            </div>
+          }
+          providersSlot={
+            <div className="space-y-4">
+              <div className="text-sm text-muted-foreground">
+                Connect AI model providers to use in your workspace.
+              </div>
+              <Button onClick={() => {
+                void sessionProviderAuthStore.openProviderAuthModal();
+              }}>
+                Connect a provider
+              </Button>
+              {providerConnectedIds.length > 0 ? (
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">Connected ({providerConnectedIds.length})</div>
+                  {providers.filter((p) => providerConnectedIds.includes(p.id)).map((provider) => (
+                    <div key={provider.id} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs">
+                      <div className="size-2 rounded-full bg-green-9" />
+                      <span className="font-medium text-foreground">{provider.name || provider.id}</span>
+                      <span className="font-mono text-muted-foreground">{provider.id}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          }
+          permissionsSlot={
+            <AuthorizedFoldersPanel
+              openworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
+              openworkServerStatus={selectedWorkspaceEndpoint?.client || client ? "connected" : "disconnected"}
+              openworkServerCapabilities={selectedWorkspaceEndpoint?.client || client
+                ? {
+                    config: { read: true, write: true },
+                    plugins: { read: true, write: true },
+                    skills: { read: true, write: true, source: "openwork" },
+                    mcp: { read: true, write: true },
+                    commands: { read: true, write: true },
+                  }
+                : null}
+              runtimeWorkspaceId={selectedWorkspaceEndpoint?.workspaceId ?? null}
+              selectedWorkspaceRoot={selectedWorkspaceRoot}
+              activeWorkspaceType={selectedWorkspace?.workspaceType ?? "local"}
+              onConfigUpdated={() => {
+                reloadCoordinator.markReloadRequired("config", {
+                  type: "config",
+                  name: "opencode.json",
+                  action: "updated",
+                });
+                void refreshRouteState();
+              }}
+            />
+          }
+        />
+      }
       sidebar={{
         workspaceSessionGroups,
         selectedWorkspaceId,
