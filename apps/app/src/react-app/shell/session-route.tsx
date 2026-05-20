@@ -520,7 +520,7 @@ export function SessionRoute() {
   // session "Pick a model" button navigated to /settings/general, which is a
   // dead-end). Loads providers lazily when the modal opens.
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [modelPickerInitialTab, setModelPickerInitialTab] = useState<"default" | "available">("default");
+  // initialTab removed — model picker no longer has tabs
   const [compactModelPickerOpen, setCompactModelPickerOpen] = useState(false);
   const [modelPickerQuery, setModelPickerQuery] = useState("");
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
@@ -550,7 +550,6 @@ export function SessionRoute() {
       if (ids && ids.length > 0) {
         setRecentProviderIds(new Set(ids));
       }
-      setModelPickerInitialTab(detail?.initialTab ?? "default");
       setModelPickerOpen(true);
     };
     window.addEventListener(openModelPickerEvent, handler);
@@ -567,7 +566,6 @@ export function SessionRoute() {
       if (Array.isArray(ids) && ids.every((id) => typeof id === "string")) {
         setRecentProviderIds(new Set(ids));
       }
-      setModelPickerInitialTab(parsed?.initialTab === "available" ? "available" : "default");
       setModelPickerOpen(true);
     } catch {
       window.localStorage.removeItem(pendingModelPickerProviderIdsKey);
@@ -2798,7 +2796,7 @@ export function SessionRoute() {
     <ModelPickerModal
       open={modelPickerOpen}
       options={allowedModelOptions}
-      initialTab={modelPickerInitialTab}
+
       query={modelPickerQuery}
       setQuery={setModelPickerQuery}
       target="default"

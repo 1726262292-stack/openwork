@@ -75,7 +75,6 @@ export type ModelPickerModalProps = {
   open: boolean;
   options: ModelOption[];
   disabledProviders?: string[];
-  initialTab?: Tab;
   query: string;
   setQuery: (value: string) => void;
   target: "default" | "session";
@@ -86,8 +85,6 @@ export type ModelPickerModalProps = {
   onOpenSettings: () => void;
   onClose: (options?: { restorePromptFocus?: boolean }) => void;
 };
-
-type Tab = "default" | "available";
 
 type ProviderGroup = {
   id: string;
@@ -102,7 +99,6 @@ type ProviderGroup = {
 
 export function ModelPickerModal(props: ModelPickerModalProps) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const [tab, setTab] = useState<Tab>("default");
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
   const [hiddenModels, setHiddenModels] = useState<Set<string>>(() => readHiddenModels());
 
@@ -114,7 +110,6 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
   // Reset on open + seed defaults on first run
   useEffect(() => {
     if (props.open) {
-      setTab(props.initialTab ?? "default");
       props.setQuery("");
       if (!hasSeededHiddenModels() && props.options.length > 0) {
         const seeded = seedHiddenModels(props.options);
@@ -125,14 +120,14 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
         setHiddenModels(readHiddenModels());
       }
     }
-  }, [props.initialTab, props.open, props.options]);
+  }, [props.open, props.options]);
 
   // Focus search
   useEffect(() => {
     if (!props.open) return;
     const frame = requestAnimationFrame(() => searchInputRef.current?.focus());
     return () => cancelAnimationFrame(frame);
-  }, [props.open, tab]);
+  }, [props.open]);
 
   // Filter by search
   const filteredOptions = useMemo(() => {
@@ -257,23 +252,11 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
         <DialogHeader>
           <DialogTitle>Models</DialogTitle>
           <DialogDescription>
-            {tab === "default"
-              ? t("model_picker.default_model_desc")
-              : "Choose which models appear in the model selector."}
+            Select a model for this session.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex min-h-0 flex-1 flex-col">
-          {/* Tabs */}
-          <div className="mb-4 flex shrink-0 gap-1 rounded-xl bg-dls-hover p-1">
-            <TabButton active={tab === "default"} onClick={() => setTab("default")}>
-              Default model
-            </TabButton>
-            <TabButton active={tab === "available"} onClick={() => setTab("available")}>
-              Available models
-            </TabButton>
-          </div>
-
           {/* Search */}
           <div className="relative mb-4 shrink-0">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-dls-secondary" />
@@ -290,15 +273,21 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
           {/* Content */}
           <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1 -mr-1">
             {providerGroups.length === 0 ? (
-              <div className="rounded-2xl border border-dls-border bg-dls-hover/30 px-4 py-6 text-center text-sm text-dls-secondary">
-                No providers found.
+              <div className="space-y-3 rounded-2xl border border-dls-border bg-dls-hover/30 px-4 py-6 text-center">
+                <div className="text-sm text-dls-secondary">
+                  {props.query.trim() ? "No models match your search." : "No models available. Connect a provider to get started."}
+                </div>
+                {!props.query.trim() ? (
+                  <Button variant="outline" onClick={props.onOpenSettings}>
+                    Connect a provider
+                  </Button>
+                ) : null}
               </div>
             ) : (
               providerGroups.map((group) => (
                 <ProviderAccordion
                   key={group.id}
                   group={group}
-                  tab={tab}
                   expanded={expandedProviders.has(group.id)}
                   current={props.current}
                   hiddenModels={hiddenModels}
@@ -326,59 +315,27 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Tab button                                                         */
-/* ------------------------------------------------------------------ */
-
-function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      className={[
-        "flex-1 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors",
-        active
-          ? "bg-dls-surface text-dls-text shadow-sm"
-          : "text-dls-secondary hover:text-dls-text",
-      ].join(" ")}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /*  Provider accordion                                                 */
 /* ------------------------------------------------------------------ */
 
 function ProviderAccordion({
   group,
-  tab,
   expanded,
   current,
-  hiddenModels,
   canToggleProvider,
   onToggleExpand,
   onToggleProvider,
-  onToggleModelVisible,
-  onBatchToggle,
   onSelect,
 }: {
   group: ProviderGroup;
-  tab: Tab;
   expanded: boolean;
   current: ModelRef;
-  hiddenModels: Set<string>;
   canToggleProvider: boolean;
   onToggleExpand: () => void;
   onToggleProvider?: (providerId: string, enabled: boolean) => void;
-  onToggleModelVisible: (providerID: string, modelID: string) => void;
-  onBatchToggle: (providerID: string, showAll: boolean) => void;
   onSelect: (opt: ModelOption) => void;
 }) {
   const totalModels = group.recommended.length + group.other.length;
-  const visibleCount = [...group.recommended, ...group.other].filter(
-    (m) => !hiddenModels.has(`${m.providerID}/${m.modelID}`),
-  ).length;
   const Chevron = expanded ? ChevronDown : ChevronRight;
 
   return (
@@ -395,7 +352,7 @@ function ProviderAccordion({
           <div className="min-w-0 flex-1">
             <span className="text-[13px] font-medium text-dls-text">{group.name}</span>
             <span className="ml-2 text-[11px] text-dls-secondary">
-              {tab === "available" ? `${visibleCount}/${totalModels}` : `${totalModels}`} model{totalModels === 1 ? "" : "s"}
+              {totalModels} model{totalModels === 1 ? "" : "s"}
             </span>
           </div>
           <span className="flex shrink-0 items-center gap-1.5">
@@ -405,7 +362,7 @@ function ProviderAccordion({
             {group.isCloud ? (
               <span className="rounded-md bg-blue-3/50 px-1.5 py-0.5 text-[10px] font-medium text-blue-11/70">Cloud</span>
             ) : null}
-            {group.hasCurrent && tab === "default" ? (
+            {group.hasCurrent ? (
               <span className="rounded-md bg-green-3 px-1.5 py-0.5 text-[10px] font-medium text-green-11">Current</span>
             ) : null}
           </span>
@@ -430,37 +387,13 @@ function ProviderAccordion({
       {/* Models */}
       {expanded && !group.isDisabled ? (
         <div className="ml-9 space-y-0.5 pb-2 pt-0.5">
-          {/* Select all / none for Available tab */}
-          {tab === "available" ? (
-            <div className="flex gap-2 px-2 pb-1">
-              <button
-                type="button"
-                className="text-[10px] font-medium text-dls-secondary underline-offset-2 hover:text-dls-text hover:underline"
-                onClick={() => onBatchToggle(group.id, true)}
-              >
-                Select all
-              </button>
-              <span className="text-[10px] text-dls-secondary/40">|</span>
-              <button
-                type="button"
-                className="text-[10px] font-medium text-dls-secondary underline-offset-2 hover:text-dls-text hover:underline"
-                onClick={() => onBatchToggle(group.id, false)}
-              >
-                Unselect all
-              </button>
-            </div>
-          ) : null}
           {group.recommended.length > 0 ? (
             <>
               <div className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-dls-secondary">
                 Recommended
               </div>
               {group.recommended.map((opt) => (
-                tab === "default" ? (
-                  <DefaultModelRow key={opt.modelID} opt={opt} current={current} onSelect={onSelect} recommended />
-                ) : (
-                  <AvailableModelRow key={opt.modelID} opt={opt} hidden={hiddenModels.has(`${opt.providerID}/${opt.modelID}`)} onToggle={onToggleModelVisible} recommended />
-                )
+                <DefaultModelRow key={opt.modelID} opt={opt} current={current} onSelect={onSelect} recommended />
               ))}
             </>
           ) : null}
@@ -472,11 +405,7 @@ function ProviderAccordion({
                 </div>
               ) : null}
               {group.other.map((opt) => (
-                tab === "default" ? (
-                  <DefaultModelRow key={opt.modelID} opt={opt} current={current} onSelect={onSelect} />
-                ) : (
-                  <AvailableModelRow key={opt.modelID} opt={opt} hidden={hiddenModels.has(`${opt.providerID}/${opt.modelID}`)} onToggle={onToggleModelVisible} />
-                )
+                <DefaultModelRow key={opt.modelID} opt={opt} current={current} onSelect={onSelect} />
               ))}
             </>
           ) : null}
@@ -516,36 +445,4 @@ function DefaultModelRow({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Available tab: model row (checkbox to show/hide)                   */
-/* ------------------------------------------------------------------ */
 
-function AvailableModelRow({
-  opt, hidden, onToggle, recommended,
-}: {
-  opt: ModelOption; hidden: boolean; onToggle: (providerID: string, modelID: string) => void; recommended?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      className={[
-        "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-dls-hover",
-        hidden ? "opacity-50" : "",
-      ].join(" ")}
-      onClick={() => onToggle(opt.providerID, opt.modelID)}
-    >
-      {/* Checkbox */}
-      <div className={[
-        "flex size-4 shrink-0 items-center justify-center rounded border transition-colors",
-        hidden ? "border-dls-border bg-transparent" : "border-dls-text bg-dls-text",
-      ].join(" ")}>
-        {!hidden ? <Check size={10} className="text-dls-surface" /> : null}
-      </div>
-      {recommended ? <Star size={12} className="shrink-0 text-amber-9" /> : null}
-      <div className="min-w-0 flex-1">
-        <span className="text-[12px] text-dls-text">{opt.title}</span>
-        <span className="ml-2 font-mono text-[10px] text-dls-secondary/60">{opt.modelID}</span>
-      </div>
-    </button>
-  );
-}

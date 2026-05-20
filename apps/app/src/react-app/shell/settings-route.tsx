@@ -491,7 +491,7 @@ function SettingsRouteContent() {
   const [autoCompactContextBusy, setAutoCompactContextBusy] = useState(false);
   const [autoCompactContextLoaded, setAutoCompactContextLoaded] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [modelPickerInitialTab, setModelPickerInitialTab] = useState<"default" | "available">("default");
+  // initialTab removed — model picker no longer has tabs
   const [modelPickerQuery, setModelPickerQuery] = useState("");
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [localProviderBusy, setLocalProviderBusy] = useState(false);
@@ -1039,8 +1039,6 @@ function SettingsRouteContent() {
   useEffect(() => {
     const openFromPending = (raw: string | null) => {
       if (!raw) return false;
-      const parsed = JSON.parse(raw);
-      setModelPickerInitialTab(parsed?.initialTab === "available" ? "available" : "default");
       setModelPickerQuery("");
       setModelPickerOpen(true);
       return true;
@@ -1055,9 +1053,7 @@ function SettingsRouteContent() {
       window.localStorage.removeItem(pendingModelPickerProviderIdsKey);
     }
 
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ initialTab?: "default" | "available" }>).detail;
-      setModelPickerInitialTab(detail?.initialTab ?? "default");
+    const handler = () => {
       setModelPickerQuery("");
       setModelPickerOpen(true);
       try {
@@ -1897,13 +1893,6 @@ function SettingsRouteContent() {
         return (
           <PreferencesView
             busy={busy}
-            defaultModelLabel={defaultModelLabel}
-            defaultModelRef={defaultModelRef}
-            onChangeDefaultModel={() => {
-              setModelPickerInitialTab("default");
-              setModelPickerQuery("");
-              setModelPickerOpen(true);
-            }}
             showThinking={local.prefs.showThinking}
             onToggleShowThinking={() => {
               local.setPrefs((previous) => ({ ...previous, showThinking: !previous.showThinking }));
@@ -2310,7 +2299,6 @@ function SettingsRouteContent() {
       <ModelPickerModal
         open={modelPickerOpen}
         options={modelOptions}
-        initialTab={modelPickerInitialTab}
         query={modelPickerQuery}
         setQuery={setModelPickerQuery}
         target="default"

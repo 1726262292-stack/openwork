@@ -301,7 +301,7 @@ export function ModelSelect({
               }}
             >
               <Settings2 className="size-3.5" />
-              Browse all models
+              All models
             </button>
           </div>
         </Command>
