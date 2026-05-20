@@ -53,6 +53,8 @@ vendor/opencode/
 
 # OpenWork workspace-local artifacts
 .opencode/openwork/
+.opencode/agents/openwork.md
+.opencode/openwork.json
 .vercel
 .env*.local
 .claude/*
