@@ -290,12 +290,9 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
                   group={group}
                   expanded={expandedProviders.has(group.id)}
                   current={props.current}
-                  hiddenModels={hiddenModels}
                   canToggleProvider={!!props.onToggleProvider}
                   onToggleExpand={() => toggleProvider(group.id)}
                   onToggleProvider={props.onToggleProvider}
-                  onToggleModelVisible={toggleModelVisible}
-                  onBatchToggle={batchToggleProvider}
                   onSelect={handleSelect}
                 />
               ))
