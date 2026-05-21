@@ -333,6 +333,116 @@ editor. The synthetic paste event is the reliable path.
 
 ---
 
+## Flow 5: Add a custom OAuth MCP app
+
+**Goal:** Prove a newly added OAuth MCP does not get stuck on
+`Applying changes before sign-in`, opens the OAuth authorization URL after the
+worker reload, completes the callback, and appears as `Ready`.
+
+### Source references for controls
+
+| UI control | Preferred selector | Source file |
+|---|---|---|
+| Settings button | `button[aria-label="Settings"]` | `apps/app/src/react-app/domains/session/chat/status-bar.tsx` |
+| Extensions tab | button text `Extensions` | `apps/app/src/react-app/shell/settings-route.tsx` |
+| Add custom MCP | button text `Add Custom App` | `apps/app/src/react-app/domains/settings/pages/mcp-view.tsx` |
+| Server name input | `input[placeholder="github-copilot"]` | `apps/app/src/react-app/domains/connections/modals/add-mcp-modal.tsx` |
+| Server URL input | `input[placeholder="https://api.githubcopilot.com/mcp/"]` | `add-mcp-modal.tsx` |
+| OAuth checkbox | `input[type="checkbox"]` in the modal | `add-mcp-modal.tsx` |
+| Add app submit | button text `Add App` | `add-mcp-modal.tsx` |
+
+### Steps
+
+1. Start the reusable mock OAuth MCP server in the Daytona sandbox:
+   ```bash
+   daytona exec openwork-test 'bash -lc "cd /workspace && nohup env PORT=3978 HOST=127.0.0.1 AUTO_APPROVE=1 node scripts/mock-oauth-mcp-server.mjs > /tmp/mock-mcp.log 2>&1 &"'
+   ```
+
+   Use `AUTO_APPROVE=0` when you specifically want to verify that a real browser
+   page opens and requires a manual approval click.
+
+2. Verify the mock server is healthy:
+   ```bash
+   daytona exec openwork-test 'bash -lc "curl -s http://127.0.0.1:3978/health"'
+   ```
+
+   Expected: `{"ok":true,...}`.
+
+3. Create a workspace using Flow 1, or reuse an existing local workspace.
+
+4. Open Settings, then Extensions:
+   ```js
+   (function(){var el=Array.from(document.querySelectorAll('button,a')).find(function(n){return n.getAttribute('aria-label')==='Settings'}); if(!el)return 'not found'; el.click(); return 'clicked';})()
+   ```
+
+   ```js
+   (function(){var b=Array.from(document.querySelectorAll('button')).find(function(n){return n.textContent.trim()==='Extensions'}); if(!b)return 'not found'; b.click(); return 'clicked';})()
+   ```
+
+5. Click `Add Custom App`.
+
+6. Fill the custom MCP modal and submit:
+   ```js
+   (function() {
+     function setInput(input, value) {
+       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+       input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+     }
+     var name = document.querySelector('input[placeholder="github-copilot"]');
+     var url = document.querySelector('input[placeholder="https://api.githubcopilot.com/mcp/"]');
+     var checkbox = Array.from(document.querySelectorAll('input[type="checkbox"]')).find(function(el) { return !el.checked; }) || document.querySelector('input[type="checkbox"]');
+     if (!name || !url || !checkbox) return 'missing fields';
+     setInput(name, 'mock-oauth-eval');
+     setInput(url, 'http://127.0.0.1:3978/mcp');
+     if (!checkbox.checked) checkbox.click();
+     var add = Array.from(document.querySelectorAll('button')).find(function(el) { return el.textContent.trim() === 'Add App' && !el.disabled; });
+     if (!add) return 'add disabled';
+     add.click();
+     return 'submitted';
+   })()
+   ```
+
+7. Immediately verify the auth modal appears and shows the reload-prep state:
+   ```js
+   document.body.innerText.includes('Applying changes before sign-in')
+   ```
+
+8. Wait up to 30s, then verify the mock OAuth server saw an authorization
+   request and token exchange:
+   ```bash
+   daytona exec openwork-test 'bash -lc "curl -s http://127.0.0.1:3978/requests"'
+   ```
+
+   Expected request paths include `/authorize`, `/token`, and authenticated
+   `/mcp` calls after `/token`.
+
+9. Verify the app status for `mock-oauth-eval` is `Ready`:
+   ```js
+   (function() {
+     var text = document.body.innerText;
+     var i = text.indexOf('mock-oauth-eval');
+     return i === -1 ? 'missing mock-oauth-eval' : text.slice(i, i + 200);
+   })()
+   ```
+
+   Expected snippet includes `mock-oauth-eval` and `Ready`.
+
+### Expected outcome
+
+- The modal may briefly show `Applying changes before sign-in`, but it must not
+  remain there after the worker reload.
+- The mock server receives `/authorize` and `/token` requests.
+- The configured MCP appears under `Your apps` as `Ready`.
+- No real third-party OAuth provider or credentials are required.
+
+### Regression caught
+
+This catches the auth modal effect self-cancelling when `reloadStarting` changes,
+which leaves the user stuck on `Applying changes before sign-in` and prevents the
+browser from opening the OAuth URL.
+
+---
+
 ## Teardown
 
 ```bash
