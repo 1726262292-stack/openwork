@@ -22,22 +22,9 @@ display needed. See [`daytona-flows.md`](./daytona-flows.md) for full details.
 Quick start:
 
 ```bash
-# 1. Create sandbox
-daytona create --name openwork-test --dockerfile .devcontainer/Dockerfile.daytona-vnc \
-  --context .devcontainer/Dockerfile.daytona-vnc --context .devcontainer/start-daytona-vnc.sh \
-  --class large --memory 8 --disk 10 --auto-stop 60 --public --target us
-
-# 2. Start services
-daytona exec openwork-test 'bash -lc "cd /workspace && nohup bash .devcontainer/start-daytona-vnc.sh > /tmp/start-vnc.log 2>&1 &"'
-daytona exec openwork-test 'bash -lc "cd /workspace/apps/app && nohup env OPENWORK_DEV_MODE=1 pnpm exec vite --host 0.0.0.0 --port 5173 > /tmp/vite.log 2>&1 &"'
-daytona exec openwork-test 'bash -lc "cd /workspace && nohup env DISPLAY=:99 ELECTRON_DISABLE_SANDBOX=1 OPENWORK_REACT_DEVTOOLS=0 OPENWORK_ELECTRON_REMOTE_DEBUG_PORT=9825 OPENWORK_DEV_MODE=1 pnpm --filter @openwork/desktop dev:electron > /tmp/electron.log 2>&1 &"'
-
-# 3. Get CDP URL
-daytona preview-url openwork-test -p 9825
-# → https://9825-xxx.daytonaproxy01.net
-
-# 4. Run evals using browser_* tools with that URL
-browser_list({ browser_url: "https://9825-xxx.daytonaproxy01.net" })
+daytona organization use "Different AI"
+bash .devcontainer/test-on-daytona.sh [branch-or-commit]
+# Use the printed Electron CDP URL with browser_* tools.
 ```
 
 ### Option B: Local Electron

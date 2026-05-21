@@ -16,12 +16,25 @@ Full-stack dev environment that runs the **real Electron app** + Den stack in a 
 ## Quick start with Daytona Electron/noVNC
 
 ```bash
+bash .devcontainer/create-daytona-openwork-snapshot.sh   # one-time / refresh when deps change
 bash .devcontainer/test-on-daytona.sh [branch-or-commit]
 ```
 
-The script creates a large Daytona sandbox from `.devcontainer/Dockerfile.daytona-vnc`
-with `--memory 8 --disk 10`, starts XFCE/noVNC, Vite, and Electron, then prints
-the noVNC and CDP URLs.
+The test script creates a sandbox from the reusable `openwork-eval-vnc` snapshot
+when present, checks out the target ref, skips `pnpm install` if the lockfile is
+unchanged, starts XFCE/noVNC, Vite, and Electron, then prints the noVNC and CDP
+URLs. If the snapshot is missing, it falls back to the VNC Dockerfile path. The
+snapshot intentionally does not bake `node_modules`; installs use the reusable
+`openwork-eval-pnpm-store` volume so the image stays under Daytona's 20 GB limit.
+
+For OpenAI/provider evals, create the reusable Daytona secrets volume once:
+
+```bash
+bash .devcontainer/setup-daytona-secrets-volume.sh .newtoken
+```
+
+Future Daytona test sandboxes mount `openwork-eval-secrets:/daytona-secrets`
+and source `/daytona-secrets/openai.env` automatically before Electron starts.
 
 Do not use the generic `daytona create https://github.com/different-ai/openwork`
 flow for Electron/noVNC tests. The default resource size is too small and the
@@ -32,11 +45,17 @@ generic image path does not guarantee the desktop stack we need.
 1. `.devcontainer/Dockerfile.daytona-vnc` starts from `daytonaio/sandbox:0.6.0`,
    which includes Daytona's expected desktop packages: Xvfb, XFCE, x11vnc,
    noVNC, websockify, and dbus-x11.
-2. `.devcontainer/start-daytona-vnc.sh` starts Xvfb, XFCE, x11vnc, and noVNC on
-   display `:99`.
-3. Vite serves the React UI on port 5173.
-4. Electron renders the real desktop app on display `:99`.
-5. **CDP on port 9825** enables Chrome MCP and browser-tool automation.
+2. `.devcontainer/create-daytona-openwork-snapshot.sh` bakes that image into
+   `openwork-eval-vnc` without `node_modules`.
+3. `/opt/openwork-daytona/start-daytona-vnc.sh` starts Xvfb, XFCE, x11vnc, and
+   noVNC on display `:99`.
+4. `test-on-daytona.sh` installs dependencies through the reusable
+   `openwork-eval-pnpm-store` volume when `node_modules` is missing or the
+   lockfile changed.
+5. Vite serves the React UI on port 5173.
+6. `/opt/openwork-daytona/start-daytona-electron.sh` sources optional secrets,
+   applies Daytona-safe Chromium flags, and starts Electron on display `:99`.
+7. **CDP on port 9825** enables Chrome MCP and browser-tool automation.
 
 ## Testing the customization system
 

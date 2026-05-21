@@ -7,48 +7,31 @@ Daytona proxy.
 
 ## Preflight
 
-### 1. Create the sandbox
+### 1. Create/start the sandbox
 
 ```bash
-daytona create \
-  --name openwork-test \
-  --dockerfile .devcontainer/Dockerfile.daytona-vnc \
-  --context .devcontainer/Dockerfile.daytona-vnc \
-  --context .devcontainer/start-daytona-vnc.sh \
-  --class large \
-  --memory 8 \
-  --disk 10 \
-  --auto-stop 60 \
-  --public \
-  --target us
+daytona organization use "Different AI"
+bash .devcontainer/test-on-daytona.sh [branch-or-commit]
 ```
 
-Use the Daytona VNC-capable base image (`daytonaio/sandbox`) rather than the
-generic devcontainer image. It includes XFCE, Xvfb, x11vnc, noVNC, websockify,
-and dbus-x11. `--disk 10` is required because the default 3 GB disk can fill up
-during dependency and sidecar work.
+Use the helper. It creates from the reusable `openwork-eval-vnc` snapshot when
+available, falls back to the Daytona VNC Dockerfile when needed, mounts secrets,
+mounts the reusable pnpm store volume, checks out the requested ref,
+conditionally installs deps, starts services, waits for CDP, and prints the
+CDP/noVNC URLs.
 
-### 2. Start services
+The reusable `openwork-eval-secrets` volume is mounted at `/daytona-secrets`.
+Create/populate it once with `bash .devcontainer/setup-daytona-secrets-volume.sh
+.newtoken`; future eval sandboxes reuse it and source `/daytona-secrets/openai.env`
+before Electron starts. The Electron starter also applies Daytona-safe Chromium
+flags via `ELECTRON_EXTRA_LAUNCH_ARGS`.
 
-```bash
-daytona exec openwork-test 'bash -lc "cd /workspace && nohup bash .devcontainer/start-daytona-vnc.sh > /tmp/start-vnc.log 2>&1 &"'
+### 2. Get the CDP proxy URL
 
-daytona exec openwork-test 'bash -lc "cd /workspace/apps/app && nohup env OPENWORK_DEV_MODE=1 pnpm exec vite --host 0.0.0.0 --port 5173 > /tmp/vite.log 2>&1 &"'
+Use the Electron CDP URL printed by `test-on-daytona.sh`. It looks like
+`https://9825-xxx.daytonaproxy01.net`.
 
-daytona exec openwork-test 'bash -lc "cd /workspace && nohup env DISPLAY=:99 ELECTRON_DISABLE_SANDBOX=1 OPENWORK_REACT_DEVTOOLS=0 OPENWORK_DEV_MODE=1 OPENWORK_ELECTRON_REMOTE_DEBUG_PORT=9825 pnpm --filter @openwork/desktop dev:electron > /tmp/electron.log 2>&1 &"'
-```
-
-Wait ~35-60s for XFCE/noVNC + Vite + Electron + opencode sidecar to boot.
-
-### 3. Get the CDP proxy URL
-
-```bash
-daytona preview-url openwork-test -p 9825
-```
-
-This returns something like `https://9825-xxx.daytonaproxy01.net`.
-
-### 4. Verify connectivity
+### 3. Verify connectivity
 
 Use the `browser_list` tool:
 
@@ -58,7 +41,7 @@ browser_list({ browser_url: "https://9825-xxx.daytonaproxy01.net" })
 
 Should return the OpenWork page target.
 
-### 5. Verify opencode sidecar
+### 4. Verify opencode sidecar
 
 ```bash
 daytona exec openwork-test 'ps aux | grep opencode | grep -v grep'
@@ -469,7 +452,7 @@ The renderer might be frozen (e.g., a blocking IPC call). Restart Electron:
 ```bash
 daytona exec openwork-test 'bash -lc "pkill -f electron || true; pkill -f electron-dev || true"'
 sleep 3
-daytona exec openwork-test 'bash -lc "cd /workspace && nohup env DISPLAY=:99 ELECTRON_DISABLE_SANDBOX=1 OPENWORK_REACT_DEVTOOLS=0 OPENWORK_ELECTRON_REMOTE_DEBUG_PORT=9825 OPENWORK_DEV_MODE=1 pnpm --filter @openwork/desktop dev:electron > /tmp/electron.log 2>&1 &"'
+daytona exec openwork-test 'bash -lc "cd /workspace && bash /opt/openwork-daytona/start-daytona-electron.sh --detach"'
 ```
 
 `[openwork] Electron CDP exposed...` only means OpenWork requested CDP. The real

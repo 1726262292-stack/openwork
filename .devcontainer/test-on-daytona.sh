@@ -5,53 +5,139 @@ set -euo pipefail
 #
 # Usage:
 #   bash .devcontainer/test-on-daytona.sh [branch-or-commit]
+#   bash .devcontainer/test-on-daytona.sh [branch-or-commit] --force-install
+#   bash .devcontainer/setup-daytona-secrets-volume.sh [.newtoken]
 #
-# Environment variables (optional):
-#   OPENAI_API_KEY  — if set, injects the key into the workspace opencode
-#                     config so real LLM sessions work (GPT-4o, GPT-5.5, etc.)
-#
-# Creates a Daytona sandbox from the VNC-capable Daytona image, checks out the
-# given ref (default: current HEAD), starts XFCE/noVNC + Vite + Electron, and
-# waits for the Electron CDP endpoint. Prints the CDP and noVNC URLs at the end.
-#
-# Cleanup:
-#   daytona delete "$SANDBOX"
+# Creates a Daytona sandbox from the reusable VNC snapshot, checks out the given
+# ref, installs dependencies with a workspace-local pnpm store when needed,
+# starts `pnpm dev:sandbox`, and prints CDP/noVNC URLs.
 
-REF="${1:-$(git rev-parse HEAD)}"
+REF=""
+FORCE_INSTALL=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --force-install)
+      FORCE_INSTALL=1
+      ;;
+    --snapshot)
+      shift
+      DAYTONA_EVAL_SNAPSHOT="${1:?missing snapshot name}"
+      ;;
+    --help|-h)
+      sed -n '1,12p' "$0"
+      exit 0
+      ;;
+    --*)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+    *)
+      if [ -n "$REF" ]; then
+        echo "Unexpected extra argument: $1" >&2
+        exit 1
+      fi
+      REF="$1"
+      ;;
+  esac
+  shift
+done
+
+if [ -z "$REF" ]; then
+  REF="$(git branch --show-current 2>/dev/null || true)"
+  REF="${REF:-$(git rev-parse HEAD)}"
+fi
+
 SANDBOX="openwork-test-$(date +%Y%m%d-%H%M%S)"
 CDP_PORT=9825
 NOVNC_PORT=6080
 MAX_WAIT=90
+DAYTONA_EVAL_SNAPSHOT="${DAYTONA_EVAL_SNAPSHOT:-openwork-eval-vnc}"
+DAYTONA_SECRETS_VOLUME="${DAYTONA_SECRETS_VOLUME:-openwork-eval-secrets}"
+DAYTONA_SECRETS_MOUNT="${DAYTONA_SECRETS_MOUNT:-/daytona-secrets}"
+DAYTONA_SECRETS_ENV="${DAYTONA_SECRETS_ENV:-${DAYTONA_SECRETS_MOUNT}/openai.env}"
+DAYTONA_ELECTRON_EXTRA_LAUNCH_ARGS="${DAYTONA_ELECTRON_EXTRA_LAUNCH_ARGS:---disable-gpu --disable-dev-shm-usage --enable-unsafe-swiftshader}"
+
+volume_field() {
+  local name="$1"
+  local field="$2"
+  daytona volume list -f json | node -e 'const name = process.argv[1]; const field = process.argv[2]; let input = ""; process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => { const volume = JSON.parse(input).find((item) => item.name === name); if (!volume) process.exit(1); process.stdout.write(String(volume[field] ?? "")); });' "$name" "$field"
+}
+
+wait_for_volume_ready() {
+  local name="$1"
+  local state=""
+
+  for _ in $(seq 1 60); do
+    state="$(volume_field "$name" state 2>/dev/null || true)"
+    if [ "$state" = "ready" ]; then
+      return 0
+    fi
+    if [ "$state" = "error" ]; then
+      echo "ERROR: volume '$name' is in error state" >&2
+      exit 1
+    fi
+    sleep 5
+  done
+
+  echo "ERROR: volume '$name' did not become ready (last state: ${state:-missing})" >&2
+  exit 1
+}
+
+snapshot_id() {
+  daytona snapshot list -f json | node -e 'const name = process.argv[1]; let input = ""; process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => { const snapshot = JSON.parse(input).find((item) => item.name === name); if (snapshot) process.stdout.write(snapshot.id || snapshot.name); });' "$1"
+}
 
 echo "==> Creating sandbox: $SANDBOX"
 echo "    Ref: $REF"
 echo ""
 
+echo "==> Ensuring reusable secrets volume: $DAYTONA_SECRETS_VOLUME"
+volume_create_output="$(daytona volume create "$DAYTONA_SECRETS_VOLUME" --size 1 2>&1 || true)"
+if [ -n "$volume_create_output" ] && ! printf '%s' "$volume_create_output" | grep -qi "already exists"; then
+  printf '%s\n' "$volume_create_output"
+fi
+wait_for_volume_ready "$DAYTONA_SECRETS_VOLUME"
+DAYTONA_SECRETS_VOLUME_ID="$(volume_field "$DAYTONA_SECRETS_VOLUME" id)"
+
+SNAPSHOT_ID="$(snapshot_id "$DAYTONA_EVAL_SNAPSHOT")"
+if [ -z "$SNAPSHOT_ID" ]; then
+  echo "ERROR: Daytona snapshot '$DAYTONA_EVAL_SNAPSHOT' not found." >&2
+  echo "Create it with: bash .devcontainer/create-daytona-openwork-snapshot.sh" >&2
+  exit 1
+fi
+
+echo "==> Using Daytona snapshot: $DAYTONA_EVAL_SNAPSHOT"
 daytona create \
   --name "$SANDBOX" \
-  --dockerfile .devcontainer/Dockerfile.daytona-vnc \
-  --context .devcontainer/Dockerfile.daytona-vnc \
-  --context .devcontainer/start-daytona-vnc.sh \
-  --class large \
-  --memory 8 \
-  --disk 10 \
+  --snapshot "$SNAPSHOT_ID" \
+  --volume "${DAYTONA_SECRETS_VOLUME_ID}:${DAYTONA_SECRETS_MOUNT}" \
   --auto-stop 60 \
   --public \
   --target us
 
 echo ""
-echo "==> Checking out $REF and installing deps..."
-daytona exec "$SANDBOX" -- "bash -lc 'cd /workspace && (git fetch origin $REF || git fetch origin dev --depth 50 || true) && git checkout $REF && (CI=1 pnpm install --frozen-lockfile || CI=1 pnpm install)'"
+echo "==> Waiting for sandbox exec readiness..."
+exec_ready=0
+for _ in $(seq 1 60); do
+  if daytona exec "$SANDBOX" -- "bash -lc 'true'" >/dev/null 2>&1; then
+    exec_ready=1
+    break
+  fi
+  sleep 5
+done
+if [ "$exec_ready" -ne 1 ]; then
+  echo "ERROR: sandbox did not become exec-ready" >&2
+  exit 1
+fi
 
 echo ""
-echo "==> Starting XFCE/noVNC..."
-daytona exec "$SANDBOX" -- "bash -lc 'cd /workspace && nohup bash .devcontainer/start-daytona-vnc.sh > /tmp/start-vnc.log 2>&1 &'"
+echo "==> Checking out $REF..."
+daytona exec "$SANDBOX" -- "bash -lc 'set -euo pipefail; cd /workspace; REF=\"$REF\"; FORCE_INSTALL=\"$FORCE_INSTALL\"; PNPM_STORE=/workspace/.openwork-daytona/pnpm-store; if git fetch origin \"\$REF\"; then git checkout --detach FETCH_HEAD; else git fetch origin dev --depth 50 || true; git checkout \"\$REF\"; fi; git rev-parse --short HEAD; mkdir -p \"\$PNPM_STORE\" .openwork-daytona; baseline=.openwork-daytona/pnpm-lock.sha256; current=\$(sha256sum pnpm-lock.yaml | cut -d \" \" -f 1); if [ \"\$FORCE_INSTALL\" = 1 ] || [ ! -d node_modules ] || [ ! -f \"\$baseline\" ] || [ \"\$(cat \"\$baseline\")\" != \"\$current\" ]; then echo \"==> Installing deps (missing node_modules, lockfile changed, or forced)...\"; CI=1 pnpm install --store-dir \"\$PNPM_STORE\" --frozen-lockfile || CI=1 pnpm install --store-dir \"\$PNPM_STORE\"; printf \"%s\" \"\$current\" > \"\$baseline\"; else echo \"==> Skipping pnpm install (node_modules present and lockfile unchanged).\"; fi'"
 
-echo "==> Starting Vite..."
-daytona exec "$SANDBOX" -- "bash -lc 'cd /workspace/apps/app && nohup env OPENWORK_DEV_MODE=1 pnpm exec vite --host 0.0.0.0 --port 5173 > /tmp/vite.log 2>&1 &'"
-
-echo "==> Starting Electron..."
-daytona exec "$SANDBOX" -- "bash -lc 'cd /workspace && nohup env DISPLAY=:99 ELECTRON_DISABLE_SANDBOX=1 OPENWORK_REACT_DEVTOOLS=0 OPENWORK_DEV_MODE=1 OPENWORK_ELECTRON_REMOTE_DEBUG_PORT=$CDP_PORT pnpm --filter @openwork/desktop dev:electron > /tmp/electron.log 2>&1 &'"
+echo ""
+echo "==> Starting OpenWork sandbox dev stack..."
+daytona exec "$SANDBOX" -- "bash -lc 'set -euo pipefail; cd /workspace; export DAYTONA_SECRETS_ENV=\"$DAYTONA_SECRETS_ENV\" DAYTONA_ELECTRON_EXTRA_LAUNCH_ARGS=\"$DAYTONA_ELECTRON_EXTRA_LAUNCH_ARGS\" OPENWORK_ELECTRON_REMOTE_DEBUG_PORT=$CDP_PORT OPENWORK_WORKSPACE_DIR=/workspace; pnpm dev:sandbox'"
 
 echo ""
 echo "==> Waiting for Electron CDP on port $CDP_PORT (up to ${MAX_WAIT}s)..."
@@ -73,9 +159,9 @@ if [ "$elapsed" -ge "$MAX_WAIT" ]; then
   echo "  daytona exec $SANDBOX -- 'tail -80 /tmp/start-vnc.log'"
   echo "  daytona exec $SANDBOX -- 'tail -80 /tmp/electron.log'"
   echo "  daytona exec $SANDBOX -- 'tail -80 /tmp/vite.log'"
+  exit 1
 fi
 
-# Verify opencode sidecar
 echo ""
 if daytona exec "$SANDBOX" -- "bash -lc 'ps aux | grep opencode | grep -v grep'" 2>/dev/null | grep -q opencode; then
   echo "==> opencode sidecar: running"
@@ -83,15 +169,8 @@ else
   echo "==> opencode sidecar: not running (workspace may need creation first)"
 fi
 
-# Inject OpenAI API key if provided
-if [ -n "${OPENAI_API_KEY:-}" ]; then
-  echo ""
-  echo "==> Injecting OPENAI_API_KEY into workspace config..."
-  # Create workspace dir + minimal opencode config with the key
-  daytona exec "$SANDBOX" -- "bash -lc 'mkdir -p /workspace/hello && cd /workspace/hello && if [ ! -f opencode.jsonc ]; then echo \"{}\" > opencode.jsonc; fi && node -e \"const fs=require(\\\"fs\\\"); const p=\\\"opencode.jsonc\\\"; let c={}; try{c=JSON.parse(fs.readFileSync(p,\\\"utf8\\\").replace(/^\\\\/\\\\/.*$/gm,\\\"\\\"));}catch(e){} c.provider=c.provider||{}; c.provider.openai={options:{apiKey:\\\"${OPENAI_API_KEY}\\\"}}; fs.writeFileSync(p,JSON.stringify(c,null,2)); console.log(\\\"OpenAI key injected\\\");\"'" 2>/dev/null
-fi
+echo "==> Secrets env: ${DAYTONA_SECRETS_ENV} (sourced if present)"
 
-# Get URLs
 CDP_URL=$(daytona preview-url "$SANDBOX" -p "$CDP_PORT" 2>/dev/null | grep -v "^time=")
 NOVNC_URL=$(daytona preview-url "$SANDBOX" -p "$NOVNC_PORT" 2>/dev/null | grep -v "^time=")
 

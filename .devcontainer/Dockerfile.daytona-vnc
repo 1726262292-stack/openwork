@@ -12,11 +12,14 @@ RUN /usr/local/share/nvm/current/bin/npm install -g pnpm@10.27.0 bun
 WORKDIR /workspace
 
 RUN git clone --depth 1 --branch dev https://github.com/different-ai/openwork.git . \
-  && /usr/local/share/nvm/current/bin/pnpm install --frozen-lockfile || /usr/local/share/nvm/current/bin/pnpm install
+  && mkdir -p /workspace/.openwork-daytona \
+  && sha256sum /workspace/pnpm-lock.yaml | cut -d ' ' -f 1 > /workspace/.openwork-daytona/pnpm-lock.sha256 \
+  && /usr/local/share/nvm/current/bin/npm cache clean --force \
+  && git gc --prune=now \
+  && rm -rf /root/.cache /root/.npm \
+    /home/daytona/.cache /home/daytona/.npm /home/daytona/.local/share/pnpm/store \
+    /workspace/node_modules /tmp/*
 
-COPY start-daytona-vnc.sh /workspace/.devcontainer/start-daytona-vnc.sh
-
-RUN chmod +x /workspace/.devcontainer/start-daytona-vnc.sh \
-  && chown -R daytona:daytona /workspace
+RUN chown -R daytona:daytona /workspace
 
 USER daytona
