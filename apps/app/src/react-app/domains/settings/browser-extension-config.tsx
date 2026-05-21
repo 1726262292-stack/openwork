@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import { CheckCircle2, Chrome, Loader2, MonitorSmartphone, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { openDesktopUrl } from "../../../app/lib/desktop";
 import { surfaceCardClass } from "../workspace/modal-styles";
 import { findReachableChromeDebuggingPort } from "./chrome-reachability";
 import { registerExtensionConfig } from "./extension-registry";
@@ -45,9 +46,13 @@ function ChromeBrowserConfig() {
           <div>Enable remote debugging in Chrome, then test the connection. Use this extension only when a task needs your browser cookies, sign-ins, or installed extensions.</div>
         </div>
       </div>
-      <div className="rounded-xl border border-dls-border bg-dls-surface px-3 py-2 text-xs text-dls-secondary">
+      <button
+        type="button"
+        className="w-full rounded-xl border border-dls-border bg-dls-surface px-3 py-2 text-left text-xs text-dls-secondary transition-colors hover:bg-dls-hover"
+        onClick={() => void openDesktopUrl("chrome://inspect/#remote-debugging")}
+      >
         Open <span className="font-mono text-dls-text">chrome://inspect/#remote-debugging</span>, turn on remote debugging, and allow incoming connections.
-      </div>
+      </button>
       <div className="flex items-center gap-2">
         <Button variant="outline" size="sm" onClick={testConnection} disabled={status === "checking"}>
           {status === "checking" ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}

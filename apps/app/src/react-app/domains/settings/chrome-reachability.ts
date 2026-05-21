@@ -5,7 +5,7 @@ const CHROME_PROBE_CONCURRENCY = 64;
 
 async function probeChromePort(port: number, timeoutMs: number): Promise<number | null> {
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
+    const response = await desktopFetchViaMain(`http://127.0.0.1:${port}/json/version`, {
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) return null;
@@ -39,3 +39,4 @@ export async function findReachableChromeDebuggingPort(): Promise<number | null>
 
   return scanChromeDynamicPorts();
 }
+import { desktopFetchViaMain } from "../../../app/lib/desktop";

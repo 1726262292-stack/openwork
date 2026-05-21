@@ -277,6 +277,46 @@ export const desktopFetch: typeof globalThis.fetch = async (input, init) => {
   });
 };
 
+export const desktopFetchViaMain: typeof globalThis.fetch = async (input, init) => {
+  let url: string;
+  let method: string | undefined;
+  let headers: Record<string, string> | undefined;
+  let body: string | undefined;
+
+  if (typeof Request !== "undefined" && input instanceof Request) {
+    url = input.url;
+    method = init?.method ?? input.method;
+    const headersSource = init?.headers ? new Headers(init.headers) : input.headers;
+    headers = Object.fromEntries(headersSource.entries());
+    if (typeof init?.body === "string") {
+      body = init.body;
+    } else if (input.body) {
+      body = await input.clone().text();
+    }
+  } else {
+    url = typeof input === "string" ? input : input.toString();
+    method = init?.method;
+    headers = init?.headers ? Object.fromEntries(new Headers(init.headers).entries()) : undefined;
+    body = typeof init?.body === "string" ? init.body : undefined;
+  }
+
+  const result = await invokeElectronHelper<{
+    status: number;
+    statusText: string;
+    headers: [string, string][];
+    body: string;
+  }>("__fetch", url, { method, headers, body });
+
+  const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
+  const responseBody = NULL_BODY_STATUSES.has(result.status) ? null : result.body;
+
+  return new Response(responseBody, {
+    status: result.status,
+    statusText: result.statusText,
+    headers: result.headers,
+  });
+};
+
 // ---------------------------------------------------------------------------
 // Convenience wrappers
 // ---------------------------------------------------------------------------
