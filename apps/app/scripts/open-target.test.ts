@@ -13,6 +13,21 @@ function message(id: string, role: "user" | "assistant", text: string): UIMessag
   return { id, role, parts: [{ type: "text", text, state: "done" }] };
 }
 
+function toolMessage(id: string, toolName: string, input: Record<string, unknown>, output: unknown) {
+  return {
+    id,
+    role: "assistant",
+    parts: [{
+      type: "dynamic-tool",
+      toolName,
+      toolCallId: `${id}_tool`,
+      state: "output-available",
+      input,
+      output,
+    }],
+  };
+}
+
 describe("open target classification", () => {
   it("routes common artifact formats to deterministic previews", () => {
     expect(classifyOpenTarget("report.md", "file")).toBe("markdown");
@@ -27,6 +42,7 @@ describe("open target classification", () => {
 describe("deriveOpenTargets", () => {
   it("extracts file and localhost URL targets from recent assistant output", () => {
     const targets = deriveOpenTargets([
+      toolMessage("msg_tool", "write", { filePath: "reports/revenue.xlsx" }, { filePath: "reports/revenue.xlsx" }),
       message("msg_1", "assistant", "Created reports/revenue.xlsx and started http://localhost:5173 for preview."),
     ]);
 
@@ -37,6 +53,7 @@ describe("deriveOpenTargets", () => {
 
   it("extracts websocket URLs so local socket/dev-server hints stay visible", () => {
     const targets = deriveOpenTargets([
+      toolMessage("msg_tool", "write", { filePath: "dist/index.html" }, { filePath: "dist/index.html" }),
       message("msg_1", "assistant", "Socket open at ws://localhost:5173/socket and preview at dist/index.html"),
     ]);
 
@@ -46,6 +63,8 @@ describe("deriveOpenTargets", () => {
 
   it("normalizes Workspace/<id>/ prefixes from artifact paths", () => {
     const targets = deriveOpenTargets([
+      toolMessage("msg_tool_1", "write", { filePath: "Workspace/32423/reports/artifact-eval.md" }, { filePath: "Workspace/32423/reports/artifact-eval.md" }),
+      toolMessage("msg_tool_2", "write", { filePath: "Workspace/32423/reports/artifact-eval.csv" }, { filePath: "Workspace/32423/reports/artifact-eval.csv" }),
       message("msg_1", "assistant", "See Workspace/32423/reports/artifact-eval.md and Workspace/32423/reports/artifact-eval.csv"),
     ]);
 
@@ -55,73 +74,75 @@ describe("deriveOpenTargets", () => {
 
   it("prefers explicit dynamic tool metadata over prose guesses", () => {
     const targets = deriveOpenTargets([
-      {
-        id: "msg_tool",
-        role: "assistant",
-        parts: [{
-          type: "dynamic-tool",
-          toolName: "write",
-          toolCallId: "tool_1",
-          state: "output-available",
-          input: { path: "summary.md" },
-          output: { path: "summary.md" },
-        } as any],
-      },
+      toolMessage("msg_tool", "write", { path: "summary.md" }, { path: "summary.md" }),
     ]);
 
     expect(targets[0]).toMatchObject({ value: "summary.md", preview: "markdown", confidence: 95 });
   });
 
+  it("extracts filePath metadata from write tools", () => {
+    const targets = deriveOpenTargets([
+      toolMessage("msg_tool", "write", { filePath: "reports/summary.md" }, { filePath: "reports/summary.md" }),
+    ]);
+
+    expect(targets[0]).toMatchObject({ value: "reports/summary.md", preview: "markdown", confidence: 95 });
+  });
+
+  it("does not extract file artifacts from read tool metadata or output", () => {
+    const targets = deriveOpenTargets([
+      toolMessage(
+        "msg_tool",
+        "read",
+        { filePath: "reports/source.md" },
+        { content: "Reviewed reports/source.md and referenced reports/source.csv" },
+      ),
+      message("msg_2", "assistant", "Reviewed reports/source.md and reports/source.csv."),
+    ]);
+
+    expect(targets.map((target) => target.value)).not.toContain("reports/source.md");
+    expect(targets.map((target) => target.value)).not.toContain("reports/source.csv");
+  });
+
+  it("extracts paths written by apply_patch metadata", () => {
+    const targets = deriveOpenTargets([
+      toolMessage("msg_tool", "apply_patch", {
+        patchText: "*** Begin Patch\n*** Add File: reports/new-report.md\n+hello\n*** Update File: reports/existing-report.csv\n@@\n-old\n+new\n*** End Patch",
+      }, "Success. Updated files."),
+    ]);
+
+    expect(targets.map((target) => target.value)).toContain("reports/new-report.md");
+    expect(targets.map((target) => target.value)).toContain("reports/existing-report.csv");
+  });
+
   it("does not turn package search results into artifacts", () => {
     const targets = deriveOpenTargets([
-      {
-        id: "msg_tool",
-        role: "assistant",
-        parts: [{
-          type: "dynamic-tool",
-          toolName: "glob",
-          toolCallId: "tool_1",
-          state: "output-available",
-          input: { pattern: "**/package.json" },
-          output: {
-            files: [
-              "package.json",
-              "apps/app/package.json",
-              "packages/ui/package.json",
-              "reports/revenue.csv",
-            ],
-          },
-        } as any],
-      },
+      toolMessage("msg_tool", "glob", { pattern: "**/package.json" }, {
+        files: [
+          "package.json",
+          "apps/app/package.json",
+          "packages/ui/package.json",
+          "reports/revenue.csv",
+        ],
+      }),
       message("msg_2", "assistant", "Found package.json, apps/app/package.json, and reports/revenue.csv"),
     ]);
 
     expect(targets.map((target) => target.value)).not.toContain("package.json");
     expect(targets.map((target) => target.value)).not.toContain("apps/app/package.json");
     expect(targets.map((target) => target.value)).not.toContain("packages/ui/package.json");
-    expect(targets.map((target) => target.value)).toContain("reports/revenue.csv");
+    expect(targets.map((target) => target.value)).not.toContain("reports/revenue.csv");
   });
 
   it("does not turn discovery tool markdown listings into artifacts", () => {
     const targets = deriveOpenTargets([
-      {
-        id: "msg_tool",
-        role: "assistant",
-        parts: [{
-          type: "dynamic-tool",
-          toolName: "glob",
-          toolCallId: "tool_1",
-          state: "output-available",
-          input: { pattern: "**/*.md" },
-          output: {
-            files: [
-              "README.md",
-              ".opencode/skills/example/SKILL.md",
-              "reports/created-report.md",
-            ],
-          },
-        } as any],
-      },
+      toolMessage("msg_write", "write", { filePath: "reports/created-report.md" }, { filePath: "reports/created-report.md" }),
+      toolMessage("msg_tool", "glob", { pattern: "**/*.md" }, {
+        files: [
+          "README.md",
+          ".opencode/skills/example/SKILL.md",
+          "reports/created-report.md",
+        ],
+      }),
       message("msg_2", "assistant", "Created reports/created-report.md as the deliverable."),
     ]);
 
@@ -132,6 +153,7 @@ describe("deriveOpenTargets", () => {
 
   it("does not collect server-verified missing file targets", () => {
     const target = deriveOpenTargets([
+      toolMessage("msg_tool", "write", { filePath: "index.html" }, { filePath: "index.html" }),
       message("msg_1", "assistant", "Preview file: index.html"),
     ])[0];
 
@@ -142,6 +164,7 @@ describe("deriveOpenTargets", () => {
 
   it("prefers localhost browser previews over generated html files", () => {
     const targets = deriveOpenTargets([
+      toolMessage("msg_tool", "write", { filePath: "public/index.html" }, { filePath: "public/index.html" }),
       message("msg_1", "assistant", "Created public/index.html. API: `http://localhost:3000/api/info`. App: `http://localhost:3000`."),
     ]).map((target) => ({ ...target, exists: target.kind === "url" || target.value === "public/index.html" }));
 
@@ -161,6 +184,7 @@ describe("deriveOpenTargets", () => {
 
   it("keeps accessible targets from earlier session messages", () => {
     const targets = deriveOpenTargets([
+      toolMessage("msg_tool", "write", { filePath: "reports/earlier.csv" }, { filePath: "reports/earlier.csv" }),
       message("msg_1", "assistant", "Created reports/earlier.csv"),
       ...Array.from({ length: 12 }, (_, index) => message(`msg_noise_${index}`, "assistant", `Status update ${index + 1}`)),
       message("msg_last", "assistant", "Server running at http://localhost:3000"),
@@ -172,6 +196,7 @@ describe("deriveOpenTargets", () => {
 
   it("auto-opens high-confidence deliverables and localhost previews only", () => {
     const targets = deriveOpenTargets([
+      toolMessage("msg_tool", "write", { filePath: "data/customers.csv" }, { filePath: "data/customers.csv" }),
       message("msg_1", "assistant", "Created data/customers.csv and see https://example.com for docs."),
     ]);
     const csv = targets.find((target) => target.value === "data/customers.csv");

@@ -787,7 +787,7 @@ function messageGroupKey(messageId: string, group: MessageGroup) {
 function inlineOpenTargetsForMessage(message: UIMessage, verifiedTargets: OpenTarget[] | undefined) {
   const verifiedById = new Map((verifiedTargets ?? []).map((target) => [target.id, target] as const));
   const inlineTargets = new Map<string, OpenTarget>();
-  for (const candidate of deriveOpenTargets([message])) {
+  for (const candidate of deriveOpenTargets([message], { includeFileMentions: true })) {
     const verified = verifiedById.get(candidate.id);
     if (candidate.kind === "url" && isLocalhostBrowserTarget(candidate)) {
       inlineTargets.set(candidate.id, verified ?? candidate);

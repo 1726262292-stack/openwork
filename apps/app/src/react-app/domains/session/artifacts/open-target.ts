@@ -36,6 +36,25 @@ const FILE_PATTERN = /(?:^|[\s"'`([{])((?:\.{1,2}[/\\]|~[/\\]|[/\\])?[\w.\-]+(?:
 const URL_PATTERN = /https?:\/\/[^\s)\]}>"'`]+/gi;
 const SOCKET_PATTERN = /(?:ws|wss):\/\/[^\s)\]}>"'`]+/gi;
 const ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["markdown", "sheet", "image", "pdf", "html"]);
+const DISCOVERY_TOOL_NAMES = new Set(["glob", "grep", "search", "find"]);
+const WRITE_TOOL_NAMES = new Set([
+  "apply_patch",
+  "edit",
+  "edit_file",
+  "multi_edit",
+  "multiedit",
+  "patch",
+  "str_replace_editor",
+  "write",
+  "write_file",
+]);
+const FILE_METADATA_KEYS = ["path", "file", "filePath", "filepath"];
+const PATCH_FILE_PATTERN = /^\*\*\* (?:Add File|Update File):\s*(.+)$/gmi;
+const PATCH_MOVE_TO_PATTERN = /^\*\*\* Move to:\s*(.+)$/gmi;
+
+type DeriveOpenTargetsOptions = {
+  includeFileMentions?: boolean;
+};
 
 function normalizePath(path: string) {
   return path
@@ -151,7 +170,13 @@ export function selectAutoOpenTarget(targets: OpenTarget[]): OpenTarget | null {
   return targets.find(shouldAutoOpenTarget) ?? null;
 }
 
-function scanText(map: Map<string, OpenTarget>, text: string, confidence: number, reason: string) {
+function scanText(
+  map: Map<string, OpenTarget>,
+  text: string,
+  confidence: number,
+  reason: string,
+  options: { includeFiles: boolean },
+) {
   if (!text) {
     return;
   }
@@ -168,8 +193,9 @@ function scanText(map: Map<string, OpenTarget>, text: string, confidence: number
     if (match[0]) addTarget(map, targetFromUrl(match[0], confidence, reason));
   }
 
-  FILE_PATTERN.lastIndex = 0;
+  if (!options.includeFiles) return;
 
+  FILE_PATTERN.lastIndex = 0;
   for (const match of text.matchAll(FILE_PATTERN)) {
     if (match[1]) addTarget(map, targetFromFile(match[1], confidence, reason));
   }
@@ -179,13 +205,65 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
 
-export function deriveOpenTargets(messages: UIMessage[]): OpenTarget[] {
+function normalizedToolName(toolName: string) {
+  return toolName.trim().toLowerCase().replace(/^functions[._-]/, "");
+}
+
+function isDiscoveryTool(toolName: string) {
+  return DISCOVERY_TOOL_NAMES.has(normalizedToolName(toolName));
+}
+
+function isWriteTool(toolName: string) {
+  return WRITE_TOOL_NAMES.has(normalizedToolName(toolName));
+}
+
+function collectFileMetadataValues(value: unknown) {
+  if (!isObject(value)) return [];
+  const values: string[] = [];
+  for (const key of FILE_METADATA_KEYS) {
+    const file = value[key];
+    if (typeof file === "string") values.push(file);
+  }
+  const files = value.files;
+  if (Array.isArray(files)) {
+    for (const file of files) {
+      if (typeof file === "string") values.push(file);
+    }
+  }
+  return values;
+}
+
+function collectPatchFileValues(value: unknown) {
+  if (!isObject(value)) return [];
+  const patchText = value.patchText ?? value.patch ?? value.diff;
+  if (typeof patchText !== "string") return [];
+  const values: string[] = [];
+  PATCH_FILE_PATTERN.lastIndex = 0;
+  for (const match of patchText.matchAll(PATCH_FILE_PATTERN)) {
+    if (match[1]) values.push(match[1]);
+  }
+  PATCH_MOVE_TO_PATTERN.lastIndex = 0;
+  for (const match of patchText.matchAll(PATCH_MOVE_TO_PATTERN)) {
+    if (match[1]) values.push(match[1]);
+  }
+  return values;
+}
+
+function addFileValues(map: Map<string, OpenTarget>, values: string[], confidence: number, reason: string) {
+  for (const value of values) {
+    addTarget(map, targetFromFile(value, confidence, reason));
+  }
+}
+
+export function deriveOpenTargets(messages: UIMessage[], options: DeriveOpenTargetsOptions = {}): OpenTarget[] {
   const targets = new Map<string, OpenTarget>();
 
   for (const message of messages) {
     for (const part of message.parts) {
       if (part.type === "text" && typeof part.text === "string") {
-        scanText(targets, part.text, message.role === "assistant" ? 65 : 40, "message");
+        scanText(targets, part.text, message.role === "assistant" ? 65 : 40, "message", {
+          includeFiles: options.includeFileMentions === true,
+        });
         continue;
       }
 
@@ -193,25 +271,25 @@ export function deriveOpenTargets(messages: UIMessage[]): OpenTarget[] {
         continue;
       }
 
-      const isDiscoveryTool = ["glob", "grep", "search", "find"].includes(part.toolName.toLowerCase());
-        
-        const values = [part.input, part.output].flatMap((value) => {
-          if (isDiscoveryTool || !isObject(value)) {
-            return [];
-          }
+      const discoveryTool = isDiscoveryTool(part.toolName);
+      const writeTool = isWriteTool(part.toolName);
 
-          return [value.path, value.file, ...(Array.isArray(value.files) ? value.files : [])];
-        });
-
-        for (const value of values) {
-          if (typeof value === "string") {
-            addTarget(targets, targetFromFile(value, 95, "tool metadata"));
-          }
+      if (writeTool) {
+        addFileValues(
+          targets,
+          [part.input, part.output].flatMap(collectFileMetadataValues),
+          95,
+          "write tool metadata",
+        );
+        addFileValues(targets, collectPatchFileValues(part.input), 95, "patch metadata");
+        if (typeof part.output === "string") {
+          scanText(targets, part.output, 90, "write tool output", { includeFiles: true });
         }
+      }
 
-        if (!isDiscoveryTool) {
-          scanText(targets, JSON.stringify(part.output ?? part.input ?? ""), 75, "tool output");
-        }
+      if (!discoveryTool) {
+        scanText(targets, JSON.stringify(part.output ?? part.input ?? ""), 75, "tool output", { includeFiles: false });
+      }
     }
   }
 
