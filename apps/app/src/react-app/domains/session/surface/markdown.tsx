@@ -67,7 +67,7 @@ const markdownComponents: Components = {
         href={href}
         target="_blank"
         rel="noreferrer noopener"
-        className="text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
+        className="text-indigo-10 underline underline-offset-2 transition-colors hover:text-indigo-8"
       >
         {children}
       </a>
