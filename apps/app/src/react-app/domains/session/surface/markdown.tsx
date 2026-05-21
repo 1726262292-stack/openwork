@@ -16,7 +16,7 @@ function MarkdownCodeBlock(props: { className?: string; children: React.ReactNod
       <div className="flex items-center justify-end border-b border-dls-border/70 px-3 py-2">
         <button
           type="button"
-          className="rounded-full border border-dls-border bg-dls-surface px-3 py-1 text-[11px] font-medium text-dls-text transition-colors hover:bg-dls-hover"
+          className="rounded-full border border-dls-border bg-dls-surface px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-dls-hover"
           onClick={async () => {
             await navigator.clipboard.writeText(text);
             setCopied(true);
@@ -26,7 +26,7 @@ function MarkdownCodeBlock(props: { className?: string; children: React.ReactNod
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <pre className="overflow-x-auto px-4 py-3 text-[12px] leading-6 text-gray-12">
+      <pre className="overflow-x-auto px-4 py-3 text-xs leading-6 text-muted-foreground">
         <code className={props.className}>{props.children}</code>
       </pre>
     </div>
@@ -67,7 +67,7 @@ const markdownComponents: Components = {
         href={href}
         target="_blank"
         rel="noreferrer noopener"
-        className="underline underline-offset-2 text-dls-accent hover:text-[var(--dls-accent-hover)]"
+        className="text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
       >
         {children}
       </a>
@@ -75,7 +75,7 @@ const markdownComponents: Components = {
   },
   pre({ children }) {
     return (
-      <pre className="my-4 overflow-x-auto rounded-[18px] border border-dls-border/70 bg-gray-1/80 px-4 py-3 text-[12px] leading-6 text-gray-12">
+      <pre className="my-4 overflow-x-auto rounded-[18px] border border-dls-border/70 bg-gray-1/80 px-4 py-3 text-xs leading-6 text-muted-foreground">
         {children}
       </pre>
     );
@@ -86,13 +86,13 @@ const markdownComponents: Components = {
       return <MarkdownCodeBlock className={className}>{children}</MarkdownCodeBlock>;
     }
     return (
-      <code className="rounded-md bg-gray-2/70 px-1.5 py-0.5 font-mono text-[0.92em] text-gray-12">
+      <code className="rounded-md bg-gray-2/70 px-1.5 py-0.5 font-mono text-sm text-foreground">
         {children}
       </code>
     );
   },
   blockquote({ children }) {
-    return <blockquote className="my-4 rounded-r-lg border-l border-dls-border bg-dls-hover/40 pl-4 italic text-gray-11">{children}</blockquote>;
+    return <blockquote className="my-4 rounded-r-lg border-l border-dls-border bg-dls-hover/40 pl-4 italic text-muted-foreground">{children}</blockquote>;
   },
   table({ children }) {
     return <table className="my-4 w-full border-collapse">{children}</table>;
@@ -107,9 +107,6 @@ const markdownComponents: Components = {
     return <hr className="my-6 border-none h-px bg-gray-4" />;
   },
 };
-
-const markdownClassName = `markdown-content max-w-none text-gray-12
-`.trim();
 
 function MarkdownBlockInner(props: {
   text: string;
@@ -132,7 +129,7 @@ function MarkdownBlockInner(props: {
 
   if (props.streaming) {
     return (
-      <div ref={rootRef} className={markdownClassName}>
+      <div ref={rootRef} className="markdown-content max-w-none text-foreground">
         <Streamdown remarkPlugins={[remarkGfm]} components={markdownComponents} skipHtml>
           {props.text}
         </Streamdown>
@@ -141,7 +138,7 @@ function MarkdownBlockInner(props: {
   }
 
   return (
-    <div ref={rootRef} className={markdownClassName}>
+    <div ref={rootRef} className="markdown-content max-w-none text-foreground">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents} skipHtml>
         {props.text}
       </ReactMarkdown>
