@@ -51,6 +51,13 @@ import {
   statusKey as reactStatusKey,
   transcriptKey as reactTranscriptKey,
 } from "../sync/session-sync";
+import {
+  getComposerAttachments,
+  getComposerDraft,
+  getComposerMentions,
+  getComposerPasteParts,
+  useComposerStateStore,
+} from "./composer-state-store";
 
 const EMPTY_TRANSCRIPT: UIMessage[] = [];
 const IDLE_STATUS: SessionStatus = { type: "idle" };
@@ -412,10 +419,15 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const local = useLocal();
   const { config: shellConfig } = useShellConfig();
   const showThinking = local.prefs.showThinking;
-  const [draft, setDraft] = useState("");
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
-  const [mentions, setMentions] = useState<Record<string, "agent" | "file">>({});
-  const [pasteParts, setPasteParts] = useState<Array<{ id: string; label: string; text: string; lines: number }>>([]);
+  const draft = useComposerStateStore((state) => getComposerDraft(state, props.sessionId));
+  const attachments = useComposerStateStore((state) => getComposerAttachments(state, props.sessionId));
+  const mentions = useComposerStateStore((state) => getComposerMentions(state, props.sessionId));
+  const pasteParts = useComposerStateStore((state) => getComposerPasteParts(state, props.sessionId));
+  const setComposerDraft = useComposerStateStore((state) => state.setDraft);
+  const setComposerAttachments = useComposerStateStore((state) => state.setAttachments);
+  const setComposerMentions = useComposerStateStore((state) => state.setMentions);
+  const setComposerPasteParts = useComposerStateStore((state) => state.setPasteParts);
+  const clearComposerSession = useComposerStateStore((state) => state.clearSession);
   const [notice, setNotice] = useState<ReactComposerNotice | null>(null);
   const [error, setError] = useState<SessionError | null>(null);
   const [sending, setSending] = useState(false);
@@ -433,8 +445,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const hydratedKeyRef = useRef<string | null>(null);
   const autoOpenedTargetRef = useRef<string | null>(null);
   const initializedAutoOpenSessionRef = useRef<string | null>(null);
-  const attachmentsRef = useRef<ComposerAttachment[]>([]);
-  attachmentsRef.current = attachments;
   const opencodeClient = useMemo(
     () => createClient(props.opencodeBaseUrl, undefined, { token: props.openworkToken, mode: "openwork" }),
     [props.opencodeBaseUrl, props.openworkToken],
@@ -474,28 +484,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setShowDelayedLoading(false);
     setAwaitingAssistantBaseline(null);
     setNoVisibleAssistantOutputBaseline(null);
-    // Clear draft + attachments + mentions on session change so typed text
-    // doesn't bleed across sessions (and across workspaces). The sessionId
-    // effectively changes when the workspace changes too because the route
-    // navigates to the remembered session id for that workspace.
-    setDraft("");
-    setAttachments((current) => {
-      current.forEach(revokeAttachmentPreview);
-      return [];
-    });
-    setMentions({});
-    setPasteParts([]);
+    // Composer draft state lives in the shared store keyed by session id, so
+    // switching sessions preserves each session's own in-progress composer.
     setNotice(null);
     autoOpenedTargetRef.current = null;
     initializedAutoOpenSessionRef.current = null;
     setVerifiedOpenTargets([]);
   }, [props.sessionId]);
-
-  useEffect(() => {
-    return () => {
-      attachmentsRef.current.forEach(revokeAttachmentPreview);
-    };
-  }, []);
 
   useEffect(() => {
     if (!notice) return;
@@ -731,6 +726,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
     };
   }, [mentions, pasteParts]);
 
+  const handleComposerDraftChange = useCallback((value: string) => {
+    setComposerDraft(props.sessionId, value);
+  }, [props.sessionId, setComposerDraft]);
+
   const handleCopyTranscript = async () => {
     try {
       await navigator.clipboard.writeText(transcriptToText(renderedMessages));
@@ -754,20 +753,19 @@ export function SessionSurface(props: SessionSurfaceProps) {
     try {
       const nextDraft = buildDraft(text, attachments);
       await props.onSendDraft(nextDraft);
-      setDraft("");
       attachments.forEach(revokeAttachmentPreview);
-      setAttachments([]);
+      clearComposerSession(props.sessionId);
       props.onDraftChange(buildDraft("", []));
       setSending(false);
     } catch (nextError) {
       const parsed = parseSessionError(nextError);
       setError(parsed);
-      setDraft("");
+      setComposerDraft(props.sessionId, "");
       setAwaitingAssistantBaseline(null);
       setNoVisibleAssistantOutputBaseline(null);
       setSending(false);
     }
-  }, [attachments, buildDraft, draft, props.onDraftChange, props.onSendDraft, renderedMessages.length]);
+  }, [attachments, buildDraft, clearComposerSession, draft, props.onDraftChange, props.onSendDraft, props.sessionId, renderedMessages.length, setComposerDraft]);
 
   const handleAbort = useCallback(async () => {
     if (!chatStreaming) return;
@@ -814,7 +812,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       file,
       previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
     }));
-    setAttachments((current) => [...current, ...next]);
+    setComposerAttachments(props.sessionId, [...attachments, ...next]);
     setNotice({
       title: next.length === 1 ? `Attached ${next[0]?.name ?? "file"}` : `Attached ${next.length} files`,
       tone: "success",
@@ -822,25 +820,23 @@ export function SessionSurface(props: SessionSurfaceProps) {
   };
 
   const handleRemoveAttachment = (id: string) => {
-    setAttachments((current) => {
-      const target = current.find((item) => item.id === id);
-      if (target?.previewUrl) {
-        URL.revokeObjectURL(target.previewUrl);
-      }
-      return current.filter((item) => item.id !== id);
-    });
+    const target = attachments.find((item) => item.id === id);
+    if (target?.previewUrl) {
+      URL.revokeObjectURL(target.previewUrl);
+    }
+    setComposerAttachments(props.sessionId, attachments.filter((item) => item.id !== id));
   };
 
   const handleInsertMention = (kind: "agent" | "file", value: string) => {
-    setDraft((current) => current.replace(/@([^\s@]*)$/, `@${value} `));
-    setMentions((current) => ({ ...current, [value]: kind }));
+    setComposerDraft(props.sessionId, draft.replace(/@([^\s@]*)$/, `@${value} `));
+    setComposerMentions(props.sessionId, { ...mentions, [value]: kind });
   };
 
   const handlePasteText = (text: string) => {
     const id = `paste-${Math.random().toString(36).slice(2)}`;
     const label = `${id.slice(-4)} · ${text.split(/\r?\n/).length} lines`;
-    setPasteParts((current) => [...current, { id, label, text, lines: text.split(/\r?\n/).length }]);
-    setDraft((current) => `${current}[pasted text ${label}]`);
+    setComposerPasteParts(props.sessionId, [...pasteParts, { id, label, text, lines: text.split(/\r?\n/).length }]);
+    setComposerDraft(props.sessionId, `${draft}[pasted text ${label}]`);
   };
 
   const handleRevealPastedText = (id: string) => {
@@ -854,24 +850,22 @@ export function SessionSurface(props: SessionSurfaceProps) {
   };
 
   const handleRemovePastedText = (id: string) => {
-    setPasteParts((current) => {
-      const target = current.find((item) => item.id === id);
-      if (!target) return current;
-      setDraft((draftValue) => draftValue.replace(`[pasted text ${target.label}]`, ""));
-      return current.filter((item) => item.id !== id);
-    });
+    const target = pasteParts.find((item) => item.id === id);
+    if (!target) return;
+    setComposerDraft(props.sessionId, draft.replace(`[pasted text ${target.label}]`, ""));
+    setComposerPasteParts(props.sessionId, pasteParts.filter((item) => item.id !== id));
   };
 
   const handleUnsupportedFileLinks = (links: string[]) => {
     if (!links.length) return;
-    setDraft((current) => `${current}${current && !current.endsWith("\n") ? "\n" : ""}${links.join("\n")}`);
+    setComposerDraft(props.sessionId, `${draft}${draft && !draft.endsWith("\n") ? "\n" : ""}${links.join("\n")}`);
   };
 
   const typeComposerText = useCallback(async (text: string) => {
     window.dispatchEvent(new Event("openwork:focusPrompt"));
-    setDraft(text);
+    setComposerDraft(props.sessionId, text);
     await waitForControl(40);
-  }, []);
+  }, [props.sessionId, setComposerDraft]);
 
   const composerSetTextControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "composer.set_text",
@@ -1239,7 +1233,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         <ReactSessionComposer
           draft={draft}
           mentions={mentions}
-          onDraftChange={setDraft}
+          onDraftChange={handleComposerDraftChange}
         onSend={handleSend}
         onStop={handleAbort}
         busy={chatStreaming}
