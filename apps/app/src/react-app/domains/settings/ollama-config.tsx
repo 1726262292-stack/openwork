@@ -1,10 +1,50 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, CheckCircle2, Download, Loader2, RefreshCw, XCircle } from "lucide-react";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { TextInput } from "../../design-system/text-input";
-import { surfaceCardClass } from "../workspace/modal-styles";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  FieldTitle,
+} from "@/components/ui/field";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { formatFileSize } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { OLLAMA_PROVIDER_CONFIG } from "./openai-image-extension";
 import { registerExtensionConfig } from "./extension-registry";
 
@@ -17,26 +57,65 @@ registerExtensionConfig("ollama", (ctx) => (
   />
 ));
 
-type OllamaModel = { name: string; size: number; modified_at: string };
+type OllamaModel = {
+  name: string;
+  model: string;
+  modified_at: string;
+  size: number;
+  digest: string;
+  details: {
+    parent_model: string;
+    format: string;
+    family: string;
+    families: string[];
+    parameter_size: string;
+    quantization_level: string;
+  };
+};
 
 type OllamaStatus = "checking" | "running" | "unreachable";
 
-async function checkOllama(): Promise<{ status: OllamaStatus; models: OllamaModel[] }> {
-  try {
-    const response = await fetch(`${OLLAMA_PROVIDER_CONFIG.baseURL.replace("/v1", "")}/api/tags`, {
-      signal: AbortSignal.timeout(3000),
-    });
-    if (!response.ok) return { status: "unreachable", models: [] };
-    const data = await response.json();
-    return { status: "running", models: Array.isArray(data?.models) ? data.models : [] };
-  } catch {
-    return { status: "unreachable", models: [] };
-  }
+function useOllamaModels() {
+  const { data, isFetching, refetch } = useQuery({
+    queryKey: ["ollama", "tags"],
+    queryFn: async (): Promise<{ status: "running" | "unreachable"; models: OllamaModel[] }> => {
+      try {
+        const response = await fetch(`${OLLAMA_PROVIDER_CONFIG.baseURL.replace("/v1", "")}/api/tags`, {
+          signal: AbortSignal.timeout(3000),
+        });
+
+        if (!response.ok) {
+          return { status: "unreachable", models: [] };
+        }
+
+        const data = await response.json();
+
+        return { status: "running", models: Array.isArray(data?.models) ? data.models : [] };
+      } catch {
+        return { status: "unreachable", models: [] };
+      }
+    },
+    refetchOnWindowFocus: false,
+  });
+
+  const status: OllamaStatus = isFetching ? "checking" : (data?.status ?? "unreachable");
+
+  return { data, isFetching, refetch, status };
 }
+
+type PullProgressUpdate = {
+  status: string;
+  completed?: number;
+  total?: number;
+};
+
+type PullProgressState = PullProgressUpdate & {
+  modelName: string;
+};
 
 async function pullOllamaModel(
   modelName: string,
-  onProgress: (status: string) => void,
+  onProgress: (update: PullProgressUpdate) => void,
 ): Promise<boolean> {
   try {
     const response = await fetch(`${OLLAMA_PROVIDER_CONFIG.baseURL.replace("/v1", "")}/api/pull`, {
@@ -59,13 +138,14 @@ async function pullOllamaModel(
         try {
           const parsed = JSON.parse(line);
           if (parsed.status) {
-            const pct = parsed.completed && parsed.total
-              ? ` (${Math.round((parsed.completed / parsed.total) * 100)}%)`
-              : "";
-            onProgress(`${parsed.status}${pct}`);
+            onProgress({
+              status: parsed.status,
+              completed: typeof parsed.completed === "number" ? parsed.completed : undefined,
+              total: typeof parsed.total === "number" ? parsed.total : undefined,
+            });
           }
           if (parsed.error) {
-            onProgress(`Error: ${parsed.error}`);
+            onProgress({ status: `Error: ${parsed.error}` });
             return false;
           }
         } catch {
@@ -75,9 +155,54 @@ async function pullOllamaModel(
     }
     return true;
   } catch (error) {
-    onProgress(`Pull failed: ${error instanceof Error ? error.message : String(error)}`);
+    onProgress({ status: `Pull failed: ${error instanceof Error ? error.message : String(error)}` });
     return false;
   }
+}
+
+function usePullOllamaModel(options: { onSuccess?: (model: string) => void } = {}) {
+  const queryClient = useQueryClient();
+  const [progress, setProgress] = useState<PullProgressState | null>(null);
+
+  const { mutateAsync: pullModel, isPending: isPulling } = useMutation({
+    mutationFn: async (modelName: string) => {
+      const model = modelName.trim();
+      
+      if (!model) {
+        throw new Error("Model name is required.");
+      }
+
+      let latestProgress: PullProgressUpdate = { status: "Starting pull..." };
+      const updateProgress = (update: PullProgressUpdate) => {
+        latestProgress = update;
+        setProgress((current) => ({
+          modelName: model,
+          status: update.status,
+          completed: update.completed ?? current?.completed,
+          total: update.total ?? current?.total,
+        }));
+      };
+
+      updateProgress(latestProgress);
+      const ok = await pullOllamaModel(model, updateProgress);
+
+      if (!ok) {
+        if (latestProgress.status === "Starting pull...") {
+          setProgress({ modelName: model, status: `Failed to pull ${model}.` });
+        }
+        throw new Error(`Failed to pull ${model}.`);
+      }
+
+      return model;
+    },
+    onSuccess: async (model) => {
+      await queryClient.invalidateQueries({ queryKey: ["ollama", "tags"] });
+      setProgress(null);
+      options.onSuccess?.(model);
+    },
+  });
+
+  return { pullModel, isPulling, progress };
 }
 
 export type OllamaConfigProps = {
@@ -95,48 +220,46 @@ export type OllamaConfigProps = {
 };
 
 export function OllamaConfig(props: OllamaConfigProps) {
-  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>("checking");
-  const [models, setModels] = useState<OllamaModel[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [selectedModel, setSelectedModel] = useState("");
   const [customModel, setCustomModel] = useState(OLLAMA_PROVIDER_CONFIG.defaultModelId);
-  const [useCustom, setUseCustom] = useState(false);
+  const [pullDialogOpen, setPullDialogOpen] = useState(false);
   const [setDefault, setSetDefault] = useState(true);
-  const [pulling, setPulling] = useState(false);
-  const [pullProgress, setPullProgress] = useState<string | null>(null);
 
-  const activeModelId = useCustom ? customModel.trim() : selectedModel;
 
-  const refresh = useCallback(async () => {
-    setOllamaStatus("checking");
-    const result = await checkOllama();
-    setOllamaStatus(result.status);
-    setModels(result.models);
-    if (result.models.length > 0 && !selectedModel) {
-      setSelectedModel(result.models[0].name);
-    }
-  }, [selectedModel]);
+  const { data, isFetching, refetch, status } = useOllamaModels();
+  const { isPulling, pullModel, progress } = usePullOllamaModel({
+    onSuccess: setSelectedModel,
+  });
+
+  const activeModelId = isPulling ? customModel.trim() : selectedModel;
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!selectedModel && data?.models?.[0]) {
+      setSelectedModel(data.models[0].name);
+    }
+  }, [data, selectedModel]);
 
   const handlePull = async () => {
     const model = customModel.trim();
-    if (!model) return;
-    setPulling(true);
-    setPullProgress("Starting pull...");
-    const ok = await pullOllamaModel(model, setPullProgress);
-    setPulling(false);
-    if (ok) {
-      setPullProgress(`Pulled ${model} successfully.`);
-      await refresh();
-      setSelectedModel(model);
-      setUseCustom(false);
+
+    if (!model) { 
+      return; 
+    }
+
+    setPullDialogOpen(false);
+    
+    try {
+      await pullModel(model);
+    } catch {
+      // The mutation hook owns error progress display.
     }
   };
 
   const handleInstall = () => {
-    if (!activeModelId) return;
+    if (!activeModelId) { 
+      return; 
+    }
+
     void props.onInstall({
       providerId: OLLAMA_PROVIDER_CONFIG.providerId,
       name: OLLAMA_PROVIDER_CONFIG.name,
@@ -147,156 +270,282 @@ export function OllamaConfig(props: OllamaConfigProps) {
     });
   };
 
-  const formatSize = (bytes: number) => {
-    if (bytes > 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
-    if (bytes > 1e6) return `${(bytes / 1e6).toFixed(0)} MB`;
-    return `${bytes} B`;
-  };
+  if (status === "unreachable") {
+    return (
+      <Card variant="outline" size="sm">
+        <CardHeader>
+          <CardTitle>Configuration</CardTitle>
+          <CardDescription>Connect to a local Ollama instance and choose a model.</CardDescription>
+          <CardAction>
+            <Button variant="ghost" size="icon-sm" onClick={() => void refetch()} disabled={isFetching}>
+              <RefreshCw className={isFetching ? "animate-spin" : ""} />
+            </Button>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {props.error ? (
+            <Alert variant="destructive">
+              <XCircle />
+              <AlertDescription>{props.error}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          <Empty className="flex-none p-6" variant="ghost">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Download />
+              </EmptyMedia>
+              <EmptyTitle>Ollama isn't installed or running</EmptyTitle>
+              <EmptyDescription>
+                Download and start Ollama to use open-source models in your workspace.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button
+                render={
+                  <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" />
+                }
+              >
+                Download Ollama
+              </Button>
+            </EmptyContent>
+          </Empty>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
-    <div className="space-y-4">
-      <div className={`${surfaceCardClass} space-y-4 p-4`}>
-        <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-dls-secondary">
-          Configuration
-        </div>
-
-        {/* Connection status */}
-        <div className="flex items-center justify-between rounded-xl border border-dls-border bg-dls-hover px-3 py-2">
-          <div className="flex items-center gap-2 text-xs">
-            {ollamaStatus === "checking" ? (
-              <Loader2 size={14} className="animate-spin text-dls-secondary" />
-            ) : ollamaStatus === "running" ? (
-              <CheckCircle2 size={14} className="text-green-11" />
-            ) : (
-              <XCircle size={14} className="text-red-11" />
-            )}
-            <span className="text-dls-text">
-              {ollamaStatus === "checking"
-                ? "Checking Ollama..."
-                : ollamaStatus === "running"
-                  ? `Ollama running (${models.length} model${models.length === 1 ? "" : "s"})`
-                  : "Ollama not reachable"}
-            </span>
-          </div>
-          <Button variant="ghost" size="icon-sm" onClick={() => void refresh()} disabled={ollamaStatus === "checking"}>
-            <RefreshCw size={14} className={ollamaStatus === "checking" ? "animate-spin" : ""} />
+    <Card variant="outline" size="sm">
+      <CardHeader>
+        <CardTitle>Configuration</CardTitle>
+        <CardDescription>Connect to a local Ollama instance and choose a model.</CardDescription>
+        <CardAction>
+          <Button variant="ghost" size="icon-sm" onClick={() => void refetch()} disabled={isFetching}>
+            <RefreshCw className={isFetching ? "animate-spin" : ""} />
           </Button>
-        </div>
-
-        {ollamaStatus === "unreachable" ? (
-          <div className="rounded-xl border border-amber-6 bg-amber-2 px-3 py-2 text-xs text-amber-11">
-            <div className="font-medium">Install Ollama first</div>
-            <div className="mt-1">
-              Visit{" "}
-              <a
-                href="https://ollama.com/download"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline"
-              >
-                ollama.com/download
-              </a>{" "}
-              to install, then start it and come back here.
-            </div>
-          </div>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {props.error ? (
+          <Alert variant="destructive">
+            <XCircle />
+            <AlertDescription>{props.error}</AlertDescription>
+          </Alert>
         ) : null}
+
+        <Alert>
+          {status === "checking" ? (
+            <Loader2 className="animate-spin" />
+          ) : status === "running" ? (
+            <CheckCircle2 className="text-green-11!" />
+          ) : (
+            <XCircle  />
+          )}
+          <AlertDescription>
+            {status === "checking"
+              ? "Checking Ollama..."
+              : status === "running"
+                ? `Ollama running (${data?.models?.length ?? 0} model${(data?.models?.length ?? 0) === 1 ? "" : "s"})`
+                : "Ollama not reachable"}
+          </AlertDescription>
+        </Alert>
 
         {/* Model selection */}
-        {ollamaStatus === "running" && models.length > 0 && !useCustom ? (
-          <div className="space-y-2">
-            <div className="text-xs font-medium text-dls-text">Available models</div>
-            <div className="grid gap-1.5">
-              {models.map((model) => (
-                <button
-                  key={model.name}
-                  type="button"
-                  className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
-                    selectedModel === model.name
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-dls-border bg-dls-surface hover:bg-dls-hover"
-                  }`}
-                  onClick={() => setSelectedModel(model.name)}
-                >
-                  <span className="font-mono font-medium">{model.name}</span>
-                  <span className="text-muted-foreground">{formatSize(model.size)}</span>
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="text-xs text-primary hover:underline"
-              onClick={() => setUseCustom(true)}
-            >
-              Pull a different model...
-            </button>
-          </div>
-        ) : null}
-
-        {/* Custom model / pull */}
-        {(useCustom || (ollamaStatus === "running" && models.length === 0)) ? (
-          <div className="space-y-3">
-            <TextInput
-              label="Model to pull"
-              value={customModel}
-              onChange={(event) => setCustomModel(event.currentTarget.value)}
-              placeholder={OLLAMA_PROVIDER_CONFIG.defaultModelId}
-              hint="Enter a model name from ollama.com/library"
-            />
+        {status === "running" && (data?.models?.length ?? 0) > 0 ? (
+          <div className="flex flex-col gap-2">
+            <FieldSet className="gap-3">
+              <FieldLegend variant="label">Available models</FieldLegend>
+              <FieldDescription>
+                Select from models already loaded in Ollama.
+              </FieldDescription>
+              <ModelList value={selectedModel} onValueChange={setSelectedModel}>
+                {(data?.models ?? []).map((model) => (
+                  <ModelListItem key={model.name} model={model} />
+                ))}
+              </ModelList>
+            </FieldSet>
+            {progress ? (
+              <PullProgressRow progress={progress} isPulling={isPulling} />
+            ) : null}
             <Button
-              variant="outline"
-              onClick={() => void handlePull()}
-              disabled={pulling || !customModel.trim()}
+              variant="link"
+              size="sm"
+              className="self-center"
+              onClick={() => setPullDialogOpen(true)}
             >
-              {pulling ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-              {pulling ? "Pulling..." : `Pull ${customModel.trim() || "model"}`}
+              Add a custom model
             </Button>
-            {pullProgress ? (
-              <div className="rounded-xl border border-dls-border bg-dls-hover px-3 py-2 font-mono text-xs text-dls-text">
-                {pullProgress}
-              </div>
-            ) : null}
-            {models.length > 0 ? (
-              <button
-                type="button"
-                className="text-xs text-primary hover:underline"
-                onClick={() => setUseCustom(false)}
-              >
-                Back to loaded models
-              </button>
-            ) : null}
           </div>
         ) : null}
 
-        {/* Set as default */}
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={setDefault}
-            onChange={(event) => setSetDefault(event.currentTarget.checked)}
-          />
-          Set as default model after adding
-        </label>
+        {/* No models */}
+        {status === "running" && (data?.models?.length ?? 0) === 0 && !isPulling && !progress ? (
+          <Empty className="flex-none p-6" variant="ghost">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Download />
+              </EmptyMedia>
+              <EmptyTitle>No models loaded</EmptyTitle>
+              <EmptyDescription>
+                Pull a model from ollama.com/library to get started.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button onClick={() => setPullDialogOpen(true)}>
+                Pull a model
+              </Button>
+            </EmptyContent>
+          </Empty>
+        ) : status === "running" && (data?.models?.length ?? 0) === 0 && progress ? (
+          <PullProgressRow progress={progress} isPulling={isPulling} />
+        ) : null}
 
-        {/* Install */}
-        <Button
-          onClick={handleInstall}
-          disabled={props.busy || pulling || !activeModelId || ollamaStatus !== "running"}
-        >
-          {props.busy ? <Loader2 className="size-4 animate-spin" /> : <Bot className="size-4" />}
-          Add {activeModelId || "model"} to workspace
-        </Button>
+        <PullModelDialog
+          open={pullDialogOpen}
+          onOpenChange={setPullDialogOpen}
+          model={customModel}
+          onModelChange={setCustomModel}
+          onPull={() => void handlePull()}
+        />
 
         {props.status ? (
-          <div className="rounded-xl border border-green-6 bg-green-2 px-3 py-2 text-xs text-green-11">
-            {props.status}
-          </div>
+          <Alert>
+            <CheckCircle2 />
+            <AlertDescription>{props.status}</AlertDescription>
+          </Alert>
         ) : null}
-        {props.error ? (
-          <div className="rounded-xl border border-red-6 bg-red-2 px-3 py-2 text-xs text-red-11">
-            {props.error}
-          </div>
-        ) : null}
-      </div>
-    </div>
+      </CardContent>
+      <CardFooter className="border-t border-border">
+        <FieldGroup className="gap-3">
+          <Field orientation="horizontal">
+            <Checkbox
+              id="ollama-set-default"
+              name="ollama-set-default"
+              checked={setDefault}
+              onCheckedChange={setSetDefault}
+              nativeButton
+              render={<button type="button" />}
+            />
+            <FieldLabel htmlFor="ollama-set-default">Use as default model in workspace</FieldLabel>
+          </Field>
+        </FieldGroup>
+        <Button
+          onClick={handleInstall}
+          disabled={props.busy || isPulling || !activeModelId || status !== "running"}
+        >
+          {props.busy && <Loader2 className="size-4 animate-spin" />}
+          Add to workspace
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+}
+
+interface ModelListProps {
+  value: string;
+  onValueChange: (value: string) => void;
+  children: React.ReactNode;
+}
+
+export function ModelList({ value, onValueChange, children }: ModelListProps) {
+  return (
+    <RadioGroup className="w-full gap-2" value={value} onValueChange={onValueChange}>
+      {children}
+    </RadioGroup>
+  )
+}
+
+interface ModelListItemProps {
+  model: OllamaModel;
+}
+
+function ModelListItem({ model }: ModelListItemProps) {
+  return (
+    <FieldLabel htmlFor={model.name}>
+      <Field orientation="horizontal" size="sm">
+        <RadioGroupItem value={model.name} id={model.name} />
+        <FieldContent className="flex-row justify-between w-full">
+          <FieldTitle>{model.name}</FieldTitle>
+          <FieldDescription>{formatFileSize(model.size)}</FieldDescription>
+        </FieldContent>
+      </Field>
+    </FieldLabel>
+  )
+}
+
+type PullProgressRowProps = {
+  progress: PullProgressState;
+  isPulling: boolean;
+};
+
+function PullProgressRow({ progress, isPulling }: PullProgressRowProps) {
+  const progressLabel = progress.total && progress.completed != null
+    ? `${progress.status} (${Math.round((progress.completed / progress.total) * 100)}%)`
+    : progress.status;
+
+  return (
+    <FieldLabel>
+      <Field orientation="horizontal" size="sm">
+        <div className="relative flex aspect-square size-4 shrink-0 items-center justify-center">
+          {isPulling ? (
+            <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden />
+          ) : null}
+        </div>
+        <FieldContent className="flex-row justify-between w-full">
+          <FieldTitle>{progress.modelName}</FieldTitle>
+          <FieldDescription>{progressLabel}</FieldDescription>
+        </FieldContent>
+      </Field>
+    </FieldLabel>
+  );
+}
+
+type PullModelDialogProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  model: string;
+  onModelChange: (model: string) => void;
+  onPull: () => void;
+};
+
+function PullModelDialog(props: PullModelDialogProps) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="w-full max-w-md sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Pull model</DialogTitle>
+          <DialogDescription>
+            Download a model from ollama.com/library to your local Ollama instance.
+          </DialogDescription>
+        </DialogHeader>
+        <FieldSet className="w-full">
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="ollama-model-pull">Model to pull</FieldLabel>
+              <Input
+                id="ollama-model-pull"
+                type="text"
+                value={props.model}
+                onChange={(event) => props.onModelChange(event.currentTarget.value)}
+                placeholder={OLLAMA_PROVIDER_CONFIG.defaultModelId}
+              />
+              <FieldDescription>
+                Enter a model name from ollama.com/library
+              </FieldDescription>
+            </Field>
+          </FieldGroup>
+        </FieldSet>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>
+            Cancel
+          </DialogClose>
+          <Button onClick={props.onPull} disabled={!props.model.trim()}>
+            <Download className="size-4" />
+            Pull {props.model.trim() || "model"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

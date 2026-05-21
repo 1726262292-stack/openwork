@@ -2,6 +2,12 @@
 import { CheckCircle2, ExternalLink, Loader2, Plug2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
   Dialog,
   DialogClose,
   DialogContent,
@@ -11,12 +17,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableRow,
+} from "@/components/ui/table";
 import type { ExtensionKind } from "@/app/constants";
 import { MarkdownBlock } from "../domains/session/surface/markdown";
-import {
-  modalBodyClass,
-  surfaceCardClass,
-} from "../domains/workspace/modal-styles";
+import { modalBodyClass } from "../domains/workspace/modal-styles";
 import { resolveExtensionIconSrc } from "./extension-icon-src";
 
 export type ExtensionDetailModalProps = {
@@ -198,7 +208,7 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                     <img src={`https://cdn.simpleicons.org/${iconSlug}`} alt="" width={20} height={20} loading="lazy" style={{ display: "block" }} />
                   </div>
                 ) : (
-                  <FallbackIcon size={24} className="text-dls-secondary" />
+                  <FallbackIcon size={24} className="text-muted-foreground" />
                 )}
               </div>
               {connected ? (
@@ -208,7 +218,7 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
               ) : null}
             </div>
 
-            <div className="min-w-0">
+            <div className="min-w-0 flex flex-col gap-1 justify-center self-stretch">
               <DialogTitle>{name}</DialogTitle>
               <DialogDescription>{kindLabel[kind]}</DialogDescription>
             </div>
@@ -217,96 +227,99 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
 
         {/* Body */}
         <div className={modalBodyClass}>
-          <div className="space-y-5">
+          <div className="space-y-5 px-px">
             {/* Description */}
-            <div className="text-[14px] leading-relaxed text-dls-text">
+            <div className="text-sm leading-relaxed text-card-foreground">
               {description}
             </div>
 
             {/* Details */}
-            <div className={`${surfaceCardClass} space-y-3 p-4`}>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-dls-secondary">
-                Details
-              </div>
+            <Card variant="outline" size="sm">
+              <CardHeader>
+                <CardTitle>Details</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Type</span>
+                    <span className="font-medium text-card-foreground">{kindLabel[kind]}</span>
+                  </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-[13px]">
-                  <span className="text-dls-secondary">Type</span>
-                  <span className="font-medium text-dls-text">{kindLabel[kind]}</span>
-                </div>
+                  {url ? (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Endpoint</span>
+                      <span className="flex items-center gap-1.5 truncate font-mono text-xs text-card-foreground">
+                        {url.replace(/^https?:\/\//, "").slice(0, 40)}
+                        <ExternalLink size={10} className="shrink-0 text-muted-foreground" />
+                      </span>
+                    </div>
+                  ) : null}
 
-                {url ? (
-                  <div className="flex items-center justify-between text-[13px]">
-                    <span className="text-dls-secondary">Endpoint</span>
-                    <span className="flex items-center gap-1.5 truncate font-mono text-[11px] text-dls-text">
-                      {url.replace(/^https?:\/\//, "").slice(0, 40)}
-                      <ExternalLink size={10} className="shrink-0 text-dls-secondary" />
+                  {kind === "ui-control" ? (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Launch</span>
+                      <span className="max-w-[300px] truncate font-mono text-xs text-card-foreground">{(launchCommand ?? fallbackUiControlCommand).join(" ")}</span>
+                    </div>
+                  ) : null}
+
+                  {path && onReveal ? (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Location</span>
+                      <Button
+                        variant="link"
+                        size="xs"
+                        onClick={onReveal}
+                      >
+                        Reveal in Finder
+                        <ExternalLink data-icon="inline-end" />
+                      </Button>
+                    </div>
+                  ) : null}
+
+                  {oauth ? (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Authentication</span>
+                      <span className="font-medium text-card-foreground">OAuth required</span>
+                    </div>
+                  ) : null}
+
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Status</span>
+                    <span className={`font-medium ${connected ? "text-green-11" : "text-muted-foreground"}`}>
+                      {kind === "skill"
+                        ? (connected ? "Installed" : "Not installed")
+                        : (connected ? "Connected" : connecting ? "Connecting..." : "Not connected")}
                     </span>
                   </div>
-                ) : null}
-
-                {kind === "ui-control" ? (
-                  <div className="flex items-center justify-between text-[13px]">
-                    <span className="text-dls-secondary">Launch</span>
-                    <span className="max-w-[300px] truncate font-mono text-[11px] text-dls-text">{(launchCommand ?? fallbackUiControlCommand).join(" ")}</span>
-                  </div>
-                ) : null}
-
-                {path && onReveal ? (
-                  <div className="flex items-center justify-between text-[13px]">
-                    <span className="text-dls-secondary">Location</span>
-                    <Button
-                      variant="link"
-                      size="xs"
-                      onClick={onReveal}
-                    >
-                      Reveal in Finder
-                      <ExternalLink data-icon="inline-end" />
-                    </Button>
-                  </div>
-                ) : null}
-
-                {oauth ? (
-                  <div className="flex items-center justify-between text-[13px]">
-                    <span className="text-dls-secondary">Authentication</span>
-                    <span className="font-medium text-dls-text">OAuth required</span>
-                  </div>
-                ) : null}
-
-                <div className="flex items-center justify-between text-[13px]">
-                  <span className="text-dls-secondary">Status</span>
-                  <span className={`font-medium ${connected ? "text-green-11" : "text-dls-secondary"}`}>
-                    {kind === "skill"
-                      ? (connected ? "Installed" : "Not installed")
-                      : (connected ? "Connected" : connecting ? "Connecting..." : "Not connected")}
-                  </span>
                 </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
 
             {/* Skill-specific: trigger + content preview */}
             {kind === "ui-control" ? <UiControlConnectionDetails launchCommand={launchCommand} environment={environment} /> : null}
 
             {kind === "skill" && trigger ? (
-              <div className={`${surfaceCardClass} space-y-2 p-4`}>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-dls-secondary">
-                  Trigger
-                </div>
-                <div className="text-[13px] leading-relaxed text-dls-text">
-                  {trigger}
-                </div>
-              </div>
+              <Card variant="outline" size="sm">
+                <CardHeader>
+                  <CardTitle>Trigger</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-sm leading-relaxed text-card-foreground">
+                    {trigger}
+                  </div>
+                </CardContent>
+              </Card>
             ) : null}
 
             {kind === "skill" && contentPreview ? (() => {
               const body = stripSkillFrontmatter(contentPreview);
               if (!body.trim()) return null;
               return (
-                <div className="space-y-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-dls-secondary">
+                <div className="flex flex-col gap-2">
+                  <div className="text-sm font-medium text-card-foreground">
                     Skill content
                   </div>
-                  <div className="max-h-[300px] overflow-y-auto rounded-xl border border-dls-border bg-dls-surface p-4 text-[13px] leading-relaxed text-dls-text">
+                  <div className="max-h-[300px] overflow-y-auto rounded-xl border border-border bg-card p-4 text-sm leading-relaxed text-card-foreground">
                     <MarkdownBlock text={body} />
                   </div>
                 </div>
@@ -315,14 +328,16 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
 
             {/* What this enables (generic, for non-skills or skills without preview) */}
             {(kind !== "skill" && kind !== "ui-control") || (!trigger && !contentPreview && kind !== "ui-control") ? (
-              <div className={`${surfaceCardClass} space-y-2 p-4`}>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-dls-secondary">
-                  What this enables
-                </div>
-                <div className="text-[13px] leading-relaxed text-dls-secondary">
-                  {kindDesc[kind]}
-                </div>
-              </div>
+              <Card variant="outline" size="sm">
+                <CardHeader>
+                  <CardTitle>What this enables</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-sm leading-relaxed text-muted-foreground">
+                    {kindDesc[kind]}
+                  </div>
+                </CardContent>
+              </Card>
             ) : null}
 
             {configSlot}
@@ -374,43 +389,88 @@ function UiControlConnectionDetails(props: { launchCommand?: string[]; environme
 
   return (
     <div className="space-y-4">
-      <div className={`${surfaceCardClass} space-y-3 p-4`}>
-        <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-dls-secondary">
-          How to connect another client
-        </div>
-        <div className="space-y-2 text-[13px] leading-relaxed text-dls-secondary">
-          <div>OpenWork desktop starts a private localhost bridge automatically.</div>
-          <div>Your MCP client starts <span className="font-mono text-dls-text">openwork-ui-mcp</span> over stdio; the wrapper discovers the bridge and proxies UI tools to it.</div>
-          <div>Do not point clients at the random localhost bridge URL directly.</div>
-        </div>
-      </div>
+      <Card variant="outline" size="sm">
+        <CardHeader>
+          <CardTitle>How to connect another client</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-2 text-sm leading-relaxed text-muted-foreground">
+            <div>OpenWork desktop starts a private localhost bridge automatically.</div>
+            <div>Your MCP client starts <span className="font-mono text-card-foreground">openwork-ui-mcp</span> over stdio; the wrapper discovers the bridge and proxies UI tools to it.</div>
+            <div>Do not point clients at the random localhost bridge URL directly.</div>
+          </div>
+        </CardContent>
+      </Card>
 
-      <div className="space-y-2">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-dls-secondary">
-          Claude Desktop, Codex, Cursor
-        </div>
-        <pre className="max-h-[180px] overflow-x-auto rounded-xl border border-dls-border bg-dls-surface p-3 text-[11px] leading-relaxed text-dls-text">
-          <code>{uiControlClientConfig}</code>
-        </pre>
-      </div>
+      <Card variant="outline" size="sm">
+        <CardHeader>
+          <CardTitle>Claude Desktop, Codex, Cursor</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <pre className="max-h-[180px] overflow-x-auto rounded-xl border border-border p-3 text-xs leading-relaxed text-card-foreground">
+            <code>{uiControlClientConfig}</code>
+          </pre>
+        </CardContent>
+      </Card>
 
-      <div className="space-y-2">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-dls-secondary">
-          OpenCode
-        </div>
-        <pre className="max-h-[180px] overflow-x-auto rounded-xl border border-dls-border bg-dls-surface p-3 text-[11px] leading-relaxed text-dls-text">
-          <code>{opencodeConfig}</code>
-        </pre>
-      </div>
+      <Card variant="outline" size="sm">
+        <CardHeader>
+          <CardTitle>OpenCode</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <pre className="max-h-[180px] overflow-x-auto rounded-xl border border-border p-3 text-xs leading-relaxed text-card-foreground">
+            <code>{opencodeConfig}</code>
+          </pre>
+        </CardContent>
+      </Card>
 
-      <div className={`${surfaceCardClass} space-y-2 p-4 text-[12px] leading-relaxed text-dls-secondary`}>
-        <div>Production discovery file: <span className="font-mono text-dls-text">~/Library/Application Support/com.differentai.openwork/openwork-ui-control.json</span></div>
-        <div>Dev discovery file: <span className="font-mono text-dls-text">~/Library/Application Support/com.differentai.openwork.dev/openwork-ui-control.json</span></div>
-        <div>Override: <span className="font-mono text-dls-text">OPENWORK_UI_CONTROL_DISCOVERY=/path/to/openwork-ui-control.json</span></div>
-        {props.environment?.OPENWORK_UI_CONTROL_DISCOVERY ? (
-          <div>Current override: <span className="font-mono text-dls-text">{props.environment.OPENWORK_UI_CONTROL_DISCOVERY}</span></div>
-        ) : null}
-      </div>
+      <Card variant="outline" size="sm">
+        <CardHeader>
+          <CardTitle>Discovery</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="relative overflow-hidden rounded-xl bg-clip-padding before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-xl)-1px)] before:border before:border-border">
+            <Table className="text-xs">
+              <TableBody>
+                <TableRow className="*:border-border hover:bg-transparent [&>:not(:last-child)]:border-r">
+                  <TableCell className="bg-muted/50 w-40 py-2 text-xs font-medium">
+                    Production discovery file
+                  </TableCell>
+                  <TableCell className="py-2 whitespace-normal">
+                    <span className="font-mono text-xs break-all">~/Library/Application Support/com.differentai.openwork/openwork-ui-control.json</span>
+                  </TableCell>
+                </TableRow>
+                <TableRow className="*:border-border hover:bg-transparent [&>:not(:last-child)]:border-r">
+                  <TableCell className="bg-muted/50 py-2 text-xs font-medium">
+                    Dev discovery file
+                  </TableCell>
+                  <TableCell className="py-2 whitespace-normal">
+                    <span className="font-mono text-xs break-all">~/Library/Application Support/com.differentai.openwork.dev/openwork-ui-control.json</span>
+                  </TableCell>
+                </TableRow>
+                <TableRow className="*:border-border hover:bg-transparent [&>:not(:last-child)]:border-r">
+                  <TableCell className="bg-muted/50 py-2 text-xs font-medium">
+                    Override
+                  </TableCell>
+                  <TableCell className="py-2 whitespace-normal">
+                    <span className="font-mono text-xs break-all">OPENWORK_UI_CONTROL_DISCOVERY=/path/to/openwork-ui-control.json</span>
+                  </TableCell>
+                </TableRow>
+                {props.environment?.OPENWORK_UI_CONTROL_DISCOVERY ? (
+                  <TableRow className="*:border-border hover:bg-transparent [&>:not(:last-child)]:border-r">
+                    <TableCell className="bg-muted/50 py-2 text-xs font-medium">
+                      Current override
+                    </TableCell>
+                    <TableCell className="py-2 whitespace-normal">
+                      <span className="font-mono text-xs break-all">{props.environment.OPENWORK_UI_CONTROL_DISCOVERY}</span>
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
