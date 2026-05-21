@@ -432,6 +432,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const composerShellRef = useRef<HTMLDivElement>(null);
   const hydratedKeyRef = useRef<string | null>(null);
   const autoOpenedTargetRef = useRef<string | null>(null);
+  const initializedAutoOpenSessionRef = useRef<string | null>(null);
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
   attachmentsRef.current = attachments;
   const opencodeClient = useMemo(
@@ -486,6 +487,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setPasteParts([]);
     setNotice(null);
     autoOpenedTargetRef.current = null;
+    initializedAutoOpenSessionRef.current = null;
     setVerifiedOpenTargets([]);
   }, [props.sessionId]);
 
@@ -628,21 +630,36 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   useEffect(() => {
     let cancelled = false;
+    function initializeAutoOpenState(targets: OpenTarget[]) {
+      if (initializedAutoOpenSessionRef.current === props.sessionId) return;
+      initializedAutoOpenSessionRef.current = props.sessionId;
+      autoOpenedTargetRef.current = selectAutoOpenTarget(targets)?.id ?? null;
+    }
+
     async function verifyTargets() {
       if (!openTargets.length) {
+        initializeAutoOpenState([]);
         setVerifiedOpenTargets([]);
         return;
       }
       try {
         const response = await props.client.resolveArtifacts(props.workspaceId, openTargets);
-        if (!cancelled) setVerifiedOpenTargets(response.items as OpenTarget[]);
+        if (!cancelled) {
+          const nextTargets = response.items as OpenTarget[];
+          initializeAutoOpenState(nextTargets);
+          setVerifiedOpenTargets(nextTargets);
+        }
       } catch {
-        if (!cancelled) setVerifiedOpenTargets(openTargets.map((target) => ({ ...target, exists: target.kind === "url" })));
+        if (!cancelled) {
+          const nextTargets = openTargets.map((target) => ({ ...target, exists: target.kind === "url" }));
+          initializeAutoOpenState(nextTargets);
+          setVerifiedOpenTargets(nextTargets);
+        }
       }
     }
     void verifyTargets();
     return () => { cancelled = true; };
-  }, [openTargetsFingerprint, props.client, props.workspaceId]);
+  }, [openTargetsFingerprint, props.client, props.sessionId, props.workspaceId]);
 
   useEffect(() => {
     props.onOpenTargetsChange?.(verifiedOpenTargets);
