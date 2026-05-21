@@ -853,6 +853,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     });
   };
 
+  const handleExpandPastedText = (id: string) => {
+    const part = pasteParts.find((item) => item.id === id);
+    if (!part) return;
+    setDraft((draftValue) => draftValue.replace(`[pasted text ${part.label}]`, () => part.text));
+    setPasteParts((current) => current.filter((item) => item.id !== id));
+  };
+
   const handleRemovePastedText = (id: string) => {
     setPasteParts((current) => {
       const target = current.find((item) => item.id === id);
@@ -1281,6 +1288,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onPasteText={handlePasteText}
         onUnsupportedFileLinks={handleUnsupportedFileLinks}
         pastedText={pasteParts}
+        onExpandPastedText={handleExpandPastedText}
         onRevealPastedText={handleRevealPastedText}
         onRemovePastedText={handleRemovePastedText}
         isRemoteWorkspace={props.isRemoteWorkspace}

@@ -76,6 +76,7 @@ type ComposerProps = {
   onPasteText: (text: string) => void;
   onUnsupportedFileLinks: (links: string[]) => void;
   pastedText: PastedTextChip[];
+  onExpandPastedText: (id: string) => void;
   onRevealPastedText: (id: string) => void;
   onRemovePastedText: (id: string) => void;
   isRemoteWorkspace: boolean;
@@ -592,6 +593,12 @@ export function ReactSessionComposer(props: ComposerProps) {
     [props.pastedText],
   );
 
+  const handleExpandPastedText = useCallback((label: string) => {
+    const target = props.pastedText.find((item) => item.label === label);
+    if (!target) return;
+    props.onExpandPastedText(target.id);
+  }, [props.onExpandPastedText, props.pastedText]);
+
   const activeMenu = slashOpen ? "slash" : mentionOpen ? "mention" : null;
   const activeItems = activeMenu === "slash" ? slashFiltered : activeMenu === "mention" ? mentionFiltered : [];
   const toolCommandItems = commands.filter((command) => !command.source || command.source === "command");
@@ -1006,6 +1013,7 @@ export function ReactSessionComposer(props: ComposerProps) {
               placeholder={t("composer.placeholder")}
               onChange={props.onDraftChange}
               onSubmit={props.onSend}
+              onExpandPastedText={handleExpandPastedText}
               onPasteText={props.onPasteText}
               onPaste={(event) => {
                 // Paste policy:
