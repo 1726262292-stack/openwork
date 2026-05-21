@@ -1204,10 +1204,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
             )}
           </div>
         </div>
-        {!sessionScroll.isAtBottom || sessionScroll.topClippedMessageId ? (
+        {!sessionScroll.isAtBottom || (!chatStreaming && sessionScroll.topClippedMessageId) ? (
           <div className="pointer-events-none absolute bottom-2 left-1/2 z-30 flex -translate-x-1/2 justify-center">
             <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-dls-border bg-dls-surface/95 p-1 shadow-[var(--dls-card-shadow)] backdrop-blur-md">
-              {sessionScroll.topClippedMessageId ? (
+              {!chatStreaming && sessionScroll.topClippedMessageId ? (
                 <button
                   type="button"
                   className="rounded-full px-3 py-1.5 text-xs text-dls-text transition-colors hover:bg-dls-hover"
