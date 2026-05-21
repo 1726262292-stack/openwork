@@ -1,10 +1,10 @@
 import type { UIMessage } from "ai";
-import type { Part, PermissionRequest, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
+import type { Part, PermissionRequest, QuestionRequest, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
 import { getReactQueryClient } from "../../../infra/query-client";
 import { createClient } from "../../../../app/lib/opencode";
 import { normalizeEvent } from "../../../../app/utils";
-import type { OpencodeEvent, PendingPermission } from "../../../../app/types";
+import type { OpencodeEvent, PendingPermission, PendingQuestion } from "../../../../app/types";
 import { snapshotToUIMessages } from "./usechat-adapter";
 import type { OpenworkSessionSnapshot } from "../../../../app/lib/openwork-server";
 import { reconcileTranscriptMessages } from "./transcript-reconcile";
@@ -55,6 +55,8 @@ export const todoKey = (workspaceId: string, sessionId: string) =>
   ["react-session-todos", workspaceId, sessionId] as const;
 export const permissionKey = (workspaceId: string, sessionId: string) =>
   ["react-session-permissions", workspaceId, sessionId] as const;
+export const questionKey = (workspaceId: string, sessionId: string) =>
+  ["react-session-questions", workspaceId, sessionId] as const;
 
 function syncKey(input: SyncOptions) {
   return `${input.workspaceId}:${input.baseUrl}:${input.openworkToken}`;
@@ -144,7 +146,15 @@ function withReceivedAt(permission: PermissionRequest, receivedAt: number): Pend
   return { ...permission, receivedAt };
 }
 
+function questionWithReceivedAt(question: QuestionRequest, receivedAt: number): PendingQuestion {
+  return { ...question, receivedAt };
+}
+
 function sortPermissions(a: PendingPermission, b: PendingPermission) {
+  return a.receivedAt - b.receivedAt || a.id.localeCompare(b.id);
+}
+
+function sortQuestions(a: PendingQuestion, b: PendingQuestion) {
   return a.receivedAt - b.receivedAt || a.id.localeCompare(b.id);
 }
 
@@ -173,6 +183,34 @@ export function seedPermissionState(
           )
         : [];
     return [...seeded, ...liveAfterSnapshot].sort(sortPermissions);
+  });
+}
+
+export function seedQuestionState(
+  workspaceId: string,
+  sessionId: string,
+  questions: QuestionRequest[],
+  options: { snapshotStartedAt?: number } = {},
+) {
+  const queryClient = getReactQueryClient();
+  const now = Date.now();
+  queryClient.setQueryData<PendingQuestion[]>(questionKey(workspaceId, sessionId), (current = []) => {
+    const receivedAtById = new Map(current.map((question) => [question.id, question.receivedAt]));
+    const seeded = questions.flatMap((question) =>
+      question.sessionID === sessionId ? [questionWithReceivedAt(question, receivedAtById.get(question.id) ?? now)] : [],
+    );
+    const seededIds = new Set(seeded.map((question) => question.id));
+    const snapshotStartedAt = options.snapshotStartedAt;
+    const liveAfterSnapshot =
+      typeof snapshotStartedAt === "number"
+        ? current.filter(
+            (question) =>
+              question.sessionID === sessionId &&
+              question.receivedAt > snapshotStartedAt &&
+              !seededIds.has(question.id),
+          )
+        : [];
+    return [...seeded, ...liveAfterSnapshot].sort(sortQuestions);
   });
 }
 
@@ -441,6 +479,32 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     if (!isTrackedSession(entry, props.sessionID)) return;
     queryClient.setQueryData<PendingPermission[]>(permissionKey(workspaceId, props.sessionID), (current = []) =>
       current.filter((permission) => permission.id !== props.requestID),
+    );
+    return;
+  }
+
+  if (event.type === "question.asked") {
+    const question = event.properties as QuestionRequest;
+    if (!question?.id || !question.sessionID) return;
+    if (!isTrackedSession(entry, question.sessionID)) return;
+    const receivedAt = Date.now();
+    queryClient.setQueryData<PendingQuestion[]>(questionKey(workspaceId, question.sessionID), (current = []) => {
+      const existing = current.find((item) => item.id === question.id);
+      const next = questionWithReceivedAt(question, existing?.receivedAt ?? receivedAt);
+      if (existing) {
+        return current.map((item) => (item.id === question.id ? next : item)).sort(sortQuestions);
+      }
+      return [...current, next].sort(sortQuestions);
+    });
+    return;
+  }
+
+  if (event.type === "question.replied" || event.type === "question.rejected") {
+    const props = (event.properties ?? {}) as { sessionID?: string; requestID?: string };
+    if (!props.sessionID || !props.requestID) return;
+    if (!isTrackedSession(entry, props.sessionID)) return;
+    queryClient.setQueryData<PendingQuestion[]>(questionKey(workspaceId, props.sessionID), (current = []) =>
+      current.filter((question) => question.id !== props.requestID),
     );
     return;
   }

@@ -3,19 +3,10 @@ import { useEffect, useReducer } from "react";
 import type { QuestionInfo } from "@opencode-ai/sdk/v2/client";
 import { Check, ChevronRight, HelpCircle } from "lucide-react";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 
-export type QuestionModalProps = {
-  open: boolean;
+export type QuestionPanelProps = {
   questions: QuestionInfo[];
   busy: boolean;
   onReply: (answers: string[][]) => void;
@@ -62,6 +53,7 @@ function questionReducer(state: QuestionState, action: QuestionAction): Question
     case "setFocusedOptionIndex":
       return { ...state, focusedOptionIndex: action.value };
     case "moveFocusedOption":
+      if (action.optionsCount <= 0) return state;
       return {
         ...state,
         focusedOptionIndex:
@@ -90,15 +82,15 @@ function questionReducer(state: QuestionState, action: QuestionAction): Question
   }
 }
 
-export function QuestionModal(props: QuestionModalProps) {
+export function QuestionPanel(props: QuestionPanelProps) {
   const [state, dispatch] = useReducer(questionReducer, initialQuestionState);
 
   useEffect(() => {
-    if (!props.open) return;
     dispatch({ type: "reset", questionCount: props.questions.length });
-  }, [props.open, props.questions.length]);
+  }, [props.questions]);
 
   const currentQuestion = props.questions[state.currentIndex];
+  const options = currentQuestion?.options ?? [];
   const isLastQuestion = state.currentIndex === props.questions.length - 1;
   const canProceed = (() => {
     if (!currentQuestion) return false;
@@ -123,7 +115,7 @@ export function QuestionModal(props: QuestionModalProps) {
   };
 
   const toggleOption = (option: string) => {
-    if (!currentQuestion) return;
+    if (!currentQuestion || props.busy) return;
     if (currentQuestion.multiple) {
       dispatch({ type: "toggleMultipleOption", option });
       return;
@@ -143,75 +135,46 @@ export function QuestionModal(props: QuestionModalProps) {
     }
   };
 
-  useEffect(() => {
-    if (!props.open) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!currentQuestion) return;
-      const optionsCount = currentQuestion.options.length;
-
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        dispatch({ type: "moveFocusedOption", direction: 1, optionsCount });
-      } else if (event.key === "ArrowUp") {
-        event.preventDefault();
-        dispatch({ type: "moveFocusedOption", direction: -1, optionsCount });
-      } else if (event.key === "Enter") {
-        if (event.isComposing || event.keyCode === 229) return;
-        event.preventDefault();
-        if (
-          currentQuestion.custom &&
-          document.activeElement?.tagName === "INPUT"
-        ) {
-          handleNext();
-          return;
-        }
-        const option = currentQuestion.options[state.focusedOptionIndex]?.description;
-        if (option) toggleOption(option);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.open, currentQuestion, state.focusedOptionIndex]);
-
-  if (!props.open || !currentQuestion) return null;
+  if (!currentQuestion) return null;
 
   return (
-    <Dialog open={props.open}>
-      <DialogContent showCloseButton={false} className="flex max-h-[85vh] min-h-0 w-full max-w-lg flex-col overflow-hidden sm:max-w-lg">
-        <DialogHeader>
-          <div className="mb-2 flex items-center gap-3">
-            <div className="flex size-8 items-center justify-center rounded-full bg-blue-9/20 text-blue-9">
-              <HelpCircle size={18} />
-            </div>
-            <div>
-              <DialogTitle>
+    <div className="overflow-hidden border-b border-dls-border bg-transparent">
+      <div className="border-b border-dls-border px-4 py-3">
+        <div className="flex items-start gap-2.5">
+          <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-blue-7/30 bg-blue-3/20 text-blue-11">
+            <HelpCircle size={12} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <div className="text-sm font-medium leading-5 text-gray-12">
                 {currentQuestion.header || t("common.question")}
-              </DialogTitle>
-              <div className="text-xs font-medium text-gray-11">
+              </div>
+              <div className="text-[11px] font-medium leading-4 text-gray-9">
                 {t("question_modal.question_counter", undefined, {
                   current: state.currentIndex + 1,
                   total: props.questions.length,
                 })}
               </div>
             </div>
+            <div className="mt-1 text-sm leading-6 text-gray-11">
+              {currentQuestion.question}
+            </div>
           </div>
-          <DialogDescription>
-            {currentQuestion.question}
-          </DialogDescription>
-        </DialogHeader>
+        </div>
+      </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="max-h-72 space-y-3 overflow-auto px-4 py-3">
+        {options.length > 0 ? (
           <div className="space-y-2">
-            {currentQuestion.options.map((opt, idx) => {
-              const isSelected = state.currentSelection.includes(opt.description);
+            {options.map((opt, idx) => {
+              const isSelected = state.currentSelection.includes(opt.label);
               const isFocused = state.focusedOptionIndex === idx;
               return (
                 <button
-                  key={opt.description}
+                  key={`${opt.label}:${idx}`}
                   type="button"
-                  className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all duration-200 flex items-center justify-between group
+                  disabled={props.busy}
+                  className={`flex w-full items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-60
                         ${
                           isSelected
                             ? "bg-blue-9/10 border-blue-9/30 text-gray-12 shadow-sm"
@@ -221,10 +184,15 @@ export function QuestionModal(props: QuestionModalProps) {
                       `}
                   onClick={() => {
                     dispatch({ type: "setFocusedOptionIndex", value: idx });
-                    toggleOption(opt.description);
+                    toggleOption(opt.label);
                   }}
                 >
-                  <span className="font-medium">{opt.description}</span>
+                  <span className="min-w-0">
+                    <span className="block font-medium text-gray-12">{opt.label}</span>
+                    {opt.description && opt.description !== opt.label ? (
+                      <span className="mt-1 block text-xs leading-5 text-gray-11">{opt.description}</span>
+                    ) : null}
+                  </span>
                   {isSelected ? (
                     <div className="size-5 rounded-full bg-blue-9 flex items-center justify-center shadow-sm">
                       <Check size={12} className="text-white" strokeWidth={3} />
@@ -234,9 +202,10 @@ export function QuestionModal(props: QuestionModalProps) {
               );
             })}
           </div>
+        ) : null}
 
           {currentQuestion.custom ? (
-            <div className="mt-4 pt-4 border-t border-dls-border">
+            <div className="border-t border-dls-border pt-3">
               <label className="block text-xs font-semibold text-dls-secondary mb-2 uppercase tracking-wide">
                 {t("question_modal.custom_answer_label")}
               </label>
@@ -251,6 +220,7 @@ export function QuestionModal(props: QuestionModalProps) {
                 }
                 className="w-full px-4 py-3 rounded-xl bg-dls-surface border border-dls-border focus:border-dls-accent focus:ring-4 focus:ring-[rgba(var(--dls-accent-rgb),0.2)] focus:outline-none text-sm text-dls-text placeholder:text-dls-secondary transition-shadow"
                 placeholder={t("question_modal.custom_answer_placeholder")}
+                disabled={props.busy}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     if (event.nativeEvent.isComposing || event.keyCode === 229)
@@ -262,18 +232,10 @@ export function QuestionModal(props: QuestionModalProps) {
               />
             </div>
           ) : null}
-        </div>
 
-        <DialogFooter className="shrink-0 items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div className="text-xs text-dls-secondary flex items-center gap-2">
-            <span className="px-1.5 py-0.5 rounded border border-dls-border bg-dls-active font-mono">
-              ↑↓
-            </span>
-            <span>{t("common.navigate")}</span>
-            <span className="px-1.5 py-0.5 rounded border border-gray-6 bg-gray-3 font-mono ml-2">
-              ↵
-            </span>
-            <span>{t("common.select")}</span>
+            {props.busy ? "Submitting..." : null}
           </div>
 
           <div className="flex gap-2">
@@ -289,8 +251,8 @@ export function QuestionModal(props: QuestionModalProps) {
               </Button>
             ) : null}
           </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </div>
   );
 }

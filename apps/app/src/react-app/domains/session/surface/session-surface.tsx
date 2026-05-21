@@ -21,6 +21,7 @@ import type {
   McpStatusMap,
   ModelRef,
   PendingPermission,
+  PendingQuestion,
   SkillCard,
   TodoItem,
 } from "../../../../app/types";
@@ -43,6 +44,7 @@ import { useLocal } from "../../../kernel/local-provider";
 import { deriveSessionRenderModel } from "../sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
 import { PermissionApprovalPanel } from "../chat/permission-approval-modal";
+import { QuestionPanel } from "../modals/question-modal";
 import { deriveOpenTargets, selectAutoOpenTarget, type OpenTarget } from "../artifacts/open-target";
 import {
   seedSessionState,
@@ -99,6 +101,9 @@ export type SessionSurfaceProps = {
   activePermission?: PendingPermission | null;
   permissionReplyBusy?: boolean;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
+  activeQuestion?: PendingQuestion | null;
+  questionReplyBusy?: boolean;
+  respondQuestion?: (requestID: string, answers: string[][]) => void;
   safeStringify?: (value: unknown) => string;
   onChangeModel?: (model: { providerID: string; modelID: string }) => void;
   onUploadInboxFiles?: ((files: File[], options?: { notify?: boolean }) => void | Promise<unknown>) | null;
@@ -1264,11 +1269,23 @@ export function SessionSurface(props: SessionSurfaceProps) {
         isRemoteWorkspace={props.isRemoteWorkspace}
           isSandboxWorkspace={props.isSandboxWorkspace}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
-          compactTopSpacing={Boolean((props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission)}
+          compactTopSpacing={Boolean(props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission)}
           topAccessory={
-            (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission ? (
+            props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission ? (
               <div>
-                <TodoPanel todos={props.todos ?? []} />
+                {props.activeQuestion ? (
+                  <QuestionPanel
+                    questions={props.activeQuestion.questions}
+                    busy={props.questionReplyBusy ?? false}
+                    onReply={(answers) => {
+                      if (props.activeQuestion) {
+                        props.respondQuestion?.(props.activeQuestion.id, answers);
+                      }
+                    }}
+                  />
+                ) : (
+                  <TodoPanel todos={props.todos ?? []} />
+                )}
                 {props.activePermission ? (
                   <PermissionApprovalPanel
                     permission={props.activePermission}

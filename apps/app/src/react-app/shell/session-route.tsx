@@ -55,6 +55,7 @@ import type {
   ModelOption,
   ModelRef,
   PendingPermission,
+  PendingQuestion,
   SlashCommandOption,
   TodoItem,
   WorkspacePreset,
@@ -84,7 +85,9 @@ import { ReactSessionRuntime } from "../domains/session/sync/runtime-sync";
 import { buildOpenworkEnvSystemContext } from "../domains/session/sync/env-context";
 import {
   permissionKey as reactPermissionKey,
+  questionKey as reactQuestionKey,
   seedPermissionState,
+  seedQuestionState,
   todoKey as reactTodoKey,
 } from "../domains/session/sync/session-sync";
 import { CreateRemoteWorkspaceModal } from "../domains/workspace/create-remote-workspace-modal";
@@ -247,6 +250,7 @@ function focusPromptSoon() {
 }
 
 const emptyPendingPermissions: PendingPermission[] = [];
+const emptyPendingQuestions: PendingQuestion[] = [];
 const emptyTodos: TodoItem[] = [];
 const emptyModelBehaviorOptions: { value: string | null; label: string }[] = [];
 
@@ -582,6 +586,8 @@ export function SessionRoute() {
 
   const [permissionReplyBusy, setPermissionReplyBusy] = useState(false);
   const permissionReplyBusyRef = useRef(false);
+  const [questionReplyBusy, setQuestionReplyBusy] = useState(false);
+  const questionReplyBusyRef = useRef(false);
   // Provider catalog cache. Used to compute the reasoning/thinking variant
   // options for whichever model is currently selected so the composer's
   // behavior pill actually shows its options (bug: was empty before).
@@ -1518,6 +1524,17 @@ export function SessionRoute() {
     permissionQueryKey,
     emptyPendingPermissions,
   );
+  const questionQueryKey = useMemo(
+    () =>
+      selectedWorkspaceId && selectedSessionId
+        ? reactQuestionKey(selectedWorkspaceId, selectedSessionId)
+        : null,
+    [selectedSessionId, selectedWorkspaceId],
+  );
+  const pendingQuestions = useQueryCacheState<PendingQuestion[]>(
+    questionQueryKey,
+    emptyPendingQuestions,
+  );
   const todoQueryKey = useMemo(
     () =>
       selectedWorkspaceId && selectedSessionId
@@ -1540,6 +1557,27 @@ export function SessionRoute() {
       } catch {
         // Keep event-synced permission state if the snapshot read fails.
         // Hiding a pending approval can block the running task.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [opencodeClient, selectedSessionId, selectedWorkspaceId, selectedWorkspaceRoot]);
+
+  useEffect(() => {
+    if (!opencodeClient || !selectedWorkspaceId || !selectedSessionId) return;
+    let cancelled = false;
+    const directory = selectedWorkspaceRoot || undefined;
+    void (async () => {
+      const snapshotStartedAt = Date.now();
+      try {
+        const list = unwrap(await opencodeClient.question.list({ directory }));
+        if (!cancelled) {
+          seedQuestionState(selectedWorkspaceId, selectedSessionId, list, { snapshotStartedAt });
+        }
+      } catch {
+        // Keep event-synced question state if the snapshot read fails.
+        // Hiding a pending question can block the running task.
       }
     })();
     return () => {
@@ -1575,6 +1613,38 @@ export function SessionRoute() {
       } finally {
         permissionReplyBusyRef.current = false;
         setPermissionReplyBusy(false);
+      }
+    },
+    [opencodeClient, selectedSessionId, selectedWorkspaceId, selectedWorkspaceRoot, showToast],
+  );
+  const activeQuestion = pendingQuestions[0] ?? null;
+  const respondQuestion = useCallback(
+    async (requestID: string, answers: string[][]) => {
+      if (!opencodeClient || !selectedWorkspaceId || !selectedSessionId) return;
+      if (questionReplyBusyRef.current) return;
+      questionReplyBusyRef.current = true;
+      setQuestionReplyBusy(true);
+      try {
+        unwrap(
+          await opencodeClient.question.reply({
+            requestID,
+            answers,
+            directory: selectedWorkspaceRoot || undefined,
+          }),
+        );
+        getReactQueryClient().setQueryData<PendingQuestion[]>(
+          reactQuestionKey(selectedWorkspaceId, selectedSessionId),
+          (current = []) => current.filter((question) => question.id !== requestID),
+        );
+      } catch (error) {
+        showToast({
+          title: t("app.error_request_failed"),
+          description: describeRouteError(error),
+          tone: "error",
+        });
+      } finally {
+        questionReplyBusyRef.current = false;
+        setQuestionReplyBusy(false);
       }
     },
     [opencodeClient, selectedSessionId, selectedWorkspaceId, selectedWorkspaceRoot, showToast],
@@ -2787,6 +2857,9 @@ export function SessionRoute() {
       activePermission={activePermission}
       permissionReplyBusy={permissionReplyBusy}
       respondPermission={respondPermission}
+      activeQuestion={activeQuestion}
+      questionReplyBusy={questionReplyBusy}
+      respondQuestion={respondQuestion}
       safeStringify={safeStringify}
       onRenameSession={
         opencodeClient

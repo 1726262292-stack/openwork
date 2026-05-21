@@ -21,7 +21,6 @@ import type { ShareWorkspaceModalProps } from "../../workspace/types";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import ProviderAuthModal, { type ProviderAuthModalProps } from "../../connections/provider-auth/provider-auth-modal";
-import { QuestionModal } from "../modals/question-modal";
 import { RenameSessionModal } from "../modals/rename-session-modal";
 import { AppSidebar } from "../sidebar/app-sidebar";
 import { SessionSurface, type SessionSurfaceProps } from "../surface/session-surface";
@@ -667,6 +666,9 @@ export function SessionPage(props: SessionPageProps) {
                   activePermission={props.activePermission}
                   permissionReplyBusy={props.permissionReplyBusy}
                   respondPermission={props.respondPermission}
+                  activeQuestion={props.activeQuestion}
+                  questionReplyBusy={props.questionReplyBusy}
+                  respondQuestion={props.respondQuestion}
                   safeStringify={props.safeStringify}
                   onOpenTarget={openTarget}
                   onOpenTargetsChange={handleOpenTargetsChange}
@@ -940,17 +942,6 @@ export function SessionPage(props: SessionPageProps) {
       ) : null}
 
       {props.shareWorkspaceModal ? <ShareWorkspaceModal {...props.shareWorkspaceModal} /> : null}
-
-      <QuestionModal
-        open={Boolean(props.activeQuestion)}
-        questions={props.activeQuestion?.questions ?? []}
-        busy={props.questionReplyBusy ?? false}
-        onReply={(answers) => {
-          if (props.activeQuestion) {
-            props.respondQuestion?.(props.activeQuestion.id, answers);
-          }
-        }}
-      />
 
       {/* Cloud provider notifications are now handled globally by CloudProvidersToast in app-root.tsx */}
     </div>
