@@ -140,14 +140,14 @@ describe("deriveOpenTargets", () => {
     expect(isCollectibleArtifactTarget({ ...target, exists: true })).toBe(true);
   });
 
-  it("auto-opens generated html files instead of localhost browser previews", () => {
+  it("does not auto-open generated html files or localhost browser previews", () => {
     const targets = deriveOpenTargets([
       message("msg_1", "assistant", "Created public/index.html. API: `http://localhost:3000/api/info`. App: `http://localhost:3000`."),
     ]).map((target) => ({ ...target, exists: target.kind === "url" || target.value === "public/index.html" }));
 
     expect(targets.map((target) => target.value)).toContain("http://localhost:3000/api/info");
     expect(targets.map((target) => target.value)).toContain("http://localhost:3000");
-    expect(selectAutoOpenTarget(targets)?.value).toBe("public/index.html");
+    expect(selectAutoOpenTarget(targets)).toBeNull();
   });
 
   it("normalizes escaped localhost root URL variants into one target", () => {
@@ -170,14 +170,14 @@ describe("deriveOpenTargets", () => {
     expect(targets.map((target) => target.value)).toContain("http://localhost:3000");
   });
 
-  it("auto-opens high-confidence deliverables and localhost previews only", () => {
+  it("does not auto-open high-confidence deliverables or browser previews", () => {
     const targets = deriveOpenTargets([
       message("msg_1", "assistant", "Created data/customers.csv and see https://example.com for docs."),
     ]);
     const csv = targets.find((target) => target.value === "data/customers.csv");
     const externalUrl = targets.find((target) => target.value === "https://example.com");
 
-    expect(csv && shouldAutoOpenTarget({ ...csv, exists: true })).toBe(true);
+    expect(csv && shouldAutoOpenTarget({ ...csv, exists: true })).toBe(false);
     expect(csv && shouldAutoOpenTarget({ ...csv, exists: false })).toBe(false);
     expect(externalUrl && shouldAutoOpenTarget(externalUrl)).toBe(false);
   });

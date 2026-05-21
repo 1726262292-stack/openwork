@@ -197,10 +197,6 @@ export function deriveOpenTargets(messages: UIMessage[]): OpenTarget[] {
     .sort((left, right) => right.confidence - left.confidence);
 }
 
-export function shouldAutoOpenTarget(target: OpenTarget): boolean {
-  if (target.kind === "url") {
-    return false;
-  }
-
-  return target.exists === true && target.confidence >= 65 && ["markdown", "sheet", "image", "pdf", "html"].includes(target.preview);
+export function shouldAutoOpenTarget(): boolean {
+  return false;
 }
