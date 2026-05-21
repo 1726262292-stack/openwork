@@ -20,7 +20,6 @@ import { fileURLToPath } from "node:url";
 
 import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, shell } from "electron";
 import { registerMigrationIpc } from "./migration.mjs";
-import { startBrowserMcpServers } from "./browser-mcp.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
 import { exportWorkspaceConfig, importWorkspaceConfig } from "./workspace-archive.mjs";
@@ -392,8 +391,7 @@ async function toggleSidebarFromNativeMenu() {
 
 function installApplicationMenu() {
   const isMac = process.platform === "darwin";
-  /** @type {import("electron").MenuItemConstructorOptions[]} */
-  const template = [
+  const template = /** @type {import("electron").MenuItemConstructorOptions[]} */ ([
     ...(isMac
       ? [
           {
@@ -506,7 +504,7 @@ function installApplicationMenu() {
         },
       ],
     },
-  ];
+  ]);
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -859,8 +857,7 @@ function selectBrowserTab(tabId) {
   if (previousView && previousView !== getActiveBrowserView()) {
     detachBrowserView(previousView);
   }
-  _snapshotReset?.();
-  attachActiveBrowserView();
+    attachActiveBrowserView();
   sendBrowserState();
   return getBrowserTab(tabId);
 }
@@ -880,7 +877,6 @@ function closeBrowserTab(tabId = activeBrowserTabId) {
       browserTabOrder[closingIndex - 1] ??
       null;
     activeBrowserTabId = nextTabId;
-    _snapshotReset?.();
     if (nextTabId) {
       attachActiveBrowserView();
     } else {
@@ -901,7 +897,6 @@ function closeAllBrowserTabs() {
     .map((tabId) => browserTabs.get(tabId))
     .filter(Boolean);
   hideBrowserView();
-  _snapshotReset?.();
   browserTabs.clear();
   browserTabOrder = [];
   activeBrowserTabId = null;
@@ -938,7 +933,8 @@ function sendBrowserState() {
  * Attach the browser view to the main window.
  * @param {object} bounds — { x, y, width, height }
  * @param {object} [opts]
- * @param {boolean} [opts.preloadDefault=true] — load default URL if the view has no URL
+ * @param {boolean} [opts.preloadDefault=true] - load default URL if the view has no URL
+ * @param {boolean} [opts.ensureTab=true] - create a blank tab if needed
  */
 function attachBrowserView(bounds, { preloadDefault = true, ensureTab = true } = {}) {
   if (!mainWindow) return;
@@ -966,15 +962,12 @@ function hideBrowserView() {
   }
 }
 
-let _snapshotReset = null; // set by ensureBrowserMcpServers
-
 function destroyBrowserView() {
   hideBrowserView();
   const overlayView = menuOverlayView;
   menuOverlayView = null;
   menuOverlayRequest = null;
   try { overlayView?.webContents.close(); } catch { /* already destroyed */ }
-  _snapshotReset?.();
   for (const tab of browserTabs.values()) {
     try { tab.view.webContents.close(); } catch { /* already destroyed */ }
   }
@@ -983,124 +976,6 @@ function destroyBrowserView() {
   activeBrowserTabId = null;
   lastBrowserBounds = null;
   sendBrowserState();
-}
-
-// ── In-process browser MCP servers ─────────────────────────────────────
-// Two MCP servers run inside the Electron main process:
-//   "openwork-browser" — controls the embedded WebContentsView
-//   "chrome"           — connects to the user's external Chrome
-// Both are exposed as HTTP endpoints.  OpenCode connects as a remote client.
-let browserMcpPorts = null; // { builtinPort, externalPort, stop }
-
-async function ensureBrowserMcpServers() {
-  if (browserMcpPorts) return browserMcpPorts;
-
-  try {
-    browserMcpPorts = await startBrowserMcpServers({
-      getWebContents: () => getActiveWebContents(),
-      listTabs: () => listBrowserTabs(),
-      createTab: async (url) => createBrowserTab(url ?? "about:blank", { select: true }).tabId,
-      closeTab: async (tabId) => closeBrowserTab(tabId),
-      selectTab: async (tabId) => selectBrowserTab(tabId).tabId,
-      onBuiltinToolCall: async (toolName) => {
-        if (!mainWindow) return;
-
-        if (toolName === "show_browser") {
-          attachBrowserView(
-            { x: 0, y: 0, width: 0, height: 0 },
-            { preloadDefault: false, ensureTab: true },
-          );
-          sendToRenderer("openwork:browser:panel-opened");
-          return;
-        }
-
-        if (toolName !== "create_page" && !getActiveWebContents()) {
-          createBrowserTab("about:blank", { select: true });
-        }
-      },
-      onHideBrowser: () => {
-        hideBrowserView();
-        sendToRenderer("openwork:browser:panel-closed");
-      },
-    });
-    // Wire snapshot reset so destroyBrowserView clears stale uid state
-    if (browserMcpPorts._snapshotReset) {
-      _snapshotReset = browserMcpPorts._snapshotReset;
-    }
-    console.log(`[browser-mcp] Built-in browser MCP at http://127.0.0.1:${browserMcpPorts.builtinPort}/mcp`);
-    console.log(`[browser-mcp] External Chrome MCP at http://127.0.0.1:${browserMcpPorts.externalPort}/mcp`);
-  } catch (err) {
-    console.error("[browser-mcp] Failed to start:", err);
-    return null;
-  }
-  return browserMcpPorts;
-}
-
-/**
- * Inject the in-process MCP servers as remote entries in opencode.json.
- * Replaces any legacy local chrome-devtools entries.
- *
- * Browser MCP servers prefer stable localhost ports (64883/64884), so this
- * remains stable across app restarts instead of writing a fresh random port
- * every time.
- */
-async function seedBrowserMcpConfig(workspaceDir) {
-  const ports = await ensureBrowserMcpServers();
-  if (!ports) return;
-
-  const jsoncPath = path.join(workspaceDir, "opencode.jsonc");
-  const jsonPath = path.join(workspaceDir, "opencode.json");
-  const configPath = existsSync(jsoncPath) ? jsoncPath : existsSync(jsonPath) ? jsonPath : null;
-
-  let config;
-  if (configPath) {
-    try { config = JSON.parse(await readFile(configPath, "utf8")); } catch { return; }
-  } else {
-    config = { $schema: "https://opencode.ai/config.json" };
-  }
-
-  if (!config.mcp || typeof config.mcp !== "object") config.mcp = {};
-
-  let changed = !configPath;
-
-  const builtinUrl = `http://127.0.0.1:${ports.builtinPort}/mcp`;
-  if (config.mcp["openwork-browser"]?.url !== builtinUrl) {
-    config.mcp["openwork-browser"] = { type: "remote", url: builtinUrl };
-    changed = true;
-  }
-
-  const externalUrl = `http://127.0.0.1:${ports.externalPort}/mcp`;
-  if (config.mcp["chrome"]?.url !== externalUrl) {
-    config.mcp["chrome"] = { type: "remote", url: externalUrl };
-    changed = true;
-  }
-
-  // UI control bridge
-  try {
-    const uiDiscovery = JSON.parse(await readFile(path.join(app.getPath("userData"), "openwork-ui-control.json"), "utf8"));
-    if (uiDiscovery?.baseUrl) {
-      const uiUrl = `${uiDiscovery.baseUrl}/mcp`;
-      if (config.mcp["openwork-ui"]?.url !== uiUrl) {
-        config.mcp["openwork-ui"] = { type: "remote", url: uiUrl };
-        changed = true;
-      }
-    }
-  } catch {
-    // UI control bridge not started yet — skip.
-  }
-
-  // Remove legacy entries
-  for (const key of ["chrome-devtools", "control-chrome"]) {
-    if (config.mcp[key]) {
-      delete config.mcp[key];
-      changed = true;
-    }
-  }
-
-  if (changed) {
-    const targetPath = configPath || jsoncPath;
-    await writeFile(targetPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-  }
 }
 
 function normalizePlatform(value) {
@@ -2084,8 +1959,6 @@ async function handleDesktopInvoke(event, command, ...args) {
       await mkdir(path.join(folderPath, ".opencode"), { recursive: true });
       await writeWorkspaceOpenworkConfig(folderPath, defaultWorkspaceOpenworkConfig(folderPath, preset));
 
-      // Clean up any legacy browser MCP entries from the new workspace config
-      await seedBrowserMcpConfig(folderPath);
       return mutateWorkspaceState((state) => {
         const workspacePathKey = normalizeWorkspacePathKey(workspace.path);
         state.workspaces = state.workspaces.filter(
@@ -2592,10 +2465,6 @@ async function handleDesktopInvoke(event, command, ...args) {
       return applyNativeTheme(String(args[0]));
     case "__setApplicationMenuVisible":
       return setApplicationMenuVisible(args[0]);
-    case "getBrowserMcpPorts":
-      return browserMcpPorts
-        ? { builtinPort: browserMcpPorts.builtinPort, externalPort: browserMcpPorts.externalPort }
-        : null;
     default:
       throw new Error(`Electron desktop bridge method is not implemented yet: ${command}`);
   }
@@ -2928,20 +2797,6 @@ if (!app.requestSingleInstanceLock()) {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     }));
-
-    // Start in-process browser MCP servers and inject stable endpoints into
-    // workspace configs.
-    ensureBrowserMcpServers().then(async (ports) => {
-      if (!ports) return;
-      try {
-        const wsState = await readWorkspaceState();
-        for (const ws of wsState.workspaces ?? []) {
-          if (ws.path && ws.workspaceType === "local") {
-            await seedBrowserMcpConfig(ws.path).catch(() => {});
-          }
-        }
-      } catch {}
-    }).catch((err) => console.warn("[browser-mcp] boot error:", err));
 
     queueDeepLinks(forwardedDeepLinks(process.argv));
     const win = await createMainWindow();

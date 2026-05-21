@@ -4,23 +4,10 @@ import { CheckCircle2, Chrome, Loader2, MonitorSmartphone, RefreshCw } from "luc
 
 import { Button } from "@/components/ui/button";
 import { surfaceCardClass } from "../workspace/modal-styles";
+import { findReachableChromeDebuggingPort } from "./chrome-reachability";
 import { registerExtensionConfig } from "./extension-registry";
 
 type ChromeStatus = "unknown" | "checking" | "connected" | "unavailable";
-
-async function checkChromeReachable(): Promise<boolean> {
-  const results = await Promise.all([9222, 9229].map(async (port) => {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
-        signal: AbortSignal.timeout(2000),
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }));
-  return results.some(Boolean);
-}
 
 registerExtensionConfig("openwork-browser", () => <OpenWorkBrowserConfig />);
 registerExtensionConfig("chrome-browser", () => <ChromeBrowserConfig />);
@@ -41,9 +28,12 @@ function OpenWorkBrowserConfig() {
 
 function ChromeBrowserConfig() {
   const [status, setStatus] = useState<ChromeStatus>("unknown");
+  const [port, setPort] = useState<number | null>(null);
   const testConnection = useCallback(async () => {
     setStatus("checking");
-    setStatus(await checkChromeReachable() ? "connected" : "unavailable");
+    const nextPort = await findReachableChromeDebuggingPort();
+    setPort(nextPort);
+    setStatus(nextPort ? "connected" : "unavailable");
   }, []);
 
   return (
@@ -65,7 +55,7 @@ function ChromeBrowserConfig() {
         </Button>
         {status === "connected" ? (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-green-3 px-2.5 py-1 text-xs font-medium text-green-11">
-            <CheckCircle2 className="size-3.5" /> Connected
+            <CheckCircle2 className="size-3.5" /> Connected{port ? `:${port}` : ""}
           </span>
         ) : status === "unavailable" ? (
           <span className="rounded-full bg-amber-3 px-2.5 py-1 text-xs font-medium text-amber-11">Not reachable</span>

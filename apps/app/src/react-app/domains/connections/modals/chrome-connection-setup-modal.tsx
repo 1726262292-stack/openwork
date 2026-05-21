@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { t } from "@/i18n";
 import { Button } from "@/components/ui/button";
+import { findReachableChromeDebuggingPort } from "../../settings/chrome-reachability";
 
 export type ChromeConnectionSetupModalProps = {
   open: boolean;
@@ -28,26 +29,12 @@ export type ChromeConnectionSetupModalProps = {
 
 type ChromeStatus = "unknown" | "checking" | "connected" | "unavailable";
 
-async function checkChromeReachable(): Promise<boolean> {
-  const results = await Promise.all([9222, 9229].map(async (port) => {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
-        signal: AbortSignal.timeout(2000),
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }));
-  return results.some(Boolean);
-}
-
 export function ChromeConnectionSetupModal(props: ChromeConnectionSetupModalProps) {
   const [status, setStatus] = useState<ChromeStatus>("unknown");
 
   const testConnection = useCallback(async () => {
     setStatus("checking");
-    const reachable = await checkChromeReachable();
+    const reachable = Boolean(await findReachableChromeDebuggingPort());
     setStatus(reachable ? "connected" : "unavailable");
   }, []);
 
