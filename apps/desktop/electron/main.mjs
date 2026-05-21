@@ -430,6 +430,67 @@ async function openChromeRemoteDebugging() {
   return { ok: true, fallback: true, error: lastError instanceof Error ? lastError.message : null };
 }
 
+function commandOutput(command, args) {
+  try {
+    return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  } catch {
+    return "";
+  }
+}
+
+function listeningPortLooksLikeChrome(port) {
+  if (!Number.isInteger(port) || port <= 0) return false;
+
+  if (process.platform === "darwin") {
+    return /Google|Chromium|Chrome/i.test(commandOutput("/usr/sbin/lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"]));
+  }
+
+  if (process.platform === "linux") {
+    const lsofOutput = commandOutput("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"]);
+    if (/chrome|chromium/i.test(lsofOutput)) return true;
+    const ssOutput = commandOutput("ss", ["-ltnp", `sport = :${port}`]);
+    return /chrome|chromium/i.test(ssOutput);
+  }
+
+  if (process.platform === "win32") {
+    const netstat = commandOutput("netstat.exe", ["-ano", "-p", "TCP"]);
+    const line = netstat.split(/\r?\n/).find((entry) => entry.includes(`:${port}`) && /LISTENING/i.test(entry));
+    if (!line) return false;
+    const pid = line.trim().split(/\s+/).at(-1);
+    if (!pid) return false;
+    return /chrome\.exe/i.test(commandOutput("tasklist.exe", ["/FI", `PID eq ${pid}`]));
+  }
+
+  return false;
+}
+
+async function checkChromeDebuggingPort(port) {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    return { connected: false, port: null, mode: null };
+  }
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
+      signal: AbortSignal.timeout(1200),
+    });
+    if (response.ok) {
+      const payload = await response.json().catch(() => null);
+      if (typeof payload?.webSocketDebuggerUrl === "string") {
+        return { connected: true, port, mode: "cdp-json" };
+      }
+    }
+    if (response.status === 404 && listeningPortLooksLikeChrome(port)) {
+      return { connected: true, port, mode: "chrome-auto-connect" };
+    }
+  } catch {
+    if (listeningPortLooksLikeChrome(port)) {
+      return { connected: true, port, mode: "chrome-listener" };
+    }
+  }
+
+  return { connected: false, port, mode: null };
+}
+
 function installApplicationMenu() {
   const isMac = process.platform === "darwin";
   const template = /** @type {import("electron").MenuItemConstructorOptions[]} */ ([
@@ -2469,6 +2530,8 @@ async function handleDesktopInvoke(event, command, ...args) {
     }
     case "__openChromeRemoteDebugging":
       return openChromeRemoteDebugging();
+    case "__checkChromeDebuggingPort":
+      return checkChromeDebuggingPort(Number(args[0]));
     case "__revealItemInDir": {
       const target = String(args[0] ?? "").trim();
       if (!target) return undefined;
