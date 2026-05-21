@@ -884,7 +884,7 @@ export function createNativeBuiltinServer({
   server.tool(
     "show_browser",
     "Open the built-in browser panel inside the OpenWork app. " +
-    "Called automatically when any browser tool runs, but can also be called explicitly.",
+    "Use this only when the user asks to see the browser panel.",
     {},
     async () => {
       await onToolCall?.("show_browser");

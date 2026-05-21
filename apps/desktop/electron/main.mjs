@@ -1003,16 +1003,20 @@ async function ensureBrowserMcpServers() {
       closeTab: async (tabId) => closeBrowserTab(tabId),
       selectTab: async (tabId) => selectBrowserTab(tabId).tabId,
       onBuiltinToolCall: async (toolName) => {
-        // Ensure the browser panel is open so the agent can interact.
-        // preloadDefault: false — the tool will navigate on its own.
         if (!mainWindow) return;
-        if (!browserViewVisible) {
+
+        if (toolName === "show_browser") {
           attachBrowserView(
             { x: 0, y: 0, width: 0, height: 0 },
-            { preloadDefault: false, ensureTab: toolName !== "create_page" },
+            { preloadDefault: false, ensureTab: true },
           );
+          sendToRenderer("openwork:browser:panel-opened");
+          return;
         }
-        sendToRenderer("openwork:browser:panel-opened");
+
+        if (toolName !== "create_page" && !getActiveWebContents()) {
+          createBrowserTab("about:blank", { select: true });
+        }
       },
       onHideBrowser: () => {
         hideBrowserView();

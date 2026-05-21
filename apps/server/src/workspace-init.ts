@@ -41,7 +41,7 @@ OpenWork has a built-in browser and can also control the user's external Chrome.
 Two MCP tool sets are available:
 
 1. **openwork-browser** — Built-in browser panel inside the app.
-   - The panel opens automatically when you call any openwork-browser tool.
+   - The panel stays hidden unless you call `openwork-browser_show_browser`.
    - Use this for general browsing tasks ("go to facebook.com", "search for X").
    - Call \`openwork-browser_hide_browser\` when the browsing task is done.
    - The user can see what you're doing in real time.

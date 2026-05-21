@@ -8,9 +8,7 @@ export type SidePanelItem = (typeof SIDE_PANEL_ITEMS)[number];
 export type SidePanelState = Record<string, SidePanelItem | null>;
 
 export type PersistedUiState = {
-  sidebarOpen: boolean;
   sidePanelState?: SidePanelState;
-  applicationMenuVisible?: boolean;
 };
 
 export type UiState = {
@@ -67,26 +65,19 @@ function readPersistedUiState(): UiState {
 
   try {
     const raw = window.localStorage.getItem(PERSISTED_UI_STATE_KEY);
+    const sidebarOpen = readSidebarCookieOpen() ?? initialState.sidebarOpen;
 
     if (!raw) {
-      const sidebarOpen = readSidebarCookieOpen();
-
-      if (sidebarOpen === null) {
-        return initialState;
-      }
-
       return { ...initialState, sidebarOpen };
     }
 
     const parsed: PersistedUiState = JSON.parse(raw);
     const sidePanelState = normalizeSidePanelState(parsed.sidePanelState);
-    const applicationMenuVisible = parsed.applicationMenuVisible ?? initialState.applicationMenuVisible;
 
     return {
       ...initialState,
-      sidebarOpen: parsed.sidebarOpen,
+      sidebarOpen,
       sidePanelState,
-      applicationMenuVisible,
     };
   } catch {
     return initialState;
@@ -102,9 +93,7 @@ export function persistUiState(state: UiState): void {
     window.localStorage.setItem(
       PERSISTED_UI_STATE_KEY,
       JSON.stringify({
-        sidebarOpen: state.sidebarOpen,
         sidePanelState: state.sidePanelState,
-        applicationMenuVisible: state.applicationMenuVisible,
       } satisfies PersistedUiState),
     );
   } catch {

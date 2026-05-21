@@ -140,14 +140,14 @@ describe("deriveOpenTargets", () => {
     expect(isCollectibleArtifactTarget({ ...target, exists: true })).toBe(true);
   });
 
-  it("prefers localhost browser previews over generated html files", () => {
+  it("auto-opens generated html files instead of localhost browser previews", () => {
     const targets = deriveOpenTargets([
       message("msg_1", "assistant", "Created public/index.html. API: `http://localhost:3000/api/info`. App: `http://localhost:3000`."),
     ]).map((target) => ({ ...target, exists: target.kind === "url" || target.value === "public/index.html" }));
 
     expect(targets.map((target) => target.value)).toContain("http://localhost:3000/api/info");
     expect(targets.map((target) => target.value)).toContain("http://localhost:3000");
-    expect(selectAutoOpenTarget(targets)?.value).toBe("http://localhost:3000");
+    expect(selectAutoOpenTarget(targets)?.value).toBe("public/index.html");
   });
 
   it("normalizes escaped localhost root URL variants into one target", () => {

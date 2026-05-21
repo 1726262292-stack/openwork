@@ -124,30 +124,7 @@ export function isLocalhostBrowserTarget(target: OpenTarget) {
   return target.kind === "url" && /(?:https?|wss?):\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(target.value);
 }
 
-function browserTargetScore(target: OpenTarget) {
-  if (!isLocalhostBrowserTarget(target)) {
-    return -1;
-  }
-
-  try {
-    const url = new URL(target.value);
-    let score = target.confidence;
-    if (url.protocol === "http:" || url.protocol === "https:") score += 20;
-    if ((url.pathname === "" || url.pathname === "/") && !url.search && !url.hash) score += 40;
-    if (!url.pathname.startsWith("/api/")) score += 10;
-    return score;
-  } catch {
-    return target.confidence;
-  }
-}
-
 export function selectAutoOpenTarget(targets: OpenTarget[]): OpenTarget | null {
-  const browserTargets = targets.filter(isLocalhostBrowserTarget);
-
-  if (browserTargets.length > 0) {
-    return [...browserTargets].sort((left, right) => browserTargetScore(right) - browserTargetScore(left))[0] ?? null;
-  }
-
   return targets.find(shouldAutoOpenTarget) ?? null;
 }
 
@@ -222,7 +199,7 @@ export function deriveOpenTargets(messages: UIMessage[]): OpenTarget[] {
 
 export function shouldAutoOpenTarget(target: OpenTarget): boolean {
   if (target.kind === "url") {
-    return isLocalhostBrowserTarget(target);
+    return false;
   }
 
   return target.exists === true && target.confidence >= 65 && ["markdown", "sheet", "image", "pdf", "html"].includes(target.preview);
