@@ -238,7 +238,7 @@ function AssistantWaitingCard({ label = t("session.assistant_thinking"), collaps
   );
 
   if (collapseLayout) {
-    return <div className="h-px overflow-visible">{content}</div>;
+    return <div>{content}</div>;
   }
 
   return (

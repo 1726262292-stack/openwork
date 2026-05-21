@@ -1301,7 +1301,7 @@ function SessionTranscriptInner(props: SessionTranscriptProps) {
   const shouldUseContentVisibility = !shouldVirtualize && messageBlocks.length > 24;
 
   return (
-    <div className={cn(isNestedVariant ? "pb-0" : "pb-10")} style={{ contain: "layout paint style" }}>
+    <div className="pb-0" style={{ contain: "layout paint style" }}>
       {shouldVirtualize ? (
         // Always render the virtualized container once we've decided to
         // virtualize — even if virtualRows is empty on the very first tick
@@ -1327,7 +1327,7 @@ function SessionTranscriptInner(props: SessionTranscriptProps) {
                     virtualizer.measureElement(element);
                   }
                 }}
-                className="absolute left-0 top-0 w-full pb-4"
+                className="absolute left-0 top-0 w-full"
                 style={{
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
