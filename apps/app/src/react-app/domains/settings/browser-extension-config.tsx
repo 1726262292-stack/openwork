@@ -1,0 +1,76 @@
+/** @jsxImportSource react */
+import { useCallback, useState } from "react";
+import { CheckCircle2, Chrome, Loader2, MonitorSmartphone, RefreshCw } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { surfaceCardClass } from "../workspace/modal-styles";
+import { registerExtensionConfig } from "./extension-registry";
+
+type ChromeStatus = "unknown" | "checking" | "connected" | "unavailable";
+
+async function checkChromeReachable(): Promise<boolean> {
+  const results = await Promise.all([9222, 9229].map(async (port) => {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }));
+  return results.some(Boolean);
+}
+
+registerExtensionConfig("openwork-browser", () => <OpenWorkBrowserConfig />);
+registerExtensionConfig("chrome-browser", () => <ChromeBrowserConfig />);
+
+function OpenWorkBrowserConfig() {
+  return (
+    <div className={`${surfaceCardClass} space-y-3 p-4`}>
+      <div className="flex items-start gap-3">
+        <MonitorSmartphone className="mt-0.5 size-4 shrink-0 text-blue-11" />
+        <div className="space-y-1 text-[13px] leading-relaxed text-dls-secondary">
+          <div className="font-medium text-dls-text">Ready by default</div>
+          <div>The OpenWork Browser runs inside the app, opens visibly for browser tasks, and is the safest default when the user does not need personal Chrome cookies.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChromeBrowserConfig() {
+  const [status, setStatus] = useState<ChromeStatus>("unknown");
+  const testConnection = useCallback(async () => {
+    setStatus("checking");
+    setStatus(await checkChromeReachable() ? "connected" : "unavailable");
+  }, []);
+
+  return (
+    <div className={`${surfaceCardClass} space-y-4 p-4`}>
+      <div className="flex items-start gap-3">
+        <Chrome className="mt-0.5 size-4 shrink-0 text-amber-11" />
+        <div className="space-y-1 text-[13px] leading-relaxed text-dls-secondary">
+          <div className="font-medium text-dls-text">Use real Chrome for signed-in sites</div>
+          <div>Enable remote debugging in Chrome, then test the connection. Use this extension only when a task needs your browser cookies, sign-ins, or installed extensions.</div>
+        </div>
+      </div>
+      <div className="rounded-xl border border-dls-border bg-dls-surface px-3 py-2 text-xs text-dls-secondary">
+        Open <span className="font-mono text-dls-text">chrome://inspect/#remote-debugging</span>, turn on remote debugging, and allow incoming connections.
+      </div>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={testConnection} disabled={status === "checking"}>
+          {status === "checking" ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+          Test Chrome
+        </Button>
+        {status === "connected" ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-green-3 px-2.5 py-1 text-xs font-medium text-green-11">
+            <CheckCircle2 className="size-3.5" /> Connected
+          </span>
+        ) : status === "unavailable" ? (
+          <span className="rounded-full bg-amber-3 px-2.5 py-1 text-xs font-medium text-amber-11">Not reachable</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ExtensionCard } from "../../../design-system/extension-card";
 import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
 import { MCP_QUICK_CONNECT, getMcpServerName, type McpDirectoryInfo } from "../../../../app/constants";
+import { isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED, setOpenWorkExtensionEnabled } from "../../settings/extension-state";
 import { getExtensionConfigSlot, type ExtensionConfigContext } from "../../settings/extension-registry";
 import {
   IMAGE_GENERATION_EXTENSION_CONFIG_PATH,
@@ -23,6 +24,7 @@ import type { ProviderListItem } from "../../../../app/types";
 // Side-effect: register extension configs
 import "../../settings/openai-image-gen-config";
 import "../../settings/ollama-config";
+import "../../settings/browser-extension-config";
 
 export type ExtensionsPaneSlotProps = {
   openworkClient: OpenworkServerClient | null;
@@ -47,6 +49,17 @@ export function ExtensionsPaneSlot(props: ExtensionsPaneSlotProps) {
   const [lpBusy, setLpBusy] = useState(false);
   const [lpStatus, setLpStatus] = useState<string | null>(null);
   const [lpError, setLpError] = useState<string | null>(null);
+  const [, setExtensionStateVersion] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => setExtensionStateVersion((value) => value + 1);
+    window.addEventListener(OPENWORK_EXTENSION_STATE_CHANGED, refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener(OPENWORK_EXTENSION_STATE_CHANGED, refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
 
   useEffect(() => {
     const client = props.workspaceClient;
@@ -125,7 +138,7 @@ export function ExtensionsPaneSlot(props: ExtensionsPaneSlotProps) {
         {MCP_QUICK_CONNECT.map((entry) => {
           const id = entry.serverName ?? getMcpServerName(entry);
           const connected = entry.kind === "extension"
-            ? (id === "openai-image-gen" ? imageInstalled : props.providerConnectedIds.includes(id))
+            ? (entry.defaultEnabled ? isOpenWorkExtensionEnabled(entry) : id === "openai-image-gen" ? imageInstalled : props.providerConnectedIds.includes(id))
             : false;
           return (
             <ExtensionCard
@@ -136,7 +149,7 @@ export function ExtensionsPaneSlot(props: ExtensionsPaneSlotProps) {
               iconSrc={entry.iconSrc}
               kind={entry.kind ?? "mcp"}
               connected={connected}
-              actionLabel={connected ? "Configure" : "Tap to connect"}
+              actionLabel={connected ? "Configure" : entry.defaultEnabled ? "Enable in composer" : "Tap to connect"}
               onClick={() => setDetailEntry(entry)}
             />
           );
@@ -146,7 +159,7 @@ export function ExtensionsPaneSlot(props: ExtensionsPaneSlotProps) {
         const slot = getExtensionConfigSlot(detailEntry, configCtx);
         const id = detailEntry.serverName ?? getMcpServerName(detailEntry);
         const connected = detailEntry.kind === "extension"
-          ? (id === "openai-image-gen" ? imageInstalled : props.providerConnectedIds.includes(id))
+          ? (detailEntry.defaultEnabled ? isOpenWorkExtensionEnabled(detailEntry) : id === "openai-image-gen" ? imageInstalled : props.providerConnectedIds.includes(id))
           : false;
         return (
           <ExtensionDetailModal
@@ -161,7 +174,13 @@ export function ExtensionsPaneSlot(props: ExtensionsPaneSlotProps) {
             url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
             oauth={detailEntry.oauth}
             configSlot={slot}
-            onConnect={slot ? undefined : () => setDetailEntry(null)}
+            onConnect={detailEntry.defaultEnabled ? () => {
+              setOpenWorkExtensionEnabled(detailEntry, true);
+              setDetailEntry(null);
+            } : slot ? undefined : () => setDetailEntry(null)}
+            onUninstall={detailEntry.defaultEnabled && connected ? () => {
+              setOpenWorkExtensionEnabled(detailEntry, false);
+            } : undefined}
           />
         );
       })() : null}

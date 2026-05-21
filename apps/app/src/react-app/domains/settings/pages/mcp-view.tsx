@@ -43,6 +43,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
 import { ChromeConnectionSetupModal } from "../../connections/modals/chrome-connection-setup-modal";
+import { isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED, setOpenWorkExtensionEnabled } from "../extension-state";
 import {
   initialMcpViewLocalState,
   mcpViewLocalReducer,
@@ -197,6 +198,7 @@ export function McpView(props: McpViewProps) {
   const [openworkUiMcpEnvironment, setOpenworkUiMcpEnvironment] = useState<Record<string, string> | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ExtensionFilter>("all");
+  const [, setExtensionStateVersion] = useState(0);
 
   const [localState, dispatchLocal] = useReducer(
     mcpViewLocalReducer,
@@ -237,6 +239,16 @@ export function McpView(props: McpViewProps) {
   const configRequestId = useRef(0);
 
   const quickConnectList = props.quickConnect;
+
+  useEffect(() => {
+    const refresh = () => setExtensionStateVersion((value) => value + 1);
+    window.addEventListener(OPENWORK_EXTENSION_STATE_CHANGED, refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener(OPENWORK_EXTENSION_STATE_CHANGED, refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isDesktopRuntime()) return;
@@ -457,7 +469,7 @@ export function McpView(props: McpViewProps) {
         connectingName={props.mcpConnectingName}
         isConfigured={(entry) =>
           entry.kind === "extension"
-            ? (props.isExtensionConnected?.(entry) ?? false)
+            ? (entry.defaultEnabled ? isOpenWorkExtensionEnabled(entry) : props.isExtensionConnected?.(entry) ?? false)
             : isQuickConnectConfigured(entry)
         }
         statusForEntry={quickConnectStatus}
@@ -564,7 +576,7 @@ export function McpView(props: McpViewProps) {
         const extensionConfigSlot = props.configSlotForEntry?.(detailEntry) ?? null;
         const hasConfigSlot = extensionConfigSlot !== null;
         const isConnected = detailEntry.kind === "extension"
-          ? (props.isExtensionConnected?.(detailEntry) ?? false)
+          ? (detailEntry.defaultEnabled ? isOpenWorkExtensionEnabled(detailEntry) : props.isExtensionConnected?.(detailEntry) ?? false)
           : isQuickConnectConfigured(detailEntry);
         return (
           <ExtensionDetailModal
@@ -583,11 +595,16 @@ export function McpView(props: McpViewProps) {
             url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
             oauth={detailEntry.oauth}
             configSlot={extensionConfigSlot}
-            onConnect={hasConfigSlot ? undefined : () => {
+            onConnect={detailEntry.defaultEnabled ? () => {
+              setOpenWorkExtensionEnabled(detailEntry, true);
+              setDetailEntry(null);
+            } : hasConfigSlot ? undefined : () => {
               props.connectMcp(detailEntry);
               setDetailEntry(null);
             }}
-            onUninstall={isQuickConnectConfigured(detailEntry) ? () => {
+            onUninstall={detailEntry.defaultEnabled && isConnected ? () => {
+              setOpenWorkExtensionEnabled(detailEntry, false);
+            } : isQuickConnectConfigured(detailEntry) ? () => {
               const slug = getMcpIdentityKey(detailEntry);
               props.removeMcp(slug);
               setDetailEntry(null);

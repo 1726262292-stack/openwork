@@ -39,6 +39,7 @@ import { AiSettingsView } from "../domains/settings/pages/ai-view";
 // Side-effect imports: register extension config components into the registry.
 import "../domains/settings/openai-image-gen-config";
 import "../domains/settings/ollama-config";
+import "../domains/settings/browser-extension-config";
 import { getExtensionConfigSlot, type ExtensionConfigContext } from "../domains/settings/extension-registry";
 import { PreferencesView } from "../domains/settings/pages/preferences-view";
 import { ShellCustomizationView } from "../domains/settings/pages/shell-view";

@@ -3,9 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { Agent } from "@opencode-ai/sdk/v2/client";
 import { ArrowUp, ChevronRight, FileText, Paperclip, Plug, Settings, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
+import { OPENWORK_EXTENSION_CATALOG, type McpDirectoryInfo } from "../../../../../app/constants";
 import type { CloudImportedPlugin, CloudImportedPluginFile } from "../../../../../app/cloud/import-state";
 import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelRef, SkillCard, SlashCommandOption } from "../../../../../app/types";
 import { t } from "../../../../../i18n";
+import { isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED } from "../../../settings/extension-state";
 import { ModelBehaviorSelect } from "../../../../../components/model-behavior-select";
 import { ModelSelect } from "../../../../../components/model-select";
 import { LexicalPromptEditor } from "./editor";
@@ -29,7 +31,7 @@ type PastedTextChip = {
 };
 
 type ToolMenuSettingsSection = "commands" | "skills" | "mcps" | "plugins";
-type ToolMenuSection = "commands" | "skills" | "mcps" | `plugin:${string}`;
+type ToolMenuSection = "commands" | "skills" | "mcps" | "extensions" | `plugin:${string}`;
 
 type ComposerProps = {
   draft: string;
@@ -226,6 +228,16 @@ function mcpStatusBadgeClass(status: McpServerStatus) {
   }
 }
 
+function extensionIcon(entry: McpDirectoryInfo, size = 16) {
+  if (entry.iconSrc) {
+    return <img src={entry.iconSrc} alt="" width={size} height={size} loading="lazy" style={{ display: "block" }} />;
+  }
+  if (entry.iconSlug) {
+    return <img src={`https://cdn.simpleicons.org/${entry.iconSlug}`} alt="" width={size} height={size} loading="lazy" style={{ display: "block" }} />;
+  }
+  return <Plug size={size} className="text-gray-9" />;
+}
+
 function formatPluginObjectType(type: string) {
   const normalized = type.trim().toLowerCase();
   if (!normalized) return "File";
@@ -285,6 +297,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   const [skillsLoaded, setSkillsLoaded] = useState(Boolean(props.skills));
   const [mcpLoaded, setMcpLoaded] = useState(Boolean(props.mcpServers));
   const [pluginsLoaded, setPluginsLoaded] = useState(Boolean(props.importedPlugins));
+  const [, setExtensionStateVersion] = useState(0);
   const [agentMenuIndex, setAgentMenuIndex] = useState(0);
   const agentItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [dropzoneActive, setDropzoneActive] = useState(false);
@@ -388,6 +401,16 @@ export function ReactSessionComposer(props: ComposerProps) {
     });
     commandsRequestRef.current = request;
     return request;
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => setExtensionStateVersion((value) => value + 1);
+    window.addEventListener(OPENWORK_EXTENSION_STATE_CHANGED, refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener(OPENWORK_EXTENSION_STATE_CHANGED, refresh);
+      window.removeEventListener("storage", refresh);
+    };
   }, []);
 
   useEffect(() => {
@@ -611,6 +634,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   const activePlugin = toolMenuSection.startsWith("plugin:")
     ? pluginSections.find((entry) => entry.section === toolMenuSection)?.plugin ?? null
     : null;
+  const composerExtensions = OPENWORK_EXTENSION_CATALOG.filter((entry) => !entry.defaultEnabled || isOpenWorkExtensionEnabled(entry));
   const canSend = props.draft.trim().length > 0 || props.attachments.length > 0;
 
   useEffect(() => {
@@ -650,6 +674,11 @@ export function ReactSessionComposer(props: ComposerProps) {
       return;
     }
     props.onInsertMention("file", file.path);
+    setToolMenuOpen(false);
+  };
+
+  const applyExtensionSelection = (entry: McpDirectoryInfo) => {
+    props.onDraftChange(entry.composerPrompt ?? `Use ${entry.name} to `);
     setToolMenuOpen(false);
   };
 
@@ -1148,6 +1177,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                           {([
                             ["commands", t("dashboard.commands")],
                             ["skills", t("dashboard.skills")],
+                            ["extensions", "Extensions"],
                             ["mcps", t("composer.mcps_label")],
                           ] as const).map(([section, label]) => (
                             <button
@@ -1257,6 +1287,35 @@ export function ReactSessionComposer(props: ComposerProps) {
                               <div className="px-3 py-2 text-xs text-gray-10">
                                 {!mcpLoaded && mcpLoading ? t("composer.loading_commands") : (mcpStatus ?? t("context_panel.no_mcp"))}
                               </div>
+                            )
+                          ) : null}
+                          {toolMenuSection === "extensions" ? (
+                            composerExtensions.length > 0 ? (
+                              <div className="grid gap-1">
+                                {composerExtensions.map((entry) => (
+                                  <button
+                                    key={entry.id ?? entry.serverName ?? entry.name}
+                                    type="button"
+                                    className="flex w-full items-start gap-3 rounded-[16px] px-3 py-2.5 text-left text-gray-11 transition-colors hover:bg-gray-2/70"
+                                    onClick={() => applyExtensionSelection(entry)}
+                                  >
+                                    <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg border border-dls-border bg-white shadow-sm">
+                                      {extensionIcon(entry, 16)}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="truncate text-xs font-semibold text-gray-11">{entry.name}</div>
+                                        {entry.defaultEnabled ? (
+                                          <span className="shrink-0 rounded-full bg-green-3 px-2 py-0.5 text-[10px] font-medium text-green-11">Enabled</span>
+                                        ) : null}
+                                      </div>
+                                      <div className="truncate text-xs text-gray-10">{entry.description}</div>
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="px-3 py-2 text-xs text-gray-10">No extensions enabled. Open Extensions to enable them.</div>
                             )
                           ) : null}
                           {activePlugin ? (

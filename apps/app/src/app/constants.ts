@@ -35,6 +35,10 @@ export type McpDirectoryInfo = {
   iconSlug?: string;
   /** Direct icon URL (e.g. local SVG). Takes priority over iconSlug. */
   iconSrc?: string;
+  /** Prompt inserted from the composer extension picker. */
+  composerPrompt?: string;
+  /** Whether OpenWork should show this extension as enabled before user setup. */
+  defaultEnabled?: boolean;
 };
 
 /** Derive a safe MCP server name from a display name or explicit serverName. */
@@ -131,6 +135,28 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     iconSrc: "/openwork-mark.svg",
   },
   {
+    id: "openwork-browser",
+    name: "OpenWork Browser",
+    serverName: "openwork-browser",
+    description: "Automate the built-in browser panel that stays visible inside OpenWork.",
+    oauth: false,
+    kind: "extension",
+    iconSrc: "/openwork-mark.svg",
+    composerPrompt: "Use the OpenWork Browser extension to ",
+    defaultEnabled: true,
+  },
+  {
+    id: "chrome-browser",
+    name: "Chrome",
+    serverName: "chrome-browser",
+    description: "Use your real Chrome session when a task needs cookies, sign-ins, or extensions.",
+    oauth: false,
+    kind: "extension",
+    iconSlug: "googlechrome",
+    composerPrompt: "Use the Chrome extension to ",
+    defaultEnabled: true,
+  },
+  {
     id: "openai-image-gen",
     name: "OpenAI Image Gen",
     serverName: "openai-image-gen",
@@ -138,6 +164,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: false,
     kind: "extension",
     iconSrc: "/ext-openai.svg",
+    composerPrompt: "Use the OpenAI Image Gen extension to ",
   },
   {
     id: "ollama",
@@ -147,5 +174,8 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: false,
     kind: "extension",
     iconSrc: "/ext-ollama.svg",
+    composerPrompt: "Use the Ollama extension to ",
   },
 ];
+
+export const OPENWORK_EXTENSION_CATALOG = MCP_QUICK_CONNECT.filter((entry) => entry.kind === "extension");
