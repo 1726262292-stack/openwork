@@ -851,8 +851,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const handleExpandPastedText = (id: string) => {
     const part = pasteParts.find((item) => item.id === id);
     if (!part) return;
-    setDraft((draftValue) => draftValue.replace(`[pasted text ${part.label}]`, () => part.text));
-    setPasteParts((current) => current.filter((item) => item.id !== id));
+    setComposerDraft(props.sessionId, draft.replace(`[pasted text ${part.label}]`, part.text));
+    setComposerPasteParts(props.sessionId, pasteParts.filter((item) => item.id !== id));
   };
 
   const handleRemovePastedText = (id: string) => {
