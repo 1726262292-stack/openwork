@@ -272,12 +272,11 @@ function AssistantStatusSpacer() {
 }
 
 function TodoPanel(props: { todos: TodoItem[] }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const todos = props.todos.filter((todo) => todo.content.trim());
   const completedTodos = todos.filter((todo) => todo.status === "completed").length;
-  const label = completedTodos > 0
-    ? t("session.todo_progress_label", { completed: completedTodos, total: todos.length })
-    : t("session.todo_label", { count: todos.length });
+  const progressLabel = t("session.todo_progress_label");
+  const label = expanded ? progressLabel : `${progressLabel} · ${completedTodos}/${todos.length}`;
 
   if (todos.length === 0) return null;
 
