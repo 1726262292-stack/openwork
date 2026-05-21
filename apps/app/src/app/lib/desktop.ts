@@ -277,7 +277,7 @@ export const desktopFetch: typeof globalThis.fetch = async (input, init) => {
   });
 };
 
-export const desktopFetchViaMain: typeof globalThis.fetch = async (input, init) => {
+export async function desktopFetchViaMain(input: RequestInfo | URL, init?: RequestInit, timeoutMs?: number): Promise<Response> {
   let url: string;
   let method: string | undefined;
   let headers: Record<string, string> | undefined;
@@ -305,7 +305,7 @@ export const desktopFetchViaMain: typeof globalThis.fetch = async (input, init) 
     statusText: string;
     headers: [string, string][];
     body: string;
-  }>("__fetch", url, { method, headers, body });
+  }>("__fetch", url, { method, headers, body, timeoutMs });
 
   const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
   const responseBody = NULL_BODY_STATUSES.has(result.status) ? null : result.body;
@@ -315,7 +315,7 @@ export const desktopFetchViaMain: typeof globalThis.fetch = async (input, init) 
     statusText: result.statusText,
     headers: result.headers,
   });
-};
+}
 
 // ---------------------------------------------------------------------------
 // Convenience wrappers

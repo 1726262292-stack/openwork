@@ -2436,10 +2436,12 @@ async function handleDesktopInvoke(event, command, ...args) {
       const url = String(args[0] ?? "").trim();
       const init = args[1] ?? {};
       if (!url) throw new Error("URL is required.");
+      const timeoutMs = Number(init.timeoutMs);
       const response = await fetch(url, {
         method: typeof init.method === "string" ? init.method : undefined,
         headers: init.headers && typeof init.headers === "object" ? init.headers : undefined,
         body: typeof init.body === "string" ? init.body : undefined,
+        signal: Number.isFinite(timeoutMs) && timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined,
       });
       return {
         status: response.status,

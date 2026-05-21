@@ -30,12 +30,14 @@ function OpenWorkBrowserConfig() {
 function ChromeBrowserConfig() {
   const [status, setStatus] = useState<ChromeStatus>("unknown");
   const [port, setPort] = useState<number | null>(null);
+  const [manualPort, setManualPort] = useState("");
   const testConnection = useCallback(async () => {
     setStatus("checking");
-    const nextPort = await findReachableChromeDebuggingPort();
+    const parsedPort = Number(manualPort.trim());
+    const nextPort = await findReachableChromeDebuggingPort(Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : null);
     setPort(nextPort);
     setStatus(nextPort ? "connected" : "unavailable");
-  }, []);
+  }, [manualPort]);
 
   return (
     <div className={`${surfaceCardClass} space-y-4 p-4`}>
@@ -53,6 +55,19 @@ function ChromeBrowserConfig() {
       >
         Open <span className="font-mono text-dls-text">chrome://inspect/#remote-debugging</span>, turn on remote debugging, and allow incoming connections.
       </button>
+      <div className="space-y-1.5">
+        <label className="text-[11px] font-semibold uppercase tracking-[0.15em] text-dls-secondary" htmlFor="chrome-debug-port">
+          Debugging port
+        </label>
+        <input
+          id="chrome-debug-port"
+          inputMode="numeric"
+          value={manualPort}
+          onChange={(event) => setManualPort(event.currentTarget.value.replace(/[^0-9]/g, ""))}
+          placeholder="Auto-detect, or enter 64945"
+          className="w-full rounded-xl border border-dls-border bg-dls-surface px-3 py-2 text-sm text-dls-text placeholder:text-dls-secondary focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)]"
+        />
+      </div>
       <div className="flex items-center gap-2">
         <Button variant="outline" size="sm" onClick={testConnection} disabled={status === "checking"}>
           {status === "checking" ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}

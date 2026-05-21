@@ -100,6 +100,15 @@ function sameBounds(
   );
 }
 
+function hasNativeBrowserOccluder() {
+  const overlays = document.querySelectorAll('[role="dialog"], [role="alertdialog"]');
+  for (const overlay of overlays) {
+    if (!(overlay instanceof HTMLElement)) continue;
+    if (overlay.offsetParent !== null || overlay.getClientRects().length > 0) return true;
+  }
+  return false;
+}
+
 type BrowserTabProps = {
   tab: BrowserTabInfo;
 };
@@ -245,7 +254,7 @@ export function BrowserPanel({ onClose }: BrowserPanelProps) {
     const syncBounds = () => {
       const bounds = computeBounds(content);
 
-      if (bounds.width < 1 || bounds.height < 1) {
+      if (bounds.width < 1 || bounds.height < 1 || hasNativeBrowserOccluder()) {
         if (shownRef.current) {
           browser.hide?.();
           shownRef.current = false;
