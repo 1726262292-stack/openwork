@@ -2,6 +2,7 @@
 import { CheckCircle2, Loader2, Plug2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ExtensionKind } from "../../app/constants";
+import { resolveExtensionIconSrc } from "./extension-icon-src";
 
 export type ExtensionCardProps = {
   name: string;
@@ -61,6 +62,7 @@ export function ExtensionCard(props: ExtensionCardProps) {
     actionLabel,
     onClick,
   } = props;
+  const resolvedIconSrc = iconSrc ? resolveExtensionIconSrc(iconSrc) : undefined;
 
   return (
     <button
@@ -83,9 +85,9 @@ export function ExtensionCard(props: ExtensionCardProps) {
           >
             {connecting ? (
               <Loader2 size={18} className="animate-spin text-dls-secondary" />
-            ) : iconSrc ? (
+            ) : resolvedIconSrc ? (
               <div className="flex size-6 items-center justify-center rounded-md bg-white">
-                <img src={iconSrc} alt="" width={16} height={16} loading="lazy" style={{ display: "block" }} />
+                <img src={resolvedIconSrc} alt="" width={16} height={16} loading="lazy" style={{ display: "block" }} />
               </div>
             ) : iconSlug ? (
               <div className="flex size-6 items-center justify-center rounded-md bg-white">

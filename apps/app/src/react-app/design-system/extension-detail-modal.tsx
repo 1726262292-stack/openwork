@@ -17,6 +17,7 @@ import {
   modalBodyClass,
   surfaceCardClass,
 } from "../domains/workspace/modal-styles";
+import { resolveExtensionIconSrc } from "./extension-icon-src";
 
 export type ExtensionDetailModalProps = {
   open: boolean;
@@ -167,6 +168,7 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
     onUninstall,
     configSlot,
   } = props;
+  const resolvedIconSrc = iconSrc ? resolveExtensionIconSrc(iconSrc) : undefined;
 
   return (
     <Dialog
@@ -187,9 +189,9 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                   connected ? "border-green-6 bg-green-2" : "border-dls-border bg-dls-hover"
                 }`}
               >
-                {iconSrc ? (
+                {resolvedIconSrc ? (
                   <div className="flex size-8 items-center justify-center rounded-md bg-white">
-                    <img src={iconSrc} alt="" width={20} height={20} loading="lazy" style={{ display: "block" }} />
+                    <img src={resolvedIconSrc} alt="" width={20} height={20} loading="lazy" style={{ display: "block" }} />
                   </div>
                 ) : iconSlug ? (
                   <div className="flex size-8 items-center justify-center rounded-md bg-white">
