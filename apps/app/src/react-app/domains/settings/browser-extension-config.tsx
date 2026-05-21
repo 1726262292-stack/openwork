@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import { CheckCircle2, Chrome, Loader2, MonitorSmartphone, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { openDesktopUrl } from "../../../app/lib/desktop";
+import { openChromeRemoteDebugging } from "../../../app/lib/desktop";
 import { surfaceCardClass } from "../workspace/modal-styles";
 import { findReachableChromeDebuggingPort } from "./chrome-reachability";
 import { registerExtensionConfig } from "./extension-registry";
@@ -51,7 +51,7 @@ function ChromeBrowserConfig() {
       <button
         type="button"
         className="w-full rounded-xl border border-dls-border bg-dls-surface px-3 py-2 text-left text-xs text-dls-secondary transition-colors hover:bg-dls-hover"
-        onClick={() => void openDesktopUrl("chrome://inspect/#remote-debugging")}
+        onClick={() => void openChromeRemoteDebugging()}
       >
         Open <span className="font-mono text-dls-text">chrome://inspect/#remote-debugging</span>, turn on remote debugging, and allow incoming connections.
       </button>

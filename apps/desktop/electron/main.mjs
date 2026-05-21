@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import {
@@ -387,6 +387,47 @@ async function openSettingsFromNativeMenu() {
 async function toggleSidebarFromNativeMenu() {
   const win = await createMainWindow();
   win.webContents.send(NATIVE_MENU_TOGGLE_SIDEBAR_EVENT);
+}
+
+function execFilePromise(file, args) {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, (error) => {
+      if (error) reject(error);
+      else resolve(undefined);
+    });
+  });
+}
+
+async function openChromeRemoteDebugging() {
+  const url = "chrome://inspect/#remote-debugging";
+  if (process.platform === "darwin") {
+    try {
+      await execFilePromise("/usr/bin/open", ["-a", "Google Chrome", url]);
+      return { ok: true };
+    } catch {
+      await execFilePromise("/usr/bin/open", ["-a", "Chromium", url]);
+      return { ok: true };
+    }
+  }
+
+  if (process.platform === "win32") {
+    await execFilePromise("cmd.exe", ["/c", "start", "", "chrome", url]);
+    return { ok: true };
+  }
+
+  const linuxCandidates = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"];
+  let lastError = null;
+  for (const candidate of linuxCandidates) {
+    try {
+      await execFilePromise(candidate, [url]);
+      return { ok: true };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  await shell.openExternal(url);
+  return { ok: true, fallback: true, error: lastError instanceof Error ? lastError.message : null };
 }
 
 function installApplicationMenu() {
@@ -2426,6 +2467,8 @@ async function handleDesktopInvoke(event, command, ...args) {
       if (!target) return "Path is required.";
       return shell.openPath(target);
     }
+    case "__openChromeRemoteDebugging":
+      return openChromeRemoteDebugging();
     case "__revealItemInDir": {
       const target = String(args[0] ?? "").trim();
       if (!target) return undefined;
