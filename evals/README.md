@@ -88,3 +88,6 @@ Chrome DevTools MCP. Every tool takes `browser_url` as the first argument.
 - [`workspace-layout-state-flows.md`](./workspace-layout-state-flows.md) —
   persisted sidebar/browser layout, legacy layout migration, and workspace-safe
   layout state.
+- [`environment-variable-flows.md`](./environment-variable-flows.md) — local
+  environment variable CRUD, masking, validation, apply/restart behavior, and
+  remote-workspace secret boundaries.
