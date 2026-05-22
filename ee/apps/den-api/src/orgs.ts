@@ -11,6 +11,7 @@ import {
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { db } from "./db.js"
+import { runPostOrganizationMemberChangeHooks } from "./organization-member-hooks.js"
 import { DEFAULT_ORGANIZATION_LIMITS, normalizeOrganizationMetadata, serializeOrganizationMetadata } from "./organization-limits.js"
 import { denDefaultDynamicOrganizationRoles, denOrganizationStaticRoles } from "./organization-access.js"
 import { ensureDefaultDesktopPolicyForOrganization } from "./desktop-policies.js"
@@ -513,6 +514,7 @@ export async function acceptInvitationForUser(input: {
   }
 
   const member = await acceptInvitation(invitation, input.userId)
+  await runPostOrganizationMemberChangeHooks({ organizationId: invitation.organizationId, memberId: member.id, change: "added" })
   return {
     invitation,
     member,
@@ -1027,10 +1029,25 @@ export async function removeOrganizationMember(input: {
     return null
   }
 
-  await db
-    .update(MemberTable)
-    .set({ removedAt: new Date(), removedByOrgMember: input.removedByOrgMemberId ?? null, userId: null })
-    .where(eq(MemberTable.id, member.id))
+  const teams = await db
+    .select({ id: TeamTable.id })
+    .from(TeamTable)
+    .where(eq(TeamTable.organizationId, input.organizationId))
+
+  await db.transaction(async (tx) => {
+    for (const team of teams) {
+      await tx
+        .delete(TeamMemberTable)
+        .where(and(eq(TeamMemberTable.teamId, team.id), eq(TeamMemberTable.orgMembershipId, member.id)))
+    }
+
+    await tx
+      .update(MemberTable)
+      .set({ removedAt: new Date(), removedByOrgMember: input.removedByOrgMemberId ?? null, userId: null })
+      .where(eq(MemberTable.id, member.id))
+  })
+
+  await runPostOrganizationMemberChangeHooks({ organizationId: input.organizationId, memberId: member.id, change: "removed" })
 
   return member
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import { getSocialCallbackUrl } from "../../(den)/_lib/den-flow";
 
 export default function OrganizationSsoSignInPage() {
   const params = useParams<{ orgSlug: string }>();
@@ -9,7 +10,7 @@ export default function OrganizationSsoSignInPage() {
   const [error, setError] = useState<string | null>(null);
   const orgSlug = typeof params?.orgSlug === "string" ? params.orgSlug : "";
 
-  const callbackURL = useMemo(() => searchParams.get("callbackURL") || "/dashboard", [searchParams]);
+  const callbackURL = useMemo(() => searchParams.get("callbackURL") || getSocialCallbackUrl(), [searchParams]);
   const loginHint = useMemo(() => searchParams.get("loginHint") || undefined, [searchParams]);
 
   useEffect(() => {

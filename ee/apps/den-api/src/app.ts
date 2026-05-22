@@ -148,6 +148,7 @@ app.get(
         { name: "Invitations", description: "Invitation preview, acceptance, creation, and cancellation routes." },
         { name: "API Keys", description: "Organization API key management routes." },
         { name: "SCIM", description: "Organization SCIM connector management routes." },
+        { name: "SSO", description: "Organization single sign-on connector management routes." },
         { name: "Members", description: "Organization member management routes." },
         { name: "Roles", description: "Organization custom role management routes." },
         { name: "Teams", description: "Organization team management routes." },

@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer"
-import { and, eq } from "@openwork-ee/den-db/drizzle"
+import { and, eq, isNotNull, isNull } from "@openwork-ee/den-db/drizzle"
 import { AuthAccountTable, AuthUserTable, ExternalIdentityTable, MemberTable, ScimProviderTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { auth } from "./auth.js"
@@ -8,7 +8,7 @@ import { env } from "./env.js"
 import { removeOrganizationMember } from "./orgs.js"
 
 type OrganizationId = typeof MemberTable.$inferSelect.organizationId
-type UserId = typeof MemberTable.$inferSelect.userId
+type UserId = typeof AuthUserTable.$inferSelect.id
 
 type ScimUserResource = {
   id?: unknown
@@ -254,8 +254,47 @@ export async function deleteOrganizationScimConnection(organizationId: Organizat
     return false
   }
 
+  await cleanupExternalIdentitiesForDeletedScimConnection(connection)
   await db.delete(ScimProviderTable).where(eq(ScimProviderTable.id, connection.id))
   return true
+}
+
+async function cleanupExternalIdentitiesForDeletedScimConnection(connection: typeof ScimProviderTable.$inferSelect) {
+  await db
+    .update(ExternalIdentityTable)
+    .set({
+      source: "sso",
+      scimProviderId: null,
+      externalId: null,
+      nameJson: null,
+      emailsJson: null,
+      lastScimSyncAt: null,
+    })
+    .where(and(
+      eq(ExternalIdentityTable.organizationId, connection.organizationId),
+      eq(ExternalIdentityTable.scimProviderId, connection.providerId),
+      isNotNull(ExternalIdentityTable.ssoProviderId),
+    ))
+
+  await db
+    .update(ExternalIdentityTable)
+    .set({
+      active: false,
+      scimProviderId: null,
+      externalId: null,
+      nameJson: null,
+      emailsJson: null,
+      lastScimSyncAt: null,
+    })
+    .where(and(
+      eq(ExternalIdentityTable.organizationId, connection.organizationId),
+      eq(ExternalIdentityTable.scimProviderId, connection.providerId),
+      isNull(ExternalIdentityTable.ssoProviderId),
+    ))
+
+  await db
+    .delete(AuthAccountTable)
+    .where(eq(AuthAccountTable.providerId, connection.providerId))
 }
 
 export async function deleteScimProvisionedAccess(input: {
@@ -276,7 +315,7 @@ export async function deleteScimProvisionedAccess(input: {
   const memberRows = await db
     .select()
     .from(MemberTable)
-    .where(and(eq(MemberTable.userId, input.userId), eq(MemberTable.organizationId, provider.organizationId)))
+    .where(and(eq(MemberTable.userId, input.userId), eq(MemberTable.organizationId, provider.organizationId), isNull(MemberTable.removedAt)))
     .limit(1)
 
   const account = accountRows[0] ?? null

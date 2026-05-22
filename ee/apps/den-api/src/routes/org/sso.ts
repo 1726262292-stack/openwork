@@ -38,6 +38,47 @@ const forbiddenSchema = z.object({
   message: z.string(),
 }).meta({ ref: "SsoForbiddenError" })
 
+const baseRegistrationSchema = z.object({
+  issuer: z.string().url(),
+  domain: z.string().min(1),
+})
+
+const samlRegistrationSchema = baseRegistrationSchema.extend({
+  entryPoint: z.string().url(),
+  cert: z.string().min(1),
+  audience: z.string().url().optional(),
+  wantAssertionsSigned: z.boolean().optional(),
+}).meta({ ref: "RegisterOrganizationSamlSsoBody" })
+
+const oidcRegistrationSchema = baseRegistrationSchema.extend({
+  clientId: z.string().min(1),
+  clientSecret: z.string().min(1),
+  scopes: z.array(z.string()).optional(),
+  skipDiscovery: z.boolean().optional(),
+  authorizationEndpoint: z.string().url().optional(),
+  tokenEndpoint: z.string().url().optional(),
+  jwksEndpoint: z.string().url().optional(),
+  userInfoEndpoint: z.string().url().optional(),
+  tokenEndpointAuthentication: z.enum(["client_secret_basic", "client_secret_post"]).optional(),
+}).meta({ ref: "RegisterOrganizationOidcSsoBody" })
+
+const oidcConnectionConfigSchema = z.object({
+  clientId: z.string().nullable(),
+  scopes: z.array(z.string()),
+  skipDiscovery: z.boolean(),
+  authorizationEndpoint: z.string().url().nullable(),
+  tokenEndpoint: z.string().url().nullable(),
+  jwksEndpoint: z.string().url().nullable(),
+  userInfoEndpoint: z.string().url().nullable(),
+  tokenEndpointAuthentication: z.enum(["client_secret_basic", "client_secret_post"]).nullable(),
+}).meta({ ref: "OrganizationOidcSsoConfig" })
+
+const samlConnectionConfigSchema = z.object({
+  entryPoint: z.string().url().nullable(),
+  audience: z.string().nullable(),
+  wantAssertionsSigned: z.boolean(),
+}).meta({ ref: "OrganizationSamlSsoConfig" })
+
 const ssoConnectionSchema = z.object({
   id: z.string(),
   providerId: z.string(),
@@ -51,6 +92,8 @@ const ssoConnectionSchema = z.object({
   acsUrl: z.string().url().nullable(),
   metadataUrl: z.string().url().nullable(),
   domainVerified: z.boolean(),
+  oidc: oidcConnectionConfigSchema.nullable(),
+  saml: samlConnectionConfigSchema.nullable(),
   lastTestedAt: z.string().datetime().nullable(),
   lastError: z.string().nullable(),
   createdAt: z.string().datetime(),
@@ -59,31 +102,8 @@ const ssoConnectionSchema = z.object({
 
 const ssoConnectionResponseSchema = z.object({
   connection: ssoConnectionSchema.nullable(),
+  domainVerificationToken: z.string().min(1).nullable().optional(),
 }).meta({ ref: "OrganizationSsoConnectionResponse" })
-
-const baseRegistrationSchema = z.object({
-  issuer: z.string().url(),
-  domain: z.string().min(1),
-})
-
-const samlRegistrationSchema = baseRegistrationSchema.extend({
-  entryPoint: z.string().url(),
-  cert: z.string().min(1),
-  audience: z.string().url().optional(),
-  wantAssertionsSigned: z.boolean().optional(),
-  authnRequestsSigned: z.boolean().optional(),
-}).meta({ ref: "RegisterOrganizationSamlSsoBody" })
-
-const oidcRegistrationSchema = baseRegistrationSchema.extend({
-  clientId: z.string().min(1),
-  clientSecret: z.string().min(1),
-  scopes: z.array(z.string()).optional(),
-  skipDiscovery: z.boolean().optional(),
-  authorizationEndpoint: z.string().url().optional(),
-  tokenEndpoint: z.string().url().optional(),
-  jwksEndpoint: z.string().url().optional(),
-  userInfoEndpoint: z.string().url().optional(),
-}).meta({ ref: "RegisterOrganizationOidcSsoBody" })
 
 const metadataQuerySchema = z.object({
   format: z.enum(["xml", "json"]).default("xml"),
@@ -93,6 +113,48 @@ const domainVerificationResponseSchema = z.object({
   domainVerificationToken: z.string().min(1),
 }).meta({ ref: "OrganizationSsoDomainVerificationResponse" })
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function maybeString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
+function maybeBoolean(value: unknown, fallback: boolean) {
+  return typeof value === "boolean" ? value : fallback
+}
+
+function asStringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []
+}
+
+function parseConfig(value: string | null) {
+  if (!value) {
+    return null
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return isRecord(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function getWebOrigin() {
+  return env.betterAuthTrustedOrigins.find((origin) => origin !== "*") ?? env.betterAuthUrl
+}
+
+async function requestDomainVerificationToken(providerId: string, headers: Headers) {
+  const body = await auth.api.requestDomainVerification({
+    body: { providerId },
+    headers,
+  })
+
+  return isRecord(body) ? maybeString(body.domainVerificationToken) : null
+}
+
 function serializeConnection(input: {
   connection: NonNullable<Awaited<ReturnType<typeof getOrganizationSsoConnection>>>
   signInUrl: string
@@ -100,8 +162,10 @@ function serializeConnection(input: {
   acsUrl: string | null
   metadataUrl: string | null
   domainVerified: boolean
+  oidc: z.infer<typeof oidcConnectionConfigSchema> | null
+  saml: z.infer<typeof samlConnectionConfigSchema> | null
 }) {
-  const { connection, signInUrl, redirectUrl, acsUrl, metadataUrl, domainVerified } = input
+  const { connection, signInUrl, redirectUrl, acsUrl, metadataUrl, domainVerified, oidc, saml } = input
   return {
     id: connection.id,
     providerId: connection.providerId,
@@ -115,6 +179,8 @@ function serializeConnection(input: {
     acsUrl,
     metadataUrl,
     domainVerified,
+    oidc,
+    saml,
     lastTestedAt: connection.lastTestedAt ? connection.lastTestedAt.toISOString() : null,
     lastError: connection.lastError,
     createdAt: connection.createdAt.toISOString(),
@@ -124,7 +190,9 @@ function serializeConnection(input: {
 
 async function buildConnectionPayload(connection: NonNullable<Awaited<ReturnType<typeof getOrganizationSsoConnection>>>, origin: string) {
   const provider = await getSsoProviderForConnection(connection)
-  const signInUrl = new URL(connection.signInPath || getOrganizationSsoSignInPath(""), env.betterAuthUrl).toString()
+  const oidcConfig = parseConfig(provider?.oidcConfig ?? null)
+  const samlConfig = parseConfig(provider?.samlConfig ?? null)
+  const signInUrl = new URL(connection.signInPath || getOrganizationSsoSignInPath(""), getWebOrigin()).toString()
   const redirectUrl = getSsoOidcRedirectUrl(connection.providerId)
   const acsUrl = connection.kind === "saml" ? getSsoAcsUrl(connection.providerId) : null
   const metadataUrl = connection.kind === "saml" ? getSsoMetadataUrl(connection.providerId) : null
@@ -135,6 +203,21 @@ async function buildConnectionPayload(connection: NonNullable<Awaited<ReturnType
     acsUrl,
     metadataUrl,
     domainVerified: provider?.domainVerified ?? false,
+    oidc: connection.kind === "oidc" ? {
+      clientId: maybeString(oidcConfig?.clientId),
+      scopes: asStringArray(oidcConfig?.scopes),
+      skipDiscovery: maybeBoolean(oidcConfig?.skipDiscovery, true),
+      authorizationEndpoint: maybeString(oidcConfig?.authorizationEndpoint),
+      tokenEndpoint: maybeString(oidcConfig?.tokenEndpoint),
+      jwksEndpoint: maybeString(oidcConfig?.jwksEndpoint),
+      userInfoEndpoint: maybeString(oidcConfig?.userInfoEndpoint),
+      tokenEndpointAuthentication: oidcConfig?.tokenEndpointAuthentication === "client_secret_post" || oidcConfig?.tokenEndpointAuthentication === "client_secret_basic" ? oidcConfig.tokenEndpointAuthentication : null,
+    } : null,
+    saml: connection.kind === "saml" ? {
+      entryPoint: maybeString(samlConfig?.entryPoint),
+      audience: maybeString(samlConfig?.audience),
+      wantAssertionsSigned: maybeBoolean(samlConfig?.wantAssertionsSigned, true),
+    } : null,
   })
 }
 
@@ -213,8 +296,9 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
         headers: c.req.raw.headers,
         ...parsed.data,
       })
+      const domainVerificationToken = await requestDomainVerificationToken(connection.providerId, c.req.raw.headers).catch(() => null)
 
-      return c.json({ connection: await buildConnectionPayload(connection, c.req.url) }, 201)
+      return c.json({ connection: await buildConnectionPayload(connection, c.req.url), domainVerificationToken }, 201)
     },
   )
 
@@ -257,8 +341,9 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
         headers: c.req.raw.headers,
         ...parsed.data,
       })
+      const domainVerificationToken = await requestDomainVerificationToken(connection.providerId, c.req.raw.headers).catch(() => null)
 
-      return c.json({ connection: await buildConnectionPayload(connection, c.req.url) }, 201)
+      return c.json({ connection: await buildConnectionPayload(connection, c.req.url), domainVerificationToken }, 201)
     },
   )
 

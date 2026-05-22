@@ -33,8 +33,17 @@ export function SsoScreen() {
   const [domain, setDomain] = useState("");
   const [entryPoint, setEntryPoint] = useState("");
   const [cert, setCert] = useState("");
+  const [audience, setAudience] = useState("");
+  const [wantAssertionsSigned, setWantAssertionsSigned] = useState(true);
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  const [scopes, setScopes] = useState("openid email profile");
+  const [skipDiscovery, setSkipDiscovery] = useState(false);
+  const [authorizationEndpoint, setAuthorizationEndpoint] = useState("");
+  const [tokenEndpoint, setTokenEndpoint] = useState("");
+  const [jwksEndpoint, setJwksEndpoint] = useState("");
+  const [userInfoEndpoint, setUserInfoEndpoint] = useState("");
+  const [tokenEndpointAuthentication, setTokenEndpointAuthentication] = useState<"" | "client_secret_basic" | "client_secret_post">("");
 
   const access = useMemo(
     () => getOrgAccessFlags(orgContext?.currentMember.role ?? "member", orgContext?.currentMember.isOwner ?? false),
@@ -57,10 +66,36 @@ export function SsoScreen() {
 
       const parsed = parseOrgSsoPayload(payload);
       setConnection(parsed.connection);
+      syncFormFromConnection(parsed.connection);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to load SSO settings.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  function syncFormFromConnection(nextConnection: DenOrgSsoConnection | null) {
+    if (!nextConnection) {
+      return;
+    }
+
+    setFormMode(nextConnection.kind);
+    setIssuer(nextConnection.issuer);
+    setDomain(nextConnection.domain);
+    if (nextConnection.saml) {
+      setEntryPoint(nextConnection.saml.entryPoint ?? "");
+      setAudience(nextConnection.saml.audience ?? "");
+      setWantAssertionsSigned(nextConnection.saml.wantAssertionsSigned);
+    }
+    if (nextConnection.oidc) {
+      setClientId(nextConnection.oidc.clientId ?? "");
+      setScopes(nextConnection.oidc.scopes.length > 0 ? nextConnection.oidc.scopes.join(" ") : "openid email profile");
+      setSkipDiscovery(false);
+      setAuthorizationEndpoint(nextConnection.oidc.authorizationEndpoint ?? "");
+      setTokenEndpoint(nextConnection.oidc.tokenEndpoint ?? "");
+      setJwksEndpoint(nextConnection.oidc.jwksEndpoint ?? "");
+      setUserInfoEndpoint(nextConnection.oidc.userInfoEndpoint ?? "");
+      setTokenEndpointAuthentication(nextConnection.oidc.tokenEndpointAuthentication ?? "");
     }
   }
 
@@ -95,8 +130,27 @@ export function SsoScreen() {
     try {
       const path = formMode === "saml" ? "/v1/sso/saml" : "/v1/sso/oidc";
       const body = formMode === "saml"
-        ? { issuer, domain, entryPoint, cert }
-        : { issuer, domain, clientId, clientSecret };
+        ? {
+            issuer,
+            domain,
+            entryPoint,
+            cert,
+            audience: audience || undefined,
+            wantAssertionsSigned,
+          }
+        : {
+            issuer,
+            domain,
+            clientId,
+            clientSecret,
+            scopes: scopes.split(/\s+/).map((entry) => entry.trim()).filter(Boolean),
+            skipDiscovery,
+            authorizationEndpoint: authorizationEndpoint || undefined,
+            tokenEndpoint: tokenEndpoint || undefined,
+            jwksEndpoint: jwksEndpoint || undefined,
+            userInfoEndpoint: userInfoEndpoint || undefined,
+            tokenEndpointAuthentication: tokenEndpointAuthentication || undefined,
+          };
 
       const { response, payload } = await requestJson(path, { method: "POST", body: JSON.stringify(body) }, 20000);
       if (!response.ok) {
@@ -105,6 +159,8 @@ export function SsoScreen() {
 
       const parsed = parseOrgSsoPayload(payload);
       setConnection(parsed.connection);
+      syncFormFromConnection(parsed.connection);
+      setDomainVerificationToken(parsed.domainVerificationToken);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to save SSO settings.");
     } finally {
@@ -213,8 +269,16 @@ export function SsoScreen() {
                     <input className="w-full rounded-[18px] border border-gray-200 px-4 py-3" value={entryPoint} onChange={(event) => setEntryPoint(event.target.value)} placeholder="https://idp.example.com/sso" />
                   </label>
                   <label className="block text-[14px] text-gray-700 md:col-span-2">
+                    <span className="mb-2 block font-medium">Audience URL</span>
+                    <input className="w-full rounded-[18px] border border-gray-200 px-4 py-3" value={audience} onChange={(event) => setAudience(event.target.value)} placeholder="Defaults to the OpenWork auth URL" />
+                  </label>
+                  <label className="block text-[14px] text-gray-700 md:col-span-2">
                     <span className="mb-2 block font-medium">IdP Certificate</span>
                     <textarea className="min-h-[140px] w-full rounded-[18px] border border-gray-200 px-4 py-3" value={cert} onChange={(event) => setCert(event.target.value)} placeholder="-----BEGIN CERTIFICATE-----" />
+                  </label>
+                  <label className="flex items-center gap-3 rounded-[18px] border border-gray-200 px-4 py-3 text-[14px] text-gray-700 md:col-span-2">
+                    <input type="checkbox" checked={wantAssertionsSigned} onChange={(event) => setWantAssertionsSigned(event.target.checked)} />
+                    Require signed SAML assertions
                   </label>
                 </>
               ) : (
@@ -227,6 +291,42 @@ export function SsoScreen() {
                     <span className="mb-2 block font-medium">Client Secret</span>
                     <input className="w-full rounded-[18px] border border-gray-200 px-4 py-3" value={clientSecret} onChange={(event) => setClientSecret(event.target.value)} />
                   </label>
+                  <label className="block text-[14px] text-gray-700 md:col-span-2">
+                    <span className="mb-2 block font-medium">Scopes</span>
+                    <input className="w-full rounded-[18px] border border-gray-200 px-4 py-3" value={scopes} onChange={(event) => setScopes(event.target.value)} placeholder="openid email profile" />
+                  </label>
+                  <label className="block text-[14px] text-gray-700 md:col-span-2">
+                    <span className="mb-2 block font-medium">Token endpoint auth method</span>
+                    <select className="w-full rounded-[18px] border border-gray-200 px-4 py-3" value={tokenEndpointAuthentication} onChange={(event) => setTokenEndpointAuthentication(event.target.value === "client_secret_basic" || event.target.value === "client_secret_post" ? event.target.value : "")}>
+                      <option value="">Use provider default</option>
+                      <option value="client_secret_basic">client_secret_basic</option>
+                      <option value="client_secret_post">client_secret_post</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-3 rounded-[18px] border border-gray-200 px-4 py-3 text-[14px] text-gray-700 md:col-span-2">
+                    <input type="checkbox" checked={skipDiscovery} onChange={(event) => setSkipDiscovery(event.target.checked)} />
+                    Use manual OIDC endpoints instead of discovery
+                  </label>
+                  {skipDiscovery ? (
+                    <>
+                      <label className="block text-[14px] text-gray-700 md:col-span-2">
+                        <span className="mb-2 block font-medium">Authorization endpoint</span>
+                        <input className="w-full rounded-[18px] border border-gray-200 px-4 py-3" value={authorizationEndpoint} onChange={(event) => setAuthorizationEndpoint(event.target.value)} placeholder="https://idp.example.com/oauth2/v1/authorize" />
+                      </label>
+                      <label className="block text-[14px] text-gray-700 md:col-span-2">
+                        <span className="mb-2 block font-medium">Token endpoint</span>
+                        <input className="w-full rounded-[18px] border border-gray-200 px-4 py-3" value={tokenEndpoint} onChange={(event) => setTokenEndpoint(event.target.value)} placeholder="https://idp.example.com/oauth2/v1/token" />
+                      </label>
+                      <label className="block text-[14px] text-gray-700 md:col-span-2">
+                        <span className="mb-2 block font-medium">JWKS endpoint</span>
+                        <input className="w-full rounded-[18px] border border-gray-200 px-4 py-3" value={jwksEndpoint} onChange={(event) => setJwksEndpoint(event.target.value)} placeholder="https://idp.example.com/oauth2/v1/keys" />
+                      </label>
+                      <label className="block text-[14px] text-gray-700 md:col-span-2">
+                        <span className="mb-2 block font-medium">UserInfo endpoint</span>
+                        <input className="w-full rounded-[18px] border border-gray-200 px-4 py-3" value={userInfoEndpoint} onChange={(event) => setUserInfoEndpoint(event.target.value)} placeholder="Optional" />
+                      </label>
+                    </>
+                  ) : null}
                 </>
               )}
             </div>

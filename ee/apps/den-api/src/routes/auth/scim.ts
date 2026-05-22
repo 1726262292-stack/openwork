@@ -53,6 +53,14 @@ async function syncScimMutationFromResponse(input: {
 }
 
 export function registerScimAuthRoutes<T extends { Variables: AuthContextVariables }>(app: Hono<T>) {
+  const scimGroupsNotSupported = (c: { json: (object: unknown, status?: number | { status: number }) => Response }) => {
+    return c.json({
+      schemas: ["urn:ietf:params:scim:api:messages:2.0:Error"],
+      detail: "SCIM Groups are not supported yet.",
+      status: "501",
+    }, 501)
+  }
+
   const rejectManagementRoute = (c: {
     get: (key: "user") => AuthContextVariables["user"]
     json: (object: unknown, status?: number | { status: number }) => Response
@@ -155,6 +163,9 @@ export function registerScimAuthRoutes<T extends { Variables: AuthContextVariabl
     }),
     (c) => rejectManagementRoute(c),
   )
+
+  app.all("/api/auth/scim/v2/Groups", (c) => scimGroupsNotSupported(c))
+  app.all("/api/auth/scim/v2/Groups/:groupId", (c) => scimGroupsNotSupported(c))
 
   app.delete(
     "/api/auth/scim/v2/Users/:userId",

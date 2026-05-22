@@ -125,6 +125,21 @@ export type DenOrgSsoConnection = {
   acsUrl: string | null;
   metadataUrl: string | null;
   domainVerified: boolean;
+  oidc: {
+    clientId: string | null;
+    scopes: string[];
+    skipDiscovery: boolean;
+    authorizationEndpoint: string | null;
+    tokenEndpoint: string | null;
+    jwksEndpoint: string | null;
+    userInfoEndpoint: string | null;
+    tokenEndpointAuthentication: "client_secret_basic" | "client_secret_post" | null;
+  } | null;
+  saml: {
+    entryPoint: string | null;
+    audience: string | null;
+    wantAssertionsSigned: boolean;
+  } | null;
   lastTestedAt: string | null;
   lastError: string | null;
   createdAt: string | null;
@@ -313,6 +328,10 @@ export function getBackgroundAgentsRoute(orgSlug?: string | null): string {
 
 export function getCustomLlmProvidersRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/custom-llm-providers`;
+}
+
+export function getInferenceRoute(orgSlug?: string | null): string {
+  return `${getOrgDashboardRoute(orgSlug)}/inference`;
 }
 
 export function getLlmProvidersRoute(orgSlug?: string | null): string {
@@ -804,9 +823,10 @@ export function parseOrgScimPayload(payload: unknown): {
 
 export function parseOrgSsoPayload(payload: unknown): {
   connection: DenOrgSsoConnection | null;
+  domainVerificationToken: string | null;
 } {
   if (!isRecord(payload)) {
-    return { connection: null };
+    return { connection: null, domainVerificationToken: null };
   }
 
   const rawConnection = isRecord(payload.connection) ? payload.connection : null;
@@ -821,6 +841,9 @@ export function parseOrgSsoPayload(payload: unknown): {
         const signInPath = asString(rawConnection.signInPath);
         const signInUrl = asString(rawConnection.signInUrl);
         const redirectUrl = asString(rawConnection.redirectUrl);
+        const rawOidc = isRecord(rawConnection.oidc) ? rawConnection.oidc : null;
+        const rawSaml = isRecord(rawConnection.saml) ? rawConnection.saml : null;
+        const tokenEndpointAuthentication = asString(rawOidc?.tokenEndpointAuthentication);
 
         if (!id || !providerId || !issuer || !domain || !status || !signInPath || !signInUrl || !redirectUrl || (kind !== "oidc" && kind !== "saml")) {
           return null;
@@ -839,6 +862,27 @@ export function parseOrgSsoPayload(payload: unknown): {
           acsUrl: asString(rawConnection.acsUrl),
           metadataUrl: asString(rawConnection.metadataUrl),
           domainVerified: asBoolean(rawConnection.domainVerified),
+          oidc: rawOidc
+            ? {
+                clientId: asString(rawOidc.clientId),
+                scopes: asStringArray(rawOidc.scopes) ?? [],
+                skipDiscovery: asBoolean(rawOidc.skipDiscovery),
+                authorizationEndpoint: asString(rawOidc.authorizationEndpoint),
+                tokenEndpoint: asString(rawOidc.tokenEndpoint),
+                jwksEndpoint: asString(rawOidc.jwksEndpoint),
+                userInfoEndpoint: asString(rawOidc.userInfoEndpoint),
+                tokenEndpointAuthentication: tokenEndpointAuthentication === "client_secret_basic" || tokenEndpointAuthentication === "client_secret_post"
+                  ? tokenEndpointAuthentication
+                  : null,
+              }
+            : null,
+          saml: rawSaml
+            ? {
+                entryPoint: asString(rawSaml.entryPoint),
+                audience: asString(rawSaml.audience),
+                wantAssertionsSigned: asBoolean(rawSaml.wantAssertionsSigned),
+              }
+            : null,
           lastTestedAt: asIsoString(rawConnection.lastTestedAt),
           lastError: asString(rawConnection.lastError),
           createdAt: asIsoString(rawConnection.createdAt),
@@ -847,5 +891,5 @@ export function parseOrgSsoPayload(payload: unknown): {
       })()
     : null;
 
-  return { connection };
+  return { connection, domainVerificationToken: asString(payload.domainVerificationToken) };
 }

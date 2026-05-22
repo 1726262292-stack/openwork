@@ -228,6 +228,9 @@ export function ScimScreen() {
                 <p className="mt-1 text-[14px] leading-6 text-gray-500">
                   Use this URL when your identity provider asks for the SCIM endpoint.
                 </p>
+                <p className="mt-2 text-[13px] leading-6 text-gray-500">
+                  SCIM currently supports User provisioning and deprovisioning. SCIM Groups are not enabled yet.
+                </p>
               </div>
               <DenButton
                 variant="secondary"
