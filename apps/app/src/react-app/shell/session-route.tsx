@@ -253,7 +253,9 @@ function describeTaskCreateError(error: unknown) {
     lower.includes("connection") ||
     lower.includes("fetch failed") ||
     lower.includes("econnrefused") ||
-    lower.includes("connection lost")
+    lower.includes("connection lost") ||
+    lower.includes("internal_error") ||
+    lower.includes("unexpected server error")
   ) {
     return "OpenCode is unavailable for this workspace. Retry once it restarts, or restart OpenWork if the problem continues.";
   }
