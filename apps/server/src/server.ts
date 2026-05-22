@@ -109,19 +109,19 @@ function readStringField(value: unknown, key: string): string {
 }
 
 async function resolveOpenAiRealtimeApiKey(env: EnvService): Promise<string> {
+  const records = await env.list();
+  const storedKey =
+    records.find((entry) => entry.key === "OPENAI_REALTIME_API_KEY")?.value.trim() ||
+    records.find((entry) => entry.key === "OPENAI_API_KEY")?.value.trim() ||
+    "";
+  if (storedKey) return storedKey;
+
   const processKey =
     process.env.OPENWORK_OPENAI_REALTIME_API_KEY?.trim() ||
     process.env.OPENAI_REALTIME_API_KEY?.trim() ||
     process.env.OPENAI_API_KEY?.trim() ||
     "";
-  if (processKey) return processKey;
-
-  const records = await env.list();
-  return (
-    records.find((entry) => entry.key === "OPENAI_REALTIME_API_KEY")?.value.trim() ||
-    records.find((entry) => entry.key === "OPENAI_API_KEY")?.value.trim() ||
-    ""
-  );
+  return processKey;
 }
 
 function openworkVoiceRealtimeInstructions() {
