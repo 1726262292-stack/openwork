@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { execFile, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
+import net from "node:net";
 import { existsSync } from "node:fs";
 import {
   cp,
@@ -226,18 +227,38 @@ if (process.platform === "darwin" && APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty()
 
 // Expose Chrome DevTools Protocol so the opencode-chrome-devtools plugin can
 // drive the built-in browser panel.  Use OPENWORK_ELECTRON_REMOTE_DEBUG_PORT to
-// pin a specific port; otherwise pick a default (9223) that stays out of the
-// way of common dev-tools ports (9222 = Chrome, 9229 = Node inspector).
+// pin a specific port; otherwise probe for a free one starting at 9223.
+// Must resolve before app.commandLine.appendSwitch (before `ready`).
+function probePort(port) {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once("error", () => resolve(false));
+    srv.listen({ port, host: "127.0.0.1" }, () => {
+      srv.close(() => resolve(true));
+    });
+  });
+}
+
+async function findFreeCdpPort(candidates) {
+  for (const port of candidates) {
+    if (await probePort(port)) return port;
+  }
+  return 0;
+}
+
 const explicitCdpPort = Number.parseInt(
   process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "",
   10,
 );
 const remoteDebugPort = Number.isFinite(explicitCdpPort) && explicitCdpPort > 0
   ? explicitCdpPort
-  : 9223;
-app.commandLine.appendSwitch("remote-debugging-port", String(remoteDebugPort));
-app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
-// Make the port available to the embedded server so it can pass it to OpenCode.
+  : await findFreeCdpPort([9223, 9224, 9225, 9226, 9227]);
+if (remoteDebugPort > 0) {
+  app.commandLine.appendSwitch("remote-debugging-port", String(remoteDebugPort));
+  app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
+}
+// Make the resolved port available to the embedded server so it flows into
+// agent instructions via ensureOpenworkAgent → resolveAgentTemplate.
 process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT = String(remoteDebugPort);
 
 // Apply extra Chromium flags from ELECTRON_EXTRA_LAUNCH_ARGS.
