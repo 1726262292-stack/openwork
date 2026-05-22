@@ -85,3 +85,6 @@ Chrome DevTools MCP. Every tool takes `browser_url` as the first argument.
 - [`browser-extension-flows.md`](./browser-extension-flows.md) — browser
   extension plugin loading, built-in browser navigation, composer extensions
   menu, extension toggle, and stale MCP migration.
+- [`workspace-layout-state-flows.md`](./workspace-layout-state-flows.md) —
+  persisted sidebar/browser layout, legacy layout migration, and workspace-safe
+  layout state.
