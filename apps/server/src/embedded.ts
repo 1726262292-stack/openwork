@@ -55,6 +55,9 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         env: {
           ...(process.env.OPENWORK_DEV_MODE ? { OPENWORK_DEV_MODE: process.env.OPENWORK_DEV_MODE } : {}),
           OPENCODE_MODELS_URL: opencodeModelsUrl,
+          ...(process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT
+            ? { OPENCODE_BROWSER_URL: `http://127.0.0.1:${process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT}` }
+            : {}),
         },
       });
 
