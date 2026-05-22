@@ -1527,6 +1527,8 @@ export default {
   "workspace_list.reveal_file_manager": "Show in Files",
   "workspace_list.reveal_finder": "Reveal in Finder",
   "workspace_list.session_actions": "Session actions",
+  "workspace_list.session_active": "Session active",
+  "workspace_list.session_streaming": "Session streaming",
   "workspace_list.share": "Share...",
   "workspace_list.show_child_sessions": "Show child sessions",
   "workspace_list.show_more": "Show {count} more",

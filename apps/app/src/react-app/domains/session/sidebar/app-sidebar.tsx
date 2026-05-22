@@ -78,6 +78,32 @@ import type { SessionListItem, SessionTreeState } from "./utils";
 import { cn } from "@/lib/utils";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
 
+function SessionStatusIndicator(props: { isStreaming: boolean; isActive: boolean }) {
+  if (props.isStreaming) {
+    return (
+      <span
+        className="flex size-3.5 shrink-0 items-center justify-center text-amber-500"
+        title={t("workspace_list.session_streaming")}
+        aria-label={t("workspace_list.session_streaming")}
+      >
+        <Loader2 className="size-3.5 animate-spin" />
+      </span>
+    );
+  }
+
+  if (props.isActive) {
+    return (
+      <span
+        className="size-1.5 shrink-0 rounded-full bg-amber-500"
+        title={t("workspace_list.session_active")}
+        aria-label={t("workspace_list.session_active")}
+      />
+    );
+  }
+
+  return null;
+}
+
 type SessionActionsProps = {
   className: string;
   sessionId: string;
@@ -865,6 +891,7 @@ function SessionMenuItem({ session, tree, workspaceId, forcedExpandedSessionIds,
   const hasChildren = (tree.descendantCountBySessionId.get(session.id) ?? 0) > 0;
   const isExpanded = ctx.expandedSessionIds.has(session.id) || forcedExpandedSessionIds.has(session.id);
   const isSessionActive = tree.activeIds.has(session.id);
+  const isSessionStreaming = tree.streamingIds.has(session.id);
 
   const openSession = () => {
     ctx.onOpenSession(workspaceId, session.id);
@@ -896,7 +923,7 @@ function SessionMenuItem({ session, tree, workspaceId, forcedExpandedSessionIds,
                   onPointerEnter={prefetchSession}
                   onFocus={prefetchSession}
                 >
-                  {isSessionActive ? <span className="size-1.5 shrink-0 rounded-full bg-amber-500" /> : null}
+                  <SessionStatusIndicator isStreaming={isSessionStreaming} isActive={isSessionActive} />
                   <span
                     className="min-w-0 flex-1 truncate transition-[padding] duration-75 group-hover/menu-sub-item:pe-12 group-has-data-popup-open/menu-sub-item:pe-12 pe-4"
                     title={displayTitle}
@@ -929,7 +956,7 @@ function SessionMenuItem({ session, tree, workspaceId, forcedExpandedSessionIds,
           onFocus={prefetchSession}
           className={cn("transition-[padding] duration-75 group-hover/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8", depth > 0 && "ps-13")}
         >
-          {isSessionActive ? <span className="size-1.5 shrink-0 rounded-full bg-amber-500" /> : null}
+          <SessionStatusIndicator isStreaming={isSessionStreaming} isActive={isSessionActive} />
           <span className="truncate" title={displayTitle}>{displayTitle}</span>
         </SidebarMenuSubButton>
       </SessionContextMenu>

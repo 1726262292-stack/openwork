@@ -14,6 +14,7 @@ type SyncOptions = {
   baseUrl: string;
   openworkToken: string;
   onSessionUpdated?: (update: { sessionId: string; info: Record<string, unknown> }) => void;
+  onSessionStatus?: (update: { sessionId: string; status: SessionStatus }) => void;
 };
 
 export type PendingDelta = {
@@ -32,6 +33,7 @@ type SyncEntry = {
   trackedSessionRefs: Map<string, number>;
   retainedSessionTimers: Map<string, ReturnType<typeof setTimeout>>;
   sessionUpdatedListeners: Set<NonNullable<SyncOptions["onSessionUpdated"]>>;
+  sessionStatusListeners: Set<NonNullable<SyncOptions["onSessionStatus"]>>;
   pendingDeltas: Map<string, { messageId: string; reasoning: boolean; text: string }>;
   // Coalesce rapid-fire delta events from the SSE stream into one cache
   // commit per animation frame. Without this, a long response produces a
@@ -443,9 +445,10 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.status") {
     const props = (event.properties ?? {}) as { sessionID?: string; status?: SessionStatus };
     if (!props.sessionID || !props.status) return;
-    if (!isTrackedSession(entry, props.sessionID)) return;
-    queryClient.setQueryData(statusKey(workspaceId, props.sessionID), props.status);
-    if (input && !isLiveStatus(props.status)) releaseRetainedSessionSoon(input, entry, props.sessionID);
+    const tracked = isTrackedSession(entry, props.sessionID);
+    if (tracked) queryClient.setQueryData(statusKey(workspaceId, props.sessionID), props.status);
+    for (const listener of entry.sessionStatusListeners) listener({ sessionId: props.sessionID, status: props.status });
+    if (input && tracked && !isLiveStatus(props.status)) releaseRetainedSessionSoon(input, entry, props.sessionID);
     return;
   }
 
@@ -604,9 +607,10 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.idle") {
     const props = (event.properties ?? {}) as { sessionID?: string };
     if (!props.sessionID) return;
-    if (!isTrackedSession(entry, props.sessionID)) return;
-    queryClient.setQueryData(statusKey(workspaceId, props.sessionID), idleStatus);
-    if (input) releaseRetainedSessionSoon(input, entry, props.sessionID);
+    const tracked = isTrackedSession(entry, props.sessionID);
+    if (tracked) queryClient.setQueryData(statusKey(workspaceId, props.sessionID), idleStatus);
+    for (const listener of entry.sessionStatusListeners) listener({ sessionId: props.sessionID, status: idleStatus });
+    if (input && tracked) releaseRetainedSessionSoon(input, entry, props.sessionID);
   }
 }
 
@@ -783,6 +787,7 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
       existing.disposeTimer = null;
     }
     if (input.onSessionUpdated) existing.sessionUpdatedListeners.add(input.onSessionUpdated);
+    if (input.onSessionStatus) existing.sessionStatusListeners.add(input.onSessionStatus);
     existing.refs += 1;
     return () => releaseWorkspaceSessionSync(input);
   }
@@ -795,6 +800,7 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
     trackedSessionRefs: new Map(),
     retainedSessionTimers: new Map(),
     sessionUpdatedListeners: new Set(input.onSessionUpdated ? [input.onSessionUpdated] : []),
+    sessionStatusListeners: new Set(input.onSessionStatus ? [input.onSessionStatus] : []),
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
     deltaFlushScheduled: false,
@@ -811,6 +817,7 @@ function releaseWorkspaceSessionSync(input: SyncOptions) {
   const existing = syncs.get(key);
   if (!existing) return;
   if (input.onSessionUpdated) existing.sessionUpdatedListeners.delete(input.onSessionUpdated);
+  if (input.onSessionStatus) existing.sessionStatusListeners.delete(input.onSessionStatus);
   existing.refs -= 1;
   if (existing.refs > 0) return;
   if (existing.retainedSessionTimers.size === 0) {
@@ -886,6 +893,7 @@ export function __createWorkspaceSessionSyncForTest(input: SyncOptions) {
     trackedSessionRefs: new Map(),
     retainedSessionTimers: new Map(),
     sessionUpdatedListeners: new Set(),
+    sessionStatusListeners: new Set(),
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
     deltaFlushScheduled: false,
