@@ -3,7 +3,7 @@ import { create } from "zustand";
 export const PERSISTED_UI_STATE_KEY = "openwork:ui-state:v1";
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 
-export const SIDE_PANEL_ITEMS = ["browser", "artifacts", "extensions"] as const;
+export const SIDE_PANEL_ITEMS = ["browser", "artifacts", "extensions", "voice"] as const;
 export type SidePanelItem = (typeof SIDE_PANEL_ITEMS)[number];
 export type SidePanelState = Record<string, SidePanelItem | null>;
 

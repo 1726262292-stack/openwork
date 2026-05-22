@@ -2652,6 +2652,18 @@ async function runOpenworkControlCommand(command, args = {}) {
       return { ok: true, actions: control.listActions() };
     })()`);
   }
+  if (command === "inspect") {
+    return evaluateOpenworkControl(`(async () => {
+      const inspector = window.__openwork;
+      const input = JSON.parse(${argsJsonLiteral});
+      if (!inspector) return { ok: false, error: "OpenWork inspector surface is not available yet." };
+      const slice = typeof input.slice === "string" ? input.slice.trim() : "";
+      if (slice) {
+        return { ok: true, slice, value: inspector.slice(slice), events: inspector.events?.(20) ?? [] };
+      }
+      return { ok: true, slices: inspector.listSlices(), snapshot: inspector.snapshot(), events: inspector.events?.(20) ?? [] };
+    })()`);
+  }
   if (command === "execute") {
     return evaluateOpenworkControl(`(async () => {
       const control = window.__openworkControl;
@@ -2686,6 +2698,10 @@ async function startUiControlServer() {
       }
       if (request.method === "GET" && url.pathname === "/actions") {
         sendJsonResponse(response, 200, await runOpenworkControlCommand("actions"));
+        return;
+      }
+      if (request.method === "GET" && url.pathname === "/inspect") {
+        sendJsonResponse(response, 200, await runOpenworkControlCommand("inspect", { slice: url.searchParams.get("slice") ?? "" }));
         return;
       }
       if (request.method === "POST" && url.pathname === "/execute") {

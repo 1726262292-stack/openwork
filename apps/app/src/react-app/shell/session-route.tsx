@@ -2591,6 +2591,7 @@ export function SessionRoute() {
       clientConnected={canCreateTask}
       openworkServerStatus={client ? "connected" : "disconnected"}
       openworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
+      hostOpenworkServerClient={client}
       openworkServerToken={selectedWorkspaceServerToken}
       developerMode={typeof window !== "undefined" && window.localStorage.getItem("openwork.developerMode") === "1"}
       headerStatus={canCreateTask ? t("status.connected") : t("session.loading_detail")}

@@ -167,6 +167,17 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     composerPrompt: "Use the OpenAI Image Gen extension to ",
   },
   {
+    id: "openwork-voice",
+    name: "Voice Mode",
+    serverName: "openwork-voice",
+    description: "Talk to OpenWork through a Realtime voice panel that drives the same semantic UI controls as OpenWork UI MCP.",
+    oauth: false,
+    kind: "extension",
+    iconSrc: "/openwork-mark.svg",
+    composerPrompt: "Use Voice Mode to ",
+    defaultEnabled: true,
+  },
+  {
     id: "ollama",
     name: "Ollama",
     serverName: "ollama",

@@ -25,6 +25,7 @@ import type { ProviderListItem } from "../../../../app/types";
 import "../../settings/openai-image-gen-config";
 import "../../settings/ollama-config";
 import "../../settings/browser-extension-config";
+import "../../settings/openwork-voice-config";
 
 export type ExtensionsPaneSlotProps = {
   openworkClient: OpenworkServerClient | null;
@@ -49,6 +50,10 @@ export function ExtensionsPaneSlot(props: ExtensionsPaneSlotProps) {
   const [lpBusy, setLpBusy] = useState(false);
   const [lpStatus, setLpStatus] = useState<string | null>(null);
   const [lpError, setLpError] = useState<string | null>(null);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [userEnvKeys, setUserEnvKeys] = useState<string[]>([]);
   const [, setExtensionStateVersion] = useState(0);
 
   useEffect(() => {
@@ -71,6 +76,16 @@ export function ExtensionsPaneSlot(props: ExtensionsPaneSlotProps) {
       .catch(() => { if (!cancelled) setImageInstalled(false); });
     return () => { cancelled = true; };
   }, [props.workspaceClient, props.workspaceId]);
+
+  useEffect(() => {
+    const client = props.openworkClient;
+    if (!client) { setUserEnvKeys([]); return; }
+    let cancelled = false;
+    void client.listUserEnvKeys()
+      .then((response) => { if (!cancelled) setUserEnvKeys(response.keys); })
+      .catch(() => { if (!cancelled) setUserEnvKeys([]); });
+    return () => { cancelled = true; };
+  }, [props.openworkClient]);
 
   const installImage = useCallback(async (apiKey: string) => {
     const client = props.workspaceClient;
@@ -120,6 +135,28 @@ export function ExtensionsPaneSlot(props: ExtensionsPaneSlotProps) {
     } catch (e) { setLpError(e instanceof Error ? e.message : String(e)); } finally { setLpBusy(false); }
   }, [props]);
 
+  const saveVoiceApiKey = useCallback(async (apiKey: string) => {
+    const client = props.openworkClient;
+    const value = apiKey.trim();
+    if (!client || !value) { setVoiceError("API key required."); return; }
+    setVoiceBusy(true); setVoiceStatus(null); setVoiceError(null);
+    try {
+      await client.upsertUserEnv([{ key: "OPENAI_API_KEY", value }]);
+      setUserEnvKeys((current) => Array.from(new Set([...current, "OPENAI_API_KEY"])));
+      setVoiceStatus("Saved OPENAI_API_KEY for Voice Mode and other OpenAI extensions.");
+    } catch (e) { setVoiceError(e instanceof Error ? e.message : String(e)); } finally { setVoiceBusy(false); }
+  }, [props.openworkClient]);
+
+  const testVoiceSession = useCallback(async () => {
+    const client = props.openworkClient;
+    if (!client) { setVoiceError("OpenWork host connection required."); return; }
+    setVoiceBusy(true); setVoiceStatus(null); setVoiceError(null);
+    try {
+      const session = await client.createVoiceRealtimeSession();
+      setVoiceStatus(`Realtime ready with ${session.model} (${session.tools.length} OpenWork tools).`);
+    } catch (e) { setVoiceError(e instanceof Error ? e.message : String(e)); } finally { setVoiceBusy(false); }
+  }, [props.openworkClient]);
+
   const configCtx: ExtensionConfigContext = {
     imageExtension: {
       busy: imageBusy || genBusy,
@@ -128,6 +165,18 @@ export function ExtensionsPaneSlot(props: ExtensionsPaneSlotProps) {
       envKeyDetected: props.providers.some((p) => p.id === "openai" && p.source === "env") || props.providerConnectedIds.includes("openai"),
       onInstall: installImage,
       onTestGenerate: testGen,
+    },
+    voiceExtension: {
+      busy: voiceBusy,
+      status: voiceStatus,
+      error: voiceError,
+      envKeyDetected:
+        userEnvKeys.includes("OPENAI_REALTIME_API_KEY") ||
+        userEnvKeys.includes("OPENAI_API_KEY") ||
+        props.providers.some((p) => p.id === "openai" && p.source === "env") ||
+        props.providerConnectedIds.includes("openai"),
+      onSaveApiKey: saveVoiceApiKey,
+      onTestSession: testVoiceSession,
     },
     localProvider: { busy: lpBusy, status: lpStatus, error: lpError, onInstall: installLocal },
   };

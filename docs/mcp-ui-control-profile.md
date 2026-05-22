@@ -32,6 +32,7 @@ That's it. HandsFree can now list your sessions, read transcripts, type into the
 - `ui_snapshot` — see the current route, status, and available actions.
 - `ui_list_actions` — get every action the app currently exposes (session controls, composer, navigation, etc.).
 - `ui_execute_action` — run an action by ID, e.g. `session.create_task`, `composer.set_text`, `composer.send`.
+- `ui_inspect` / `ui_assert` / `ui_wait_for` — read and assert structured app state for evals such as Voice Mode.
 - `ui_status` — check if OpenWork is running and the bridge is reachable.
 
 ## Install
@@ -85,7 +86,7 @@ Both use the same MCP config shape. Add to your `claude_desktop_config.json` or 
 }
 ```
 
-Restart the app. The four tools (`ui_status`, `ui_snapshot`, `ui_list_actions`, `ui_execute_action`) will appear in the tool list.
+Restart the app. The UI tools (`ui_status`, `ui_snapshot`, `ui_list_actions`, `ui_execute_action`, `ui_inspect`, `ui_assert`, `ui_wait_for`) will appear in the tool list.
 
 ## Add to your own MCP client
 
@@ -189,6 +190,24 @@ Example — send the composer prompt:
 { "actionId": "composer.send" }
 ```
 
+### `ui_inspect`
+
+Read OpenWork's structured runtime inspector. This is the preferred eval surface when you need assertions without DOM scraping.
+
+| Argument | Type | Description |
+|----------|------|-------------|
+| `slice` | string (optional) | Inspector slice such as `composer` or `voice` |
+
+### `ui_assert` and `ui_wait_for`
+
+Assert a dot path inside the inspector, immediately or with polling.
+
+Example — wait for Voice Mode to open:
+
+```json
+{ "slice": "voice", "path": "status", "equals": "idle", "timeoutMs": 5000 }
+```
+
 ## Available actions
 
 The exact list depends on the current OpenWork route and state. Common actions include:
@@ -213,6 +232,11 @@ The exact list depends on the current OpenWork route and state. Common actions i
 | `session.model_picker.open` | Open the model picker |
 | `status.docs.open` | Open documentation |
 | `status.settings.open` | Open settings from the status bar |
+| `voice.panel.open` | Open the Voice Mode right-side panel |
+| `voice.start` | Start OpenAI Realtime voice control |
+| `voice.inject_transcript` | Deterministically inject a transcript into Voice Mode and the composer |
+| `voice.send_text` | Send a deterministic text command through the active Realtime session |
+| `voice.inject_audio` | Send PCM16 audio through the active Realtime input buffer for audio evals |
 
 ## Requirements
 

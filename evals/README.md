@@ -85,3 +85,5 @@ Chrome DevTools MCP. Every tool takes `browser_url` as the first argument.
 - [`browser-extension-flows.md`](./browser-extension-flows.md) — browser
   extension plugin loading, built-in browser navigation, composer extensions
   menu, extension toggle, and stale MCP migration.
+- [`voice-mode-flows.md`](./voice-mode-flows.md) — Voice Mode extension,
+  deterministic UI MCP assertions, and optional OpenAI Realtime microphone eval.

@@ -152,6 +152,54 @@ function formatExecutionResult(actionId, result) {
   return `Executed ${actionId}.`;
 }
 
+function getPathValue(source, path) {
+  if (!path) return source;
+  const parts = String(path).split(".").map((part) => part.trim()).filter(Boolean);
+  let current = source;
+  for (const part of parts) {
+    if (current == null || typeof current !== "object") return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+function valuesEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function inspectPayload(result) {
+  if (Object.prototype.hasOwnProperty.call(result, "value")) return result.value;
+  if (Object.prototype.hasOwnProperty.call(result, "snapshot")) return result.snapshot;
+  return result;
+}
+
+function evaluateInspectorAssertion(source, assertion) {
+  const actual = getPathValue(source, assertion.path || "");
+  if (assertion.exists === true && actual === undefined) {
+    return { ok: false, actual, message: `${assertion.path || "value"} does not exist` };
+  }
+  if (assertion.exists === false && actual !== undefined) {
+    return { ok: false, actual, message: `${assertion.path || "value"} exists` };
+  }
+  if (Object.prototype.hasOwnProperty.call(assertion, "equals") && !valuesEqual(actual, assertion.equals)) {
+    return { ok: false, actual, message: `${assertion.path || "value"} did not equal ${JSON.stringify(assertion.equals)}` };
+  }
+  if (typeof assertion.contains === "string") {
+    const haystack = typeof actual === "string" ? actual : JSON.stringify(actual);
+    if (!haystack.includes(assertion.contains)) {
+      return { ok: false, actual, message: `${assertion.path || "value"} did not contain ${JSON.stringify(assertion.contains)}` };
+    }
+  }
+  return { ok: true, actual, message: "Assertion passed" };
+}
+
+async function inspectBridge(slice) {
+  const suffix = slice ? `?slice=${encodeURIComponent(slice)}` : "";
+  const result = await bridgeRequest(`/inspect${suffix}`);
+  if (!result.ok && result.error) return result;
+  return { ok: true, raw: result, value: inspectPayload(result) };
+}
+
 // ── MCP Server ──
 
 const server = new McpServer({
@@ -221,6 +269,81 @@ server.tool(
       return { content: [{ type: "text", text: `Error executing ${actionId}: ${result.error}` }], isError: true };
     }
     return { content: [{ type: "text", text: formatExecutionResult(actionId, result) }] };
+  }
+);
+
+// ── ui.inspect ──
+server.tool(
+  "ui_inspect",
+  "Read OpenWork's structured runtime inspector. Use this for deterministic evals and assertions, including slices like 'composer' or 'voice'.",
+  {
+    slice: z.string().optional().describe("Optional inspector slice name, e.g. 'composer' or 'voice'. Omit to return the full inspector snapshot."),
+  },
+  async ({ slice }) => {
+    const result = await inspectBridge(slice?.trim() || "");
+    if (!result.ok && result.error) {
+      return { content: [{ type: "text", text: `Error: ${result.error}` }], isError: true };
+    }
+    return { content: [{ type: "text", text: JSON.stringify(result.value, null, 2) }] };
+  }
+);
+
+// ── ui.assert ──
+server.tool(
+  "ui_assert",
+  "Assert against OpenWork's structured runtime inspector without DOM scraping. Supports dot paths, equality, contains, and existence checks.",
+  {
+    slice: z.string().optional().describe("Optional inspector slice name, e.g. 'voice'."),
+    path: z.string().optional().describe("Dot path inside the inspected payload, e.g. 'status' when slice='voice' or 'voice.status' for the full snapshot."),
+    equals: z.unknown().optional().describe("Expected JSON value."),
+    contains: z.string().optional().describe("Expected substring in the actual string or JSON-rendered value."),
+    exists: z.boolean().optional().describe("Whether the value must exist."),
+  },
+  async (assertion) => {
+    const result = await inspectBridge(assertion.slice?.trim() || "");
+    if (!result.ok && result.error) {
+      return { content: [{ type: "text", text: `Error: ${result.error}` }], isError: true };
+    }
+    const evaluated = evaluateInspectorAssertion(result.value, assertion);
+    const text = `${evaluated.message}\nActual: ${JSON.stringify(evaluated.actual, null, 2)}`;
+    return { content: [{ type: "text", text }], isError: !evaluated.ok };
+  }
+);
+
+// ── ui.wait_for ──
+server.tool(
+  "ui_wait_for",
+  "Wait until an OpenWork inspector assertion passes. Use this in CDP/Electron evals instead of arbitrary sleeps.",
+  {
+    slice: z.string().optional().describe("Optional inspector slice name, e.g. 'voice'."),
+    path: z.string().optional().describe("Dot path inside the inspected payload."),
+    equals: z.unknown().optional().describe("Expected JSON value."),
+    contains: z.string().optional().describe("Expected substring in the actual string or JSON-rendered value."),
+    exists: z.boolean().optional().describe("Whether the value must exist."),
+    timeoutMs: z.number().optional().describe("Maximum wait time in milliseconds. Defaults to 5000."),
+    intervalMs: z.number().optional().describe("Polling interval in milliseconds. Defaults to 150."),
+  },
+  async (assertion) => {
+    const timeoutMs = Math.min(Math.max(assertion.timeoutMs ?? 5000, 100), 60000);
+    const intervalMs = Math.min(Math.max(assertion.intervalMs ?? 150, 50), 2000);
+    const started = Date.now();
+    let last = null;
+    while (Date.now() - started <= timeoutMs) {
+      const result = await inspectBridge(assertion.slice?.trim() || "");
+      if (!result.ok && result.error) {
+        last = { ok: false, actual: null, message: result.error };
+      } else {
+        last = evaluateInspectorAssertion(result.value, assertion);
+        if (last.ok) {
+          return { content: [{ type: "text", text: `Condition met after ${Date.now() - started}ms.\nActual: ${JSON.stringify(last.actual, null, 2)}` }] };
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    return {
+      content: [{ type: "text", text: `Timed out after ${timeoutMs}ms: ${last?.message || "condition not met"}\nActual: ${JSON.stringify(last?.actual, null, 2)}` }],
+      isError: true,
+    };
   }
 );
 
