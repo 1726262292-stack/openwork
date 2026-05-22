@@ -237,6 +237,7 @@ export function getOrgAccessFlags(roleValue: string, isOwner: boolean) {
     canInviteMembers: isAdmin,
     canCancelInvitations: isAdmin,
     canManageMembers: isOwner,
+    canRemoveMembers: isAdmin,
     canManageRoles: isOwner,
     canManageTeams: isAdmin,
     canManageApiKeys: isAdmin,
