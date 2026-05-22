@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { isToolUIPart, type DynamicToolUIPart, type UIMessage } from "ai";
 import type { Part } from "@opencode-ai/sdk/v2/client";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -184,6 +184,47 @@ type SessionTranscriptProps = {
 // virtualizer's baseline overhead for tiny sessions.
 const VIRTUALIZATION_THRESHOLD = 20;
 const VIRTUAL_OVERSCAN = 4;
+
+function clampVirtualEstimate(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function estimateTextBlockSize(text: string, isUser: boolean) {
+  const explicitLines = text.split("\n").length;
+  const wrappedLines = Math.ceil(text.length / (isUser ? 68 : 86));
+  const markdownStructureLines = text
+    .split("\n")
+    .filter((line) => /^\s*([-*+]\s+|\d+\.\s+|>\s+|#{1,6}\s+|\|)/.test(line)).length;
+  const fencedCodeBlocks = Math.floor((text.match(/```/g) ?? []).length / 2);
+  const estimatedLines = Math.max(explicitLines, wrappedLines) + markdownStructureLines * 0.5;
+  const base = isUser ? 76 : 160;
+  return base + estimatedLines * 22 + fencedCodeBlocks * 72;
+}
+
+function estimateBlockSize(block: MessageBlockItem | undefined) {
+  if (!block) return 360;
+
+  if (block.kind === "steps-cluster") {
+    const partCount = block.stepGroups.reduce((total, group) => total + group.parts.length, 0);
+    return clampVirtualEstimate(64 + partCount * 58, 96, 900);
+  }
+
+  const textSize = block.groups.reduce((total, group) => {
+    if (group.kind === "steps") {
+      return total + 72 + group.parts.length * 58;
+    }
+    return total + estimateTextBlockSize(partToText(group.part), block.isUser);
+  }, 0);
+  const attachmentSize = block.attachments.length > 0 ? 76 : 0;
+  const openTargetsSize = !block.isUser ? 44 : 0;
+  const actionsSize = block.isUser ? 24 : 36;
+
+  return clampVirtualEstimate(
+    textSize + attachmentSize + openTargetsSize + actionsSize,
+    block.isUser ? 112 : 260,
+    block.isUser ? 720 : 1800,
+  );
+}
 
 function partIdFromUiPart(part: UIMessage["parts"][number], fallbackId: string) {
   const metadata = (part as { providerMetadata?: { opencode?: { partId?: unknown } } })
@@ -1235,31 +1276,33 @@ function SessionTranscriptInner(props: SessionTranscriptProps) {
   // switching to virtualization.
   const shouldVirtualize = messageBlocks.length >= VIRTUALIZATION_THRESHOLD;
 
+  const estimateVirtualItemSize = useCallback(
+    (index: number) => estimateBlockSize(messageBlocks[index]),
+    [messageBlocks],
+  );
+
+  const getVirtualItemKey = useCallback((index: number) => {
+    const block = messageBlocks[index];
+    if (!block) return `block-${index}`;
+    if (block.kind === "steps-cluster") {
+      return `steps-${block.messageIds.join(",")}`;
+    }
+    return `message-${block.messageId}`;
+  }, [messageBlocks]);
+
   const virtualizer = useVirtualizer({
     count: messageBlocks.length,
     getScrollElement: () => props.scrollElement?.() ?? null,
-    // Give react-virtual a shape-aware estimate so the initial scroll
-    // height is closer to reality. Small steps-cluster rows are much
-    // shorter than full assistant message blocks; a good estimate means
-    // fewer measurement-driven scroll corrections as rows come into view.
-    estimateSize: (index) => {
-      const block = messageBlocks[index];
-      if (!block) return 180;
-      if (block.kind === "steps-cluster") return 80;
-      return block.isUser ? 96 : 320;
-    },
+    // TanStack recommends estimating the largest comfortable dynamic size.
+    // Content-aware estimates reduce the measurement corrections that cause
+    // long transcripts to jitter as previously-unmeasured rows enter view.
+    estimateSize: estimateVirtualItemSize,
     overscan: VIRTUAL_OVERSCAN,
-    getItemKey: (index) => {
-      const block = messageBlocks[index];
-      if (!block) return `block-${index}`;
-      if (block.kind === "steps-cluster") {
-        return `steps-${block.messageIds.join(",")}`;
-      }
-      return `message-${block.messageId}`;
-    },
+    getItemKey: getVirtualItemKey,
   });
 
   const virtualRows = shouldVirtualize ? virtualizer.getVirtualItems() : [];
+  const firstVirtualRow = virtualRows[0];
 
   useEffect(() => {
     const register = props.setScrollToMessageById;
@@ -1315,44 +1358,46 @@ function SessionTranscriptInner(props: SessionTranscriptProps) {
             width: "100%",
           }}
         >
-          {virtualRows.map((virtualRow) => {
-            const block = messageBlocks[virtualRow.index];
-            if (!block) return null;
-            return (
-              <div
-                key={virtualRow.key}
-                data-index={virtualRow.index}
-                ref={(element) => {
-                  if (element) {
-                    virtualizer.measureElement(element);
-                  }
-                }}
-                className="absolute left-0 top-0 w-full"
-                style={{
-                  transform: `translateY(${virtualRow.start}px)`,
-                }}
-              >
-                <MessageBlockRow
-                  block={block}
-                  blockIndex={virtualRow.index}
-                  totalBlocks={messageBlocks.length}
-                  isNestedVariant={isNestedVariant}
-                  shouldUseContentVisibility={shouldUseContentVisibility}
-                  expandedStepIds={expandedStepIds}
-                  onExpandedStepIdsChange={onExpandedStepIdsChange}
-                  searchMatchMessageIds={props.searchMatchMessageIds}
-                  activeSearchMessageId={props.activeSearchMessageId}
-                  searchHighlightQuery={props.searchHighlightQuery}
-                  isStreaming={props.isStreaming}
-                  latestAssistantMessageId={latestAssistantMessageId}
-                  onRevertToMessage={props.onRevertToMessage}
-                  onForkAtMessage={props.onForkAtMessage}
-                  openTargets={props.openTargets}
-                  onOpenTarget={props.onOpenTarget}
-                />
-              </div>
-            );
-          })}
+          {firstVirtualRow ? (
+            <div
+              className="absolute left-0 top-0 w-full"
+              style={{
+                transform: `translateY(${firstVirtualRow.start}px)`,
+              }}
+            >
+              {virtualRows.map((virtualRow) => {
+                const block = messageBlocks[virtualRow.index];
+                if (!block) return null;
+                return (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    ref={virtualizer.measureElement}
+                    className="w-full"
+                  >
+                    <MessageBlockRow
+                      block={block}
+                      blockIndex={virtualRow.index}
+                      totalBlocks={messageBlocks.length}
+                      isNestedVariant={isNestedVariant}
+                      shouldUseContentVisibility={shouldUseContentVisibility}
+                      expandedStepIds={expandedStepIds}
+                      onExpandedStepIdsChange={onExpandedStepIdsChange}
+                      searchMatchMessageIds={props.searchMatchMessageIds}
+                      activeSearchMessageId={props.activeSearchMessageId}
+                      searchHighlightQuery={props.searchHighlightQuery}
+                      isStreaming={props.isStreaming}
+                      latestAssistantMessageId={latestAssistantMessageId}
+                      onRevertToMessage={props.onRevertToMessage}
+                      onForkAtMessage={props.onForkAtMessage}
+                      openTargets={props.openTargets}
+                      onOpenTarget={props.onOpenTarget}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div>
