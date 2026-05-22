@@ -186,7 +186,7 @@ export const auth = betterAuth({
       },
       "/sign-up/email": {
         window: 3600,
-        max: 3,
+        max: env.devMode ? 100 : 5,
       },
       "/email-otp/send-verification-otp": {
         window: 3600,

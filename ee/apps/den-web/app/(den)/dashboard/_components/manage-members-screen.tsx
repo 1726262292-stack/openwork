@@ -4,10 +4,12 @@ import { type ElementType, useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
   Circle,
+  Link,
   Lock,
-  Mail,
+  MoreHorizontal,
   Pencil,
   Plus,
+  Send,
   Settings,
   Shield,
   Trash2,
@@ -17,6 +19,7 @@ import {
 import {
   DEN_ROLE_PERMISSION_OPTIONS,
   formatRoleLabel,
+  getJoinOrgRoute,
   getOrgAccessFlags,
   getMembersRoute,
   splitRoleString,
@@ -31,8 +34,9 @@ import { DenButton } from "../../_components/ui/button";
 import { DenCard } from "../../_components/ui/card";
 import { DenInput } from "../../_components/ui/input";
 import { DenSelect } from "../../_components/ui/select";
+import { OrgMemberIdentity } from "./org-member-identity";
 
-type MembersTab = "members" | "teams" | "roles" | "invitations";
+type MembersTab = "members" | "teams" | "roles";
 
 function clonePermissionRecord(value: Record<string, string[]>) {
   return Object.fromEntries(
@@ -139,6 +143,7 @@ export function ManageMembersScreen() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("member");
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [openMemberMenuId, setOpenMemberMenuId] = useState<string | null>(null);
   const [memberRoleDraft, setMemberRoleDraft] = useState("member");
   const [showTeamForm, setShowTeamForm] = useState(false);
   const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
@@ -166,19 +171,10 @@ export function ManageMembersScreen() {
     [orgContext?.currentMember.isOwner, orgContext?.currentMember.role],
   );
 
-  const pendingInvitations = useMemo(
-    () =>
-      (orgContext?.invitations ?? []).filter(
-        (invitation) => invitation.status === "pending",
-      ),
-    [orgContext?.invitations],
-  );
-
   const tabCounts: Record<MembersTab, number> = {
     members: orgContext?.members.length ?? 0,
     teams: orgContext?.teams.length ?? 0,
     roles: orgContext?.roles.length ?? 0,
-    invitations: pendingInvitations.length,
   };
 
   const teamMemberNames = useMemo(() => {
@@ -197,6 +193,11 @@ export function ManageMembersScreen() {
       ]),
     );
   }, [orgContext?.members, orgContext?.teams]);
+
+  const invitationsById = useMemo(
+    () => new Map((orgContext?.invitations ?? []).map((invitation) => [invitation.id, invitation])),
+    [orgContext?.invitations],
+  );
 
   const feedbackHref = useMemo(
     () =>
@@ -441,16 +442,7 @@ export function ManageMembersScreen() {
                       ) : (
                         <Circle className="mt-0.5 h-6 w-6 shrink-0 text-gray-300" />
                       )}
-                      <div>
-                        <p className="text-[15px] font-medium tracking-[-0.03em]">
-                          {member.user.name}
-                        </p>
-                        <p
-                          className={`mt-1 text-[13px] ${selected ? "text-white/70" : "text-gray-400"}`}
-                        >
-                          {member.user.email}
-                        </p>
-                      </div>
+                      <OrgMemberIdentity member={member} inverted={selected} />
                     </button>
                   );
                 })}
@@ -599,15 +591,6 @@ export function ManageMembersScreen() {
         },
       };
     }
-    if (activeTab === "invitations" && access.canInviteMembers) {
-      return {
-        label: "Invite member",
-        onClick: () => {
-          resetMemberEditor();
-          setShowInviteForm((current) => !current);
-        },
-      };
-    }
     return null;
   })();
 
@@ -645,7 +628,6 @@ export function ManageMembersScreen() {
           { value: "members", label: "Members", icon: User, count: tabCounts.members },
           { value: "teams", label: "Teams", icon: Users, count: tabCounts.teams },
           { value: "roles", label: "Roles", icon: Shield, count: tabCounts.roles },
-          { value: "invitations", label: "Invitations", icon: Mail, count: tabCounts.invitations },
         ]}
       />
 
@@ -653,7 +635,6 @@ export function ManageMembersScreen() {
       {activeTab === "members" ? editMemberForm : null}
       {activeTab === "teams" ? teamForm : null}
       {activeTab === "roles" ? roleForm : null}
-      {activeTab === "invitations" ? inviteForm : null}
 
       {activeTab === "members" ? (
         <div>
@@ -670,7 +651,7 @@ export function ManageMembersScreen() {
             ) : null}
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white">
+          <div className="overflow-visible rounded-2xl border border-gray-100 bg-white">
             <div className="grid grid-cols-[minmax(0,1fr)_180px_140px_160px] gap-4 border-b border-gray-100 px-6 py-3 text-[11px] font-medium uppercase tracking-wide text-gray-400">
               <span>Member</span>
               <span>Role</span>
@@ -678,86 +659,147 @@ export function ManageMembersScreen() {
               <span />
             </div>
 
-            {orgContext.members.map((member) => (
-              <div
-                key={member.id}
-                className="grid grid-cols-[minmax(0,1fr)_180px_140px_160px] items-center gap-4 border-b border-gray-100 px-6 py-3.5 transition hover:bg-gray-50/60 last:border-b-0"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0f172a] text-[11px] font-semibold uppercase text-white">
-                    {member.user.name
-                      .split(" ")
-                      .map((part) => part[0])
-                      .join("")
-                      .slice(0, 2)}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] font-medium text-gray-900">
-                      {member.user.name}
-                    </p>
-                    <p className="truncate text-[12px] text-gray-400">
-                      {member.user.email}
-                    </p>
+            {orgContext.members.map((member) => {
+              const isInvited = !member.joinedAt;
+              const inviteId = member.inviteId;
+              const inviteToken = inviteId ? invitationsById.get(inviteId)?.inviteToken : null;
+              const canOpenActions = member.isOwner
+                ? false
+                : isInvited
+                  ? access.canInviteMembers || access.canCancelInvitations
+                  : access.canManageMembers;
+
+              return (
+                <div
+                  key={member.id}
+                  className="grid grid-cols-[minmax(0,1fr)_180px_140px_160px] items-center gap-4 border-b border-gray-100 px-6 py-3.5 transition hover:bg-gray-50/60 last:border-b-0"
+                >
+                  <OrgMemberIdentity member={member} />
+                  <span className="text-[13px] text-gray-500">
+                    {splitRoleString(member.role).map(formatRoleLabel).join(", ")}
+                  </span>
+                  <span className="text-[13px] text-gray-400">
+                    {member.joinedAt
+                      ? new Date(member.joinedAt).toLocaleDateString()
+                      : "Pending"}
+                  </span>
+                  <div className="relative flex items-center justify-end gap-2">
+                    {member.isOwner ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-[12px] text-gray-400">
+                        <Lock className="h-3 w-3" />
+                        Locked
+                      </span>
+                    ) : canOpenActions ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setOpenMemberMenuId((current) => current === member.id ? null : member.id)}
+                          className="rounded-full p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                          aria-label={`Open actions for ${member.user.name}`}
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </button>
+                        {openMemberMenuId === member.id ? (
+                          <div className="absolute right-0 top-9 z-10 w-44 overflow-hidden rounded-2xl border border-gray-100 bg-white p-1.5 text-[13px] shadow-xl shadow-gray-900/10">
+                            {isInvited && inviteToken ? (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const inviteUrl = new URL(getJoinOrgRoute(inviteToken), window.location.origin).toString();
+                                  await navigator.clipboard.writeText(inviteUrl);
+                                  setOpenMemberMenuId(null);
+                                }}
+                                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-gray-600 transition hover:bg-gray-50"
+                              >
+                                <Link className="h-3.5 w-3.5" />
+                                Copy invite link
+                              </button>
+                            ) : null}
+                            {isInvited && access.canInviteMembers ? (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setPageError(null);
+                                  try {
+                                    await inviteMember({ email: member.user.email, role: member.role });
+                                    setOpenMemberMenuId(null);
+                                  } catch (error) {
+                                    setPageError(error instanceof Error ? error.message : "Could not resend invitation.");
+                                  }
+                                }}
+                                disabled={mutationBusy === "invite-member"}
+                                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-gray-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <Send className="h-3.5 w-3.5" />
+                                Resend invite
+                              </button>
+                            ) : null}
+                            {isInvited && access.canCancelInvitations && inviteId ? (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setPageError(null);
+                                  try {
+                                    await cancelInvitation(inviteId);
+                                    setOpenMemberMenuId(null);
+                                  } catch (error) {
+                                    setPageError(error instanceof Error ? error.message : "Could not cancel invitation.");
+                                  }
+                                }}
+                                disabled={mutationBusy === "cancel-invitation"}
+                                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Cancel invite
+                              </button>
+                            ) : null}
+                            {!isInvited && access.canManageMembers ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingMemberId(member.id);
+                                  setMemberRoleDraft(member.role);
+                                  setShowInviteForm(false);
+                                  setOpenMemberMenuId(null);
+                                }}
+                                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-gray-600 transition hover:bg-gray-50"
+                              >
+                                <Settings className="h-3.5 w-3.5" />
+                                Edit role
+                              </button>
+                            ) : null}
+                            {!isInvited && access.canManageMembers ? (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setPageError(null);
+                                  try {
+                                    await removeMember(member.id);
+                                    if (editingMemberId === member.id) {
+                                      resetMemberEditor();
+                                    }
+                                    setOpenMemberMenuId(null);
+                                  } catch (error) {
+                                    setPageError(error instanceof Error ? error.message : "Could not remove member.");
+                                  }
+                                }}
+                                disabled={mutationBusy === "remove-member"}
+                                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Remove member
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span className="text-[13px] text-gray-400">Read only</span>
+                    )}
                   </div>
                 </div>
-                <span className="text-[13px] text-gray-500">
-                  {splitRoleString(member.role).map(formatRoleLabel).join(", ")}
-                </span>
-                <span className="text-[13px] text-gray-400">
-                  {member.createdAt
-                    ? new Date(member.createdAt).toLocaleDateString()
-                    : "-"}
-                </span>
-                <div className="flex items-center justify-end gap-2">
-                  {member.isOwner ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-[12px] text-gray-400">
-                      <Lock className="h-3 w-3" />
-                      Locked
-                    </span>
-                  ) : access.canManageMembers ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingMemberId(member.id);
-                          setMemberRoleDraft(member.role);
-                          setShowInviteForm(false);
-                        }}
-                        className="rounded-full p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
-                        aria-label={`Edit ${member.user.name}`}
-                      >
-                        <Settings className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          setPageError(null);
-                          try {
-                            await removeMember(member.id);
-                            if (editingMemberId === member.id) {
-                              resetMemberEditor();
-                            }
-                          } catch (error) {
-                            setPageError(
-                              error instanceof Error
-                                ? error.message
-                                : "Could not remove member.",
-                            );
-                          }
-                        }}
-                        disabled={mutationBusy === "remove-member"}
-                        className="rounded-full p-2 text-gray-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-60"
-                        aria-label={`Remove ${member.user.name}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </>
-                  ) : (
-                    <span className="text-[13px] text-gray-400">Read only</span>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ) : null}
@@ -773,7 +815,7 @@ export function ManageMembersScreen() {
             ) : null}
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white">
+          <div className="overflow-x-auto overflow-y-visible rounded-2xl border border-gray-100 bg-white">
             <div className="grid grid-cols-[minmax(0,1fr)_160px_200px] gap-4 border-b border-gray-100 px-6 py-3 text-[11px] font-medium uppercase tracking-wide text-gray-400">
               <span>Team</span>
               <span>Members</span>
@@ -868,7 +910,7 @@ export function ManageMembersScreen() {
             ) : null}
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white">
+          <div className="overflow-x-auto overflow-y-visible rounded-2xl border border-gray-100 bg-white">
             <div className="grid grid-cols-[minmax(0,1fr)_120px_200px] gap-4 border-b border-gray-100 px-6 py-3 text-[11px] font-medium uppercase tracking-wide text-gray-400">
               <span>Role</span>
               <span>Type</span>
@@ -935,82 +977,6 @@ export function ManageMembersScreen() {
                 </div>
               </div>
             ))}
-          </div>
-        </div>
-      ) : null}
-
-      {activeTab === "invitations" ? (
-        <div>
-          <div className="mb-6 flex items-center justify-between gap-4">
-            <p className="text-[15px] text-gray-400">
-              Admins and owners can revoke pending invites before they are accepted.
-            </p>
-            {toolbarAction ? (
-              <DenButton icon={Plus} onClick={toolbarAction.onClick}>
-                {toolbarAction.label}
-              </DenButton>
-            ) : null}
-          </div>
-
-          <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white">
-            <div className="grid grid-cols-[minmax(0,1fr)_140px_140px_120px] gap-4 border-b border-gray-100 px-6 py-3 text-[11px] font-medium uppercase tracking-wide text-gray-400">
-              <span>Email</span>
-              <span>Role</span>
-              <span>Expires</span>
-              <span />
-            </div>
-
-            {pendingInvitations.length === 0 ? (
-              <div className="px-6 py-8 text-center text-[13px] text-gray-400">
-                You have no pending workspace invites.
-              </div>
-            ) : (
-              pendingInvitations.map((invitation) => (
-                <div
-                  key={invitation.id}
-                  className="grid grid-cols-[minmax(0,1fr)_140px_140px_120px] items-center gap-4 border-b border-gray-100 px-6 py-3.5 transition hover:bg-gray-50/60 last:border-b-0"
-                >
-                  <span className="truncate text-[13px] text-gray-900">
-                    {invitation.email}
-                  </span>
-                  <span className="text-[13px] text-gray-500">
-                    {formatRoleLabel(invitation.role)}
-                  </span>
-                  <span className="text-[13px] text-gray-400">
-                    {invitation.expiresAt
-                      ? new Date(invitation.expiresAt).toLocaleDateString()
-                      : "-"}
-                  </span>
-                  <div className="flex justify-end">
-                    {access.canCancelInvitations ? (
-                      <ActionButton
-                        disabled={mutationBusy === "cancel-invitation"}
-                        onClick={async () => {
-                          setPageError(null);
-                          try {
-                            await cancelInvitation(invitation.id);
-                          } catch (error) {
-                            setPageError(
-                              error instanceof Error
-                                ? error.message
-                                : "Could not cancel invitation.",
-                            );
-                          }
-                        }}
-                      >
-                        {mutationBusy === "cancel-invitation"
-                          ? "Cancelling..."
-                          : "Cancel"}
-                      </ActionButton>
-                    ) : (
-                      <span className="text-[13px] text-gray-400">
-                        Read only
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
           </div>
         </div>
       ) : null}

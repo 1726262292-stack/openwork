@@ -14,9 +14,11 @@ export type DenOrgSummary = {
 
 export type DenOrgMember = {
   id: string;
-  userId: string;
+  userId: string | null;
+  inviteId: string | null;
   role: string;
   createdAt: string | null;
+  joinedAt: string | null;
   isOwner: boolean;
   user: {
     id: string;
@@ -33,6 +35,7 @@ export type DenOrgInvitation = {
   status: string;
   expiresAt: string | null;
   createdAt: string | null;
+  inviteToken: string | null;
 };
 
 export type DenOrgTeam = {
@@ -459,15 +462,17 @@ export function parseOrgContextPayload(payload: unknown): DenOrgContext | null {
           const userEmail = asString(user.email);
           const userName = asString(user.name);
           const userIdentity = asString(user.id);
-          if (!id || !userId || !role || !userEmail || !userName || !userIdentity) {
+          if (!id || !role || !userEmail || !userName || !userIdentity) {
             return null;
           }
 
           return {
             id,
             userId,
+            inviteId: asString(entry.inviteId),
             role,
             createdAt: asIsoString(entry.createdAt),
+            joinedAt: asIsoString(entry.joinedAt),
             isOwner: asBoolean(entry.isOwner),
             user: {
               id: userIdentity,
@@ -502,6 +507,7 @@ export function parseOrgContextPayload(payload: unknown): DenOrgContext | null {
             status,
             expiresAt: asIsoString(entry.expiresAt),
             createdAt: asIsoString(entry.createdAt),
+            inviteToken: asString(entry.inviteToken),
           } satisfies DenOrgInvitation;
         })
         .filter((entry): entry is DenOrgInvitation => entry !== null)

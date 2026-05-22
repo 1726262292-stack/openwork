@@ -34,11 +34,11 @@ const updateOrganizationSchema = z.object({
 })
 
 const invitationPreviewQuerySchema = z.object({
-  id: denTypeIdSchema("invitation"),
+  id: z.string().trim().min(1).max(255),
 })
 
 const acceptInvitationSchema = z.object({
-  id: denTypeIdSchema("invitation"),
+  id: z.string().trim().min(1).max(255),
 })
 
 const organizationResponseSchema = z.object({

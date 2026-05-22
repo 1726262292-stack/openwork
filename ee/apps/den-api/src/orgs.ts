@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "@openwork-ee/den-db/drizzle"
+import { and, asc, eq, inArray, isNull } from "@openwork-ee/den-db/drizzle"
 import {
   AuthSessionTable,
   AuthUserTable,
@@ -72,16 +72,19 @@ export type OrganizationContext = {
     userId: UserId
     role: string
     createdAt: Date
+    joinedAt: Date | null
     isOwner: boolean
   }
   members: Array<{
     id: MemberId
-    userId: UserId
+    userId: UserId | null
+    inviteId: InvitationRow["id"] | null
     role: string
     createdAt: Date
+    joinedAt: Date | null
     isOwner: boolean
     user: {
-      id: UserId
+      id: UserId | MemberId
       email: string
       name: string
       image: string | null
@@ -94,6 +97,7 @@ export type OrganizationContext = {
     status: string
     expiresAt: Date
     createdAt: Date
+    inviteToken: string | null
   }>
   roles: Array<{
     id: string
@@ -210,6 +214,20 @@ function getEmailDomain(email: string) {
   return normalized.slice(atIndex + 1)
 }
 
+function getEmailLocalPart(email: string) {
+  const atIndex = email.indexOf("@")
+  return atIndex > 0 ? email.slice(0, atIndex) : email
+}
+
+function getEmailDomainName(email: string) {
+  const domain = getEmailDomain(email)
+  return domain?.split(".")[0] ?? "invited"
+}
+
+function getInvitedMemberName(email: string) {
+  return `${getEmailLocalPart(email)} ${getEmailDomainName(email)}`.trim()
+}
+
 export function isEmailAllowedForOrganization(allowedEmailDomains: readonly string[] | null | undefined, email: string) {
   if (!allowedEmailDomains || allowedEmailDomains.length === 0) {
     return true
@@ -279,7 +297,7 @@ async function listMembershipRows(userId: UserId) {
   return db
     .select()
     .from(MemberTable)
-    .where(eq(MemberTable.userId, userId))
+    .where(and(eq(MemberTable.userId, userId), isNull(MemberTable.removedAt)))
     .orderBy(asc(MemberTable.createdAt))
 }
 
@@ -292,6 +310,16 @@ function getInvitationStatus(invitation: Pick<InvitationRow, "status" | "expires
 }
 
 async function getInvitationById(invitationIdRaw: string) {
+  const tokenRows = await db
+    .select()
+    .from(InvitationTable)
+    .where(eq(InvitationTable.inviteToken, invitationIdRaw))
+    .limit(1)
+
+  if (tokenRows[0]) {
+    return tokenRows[0]
+  }
+
   let invitationId
   try {
     invitationId = normalizeDenTypeId("invitation", invitationIdRaw)
@@ -354,7 +382,7 @@ async function insertMemberIfMissing(input: {
   const existing = await db
     .select()
     .from(MemberTable)
-    .where(and(eq(MemberTable.organizationId, input.organizationId), eq(MemberTable.userId, input.userId)))
+    .where(and(eq(MemberTable.organizationId, input.organizationId), eq(MemberTable.userId, input.userId), isNull(MemberTable.removedAt)))
     .limit(1)
 
   if (existing.length > 0) {
@@ -366,12 +394,13 @@ async function insertMemberIfMissing(input: {
     organizationId: input.organizationId,
     userId: input.userId,
     role: input.role,
+    joinedAt: new Date(),
   })
 
   const created = await db
     .select()
     .from(MemberTable)
-    .where(and(eq(MemberTable.organizationId, input.organizationId), eq(MemberTable.userId, input.userId)))
+    .where(and(eq(MemberTable.organizationId, input.organizationId), eq(MemberTable.userId, input.userId), isNull(MemberTable.removedAt)))
     .limit(1)
 
   if (!created[0]) {
@@ -384,12 +413,39 @@ async function insertMemberIfMissing(input: {
 async function acceptInvitation(invitation: InvitationRow, userId: UserId) {
   const availableRoles = await listAssignableRoles(invitation.organizationId)
   const role = normalizeAssignableRole(invitation.role, availableRoles)
+  const joinedAt = new Date()
 
-  const member = await insertMemberIfMissing({
-    organizationId: invitation.organizationId,
-    userId,
-    role,
-  })
+  const existingMemberRows = await db
+    .select()
+    .from(MemberTable)
+    .where(and(eq(MemberTable.organizationId, invitation.organizationId), eq(MemberTable.userId, userId), isNull(MemberTable.removedAt)))
+    .limit(1)
+
+  const invitedMemberRows = await db
+    .select()
+    .from(MemberTable)
+    .where(and(eq(MemberTable.inviteId, invitation.id), eq(MemberTable.organizationId, invitation.organizationId), isNull(MemberTable.removedAt)))
+    .limit(1)
+
+  const invitedMember = invitedMemberRows[0] ?? null
+  const existingMember = existingMemberRows[0] ?? null
+  let member = existingMember
+
+  if (!member && invitedMember) {
+    await db
+      .update(MemberTable)
+      .set({ userId, role, joinedAt })
+      .where(eq(MemberTable.id, invitedMember.id))
+    member = { ...invitedMember, userId, role, joinedAt }
+  }
+
+  if (!member) {
+    member = await insertMemberIfMissing({
+      organizationId: invitation.organizationId,
+      userId,
+      role,
+    })
+  }
 
   if (invitation.teamId) {
     const teams = await db
@@ -466,10 +522,8 @@ export async function acceptInvitationForUser(input: {
 }
 
 export async function getInvitationPreview(invitationIdRaw: string): Promise<InvitationPreview | null> {
-  let invitationId
-  try {
-    invitationId = normalizeDenTypeId("invitation", invitationIdRaw)
-  } catch {
+  const invitation = await getInvitationById(invitationIdRaw)
+  if (!invitation) {
     return null
   }
 
@@ -492,7 +546,7 @@ export async function getInvitationPreview(invitationIdRaw: string): Promise<Inv
     })
     .from(InvitationTable)
     .innerJoin(OrganizationTable, eq(InvitationTable.organizationId, OrganizationTable.id))
-    .where(eq(InvitationTable.id, invitationId))
+    .where(eq(InvitationTable.id, invitation.id))
     .limit(1)
 
   const row = rows[0]
@@ -703,7 +757,7 @@ export async function listUserOrgs(userId: UserId) {
     })
     .from(MemberTable)
     .innerJoin(OrganizationTable, eq(MemberTable.organizationId, OrganizationTable.id))
-    .where(eq(MemberTable.userId, userId))
+    .where(and(eq(MemberTable.userId, userId), isNull(MemberTable.removedAt)))
     .orderBy(asc(MemberTable.createdAt))
 
   return memberships.map((row) => ({
@@ -772,11 +826,15 @@ export async function getOrganizationContextForUser(input: {
   const currentMemberRows = await db
     .select()
     .from(MemberTable)
-    .where(and(eq(MemberTable.organizationId, organization.id), eq(MemberTable.userId, input.userId)))
+    .where(and(eq(MemberTable.organizationId, organization.id), eq(MemberTable.userId, input.userId), isNull(MemberTable.removedAt)))
     .limit(1)
 
   const currentMember = currentMemberRows[0]
   if (!currentMember) {
+    return null
+  }
+
+  if (!currentMember.userId) {
     return null
   }
 
@@ -786,18 +844,24 @@ export async function getOrganizationContextForUser(input: {
     .select({
       id: MemberTable.id,
       userId: MemberTable.userId,
+      inviteId: MemberTable.inviteId,
       role: MemberTable.role,
       createdAt: MemberTable.createdAt,
+      joinedAt: MemberTable.joinedAt,
       user: {
         id: AuthUserTable.id,
         email: AuthUserTable.email,
         name: AuthUserTable.name,
         image: AuthUserTable.image,
       },
+      invitation: {
+        email: InvitationTable.email,
+      },
     })
     .from(MemberTable)
-    .innerJoin(AuthUserTable, eq(MemberTable.userId, AuthUserTable.id))
-    .where(eq(MemberTable.organizationId, organization.id))
+    .leftJoin(AuthUserTable, eq(MemberTable.userId, AuthUserTable.id))
+    .leftJoin(InvitationTable, eq(MemberTable.inviteId, InvitationTable.id))
+    .where(and(eq(MemberTable.organizationId, organization.id), isNull(MemberTable.removedAt)))
     .orderBy(asc(MemberTable.createdAt))
 
   const invitations = await db
@@ -808,6 +872,7 @@ export async function getOrganizationContextForUser(input: {
       status: InvitationTable.status,
       expiresAt: InvitationTable.expiresAt,
       createdAt: InvitationTable.createdAt,
+      inviteToken: InvitationTable.inviteToken,
     })
     .from(InvitationTable)
     .where(eq(InvitationTable.organizationId, organization.id))
@@ -839,12 +904,28 @@ export async function getOrganizationContextForUser(input: {
       userId: currentMember.userId,
       role: currentMember.role,
       createdAt: currentMember.createdAt,
+      joinedAt: currentMember.joinedAt,
       isOwner: roleIncludesOwner(currentMember.role),
     },
-    members: members.map((member) => ({
-      ...member,
-      isOwner: roleIncludesOwner(member.role),
-    })),
+    members: members.map((member) => {
+      const email = member.user?.email ?? member.invitation?.email ?? "invited@example.com"
+      const name = member.user?.name ?? getInvitedMemberName(email)
+      return {
+        id: member.id,
+        userId: member.userId,
+        inviteId: member.inviteId,
+        role: member.role,
+        createdAt: member.createdAt,
+        joinedAt: member.joinedAt,
+        isOwner: roleIncludesOwner(member.role),
+        user: {
+          id: member.user?.id ?? member.id,
+          email,
+          name,
+          image: member.user?.image ?? null,
+        },
+      }
+    }),
     invitations,
     roles: [
       {
@@ -928,11 +1009,12 @@ export async function listTeamsForMember(input: {
 export async function removeOrganizationMember(input: {
   organizationId: OrgId
   memberId: MemberRow["id"]
+  removedByOrgMemberId?: MemberRow["id"]
 }) {
   const memberRows = await db
     .select()
     .from(MemberTable)
-    .where(and(eq(MemberTable.id, input.memberId), eq(MemberTable.organizationId, input.organizationId)))
+    .where(and(eq(MemberTable.id, input.memberId), eq(MemberTable.organizationId, input.organizationId), isNull(MemberTable.removedAt)))
     .limit(1)
 
   const member = memberRows[0] ?? null
@@ -952,7 +1034,10 @@ export async function removeOrganizationMember(input: {
         .where(and(eq(TeamMemberTable.teamId, team.id), eq(TeamMemberTable.orgMembershipId, member.id)))
     }
 
-    await tx.delete(MemberTable).where(eq(MemberTable.id, member.id))
+    await tx
+      .update(MemberTable)
+      .set({ removedAt: new Date(), removedByOrgMember: input.removedByOrgMemberId ?? null })
+      .where(eq(MemberTable.id, member.id))
   })
 
   await runPostOrganizationMemberChangeHooks({ organizationId: input.organizationId, memberId: member.id, change: "removed" })

@@ -1,4 +1,4 @@
-import { and, eq } from "@openwork-ee/den-db/drizzle"
+import { and, eq, isNull } from "@openwork-ee/den-db/drizzle"
 import { MemberTable } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
@@ -57,7 +57,7 @@ export function registerOrgMemberRoutes<T extends { Variables: OrgRouteVariables
     const memberRows = await db
       .select()
       .from(MemberTable)
-      .where(and(eq(MemberTable.id, memberId), eq(MemberTable.organizationId, payload.organization.id)))
+      .where(and(eq(MemberTable.id, memberId), eq(MemberTable.organizationId, payload.organization.id), isNull(MemberTable.removedAt)))
       .limit(1)
 
     const member = memberRows[0]
@@ -115,7 +115,7 @@ export function registerOrgMemberRoutes<T extends { Variables: OrgRouteVariables
     const memberRows = await db
       .select()
       .from(MemberTable)
-      .where(and(eq(MemberTable.id, memberId), eq(MemberTable.organizationId, payload.organization.id)))
+      .where(and(eq(MemberTable.id, memberId), eq(MemberTable.organizationId, payload.organization.id), isNull(MemberTable.removedAt)))
       .limit(1)
 
     const member = memberRows[0]
@@ -130,6 +130,7 @@ export function registerOrgMemberRoutes<T extends { Variables: OrgRouteVariables
     await removeOrganizationMember({
       organizationId: payload.organization.id,
       memberId: member.id,
+      removedByOrgMemberId: payload.currentMember.id,
     })
     return c.body(null, 204)
     },

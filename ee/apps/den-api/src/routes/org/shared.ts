@@ -1,4 +1,5 @@
 import { createDenTypeId, type DenTypeIdName } from "@openwork-ee/utils/typeid"
+import { customAlphabet } from "nanoid"
 import { z } from "zod"
 import type { MemberTeamsContext, OrganizationContextVariables, UserOrganizationsContext } from "../../middleware/index.js"
 import { env } from "../../env.js"
@@ -56,8 +57,10 @@ export function getInvitationOrigin() {
   return env.betterAuthTrustedOrigins.find((origin) => origin !== "*") ?? env.betterAuthUrl
 }
 
-export function buildInvitationLink(invitationId: string) {
-  return new URL(`/join-org?invite=${encodeURIComponent(invitationId)}`, getInvitationOrigin()).toString()
+const createNanoid = customAlphabet("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 21)
+
+export function buildInvitationLink(inviteToken: string) {
+  return new URL(`/join-org?invite=${encodeURIComponent(inviteToken)}`, getInvitationOrigin()).toString()
 }
 
 export function ensureOwner(c: { get: (key: "organizationContext") => OrgRouteVariables["organizationContext"] }) {
@@ -149,6 +152,10 @@ export function ensureApiKeyManager(c: { get: (key: "organizationContext") => Or
 
 export function createInvitationId() {
   return createDenTypeId("invitation")
+}
+
+export function createInvitationToken() {
+  return createNanoid()
 }
 
 export function createRoleId() {

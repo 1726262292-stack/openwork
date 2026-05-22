@@ -2500,11 +2500,16 @@ async function buildConnectorAutomationContext(input: { connectorInstance: Conne
     .where(and(
       eq(MemberTable.organizationId, input.connectorInstance.organizationId),
       eq(MemberTable.id, input.connectorInstance.createdByOrgMembershipId),
+      isNull(MemberTable.removedAt),
     ))
     .limit(1)
   const member = memberRows[0] as MemberRow | undefined
   if (!member) {
     throw new PluginArchRouteFailure(404, "member_not_found", "Connector creator member not found.")
+  }
+
+  if (!member.userId) {
+    throw new PluginArchRouteFailure(404, "member_not_joined", "Connector creator member has not joined the organization.")
   }
 
   return {
@@ -2514,6 +2519,7 @@ async function buildConnectorAutomationContext(input: { connectorInstance: Conne
         createdAt: member.createdAt,
         id: member.id,
         isOwner: roleIncludesOwner(member.role),
+        joinedAt: member.joinedAt,
         role: member.role,
         userId: member.userId,
       },
