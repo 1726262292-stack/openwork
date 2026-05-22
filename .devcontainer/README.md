@@ -36,6 +36,19 @@ bash .devcontainer/setup-daytona-secrets-volume.sh .newtoken
 Future Daytona test sandboxes mount `openwork-eval-secrets:/daytona-secrets`
 and source `/daytona-secrets/openai.env` automatically before Electron starts.
 
+For downloadable eval artifacts or optional video recording, use:
+
+```bash
+bash .devcontainer/test-on-daytona.sh [branch-or-commit] --artifacts-volume
+bash .devcontainer/test-on-daytona.sh [branch-or-commit] --record-video
+```
+
+The artifacts flow mounts `openwork-eval-artifacts:/daytona-artifacts`, starts a
+static download server on port 8090, and prints a Daytona preview URL. Recording
+writes mp4 files to `/daytona-artifacts/recordings` and prints the direct video
+URL. Stop recording with the printed `pkill -INT -f "ffmpeg.*x11grab"` command so
+ffmpeg finalizes the file cleanly.
+
 Do not use the generic `daytona create https://github.com/different-ai/openwork`
 flow for Electron/noVNC tests. The default resource size is too small and the
 generic image path does not guarantee the desktop stack we need.
@@ -77,6 +90,8 @@ client and talks to the server through public Daytona preview URLs.
 6. `/opt/openwork-daytona/start-daytona-electron.sh` sources optional secrets,
    applies Daytona-safe Chromium flags, and starts Electron on display `:99`.
 7. **CDP on port 9825** enables Chrome MCP and browser-tool automation.
+8. Optional artifact capture mounts `/daytona-artifacts`, serves it on port 8090,
+   and records display `:99` with ffmpeg when `--record-video` is passed.
 
 ## Testing the customization system
 

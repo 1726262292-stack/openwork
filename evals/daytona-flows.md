@@ -26,6 +26,28 @@ Create/populate it once with `bash .devcontainer/setup-daytona-secrets-volume.sh
 before Electron starts. The Electron starter also applies Daytona-safe Chromium
 flags via `ELECTRON_EXTRA_LAUNCH_ARGS`.
 
+To persist downloadable artifacts, pass `--artifacts-volume`. The helper mounts
+the reusable `openwork-eval-artifacts` volume at `/daytona-artifacts`, starts a
+static download server, and prints its Daytona preview URL.
+
+To record the Electron display, pass `--record-video`:
+
+```bash
+bash .devcontainer/test-on-daytona.sh [branch-or-commit] --record-video
+```
+
+`--record-video` implies `--artifacts-volume` and writes an mp4 under
+`/daytona-artifacts/recordings`. The helper prints the direct recording URL and
+the stop command:
+
+```bash
+daytona exec <sandbox> -- 'pkill -INT -f "ffmpeg.*x11grab"'
+```
+
+Use `SIGINT` so ffmpeg finalizes the mp4 cleanly before downloading it. Optional
+recording controls are `--recording-name <name>`, `--recording-fps <fps>`, and
+`--recording-size <WxH>`.
+
 ### 2. Get the CDP proxy URL
 
 Use the Electron CDP URL printed by `test-on-daytona.sh`. It looks like

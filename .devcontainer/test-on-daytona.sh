@@ -6,17 +6,25 @@ set -euo pipefail
 # Usage:
 #   bash .devcontainer/test-on-daytona.sh [branch-or-commit]
 #   bash .devcontainer/test-on-daytona.sh [branch-or-commit] --force-install
+#   bash .devcontainer/test-on-daytona.sh [branch-or-commit] --artifacts-volume
+#   bash .devcontainer/test-on-daytona.sh [branch-or-commit] --record-video
 #   bash .devcontainer/setup-daytona-secrets-volume.sh [.newtoken]
 #
 # Creates a Daytona sandbox from the reusable VNC snapshot, checks out the given
 # ref, installs dependencies with a workspace-local pnpm store when needed,
-# starts `pnpm dev:sandbox`, and prints CDP/noVNC URLs.
+# starts `pnpm dev:sandbox`, and prints CDP/noVNC URLs. Optionally mounts an
+# artifacts volume and records the Electron display.
 
 REF=""
 FORCE_INSTALL=0
 DEN_BASE_URL=""
 DEN_API_BASE_URL=""
 DEN_REQUIRE_SIGNIN=0
+ARTIFACTS_ENABLED=0
+RECORD_VIDEO=0
+RECORDING_NAME=""
+RECORDING_FPS="15"
+RECORDING_SIZE="1920x1080"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -38,8 +46,27 @@ while [ "$#" -gt 0 ]; do
     --require-signin)
       DEN_REQUIRE_SIGNIN=1
       ;;
+    --artifacts-volume)
+      ARTIFACTS_ENABLED=1
+      ;;
+    --record-video)
+      ARTIFACTS_ENABLED=1
+      RECORD_VIDEO=1
+      ;;
+    --recording-name)
+      shift
+      RECORDING_NAME="${1:?missing recording name}"
+      ;;
+    --recording-fps)
+      shift
+      RECORDING_FPS="${1:?missing recording fps}"
+      ;;
+    --recording-size)
+      shift
+      RECORDING_SIZE="${1:?missing recording size}"
+      ;;
     --help|-h)
-      sed -n '1,12p' "$0"
+      sed -n '1,16p' "$0"
       exit 0
       ;;
     --*)
@@ -65,12 +92,31 @@ fi
 SANDBOX="openwork-test-$(date +%Y%m%d-%H%M%S)"
 CDP_PORT=9825
 NOVNC_PORT=6080
+ARTIFACTS_PORT=8090
 MAX_WAIT=90
 DAYTONA_EVAL_SNAPSHOT="${DAYTONA_EVAL_SNAPSHOT:-openwork-eval-vnc}"
 DAYTONA_SECRETS_VOLUME="${DAYTONA_SECRETS_VOLUME:-openwork-eval-secrets}"
 DAYTONA_SECRETS_MOUNT="${DAYTONA_SECRETS_MOUNT:-/daytona-secrets}"
 DAYTONA_SECRETS_ENV="${DAYTONA_SECRETS_ENV:-${DAYTONA_SECRETS_MOUNT}/openai.env}"
+DAYTONA_ARTIFACTS_VOLUME="${DAYTONA_ARTIFACTS_VOLUME:-openwork-eval-artifacts}"
+DAYTONA_ARTIFACTS_MOUNT="${DAYTONA_ARTIFACTS_MOUNT:-/daytona-artifacts}"
 DAYTONA_ELECTRON_EXTRA_LAUNCH_ARGS="${DAYTONA_ELECTRON_EXTRA_LAUNCH_ARGS:---disable-gpu --disable-dev-shm-usage --enable-unsafe-swiftshader}"
+
+if [ -z "$RECORDING_NAME" ]; then
+  RECORDING_NAME="$SANDBOX"
+fi
+if [[ ! "$RECORDING_NAME" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "ERROR: recording name may only contain letters, numbers, dots, underscores, and dashes" >&2
+  exit 1
+fi
+if [[ ! "$RECORDING_FPS" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: recording fps must be a positive integer" >&2
+  exit 1
+fi
+if [[ ! "$RECORDING_SIZE" =~ ^[0-9]+x[0-9]+$ ]]; then
+  echo "ERROR: recording size must use WxH format, for example 1920x1080" >&2
+  exit 1
+fi
 
 volume_field() {
   local name="$1"
@@ -114,6 +160,18 @@ fi
 wait_for_volume_ready "$DAYTONA_SECRETS_VOLUME"
 DAYTONA_SECRETS_VOLUME_ID="$(volume_field "$DAYTONA_SECRETS_VOLUME" id)"
 
+DAYTONA_ARTIFACTS_VOLUME_ID=""
+if [ "$ARTIFACTS_ENABLED" -eq 1 ]; then
+  echo ""
+  echo "==> Ensuring reusable artifacts volume: $DAYTONA_ARTIFACTS_VOLUME"
+  volume_create_output="$(daytona volume create "$DAYTONA_ARTIFACTS_VOLUME" --size 5 2>&1 || true)"
+  if [ -n "$volume_create_output" ] && ! printf '%s' "$volume_create_output" | grep -qi "already exists"; then
+    printf '%s\n' "$volume_create_output"
+  fi
+  wait_for_volume_ready "$DAYTONA_ARTIFACTS_VOLUME"
+  DAYTONA_ARTIFACTS_VOLUME_ID="$(volume_field "$DAYTONA_ARTIFACTS_VOLUME" id)"
+fi
+
 SNAPSHOT_ID="$(snapshot_id "$DAYTONA_EVAL_SNAPSHOT")"
 if [ -z "$SNAPSHOT_ID" ]; then
   echo "ERROR: Daytona snapshot '$DAYTONA_EVAL_SNAPSHOT' not found." >&2
@@ -122,13 +180,18 @@ if [ -z "$SNAPSHOT_ID" ]; then
 fi
 
 echo "==> Using Daytona snapshot: $DAYTONA_EVAL_SNAPSHOT"
-daytona create \
-  --name "$SANDBOX" \
-  --snapshot "$SNAPSHOT_ID" \
-  --volume "${DAYTONA_SECRETS_VOLUME_ID}:${DAYTONA_SECRETS_MOUNT}" \
-  --auto-stop 60 \
-  --public \
+DAYTONA_CREATE_ARGS=(
+  --name "$SANDBOX"
+  --snapshot "$SNAPSHOT_ID"
+  --volume "${DAYTONA_SECRETS_VOLUME_ID}:${DAYTONA_SECRETS_MOUNT}"
+  --auto-stop 60
+  --public
   --target us
+)
+if [ "$ARTIFACTS_ENABLED" -eq 1 ]; then
+  DAYTONA_CREATE_ARGS+=(--volume "${DAYTONA_ARTIFACTS_VOLUME_ID}:${DAYTONA_ARTIFACTS_MOUNT}")
+fi
+daytona create "${DAYTONA_CREATE_ARGS[@]}"
 
 echo ""
 echo "==> Waiting for sandbox exec readiness..."
@@ -143,6 +206,12 @@ done
 if [ "$exec_ready" -ne 1 ]; then
   echo "ERROR: sandbox did not become exec-ready" >&2
   exit 1
+fi
+
+if [ "$ARTIFACTS_ENABLED" -eq 1 ]; then
+  echo ""
+  echo "==> Starting artifacts download server..."
+  daytona exec "$SANDBOX" -- "bash -lc 'set -euo pipefail; mkdir -p \"$DAYTONA_ARTIFACTS_MOUNT/recordings\"; nohup python3 -m http.server $ARTIFACTS_PORT --directory \"$DAYTONA_ARTIFACTS_MOUNT\" >/tmp/daytona-artifacts.log 2>&1 &'"
 fi
 
 echo ""
@@ -176,6 +245,14 @@ if [ "$elapsed" -ge "$MAX_WAIT" ]; then
   exit 1
 fi
 
+RECORDING_PATH=""
+if [ "$RECORD_VIDEO" -eq 1 ]; then
+  RECORDING_PATH="${DAYTONA_ARTIFACTS_MOUNT}/recordings/${RECORDING_NAME}.mp4"
+  echo ""
+  echo "==> Starting Daytona display recording..."
+  daytona exec "$SANDBOX" -- "bash -lc 'cd /workspace; DISPLAY=:99 .devcontainer/start-daytona-recording.sh --detach --output \"$RECORDING_PATH\" --size \"$RECORDING_SIZE\" --fps \"$RECORDING_FPS\"'"
+fi
+
 echo ""
 if daytona exec "$SANDBOX" -- "bash -lc 'ps aux | grep opencode | grep -v grep'" 2>/dev/null | grep -q opencode; then
   echo "==> opencode sidecar: running"
@@ -190,6 +267,14 @@ fi
 
 CDP_URL=$(daytona preview-url "$SANDBOX" -p "$CDP_PORT" 2>/dev/null | grep -v "^time=")
 NOVNC_URL=$(daytona preview-url "$SANDBOX" -p "$NOVNC_PORT" 2>/dev/null | grep -v "^time=")
+ARTIFACTS_URL=""
+RECORDING_URL=""
+if [ "$ARTIFACTS_ENABLED" -eq 1 ]; then
+  ARTIFACTS_URL=$(daytona preview-url "$SANDBOX" -p "$ARTIFACTS_PORT" 2>/dev/null | grep -v "^time=")
+fi
+if [ "$RECORD_VIDEO" -eq 1 ]; then
+  RECORDING_URL="${ARTIFACTS_URL%/}/recordings/${RECORDING_NAME}.mp4"
+fi
 
 echo ""
 echo "============================================"
@@ -197,6 +282,15 @@ echo "  Sandbox ready: $SANDBOX"
 echo ""
 echo "  Electron CDP:  $CDP_URL"
 echo "  noVNC visual:  $NOVNC_URL"
+if [ "$ARTIFACTS_ENABLED" -eq 1 ]; then
+  echo "  Artifacts:     $ARTIFACTS_URL"
+fi
+if [ "$RECORD_VIDEO" -eq 1 ]; then
+  echo "  Recording:     $RECORDING_URL"
+  echo ""
+  echo "  Stop recording:"
+  echo "    daytona exec $SANDBOX -- 'pkill -INT -f \"ffmpeg.*x11grab\"'"
+fi
 echo ""
 echo "  Connect browser tools:"
 echo "    browser_list({ browser_url: \"$CDP_URL\" })"
