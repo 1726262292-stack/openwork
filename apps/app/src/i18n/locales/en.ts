@@ -1250,6 +1250,8 @@ export default {
   "settings.environment.validation_reserved": "OPENWORK_ and OPENCODE_ names are managed by OpenWork/OpenCode.",
   "settings.environment.validation_shape": "Use letters, digits, and underscores; do not start with a digit.",
   "settings.environment.value_label": "Value",
+  "settings.environment.table_actions": "Actions",
+  "settings.environment.updated_at": "Updated {date}",
   "settings.tab_description_environment": "Save API keys and tokens for local agents, skills, and MCP servers. Secrets stay on this device.",
   "settings.tab_description_recovery": "Fix common issues, reset workspace settings, or clean up leftover data.",
   "settings.tab_description_skills": "Browse, edit, and install skills without leaving settings.",
