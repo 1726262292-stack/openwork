@@ -216,6 +216,14 @@ export const auth = betterAuth({
     enabled: true,
     autoSignIn: false,
     requireEmailVerification: true,
+    revokeSessionsOnPasswordReset: true,
+    async sendResetPassword({ user, url }) {
+      await sendEmail({
+        to: user.email,
+        template: "passwordReset",
+        props: { resetLink: url },
+      });
+    },
   },
   plugins: [
     jwt(),
