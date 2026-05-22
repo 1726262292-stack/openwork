@@ -426,6 +426,47 @@ browser from opening the OAuth URL.
 
 ---
 
+## Flow 6: Desktop cloud login against Daytona server
+
+**Goal:** Prove a real Electron Daytona sandbox can sign in against a separate
+Daytona-hosted Den server stack.
+
+### Steps
+
+1. Start the server sandbox:
+   ```bash
+   bash .devcontainer/test-server-on-daytona.sh [branch-or-commit]
+   ```
+
+2. Copy the printed `Den Web` and `Den API` URLs, then start Electron against
+   the server:
+   ```bash
+   bash .devcontainer/test-on-daytona.sh [branch-or-commit] \
+     --den-base-url DEN_WEB_URL \
+     --den-api-base-url DEN_API_URL
+   ```
+
+3. In Electron, open Settings, then `Cloud Account`.
+
+4. Verify developer mode shows the Daytona Den Web URL as the configured base
+   URL, and the signed-out panel is visible.
+
+5. Create or sign in to a Den Web account, then use the desktop handoff code or
+   full `openwork://den-auth?...` link in `Paste sign-in code`.
+
+6. Verify Electron shows the cloud account as connected and can load orgs from
+   the Daytona Den API.
+
+### Expected outcome
+
+- Electron bootstrap config points at the Daytona server sandbox, not production.
+- Manual desktop handoff exchange succeeds.
+- Settings show the signed-in user and at least one organization or the org
+  selection prompt.
+- Den API logs show `/v1/auth/desktop-handoff/exchange` and `/v1/me/orgs`.
+
+---
+
 ## Teardown
 
 ```bash
