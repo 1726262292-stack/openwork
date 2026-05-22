@@ -1,7 +1,6 @@
 "use client";
 
 import { ArrowRight, CheckCircle2 } from "lucide-react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { getErrorMessage, requestJson } from "../_lib/den-flow";
@@ -88,10 +87,10 @@ export function ResetPasswordScreen() {
               <span className="font-medium">Your password has been reset.</span>
             </div>
             <p className="m-0">Sign in with your new password to continue.</p>
-            <Link href="/?mode=sign-in" className="den-button-primary mt-1 w-full">
+            <a href="/?mode=sign-in" className="den-button-primary mt-1 w-full">
               Back to sign in
               <ArrowRight className="h-4 w-4" />
-            </Link>
+            </a>
           </div>
         ) : (
           <form className="grid gap-4" onSubmit={submitReset}>
@@ -136,9 +135,9 @@ export function ResetPasswordScreen() {
 
         {!success ? (
           <div className="border-t border-[var(--dls-border)] pt-4 text-center text-sm text-[var(--dls-text-secondary)]">
-            <Link href="/?mode=sign-in" className="font-medium text-[var(--dls-text-primary)] transition hover:opacity-70">
+            <a href="/?mode=sign-in" className="font-medium text-[var(--dls-text-primary)] transition hover:opacity-70">
               Back to sign in
-            </Link>
+            </a>
           </div>
         ) : null}
       </div>
