@@ -224,18 +224,21 @@ if (process.platform === "darwin" && APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty()
   app.dock.setIcon(APP_ICON_IMAGE);
 }
 
-// Optional: expose Chrome DevTools Protocol so external tools (raw CDP clients,
-// DevTools front-ends) can attach to this Electron instance for debugging.
-// NOT required for the built-in browser — that uses native webContents APIs.
-// Enable by setting OPENWORK_ELECTRON_REMOTE_DEBUG_PORT=<port> before launch.
-const remoteDebugPort = Number.parseInt(
+// Expose Chrome DevTools Protocol so the opencode-chrome-devtools plugin can
+// drive the built-in browser panel.  Use OPENWORK_ELECTRON_REMOTE_DEBUG_PORT to
+// pin a specific port; otherwise pick a default (9223) that stays out of the
+// way of common dev-tools ports (9222 = Chrome, 9229 = Node inspector).
+const explicitCdpPort = Number.parseInt(
   process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "",
   10,
 );
-if (Number.isFinite(remoteDebugPort) && remoteDebugPort > 0) {
-  app.commandLine.appendSwitch("remote-debugging-port", String(remoteDebugPort));
-  app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
-}
+const remoteDebugPort = Number.isFinite(explicitCdpPort) && explicitCdpPort > 0
+  ? explicitCdpPort
+  : 9223;
+app.commandLine.appendSwitch("remote-debugging-port", String(remoteDebugPort));
+app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
+// Make the port available to the embedded server so it can pass it to OpenCode.
+process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT = String(remoteDebugPort);
 
 // Apply extra Chromium flags from ELECTRON_EXTRA_LAUNCH_ARGS.
 // Used in headless/Daytona environments to pass e.g. --disable-gpu.

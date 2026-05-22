@@ -4,10 +4,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { ensureDir, exists } from "./utils.js";
 import { ApiError } from "./errors.js";
 import { openworkConfigPath, opencodeConfigPath } from "./workspace-files.js";
-import { readJsoncFile, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
+import { readJsoncFile, updateJsoncPath, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
 import type { ReloadReason } from "./types.js";
 
 const BROWSER_PLUGIN = "opencode-chrome-devtools";
+const LEGACY_BROWSER_MCP_KEYS = ["openwork-browser", "chrome", "chrome-devtools", "control-chrome"];
 
 const OPENWORK_ARTIFACT_GUIDANCE = `<!-- OPENWORK_ARTIFACTS_START -->
 ## OpenWork Artifacts
@@ -193,11 +194,39 @@ async function ensureOpenworkAgent(workspaceRoot: string): Promise<boolean> {
 }
 
 async function ensureBrowserPlugin(workspaceRoot: string): Promise<boolean> {
-  const path = opencodeConfigPath(workspaceRoot);
-  const { data: config } = await readJsoncFile<Record<string, unknown>>(path, {});
-  const existing = Array.isArray(config.plugin) ? config.plugin as string[] : [];
-  if (existing.includes(BROWSER_PLUGIN)) return false;
-  await updateJsoncTopLevel(path, { plugin: [...existing, BROWSER_PLUGIN] });
+  const configPath = opencodeConfigPath(workspaceRoot);
+  const { data: config } = await readJsoncFile<Record<string, unknown>>(configPath, {});
+
+  const hasPlugin = Array.isArray(config.plugin) && (config.plugin as string[]).includes(BROWSER_PLUGIN);
+  const mcp = typeof config.mcp === "object" && config.mcp !== null ? config.mcp as Record<string, unknown> : null;
+  const hasLegacyMcps = mcp ? LEGACY_BROWSER_MCP_KEYS.some((key) => key in mcp) : false;
+  const isOpenWorkOwned = config.default_agent === "openwork";
+
+  if (hasPlugin && !hasLegacyMcps) return false;
+
+  const updates: Record<string, unknown> = {};
+
+  // Add the plugin if missing (only for OpenWork-owned workspaces or legacy migrations)
+  if (!hasPlugin && (isOpenWorkOwned || hasLegacyMcps)) {
+    const existing = Array.isArray(config.plugin) ? config.plugin as string[] : [];
+    updates.plugin = [...existing, BROWSER_PLUGIN];
+  }
+
+  if (!Object.keys(updates).length && !hasLegacyMcps) return false;
+
+  if (Object.keys(updates).length) {
+    await updateJsoncTopLevel(configPath, updates);
+  }
+
+  // Remove stale MCP entries individually to avoid clobbering other keys
+  if (hasLegacyMcps && mcp) {
+    for (const key of LEGACY_BROWSER_MCP_KEYS) {
+      if (key in mcp) {
+        await updateJsoncPath(configPath, ["mcp", key], undefined);
+      }
+    }
+  }
+
   return true;
 }
 
