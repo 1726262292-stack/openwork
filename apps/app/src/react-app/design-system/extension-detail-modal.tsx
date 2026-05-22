@@ -255,10 +255,10 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                     </div>
                   ) : null}
 
-                  {kind === "ui-control" ? (
+                  {launchCommand ? (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Launch</span>
-                      <span className="max-w-[300px] truncate font-mono text-xs text-card-foreground">{(launchCommand ?? fallbackUiControlCommand).join(" ")}</span>
+                      <span className="max-w-[300px] truncate font-mono text-xs text-card-foreground">{launchCommand.join(" ")}</span>
                     </div>
                   ) : null}
 

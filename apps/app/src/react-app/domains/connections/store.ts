@@ -273,6 +273,16 @@ export function createConnectionsStore(options: {
   };
 
   const resolveLocalMcpCommand = async (entry: McpDirectoryInfo) => {
+    if (entry.serverName === "handsfree-computer-use") {
+      try {
+        const command = await (window as any).__OPENWORK_ELECTRON__?.invokeDesktop?.("getHandsFreeMcpCommand");
+        if (Array.isArray(command) && command.every((part) => typeof part === "string") && command.length > 0) {
+          return command;
+        }
+      } catch {
+        // Fall through to the published package command.
+      }
+    }
     if (entry.serverName !== "openwork-ui") {
       return entry.command;
     }

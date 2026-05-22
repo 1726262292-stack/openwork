@@ -157,6 +157,18 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     defaultEnabled: true,
   },
   {
+    id: "handsfree-computer-use",
+    name: "HandsFree Computer Use",
+    serverName: "handsfree-computer-use",
+    description: "Control macOS apps through semantic accessibility refs, background-safe clicks, screenshots, keyboard input, and strict mode.",
+    type: "local",
+    command: ["npx", "-y", "@openwork/handsfree", "mcp"],
+    oauth: false,
+    kind: "extension",
+    iconSrc: "/openwork-mark.svg",
+    composerPrompt: "Use HandsFree Computer Use to ",
+  },
+  {
     id: "openai-image-gen",
     name: "OpenAI Image Gen",
     serverName: "openai-image-gen",
