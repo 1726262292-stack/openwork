@@ -245,6 +245,21 @@ function describeWorkspaceCreateError(error: unknown) {
   return message;
 }
 
+function describeTaskCreateError(error: unknown) {
+  const message = describeRouteError(error);
+  const lower = message.toLowerCase();
+  if (
+    lower.includes("failed to fetch") ||
+    lower.includes("connection") ||
+    lower.includes("fetch failed") ||
+    lower.includes("econnrefused") ||
+    lower.includes("connection lost")
+  ) {
+    return "OpenCode is unavailable for this workspace. Retry once it restarts, or restart OpenWork if the problem continues.";
+  }
+  return message;
+}
+
 function focusPromptSoon() {
   if (typeof window === "undefined") return;
   const focus = () => window.dispatchEvent(new Event("openwork:focusPrompt"));
@@ -2288,8 +2303,7 @@ export function SessionRoute() {
     if (
       !workspace ||
       loading ||
-      retryingWorkspaceIds.includes(workspaceId) ||
-      errorsByWorkspaceId[workspaceId]
+      retryingWorkspaceIds.includes(workspaceId)
     ) {
       return;
     }
@@ -2303,6 +2317,8 @@ export function SessionRoute() {
       { token: endpoint.token, mode: "openwork" },
     );
     try {
+      setErrorsByWorkspaceId((current) => ({ ...current, [workspaceId]: null }));
+      setRouteError(null);
       const session = unwrap(
         await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
       );
@@ -2322,8 +2338,17 @@ export function SessionRoute() {
       focusPromptSoon();
       void refreshRouteState();
     } catch (error) {
-      const message = describeRouteError(error);
+      const message = describeTaskCreateError(error);
       setRouteError(message);
+      setErrorsByWorkspaceId((current) => ({ ...current, [workspaceId]: message }));
+      showToast({
+        title: "OpenCode unavailable",
+        description: message,
+        tone: "error",
+        actionLabel: "Retry",
+        onAction: () => void handleCreateTaskInWorkspace(workspaceId),
+        durationMs: 0,
+      });
       if (isTransientStartupError(message)) {
         setRetryingWorkspaceIds((current) => Array.from(new Set([...current, workspaceId])));
         if (startupRetryTimerRef.current === null) {
@@ -2335,7 +2360,7 @@ export function SessionRoute() {
         }
       }
     }
-  }, [baseUrl, errorsByWorkspaceId, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces]);
+  }, [baseUrl, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, showToast, token, workspaces]);
 
   // Global shortcuts:
   //   Cmd/Ctrl+N  -> new task in selected workspace
