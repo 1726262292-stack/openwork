@@ -174,75 +174,79 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
       label: "Dashboard",
       icon: Home,
     },
-    // NOTE: Shared Workspace soft-disabled — uncomment to re-enable
-    // {
-    //   href: activeOrg ? getBackgroundAgentsRoute(activeOrg.slug) : "#",
-    //   label: "Shared Workspace",
-    //   icon: Bot,
-    //   badge: "Alpha",
-    // },
-    {
-      href: activeOrg ? getInferenceRoute(activeOrg.slug) : "#",
-      label: "OpenWork Models",
-      icon: Sparkles,
-      badge: "Beta",
-    },
-    {
-      href: activeOrg ? getCustomLlmProvidersRoute(activeOrg.slug) : "#",
-      label: "LLM Providers",
-      icon: Cpu,
-    },
-    {
-      href: activeOrg ? getDesktopPoliciesRoute(activeOrg.slug) : "#",
-      label: "Desktop Policies",
-      icon: Laptop,
-    },
-    // NOTE: Skill Hubs soft-disabled — uncomment to re-enable
-    // {
-    //   href: activeOrg ? getSkillHubsRoute(activeOrg.slug) : "#",
-    //   label: "Skill Hubs",
-    //   icon: BookOpen,
-    // },
-    {
-      href: activeOrg ? getIntegrationsRoute(activeOrg.slug) : "#",
-      label: "Integrations",
-      icon: Cable,
-      badge: "New",
-    },
-    {
-      href: activeOrg ? getMarketplacesRoute(activeOrg.slug) : "#",
-      label: "Marketplaces",
-      icon: Store,
-      badge: "New",
-    },
-    {
-      href: activeOrg ? getPluginsRoute(activeOrg.slug) : "#",
-      label: "Plugins",
-      icon: Puzzle,
-      badge: "New",
-    },
-    {
-      href: activeOrg ? getMembersRoute(activeOrg.slug) : "#",
-      label: "Members",
-      icon: Users,
-    },
-    ...(access.canManageApiKeys
-      ? [{
-          href: activeOrg ? getApiKeysRoute(activeOrg.slug) : "#",
-          label: "API Keys",
-          icon: KeyRound,
-        }]
+    ...(access.isAdmin
+      ? [
+          // NOTE: Shared Workspace soft-disabled — uncomment to re-enable
+          // {
+          //   href: activeOrg ? getBackgroundAgentsRoute(activeOrg.slug) : "#",
+          //   label: "Shared Workspace",
+          //   icon: Bot,
+          //   badge: "Alpha",
+          // },
+          {
+            href: activeOrg ? getInferenceRoute(activeOrg.slug) : "#",
+            label: "OpenWork Models",
+            icon: Sparkles,
+            badge: "Beta",
+          },
+          {
+            href: activeOrg ? getCustomLlmProvidersRoute(activeOrg.slug) : "#",
+            label: "LLM Providers",
+            icon: Cpu,
+          },
+          {
+            href: activeOrg ? getDesktopPoliciesRoute(activeOrg.slug) : "#",
+            label: "Desktop Policies",
+            icon: Laptop,
+          },
+          // NOTE: Skill Hubs soft-disabled — uncomment to re-enable
+          // {
+          //   href: activeOrg ? getSkillHubsRoute(activeOrg.slug) : "#",
+          //   label: "Skill Hubs",
+          //   icon: BookOpen,
+          // },
+          {
+            href: activeOrg ? getIntegrationsRoute(activeOrg.slug) : "#",
+            label: "Integrations",
+            icon: Cable,
+            badge: "New",
+          },
+          {
+            href: activeOrg ? getMarketplacesRoute(activeOrg.slug) : "#",
+            label: "Marketplaces",
+            icon: Store,
+            badge: "New",
+          },
+          {
+            href: activeOrg ? getPluginsRoute(activeOrg.slug) : "#",
+            label: "Plugins",
+            icon: Puzzle,
+            badge: "New",
+          },
+          {
+            href: activeOrg ? getMembersRoute(activeOrg.slug) : "#",
+            label: "Members",
+            icon: Users,
+          },
+          ...(access.canManageApiKeys
+            ? [{
+                href: activeOrg ? getApiKeysRoute(activeOrg.slug) : "#",
+                label: "API Keys",
+                icon: KeyRound,
+              }]
+            : []),
+          {
+            href: activeOrg ? getBillingRoute(activeOrg.slug) : "/checkout",
+            label: "Billing",
+            icon: CreditCard,
+          },
+          {
+            href: activeOrg ? getOrgSettingsRoute(activeOrg.slug) : "#",
+            label: "Org Settings",
+            icon: SlidersHorizontal,
+          },
+        ]
       : []),
-    {
-      href: activeOrg ? getBillingRoute(activeOrg.slug) : "/checkout",
-      label: "Billing",
-      icon: CreditCard,
-    },
-    {
-      href: activeOrg ? getOrgSettingsRoute(activeOrg.slug) : "#",
-      label: "Org Settings",
-      icon: SlidersHorizontal,
-    },
   ];
 
   const orgSwitcher = (
