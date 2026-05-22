@@ -82,3 +82,6 @@ Chrome DevTools MCP. Every tool takes `browser_url` as the first argument.
 - [`onboarding-welcome-flows.md`](./onboarding-welcome-flows.md) — the 7
   onboarding/welcome flows covering first-run experience and folder
   explanation.
+- [`browser-extension-flows.md`](./browser-extension-flows.md) — browser
+  extension plugin loading, built-in browser navigation, composer extensions
+  menu, extension toggle, and stale MCP migration.
