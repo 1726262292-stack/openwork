@@ -141,8 +141,13 @@ function readPersistedUiState(): UiState {
     if (!raw) {
       return {
         ...initialState,
-        ...legacyLayoutState,
         sidebarOpen,
+        workspaceLeftSidebarWidth:
+          legacyLayoutState.workspaceLeftSidebarWidth ?? initialState.workspaceLeftSidebarWidth,
+        workspaceRightSidebarExpanded:
+          legacyLayoutState.workspaceRightSidebarExpanded ?? initialState.workspaceRightSidebarExpanded,
+        workspaceRightSidebarExpandedWidth:
+          legacyLayoutState.workspaceRightSidebarExpandedWidth ?? initialState.workspaceRightSidebarExpandedWidth,
       };
     }
 
