@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronRight, Loader2, Mic2, MicOff, Radio, SendHorizontal, Sparkles, Square, X } from "lucide-react";
 import { PaperGrainGradient } from "@openwork/ui/react";
 
@@ -24,6 +24,15 @@ type VoiceTimelineEntry = {
   at: number;
 };
 
+type VoiceRuntimeSnapshot = {
+  status: VoiceStatus;
+  statusText: string;
+  micMuted: boolean;
+  entries: VoiceTimelineEntry[];
+  latestUserTranscript: string;
+  assistantPreview: string;
+};
+
 type VoicePanelProps = {
   client: OpenworkServerClient | null;
   sessionId: string | null;
@@ -42,6 +51,49 @@ const TOOL_LABELS: Record<string, string> = {
   openwork_list_actions: "Listing controls",
   openwork_execute_action: "Running UI action",
 };
+
+const initialVoiceRuntimeSnapshot: VoiceRuntimeSnapshot = {
+  status: "idle",
+  statusText: "Ready for voice control.",
+  micMuted: false,
+  entries: [],
+  latestUserTranscript: "",
+  assistantPreview: "",
+};
+
+const voiceRealtime = {
+  peer: null as RTCPeerConnection | null,
+  channel: null as RTCDataChannel | null,
+  stream: null as MediaStream | null,
+  remoteAudio: null as HTMLAudioElement | null,
+  assistantBuffer: "",
+  responseInProgress: false,
+  pendingResponse: false,
+  micMuted: false,
+};
+
+let voiceRuntimeSnapshot: VoiceRuntimeSnapshot = initialVoiceRuntimeSnapshot;
+const voiceRuntimeListeners = new Set<() => void>();
+
+function getVoiceRuntimeSnapshot() {
+  return voiceRuntimeSnapshot;
+}
+
+function subscribeVoiceRuntime(listener: () => void) {
+  voiceRuntimeListeners.add(listener);
+  return () => {
+    voiceRuntimeListeners.delete(listener);
+  };
+}
+
+function setVoiceRuntimeSnapshot(update: (current: VoiceRuntimeSnapshot) => VoiceRuntimeSnapshot) {
+  voiceRuntimeSnapshot = update(voiceRuntimeSnapshot);
+  voiceRuntimeListeners.forEach((listener) => listener());
+}
+
+function useVoiceRuntimeSnapshot() {
+  return useSyncExternalStore(subscribeVoiceRuntime, getVoiceRuntimeSnapshot, getVoiceRuntimeSnapshot);
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -229,71 +281,60 @@ function VoiceTimelineRow(props: {
 
 export function VoicePanel(props: VoicePanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const peerRef = useRef<RTCPeerConnection | null>(null);
-  const channelRef = useRef<RTCDataChannel | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const timelineEndRef = useRef<HTMLDivElement>(null);
-  const assistantBufferRef = useRef("");
-  const responseInProgressRef = useRef(false);
-  const pendingResponseRef = useRef(false);
-  const micMutedRef = useRef(false);
-  const [status, setStatus] = useState<VoiceStatus>("idle");
-  const [statusText, setStatusText] = useState("Ready for voice control.");
-  const [micMuted, setMicMuted] = useState(false);
-  const [entries, setEntries] = useState<VoiceTimelineEntry[]>([]);
   const [textCommand, setTextCommand] = useState("");
-  const [latestUserTranscript, setLatestUserTranscript] = useState("");
-  const [assistantPreview, setAssistantPreview] = useState("");
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(() => new Set());
+  const { status, statusText, micMuted, entries, latestUserTranscript, assistantPreview } = useVoiceRuntimeSnapshot();
   const connected = status === "listening" || status === "speaking" || status === "muted";
-
-  useEffect(() => {
-    micMutedRef.current = micMuted;
-  }, [micMuted]);
 
   const addEntry = useCallback((role: VoiceTimelineEntry["role"], text: string, options: { toolName?: string; error?: boolean } = {}) => {
     const trimmed = text.trim();
     if ((role === "user" || role === "assistant") && !trimmed) return;
-    setEntries((current) => [
+    setVoiceRuntimeSnapshot((current) => ({
       ...current,
-      {
-        id: `voice-${Date.now()}-${current.length}`,
-        role,
-        text: trimmed || options.toolName || "Tool call",
-        toolName: options.toolName,
-        error: options.error,
-        at: Date.now(),
-      },
-    ].slice(-120));
+      entries: [
+        ...current.entries,
+        {
+          id: `voice-${Date.now()}-${current.entries.length}`,
+          role,
+          text: trimmed || options.toolName || "Tool call",
+          toolName: options.toolName,
+          error: options.error,
+          at: Date.now(),
+        },
+      ].slice(-120),
+    }));
   }, []);
 
   const setRuntimeStatus = useCallback((nextStatus: VoiceStatus, text?: string) => {
-    setStatus(nextStatus);
-    setStatusText(text ?? (
-      nextStatus === "connecting" ? "Connecting to OpenAI Realtime..." :
-        nextStatus === "listening" ? "Listening. Ask OpenWork to act." :
-          nextStatus === "speaking" ? "OpenWork is speaking..." :
-            nextStatus === "muted" ? "Connected, microphone muted." :
-              nextStatus === "error" ? "Voice Mode needs attention." :
-                "Ready for voice control."
-    ));
+    setVoiceRuntimeSnapshot((current) => ({
+      ...current,
+      status: nextStatus,
+      statusText: text ?? (
+        nextStatus === "connecting" ? "Connecting to OpenAI Realtime..." :
+          nextStatus === "listening" ? "Listening. Ask OpenWork to act." :
+            nextStatus === "speaking" ? "OpenWork is speaking..." :
+              nextStatus === "muted" ? "Connected, microphone muted." :
+                nextStatus === "error" ? "Voice Mode needs attention." :
+                  "Ready for voice control."
+      ),
+    }));
   }, []);
 
   const disconnectRealtime = useCallback((silent = false) => {
-    try { streamRef.current?.getTracks().forEach((track) => track.stop()); } catch {}
-    streamRef.current = null;
-    try { channelRef.current?.close(); } catch {}
-    channelRef.current = null;
-    try { peerRef.current?.close(); } catch {}
-    peerRef.current = null;
-    try { remoteAudioRef.current?.remove(); } catch {}
-    remoteAudioRef.current = null;
-    assistantBufferRef.current = "";
-    responseInProgressRef.current = false;
-    pendingResponseRef.current = false;
-    setMicMuted(false);
-    setAssistantPreview("");
+    try { voiceRealtime.stream?.getTracks().forEach((track) => track.stop()); } catch {}
+    voiceRealtime.stream = null;
+    try { voiceRealtime.channel?.close(); } catch {}
+    voiceRealtime.channel = null;
+    try { voiceRealtime.peer?.close(); } catch {}
+    voiceRealtime.peer = null;
+    try { voiceRealtime.remoteAudio?.remove(); } catch {}
+    voiceRealtime.remoteAudio = null;
+    voiceRealtime.assistantBuffer = "";
+    voiceRealtime.responseInProgress = false;
+    voiceRealtime.pendingResponse = false;
+    voiceRealtime.micMuted = false;
+    setVoiceRuntimeSnapshot((current) => ({ ...current, micMuted: false, assistantPreview: "" }));
     setRuntimeStatus("idle");
     if (!silent) addEntry("system", "Voice session stopped.");
     recordInspectorEvent("voice.disconnected", { sessionId: props.sessionId });
@@ -313,11 +354,11 @@ export function VoicePanel(props: VoicePanelProps) {
   }, []);
 
   const requestRealtimeResponse = useCallback((channel: RTCDataChannel, deferIfBusy = true) => {
-    if (responseInProgressRef.current) {
-      if (deferIfBusy) pendingResponseRef.current = true;
+    if (voiceRealtime.responseInProgress) {
+      if (deferIfBusy) voiceRealtime.pendingResponse = true;
       return false;
     }
-    responseInProgressRef.current = true;
+    voiceRealtime.responseInProgress = true;
     channel.send(JSON.stringify({ type: "response.create", response: { output_modalities: ["audio"] } }));
     return true;
   }, []);
@@ -336,14 +377,14 @@ export function VoicePanel(props: VoicePanelProps) {
       return;
     }
     if (type === "response.created") {
-      responseInProgressRef.current = true;
-      pendingResponseRef.current = false;
+      voiceRealtime.responseInProgress = true;
+      voiceRealtime.pendingResponse = false;
       return;
     }
     if (type === "conversation.item.input_audio_transcription.completed") {
       const transcript = readString(event, "transcript").trim();
       if (transcript && isMeaningfulTranscript(transcript)) {
-        setLatestUserTranscript(transcript);
+        setVoiceRuntimeSnapshot((current) => ({ ...current, latestUserTranscript: transcript }));
         addEntry("user", transcript);
         recordInspectorEvent("voice.transcript", { sessionId: props.sessionId, transcript });
       }
@@ -351,8 +392,8 @@ export function VoicePanel(props: VoicePanelProps) {
     }
     if (type === "response.output_text.delta" || type === "response.output_audio_transcript.delta" || type === "response.audio_transcript.delta") {
       const delta = readString(event, "delta");
-      assistantBufferRef.current += delta;
-      setAssistantPreview(assistantBufferRef.current.trim());
+      voiceRealtime.assistantBuffer += delta;
+      setVoiceRuntimeSnapshot((current) => ({ ...current, assistantPreview: voiceRealtime.assistantBuffer.trim() }));
       setRuntimeStatus("speaking");
       return;
     }
@@ -366,7 +407,7 @@ export function VoicePanel(props: VoicePanelProps) {
         const error = typeof output.error === "string" ? output.error : "Tool failed.";
         addEntry("tool", error, { toolName, error: true });
       }
-      const channel = channelRef.current;
+      const channel = voiceRealtime.channel;
       if (!callId || !channel || channel.readyState !== "open") return;
       channel.send(JSON.stringify({
         type: "conversation.item.create",
@@ -376,22 +417,22 @@ export function VoicePanel(props: VoicePanelProps) {
       return;
     }
     if (type === "response.done") {
-      const text = assistantBufferRef.current.trim();
+      const text = voiceRealtime.assistantBuffer.trim();
       if (text) addEntry("assistant", text);
-      assistantBufferRef.current = "";
-      setAssistantPreview("");
-      responseInProgressRef.current = false;
-      const channel = channelRef.current;
-      if (pendingResponseRef.current && channel?.readyState === "open") {
-        pendingResponseRef.current = false;
+      voiceRealtime.assistantBuffer = "";
+      setVoiceRuntimeSnapshot((current) => ({ ...current, assistantPreview: "" }));
+      voiceRealtime.responseInProgress = false;
+      const channel = voiceRealtime.channel;
+      if (voiceRealtime.pendingResponse && channel?.readyState === "open") {
+        voiceRealtime.pendingResponse = false;
         requestRealtimeResponse(channel, false);
       } else {
-        setRuntimeStatus(micMutedRef.current ? "muted" : "listening");
+        setRuntimeStatus(voiceRealtime.micMuted ? "muted" : "listening");
       }
       return;
     }
     if (type === "error") {
-      responseInProgressRef.current = false;
+      voiceRealtime.responseInProgress = false;
       const error = readRecord(event, "error");
       const message = typeof error.message === "string" ? error.message : "Realtime returned an error.";
       addEntry("system", message, { error: true });
@@ -409,13 +450,13 @@ export function VoicePanel(props: VoicePanelProps) {
     const realtimeSession = await client.createVoiceRealtimeSession();
 
     const peer = new RTCPeerConnection();
-    peerRef.current = peer;
+    voiceRealtime.peer = peer;
     if (audioInput) {
       setRuntimeStatus("connecting", "Requesting microphone...");
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
-      streamRef.current = stream;
+      voiceRealtime.stream = stream;
       for (const track of stream.getAudioTracks()) {
         peer.addTrack(track, stream);
       }
@@ -427,16 +468,16 @@ export function VoicePanel(props: VoicePanelProps) {
     audio.autoplay = true;
     audio.style.display = "none";
     document.body.appendChild(audio);
-    remoteAudioRef.current = audio;
+    voiceRealtime.remoteAudio = audio;
     peer.ontrack = (event) => {
       audio.srcObject = event.streams[0] ?? null;
     };
 
     const channel = peer.createDataChannel("oai-events");
-    channelRef.current = channel;
+    voiceRealtime.channel = channel;
     channel.addEventListener("message", (event) => void handleRealtimeMessage(String(event.data)));
     channel.addEventListener("close", () => {
-      if (channelRef.current === channel) setRuntimeStatus("idle");
+      if (voiceRealtime.channel === channel) setRuntimeStatus("idle");
     });
 
     const offer = await peer.createOffer();
@@ -479,10 +520,10 @@ export function VoicePanel(props: VoicePanelProps) {
   }, [disconnectRealtime]);
 
   const toggleMic = useCallback(() => {
-    const nextMuted = !micMutedRef.current;
-    micMutedRef.current = nextMuted;
-    setMicMuted(nextMuted);
-    streamRef.current?.getAudioTracks().forEach((track) => {
+    const nextMuted = !voiceRealtime.micMuted;
+    voiceRealtime.micMuted = nextMuted;
+    setVoiceRuntimeSnapshot((current) => ({ ...current, micMuted: nextMuted }));
+    voiceRealtime.stream?.getAudioTracks().forEach((track) => {
       track.enabled = !nextMuted;
     });
     setRuntimeStatus(nextMuted ? "muted" : "listening");
@@ -492,7 +533,7 @@ export function VoicePanel(props: VoicePanelProps) {
   const sendTextCommand = useCallback(async (text: string) => {
     const value = text.trim();
     if (!value) return { ok: false, error: "Text command required." };
-    if (!channelRef.current || channelRef.current.readyState !== "open") {
+    if (!voiceRealtime.channel || voiceRealtime.channel.readyState !== "open") {
       try {
         await connectRealtime(false);
       } catch (error) {
@@ -502,7 +543,7 @@ export function VoicePanel(props: VoicePanelProps) {
         return { ok: false, error: message };
       }
     }
-    const channel = channelRef.current;
+    const channel = voiceRealtime.channel;
     if (!channel || channel.readyState !== "open") return { ok: false, error: "Realtime channel is not open." };
     addEntry("user", value);
     channel.send(JSON.stringify({
@@ -516,11 +557,11 @@ export function VoicePanel(props: VoicePanelProps) {
   const injectAudio = useCallback(async (args: unknown) => {
     const audio = voiceAudioArgument(args);
     if (!audio) return { ok: false, error: "pcm16Base64 audio is required." };
-    if (!channelRef.current || channelRef.current.readyState !== "open") {
+    if (!voiceRealtime.channel || voiceRealtime.channel.readyState !== "open") {
       const started = await startVoice();
       if (isRecord(started) && started.ok === false) return started;
     }
-    const channel = channelRef.current;
+    const channel = voiceRealtime.channel;
     if (!channel || channel.readyState !== "open") return { ok: false, error: "Realtime channel is not open." };
     addEntry("system", "Injected deterministic audio into the Realtime input buffer.");
     channel.send(JSON.stringify({ type: "input_audio_buffer.append", audio }));
@@ -531,7 +572,7 @@ export function VoicePanel(props: VoicePanelProps) {
 
   const injectTranscript = useCallback(async (args: unknown) => {
     const text = voiceTextArgument(args);
-    setLatestUserTranscript(text);
+    setVoiceRuntimeSnapshot((current) => ({ ...current, latestUserTranscript: text }));
     addEntry("user", text);
     window.dispatchEvent(new CustomEvent("openwork:voice-transcript", { detail: { text } }));
     recordInspectorEvent("voice.inject_transcript", { sessionId: props.sessionId, text });
@@ -558,8 +599,6 @@ export function VoicePanel(props: VoicePanelProps) {
     }));
     return dispose;
   }, [assistantPreview, connected, entries, latestUserTranscript, micMuted, props.sessionId, status, statusText, textCommand.length]);
-
-  useEffect(() => () => disconnectRealtime(true), [disconnectRealtime]);
 
   const startAction = useMemo<OpenworkControlAction>(() => ({
     id: "voice.start",
