@@ -55,7 +55,21 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
   exit 1
 fi
 
-mkdir -p "$(dirname "$OUTPUT")"
+if [ "$DETACH" -eq 1 ]; then
+  SCRIPT_PATH="${BASH_SOURCE[0]}"
+  nohup bash "$SCRIPT_PATH" --output "$OUTPUT" --size "$SIZE" --fps "$FPS" >"$LOG_PATH" 2>&1 &
+  echo "Recording started: $OUTPUT"
+  echo "Recording log: $LOG_PATH"
+  exit 0
+fi
+
+FINAL_OUTPUT="$OUTPUT"
+RECORD_OUTPUT="$OUTPUT"
+if [[ "$OUTPUT" = /daytona-artifacts/* ]]; then
+  RECORD_OUTPUT="/tmp/daytona-recording-$(basename "$OUTPUT")"
+fi
+
+mkdir -p "$(dirname "$RECORD_OUTPUT")"
 
 FFMPEG_ARGS=(
   -y
@@ -66,14 +80,17 @@ FFMPEG_ARGS=(
   -codec:v libx264
   -preset veryfast
   -pix_fmt yuv420p
-  "$OUTPUT"
+  "$RECORD_OUTPUT"
 )
 
-if [ "$DETACH" -eq 1 ]; then
-  nohup ffmpeg "${FFMPEG_ARGS[@]}" >"$LOG_PATH" 2>&1 &
-  echo "Recording started: $OUTPUT"
-  echo "Recording log: $LOG_PATH"
-  exit 0
+set +e
+ffmpeg "${FFMPEG_ARGS[@]}"
+status="$?"
+set -e
+
+if [ "$RECORD_OUTPUT" != "$FINAL_OUTPUT" ]; then
+  mkdir -p "$(dirname "$FINAL_OUTPUT")"
+  cp "$RECORD_OUTPUT" "$FINAL_OUTPUT"
 fi
 
-exec ffmpeg "${FFMPEG_ARGS[@]}"
+exit "$status"
