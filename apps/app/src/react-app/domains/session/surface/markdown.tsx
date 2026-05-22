@@ -82,8 +82,8 @@ const baseMarkedOptions = {
   pedantic: false,
   silent: true,
   renderer: {
-    html() {
-      return "";
+    html({ text }) {
+      return text.includes('data-openwork-shiki="true"') ? text : "";
     },
     paragraph({ tokens }) {
       return `<p class="my-3 leading-relaxed">${this.parser.parseInline(tokens)}</p>`;
@@ -187,7 +187,7 @@ const highlightedMarkdownParser = new Marked<string, string>({
         ],
       });
     },
-    container: `<div class="my-4 overflow-hidden rounded-[18px] border border-dls-border/70 bg-gray-1/80 text-xs leading-6">%s</div>`,
+    container: `<div data-openwork-shiki="true" class="my-4 overflow-hidden rounded-[18px] border border-dls-border/70 bg-gray-1/80 text-xs leading-6">%s</div>`,
   }),
 );
 
@@ -211,7 +211,9 @@ function MarkdownBlockInner(props: {
 
     let cancelled = false;
     void highlightedMarkdownParser.parse(props.text, { async: true }).then((html) => {
-      if (!cancelled) setHighlightedHtml({ text: props.text, html });
+      if (!cancelled && html.trim()) setHighlightedHtml({ text: props.text, html });
+    }).catch(() => {
+      if (!cancelled) setHighlightedHtml(null);
     });
     return () => {
       cancelled = true;
