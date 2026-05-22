@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 export const PERSISTED_UI_STATE_KEY = "openwork:ui-state:v1";
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
+export const GLOBAL_SIDE_PANEL_STATE_KEY = "__openwork_global__";
 
 export const SIDE_PANEL_ITEMS = ["browser", "artifacts", "extensions", "voice"] as const;
 export type SidePanelItem = (typeof SIDE_PANEL_ITEMS)[number];
@@ -117,6 +118,10 @@ export function toggleSidebar(state: UiState): UiState {
 }
 
 export function getSidePanelState(state: UiState, sessionId: string | null | undefined): SidePanelItem | null {
+  if (state.sidePanelState[GLOBAL_SIDE_PANEL_STATE_KEY] === "voice") {
+    return "voice";
+  }
+
   if (!sessionId) {
     return null;
   }
@@ -129,14 +134,36 @@ export function setSidePanelState(
   sessionId: string | null | undefined,
   panel: SidePanelItem | null,
 ): UiState {
-  if (!sessionId || getSidePanelState(state, sessionId) === panel) {
+  if (getSidePanelState(state, sessionId) === panel) {
     return state;
+  }
+
+  if (panel === "voice") {
+    return {
+      ...state,
+      sidePanelState: {
+        ...state.sidePanelState,
+        [GLOBAL_SIDE_PANEL_STATE_KEY]: "voice",
+      },
+    };
+  }
+
+  if (!sessionId) {
+    if (state.sidePanelState[GLOBAL_SIDE_PANEL_STATE_KEY] !== "voice") return state;
+    return {
+      ...state,
+      sidePanelState: {
+        ...state.sidePanelState,
+        [GLOBAL_SIDE_PANEL_STATE_KEY]: null,
+      },
+    };
   }
 
   return {
     ...state,
     sidePanelState: {
       ...state.sidePanelState,
+      [GLOBAL_SIDE_PANEL_STATE_KEY]: null,
       [sessionId]: panel,
     },
   };

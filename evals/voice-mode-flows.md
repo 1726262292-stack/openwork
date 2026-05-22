@@ -111,3 +111,24 @@ Steps:
 Pass criteria:
 - The audio buffer produces a Realtime transcription such as `Hello world.`.
 - Punctuation-only transcription fragments do not overwrite the last meaningful transcript.
+
+## Flow 6 — Voice survives session creation
+
+This catches regressions where Voice Mode is treated like a session-owned artifact panel and gets unmounted when the route changes.
+
+Steps:
+1. Open an existing session.
+2. Execute `voice.panel.open`.
+3. Execute `voice.send_text` with:
+   ```json
+   { "text": "Use the OpenWork UI action session.create_task to create a new session. After the new session opens, use composer.set_text to put exactly VOICE SESSION SURVIVED in the composer." }
+   ```
+4. Wait for the `route.selectedSessionId` value to change.
+5. Wait for `slice: "voice", path: "connected", equals: true`.
+6. Wait for `slice: "composer", path: "draft", equals: "VOICE SESSION SURVIVED"`.
+
+Pass criteria:
+- The right-side Voice Mode panel remains open after the new session route loads.
+- The Realtime session remains connected.
+- The model can execute a second UI action in the new session.
+- Composer draft in the new session equals `VOICE SESSION SURVIVED`.

@@ -7,8 +7,8 @@ import { desktopFetch } from "../../../../app/lib/desktop";
 import type { OpenworkServerClient } from "../../../../app/lib/openwork-server";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { publishInspectorSlice, recordInspectorEvent } from "../../../shell/app-inspector";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
@@ -749,26 +749,37 @@ export function VoicePanel(props: VoicePanelProps) {
                 Typed voice command
               </CardTitle>
             </CardHeader>
-            <CardContent className="flex flex-col gap-2">
-              <Textarea
-                value={textCommand}
-                onChange={(event) => setTextCommand(event.currentTarget.value)}
-                placeholder={DEFAULT_TEXT_COMMAND}
-                rows={3}
-              />
-              <Button
-                variant="outline"
-                className="self-end"
-                onClick={() => {
-                  const text = textCommand;
-                  setTextCommand("");
-                  void sendTextCommand(text);
-                }}
-                disabled={!textCommand.trim() || status === "connecting"}
-              >
-                <SendHorizontal data-icon="inline-start" />
-                Send to voice model
-              </Button>
+            <CardContent>
+              <InputGroup>
+                <InputGroupTextarea
+                  value={textCommand}
+                  onChange={(event) => setTextCommand(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" || event.shiftKey) return;
+                    event.preventDefault();
+                    const text = textCommand;
+                    setTextCommand("");
+                    void sendTextCommand(text);
+                  }}
+                  placeholder={DEFAULT_TEXT_COMMAND}
+                  rows={3}
+                />
+                <InputGroupAddon align="block-end" className="justify-between border-t border-border">
+                  <span className="text-xs text-muted-foreground">Enter to send, Shift+Enter for newline</span>
+                  <InputGroupButton
+                    variant="outline"
+                    onClick={() => {
+                      const text = textCommand;
+                      setTextCommand("");
+                      void sendTextCommand(text);
+                    }}
+                    disabled={!textCommand.trim() || status === "connecting"}
+                  >
+                    <SendHorizontal data-icon="inline-start" />
+                    Send
+                  </InputGroupButton>
+                </InputGroupAddon>
+              </InputGroup>
             </CardContent>
           </Card>
 
