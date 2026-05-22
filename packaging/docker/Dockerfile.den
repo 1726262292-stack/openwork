@@ -4,6 +4,8 @@ RUN corepack enable
 
 WORKDIR /app
 
+ENV PORT=8788
+
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml /app/
 COPY patches /app/patches
 COPY packages/types/package.json /app/packages/types/package.json
@@ -28,4 +30,4 @@ RUN pnpm --dir /app/ee/apps/den-api run build
 
 EXPOSE 8788
 
-CMD ["sh", "-lc", "cd /app/ee/packages/den-db && yes | node --import tsx ./node_modules/drizzle-kit/bin.cjs push --config drizzle.config.ts && node /app/ee/apps/den-api/dist/server.js"]
+CMD ["sh", "-lc", "node /app/ee/apps/den-api/dist/server.js"]
