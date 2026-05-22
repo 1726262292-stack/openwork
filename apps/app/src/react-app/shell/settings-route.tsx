@@ -1942,6 +1942,7 @@ function SettingsRouteContent() {
             onRefresh={() => {
               void connectionsStore.refreshMcpServers();
               void extensionsStore.refreshPlugins();
+              void extensionsStore.refreshCloudOrgMarketplaces({ force: true });
             }}
             mcpView={
               <McpView
@@ -2001,6 +2002,14 @@ function SettingsRouteContent() {
               />
             }
 
+            cloudMarketplaceView={
+              <CloudMarketplacesView
+                embedded
+                extensions={extensionsStore}
+                session={denSession}
+                onOpenAccount={openCloudAccountSettings}
+              />
+            }
           />
         );
       case "cloud-account":

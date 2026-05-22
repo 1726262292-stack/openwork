@@ -40,6 +40,8 @@ export type ExtensionDetailModalProps = {
   kind?: ExtensionKind;
   connected?: boolean;
   connecting?: boolean;
+  /** Whether this item is hidden from the normal extensions catalog. */
+  hidden?: boolean;
   /** Remote URL if applicable. */
   url?: string;
   /** Whether OAuth is required. */
@@ -60,6 +62,10 @@ export type ExtensionDetailModalProps = {
   onConnect?: () => void;
   /** Uninstall/disconnect handler. Shown when connected. */
   onUninstall?: () => void;
+  /** Hide from the normal catalog view. */
+  onHide?: () => void;
+  /** Show again in the normal catalog view. */
+  onShow?: () => void;
   /** Extension-specific configuration UI rendered inside the modal body. */
   configSlot?: React.ReactNode;
 };
@@ -166,6 +172,7 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
     kind = "mcp",
     connected = false,
     connecting = false,
+    hidden = false,
     url,
     oauth,
     launchCommand,
@@ -176,6 +183,8 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
     onReveal,
     onConnect,
     onUninstall,
+    onHide,
+    onShow,
     configSlot,
   } = props;
   const resolvedIconSrc = iconSrc ? resolveExtensionIconSrc(iconSrc) : undefined;
@@ -291,6 +300,11 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                         : (connected ? "Connected" : connecting ? "Connecting..." : "Not connected")}
                     </span>
                   </div>
+
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Visibility</span>
+                    <span className="font-medium text-card-foreground">{hidden ? "Hidden" : "Shown"}</span>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -346,7 +360,24 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
 
         <DialogFooter className="shrink-0">
           <div className="flex justify-between">
-            <div>
+            <div className="flex gap-2">
+              {hidden && onShow ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { onShow(); onClose(); }}
+                >
+                  Show
+                </Button>
+              ) : !hidden && onHide ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { onHide(); onClose(); }}
+                >
+                  Hide
+                </Button>
+              ) : null}
               {connected && onUninstall ? (
                 <Button
                   variant="destructive"

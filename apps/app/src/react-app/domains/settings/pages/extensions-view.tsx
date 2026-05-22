@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Cpu } from "lucide-react";
 
 import { t } from "../../../../i18n";
@@ -38,6 +38,8 @@ export type ExtensionsViewProps = {
   mcpConnectedAppsCount: number;
   /** The MCP view (quick-connect grid + configured servers). Skills are injected into it. */
   mcpView: ReactNode;
+  /** Organization marketplace content, rendered in the same Extensions pane. */
+  cloudMarketplaceView?: ReactNode;
   onRefresh: () => void;
   initialSection?: ExtensionsSection;
   setSectionRoute?: (tab: "mcp" | "skills" | "plugins") => void;
@@ -70,6 +72,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
 
       {/* All extensions: MCPs + skills in one view */}
       {props.mcpView}
+
+      {props.cloudMarketplaceView}
 
       {/* OpenCode plugins -- advanced, collapsed */}
       {pluginCount > 0 ? (

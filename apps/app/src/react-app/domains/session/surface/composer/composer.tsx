@@ -7,7 +7,7 @@ import { OPENWORK_EXTENSION_CATALOG, type McpDirectoryInfo } from "../../../../.
 import type { CloudImportedPlugin, CloudImportedPluginFile } from "../../../../../app/cloud/import-state";
 import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelRef, SkillCard, SlashCommandOption } from "../../../../../app/types";
 import { t } from "../../../../../i18n";
-import { isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED } from "../../../settings/extension-state";
+import { isOpenWorkExtensionEnabled, isOpenWorkExtensionHidden, OPENWORK_EXTENSION_STATE_CHANGED } from "../../../settings/extension-state";
 import { ModelBehaviorSelect } from "../../../../../components/model-behavior-select";
 import { ModelSelect } from "../../../../../components/model-select";
 import { LexicalPromptEditor } from "./editor";
@@ -634,7 +634,9 @@ export function ReactSessionComposer(props: ComposerProps) {
   const activePlugin = toolMenuSection.startsWith("plugin:")
     ? pluginSections.find((entry) => entry.section === toolMenuSection)?.plugin ?? null
     : null;
-  const composerExtensions = OPENWORK_EXTENSION_CATALOG.filter((entry) => !entry.defaultEnabled || isOpenWorkExtensionEnabled(entry));
+  const composerExtensions = OPENWORK_EXTENSION_CATALOG.filter((entry) =>
+    !isOpenWorkExtensionHidden(entry) && (!entry.defaultEnabled || isOpenWorkExtensionEnabled(entry))
+  );
   const canSend = props.draft.trim().length > 0 || props.attachments.length > 0;
 
   useEffect(() => {

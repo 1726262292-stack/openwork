@@ -28,12 +28,14 @@ type DenSettingsExtensionsStore = {
 
 export type CloudMarketplacesViewProps = {
   extensions: DenSettingsExtensionsStore;
+  embedded?: boolean;
   onOpenAccount: () => void;
   session: CloudMarketplacesSession;
 };
 
 export function CloudMarketplacesView({
   extensions,
+  embedded = false,
   onOpenAccount,
   session,
 }: CloudMarketplacesViewProps) {
@@ -126,36 +128,42 @@ export function CloudMarketplacesView({
   );
 
   if (!isSignedIn) {
-    return (
+    const notice = (
+      <SettingsNotice>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <span>{t("skills.share_team_sign_in_hint")}</span>
+          <Button size="sm" onClick={onOpenAccount}>
+            {t("skills.share_team_sign_in")}
+          </Button>
+        </div>
+      </SettingsNotice>
+    );
+    return embedded ? notice : (
       <SettingsStack>
         <Separator />
-        <SettingsNotice>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span>{t("skills.share_team_sign_in_hint")}</span>
-            <Button size="sm" onClick={onOpenAccount}>
-              {t("skills.share_team_sign_in")}
-            </Button>
-          </div>
-        </SettingsNotice>
+        {notice}
       </SettingsStack>
     );
   }
 
-  return (
+  const marketplaceSection = (
+    <MarketplacePluginsSection
+      actionError={actionError}
+      actionId={actionId}
+      activeMarketplaceId={activeMarketplaceId}
+      busy={busy}
+      marketplaces={marketplaces}
+      rowsByMarketplace={rowsByMarketplace}
+      statusError={extensions.cloudOrgMarketplacesStatus()}
+      onImportPlugin={importPlugin}
+      onRefresh={refresh}
+      onSelectMarketplace={setActiveMarketplaceId}
+    />
+  );
+  return embedded ? marketplaceSection : (
     <SettingsStack>
       <Separator />
-      <MarketplacePluginsSection
-        actionError={actionError}
-        actionId={actionId}
-        activeMarketplaceId={activeMarketplaceId}
-        busy={busy}
-        marketplaces={marketplaces}
-        rowsByMarketplace={rowsByMarketplace}
-        statusError={extensions.cloudOrgMarketplacesStatus()}
-        onImportPlugin={importPlugin}
-        onRefresh={refresh}
-        onSelectMarketplace={setActiveMarketplaceId}
-      />
+      {marketplaceSection}
     </SettingsStack>
   );
 }

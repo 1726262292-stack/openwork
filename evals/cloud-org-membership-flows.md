@@ -52,12 +52,12 @@ state.
 
 1. Sign in as a member in a second Electron profile or sandbox.
 2. As owner, remove that member through Den API.
-3. In the member desktop app, refresh Cloud Account, Cloud Providers, and Marketplace.
+3. In the member desktop app, refresh Cloud Account, Cloud Providers, and Settings -> Extensions marketplace.
 
 ### Expected outcome
 
 - Member no longer has active org context.
-- Cloud Providers and Marketplace stop returning org resources for that org.
+- Cloud Providers and Settings -> Extensions marketplace stop returning org resources for that org.
 - The UI shows a clear signed-in-but-no-org or access removed state.
 
 ## Flow 4: Org switch sync

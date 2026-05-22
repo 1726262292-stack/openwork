@@ -21,6 +21,8 @@ export type ExtensionCardProps = {
   connecting?: boolean;
   /** Whether interaction is disabled. */
   disabled?: boolean;
+  /** Whether this item is hidden from the normal catalog view. */
+  hidden?: boolean;
   /** Action label shown at bottom. */
   actionLabel?: string;
   /** Click handler. */
@@ -59,6 +61,7 @@ export function ExtensionCard(props: ExtensionCardProps) {
     connected = false,
     connecting = false,
     disabled = false,
+    hidden = false,
     actionLabel,
     onClick,
   } = props;
@@ -73,7 +76,7 @@ export function ExtensionCard(props: ExtensionCardProps) {
         connected
           ? "border-green-6 bg-green-2"
           : "border-dls-border bg-dls-surface hover:bg-dls-hover"
-      }`}
+      } ${hidden ? "border-dashed opacity-70" : ""}`}
     >
       <div className="flex items-start gap-3">
         {/* Icon */}
@@ -117,6 +120,11 @@ export function ExtensionCard(props: ExtensionCardProps) {
                 {kindLabel[kind]}
               </span>
             )}
+            {hidden ? (
+              <span className="rounded-md bg-gray-3 px-1.5 py-0.5 text-[10px] font-medium text-gray-11">
+                Hidden
+              </span>
+            ) : null}
           </div>
           <p className="mt-0.5 line-clamp-2 text-xs text-dls-secondary">{description}</p>
           {!connected && !connecting && actionLabel ? (

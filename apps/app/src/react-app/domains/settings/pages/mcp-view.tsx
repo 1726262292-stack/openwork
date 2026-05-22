@@ -43,7 +43,13 @@ import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
 import { ChromeConnectionSetupModal } from "../../connections/modals/chrome-connection-setup-modal";
-import { isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED, setOpenWorkExtensionEnabled } from "../extension-state";
+import {
+  isOpenWorkExtensionEnabled,
+  isOpenWorkExtensionHidden,
+  OPENWORK_EXTENSION_STATE_CHANGED,
+  setOpenWorkExtensionEnabled,
+  setOpenWorkExtensionHidden,
+} from "../extension-state";
 import {
   initialMcpViewLocalState,
   mcpViewLocalReducer,
@@ -65,6 +71,8 @@ export type SkillItem = {
   trigger?: string;
   path: string;
 };
+
+const getSkillHiddenId = (skill: SkillItem) => `skill:${skill.name}`;
 
 export type McpViewProps = {
   busy: boolean;
@@ -198,6 +206,7 @@ export function McpView(props: McpViewProps) {
   const [openworkUiMcpEnvironment, setOpenworkUiMcpEnvironment] = useState<Record<string, string> | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ExtensionFilter>("all");
+  const [showHidden, setShowHidden] = useState(false);
   const [, setExtensionStateVersion] = useState(0);
 
   const [localState, dispatchLocal] = useReducer(
@@ -353,6 +362,8 @@ export function McpView(props: McpViewProps) {
   const connectedCount = props.mcpServers.filter(
     (entry) => resolveStatus(entry) === "connected",
   ).length;
+  const hiddenCount = quickConnectList.filter((entry) => isOpenWorkExtensionHidden(entry)).length +
+    (props.installedSkills ?? []).filter((skill) => isOpenWorkExtensionHidden(getSkillHiddenId(skill))).length;
 
   const requestLogout = (name: string) => {
     if (!name.trim()) return;
@@ -444,12 +455,20 @@ export function McpView(props: McpViewProps) {
               {f === "all" ? "All" : f === "mcp" ? "MCPs" : "Skills"}
             </Button>
           ))}
+          <Button
+            variant={showHidden ? "secondary" : "outline"}
+            size="xs"
+            onClick={() => setShowHidden((current) => !current)}
+          >
+            {showHidden ? "Showing hidden" : hiddenCount > 0 ? `Show hidden (${hiddenCount})` : "Show hidden"}
+          </Button>
         </div>
       </div>
 
       <McpQuickConnectSection
         entries={
           quickConnectList.filter((entry) => {
+            if (!showHidden && isOpenWorkExtensionHidden(entry)) return false;
             if (filter === "skill") return false;
             if (filter === "mcp" && (entry.kind ?? "mcp") !== "mcp" && entry.kind !== "ui-control") return false;
             if (!search.trim()) return true;
@@ -459,6 +478,7 @@ export function McpView(props: McpViewProps) {
         }
         installedSkills={
           (props.installedSkills ?? []).filter((skill) => {
+            if (!showHidden && isOpenWorkExtensionHidden(getSkillHiddenId(skill))) return false;
             if (filter === "mcp") return false;
             if (!search.trim()) return true;
             const q = search.toLowerCase();
@@ -467,6 +487,8 @@ export function McpView(props: McpViewProps) {
         }
         busy={props.busy}
         connectingName={props.mcpConnectingName}
+        isEntryHidden={(entry) => isOpenWorkExtensionHidden(entry)}
+        isSkillHidden={(skill) => isOpenWorkExtensionHidden(getSkillHiddenId(skill))}
         isConfigured={(entry) =>
           entry.kind === "extension"
             ? (entry.defaultEnabled ? isOpenWorkExtensionEnabled(entry) : props.isExtensionConnected?.(entry) ?? false)
@@ -575,6 +597,7 @@ export function McpView(props: McpViewProps) {
       {detailEntry ? (() => {
         const extensionConfigSlot = props.configSlotForEntry?.(detailEntry) ?? null;
         const hasConfigSlot = extensionConfigSlot !== null;
+        const hidden = isOpenWorkExtensionHidden(detailEntry);
         const isConnected = detailEntry.kind === "extension"
           ? (detailEntry.defaultEnabled ? isOpenWorkExtensionEnabled(detailEntry) : props.isExtensionConnected?.(detailEntry) ?? false)
           : isQuickConnectConfigured(detailEntry);
@@ -590,6 +613,7 @@ export function McpView(props: McpViewProps) {
             kind={detailEntry.kind ?? "mcp"}
             connected={isConnected}
             connecting={props.mcpConnectingName === detailEntry.name}
+            hidden={hidden}
             launchCommand={detailEntry.serverName === "openwork-ui" ? openworkUiMcpCommand ?? undefined : undefined}
             environment={detailEntry.serverName === "openwork-ui" ? openworkUiMcpEnvironment ?? undefined : undefined}
             url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
@@ -609,30 +633,38 @@ export function McpView(props: McpViewProps) {
               props.removeMcp(slug);
               setDetailEntry(null);
             } : undefined}
+            onHide={() => setOpenWorkExtensionHidden(detailEntry, true)}
+            onShow={() => setOpenWorkExtensionHidden(detailEntry, false)}
           />
         );
       })() : null}
 
-      {detailSkill ? (
-        <ExtensionDetailModal
-          open={!!detailSkill}
-          onClose={() => { setDetailSkill(null); setDetailSkillContent(null); }}
-          name={detailSkill.name}
-          description={detailSkill.description ?? "Installed skill"}
-          kind="skill"
-          connected={true}
-          path={detailSkill.path}
-          trigger={detailSkill.trigger}
-          contentPreview={detailSkillContent ?? undefined}
-          onReveal={detailSkill.path ? () => {
-            void revealDesktopItemInDir(detailSkill.path);
-          } : undefined}
-          onUninstall={props.uninstallSkill ? () => {
-            props.uninstallSkill?.(detailSkill.name);
-            setDetailSkill(null);
-          } : undefined}
-        />
-      ) : null}
+      {detailSkill ? (() => {
+        const hidden = isOpenWorkExtensionHidden(getSkillHiddenId(detailSkill));
+        return (
+          <ExtensionDetailModal
+            open={!!detailSkill}
+            onClose={() => { setDetailSkill(null); setDetailSkillContent(null); }}
+            name={detailSkill.name}
+            description={detailSkill.description ?? "Installed skill"}
+            kind="skill"
+            connected={true}
+            hidden={hidden}
+            path={detailSkill.path}
+            trigger={detailSkill.trigger}
+            contentPreview={detailSkillContent ?? undefined}
+            onReveal={detailSkill.path ? () => {
+              void revealDesktopItemInDir(detailSkill.path);
+            } : undefined}
+            onUninstall={props.uninstallSkill ? () => {
+              props.uninstallSkill?.(detailSkill.name);
+              setDetailSkill(null);
+            } : undefined}
+            onHide={() => setOpenWorkExtensionHidden(getSkillHiddenId(detailSkill), true)}
+            onShow={() => setOpenWorkExtensionHidden(getSkillHiddenId(detailSkill), false)}
+          />
+        );
+      })() : null}
     </section>
   );
 }
@@ -693,6 +725,8 @@ function McpQuickConnectSection(props: {
   installedSkills?: SkillItem[];
   busy: boolean;
   connectingName: string | null;
+  isEntryHidden: (entry: McpDirectoryInfo) => boolean;
+  isSkillHidden: (skill: SkillItem) => boolean;
   isConfigured: (entry: McpDirectoryInfo) => boolean;
   statusForEntry: (entry: McpDirectoryInfo) => { status: ReactMcpStatus } | undefined;
   onConnect: (entry: McpDirectoryInfo) => void;
@@ -714,6 +748,7 @@ function McpQuickConnectSection(props: {
           const configured = props.isConfigured(entry);
           const connecting = props.connectingName === entry.name;
           const FallbackIcon = serviceIcon(entry.name);
+          const hidden = props.isEntryHidden(entry);
 
           return (
             <ExtensionCard
@@ -726,6 +761,7 @@ function McpQuickConnectSection(props: {
               kind={entry.kind ?? "mcp"}
               connected={configured}
               connecting={connecting}
+              hidden={hidden}
               disabled={props.busy}
               actionLabel={configured ? "View details" : t("mcp.tap_to_connect")}
               onClick={() => props.onDetail(entry)}
@@ -734,17 +770,21 @@ function McpQuickConnectSection(props: {
         })}
 
         {/* Installed skills */}
-        {(props.installedSkills ?? []).map((skill) => (
-          <ExtensionCard
-            key={`skill:${skill.name}`}
-            name={skill.name}
-            description={skill.description ?? "Installed skill"}
-            kind="skill"
-            connected={true}
-            actionLabel="View details"
-            onClick={() => props.onSkillDetail?.(skill)}
-          />
-        ))}
+        {(props.installedSkills ?? []).map((skill) => {
+          const hidden = props.isSkillHidden(skill);
+          return (
+            <ExtensionCard
+              key={`skill:${skill.name}`}
+              name={skill.name}
+              description={skill.description ?? "Installed skill"}
+              kind="skill"
+              connected={true}
+              hidden={hidden}
+              actionLabel="View details"
+              onClick={() => props.onSkillDetail?.(skill)}
+            />
+          );
+        })}
       </div>
     </div>
   );

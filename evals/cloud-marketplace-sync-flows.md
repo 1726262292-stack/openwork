@@ -27,7 +27,7 @@ Through Den API:
 
 ### Steps
 
-1. Open Settings -> Cloud -> Marketplace.
+1. Open Settings -> Extensions.
 2. Click `Refresh`.
 3. Select the marketplace if needed.
 4. Verify the plugin appears under `Available`.
@@ -51,7 +51,7 @@ out of sync and re-import updates local files.
 
 1. Import a non-empty plugin using Flow 1.
 2. Create a new config object version in Den with changed source text.
-3. Open Settings -> Cloud -> Marketplace.
+3. Open Settings -> Extensions.
 4. Click `Refresh`.
 5. Verify the plugin row shows an update or out-of-sync state.
 6. Re-import the plugin.

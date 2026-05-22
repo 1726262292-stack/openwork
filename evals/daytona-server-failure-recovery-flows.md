@@ -80,7 +80,7 @@ without Electron restart.
 ### Steps
 
 1. Stop MySQL in the server sandbox.
-2. Refresh Cloud Account, Cloud Providers, and Marketplace.
+2. Refresh Cloud Account, Cloud Providers, and Settings -> Extensions marketplace.
 3. Start MySQL again.
 4. Restart Den API if needed.
 5. Refresh the same desktop tabs.

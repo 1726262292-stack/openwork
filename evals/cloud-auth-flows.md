@@ -133,9 +133,9 @@ sync actions wait until a workspace exists.
 1. Start from the Welcome page with no selected workspace.
 2. Navigate directly to `#/settings/cloud-account`.
 3. Complete Flow 1.
-4. Navigate to Cloud Providers and Marketplace.
+4. Navigate to Cloud Providers and Settings -> Extensions marketplace.
 5. Create a local workspace.
-6. Reopen Cloud Providers and Marketplace.
+6. Reopen Cloud Providers and Settings -> Extensions marketplace.
 
 ### Expected outcome
 
@@ -159,7 +159,7 @@ to each org with distinct names.
 2. Select Org A.
 3. Open Cloud Providers and record the visible provider names.
 4. Return to Cloud Account and select Org B.
-5. Open Cloud Providers and Marketplace.
+5. Open Cloud Providers and Settings -> Extensions marketplace.
 
 ### Expected outcome
 
