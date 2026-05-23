@@ -146,17 +146,6 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     defaultEnabled: true,
   },
   {
-    id: "chrome-browser",
-    name: "Chrome",
-    serverName: "chrome-browser",
-    description: "Use your real Chrome session when a task needs cookies, sign-ins, or extensions.",
-    oauth: false,
-    kind: "extension",
-    iconSlug: "googlechrome",
-    composerPrompt: "Use the Chrome extension to ",
-    defaultEnabled: true,
-  },
-  {
     id: "openai-image-gen",
     name: "OpenAI Image Gen",
     serverName: "openai-image-gen",

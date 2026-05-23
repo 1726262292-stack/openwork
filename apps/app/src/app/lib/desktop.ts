@@ -332,25 +332,6 @@ export async function openDesktopUrl(url: string): Promise<void> {
   }
 }
 
-export async function openChromeRemoteDebugging(): Promise<void> {
-  try {
-    await invokeElectronHelper("__openChromeRemoteDebugging");
-    return;
-  } catch {
-    await openDesktopUrl("https://developer.chrome.com/docs/devtools/remote-debugging");
-  }
-}
-
-export type ChromeDebuggingPortCheck = {
-  connected: boolean;
-  port: number | null;
-  mode: "cdp-json" | "chrome-auto-connect" | "chrome-listener" | null;
-};
-
-export async function checkChromeDebuggingPort(port: number): Promise<ChromeDebuggingPortCheck> {
-  return invokeElectronHelper<ChromeDebuggingPortCheck>("__checkChromeDebuggingPort", port);
-}
-
 export async function openDesktopPath(target: string): Promise<void> {
   const result = await invokeElectronHelper<string | null>("__openPath", target);
   if (typeof result === "string" && result.trim()) {

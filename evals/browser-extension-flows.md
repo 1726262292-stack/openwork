@@ -145,8 +145,8 @@ Steps:
 3. Count visible extensions.
 
 Pass criteria:
-- At least 2 extensions visible: "OpenWork Browser" and "Chrome".
-- Each extension has a name and description.
+- "OpenWork Browser" is visible with a name and description.
+- "Chrome" is not visible as an OpenWork extension.
 
 Known regressions this catches:
 - Extension catalog not loaded.

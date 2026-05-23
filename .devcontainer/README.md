@@ -9,7 +9,7 @@ Full-stack dev environment that runs the **real Electron app** + Den stack in a 
 | **Desktop App (noVNC)** | 6080 | The real Electron app rendered in a virtual display, accessible in your browser |
 | **Den Web** | 3005 | Admin dashboard for managing orgs, restrictions, providers |
 | **Den API** | 8788 | Control plane API |
-| **CDP Debug** | 9825 | Chrome DevTools Protocol — for automation and Chrome MCP |
+| **CDP Debug** | 9825 | Chrome DevTools Protocol — for app and browser automation |
 | **Vite HMR** | 5173 | Hot module replacement for the React UI |
 | **MySQL** | 3306 | Database (internal) |
 

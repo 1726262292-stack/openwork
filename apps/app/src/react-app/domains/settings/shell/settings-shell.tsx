@@ -11,9 +11,9 @@ import {
 import { t } from "../../../../i18n";
 import { SettingsPage, SettingsSidebar, getSettingsTabLabel } from "./settings-page";
 
-type SettingsPageChromeProps = Omit<React.ComponentProps<typeof SettingsPage>, "children">;
+type SettingsPageFrameProps = Omit<React.ComponentProps<typeof SettingsPage>, "children">;
 
-export type SettingsShellProps = SettingsPageChromeProps & {
+export type SettingsShellProps = SettingsPageFrameProps & {
   selectedWorkspaceId: string;
   selectedWorkspaceName: string;
   selectedWorkspaceColor: string;
