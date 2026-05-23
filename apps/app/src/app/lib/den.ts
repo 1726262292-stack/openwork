@@ -975,6 +975,33 @@ function parsePluginConfigObject(value: unknown): DenPluginConfigObject | null {
   };
 }
 
+function parseExtensionSourceFormat(value: unknown): OpenWorkExtensionSourceFormat | null {
+  switch (value) {
+    case "openwork-builtin":
+    case "openwork-extension-manifest":
+    case "claude-plugin":
+    case "opencode-plugin":
+    case "mcp-directory":
+    case "manual":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function parseDenExtensionProjection(value: unknown): DenOrgExtensionProjection | null {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") return null;
+  const sourceFormat = parseExtensionSourceFormat(value.sourceFormat);
+  if (!sourceFormat) return null;
+  return {
+    id: value.id,
+    name: value.name,
+    description: typeof value.description === "string" ? value.description : null,
+    sourceFormat,
+    manifest: null,
+  };
+}
+
 function parseOrgPlugin(value: unknown): DenOrgPlugin | null {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") return null;
   const counts = isRecord(value.componentCounts)
@@ -992,6 +1019,7 @@ function parseOrgPlugin(value: unknown): DenOrgPlugin | null {
     memberCount: typeof value.memberCount === "number" && Number.isFinite(value.memberCount) ? value.memberCount : 0,
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : null,
     componentCounts: counts,
+    extension: parseDenExtensionProjection(value.extension),
   };
 }
 
