@@ -2,7 +2,7 @@
 import * as React from "react";
 
 import type { CloudImportedPlugin } from "../../../../app/cloud/import-state";
-import type { DenOrgMarketplaceResolved, DenOrgPlugin } from "../../../../app/lib/den";
+import type { DenOrgMarketplaceResolved, DenOrgPlugin, DenOrgPluginResolved } from "../../../../app/lib/den";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { t } from "@/i18n";
@@ -109,7 +109,7 @@ export function CloudMarketplacesView({
   onOpenAccount,
   session,
 }: CloudMarketplacesViewProps) {
-  const { activeOrganization: activeOrg, authToken, isSignedIn, user } = useCloudSession();
+  const { activeOrganization: activeOrg, authToken, client, isSignedIn, user } = useCloudSession();
   const { showToast } = useStatusToasts();
   const [busy, setBusy] = React.useState(false);
   const [actionId, setActionId] = React.useState<string | null>(null);
@@ -118,6 +118,9 @@ export function CloudMarketplacesView({
   const [statusFilter, setStatusFilter] = React.useState<MarketplaceStatusFilter>("all");
   const [marketplaceFilter, setMarketplaceFilter] = React.useState("all");
   const [detailRow, setDetailRow] = React.useState<MarketplacePackageRow | null>(null);
+  const [resolvedPlugins, setResolvedPlugins] = React.useState<Record<string, DenOrgPluginResolved>>({});
+  const [detailLoadingId, setDetailLoadingId] = React.useState<string | null>(null);
+  const [detailError, setDetailError] = React.useState<string | null>(null);
   const activeOrgId = activeOrg?.id ?? "";
 
   const marketplaces = extensions.cloudOrgMarketplaces();
@@ -210,6 +213,30 @@ export function CloudMarketplacesView({
     if (!user || !activeOrgId) return;
     void refresh(true);
   }, [activeOrgId, refresh, user]);
+
+  React.useEffect(() => {
+    if (!detailRow || !isSignedIn || !activeOrgId) return;
+    if (resolvedPlugins[detailRow.plugin.id]) return;
+
+    let cancelled = false;
+    setDetailLoadingId(detailRow.plugin.id);
+    setDetailError(null);
+    void client.getOrgPluginResolved(activeOrgId, detailRow.plugin)
+      .then((resolved) => {
+        if (cancelled) return;
+        setResolvedPlugins((current) => ({ ...current, [detailRow.plugin.id]: resolved }));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setDetailError(error instanceof Error ? error.message : "Failed to load package composition.");
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoadingId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeOrgId, client, detailRow, isSignedIn, resolvedPlugins]);
 
   const importPlugin = React.useCallback(
     async (marketplaceId: string | null, plugin: DenOrgPlugin) => {
@@ -355,6 +382,9 @@ export function CloudMarketplacesView({
         <MarketplacePackageDetailModal
           actionId={actionId}
           row={detailRow}
+          resolved={resolvedPlugins[detailRow.plugin.id] ?? null}
+          resolving={detailLoadingId === detailRow.plugin.id}
+          resolveError={detailError}
           onClose={() => setDetailRow(null)}
           onImportPlugin={importPlugin}
           onRemovePlugin={removePlugin}
@@ -407,11 +437,14 @@ function MarketplacePackageCard(props: {
 function MarketplacePackageDetailModal(props: {
   actionId: string | null;
   row: MarketplacePackageRow;
+  resolved: DenOrgPluginResolved | null;
+  resolving: boolean;
+  resolveError: string | null;
   onClose: () => void;
   onImportPlugin: (marketplaceId: string | null, plugin: DenOrgPlugin) => void | Promise<void>;
   onRemovePlugin: (pluginId: string, pluginName: string) => void | Promise<void>;
 }) {
-  const { actionId, row, onClose, onImportPlugin, onRemovePlugin } = props;
+  const { actionId, row, resolved, resolving, resolveError, onClose, onImportPlugin, onRemovePlugin } = props;
   const actionBusy = actionId === row.plugin.id;
   const canAddOrUpdate = row.status === "available" || row.status === "update_available";
 
@@ -449,6 +482,41 @@ function MarketplacePackageDetailModal(props: {
               ))}
             </div>
           </div>
+          {resolveError ? (
+            <SettingsNotice tone="error">{resolveError}</SettingsNotice>
+          ) : null}
+          {resolving ? (
+            <SettingsNotice>Loading package contents...</SettingsNotice>
+          ) : null}
+          {resolved ? (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Package contents</div>
+              {resolved.memberships.length > 0 ? resolved.memberships.map((membership) => {
+                const object = membership.configObject;
+                const version = object?.latestVersion ?? null;
+                if (!object) return null;
+                const preview = version?.rawSourceText?.trim().slice(0, 600) ?? "";
+                return (
+                  <details key={membership.id} className="rounded-xl border border-dls-border bg-dls-surface px-3 py-2">
+                    <summary className="cursor-pointer text-sm font-medium text-card-foreground">
+                      <span className="uppercase text-[10px] tracking-[0.12em] text-muted-foreground">{object.objectType}</span> {object.title}
+                    </summary>
+                    <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+                      {object.description ? <div>{object.description}</div> : null}
+                      {object.currentRelativePath ? <div className="font-mono">{object.currentRelativePath}</div> : null}
+                      {preview ? (
+                        <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-dls-hover p-2 font-mono text-[11px] text-card-foreground">
+                          {preview}
+                        </pre>
+                      ) : null}
+                    </div>
+                  </details>
+                );
+              }) : (
+                <SettingsNotice>This package does not expose detailed contents yet.</SettingsNotice>
+              )}
+            </div>
+          ) : null}
           {row.imported?.files.length ? (
             <div className="rounded-xl border border-dls-border bg-dls-hover px-3 py-2 text-xs text-muted-foreground">
               Installed files: {row.imported.files.map((file) => `${file.title} (${file.objectType})`).join(", ")}

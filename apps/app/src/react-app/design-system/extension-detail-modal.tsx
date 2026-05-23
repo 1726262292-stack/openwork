@@ -77,6 +77,7 @@ export type ExtensionDetailModalProps = {
   /** Extension-specific configuration UI rendered inside the modal body. */
   configSlot?: React.ReactNode;
   showEnablementCard?: boolean;
+  size?: "default" | "wide";
 };
 
 const kindLabel: Record<ExtensionKind, string> = {
@@ -202,6 +203,7 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
     onShow,
     configSlot,
     showEnablementCard = true,
+    size = "default",
   } = props;
   const resolvedIconSrc = iconSrc ? resolveExtensionIconSrc(iconSrc) : undefined;
 
@@ -213,7 +215,7 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
       }}
     >
       <DialogContent
-        className="flex max-h-[90vh] min-h-0 w-full max-w-xl flex-col overflow-hidden sm:max-w-xl"
+        className={`flex max-h-[90vh] min-h-0 w-full flex-col overflow-hidden ${size === "wide" ? "max-w-3xl sm:max-w-3xl" : "max-w-xl sm:max-w-xl"}`}
       >
         <DialogHeader>
           <div className="flex min-w-0 items-start gap-4">

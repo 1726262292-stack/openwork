@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { MeshGradient } from "@paper-design/shaders-react";
+import { StaticMeshGradient } from "@paper-design/shaders-react";
 
 type ExtensionMeshAvatarProps = {
   name: string;
@@ -21,6 +21,15 @@ function paletteForName(name: string) {
   return palettes[hash];
 }
 
+function fallbackBackground(colors: readonly string[]) {
+  return [
+    `radial-gradient(circle at 20% 20%, ${colors[0]}, transparent 38%)`,
+    `radial-gradient(circle at 80% 12%, ${colors[1]}, transparent 42%)`,
+    `radial-gradient(circle at 52% 90%, ${colors[2]}, transparent 46%)`,
+    `linear-gradient(135deg, ${colors[0]}, ${colors[3]})`,
+  ].join(", ");
+}
+
 export function extensionMeshAvatarText(name: string) {
   const words = name.trim().split(/\s+/).filter(Boolean);
   const letters = words.length >= 2
@@ -33,18 +42,25 @@ export function ExtensionMeshAvatar({ name, className }: ExtensionMeshAvatarProp
   const colors = paletteForName(name);
 
   return (
-    <div className={`relative isolate overflow-hidden ${className ?? ""}`}>
-      <MeshGradient
-        className="absolute inset-0 h-full w-full"
-        width="100%"
-        height="100%"
+    <div
+      className={`relative isolate overflow-hidden ${className ?? ""}`}
+      style={{ background: fallbackBackground(colors) }}
+    >
+      <StaticMeshGradient
+        className="absolute -inset-2 h-[calc(100%+1rem)] w-[calc(100%+1rem)]"
+        width={96}
+        height={96}
         colors={[...colors]}
-        distortion={0.8}
-        swirl={0.1}
+        positions={4}
+        waveX={0.36}
+        waveY={0.42}
+        waveXShift={0.18}
+        waveYShift={0.12}
+        mixing={0.72}
         grainMixer={0}
         grainOverlay={0}
         speed={0}
-        maxPixelCount={4096}
+        maxPixelCount={9216}
       />
       <div className="absolute inset-0 flex items-center justify-center bg-black/5 text-white drop-shadow-sm">
         {extensionMeshAvatarText(name)}
