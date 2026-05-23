@@ -1256,7 +1256,7 @@ export function createExtensionsStore(options: {
         const name = file.path.match(/^\.opencode\/skills\/(?:[^/]+\/)?([^/]+)\/SKILL\.md$/)?.[1];
         return name ? [name] : [];
       });
-      await Promise.all(removedSkillNames.map((name) => deleteWorkspaceSkill(name)));
+      await Promise.all(removedSkillNames.map((name) => deleteWorkspaceSkill(name).catch(() => undefined)));
 
       const nextPlugins = { ...snapshot.importedCloudPlugins };
       delete nextPlugins[pluginId];
