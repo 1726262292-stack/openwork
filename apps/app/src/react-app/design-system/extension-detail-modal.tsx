@@ -1,7 +1,6 @@
 /** @jsxImportSource react */
 import { CheckCircle2, ExternalLink, Loader2, Plug2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { CSSProperties } from "react";
 import {
   Card,
   CardContent,
@@ -29,6 +28,7 @@ import type { ExtensionKind } from "@/app/constants";
 import { MarkdownBlock } from "../domains/session/surface/markdown";
 import { modalBodyClass } from "../domains/workspace/modal-styles";
 import { resolveExtensionIconSrc } from "./extension-icon-src";
+import { ExtensionMeshAvatar } from "./extension-mesh-avatar";
 
 export type ExtensionDetailModalProps = {
   open: boolean;
@@ -123,31 +123,6 @@ const fallbackUiControlOpencodeConfig = `{
     }
   }
 }`;
-
-function meshAvatarStyle(seed: string): CSSProperties {
-  let hash = 0;
-  for (let index = 0; index < seed.length; index += 1) {
-    hash = (hash * 31 + seed.charCodeAt(index)) % 360;
-  }
-  const a = hash;
-  const b = (hash + 72) % 360;
-  const c = (hash + 156) % 360;
-  return {
-    background:
-      `radial-gradient(circle at 20% 20%, hsl(${a} 92% 72%), transparent 38%), ` +
-      `radial-gradient(circle at 80% 12%, hsl(${b} 88% 66%), transparent 42%), ` +
-      `radial-gradient(circle at 52% 90%, hsl(${c} 94% 68%), transparent 46%), ` +
-      `linear-gradient(135deg, hsl(${a} 82% 54%), hsl(${b} 84% 48%))`,
-  };
-}
-
-function meshAvatarText(name: string) {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const letters = words.length >= 2
-    ? `${words[0][0]}${words[1][0]}`
-    : (words[0] ?? "E").slice(0, 2);
-  return letters.toUpperCase();
-}
 
 /**
  * Strip YAML-like frontmatter from the beginning of a skill content string.
@@ -249,12 +224,9 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                     <img src={`https://cdn.simpleicons.org/${iconSlug}`} alt="" width={20} height={20} loading="lazy" style={{ display: "block" }} />
                   </div>
                 ) : (
-                  <div
-                    className="flex size-9 items-center justify-center rounded-lg text-xs font-bold text-white shadow-inner"
-                    style={meshAvatarStyle(name)}
-                  >
-                    {kind === "plugin" ? meshAvatarText(name) : <FallbackIcon size={21} className="text-white/90" />}
-                  </div>
+                  kind === "plugin" ? (
+                    <ExtensionMeshAvatar name={name} className="size-9 rounded-lg text-xs font-bold shadow-inner" />
+                  ) : <FallbackIcon size={24} className="text-muted-foreground" />
                 )}
               </div>
               {connected ? (
