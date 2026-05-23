@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import { CheckCircle2, ExternalLink, Loader2, Plug2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { CSSProperties } from "react";
 import {
   Card,
   CardContent,
@@ -60,8 +61,11 @@ export type ExtensionDetailModalProps = {
   contentPreview?: string;
   /** Connect handler. */
   onConnect?: () => void;
+  connectLabel?: string;
+  connectingLabel?: string;
   /** Uninstall/disconnect handler. Shown when connected. */
   onUninstall?: () => void;
+  uninstallLabel?: string;
   /** Hide from the normal catalog view. */
   onHide?: () => void;
   /** Show again in the normal catalog view. */
@@ -119,6 +123,31 @@ const fallbackUiControlOpencodeConfig = `{
     }
   }
 }`;
+
+function meshAvatarStyle(seed: string): CSSProperties {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) % 360;
+  }
+  const a = hash;
+  const b = (hash + 72) % 360;
+  const c = (hash + 156) % 360;
+  return {
+    background:
+      `radial-gradient(circle at 20% 20%, hsl(${a} 92% 72%), transparent 38%), ` +
+      `radial-gradient(circle at 80% 12%, hsl(${b} 88% 66%), transparent 42%), ` +
+      `radial-gradient(circle at 52% 90%, hsl(${c} 94% 68%), transparent 46%), ` +
+      `linear-gradient(135deg, hsl(${a} 82% 54%), hsl(${b} 84% 48%))`,
+  };
+}
+
+function meshAvatarText(name: string) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const letters = words.length >= 2
+    ? `${words[0][0]}${words[1][0]}`
+    : (words[0] ?? "E").slice(0, 2);
+  return letters.toUpperCase();
+}
 
 /**
  * Strip YAML-like frontmatter from the beginning of a skill content string.
@@ -182,7 +211,10 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
     contentPreview,
     onReveal,
     onConnect,
+    connectLabel = "Connect",
+    connectingLabel = "Connecting...",
     onUninstall,
+    uninstallLabel,
     onHide,
     onShow,
     configSlot,
@@ -217,7 +249,12 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                     <img src={`https://cdn.simpleicons.org/${iconSlug}`} alt="" width={20} height={20} loading="lazy" style={{ display: "block" }} />
                   </div>
                 ) : (
-                  <FallbackIcon size={24} className="text-muted-foreground" />
+                  <div
+                    className="flex size-9 items-center justify-center rounded-lg text-xs font-bold text-white shadow-inner"
+                    style={meshAvatarStyle(name)}
+                  >
+                    {kind === "plugin" ? meshAvatarText(name) : <FallbackIcon size={21} className="text-white/90" />}
+                  </div>
                 )}
               </div>
               {connected ? (
@@ -384,7 +421,7 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                   size="sm"
                   onClick={() => { onUninstall(); onClose(); }}
                 >
-                  {kind === "skill" ? "Uninstall" : "Disconnect"}
+                  {uninstallLabel ?? (kind === "skill" ? "Uninstall" : "Disconnect")}
                 </Button>
               ) : null}
             </div>
@@ -400,10 +437,10 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                   {connecting ? (
                     <>
                       <Loader2 data-icon="inline-start" className="animate-spin" />
-                      Connecting...
+                      {connectingLabel}
                     </>
                   ) : (
-                    "Connect"
+                    connectLabel
                   )}
                 </Button>
               ) : null}

@@ -6,6 +6,8 @@ import type { DenOrgMarketplaceResolved, DenOrgPlugin } from "../../../../app/li
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { t } from "@/i18n";
+import { ExtensionCard } from "../../../design-system/extension-card";
+import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
 import { useStatusToasts } from "../../shell-feedback/status-toasts";
 import { useCloudSession } from "../cloud/cloud-session-provider";
 import type { useDenSession } from "../cloud/use-den-session";
@@ -22,15 +24,8 @@ import {
   SettingsStack,
 } from "../settings-section";
 import {
-  SettingsList,
   SettingsListEmptyState,
-  SettingsListItem,
-  SettingsListItemActions,
-  SettingsListItemContent,
-  SettingsListItemDescription,
-  SettingsListItemTitle,
   SettingsListSearchInput,
-  SettingsListTitle,
 } from "../settings-list";
 
 type AsyncResult = { ok: boolean; message: string };
@@ -115,6 +110,7 @@ export function CloudMarketplacesView({
   const [search, setSearch] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<MarketplaceStatusFilter>("all");
   const [marketplaceFilter, setMarketplaceFilter] = React.useState("all");
+  const [detailRow, setDetailRow] = React.useState<MarketplacePackageRow | null>(null);
   const activeOrgId = activeOrg?.id ?? "";
 
   const marketplaces = extensions.cloudOrgMarketplaces();
@@ -323,17 +319,26 @@ export function CloudMarketplacesView({
       ) : null}
 
       {visibleRows.length > 0 ? (
-        <SettingsList>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {visibleRows.map((row) => (
-            <MarketplacePackageListItem
+            <MarketplacePackageCard
               key={`${row.marketplaceId}:${row.plugin.id}`}
               actionId={actionId}
               row={row}
-              onImportPlugin={importPlugin}
-              onRemovePlugin={removePlugin}
+              onOpenDetail={setDetailRow}
             />
           ))}
-        </SettingsList>
+        </div>
+      ) : null}
+
+      {detailRow ? (
+        <MarketplacePackageDetailModal
+          actionId={actionId}
+          row={detailRow}
+          onClose={() => setDetailRow(null)}
+          onImportPlugin={importPlugin}
+          onRemovePlugin={removePlugin}
+        />
       ) : null}
     </SettingsSection>
   );
@@ -346,65 +351,77 @@ export function CloudMarketplacesView({
   );
 }
 
-function MarketplacePackageListItem(props: {
+function actionLabelForStatus(status: MarketplacePackageStatus) {
+  switch (status) {
+    case "installed":
+      return "View details";
+    case "update_available":
+      return "Update available";
+    default:
+      return "Add";
+  }
+}
+
+function MarketplacePackageCard(props: {
   actionId: string | null;
   row: MarketplacePackageRow;
+  onOpenDetail: (row: MarketplacePackageRow) => void;
+}) {
+  const { actionId, row, onOpenDetail } = props;
+  const actionBusy = actionId === row.plugin.id;
+
+  return (
+    <ExtensionCard
+      name={row.plugin.name}
+      description={row.plugin.description || `Marketplace package from ${row.marketplaceName}.`}
+      kind="plugin"
+      connected={Boolean(row.imported)}
+      connecting={actionBusy}
+      actionLabel={actionBusy ? "Working..." : actionLabelForStatus(row.status)}
+      onClick={() => onOpenDetail(row)}
+    />
+  );
+}
+
+function MarketplacePackageDetailModal(props: {
+  actionId: string | null;
+  row: MarketplacePackageRow;
+  onClose: () => void;
   onImportPlugin: (marketplaceId: string | null, plugin: DenOrgPlugin) => void | Promise<void>;
   onRemovePlugin: (pluginId: string, pluginName: string) => void | Promise<void>;
 }) {
-  const { actionId, row, onImportPlugin, onRemovePlugin } = props;
+  const { actionId, row, onClose, onImportPlugin, onRemovePlugin } = props;
   const actionBusy = actionId === row.plugin.id;
-  const installedFileSummary = row.imported?.files.map((file) => `${file.title} (${file.objectType})`).join(", ");
+  const canAddOrUpdate = row.status === "available" || row.status === "update_available";
 
   return (
-    <SettingsListItem>
-      <SettingsListItemContent>
-        <SettingsListTitle>
-          <SettingsListItemTitle>{row.plugin.name}</SettingsListItemTitle>
-          <SettingsPill className={statusClass(row.status)}>{statusLabel(row.status)}</SettingsPill>
-          <SettingsPill>{row.marketplaceName}</SettingsPill>
-          {row.counts.map((label) => <SettingsPill key={label}>{label}</SettingsPill>)}
-        </SettingsListTitle>
-        <SettingsListItemDescription>
-          {row.plugin.description || "No description provided."}
-        </SettingsListItemDescription>
-        {installedFileSummary ? (
-          <div className="mt-1 truncate text-xs text-muted-foreground">
-            Adds: {installedFileSummary}
+    <ExtensionDetailModal
+      open
+      onClose={onClose}
+      name={row.plugin.name}
+      description={row.plugin.description || "No description provided."}
+      kind="plugin"
+      connected={Boolean(row.imported)}
+      connecting={actionBusy}
+      connectLabel={row.status === "update_available" ? "Update" : "Add"}
+      connectingLabel={row.status === "update_available" ? "Updating..." : "Adding..."}
+      uninstallLabel="Remove"
+      onConnect={canAddOrUpdate ? () => void onImportPlugin(row.marketplaceId, row.plugin) : undefined}
+      onUninstall={row.imported ? () => void onRemovePlugin(row.plugin.id, row.plugin.name) : undefined}
+      configSlot={(
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <SettingsPill className={statusClass(row.status)}>{statusLabel(row.status)}</SettingsPill>
+            <SettingsPill>{row.marketplaceName}</SettingsPill>
+            {row.counts.map((label) => <SettingsPill key={label}>{label}</SettingsPill>)}
           </div>
-        ) : null}
-      </SettingsListItemContent>
-      <SettingsListItemActions>
-        {row.status === "update_available" ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void onImportPlugin(row.marketplaceId, row.plugin)}
-            disabled={actionId !== null}
-          >
-            {actionBusy ? t("den.importing") : "Update"}
-          </Button>
-        ) : null}
-        {row.imported ? (
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => void onRemovePlugin(row.plugin.id, row.plugin.name)}
-            disabled={actionId !== null}
-          >
-            {actionBusy ? "Removing..." : "Remove"}
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void onImportPlugin(row.marketplaceId, row.plugin)}
-            disabled={actionId !== null}
-          >
-            {actionBusy ? t("den.importing") : "Add"}
-          </Button>
-        )}
-      </SettingsListItemActions>
-    </SettingsListItem>
+          {row.imported?.files.length ? (
+            <div className="rounded-xl border border-dls-border bg-dls-hover px-3 py-2 text-xs text-muted-foreground">
+              Installed files: {row.imported.files.map((file) => `${file.title} (${file.objectType})`).join(", ")}
+            </div>
+          ) : null}
+        </div>
+      )}
+    />
   );
 }
