@@ -423,18 +423,26 @@ function settingsPathForRoute(route: ReturnType<typeof parseSettingsPath>) {
   return route.tab;
 }
 
-function SettingsRouteContent() {
+export type SettingsSurfaceProps = {
+  embedded?: boolean;
+  initialPath?: string;
+  workspaceId?: string;
+  onClose?: () => void;
+};
+
+function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams<{ workspaceId?: string }>();
-  const routeWorkspaceId = params.workspaceId?.trim() || "";
+  const routeWorkspaceId = props.workspaceId?.trim() || params.workspaceId?.trim() || "";
   const local = useLocal();
   const platform = usePlatform();
   const checkDesktopRestriction = useCheckDesktopRestriction();
   const restrictionNotice = useRestrictionNotice();
   const desktopConfig = useDesktopConfig();
   const reloadCoordinator = useReloadCoordinator();
-  const route = parseSettingsPath(location.pathname);
+  const [embeddedPath, setEmbeddedPath] = useState(props.initialPath ?? "general");
+  const route = props.embedded ? parseSettingsPath(`/settings/${embeddedPath}`) : parseSettingsPath(location.pathname);
   const navigationWorkspaceId = readNavigationWorkspaceId(location.state);
   const navigationSessionId = readNavigationSessionId(location.state);
 
@@ -445,6 +453,19 @@ function SettingsRouteContent() {
   const [workspaceConnectionOverrides, setWorkspaceConnectionOverrides] = useState<Record<string, WorkspaceConnectionState>>({});
   const [legacySelectedWorkspaceId, setLegacySelectedWorkspaceId] = useState(() => navigationWorkspaceId ?? readActiveWorkspaceId() ?? "");
   const selectedWorkspaceId = routeWorkspaceId || legacySelectedWorkspaceId;
+
+  useEffect(() => {
+    if (!props.embedded || !route.redirectPath) return;
+    setEmbeddedPath(route.redirectPath);
+  }, [props.embedded, route.redirectPath]);
+
+  const navigateSettingsPath = useCallback((path: string) => {
+    if (props.embedded) {
+      setEmbeddedPath(path);
+      return;
+    }
+    navigate(selectedWorkspaceId ? workspaceSettingsRoute(selectedWorkspaceId, path) : `/settings/${path}`);
+  }, [navigate, props.embedded, selectedWorkspaceId]);
   const [baseUrl, setBaseUrl] = useState("");
   const [token, setToken] = useState("");
   const [openworkClient, setOpenworkClient] = useState<OpenworkServerClient | null>(null);
@@ -1821,19 +1842,19 @@ function SettingsRouteContent() {
     selectedWorkspaceRoot,
   });
 
-  if (route.redirectPath) {
+  if (route.redirectPath && !props.embedded) {
     const target = selectedWorkspaceId
       ? workspaceSettingsRoute(selectedWorkspaceId, route.redirectPath)
       : `/settings/${route.redirectPath}`;
     return <Navigate to={target} replace state={location.state} />;
   }
 
-  if (!routeWorkspaceId && selectedWorkspaceId) {
+  if (!props.embedded && !routeWorkspaceId && selectedWorkspaceId) {
     return <Navigate to={workspaceSettingsRoute(selectedWorkspaceId, settingsPathForRoute(route))} replace state={location.state} />;
   }
 
   const openCloudAccountSettings = () => {
-    navigate(selectedWorkspaceId ? workspaceSettingsRoute(selectedWorkspaceId, "cloud-account") : "/settings/cloud-account");
+    navigateSettingsPath("cloud-account");
   };
 
   const settingsView = (() => {
@@ -1841,7 +1862,7 @@ function SettingsRouteContent() {
       case "general":
         return (
           <GeneralSettingsView
-            onNavigateTab={(tab) => navigate(selectedWorkspaceId ? workspaceSettingsRoute(selectedWorkspaceId, tab) : `/settings/${tab}`)}
+            onNavigateTab={(tab) => navigateSettingsPath(tab)}
             developerMode={developerMode}
             onSendFeedback={() => platform.openLink(buildFeedbackUrl({ entrypoint: "settings" }))}
             onJoinDiscord={() => platform.openLink("https://discord.gg/VEhNQXxYMB")}
@@ -1917,6 +1938,7 @@ function SettingsRouteContent() {
             extensions={extensionsStore}
             onOpenLink={(url) => platform.openLink(url)}
             createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
+              props.onClose?.();
               navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session");
               return undefined;
             }}
@@ -1937,7 +1959,7 @@ function SettingsRouteContent() {
             initialSection={route.extensionsSection}
             setSectionRoute={(section) => {
               const path = `extensions/${section}`;
-              navigate(selectedWorkspaceId ? workspaceSettingsRoute(selectedWorkspaceId, path) : `/settings/${path}`);
+              navigateSettingsPath(path);
             }}
             onRefresh={() => {
               void connectionsStore.refreshMcpServers();
@@ -2179,7 +2201,7 @@ function SettingsRouteContent() {
     <>
       <SettingsShell
         activeTab={route.tab}
-        onSelectTab={(tab) => navigate(selectedWorkspaceId ? workspaceSettingsRoute(selectedWorkspaceId, tab) : `/settings/${tab}`)}
+        onSelectTab={(tab) => navigateSettingsPath(tab)}
         developerMode={developerMode}
         selectedWorkspaceId={selectedWorkspaceId}
         selectedWorkspaceName={selectedWorkspaceName}
@@ -2188,8 +2210,9 @@ function SettingsRouteContent() {
         onSelectWorkspace={handleSelectSettingsWorkspace}
         headerStatus={routeOpenworkStatus}
         busyHint={loading ? t("session.loading_detail") : busyLabel}
-        onClose={() => navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session")}
+        onClose={props.onClose ?? (() => navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session"))}
         error={routeError ?? notFoundRouteError}
+        compact={props.embedded}
       >
         {settingsView}
       </SettingsShell>
@@ -2338,9 +2361,13 @@ function SettingsRouteContent() {
 }
 
 export function SettingsRoute() {
+  return <SettingsSurface />;
+}
+
+export function SettingsSurface(props: SettingsSurfaceProps) {
   return (
     <CloudSessionProvider>
-      <SettingsRouteContent />
+      <SettingsRouteContent {...props} />
     </CloudSessionProvider>
   );
 }
