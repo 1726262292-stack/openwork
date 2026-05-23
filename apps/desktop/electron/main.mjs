@@ -226,15 +226,15 @@ if (process.platform === "darwin" && APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty()
 
 // Expose Chrome DevTools Protocol so the opencode-chrome-devtools plugin can
 // drive the built-in browser panel.  Use OPENWORK_ELECTRON_REMOTE_DEBUG_PORT to
-// pin a specific port; otherwise pick a default (9223) that stays out of the
-// way of common dev-tools ports (9222 = Chrome, 9229 = Node inspector).
+// pin a specific port. Prod defaults to 9223; dev defaults to 9823 so both
+// apps can run side by side without the dev browser tools attaching to prod.
 const explicitCdpPort = Number.parseInt(
   process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "",
   10,
 );
 const remoteDebugPort = Number.isFinite(explicitCdpPort) && explicitCdpPort > 0
   ? explicitCdpPort
-  : 9223;
+  : isDevMode ? 9823 : 9223;
 app.commandLine.appendSwitch("remote-debugging-port", String(remoteDebugPort));
 app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
 // Make the port available to the embedded server so it can pass it to OpenCode.

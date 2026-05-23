@@ -108,15 +108,11 @@ export function ExtensionCard(props: ExtensionCardProps) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h4 className="text-sm font-semibold text-dls-text">{name}</h4>
-            {connected ? (
-              <span className="rounded-md bg-green-3 px-1.5 py-0.5 text-[10px] font-medium text-green-11">
-                Connected
-              </span>
-            ) : (
+            {!connected ? (
               <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${kindStyle[kind]}`}>
                 {kindLabel[kind]}
               </span>
-            )}
+            ) : null}
           </div>
           <p className="mt-0.5 line-clamp-2 text-xs text-dls-secondary">{description}</p>
           {!connected && !connecting && actionLabel ? (
