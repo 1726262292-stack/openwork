@@ -18,6 +18,7 @@ export type ExtensionCardProps = {
   kind?: ExtensionKind;
   /** Whether the extension is already installed/connected. */
   connected?: boolean;
+  connectedLabel?: string;
   /** Whether a connect operation is in progress. */
   connecting?: boolean;
   /** Whether interaction is disabled. */
@@ -62,6 +63,7 @@ export function ExtensionCard(props: ExtensionCardProps) {
     fallbackIcon: FallbackIcon = Plug2,
     kind = "mcp",
     connected = false,
+    connectedLabel = "Connected",
     connecting = false,
     disabled = false,
     hidden = false,
@@ -101,7 +103,7 @@ export function ExtensionCard(props: ExtensionCardProps) {
                 <img src={`https://cdn.simpleicons.org/${iconSlug}`} alt="" width={16} height={16} loading="lazy" style={{ display: "block" }} />
               </div>
             ) : (
-              kind === "plugin" ? (
+              kind === "plugin" || kind === "skill" ? (
                 <ExtensionMeshAvatar name={name} className="size-7 rounded-md text-[10px] font-bold shadow-inner" />
               ) : <FallbackIcon size={18} className="text-dls-secondary" />
             )}
@@ -119,7 +121,7 @@ export function ExtensionCard(props: ExtensionCardProps) {
             <h4 className="text-sm font-semibold text-dls-text">{name}</h4>
             {connected ? (
               <span className="rounded-md bg-green-3 px-1.5 py-0.5 text-[10px] font-medium text-green-11">
-                Connected
+                {connectedLabel}
               </span>
             ) : (
               <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${kindStyle[kind]}`}>

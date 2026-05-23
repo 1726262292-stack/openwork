@@ -1889,6 +1889,18 @@ function SettingsRouteContent() {
             )}
             showOpenWorkModelsSubscribe={showOpenWorkModelsSubscribe}
             onSubscribeOpenWorkModels={subscribeToOpenWorkModels}
+            cloudProvidersView={
+              <CloudProvidersView
+                embedded
+                cloudOrgProviders={providerAuthSnapshot.cloudOrgProviders}
+                connectCloudProvider={providerAuthStore.connectCloudProvider}
+                importedCloudProviders={providerAuthSnapshot.importedCloudProviders}
+                onOpenAccount={openCloudAccountSettings}
+                refreshCloudOrgProviders={providerAuthStore.refreshCloudOrgProviders}
+                removeCloudProvider={providerAuthStore.removeCloudProvider}
+                session={denSession}
+              />
+            }
           />
         );
       case "preferences":

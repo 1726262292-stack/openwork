@@ -189,7 +189,6 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
 export const CLOUD_SETTINGS_TABS: SettingsTab[] = [
   "cloud-account",
   "cloud-workers",
-  "cloud-providers",
 ];
 
 type SettingsPageProps = {

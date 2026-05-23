@@ -40,6 +40,8 @@ export type ExtensionDetailModalProps = {
   fallbackIcon?: LucideIcon;
   kind?: ExtensionKind;
   connected?: boolean;
+  connectedLabel?: string;
+  disconnectedLabel?: string;
   connecting?: boolean;
   /** Whether this item is hidden from the normal extensions catalog. */
   hidden?: boolean;
@@ -74,6 +76,7 @@ export type ExtensionDetailModalProps = {
   onShow?: () => void;
   /** Extension-specific configuration UI rendered inside the modal body. */
   configSlot?: React.ReactNode;
+  showEnablementCard?: boolean;
 };
 
 const kindLabel: Record<ExtensionKind, string> = {
@@ -177,6 +180,8 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
     fallbackIcon: FallbackIcon = Plug2,
     kind = "mcp",
     connected = false,
+    connectedLabel,
+    disconnectedLabel,
     connecting = false,
     hidden = false,
     disabledReason = null,
@@ -196,6 +201,7 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
     onHide,
     onShow,
     configSlot,
+    showEnablementCard = true,
   } = props;
   const resolvedIconSrc = iconSrc ? resolveExtensionIconSrc(iconSrc) : undefined;
 
@@ -227,7 +233,7 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                     <img src={`https://cdn.simpleicons.org/${iconSlug}`} alt="" width={20} height={20} loading="lazy" style={{ display: "block" }} />
                   </div>
                 ) : (
-                  kind === "plugin" ? (
+                  kind === "plugin" || kind === "skill" ? (
                     <ExtensionMeshAvatar name={name} className="size-9 rounded-lg text-xs font-bold shadow-inner" />
                   ) : <FallbackIcon size={24} className="text-muted-foreground" />
                 )}
@@ -307,9 +313,11 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Status</span>
                     <span className={`font-medium ${connected ? "text-green-11" : "text-muted-foreground"}`}>
-                      {kind === "skill"
-                        ? (connected ? "Installed" : "Not installed")
-                        : (connected ? "Connected" : connecting ? "Connecting..." : "Not connected")}
+                      {connected
+                        ? connectedLabel ?? (kind === "skill" || kind === "plugin" ? "Installed" : "Connected")
+                        : connecting
+                          ? connectingLabel
+                          : disconnectedLabel ?? (kind === "skill" || kind === "plugin" ? "Not installed" : "Not connected")}
                     </span>
                   </div>
 
@@ -360,7 +368,7 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
             })() : null}
 
             {/* What this enables (generic, for non-skills or skills without preview) */}
-            {(kind !== "skill" && kind !== "ui-control") || (!trigger && !contentPreview && kind !== "ui-control") ? (
+            {showEnablementCard && ((kind !== "skill" && kind !== "ui-control") || (!trigger && !contentPreview && kind !== "ui-control")) ? (
               <Card variant="outline" size="sm">
                 <CardHeader>
                   <CardTitle>What this enables</CardTitle>

@@ -35,14 +35,16 @@ export function ExtensionMeshAvatar({ name, className }: ExtensionMeshAvatarProp
   return (
     <div className={`relative isolate overflow-hidden ${className ?? ""}`}>
       <MeshGradient
-        width={128}
-        height={128}
+        className="absolute inset-0 h-full w-full"
+        width="100%"
+        height="100%"
         colors={[...colors]}
         distortion={0.8}
         swirl={0.1}
         grainMixer={0}
         grainOverlay={0}
         speed={0}
+        maxPixelCount={4096}
       />
       <div className="absolute inset-0 flex items-center justify-center bg-black/5 text-white drop-shadow-sm">
         {extensionMeshAvatarText(name)}

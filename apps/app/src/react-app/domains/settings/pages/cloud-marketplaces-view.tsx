@@ -52,6 +52,7 @@ type MarketplacePackageRow = {
   imported: CloudImportedPlugin | null;
   status: MarketplacePackageStatus;
   counts: string[];
+  composition: Array<{ count: number; label: string; type: string }>;
   searchableText: string;
 };
 
@@ -63,9 +64,15 @@ export type CloudMarketplacesViewProps = {
 };
 
 function pluginCounts(plugin: DenOrgPlugin) {
-  return Object.entries(plugin.componentCounts).flatMap(([type, count]) =>
-    count > 0 ? [`${count} ${type}${count === 1 ? "" : "s"}`] : [],
-  );
+  return pluginComposition(plugin).map((entry) => `${entry.count} ${entry.label}${entry.count === 1 ? "" : "s"}`);
+}
+
+function pluginComposition(plugin: DenOrgPlugin) {
+  return Object.entries(plugin.componentCounts).flatMap(([type, count]) => {
+    if (count <= 0) return [];
+    const label = type === "mcp" ? "MCP" : type;
+    return [{ count, label, type }];
+  });
 }
 
 function pluginStatus(imported: CloudImportedPlugin | null, plugin: DenOrgPlugin): MarketplacePackageStatus {
@@ -115,9 +122,11 @@ export function CloudMarketplacesView({
 
   const marketplaces = extensions.cloudOrgMarketplaces();
   const importedPlugins = extensions.importedCloudPlugins();
+  const lastRowsRef = React.useRef<MarketplacePackageRow[]>([]);
   const rows = React.useMemo<MarketplacePackageRow[]>(() => {
     return marketplaces.flatMap((marketplace) => marketplace.plugins.map((plugin) => {
       const imported = importedPlugins[plugin.id] ?? null;
+      const composition = pluginComposition(plugin);
       const counts = pluginCounts(plugin);
       const status = pluginStatus(imported, plugin);
       return {
@@ -127,6 +136,7 @@ export function CloudMarketplacesView({
         imported,
         status,
         counts,
+        composition,
         searchableText: [
           plugin.name,
           plugin.description ?? "",
@@ -138,6 +148,12 @@ export function CloudMarketplacesView({
     }));
   }, [importedPlugins, marketplaces]);
 
+  React.useEffect(() => {
+    if (rows.length > 0) lastRowsRef.current = rows;
+  }, [rows]);
+
+  const displayRows = rows.length > 0 ? rows : busy ? lastRowsRef.current : rows;
+
   const marketplaceOptions = React.useMemo(
     () => marketplaces.map((marketplace) => ({ id: marketplace.marketplace.id, name: marketplace.marketplace.name })),
     [marketplaces],
@@ -145,13 +161,13 @@ export function CloudMarketplacesView({
 
   const visibleRows = React.useMemo(() => {
     const query = search.trim().toLowerCase();
-    return rows.filter((row) => {
+    return displayRows.filter((row) => {
       if (marketplaceFilter !== "all" && row.marketplaceId !== marketplaceFilter) return false;
       if (statusFilter !== "all" && row.status !== statusFilter) return false;
       if (!query) return true;
       return row.searchableText.includes(query);
     });
-  }, [marketplaceFilter, rows, search, statusFilter]);
+  }, [displayRows, marketplaceFilter, search, statusFilter]);
 
   const refresh = React.useCallback(
     async (quiet = false) => {
@@ -268,6 +284,10 @@ export function CloudMarketplacesView({
         <SettingsNotice tone="error">{actionError ?? extensions.cloudOrgMarketplacesStatus()}</SettingsNotice>
       ) : null}
 
+      {busy ? (
+        <SettingsNotice>Loading marketplace packages...</SettingsNotice>
+      ) : null}
+
       <div className="space-y-3">
         <SettingsListSearchInput
           value={search}
@@ -308,13 +328,13 @@ export function CloudMarketplacesView({
         </div>
       </div>
 
-      {!busy && rows.length === 0 ? (
+      {!busy && displayRows.length === 0 ? (
         <SettingsListEmptyState>
           {activeOrgId ? "No marketplace packages are available yet." : "Choose an organization to view marketplace packages."}
         </SettingsListEmptyState>
       ) : null}
 
-      {rows.length > 0 && visibleRows.length === 0 ? (
+      {displayRows.length > 0 && visibleRows.length === 0 ? (
         <SettingsListEmptyState>No marketplace packages match your search or filters.</SettingsListEmptyState>
       ) : null}
 
@@ -376,6 +396,7 @@ function MarketplacePackageCard(props: {
       description={row.plugin.description || `Marketplace package from ${row.marketplaceName}.`}
       kind="plugin"
       connected={Boolean(row.imported)}
+      connectedLabel="Installed"
       connecting={actionBusy}
       actionLabel={actionBusy ? "Working..." : actionLabelForStatus(row.status)}
       onClick={() => onOpenDetail(row)}
@@ -402,10 +423,12 @@ function MarketplacePackageDetailModal(props: {
       description={row.plugin.description || "No description provided."}
       kind="plugin"
       connected={Boolean(row.imported)}
+      connectedLabel="Installed"
       connecting={actionBusy}
       connectLabel={row.status === "update_available" ? "Update" : "Add"}
       connectingLabel={row.status === "update_available" ? "Updating..." : "Adding..."}
       uninstallLabel="Remove"
+      showEnablementCard={false}
       onConnect={canAddOrUpdate ? () => void onImportPlugin(row.marketplaceId, row.plugin) : undefined}
       onUninstall={row.imported ? () => void onRemovePlugin(row.plugin.id, row.plugin.name) : undefined}
       configSlot={(
@@ -414,6 +437,17 @@ function MarketplacePackageDetailModal(props: {
             <SettingsPill className={statusClass(row.status)}>{statusLabel(row.status)}</SettingsPill>
             <SettingsPill>{row.marketplaceName}</SettingsPill>
             {row.counts.map((label) => <SettingsPill key={label}>{label}</SettingsPill>)}
+          </div>
+          <div className="rounded-xl border border-dls-border bg-dls-hover px-3 py-3">
+            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Composition</div>
+            <div className="mt-2 grid gap-2">
+              {row.composition.map((entry) => (
+                <div key={entry.type} className="flex items-center justify-between text-sm">
+                  <span className="capitalize text-card-foreground">{entry.label}</span>
+                  <span className="rounded-full bg-dls-surface px-2 py-0.5 text-xs font-medium text-muted-foreground">{entry.count}</span>
+                </div>
+              ))}
+            </div>
           </div>
           {row.imported?.files.length ? (
             <div className="rounded-xl border border-dls-border bg-dls-hover px-3 py-2 text-xs text-muted-foreground">
