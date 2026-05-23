@@ -2312,6 +2312,12 @@ async function handleDesktopInvoke(event, command, ...args) {
       }
       return ["npx", "-y", "openwork-ui-mcp"];
     }
+    case "getHandsFreeMcpCommand": {
+      if (process.env.OPENWORK_DEV_MODE === "1") {
+        return ["node", path.resolve(__dirname, "../../..", "packages/handsfree/bin/openwork-handsfree-computer-use.mjs"), "mcp"];
+      }
+      return ["npx", "-y", "@openwork/handsfree", "mcp"];
+    }
     case "getOpenworkUiMcpEnvironment": {
       return {
         OPENWORK_UI_CONTROL_DISCOVERY: path.join(app.getPath("userData"), "openwork-ui-control.json"),

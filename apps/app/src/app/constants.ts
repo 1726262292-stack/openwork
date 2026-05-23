@@ -4,6 +4,7 @@ import { readDenBootstrapConfig } from "./lib/den";
 import {
   BUILT_IN_OPENWORK_EXTENSION_MANIFESTS,
   extensionContribution,
+  extensionResource,
   isTrustedBuiltInExtension,
   type OpenWorkExtensionManifest,
 } from "./extensions";
@@ -50,11 +51,14 @@ export type McpDirectoryInfo = {
 };
 
 function extensionManifestToDirectoryInfo(manifest: OpenWorkExtensionManifest): McpDirectoryInfo {
+  const mcpResource = extensionResource(manifest, "mcp");
   return {
     id: manifest.id,
     name: manifest.name,
-    serverName: manifest.id,
+    serverName: mcpResource?.mcpServerName ?? manifest.id,
     description: manifest.description,
+    type: mcpResource?.command ? "local" : undefined,
+    command: mcpResource?.command,
     oauth: false,
     kind: "extension",
     iconSlug: manifest.icon?.simpleIconSlug,

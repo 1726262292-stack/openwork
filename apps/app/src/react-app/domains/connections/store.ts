@@ -8,6 +8,7 @@ import {
   MCP_QUICK_CONNECT,
   type McpDirectoryInfo,
 } from "../../../app/constants";
+import { extensionResource } from "../../../app/extensions";
 import { createClient, unwrap } from "../../../app/lib/opencode";
 import { finishPerf, perfNow, recordPerfLog } from "../../../app/lib/perf-log";
 import {
@@ -272,17 +273,27 @@ export function createConnectionsStore(options: {
     return { next, nextStatuses };
   };
 
-  const resolveLocalMcpCommand = async (entry: McpDirectoryInfo) => {
-    if (entry.serverName !== "openwork-ui") {
-      return entry.command;
-    }
+  const resolveDesktopCommand = async (commandName: string) => {
     try {
-      const command = await (window as any).__OPENWORK_ELECTRON__?.invokeDesktop?.("getOpenworkUiMcpCommand");
+      const command = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.(commandName);
       if (Array.isArray(command) && command.every((part) => typeof part === "string") && command.length > 0) {
         return command;
       }
     } catch {
-      // Fall through to the published package command.
+      // Fall through to the published package command in the manifest/catalog.
+    }
+    return null;
+  };
+
+  const resolveLocalMcpCommand = async (entry: McpDirectoryInfo) => {
+    const mcpResource = extensionResource(entry.extensionManifest, "mcp");
+    if (mcpResource?.localCommandRef === "openwork.handsfreeMcp") {
+      const command = await resolveDesktopCommand("getHandsFreeMcpCommand");
+      return command ?? entry.command;
+    }
+    if (mcpResource?.localCommandRef === "openwork.uiMcp" || entry.serverName === "openwork-ui") {
+      const command = await resolveDesktopCommand("getOpenworkUiMcpCommand");
+      return command ?? entry.command;
     }
     return entry.command;
   };
