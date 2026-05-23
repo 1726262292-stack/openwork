@@ -678,7 +678,16 @@ export function ReactSessionComposer(props: ComposerProps) {
   };
 
   const applyExtensionSelection = (entry: McpDirectoryInfo) => {
-    props.onDraftChange(entry.composerPrompt ?? `Use ${entry.name} to `);
+    if (entry.id === "openwork-browser") {
+      const port = window.__OPENWORK_ELECTRON__?.meta?.browserCdpPort?.trim();
+      props.onDraftChange(
+        port
+          ? `Use the OpenWork Browser extension with browser_url "http://127.0.0.1:${port}". Do not use any other browser_url. `
+          : entry.composerPrompt ?? `Use ${entry.name} to `,
+      );
+    } else {
+      props.onDraftChange(entry.composerPrompt ?? `Use ${entry.name} to `);
+    }
     setToolMenuOpen(false);
   };
 

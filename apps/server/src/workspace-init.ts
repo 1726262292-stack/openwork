@@ -47,6 +47,7 @@ Browser tools (\`browser_navigate\`, \`browser_snapshot\`, \`browser_click\`, \`
 - \`browser_url\`: always use \`"http://127.0.0.1:{{BROWSER_CDP_PORT}}"\`.
 - Use for general browsing tasks. The user sees what you do in real time.
 - Always call \`browser_list\` first to discover available targets, then use the appropriate \`target_id\`.
+- Do not scan common CDP ports or fall back to another port. If this endpoint is unavailable, report that the built-in browser is unavailable.
 
 **Chrome (external browser)**:
 - Use when the user needs their real cookies, sign-ins, or extensions.

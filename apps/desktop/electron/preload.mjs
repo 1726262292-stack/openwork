@@ -133,6 +133,7 @@ contextBridge.exposeInMainWorld("__OPENWORK_ELECTRON__", {
     initialDeepLinks: [],
     platform: normalizePlatform(process.platform),
     version: process.versions.electron,
+    browserCdpPort: process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT || undefined,
   },
 });
 
