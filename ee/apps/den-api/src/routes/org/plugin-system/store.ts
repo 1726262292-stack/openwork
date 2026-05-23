@@ -354,7 +354,7 @@ function extensionResourceTypeForConfigObject(objectType: string) {
 }
 
 function serializePluginExtension(row: PluginRow, componentCounts: Record<string, number>) {
-  const sourceFormat = "claude-plugin" as const
+  const sourceFormat = "claude-plugin"
   const description = row.description?.trim() || `${row.name} extension`
   const resources = Object.entries(componentCounts).flatMap(([objectType, count]) => {
     if (count <= 0) return []
@@ -370,7 +370,7 @@ function serializePluginExtension(row: PluginRow, componentCounts: Record<string
     description: row.description,
     id: row.id,
     manifest: {
-      schemaVersion: 1 as const,
+      schemaVersion: 1,
       id: row.id,
       name: row.name,
       description,
