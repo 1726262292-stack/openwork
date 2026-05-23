@@ -1957,6 +1957,7 @@ function SettingsRouteContent() {
                 selectedMcp={connectionsSnapshot.selectedMcp}
                 setSelectedMcp={(name) => connectionsStore.setSelectedMcp(name)}
                 quickConnect={connectionsStore.quickConnect}
+                builtInExtensionsDisabled={checkDesktopRestriction({ restriction: "allowBuiltInExtensions" })}
                 connectMcp={(entry) => {
                   void connectionsStore.connectMcp(entry);
                 }}

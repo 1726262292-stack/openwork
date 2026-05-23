@@ -106,7 +106,15 @@ export type McpViewProps = {
   configSlotForEntry?: (entry: McpDirectoryInfo) => React.ReactNode | null;
   /** Check if an extension-kind entry is connected/active. */
   isExtensionConnected?: (entry: McpDirectoryInfo) => boolean;
+  /** Organization policy restriction for OpenWork-provided built-in extensions. */
+  builtInExtensionsDisabled?: boolean;
 };
+
+const builtInExtensionDisabledReason = "Disabled by organization";
+
+function isBuiltInExtension(entry: McpDirectoryInfo) {
+  return entry.kind === "extension";
+}
 
 const statusDot = (status: ReactMcpStatus) => {
   switch (status) {
@@ -367,6 +375,10 @@ export function McpView(props: McpViewProps) {
   const hiddenCount = quickConnectList.filter((entry) => isOpenWorkExtensionHidden(entry)).length +
     (props.installedSkills ?? []).filter((skill) => isOpenWorkExtensionHidden(getSkillHiddenId(skill))).length +
     (props.installedPlugins ?? []).filter((plugin) => isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)).length;
+  const policyHiddenBuiltInCount = props.builtInExtensionsDisabled
+    ? quickConnectList.filter((entry) => isBuiltInExtension(entry) && !isOpenWorkExtensionHidden(entry)).length
+    : 0;
+  const hiddenOrPolicyCount = hiddenCount + policyHiddenBuiltInCount;
 
   const requestLogout = (name: string) => {
     if (!name.trim()) return;
@@ -432,6 +444,12 @@ export function McpView(props: McpViewProps) {
         </div>
       ) : null}
 
+      {props.builtInExtensionsDisabled ? (
+        <div className="rounded-xl border border-amber-6 bg-amber-2 px-4 py-3 text-xs text-amber-11">
+          Built-in OpenWork extensions are disabled by your organization. Use Show hidden to review blocked built-ins.
+        </div>
+      ) : null}
+
       <McpCustomAppCard onOpen={() => setAddMcpModalOpen(true)} />
 
       {/* Search + filter */}
@@ -461,7 +479,7 @@ export function McpView(props: McpViewProps) {
             size="xs"
             onClick={() => setShowHidden((current) => !current)}
           >
-            {showHidden ? "Showing hidden" : hiddenCount > 0 ? `Show hidden (${hiddenCount})` : "Show hidden"}
+            {showHidden ? "Showing hidden" : hiddenOrPolicyCount > 0 ? `Show hidden (${hiddenOrPolicyCount})` : "Show hidden"}
           </Button>
         </div>
       </div>
@@ -469,7 +487,7 @@ export function McpView(props: McpViewProps) {
       <McpQuickConnectSection
         entries={
           quickConnectList.filter((entry) => {
-            if (!showHidden && isOpenWorkExtensionHidden(entry)) return false;
+            if (!showHidden && (isOpenWorkExtensionHidden(entry) || (props.builtInExtensionsDisabled && isBuiltInExtension(entry)))) return false;
             if (filter === "skill") return false;
             if (filter === "mcp" && (entry.kind ?? "mcp") !== "mcp" && entry.kind !== "ui-control") return false;
             if (!search.trim()) return true;
@@ -503,8 +521,15 @@ export function McpView(props: McpViewProps) {
         isEntryHidden={(entry) => isOpenWorkExtensionHidden(entry)}
         isSkillHidden={(skill) => isOpenWorkExtensionHidden(getSkillHiddenId(skill))}
         isPluginHidden={(plugin) => isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)}
+        disabledReasonForEntry={(entry) =>
+          props.builtInExtensionsDisabled && isBuiltInExtension(entry)
+            ? builtInExtensionDisabledReason
+            : null
+        }
         isConfigured={(entry) =>
-          entry.kind === "extension"
+          props.builtInExtensionsDisabled && isBuiltInExtension(entry)
+            ? false
+            : entry.kind === "extension"
             ? (entry.defaultEnabled ? isOpenWorkExtensionEnabled(entry) : props.isExtensionConnected?.(entry) ?? false)
             : isQuickConnectConfigured(entry)
         }
@@ -608,7 +633,12 @@ export function McpView(props: McpViewProps) {
         const extensionConfigSlot = props.configSlotForEntry?.(detailEntry) ?? null;
         const hasConfigSlot = extensionConfigSlot !== null;
         const hidden = isOpenWorkExtensionHidden(detailEntry);
-        const isConnected = detailEntry.kind === "extension"
+        const disabledReason = props.builtInExtensionsDisabled && isBuiltInExtension(detailEntry)
+          ? builtInExtensionDisabledReason
+          : null;
+        const isConnected = disabledReason
+          ? false
+          : detailEntry.kind === "extension"
           ? (detailEntry.defaultEnabled ? isOpenWorkExtensionEnabled(detailEntry) : props.isExtensionConnected?.(detailEntry) ?? false)
           : isQuickConnectConfigured(detailEntry);
         return (
@@ -624,19 +654,20 @@ export function McpView(props: McpViewProps) {
             connected={isConnected}
             connecting={props.mcpConnectingName === detailEntry.name}
             hidden={hidden}
+            disabledReason={disabledReason}
             launchCommand={detailEntry.serverName === "openwork-ui" ? openworkUiMcpCommand ?? undefined : undefined}
             environment={detailEntry.serverName === "openwork-ui" ? openworkUiMcpEnvironment ?? undefined : undefined}
             url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
             oauth={detailEntry.oauth}
-            configSlot={extensionConfigSlot}
-            onConnect={detailEntry.defaultEnabled ? () => {
+            configSlot={disabledReason ? null : extensionConfigSlot}
+            onConnect={disabledReason ? undefined : detailEntry.defaultEnabled ? () => {
               setOpenWorkExtensionEnabled(detailEntry, true);
               setDetailEntry(null);
             } : hasConfigSlot ? undefined : () => {
               props.connectMcp(detailEntry);
               setDetailEntry(null);
             }}
-            onUninstall={detailEntry.defaultEnabled && isConnected ? () => {
+            onUninstall={disabledReason ? undefined : detailEntry.defaultEnabled && isConnected ? () => {
               setOpenWorkExtensionEnabled(detailEntry, false);
             } : isQuickConnectConfigured(detailEntry) ? () => {
               const slug = getMcpIdentityKey(detailEntry);
@@ -743,6 +774,7 @@ function McpQuickConnectSection(props: {
   isEntryHidden: (entry: McpDirectoryInfo) => boolean;
   isSkillHidden: (skill: SkillItem) => boolean;
   isPluginHidden: (plugin: CloudImportedPlugin) => boolean;
+  disabledReasonForEntry: (entry: McpDirectoryInfo) => string | null;
   isConfigured: (entry: McpDirectoryInfo) => boolean;
   statusForEntry: (entry: McpDirectoryInfo) => { status: ReactMcpStatus } | undefined;
   onConnect: (entry: McpDirectoryInfo) => void;
@@ -766,6 +798,7 @@ function McpQuickConnectSection(props: {
           const connecting = props.connectingName === entry.name;
           const FallbackIcon = serviceIcon(entry.name);
           const hidden = props.isEntryHidden(entry);
+          const disabledReason = props.disabledReasonForEntry(entry);
 
           return (
             <ExtensionCard
@@ -779,6 +812,7 @@ function McpQuickConnectSection(props: {
               connected={configured}
               connecting={connecting}
               hidden={hidden}
+              disabledReason={disabledReason}
               disabled={props.busy}
               actionLabel={configured ? "View details" : t("mcp.tap_to_connect")}
               onClick={() => props.onDetail(entry)}

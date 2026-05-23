@@ -87,6 +87,9 @@ takes `browser_url` as the first argument.
   menu, extension toggle, and stale MCP migration.
 - [`extensions-marketplace-flows.md`](./extensions-marketplace-flows.md) —
   extension runtime and marketplace install/remove/search/filter flows.
+- [`desktop-policy-extension-flows.md`](./desktop-policy-extension-flows.md) —
+  admin-to-member extension policy flows for disabling and restoring built-in
+  extensions.
 - [`workspace-layout-state-flows.md`](./workspace-layout-state-flows.md) —
   persisted sidebar/browser layout, legacy layout migration, and workspace-safe
   layout state.

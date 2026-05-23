@@ -43,6 +43,8 @@ export type ExtensionDetailModalProps = {
   connecting?: boolean;
   /** Whether this item is hidden from the normal extensions catalog. */
   hidden?: boolean;
+  /** Reason this item is visible but unavailable. */
+  disabledReason?: string | null;
   /** Remote URL if applicable. */
   url?: string;
   /** Whether OAuth is required. */
@@ -177,6 +179,7 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
     connected = false,
     connecting = false,
     hidden = false,
+    disabledReason = null,
     url,
     oauth,
     launchCommand,
@@ -314,6 +317,13 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                     <span className="text-muted-foreground">Visibility</span>
                     <span className="font-medium text-card-foreground">{hidden ? "Hidden" : "Shown"}</span>
                   </div>
+
+                  {disabledReason ? (
+                    <div className="flex items-center justify-between gap-4 text-sm">
+                      <span className="text-muted-foreground">Availability</span>
+                      <span className="text-right font-medium text-amber-11">{disabledReason}</span>
+                    </div>
+                  ) : null}
                 </div>
               </CardContent>
             </Card>

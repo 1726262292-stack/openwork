@@ -24,6 +24,8 @@ export type ExtensionCardProps = {
   disabled?: boolean;
   /** Whether this item is hidden from the normal catalog view. */
   hidden?: boolean;
+  /** Reason this item is visible but unavailable. */
+  disabledReason?: string | null;
   /** Action label shown at bottom. */
   actionLabel?: string;
   /** Click handler. */
@@ -63,6 +65,7 @@ export function ExtensionCard(props: ExtensionCardProps) {
     connecting = false,
     disabled = false,
     hidden = false,
+    disabledReason = null,
     actionLabel,
     onClick,
   } = props;
@@ -128,9 +131,19 @@ export function ExtensionCard(props: ExtensionCardProps) {
                 Hidden
               </span>
             ) : null}
+            {disabledReason ? (
+              <span className="rounded-md bg-amber-3 px-1.5 py-0.5 text-[10px] font-medium text-amber-11">
+                Disabled
+              </span>
+            ) : null}
           </div>
           <p className="mt-0.5 line-clamp-2 text-xs text-dls-secondary">{description}</p>
-          {!connecting && actionLabel ? (
+          {disabledReason ? (
+            <div className="mt-2 text-[11px] font-medium text-amber-11">
+              {disabledReason}
+            </div>
+          ) : null}
+          {!disabledReason && !connecting && actionLabel ? (
             <div className="mt-2 text-[11px] font-medium text-dls-text transition-colors group-hover:opacity-80">
               {actionLabel}
             </div>

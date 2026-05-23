@@ -8,6 +8,7 @@ import type { CloudImportedPlugin, CloudImportedPluginFile } from "../../../../.
 import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelRef, SkillCard, SlashCommandOption } from "../../../../../app/types";
 import { t } from "../../../../../i18n";
 import { isOpenWorkExtensionEnabled, isOpenWorkExtensionHidden, OPENWORK_EXTENSION_STATE_CHANGED } from "../../../settings/extension-state";
+import { useDesktopRestriction } from "../../../cloud/desktop-config-provider";
 import { ModelBehaviorSelect } from "../../../../../components/model-behavior-select";
 import { ModelSelect } from "../../../../../components/model-select";
 import { LexicalPromptEditor } from "./editor";
@@ -259,6 +260,7 @@ function pluginSlashCommandName(file: CloudImportedPluginFile) {
 }
 
 export function ReactSessionComposer(props: ComposerProps) {
+  const builtInExtensionsDisabled = useDesktopRestriction("allowBuiltInExtensions");
   let fileInput: HTMLInputElement | undefined;
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
@@ -635,6 +637,7 @@ export function ReactSessionComposer(props: ComposerProps) {
     ? pluginSections.find((entry) => entry.section === toolMenuSection)?.plugin ?? null
     : null;
   const composerExtensions = OPENWORK_EXTENSION_CATALOG.filter((entry) =>
+    !builtInExtensionsDisabled &&
     !isOpenWorkExtensionHidden(entry) && (!entry.defaultEnabled || isOpenWorkExtensionEnabled(entry))
   );
   const canSend = props.draft.trim().length > 0 || props.attachments.length > 0;
