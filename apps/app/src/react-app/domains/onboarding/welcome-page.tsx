@@ -39,9 +39,9 @@ const capabilities = [
     desc: "Create, clean, and transform CSV and Excel files.",
   },
   {
-    slug: "googlechrome",
+    slug: "semanticweb",
     title: "Control your browser",
-    desc: "Automate Chrome for repetitive web tasks.",
+    desc: "Automate the built-in browser for repetitive web tasks.",
   },
   {
     slug: "apple",

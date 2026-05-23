@@ -14,7 +14,7 @@ src/react-app/
 ├── design-system/             Reusable presentational primitives + small modal primitives
 └── domains/                   Feature-scoped code, one folder per product domain
     ├── session/
-    │   ├── chat/              Route chrome (status bar, question/permission surfaces)
+    │   ├── chat/              Route frame (status bar, question/permission surfaces)
     │   ├── surface/           Transcript, composer, markdown, tool-call, debug panel
     │   ├── sync/              Session state plumbing (store, runtime, chat adapter)
     │   └── modals/            Model picker, question, rename-session
@@ -24,7 +24,7 @@ src/react-app/
     │   ├── pages/             Plugins, extensions, config, ... (tab bodies)
     │   └── modals/            Reset modal, ...
     ├── connections/
-    │   └── modals/            Add-MCP, Chrome-setup, ...
+    │   └── modals/            Add-MCP, provider auth, ...
     ├── bundles/               Import / start / skill-destination flows + agnostic re-exports
     └── shell-feedback/        Status toasts, reload banner, top-right notifications
 ```

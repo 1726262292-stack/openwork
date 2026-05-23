@@ -1234,7 +1234,7 @@ export function SessionRoute() {
   }, []);
 
   // Inspector wiring: publish the route's current state so an external
-  // operator (or an AI driver like Chrome MCP) can call
+  // operator (or an AI driver using browser tools) can call
   // `window.__openwork.snapshot()` or `window.__openwork.slice("route")` and
   // see workspaces / sessions / connection info without walking the DOM.
   useEffect(() => {

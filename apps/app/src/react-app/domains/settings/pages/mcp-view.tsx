@@ -4,7 +4,6 @@ import {
   BookOpen,
   CheckCircle2,
   ChevronDown,
-  Chrome,
   CircleAlert,
   Cloud,
   Code2,
@@ -43,7 +42,6 @@ import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
-import { ChromeConnectionSetupModal } from "../../connections/modals/chrome-connection-setup-modal";
 import {
   isOpenWorkExtensionEnabled,
   isOpenWorkExtensionHidden,
@@ -164,7 +162,7 @@ const serviceIcon = (name: string) => {
   if (lower.includes("sentry")) return CircleAlert;
   if (lower.includes("stripe")) return CreditCard;
   if (lower.includes("context")) return Globe;
-  if (lower.includes("chrome") || lower.includes("devtools")) {
+  if (lower.includes("devtools")) {
     return MonitorSmartphone;
   }
   if (lower.includes("openwork") && lower.includes("cloud")) return Cloud;
@@ -179,7 +177,7 @@ const serviceColor = (name: string) => {
   if (lower.includes("sentry")) return "text-purple-11";
   if (lower.includes("stripe")) return "text-blue-11";
   if (lower.includes("context")) return "text-green-11";
-  if (lower.includes("chrome") || lower.includes("devtools")) {
+  if (lower.includes("devtools")) {
     return "text-amber-11";
   }
   if (lower.includes("openwork")) return "text-gray-12";
@@ -193,7 +191,7 @@ const serviceIconBg = (name: string) => {
   if (lower.includes("sentry")) return "bg-purple-3 border-purple-6";
   if (lower.includes("stripe")) return "bg-blue-3 border-blue-6";
   if (lower.includes("context")) return "bg-green-3 border-green-6";
-  if (lower.includes("chrome") || lower.includes("devtools")) {
+  if (lower.includes("devtools")) {
     return "bg-amber-3 border-amber-6";
   }
   if (lower.includes("openwork")) return "bg-gray-3 border-gray-6";
@@ -233,7 +231,6 @@ export function McpView(props: McpViewProps) {
     showAdvanced,
     addMcpModalOpen,
     togglingMcp,
-    chromeSetupOpen,
   } = localState;
   const setLocal = <K extends keyof McpViewLocalState>(
     key: K,
@@ -250,7 +247,6 @@ export function McpView(props: McpViewProps) {
   const setShowAdvanced = (value: SetStateAction<boolean>) => setLocal("showAdvanced", value);
   const setAddMcpModalOpen = (value: SetStateAction<boolean>) => setLocal("addMcpModalOpen", value);
   const setTogglingMcp = (value: SetStateAction<string | null>) => setLocal("togglingMcp", value);
-  const setChromeSetupOpen = (value: SetStateAction<boolean>) => setLocal("chromeSetupOpen", value);
   const configRequestId = useRef(0);
 
   const quickConnectList = props.quickConnect;
@@ -436,8 +432,6 @@ export function McpView(props: McpViewProps) {
         </div>
       ) : null}
 
-      {/* Chrome setup card removed -- built-in browser handles this automatically */}
-
       <McpCustomAppCard onOpen={() => setAddMcpModalOpen(true)} />
 
       {/* Search + filter */}
@@ -610,11 +604,6 @@ export function McpView(props: McpViewProps) {
         isRemoteWorkspace={props.isRemoteWorkspace}
       />
 
-      <ChromeConnectionSetupModal
-        open={chromeSetupOpen}
-        onClose={() => setChromeSetupOpen(false)}
-      />
-
       {detailEntry ? (() => {
         const extensionConfigSlot = props.configSlotForEntry?.(detailEntry) ?? null;
         const hasConfigSlot = extensionConfigSlot !== null;
@@ -724,23 +713,6 @@ function McpViewHeader(props: { connectedCount: number }) {
           </span>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function McpChromeSetupCard(props: { onOpen: () => void }) {
-  return (
-    <div className="rounded-2xl border border-amber-6/30 bg-[linear-gradient(180deg,rgba(245,158,11,0.08),rgba(245,158,11,0.03))] p-5 sm:px-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-1">
-          <div className="text-base font-semibold text-dls-text">{t("chrome_setup.title")}</div>
-          <div className="text-sm text-dls-secondary">{t("chrome_setup.subtitle")}</div>
-        </div>
-        <Button variant="outline" onClick={props.onOpen}>
-          <Chrome size={14} />
-          {t("chrome_setup.test_connection")}
-        </Button>
-      </div>
     </div>
   );
 }

@@ -74,4 +74,23 @@ describe("ensureWorkspaceFiles", () => {
       expect(result.reloadReasons).not.toContain("config");
     });
   });
+
+  test("repairs desktop-created schema-only opencode config", async () => {
+    await withWorkspace(async (root) => {
+      await mkdir(join(root, ".opencode"), { recursive: true });
+      await writeFile(join(root, ".opencode", "openwork.json"), "{}\n", "utf8");
+      const configPath = join(root, "opencode.jsonc");
+      await writeFile(configPath, `{
+  "$schema": "https://opencode.ai/config.json"
+}
+`, "utf8");
+
+      const result = await ensureWorkspaceFiles(root, "starter");
+      const config = await readFile(configPath, "utf8");
+
+      expect(config).toContain('"default_agent": "openwork"');
+      expect(config).toContain('"opencode-chrome-devtools"');
+      expect(result.reloadReasons).toContain("config");
+    });
+  });
 });

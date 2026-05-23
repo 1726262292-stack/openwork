@@ -1155,7 +1155,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                         className="flex flex-1 items-start gap-2.5 rounded-xl border border-dls-border bg-dls-surface p-3 text-left transition-colors hover:bg-dls-hover"
                         onClick={() => void typeComposerText("Open craigslist.org in the browser and search for couches for sale. Show me the top 5 results with prices.")}
                       >
-                        <img src="https://cdn.simpleicons.org/googlechrome" alt="" width={16} height={16} className="mt-0.5 shrink-0" />
+                        <img src="/openwork-mark.svg" alt="" width={16} height={16} className="mt-0.5 shrink-0" />
                         <div>
                           <div className="text-[12px] font-medium text-dls-text">Browse the web</div>
                           <div className="text-[11px] text-dls-secondary">Search Craigslist for couches</div>

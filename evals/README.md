@@ -43,8 +43,8 @@ Open the app and follow the step lists by hand.
 
 ## Tool reference
 
-Evals use the OpenCode browser tools (`.opencode/tools/browser.ts`), not
-Chrome DevTools MCP. Every tool takes `browser_url` as the first argument.
+Evals use the OpenCode browser tools (`.opencode/tools/browser.ts`). Every tool
+takes `browser_url` as the first argument.
 
 | Tool | Description |
 |------|-------------|

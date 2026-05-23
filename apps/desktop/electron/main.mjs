@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { execFile, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import net from "node:net";
 import { existsSync } from "node:fs";
@@ -42,6 +42,7 @@ const APP_IDENTIFIER = isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER;
 const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/different-ai/openwork/releases/latest/download";
 const RELEASE_PAGE_URL = "https://github.com/different-ai/openwork/releases/latest";
 const DOCS_PAGE_URL = "https://openworklabs.com/docs";
+const BROWSER_PLUGIN = "opencode-chrome-devtools";
 
 // Production Electron shares the same on-disk state folder as the Tauri shell
 // so in-place migration is a no-op for almost every file. Dev mode uses the
@@ -411,108 +412,6 @@ async function openSettingsFromNativeMenu() {
 async function toggleSidebarFromNativeMenu() {
   const win = await createMainWindow();
   win.webContents.send(NATIVE_MENU_TOGGLE_SIDEBAR_EVENT);
-}
-
-function execFilePromise(file, args) {
-  return new Promise((resolve, reject) => {
-    execFile(file, args, (error) => {
-      if (error) reject(error);
-      else resolve(undefined);
-    });
-  });
-}
-
-async function openChromeRemoteDebugging() {
-  const url = "chrome://inspect/#remote-debugging";
-  if (process.platform === "darwin") {
-    try {
-      await execFilePromise("/usr/bin/open", ["-a", "Google Chrome", url]);
-      return { ok: true };
-    } catch {
-      await execFilePromise("/usr/bin/open", ["-a", "Chromium", url]);
-      return { ok: true };
-    }
-  }
-
-  if (process.platform === "win32") {
-    await execFilePromise("cmd.exe", ["/c", "start", "", "chrome", url]);
-    return { ok: true };
-  }
-
-  const linuxCandidates = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"];
-  let lastError = null;
-  for (const candidate of linuxCandidates) {
-    try {
-      await execFilePromise(candidate, [url]);
-      return { ok: true };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  await shell.openExternal(url);
-  return { ok: true, fallback: true, error: lastError instanceof Error ? lastError.message : null };
-}
-
-function commandOutput(command, args) {
-  try {
-    return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-  } catch {
-    return "";
-  }
-}
-
-function listeningPortLooksLikeChrome(port) {
-  if (!Number.isInteger(port) || port <= 0) return false;
-
-  if (process.platform === "darwin") {
-    return /Google|Chromium|Chrome/i.test(commandOutput("/usr/sbin/lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"]));
-  }
-
-  if (process.platform === "linux") {
-    const lsofOutput = commandOutput("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"]);
-    if (/chrome|chromium/i.test(lsofOutput)) return true;
-    const ssOutput = commandOutput("ss", ["-ltnp", `sport = :${port}`]);
-    return /chrome|chromium/i.test(ssOutput);
-  }
-
-  if (process.platform === "win32") {
-    const netstat = commandOutput("netstat.exe", ["-ano", "-p", "TCP"]);
-    const line = netstat.split(/\r?\n/).find((entry) => entry.includes(`:${port}`) && /LISTENING/i.test(entry));
-    if (!line) return false;
-    const pid = line.trim().split(/\s+/).at(-1);
-    if (!pid) return false;
-    return /chrome\.exe/i.test(commandOutput("tasklist.exe", ["/FI", `PID eq ${pid}`]));
-  }
-
-  return false;
-}
-
-async function checkChromeDebuggingPort(port) {
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    return { connected: false, port: null, mode: null };
-  }
-
-  try {
-    const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
-      signal: AbortSignal.timeout(1200),
-    });
-    if (response.ok) {
-      const payload = await response.json().catch(() => null);
-      if (typeof payload?.webSocketDebuggerUrl === "string") {
-        return { connected: true, port, mode: "cdp-json" };
-      }
-    }
-    if (response.status === 404 && listeningPortLooksLikeChrome(port)) {
-      return { connected: true, port, mode: "chrome-auto-connect" };
-    }
-  } catch {
-    if (listeningPortLooksLikeChrome(port)) {
-      return { connected: true, port, mode: "chrome-listener" };
-    }
-  }
-
-  return { connected: false, port, mode: null };
 }
 
 function installApplicationMenu() {
@@ -921,6 +820,11 @@ function createBrowserTab(url = "about:blank", { select = true } = {}) {
   view.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
     void shell.openExternal(targetUrl);
     return { action: "deny" };
+  });
+  view.webContents.on("did-start-navigation", (_event, targetUrl, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace && targetUrl !== "about:blank") {
+      sendToRenderer("openwork:browser:panel-opened");
+    }
   });
   view.webContents.on("did-navigate", () => sendBrowserState());
   view.webContents.on("did-navigate-in-page", () => sendBrowserState());
@@ -1408,6 +1312,30 @@ function defaultWorkspaceOpenworkConfig(workspacePath, preset = null) {
     authorizedRoots: workspacePath ? [workspacePath] : [],
     reload: null,
   };
+}
+
+async function workspaceOpencodeConfigPath(workspacePath) {
+  const candidates = [
+    path.join(workspacePath, "opencode.jsonc"),
+    path.join(workspacePath, "opencode.json"),
+    path.join(workspacePath, ".opencode", "opencode.jsonc"),
+    path.join(workspacePath, ".opencode", "opencode.json"),
+  ];
+  for (const candidate of candidates) {
+    if (await pathExists(candidate)) return candidate;
+  }
+  return candidates[0];
+}
+
+async function ensureDefaultWorkspaceOpencodeConfig(workspacePath) {
+  const configPath = await workspaceOpencodeConfigPath(workspacePath);
+  if (await pathExists(configPath)) return false;
+  await writeJsonFileAtomic(configPath, {
+    $schema: "https://opencode.ai/config.json",
+    default_agent: "openwork",
+    plugin: [BROWSER_PLUGIN],
+  });
+  return true;
 }
 
 async function normalizeLocalWorkspacePath(rawPath) {
@@ -2083,6 +2011,7 @@ async function handleDesktopInvoke(event, command, ...args) {
         workspaceType: "local",
       });
       await mkdir(path.join(folderPath, ".opencode"), { recursive: true });
+      await ensureDefaultWorkspaceOpencodeConfig(folderPath);
       await writeWorkspaceOpenworkConfig(folderPath, defaultWorkspaceOpenworkConfig(folderPath, preset));
 
       return mutateWorkspaceState((state) => {
@@ -2552,10 +2481,6 @@ async function handleDesktopInvoke(event, command, ...args) {
       if (!target) return "Path is required.";
       return shell.openPath(target);
     }
-    case "__openChromeRemoteDebugging":
-      return openChromeRemoteDebugging();
-    case "__checkChromeDebuggingPort":
-      return checkChromeDebuggingPort(Number(args[0]));
     case "__revealItemInDir": {
       const target = String(args[0] ?? "").trim();
       if (!target) return undefined;
@@ -2816,6 +2741,10 @@ async function createMainWindow() {
     const packagedIndexPath = path.join(process.resourcesPath, "app-dist", "index.html");
     const devIndexPath = path.resolve(__dirname, "../../app/dist/index.html");
     await mainWindow.loadFile(app.isPackaged ? packagedIndexPath : devIndexPath);
+  }
+
+  if (!activeBrowserTabId) {
+    createBrowserTab("about:blank", { select: true });
   }
 
   return mainWindow;
