@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import { type McpDirectoryInfo } from "../../../../app/constants";
+import type { CloudImportedPlugin } from "../../../../app/cloud/import-state";
 import { ExtensionCard } from "../../../design-system/extension-card";
 import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
 import {
@@ -80,8 +81,12 @@ export type McpViewProps = {
   isRemoteWorkspace: boolean;
   /** Installed skills to render alongside MCPs in the grid. */
   installedSkills?: SkillItem[];
+  /** Installed marketplace packages to render alongside runtime extensions. */
+  installedPlugins?: CloudImportedPlugin[];
   /** Uninstall a skill by name. */
   uninstallSkill?: (name: string) => void;
+  /** Remove an imported marketplace package by plugin id. */
+  removeCloudPlugin?: (pluginId: string) => void | Promise<unknown>;
   /** Read skill content by name. */
   readSkill?: (name: string) => Promise<{ content: string } | null>;
   readConfigFile?: (scope: "project" | "global") => Promise<OpencodeConfigFile | null>;
@@ -202,6 +207,7 @@ export function McpView(props: McpViewProps) {
   const [detailEntry, setDetailEntry] = useState<McpDirectoryInfo | null>(null);
   const [detailSkill, setDetailSkill] = useState<SkillItem | null>(null);
   const [detailSkillContent, setDetailSkillContent] = useState<string | null>(null);
+  const [detailPlugin, setDetailPlugin] = useState<CloudImportedPlugin | null>(null);
   const [openworkUiMcpCommand, setOpenworkUiMcpCommand] = useState<string[] | null>(null);
   const [openworkUiMcpEnvironment, setOpenworkUiMcpEnvironment] = useState<Record<string, string> | null>(null);
   const [search, setSearch] = useState("");
@@ -363,7 +369,8 @@ export function McpView(props: McpViewProps) {
     (entry) => resolveStatus(entry) === "connected",
   ).length;
   const hiddenCount = quickConnectList.filter((entry) => isOpenWorkExtensionHidden(entry)).length +
-    (props.installedSkills ?? []).filter((skill) => isOpenWorkExtensionHidden(getSkillHiddenId(skill))).length;
+    (props.installedSkills ?? []).filter((skill) => isOpenWorkExtensionHidden(getSkillHiddenId(skill))).length +
+    (props.installedPlugins ?? []).filter((plugin) => isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)).length;
 
   const requestLogout = (name: string) => {
     if (!name.trim()) return;
@@ -485,10 +492,23 @@ export function McpView(props: McpViewProps) {
             return skill.name.toLowerCase().includes(q) || (skill.description ?? "").toLowerCase().includes(q);
           })
         }
+        installedPlugins={
+          (props.installedPlugins ?? []).filter((plugin) => {
+            if (!showHidden && isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)) return false;
+            if (filter === "mcp" || filter === "skill") return false;
+            if (!search.trim()) return true;
+            const q = search.toLowerCase();
+            return [plugin.name, plugin.description ?? "", ...plugin.files.map((file) => `${file.title} ${file.objectType} ${file.path}`)]
+              .join(" ")
+              .toLowerCase()
+              .includes(q);
+          })
+        }
         busy={props.busy}
         connectingName={props.mcpConnectingName}
         isEntryHidden={(entry) => isOpenWorkExtensionHidden(entry)}
         isSkillHidden={(skill) => isOpenWorkExtensionHidden(getSkillHiddenId(skill))}
+        isPluginHidden={(plugin) => isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)}
         isConfigured={(entry) =>
           entry.kind === "extension"
             ? (entry.defaultEnabled ? isOpenWorkExtensionEnabled(entry) : props.isExtensionConnected?.(entry) ?? false)
@@ -508,6 +528,7 @@ export function McpView(props: McpViewProps) {
             });
           }
         }}
+        onPluginDetail={setDetailPlugin}
       />
 
       <McpConfiguredServersSection
@@ -665,6 +686,27 @@ export function McpView(props: McpViewProps) {
           />
         );
       })() : null}
+
+      {detailPlugin ? (() => {
+        const hidden = isOpenWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`);
+        return (
+          <ExtensionDetailModal
+            open={!!detailPlugin}
+            onClose={() => setDetailPlugin(null)}
+            name={detailPlugin.name}
+            description={detailPlugin.description ?? "Marketplace package installed in this workspace."}
+            kind="plugin"
+            connected={true}
+            hidden={hidden}
+            onUninstall={props.removeCloudPlugin ? () => {
+              void props.removeCloudPlugin?.(detailPlugin.pluginId);
+              setDetailPlugin(null);
+            } : undefined}
+            onHide={() => setOpenWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`, true)}
+            onShow={() => setOpenWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`, false)}
+          />
+        );
+      })() : null}
     </section>
   );
 }
@@ -723,15 +765,18 @@ function McpCustomAppCard(props: { onOpen: () => void }) {
 function McpQuickConnectSection(props: {
   entries: McpDirectoryInfo[];
   installedSkills?: SkillItem[];
+  installedPlugins?: CloudImportedPlugin[];
   busy: boolean;
   connectingName: string | null;
   isEntryHidden: (entry: McpDirectoryInfo) => boolean;
   isSkillHidden: (skill: SkillItem) => boolean;
+  isPluginHidden: (plugin: CloudImportedPlugin) => boolean;
   isConfigured: (entry: McpDirectoryInfo) => boolean;
   statusForEntry: (entry: McpDirectoryInfo) => { status: ReactMcpStatus } | undefined;
   onConnect: (entry: McpDirectoryInfo) => void;
   onDetail: (entry: McpDirectoryInfo) => void;
   onSkillDetail?: (skill: SkillItem) => void;
+  onPluginDetail?: (plugin: CloudImportedPlugin) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -785,6 +830,31 @@ function McpQuickConnectSection(props: {
             />
           );
         })}
+
+        {(props.installedPlugins ?? []).map((plugin) => {
+          const hidden = props.isPluginHidden(plugin);
+          const fileCount = plugin.files.length;
+          return (
+            <ExtensionCard
+              key={`plugin:${plugin.pluginId}`}
+              name={plugin.name}
+              description={plugin.description ?? `Marketplace package with ${fileCount} installed file${fileCount === 1 ? "" : "s"}.`}
+              kind="plugin"
+              connected={true}
+              hidden={hidden}
+              actionLabel="View details"
+              onClick={() => props.onPluginDetail?.(plugin)}
+            />
+          );
+        })}
+
+        {props.entries.length === 0 && (props.installedSkills ?? []).length === 0 && (props.installedPlugins ?? []).length === 0 ? (
+          <div className="col-span-full rounded-xl border border-dashed border-dls-border px-5 py-10 text-center">
+            <Unplug size={24} className="mx-auto mb-3 text-dls-secondary/30" />
+            <div className="text-sm font-medium text-dls-secondary">No extensions found</div>
+            <div className="mt-1 text-xs text-dls-secondary/60">Try a different search, filter, or open Marketplace to add one.</div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

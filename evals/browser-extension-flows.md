@@ -273,24 +273,25 @@ Known regressions this catches:
 - Hidden state not re-rendering after the custom extension-state event.
 - `Show hidden` acting like a destructive uninstall instead of a reversible view preference.
 
-## Flow 9 — Cloud marketplace appears in Extensions pane
+## Flow 9 — Cloud marketplace appears in Extensions Marketplace
 
-**Why**: Organization marketplaces are now part of Extensions, not Cloud
-settings. This flow verifies the marketplace import path still works from the
-new IA.
+**Why**: Organization marketplaces are now reached from Extensions ->
+Marketplace, not Cloud settings. This flow verifies the marketplace import path
+still works from the new IA.
 
 Steps:
 1. Sign in to OpenWork Cloud with an org that has a marketplace plugin.
 2. Open Settings -> Extensions.
-3. Verify the `Marketplaces & Plugins` section is visible below the local
-   extensions catalog.
-4. Click `Refresh` in that section.
-5. Import an available plugin.
+3. Click `Marketplace`.
+4. Verify marketplace packages are visible in one searchable list.
+5. Click `Refresh` in the Marketplace view.
+6. Add an available package.
 
 Pass criteria:
 - Cloud sidebar does not show a separate Marketplace item.
-- The marketplace and plugin are visible from Settings -> Extensions.
-- Import succeeds and reports the number of imported files.
+- The marketplace package is visible from Settings -> Extensions -> Marketplace.
+- Add succeeds and reports the number of imported files.
+- The imported package appears in My Extensions.
 - Existing Cloud Account, Providers, and Workers settings remain available.
 
 Known regressions this catches:

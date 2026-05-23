@@ -1242,6 +1242,47 @@ export function createExtensionsStore(options: {
     }
   }
 
+  async function removeCloudOrgPlugin(pluginId: string): Promise<{ ok: boolean; message: string }> {
+    options.setBusy(true);
+    options.setError(null);
+    setStateField("cloudOrgMarketplacesStatus", null);
+
+    try {
+      const imported = snapshot.importedCloudPlugins[pluginId];
+      if (!imported) throw new Error("Marketplace package is not installed in this workspace.");
+
+      const removedSkillNames = imported.files.flatMap((file) => {
+        if (file.objectType !== "skill") return [];
+        const name = file.path.match(/^\.opencode\/skills\/(?:[^/]+\/)?([^/]+)\/SKILL\.md$/)?.[1];
+        return name ? [name] : [];
+      });
+      await Promise.all(removedSkillNames.map((name) => deleteWorkspaceSkill(name)));
+
+      const nextPlugins = { ...snapshot.importedCloudPlugins };
+      delete nextPlugins[pluginId];
+      await persistImportedCloudPlugins(nextPlugins);
+
+      if (imported.files.length > removedSkillNames.length) {
+        options.markReloadRequired?.("config", { type: "config", name: imported.name, action: "removed" });
+      }
+      await Promise.all([
+        refreshSkills({ force: true }),
+        refreshCloudOrgMarketplaces({ force: true }),
+      ]);
+
+      const partial = imported.files.length > removedSkillNames.length
+        ? " Non-skill files remain in the workspace and can be removed manually."
+        : "";
+      return { ok: true, message: `Removed ${imported.name}.${partial}` };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("skills.unknown_error");
+      options.setError(addOpencodeCacheHint(message));
+      return { ok: false, message };
+    } finally {
+      options.setBusy(false);
+    }
+  }
+
   async function importCloudOrgSkillHub(hub: DenOrgSkillHub): Promise<{ ok: boolean; message: string; importedNames: string[] }> {
     const importedNames: string[] = [];
     options.setBusy(true);
@@ -2545,6 +2586,7 @@ export function createExtensionsStore(options: {
     syncCloudOrgSkillHub,
     removeCloudOrgSkillHub,
     importCloudOrgPlugin,
+    removeCloudOrgPlugin,
     revealSkillsFolder,
     uninstallSkill,
     readSkill,

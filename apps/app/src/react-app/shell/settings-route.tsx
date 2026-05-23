@@ -1996,7 +1996,9 @@ function SettingsRouteContent() {
                 }
                 readConfigFile={(scope) => connectionsStore.readMcpConfigFile(scope)}
                 installedSkills={extensionsStore.skills()}
+                installedPlugins={Object.values(extensionsStore.importedCloudPlugins())}
                 uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}
+                removeCloudPlugin={(pluginId) => { void extensionsStore.removeCloudOrgPlugin(pluginId); }}
                 readSkill={(name) => extensionsStore.readSkill(name)}
                 showHeader={false}
               />

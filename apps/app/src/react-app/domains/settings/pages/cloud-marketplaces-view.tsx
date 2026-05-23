@@ -8,11 +8,34 @@ import { Separator } from "@/components/ui/separator";
 import { t } from "@/i18n";
 import { useStatusToasts } from "../../shell-feedback/status-toasts";
 import { useCloudSession } from "../cloud/cloud-session-provider";
-import { MarketplacePluginsSection, type CloudPluginRow } from "../cloud/sections";
 import type { useDenSession } from "../cloud/use-den-session";
-import { SettingsNotice, SettingsStack } from "../settings-section";
+import {
+  RefreshButton,
+  SettingsNotice,
+  SettingsPill,
+  SettingsSection,
+  SettingsSectionHeader,
+  SettingsSectionHeaderActions,
+  SettingsSectionHeaderContent,
+  SettingsSectionHeaderDescription,
+  SettingsSectionHeaderTitle,
+  SettingsStack,
+} from "../settings-section";
+import {
+  SettingsList,
+  SettingsListEmptyState,
+  SettingsListItem,
+  SettingsListItemActions,
+  SettingsListItemContent,
+  SettingsListItemDescription,
+  SettingsListItemTitle,
+  SettingsListSearchInput,
+  SettingsListTitle,
+} from "../settings-list";
 
 type AsyncResult = { ok: boolean; message: string };
+type MarketplacePackageStatus = "available" | "installed" | "update_available";
+type MarketplaceStatusFilter = "all" | MarketplacePackageStatus;
 type CloudMarketplacesSession = Pick<
   ReturnType<typeof useDenSession>,
   "syncCurrentDenSettings"
@@ -24,6 +47,17 @@ type DenSettingsExtensionsStore = {
   importedCloudPlugins: () => Record<string, CloudImportedPlugin>;
   refreshCloudOrgMarketplaces: (options?: { force?: boolean }) => Promise<unknown>;
   importCloudOrgPlugin: (marketplaceId: string | null, plugin: DenOrgPlugin) => Promise<AsyncResult>;
+  removeCloudOrgPlugin: (pluginId: string) => Promise<AsyncResult>;
+};
+
+type MarketplacePackageRow = {
+  marketplaceId: string;
+  marketplaceName: string;
+  plugin: DenOrgPlugin;
+  imported: CloudImportedPlugin | null;
+  status: MarketplacePackageStatus;
+  counts: string[];
+  searchableText: string;
 };
 
 export type CloudMarketplacesViewProps = {
@@ -32,6 +66,40 @@ export type CloudMarketplacesViewProps = {
   onOpenAccount: () => void;
   session: CloudMarketplacesSession;
 };
+
+function pluginCounts(plugin: DenOrgPlugin) {
+  return Object.entries(plugin.componentCounts).flatMap(([type, count]) =>
+    count > 0 ? [`${count} ${type}${count === 1 ? "" : "s"}`] : [],
+  );
+}
+
+function pluginStatus(imported: CloudImportedPlugin | null, plugin: DenOrgPlugin): MarketplacePackageStatus {
+  if (!imported) return "available";
+  if (imported.updatedAt !== plugin.updatedAt || imported.files.length !== plugin.memberCount) return "update_available";
+  return "installed";
+}
+
+function statusLabel(status: MarketplacePackageStatus) {
+  switch (status) {
+    case "installed":
+      return t("den.imported_badge");
+    case "update_available":
+      return t("den.out_of_sync_badge");
+    default:
+      return "Available";
+  }
+}
+
+function statusClass(status: MarketplacePackageStatus) {
+  switch (status) {
+    case "installed":
+      return "border-green-7/30 bg-green-3/20 text-green-11";
+    case "update_available":
+      return "border-amber-7/30 bg-amber-3/20 text-amber-11";
+    default:
+      return "border-gray-6/60 bg-gray-3/20 text-gray-11";
+  }
+}
 
 export function CloudMarketplacesView({
   extensions,
@@ -42,28 +110,52 @@ export function CloudMarketplacesView({
   const { activeOrganization: activeOrg, authToken, isSignedIn, user } = useCloudSession();
   const { showToast } = useStatusToasts();
   const [busy, setBusy] = React.useState(false);
-  const [activeMarketplaceId, setActiveMarketplaceId] = React.useState<string | null>(null);
   const [actionId, setActionId] = React.useState<string | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
+  const [search, setSearch] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState<MarketplaceStatusFilter>("all");
+  const [marketplaceFilter, setMarketplaceFilter] = React.useState("all");
   const activeOrgId = activeOrg?.id ?? "";
 
   const marketplaces = extensions.cloudOrgMarketplaces();
   const importedPlugins = extensions.importedCloudPlugins();
-  const rowsByMarketplace = React.useMemo<Record<string, CloudPluginRow[]>>(() => {
-    const next: Record<string, CloudPluginRow[]> = {};
-    for (const marketplace of marketplaces) {
-      next[marketplace.marketplace.id] = marketplace.plugins.map((plugin) => {
-        const imported = importedPlugins[plugin.id] ?? null;
-        const status = !imported
-          ? "available"
-          : imported.updatedAt !== plugin.updatedAt || imported.files.length !== plugin.memberCount
-            ? "out_of_sync"
-            : "imported";
-        return { marketplaceId: marketplace.marketplace.id, plugin, imported, status };
-      });
-    }
-    return next;
+  const rows = React.useMemo<MarketplacePackageRow[]>(() => {
+    return marketplaces.flatMap((marketplace) => marketplace.plugins.map((plugin) => {
+      const imported = importedPlugins[plugin.id] ?? null;
+      const counts = pluginCounts(plugin);
+      const status = pluginStatus(imported, plugin);
+      return {
+        marketplaceId: marketplace.marketplace.id,
+        marketplaceName: marketplace.marketplace.name,
+        plugin,
+        imported,
+        status,
+        counts,
+        searchableText: [
+          plugin.name,
+          plugin.description ?? "",
+          marketplace.marketplace.name,
+          ...counts,
+          ...(imported?.files.map((file) => `${file.title} ${file.objectType} ${file.path}`) ?? []),
+        ].join(" ").toLowerCase(),
+      };
+    }));
   }, [importedPlugins, marketplaces]);
+
+  const marketplaceOptions = React.useMemo(
+    () => marketplaces.map((marketplace) => ({ id: marketplace.marketplace.id, name: marketplace.marketplace.name })),
+    [marketplaces],
+  );
+
+  const visibleRows = React.useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return rows.filter((row) => {
+      if (marketplaceFilter !== "all" && row.marketplaceId !== marketplaceFilter) return false;
+      if (statusFilter !== "all" && row.status !== statusFilter) return false;
+      if (!query) return true;
+      return row.searchableText.includes(query);
+    });
+  }, [marketplaceFilter, rows, search, statusFilter]);
 
   const refresh = React.useCallback(
     async (quiet = false) => {
@@ -76,17 +168,17 @@ export function CloudMarketplacesView({
         session.syncCurrentDenSettings();
         await extensions.refreshCloudOrgMarketplaces({ force: true });
         if (!quiet) {
-          const count = extensions.cloudOrgMarketplaces().length;
+          const count = extensions.cloudOrgMarketplaces().reduce((total, marketplace) => total + marketplace.plugins.length, 0);
           showToast({
             title: count > 0
-              ? `Loaded ${count} marketplace${count === 1 ? "" : "s"} for ${activeOrg?.name ?? t("den.active_org_title")}.`
-              : `No marketplaces are available for ${activeOrg?.name ?? t("den.active_org_title")}.`,
+              ? `Loaded ${count} marketplace package${count === 1 ? "" : "s"} for ${activeOrg?.name ?? t("den.active_org_title")}.`
+              : `No marketplace packages are available for ${activeOrg?.name ?? t("den.active_org_title")}.`,
             tone: "info",
           });
         }
       } catch (error) {
         if (!quiet) {
-          setActionError(error instanceof Error ? error.message : "Failed to load marketplaces.");
+          setActionError(error instanceof Error ? error.message : "Failed to load marketplace packages.");
         }
       } finally {
         setBusy(false);
@@ -119,7 +211,7 @@ export function CloudMarketplacesView({
         if (!result.ok) throw new Error(result.message);
         showToast({ title: `${result.message} ${t("den.reload_workspace")}`, tone: "success" });
       } catch (error) {
-        setActionError(error instanceof Error ? error.message : `Failed to import ${plugin.name}.`);
+        setActionError(error instanceof Error ? error.message : `Failed to add ${plugin.name}.`);
       } finally {
         setActionId(null);
       }
@@ -127,43 +219,192 @@ export function CloudMarketplacesView({
     [actionId, extensions, showToast],
   );
 
-  if (!isSignedIn) {
-    const notice = (
-      <SettingsNotice>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <span>{t("skills.share_team_sign_in_hint")}</span>
-          <Button size="sm" onClick={onOpenAccount}>
-            {t("skills.share_team_sign_in")}
-          </Button>
-        </div>
-      </SettingsNotice>
-    );
-    return embedded ? notice : (
-      <SettingsStack>
-        <Separator />
-        {notice}
-      </SettingsStack>
-    );
-  }
+  const removePlugin = React.useCallback(
+    async (pluginId: string, pluginName: string) => {
+      if (actionId) return;
 
-  const marketplaceSection = (
-    <MarketplacePluginsSection
-      actionError={actionError}
-      actionId={actionId}
-      activeMarketplaceId={activeMarketplaceId}
-      busy={busy}
-      marketplaces={marketplaces}
-      rowsByMarketplace={rowsByMarketplace}
-      statusError={extensions.cloudOrgMarketplacesStatus()}
-      onImportPlugin={importPlugin}
-      onRefresh={refresh}
-      onSelectMarketplace={setActiveMarketplaceId}
-    />
+      setActionId(pluginId);
+      setActionError(null);
+
+      try {
+        const result = await extensions.removeCloudOrgPlugin(pluginId);
+        if (!result.ok) throw new Error(result.message);
+        showToast({ title: result.message, tone: "success" });
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : `Failed to remove ${pluginName}.`);
+      } finally {
+        setActionId(null);
+      }
+    },
+    [actionId, extensions, showToast],
   );
-  return embedded ? marketplaceSection : (
+
+  const content = !isSignedIn ? (
+    <SettingsNotice>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <span>Sign in to OpenWork Cloud to browse organization marketplace packages.</span>
+        <Button size="sm" onClick={onOpenAccount}>
+          {t("skills.share_team_sign_in")}
+        </Button>
+      </div>
+    </SettingsNotice>
+  ) : (
+    <SettingsSection>
+      <SettingsSectionHeader>
+        <SettingsSectionHeaderContent>
+          <SettingsSectionHeaderTitle>Marketplace</SettingsSectionHeaderTitle>
+          <SettingsSectionHeaderDescription>
+            Add packages from OpenWork Cloud. Each package installs runtime extensions such as skills, MCPs, commands, or tools.
+          </SettingsSectionHeaderDescription>
+        </SettingsSectionHeaderContent>
+        <SettingsSectionHeaderActions>
+          <RefreshButton
+            busy={busy}
+            disabled={busy || !activeOrgId}
+            onRefresh={refresh}
+          >
+            {t("den.refresh")}
+          </RefreshButton>
+        </SettingsSectionHeaderActions>
+      </SettingsSectionHeader>
+
+      {actionError ?? extensions.cloudOrgMarketplacesStatus() ? (
+        <SettingsNotice tone="error">{actionError ?? extensions.cloudOrgMarketplacesStatus()}</SettingsNotice>
+      ) : null}
+
+      <div className="space-y-3">
+        <SettingsListSearchInput
+          value={search}
+          onChange={(event) => setSearch(event.currentTarget.value)}
+          placeholder="Search marketplace packages..."
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          {(["all", "available", "installed", "update_available"] as const).map((filter) => (
+            <Button
+              key={filter}
+              variant={statusFilter === filter ? "secondary" : "outline"}
+              size="xs"
+              onClick={() => setStatusFilter(filter)}
+            >
+              {filter === "all" ? "All" : filter === "update_available" ? "Updates" : filter === "installed" ? "Installed" : "Available"}
+            </Button>
+          ))}
+          <details className="group relative">
+            <summary className="flex h-7 cursor-pointer list-none items-center rounded-md border border-dls-border px-2.5 text-xs font-medium text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text">
+              Filters
+            </summary>
+            <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-dls-border bg-dls-surface p-3 shadow-[var(--dls-shell-shadow)]">
+              <label className="grid gap-1.5 text-xs text-dls-secondary">
+                Marketplace
+                <select
+                  className="rounded-lg border border-dls-border bg-dls-surface px-2 py-1.5 text-xs text-dls-text"
+                  value={marketplaceFilter}
+                  onChange={(event) => setMarketplaceFilter(event.currentTarget.value)}
+                >
+                  <option value="all">All marketplaces</option>
+                  {marketplaceOptions.map((marketplace) => (
+                    <option key={marketplace.id} value={marketplace.id}>{marketplace.name}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      {!busy && rows.length === 0 ? (
+        <SettingsListEmptyState>
+          {activeOrgId ? "No marketplace packages are available yet." : "Choose an organization to view marketplace packages."}
+        </SettingsListEmptyState>
+      ) : null}
+
+      {rows.length > 0 && visibleRows.length === 0 ? (
+        <SettingsListEmptyState>No marketplace packages match your search or filters.</SettingsListEmptyState>
+      ) : null}
+
+      {visibleRows.length > 0 ? (
+        <SettingsList>
+          {visibleRows.map((row) => (
+            <MarketplacePackageListItem
+              key={`${row.marketplaceId}:${row.plugin.id}`}
+              actionId={actionId}
+              row={row}
+              onImportPlugin={importPlugin}
+              onRemovePlugin={removePlugin}
+            />
+          ))}
+        </SettingsList>
+      ) : null}
+    </SettingsSection>
+  );
+
+  return embedded ? content : (
     <SettingsStack>
       <Separator />
-      {marketplaceSection}
+      {content}
     </SettingsStack>
+  );
+}
+
+function MarketplacePackageListItem(props: {
+  actionId: string | null;
+  row: MarketplacePackageRow;
+  onImportPlugin: (marketplaceId: string | null, plugin: DenOrgPlugin) => void | Promise<void>;
+  onRemovePlugin: (pluginId: string, pluginName: string) => void | Promise<void>;
+}) {
+  const { actionId, row, onImportPlugin, onRemovePlugin } = props;
+  const actionBusy = actionId === row.plugin.id;
+  const installedFileSummary = row.imported?.files.map((file) => `${file.title} (${file.objectType})`).join(", ");
+
+  return (
+    <SettingsListItem>
+      <SettingsListItemContent>
+        <SettingsListTitle>
+          <SettingsListItemTitle>{row.plugin.name}</SettingsListItemTitle>
+          <SettingsPill className={statusClass(row.status)}>{statusLabel(row.status)}</SettingsPill>
+          <SettingsPill>{row.marketplaceName}</SettingsPill>
+          {row.counts.map((label) => <SettingsPill key={label}>{label}</SettingsPill>)}
+        </SettingsListTitle>
+        <SettingsListItemDescription>
+          {row.plugin.description || "No description provided."}
+        </SettingsListItemDescription>
+        {installedFileSummary ? (
+          <div className="mt-1 truncate text-xs text-muted-foreground">
+            Adds: {installedFileSummary}
+          </div>
+        ) : null}
+      </SettingsListItemContent>
+      <SettingsListItemActions>
+        {row.status === "update_available" ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void onImportPlugin(row.marketplaceId, row.plugin)}
+            disabled={actionId !== null}
+          >
+            {actionBusy ? t("den.importing") : "Update"}
+          </Button>
+        ) : null}
+        {row.imported ? (
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => void onRemovePlugin(row.plugin.id, row.plugin.name)}
+            disabled={actionId !== null}
+          >
+            {actionBusy ? "Removing..." : "Remove"}
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void onImportPlugin(row.marketplaceId, row.plugin)}
+            disabled={actionId !== null}
+          >
+            {actionBusy ? t("den.importing") : "Add"}
+          </Button>
+        )}
+      </SettingsListItemActions>
+    </SettingsListItem>
   );
 }
