@@ -117,24 +117,24 @@ export function ExtensionCard(props: ExtensionCardProps) {
 
         {/* Content */}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h4 className="text-sm font-semibold text-dls-text">{name}</h4>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <h4 className="min-w-0 break-words text-sm font-semibold text-dls-text">{name}</h4>
             {connected ? (
-              <span className="rounded-md bg-green-3 px-1.5 py-0.5 text-[10px] font-medium text-green-11">
+              <span className="shrink-0 rounded-md bg-green-3 px-1.5 py-0.5 text-[10px] font-medium text-green-11">
                 {connectedLabel}
               </span>
             ) : (
-              <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${kindStyle[kind]}`}>
+              <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${kindStyle[kind]}`}>
                 {kindLabel[kind]}
               </span>
             )}
             {hidden ? (
-              <span className="rounded-md bg-gray-3 px-1.5 py-0.5 text-[10px] font-medium text-gray-11">
+              <span className="shrink-0 rounded-md bg-gray-3 px-1.5 py-0.5 text-[10px] font-medium text-gray-11">
                 Hidden
               </span>
             ) : null}
             {disabledReason ? (
-              <span className="rounded-md bg-amber-3 px-1.5 py-0.5 text-[10px] font-medium text-amber-11">
+              <span className="shrink-0 rounded-md bg-amber-3 px-1.5 py-0.5 text-[10px] font-medium text-amber-11">
                 Disabled
               </span>
             ) : null}
