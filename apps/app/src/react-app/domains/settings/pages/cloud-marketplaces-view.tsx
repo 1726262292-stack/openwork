@@ -186,14 +186,14 @@ export function CloudMarketplacesView({
           const count = extensions.cloudOrgMarketplaces().reduce((total, marketplace) => total + marketplace.plugins.length, 0);
           showToast({
             title: count > 0
-              ? `Loaded ${count} marketplace package${count === 1 ? "" : "s"} for ${activeOrg?.name ?? t("den.active_org_title")}.`
-              : `No marketplace packages are available for ${activeOrg?.name ?? t("den.active_org_title")}.`,
+              ? `Loaded ${count} marketplace extension${count === 1 ? "" : "s"} for ${activeOrg?.name ?? t("den.active_org_title")}.`
+              : `No marketplace extensions are available for ${activeOrg?.name ?? t("den.active_org_title")}.`,
             tone: "info",
           });
         }
       } catch (error) {
         if (!quiet) {
-          setActionError(error instanceof Error ? error.message : "Failed to load marketplace packages.");
+          setActionError(error instanceof Error ? error.message : "Failed to load marketplace extensions.");
         }
       } finally {
         setBusy(false);
@@ -228,7 +228,7 @@ export function CloudMarketplacesView({
       })
       .catch((error) => {
         if (cancelled) return;
-        setDetailError(error instanceof Error ? error.message : "Failed to load package composition.");
+        setDetailError(error instanceof Error ? error.message : "Failed to load extension composition.");
       })
       .finally(() => {
         if (!cancelled) setDetailLoadingId(null);
@@ -281,7 +281,7 @@ export function CloudMarketplacesView({
   const content = !isSignedIn ? (
     <SettingsNotice>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <span>Sign in to OpenWork Cloud to browse organization marketplace packages.</span>
+        <span>Sign in to OpenWork Cloud to browse organization marketplace extensions.</span>
         <Button size="sm" onClick={onOpenAccount}>
           {t("skills.share_team_sign_in")}
         </Button>
@@ -291,9 +291,9 @@ export function CloudMarketplacesView({
     <SettingsSection>
       <SettingsSectionHeader>
         <SettingsSectionHeaderContent>
-          <SettingsSectionHeaderTitle>Marketplace</SettingsSectionHeaderTitle>
+          <SettingsSectionHeaderTitle>Extension Marketplace</SettingsSectionHeaderTitle>
           <SettingsSectionHeaderDescription>
-            Add packages from OpenWork Cloud. Each package installs runtime extensions such as skills, MCPs, commands, or tools.
+            Add extensions from OpenWork Cloud. Claude-compatible plugins are normalized into OpenWork extensions with installable resources such as skills, MCPs, commands, or tools.
           </SettingsSectionHeaderDescription>
         </SettingsSectionHeaderContent>
         <SettingsSectionHeaderActions>
@@ -312,14 +312,14 @@ export function CloudMarketplacesView({
       ) : null}
 
       {busy ? (
-        <SettingsNotice>Loading marketplace packages...</SettingsNotice>
+        <SettingsNotice>Loading marketplace extensions...</SettingsNotice>
       ) : null}
 
       <div className="space-y-3">
         <SettingsListSearchInput
           value={search}
           onChange={(event) => setSearch(event.currentTarget.value)}
-          placeholder="Search marketplace packages..."
+          placeholder="Search marketplace extensions..."
         />
         <div className="flex flex-wrap items-center gap-2">
           {(["all", "available", "installed", "update_available"] as const).map((filter) => (
@@ -357,12 +357,12 @@ export function CloudMarketplacesView({
 
       {!busy && displayRows.length === 0 ? (
         <SettingsListEmptyState>
-          {activeOrgId ? "No marketplace packages are available yet." : "Choose an organization to view marketplace packages."}
+          {activeOrgId ? "No marketplace extensions are available yet." : "Choose an organization to view marketplace extensions."}
         </SettingsListEmptyState>
       ) : null}
 
       {displayRows.length > 0 && visibleRows.length === 0 ? (
-        <SettingsListEmptyState>No marketplace packages match your search or filters.</SettingsListEmptyState>
+        <SettingsListEmptyState>No marketplace extensions match your search or filters.</SettingsListEmptyState>
       ) : null}
 
       {visibleRows.length > 0 ? (
@@ -423,8 +423,8 @@ function MarketplacePackageCard(props: {
   return (
     <ExtensionCard
       name={row.plugin.name}
-      description={row.plugin.description || `Marketplace package from ${row.marketplaceName}.`}
-      kind="plugin"
+      description={row.plugin.description || `Marketplace extension from ${row.marketplaceName}.`}
+      kind="extension"
       connected={Boolean(row.imported)}
       connectedLabel="Installed"
       connecting={actionBusy}
@@ -454,7 +454,7 @@ function MarketplacePackageDetailModal(props: {
       onClose={onClose}
       name={row.plugin.name}
       description={row.plugin.description || "No description provided."}
-      kind="plugin"
+      kind="extension"
       connected={Boolean(row.imported)}
       connectedLabel="Installed"
       connecting={actionBusy}
@@ -486,11 +486,11 @@ function MarketplacePackageDetailModal(props: {
             <SettingsNotice tone="error">{resolveError}</SettingsNotice>
           ) : null}
           {resolving ? (
-            <SettingsNotice>Loading package contents...</SettingsNotice>
+            <SettingsNotice>Loading extension contents...</SettingsNotice>
           ) : null}
           {resolved ? (
             <div className="space-y-2">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Package contents</div>
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Extension contents</div>
               {resolved.memberships.length > 0 ? resolved.memberships.map((membership) => {
                 const object = membership.configObject;
                 const version = object?.latestVersion ?? null;
@@ -513,7 +513,7 @@ function MarketplacePackageDetailModal(props: {
                   </details>
                 );
               }) : (
-                <SettingsNotice>This package does not expose detailed contents yet.</SettingsNotice>
+                <SettingsNotice>This extension does not expose detailed contents yet.</SettingsNotice>
               )}
             </div>
           ) : null}

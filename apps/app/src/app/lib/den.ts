@@ -22,6 +22,7 @@ import {
 } from "./desktop";
 import { isDesktopRuntime } from "../utils";
 import type { DenOrgSkillCard } from "../types";
+import type { OpenWorkExtensionManifest, OpenWorkExtensionSourceFormat } from "../extensions";
 
 const STORAGE_BASE_URL = "openwork.den.baseUrl";
 const STORAGE_API_BASE_URL = "openwork.den.apiBaseUrl";
@@ -153,6 +154,14 @@ export type DenPluginMembership = {
   configObject?: DenPluginConfigObject;
 };
 
+export type DenOrgExtensionProjection = {
+  id: string;
+  name: string;
+  description: string | null;
+  sourceFormat: OpenWorkExtensionSourceFormat;
+  manifest: OpenWorkExtensionManifest | null;
+};
+
 export type DenOrgPlugin = {
   id: string;
   name: string;
@@ -161,6 +170,8 @@ export type DenOrgPlugin = {
   memberCount: number;
   updatedAt: string | null;
   componentCounts: Record<string, number>;
+  /** Preferred Den surface: plugins are normalized into OpenWork extensions. */
+  extension?: DenOrgExtensionProjection | null;
 };
 
 export type DenOrgMarketplace = {
@@ -180,6 +191,8 @@ export type DenOrgMarketplaceResolved = {
 export type DenOrgPluginResolved = {
   plugin: DenOrgPlugin;
   memberships: DenPluginMembership[];
+  /** Future Den extension manifest; absent while Claude plugin imports are resource-only. */
+  extension?: DenOrgExtensionProjection | null;
 };
 
 export type DenBillingPrice = {

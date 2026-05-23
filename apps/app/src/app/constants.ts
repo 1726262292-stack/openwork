@@ -1,6 +1,12 @@
 import type { ModelRef, SuggestedPlugin } from "./types";
 import { t } from "../i18n";
 import { readDenBootstrapConfig } from "./lib/den";
+import {
+  BUILT_IN_OPENWORK_EXTENSION_MANIFESTS,
+  extensionContribution,
+  isTrustedBuiltInExtension,
+  type OpenWorkExtensionManifest,
+} from "./extensions";
 
 export const MODEL_PREF_KEY = "openwork.defaultModel";
 export const SESSION_MODEL_PREF_KEY = "openwork.sessionModels";
@@ -39,7 +45,29 @@ export type McpDirectoryInfo = {
   composerPrompt?: string;
   /** Whether OpenWork should show this extension as enabled before user setup. */
   defaultEnabled?: boolean;
+  /** Normalized extension manifest backing this catalog entry. */
+  extensionManifest?: OpenWorkExtensionManifest;
 };
+
+function extensionManifestToDirectoryInfo(manifest: OpenWorkExtensionManifest): McpDirectoryInfo {
+  return {
+    id: manifest.id,
+    name: manifest.name,
+    serverName: manifest.id,
+    description: manifest.description,
+    oauth: false,
+    kind: "extension",
+    iconSlug: manifest.icon?.simpleIconSlug,
+    iconSrc: manifest.icon?.src,
+    composerPrompt: extensionContribution(manifest, "composer-prompt")?.prompt ?? manifest.composer?.prompt,
+    defaultEnabled: manifest.defaultEnabled,
+    extensionManifest: manifest,
+  };
+}
+
+export function isBuiltInOpenWorkExtension(entry: Pick<McpDirectoryInfo, "kind" | "extensionManifest">): boolean {
+  return entry.kind === "extension" && isTrustedBuiltInExtension(entry.extensionManifest);
+}
 
 /** Derive a safe MCP server name from a display name or explicit serverName. */
 export function getMcpServerName(entry: McpDirectoryInfo): string {
@@ -134,37 +162,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     kind: "ui-control",
     iconSrc: "/openwork-mark.svg",
   },
-  {
-    id: "openwork-browser",
-    name: "OpenWork Browser",
-    serverName: "openwork-browser",
-    description: "Automate the built-in browser panel that stays visible inside OpenWork.",
-    oauth: false,
-    kind: "extension",
-    iconSrc: "/openwork-mark.svg",
-    composerPrompt: "Use the OpenWork Browser extension to ",
-    defaultEnabled: true,
-  },
-  {
-    id: "openai-image-gen",
-    name: "OpenAI Image Gen",
-    serverName: "openai-image-gen",
-    description: "Generate image artifacts with gpt-image-2.",
-    oauth: false,
-    kind: "extension",
-    iconSrc: "/ext-openai.svg",
-    composerPrompt: "Use the OpenAI Image Gen extension to ",
-  },
-  {
-    id: "ollama",
-    name: "Ollama",
-    serverName: "ollama",
-    description: "Local model provider at http://localhost:11434.",
-    oauth: false,
-    kind: "extension",
-    iconSrc: "/ext-ollama.svg",
-    composerPrompt: "Use the Ollama extension to ",
-  },
+  ...BUILT_IN_OPENWORK_EXTENSION_MANIFESTS.map(extensionManifestToDirectoryInfo),
 ];
 
 export const OPENWORK_EXTENSION_CATALOG = MCP_QUICK_CONNECT.filter((entry) => entry.kind === "extension");

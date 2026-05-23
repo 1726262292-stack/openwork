@@ -49,6 +49,12 @@ export type ExtensionDetailModalProps = {
   disabledReason?: string | null;
   /** Remote URL if applicable. */
   url?: string;
+  /** Declarative setup instructions from an extension manifest. */
+  setupInstructions?: string;
+  /** Declarative install resource labels from an extension manifest. */
+  resourceLabels?: string[];
+  /** Declarative UI/runtime contribution labels from an extension manifest. */
+  contributionLabels?: string[];
   /** Whether OAuth is required. */
   oauth?: boolean;
   /** Exact local command this extension will launch, when known. */
@@ -187,6 +193,9 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
     hidden = false,
     disabledReason = null,
     url,
+    setupInstructions,
+    resourceLabels = [],
+    contributionLabels = [],
     oauth,
     launchCommand,
     environment,
@@ -261,6 +270,51 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
             <div className="text-sm leading-relaxed text-card-foreground">
               {description}
             </div>
+
+            {setupInstructions ? (
+              <Card variant="outline" size="sm">
+                <CardHeader>
+                  <CardTitle>Setup</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-sm leading-relaxed text-muted-foreground">
+                    {setupInstructions}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {resourceLabels.length > 0 || contributionLabels.length > 0 ? (
+              <Card variant="outline" size="sm">
+                <CardHeader>
+                  <CardTitle>Extension manifest</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3 text-sm">
+                    {resourceLabels.length > 0 ? (
+                      <div>
+                        <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Resources</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {resourceLabels.map((label) => (
+                            <span key={label} className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">{label}</span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {contributionLabels.length > 0 ? (
+                      <div>
+                        <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Contributions</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {contributionLabels.map((label) => (
+                            <span key={label} className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">{label}</span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
 
             {/* Details */}
             <Card variant="outline" size="sm">

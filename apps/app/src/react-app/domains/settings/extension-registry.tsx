@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import type { ReactNode } from "react";
 import type { McpDirectoryInfo } from "../../../app/constants";
+import { extensionContribution } from "../../../app/extensions";
 
 /**
  * Context bag that the settings route passes to extension config factories.
@@ -38,11 +39,15 @@ export function registerExtensionConfig(id: string, factory: ExtensionConfigFact
   registry.set(id, factory);
 }
 
+function configRegistryId(entry: McpDirectoryInfo) {
+  return extensionContribution(entry.extensionManifest, "settings-panel")?.ref ?? entry.serverName ?? entry.name;
+}
+
 export function getExtensionConfigSlot(
   entry: McpDirectoryInfo,
   ctx: ExtensionConfigContext,
 ): ReactNode | null {
-  const id = entry.serverName ?? entry.name;
+  const id = configRegistryId(entry);
   const factory = registry.get(id);
   return factory ? factory(ctx) : null;
 }

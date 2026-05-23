@@ -22,7 +22,7 @@ import {
   Zap,
 } from "lucide-react";
 
-import { type McpDirectoryInfo } from "../../../../app/constants";
+import { isBuiltInOpenWorkExtension, type McpDirectoryInfo } from "../../../../app/constants";
 import type { CloudImportedPlugin } from "../../../../app/cloud/import-state";
 import { ExtensionCard } from "../../../design-system/extension-card";
 import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
@@ -111,10 +111,6 @@ export type McpViewProps = {
 };
 
 const builtInExtensionDisabledReason = "Disabled by organization";
-
-function isBuiltInExtension(entry: McpDirectoryInfo) {
-  return entry.kind === "extension";
-}
 
 const statusDot = (status: ReactMcpStatus) => {
   switch (status) {
@@ -205,6 +201,14 @@ const serviceIconBg = (name: string) => {
   if (lower.includes("openwork")) return "bg-gray-3 border-gray-6";
   return "bg-dls-hover border-dls-border";
 };
+
+function extensionResourceLabels(entry: McpDirectoryInfo) {
+  return entry.extensionManifest?.resources.map((resource) => resource.label ?? resource.id) ?? [];
+}
+
+function extensionContributionLabels(entry: McpDirectoryInfo) {
+  return entry.extensionManifest?.contributions?.map((contribution) => contribution.label ?? contribution.ref ?? contribution.type) ?? [];
+}
 
 type ExtensionFilter = "all" | "mcp" | "skill" | "plugin";
 
@@ -376,7 +380,7 @@ export function McpView(props: McpViewProps) {
     (props.installedSkills ?? []).filter((skill) => isOpenWorkExtensionHidden(getSkillHiddenId(skill))).length +
     (props.installedPlugins ?? []).filter((plugin) => isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)).length;
   const policyHiddenBuiltInCount = props.builtInExtensionsDisabled
-    ? quickConnectList.filter((entry) => isBuiltInExtension(entry) && !isOpenWorkExtensionHidden(entry)).length
+    ? quickConnectList.filter((entry) => isBuiltInOpenWorkExtension(entry) && !isOpenWorkExtensionHidden(entry)).length
     : 0;
   const hiddenOrPolicyCount = hiddenCount + policyHiddenBuiltInCount;
 
@@ -487,7 +491,7 @@ export function McpView(props: McpViewProps) {
       <McpQuickConnectSection
         entries={
           quickConnectList.filter((entry) => {
-            if (!showHidden && (isOpenWorkExtensionHidden(entry) || (props.builtInExtensionsDisabled && isBuiltInExtension(entry)))) return false;
+            if (!showHidden && (isOpenWorkExtensionHidden(entry) || (props.builtInExtensionsDisabled && isBuiltInOpenWorkExtension(entry)))) return false;
             if (filter === "skill") return false;
             if (filter === "mcp" && (entry.kind ?? "mcp") !== "mcp" && entry.kind !== "ui-control") return false;
             if (!search.trim()) return true;
@@ -522,12 +526,12 @@ export function McpView(props: McpViewProps) {
         isSkillHidden={(skill) => isOpenWorkExtensionHidden(getSkillHiddenId(skill))}
         isPluginHidden={(plugin) => isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)}
         disabledReasonForEntry={(entry) =>
-          props.builtInExtensionsDisabled && isBuiltInExtension(entry)
+          props.builtInExtensionsDisabled && isBuiltInOpenWorkExtension(entry)
             ? builtInExtensionDisabledReason
             : null
         }
         isConfigured={(entry) =>
-          props.builtInExtensionsDisabled && isBuiltInExtension(entry)
+          props.builtInExtensionsDisabled && isBuiltInOpenWorkExtension(entry)
             ? false
             : entry.kind === "extension"
             ? (entry.defaultEnabled ? isOpenWorkExtensionEnabled(entry) : props.isExtensionConnected?.(entry) ?? false)
@@ -633,7 +637,7 @@ export function McpView(props: McpViewProps) {
         const extensionConfigSlot = props.configSlotForEntry?.(detailEntry) ?? null;
         const hasConfigSlot = extensionConfigSlot !== null;
         const hidden = isOpenWorkExtensionHidden(detailEntry);
-        const disabledReason = props.builtInExtensionsDisabled && isBuiltInExtension(detailEntry)
+        const disabledReason = props.builtInExtensionsDisabled && isBuiltInOpenWorkExtension(detailEntry)
           ? builtInExtensionDisabledReason
           : null;
         const isConnected = disabledReason
@@ -655,6 +659,9 @@ export function McpView(props: McpViewProps) {
             connecting={props.mcpConnectingName === detailEntry.name}
             hidden={hidden}
             disabledReason={disabledReason}
+            setupInstructions={detailEntry.extensionManifest?.setup?.instructions}
+            resourceLabels={extensionResourceLabels(detailEntry)}
+            contributionLabels={extensionContributionLabels(detailEntry)}
             launchCommand={detailEntry.serverName === "openwork-ui" ? openworkUiMcpCommand ?? undefined : undefined}
             environment={detailEntry.serverName === "openwork-ui" ? openworkUiMcpEnvironment ?? undefined : undefined}
             url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
@@ -714,8 +721,8 @@ export function McpView(props: McpViewProps) {
             open={!!detailPlugin}
             onClose={() => setDetailPlugin(null)}
             name={detailPlugin.name}
-            description={detailPlugin.description ?? "Marketplace package installed in this workspace."}
-            kind="plugin"
+            description={detailPlugin.description ?? "Marketplace extension installed in this workspace."}
+            kind="extension"
             connected={true}
             hidden={hidden}
             onUninstall={props.removeCloudPlugin ? () => {
@@ -844,8 +851,8 @@ function McpQuickConnectSection(props: {
             <ExtensionCard
               key={`plugin:${plugin.pluginId}`}
               name={plugin.name}
-              description={plugin.description ?? `Marketplace package with ${fileCount} installed file${fileCount === 1 ? "" : "s"}.`}
-              kind="plugin"
+              description={plugin.description ?? `Marketplace extension with ${fileCount} installed file${fileCount === 1 ? "" : "s"}.`}
+              kind="extension"
               connected={true}
               hidden={hidden}
               actionLabel="View details"

@@ -4,7 +4,10 @@ import { MonitorSmartphone } from "lucide-react";
 import { surfaceCardClass } from "../workspace/modal-styles";
 import { registerExtensionConfig } from "./extension-registry";
 
-registerExtensionConfig("openwork-browser", () => <OpenWorkBrowserConfig />);
+const openWorkBrowserConfigFactory = () => <OpenWorkBrowserConfig />;
+
+registerExtensionConfig("openwork.browser.settings", openWorkBrowserConfigFactory);
+registerExtensionConfig("openwork-browser", openWorkBrowserConfigFactory);
 
 function OpenWorkBrowserConfig() {
   return (
