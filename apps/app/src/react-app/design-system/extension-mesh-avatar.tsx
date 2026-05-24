@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { getPaperAvatarStyle } from "./paper-avatar-svg";
+import { getPaperAvatarStyle } from "./paper-avatar-presets";
 
 type ExtensionMeshAvatarProps = {
   name: string;

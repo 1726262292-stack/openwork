@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { getPaperAvatarStyle } from "./paper-avatar-svg";
+import { getPaperAvatarStyle } from "./paper-avatar-presets";
 
 export type WorkspaceIconProps = {
   /** Workspace name used to seed the gradient. Changes when renamed. */

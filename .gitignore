@@ -10,6 +10,7 @@ out/
 dist/
 packages/*/dist/
 apps/*/dist/
+apps/app/public/avatar-presets/
 ee/apps/*/dist/
 ee/packages/*/dist/
 ee/apps/inference/models-site/models/api.json
