@@ -10,23 +10,23 @@ type PaperAvatarStyle = {
 };
 
 const extensionPalettes: readonly Palette[] = [
-  ["#edf2ff", "#2f2aa0", "#f56aa0", "#9f62d1", "#5eead4"],
-  ["#eaffd5", "#138a72", "#7c5cff", "#43e6bd", "#203063"],
-  ["#fff1c7", "#ee7b58", "#f25f92", "#6754d9", "#33c7b7"],
-  ["#dcfffb", "#22b8e6", "#805ad5", "#1d1f33", "#f66fb3"],
-  ["#fff3dd", "#d96b2b", "#1b6d9a", "#31a7c9", "#f8c64e"],
-  ["#f8ddff", "#7f4ce3", "#15b6d6", "#e45175", "#f4d35e"],
+  ["#17115f", "#38e7ff", "#ff4fa3", "#9f62ff", "#fff06a"],
+  ["#043f3a", "#5cffb0", "#7c5cff", "#1ad8ff", "#ffca5f"],
+  ["#4f1c08", "#ffb44d", "#ff4f88", "#6754ff", "#3cffd0"],
+  ["#101447", "#31d4ff", "#9566ff", "#f66fb3", "#a8ff5e"],
+  ["#082f49", "#45d5ff", "#ff7a35", "#ffcf4d", "#42ffc6"],
+  ["#2e145f", "#c569ff", "#1ee8ff", "#ff5378", "#f8ec5f"],
 ];
 
 const workspacePalettes: readonly Palette[] = [
-  ["#6d35ff", "#00d5ff", "#ff4fa3", "#ffbd35", "#35f2a5"],
-  ["#2347ff", "#20e6c8", "#ff7a3d", "#f7e34a", "#9d61ff"],
-  ["#f72585", "#3a86ff", "#7b4dff", "#ffbe3d", "#2ee6ad"],
-  ["#00b7ff", "#2735d9", "#eb5ed3", "#b8f24a", "#ff8a35"],
-  ["#21d995", "#9157ff", "#1ec9f0", "#ff4d6d", "#ffd166"],
-  ["#f05a28", "#ffd23f", "#21d9c3", "#6d35ba", "#e94d91"],
-  ["#78e44d", "#1cb8e8", "#f8dc54", "#9561d9", "#e862b6"],
-  ["#4cc9f0", "#4965e8", "#ef4f91", "#a23ab8", "#86f0d3"],
+  ["#170057", "#00eaff", "#ff2fb2", "#7cff6b", "#ffd23f"],
+  ["#06139a", "#22fff0", "#ff6a2f", "#fff63d", "#b15cff"],
+  ["#4d0038", "#3a9cff", "#ff2f86", "#8f5cff", "#39ffbd"],
+  ["#001f5c", "#00c8ff", "#ff62dd", "#c2ff33", "#ff8a2f"],
+  ["#00382a", "#20ff9a", "#9d5cff", "#1ee8ff", "#ff4d6d"],
+  ["#5c1800", "#ffd23f", "#24ffe1", "#8a3dff", "#ff4fa3"],
+  ["#1b4d00", "#7cff4d", "#1ec9ff", "#ffe84d", "#f05cff"],
+  ["#082454", "#61d8ff", "#5f75ff", "#ff4d9d", "#94ffe0"],
 ];
 
 const styleCache = new Map<string, PaperAvatarStyle>();
@@ -55,30 +55,32 @@ function paletteForSeed(seed: string, variant: PaperAvatarVariant): Palette {
 
 function generatePaperAvatarSvg(seed: string, variant: PaperAvatarVariant, palette: Palette): string {
   const random = createRandom(seed, variant);
-  const blobCount = variant === "workspace" ? 8 : 7;
-  const blobGradients: string[] = [];
-  const blobLayers: string[] = [];
-  const grainOpacity = variant === "workspace" ? 0.58 : 0.46;
+  const glowCount = variant === "workspace" ? 7 : 6;
+  const glowGradients: string[] = [];
+  const glowLayers: string[] = [];
+  const grainOpacity = variant === "workspace" ? 0.42 : 0.34;
 
-  for (let index = 0; index < blobCount; index += 1) {
+  for (let index = 0; index < glowCount; index += 1) {
     const color = palette[(index + (variant === "workspace" ? 2 : 1)) % palette.length];
-    const cx = round(-18 + random() * 132, 1);
-    const cy = round(-18 + random() * 132, 1);
-    const radius = round(46 + random() * 48, 1);
-    const innerOpacity = round(0.48 + random() * 0.22, 2);
-    const middleOpacity = round(0.2 + random() * 0.16, 2);
+    const cx = round(-12 + random() * 120, 1);
+    const cy = round(-12 + random() * 120, 1);
+    const radius = round(34 + random() * 42, 1);
+    const coreOpacity = round(0.76 + random() * 0.18, 2);
+    const bloomOpacity = round(0.36 + random() * 0.18, 2);
 
-    blobGradients.push(
-      `<radialGradient id="blob${index}" gradientUnits="userSpaceOnUse" cx="${cx}" cy="${cy}" r="${radius}">` +
-        `<stop offset="0%" stop-color="${color}" stop-opacity="${innerOpacity}"/>` +
-        `<stop offset="48%" stop-color="${color}" stop-opacity="${middleOpacity}"/>` +
+    glowGradients.push(
+      `<radialGradient id="glow${index}" gradientUnits="userSpaceOnUse" cx="${cx}" cy="${cy}" r="${radius}">` +
+        `<stop offset="0%" stop-color="${color}" stop-opacity="${coreOpacity}"/>` +
+        `<stop offset="38%" stop-color="${color}" stop-opacity="${bloomOpacity}"/>` +
+        `<stop offset="72%" stop-color="${color}" stop-opacity=".1"/>` +
         `<stop offset="100%" stop-color="${color}" stop-opacity="0"/>` +
       `</radialGradient>`,
     );
-    blobLayers.push(`<rect width="96" height="96" fill="url(#blob${index})"/>`);
+    glowLayers.push(`<rect width="96" height="96" fill="url(#glow${index})"/>`);
   }
 
-  const streaks = buildSoftStreaks(random, variant);
+  const hotSpots = buildHotSpots(random, variant, palette);
+  const streaks = buildGlowStreaks(random, variant, palette);
   const fibers = buildPaperFibers(random, variant);
   const grain = buildPaperGrain(random, variant);
 
@@ -87,26 +89,47 @@ function generatePaperAvatarSvg(seed: string, variant: PaperAvatarVariant, palet
       `<defs>` +
         `<linearGradient id="base" x1="${round(random() * 40, 1)}%" y1="0%" x2="${round(60 + random() * 40, 1)}%" y2="100%">` +
           `<stop offset="0%" stop-color="${palette[0]}"/>` +
-          `<stop offset="48%" stop-color="${palette[3]}"/>` +
-          `<stop offset="100%" stop-color="${palette[1]}"/>` +
+          `<stop offset="54%" stop-color="${palette[3]}"/>` +
+          `<stop offset="100%" stop-color="#050816"/>` +
         `</linearGradient>` +
         `<radialGradient id="vignette" cx="50%" cy="42%" r="78%">` +
-          `<stop offset="52%" stop-color="#fff" stop-opacity="0"/>` +
-          `<stop offset="100%" stop-color="#111827" stop-opacity=".2"/>` +
+          `<stop offset="45%" stop-color="#fff" stop-opacity="0"/>` +
+          `<stop offset="100%" stop-color="#020617" stop-opacity=".34"/>` +
         `</radialGradient>` +
-        blobGradients.join("") +
+        glowGradients.join("") +
       `</defs>` +
       `<rect width="96" height="96" fill="url(#base)"/>` +
-      blobLayers.join("") +
+      glowLayers.join("") +
       streaks +
+      hotSpots +
       `<rect width="96" height="96" fill="url(#vignette)"/>` +
       `<g opacity="${grainOpacity}">` + fibers + grain + `</g>` +
-      `<rect width="96" height="96" fill="#fff" opacity="${variant === "workspace" ? ".05" : ".07"}"/>` +
+      `<rect width="96" height="96" fill="#fff" opacity="${variant === "workspace" ? ".015" : ".025"}"/>` +
     `</svg>`
   );
 }
 
-function buildSoftStreaks(random: () => number, variant: PaperAvatarVariant): string {
+function buildHotSpots(random: () => number, variant: PaperAvatarVariant, palette: Palette): string {
+  const count = variant === "workspace" ? 4 : 3;
+  const spots: string[] = [];
+
+  for (let index = 0; index < count; index += 1) {
+    const color = palette[(index + 1 + Math.floor(random() * (palette.length - 1))) % palette.length];
+    const cx = round(12 + random() * 72, 1);
+    const cy = round(12 + random() * 72, 1);
+    const radius = round(2.2 + random() * 5.8, 1);
+
+    spots.push(
+      `<circle cx="${cx}" cy="${cy}" r="${round(radius * 3.5, 1)}" fill="${color}" opacity=".12"/>` +
+        `<circle cx="${cx}" cy="${cy}" r="${round(radius * 1.55, 1)}" fill="${color}" opacity=".42"/>` +
+        `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="#fff" opacity=".32"/>`,
+    );
+  }
+
+  return spots.join("");
+}
+
+function buildGlowStreaks(random: () => number, variant: PaperAvatarVariant, palette: Palette): string {
   const count = variant === "workspace" ? 3 : 2;
   const streaks: string[] = [];
 
@@ -114,12 +137,13 @@ function buildSoftStreaks(random: () => number, variant: PaperAvatarVariant): st
     const startY = round(14 + random() * 70, 1);
     const controlY = round(8 + random() * 80, 1);
     const endY = round(14 + random() * 70, 1);
-    const color = random() > 0.42 ? "#fff" : "#111827";
-    const opacity = round(0.055 + random() * 0.07, 3);
-    const width = round(12 + random() * 18, 1);
+    const color = palette[(index + 1 + Math.floor(random() * 4)) % palette.length];
+    const opacity = round(0.14 + random() * 0.12, 3);
+    const width = round(7 + random() * 12, 1);
 
     streaks.push(
-      `<path d="M -20 ${startY} C ${round(16 + random() * 22, 1)} ${controlY} ${round(54 + random() * 18, 1)} ${round(96 - controlY, 1)} 116 ${endY}" fill="none" stroke="${color}" stroke-opacity="${opacity}" stroke-width="${width}" stroke-linecap="round"/>`,
+      `<path d="M -20 ${startY} C ${round(16 + random() * 22, 1)} ${controlY} ${round(54 + random() * 18, 1)} ${round(96 - controlY, 1)} 116 ${endY}" fill="none" stroke="${color}" stroke-opacity="${opacity}" stroke-width="${width}" stroke-linecap="round"/>` +
+        `<path d="M -18 ${round(startY + random() * 8 - 4, 1)} C ${round(18 + random() * 20, 1)} ${round(controlY + random() * 10 - 5, 1)} ${round(54 + random() * 18, 1)} ${round(96 - controlY + random() * 10 - 5, 1)} 114 ${round(endY + random() * 8 - 4, 1)}" fill="none" stroke="#fff" stroke-opacity=".1" stroke-width="${round(width * 0.34, 1)}" stroke-linecap="round"/>`,
     );
   }
 
@@ -127,7 +151,7 @@ function buildSoftStreaks(random: () => number, variant: PaperAvatarVariant): st
 }
 
 function buildPaperFibers(random: () => number, variant: PaperAvatarVariant): string {
-  const count = variant === "workspace" ? 18 : 14;
+  const count = variant === "workspace" ? 14 : 10;
   const fibers: string[] = [];
 
   for (let index = 0; index < count; index += 1) {
@@ -135,8 +159,8 @@ function buildPaperFibers(random: () => number, variant: PaperAvatarVariant): st
     const startY = round(random() * 96, 1);
     const length = round(10 + random() * 34, 1);
     const drift = round(-7 + random() * 14, 1);
-    const color = random() > 0.5 ? "#fff" : "#111827";
-    const opacity = round(0.035 + random() * 0.06, 3);
+    const color = random() > 0.2 ? "#fff" : "#020617";
+    const opacity = color === "#fff" ? round(0.035 + random() * 0.05, 3) : round(0.02 + random() * 0.035, 3);
     const width = round(0.22 + random() * 0.46, 2);
 
     fibers.push(
@@ -148,12 +172,12 @@ function buildPaperFibers(random: () => number, variant: PaperAvatarVariant): st
 }
 
 function buildPaperGrain(random: () => number, variant: PaperAvatarVariant): string {
-  const count = variant === "workspace" ? 84 : 68;
+  const count = variant === "workspace" ? 64 : 52;
   const dots: string[] = [];
 
   for (let index = 0; index < count; index += 1) {
-    const color = random() > 0.47 ? "#fff" : "#111827";
-    const opacity = round(0.035 + random() * 0.095, 3);
+    const color = random() > 0.24 ? "#fff" : "#020617";
+    const opacity = color === "#fff" ? round(0.04 + random() * 0.1, 3) : round(0.025 + random() * 0.04, 3);
     const radius = round(0.12 + random() * 0.32, 2);
 
     dots.push(
