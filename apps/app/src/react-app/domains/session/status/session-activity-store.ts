@@ -38,6 +38,7 @@ type SessionActivityStore = {
   setWaitingRequest: (workspaceId: string, sessionId: string, kind: "permission" | "question", requestId: string, waiting: boolean) => void;
   replaceWaitingRequests: (workspaceId: string, sessionId: string, kind: "permission" | "question", requestIds: string[]) => void;
   setError: (workspaceId: string, sessionId: string) => void;
+  clearError: (workspaceId: string, sessionId: string) => void;
   setCompacting: (workspaceId: string, sessionId: string, compacting: boolean) => void;
   removeSession: (workspaceId: string, sessionId: string) => void;
 };
@@ -261,6 +262,15 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
       compacting: false,
     })));
   },
+  clearError: (workspaceId, sessionId) => {
+    const workspace = workspaceId.trim();
+    const session = sessionId.trim();
+    if (!workspace || !session) return;
+    set((state) => updateRecord(state, workspace, session, (record) => ({
+      ...record,
+      errorActive: false,
+    })));
+  },
   setCompacting: (workspaceId, sessionId, compacting) => {
     const workspace = workspaceId.trim();
     const session = sessionId.trim();
@@ -304,5 +314,5 @@ export function getSessionActivityStatusLabel(status: SessionActivityStatus) {
   if (status === "waiting") return t("session.assistant_waiting");
   if (status === "compacting") return t("session.assistant_compacting");
   if (status === "error") return t("session.assistant_error");
-  return "Idle";
+  return t("session.assistant_idle");
 }

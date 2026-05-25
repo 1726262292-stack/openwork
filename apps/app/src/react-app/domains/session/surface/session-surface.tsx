@@ -43,7 +43,7 @@ import { SessionTranscript } from "./message-list";
 import { useLocal } from "../../../kernel/local-provider";
 import { deriveSessionRenderModel } from "../sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
-import { useSessionActivityStore, type SessionActivityStatus } from "../status/session-activity-store";
+import { getSessionActivityStatusLabel, useSessionActivityStore, type SessionActivityStatus } from "../status/session-activity-store";
 import { PermissionApprovalPanel } from "../chat/permission-approval-modal";
 import { QuestionPanel } from "../modals/question-modal";
 import { deriveOpenTargets, selectAutoOpenTarget, type OpenTarget } from "../artifacts/open-target";
@@ -270,14 +270,6 @@ function AssistantStatusSpacer() {
       <AssistantWaitingCard label={t("session.assistant_responding")} collapseLayout />
     </div>
   );
-}
-
-function assistantStatusLabel(status: SessionActivityStatus) {
-  if (status === "responding") return t("session.assistant_responding");
-  if (status === "waiting") return t("session.assistant_waiting");
-  if (status === "compacting") return t("session.assistant_compacting");
-  if (status === "error") return t("session.assistant_error");
-  return t("session.assistant_thinking");
 }
 
 function TodoPanel(props: { todos: TodoItem[] }) {
@@ -613,7 +605,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const showNoVisibleAssistantOutput = noVisibleAssistantOutputBaseline !== null && !assistantOutputAfterNoVisibleFallback;
   const reserveAssistantStatusSpace = effectiveActivityStatus === "idle" && awaitingAssistantBaseline !== null && assistantOutputAfterAwaitStart && !chatStreaming;
   const assistantStatusFooter = effectiveActivityStatus !== "idle" ? (
-    <AssistantWaitingCard label={assistantStatusLabel(effectiveActivityStatus)} collapseLayout />
+    <AssistantWaitingCard label={getSessionActivityStatusLabel(effectiveActivityStatus)} collapseLayout />
   ) : showNoVisibleAssistantOutput ? (
     <AssistantNoVisibleOutputCard text={noVisibleAssistantOutputText} />
   ) : reserveAssistantStatusSpace ? (
@@ -795,6 +787,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
       setError({ message: nextError instanceof Error ? nextError.message : "Failed to stop run." });
     }
   }, [chatStreaming, opencodeClient, props.sessionId, snapshotQuery.refetch]);
+
+  const handleDismissError = useCallback(() => {
+    setError(null);
+    useSessionActivityStore.getState().clearError(props.workspaceId, props.sessionId);
+  }, [props.sessionId, props.workspaceId]);
 
   useEffect(() => {
     if (liveStatus.type === "idle") {
@@ -1131,7 +1128,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 {error ? (
                   <SessionErrorCard
                     error={error}
-                    onDismiss={() => setError(null)}
+                    onDismiss={handleDismissError}
                     onChangeModel={props.onChangeModel}
                     onOpenModelPicker={props.onModelClick}
                   />
@@ -1143,13 +1140,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
               </div>
             ) : renderedMessages.length === 0 && effectiveActivityStatus !== "idle" ? (
               <div className="px-6 py-12">
-                <AssistantWaitingCard label={assistantStatusLabel(effectiveActivityStatus)} />
+                <AssistantWaitingCard label={getSessionActivityStatusLabel(effectiveActivityStatus)} />
               </div>
             ) : renderedMessages.length === 0 && snapshot && snapshot.messages.length === 0 ? (
               error ? (
                 <SessionErrorCard
                   error={error}
-                  onDismiss={() => setError(null)}
+                  onDismiss={handleDismissError}
                   onChangeModel={props.onChangeModel}
                   onOpenModelPicker={props.onModelClick}
                 />
@@ -1213,7 +1210,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   {error ? (
                     <SessionErrorCard
                       error={error}
-                      onDismiss={() => setError(null)}
+                      onDismiss={handleDismissError}
                       onChangeModel={props.onChangeModel}
                       onOpenModelPicker={props.onModelClick}
                     />
