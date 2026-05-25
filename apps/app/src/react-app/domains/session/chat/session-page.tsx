@@ -57,6 +57,7 @@ const STARTUP_SKELETON_ROWS = [
   { id: "middle", titleWidth: "56%", bodyWidth: "88%" },
   { id: "final", titleWidth: "36%", bodyWidth: "74%" },
 ];
+const GLOBAL_VOICE_SIDE_PANEL_KEY = "__openwork_voice__";
 
 type StatusBarOverrides = Pick<
   StatusBarProps,
@@ -221,9 +222,10 @@ export function SessionPage(props: SessionPageProps) {
   const { config: shellConfig } = useShellConfig();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
-  const activeSidePanel = useUiStateStore((state) => (
+  const sessionSidePanel = useUiStateStore((state) => (
     props.selectedSessionId ? state.sidePanelState[props.selectedSessionId] ?? null : null
   ));
+  const voiceSidePanelOpen = useUiStateStore((state) => state.sidePanelState[GLOBAL_VOICE_SIDE_PANEL_KEY] === "voice");
   const setSidePanelState = useUiStateStore((state) => state.setSidePanelState);
   const toggleSidePanelState = useUiStateStore((state) => state.toggleSidePanelState);
   const [artifactTarget, setArtifactTarget] = useState<OpenTarget | null>(null);
@@ -239,6 +241,7 @@ export function SessionPage(props: SessionPageProps) {
   const visibleArtifactTarget = artifactTarget ?? artifactFileTargets[0] ?? null;
   const artifactTargetCount = artifactFileTargets.length;
   const hasArtifactTargets = artifactTargetCount > 0;
+  const activeSidePanel = voiceSidePanelOpen ? "voice" : sessionSidePanel;
   const sidePanelOpen = activeSidePanel !== null;
   const browserRailActive = activeSidePanel === "browser";
   const artifactRailActive = activeSidePanel === "artifacts";
@@ -269,12 +272,19 @@ export function SessionPage(props: SessionPageProps) {
   const preserveSidePanelOnPanelOpenRef = useRef(false);
 
   const setCurrentSidePanel = useCallback((panel: SidePanelItem | null) => {
+    setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, panel === "voice" ? "voice" : null);
+    if (panel === "voice") return;
     setSidePanelState(props.selectedSessionId, panel);
   }, [props.selectedSessionId, setSidePanelState]);
 
   const toggleCurrentSidePanel = useCallback((panel: SidePanelItem) => {
+    if (panel === "voice") {
+      toggleSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, "voice");
+      return;
+    }
+    setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, null);
     toggleSidePanelState(props.selectedSessionId, panel);
-  }, [props.selectedSessionId, toggleSidePanelState]);
+  }, [props.selectedSessionId, setSidePanelState, toggleSidePanelState]);
 
   // Sync browser panel state with Electron main process IPC events.
   // When the agent calls a built-in browser tool, the main process opens
@@ -423,17 +433,17 @@ export function SessionPage(props: SessionPageProps) {
   }, [activeSidePanel, setCurrentSidePanel, voiceExtensionEnabled]);
 
   const openVoicePanelControlAction = useMemo<OpenworkControlAction | null>(() => (
-    voiceExtensionEnabled && props.selectedSessionId ? {
+    voiceExtensionEnabled ? {
       id: "voice.panel.open",
       label: "Open Voice Mode",
-      description: "Open the Voice Mode right-side panel for the active session.",
+      description: "Open the sticky Voice Mode right-side panel.",
       sideEffect: "none",
       execute: () => {
         setCurrentSidePanel("voice");
         return { open: true };
       },
     } : null
-  ), [props.selectedSessionId, setCurrentSidePanel, voiceExtensionEnabled]);
+  ), [setCurrentSidePanel, voiceExtensionEnabled]);
   useControlAction(openVoicePanelControlAction);
 
   const closeVoicePanelControlAction = useMemo<OpenworkControlAction | null>(() => (
@@ -948,10 +958,9 @@ export function SessionPage(props: SessionPageProps) {
                   voiceRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
                 )}
                 onClick={openVoiceRailPane}
-                title={props.selectedSessionId ? "Voice Mode" : "Open a session to use Voice Mode"}
-                aria-label={props.selectedSessionId ? "Voice Mode" : "Open a session to use Voice Mode"}
+                title="Voice Mode"
+                aria-label="Voice Mode"
                 aria-pressed={voiceRailActive}
-                disabled={!props.selectedSessionId}
               >
                 <Mic2 size={17} />
               </Button>
