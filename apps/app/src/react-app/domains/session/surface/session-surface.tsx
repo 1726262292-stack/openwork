@@ -43,6 +43,7 @@ import { SessionTranscript } from "./message-list";
 import { useLocal } from "../../../kernel/local-provider";
 import { deriveSessionRenderModel } from "../sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
+import { useSessionActivityStore, type SessionActivityStatus } from "../status/session-activity-store";
 import { PermissionApprovalPanel } from "../chat/permission-approval-modal";
 import { QuestionPanel } from "../modals/question-modal";
 import { deriveOpenTargets, selectAutoOpenTarget, type OpenTarget } from "../artifacts/open-target";
@@ -271,6 +272,14 @@ function AssistantStatusSpacer() {
   );
 }
 
+function assistantStatusLabel(status: SessionActivityStatus) {
+  if (status === "responding") return t("session.assistant_responding");
+  if (status === "waiting") return t("session.assistant_waiting");
+  if (status === "compacting") return t("session.assistant_compacting");
+  if (status === "error") return t("session.assistant_error");
+  return t("session.assistant_thinking");
+}
+
 function TodoPanel(props: { todos: TodoItem[] }) {
   const [expanded, setExpanded] = useState(false);
   const todos = props.todos.filter((todo) => todo.content.trim());
@@ -418,6 +427,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const local = useLocal();
   const { config: shellConfig } = useShellConfig();
   const showThinking = local.prefs.showThinking;
+  const sessionActivityStatus = useSessionActivityStore(
+    (state) => state.statusesByWorkspaceId[props.workspaceId]?.[props.sessionId] ?? "idle",
+  );
   const draft = useComposerStateStore((state) => getComposerDraft(state, props.sessionId));
   const attachments = useComposerStateStore((state) => getComposerAttachments(state, props.sessionId));
   const mentions = useComposerStateStore((state) => getComposerMentions(state, props.sessionId));
@@ -591,12 +603,17 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }, [noVisibleAssistantOutputBaseline, renderedMessages]);
   const showAssistantWaitState = awaitingAssistantBaseline !== null && !assistantOutputAfterAwaitStart;
   const showAssistantRespondingState = awaitingAssistantBaseline !== null && assistantOutputAfterAwaitStart && chatStreaming;
+  const effectiveActivityStatus: SessionActivityStatus = sessionActivityStatus !== "idle"
+    ? sessionActivityStatus
+    : showAssistantWaitState
+      ? "thinking"
+      : showAssistantRespondingState
+        ? "responding"
+        : "idle";
   const showNoVisibleAssistantOutput = noVisibleAssistantOutputBaseline !== null && !assistantOutputAfterNoVisibleFallback;
-  const reserveAssistantStatusSpace = awaitingAssistantBaseline !== null && assistantOutputAfterAwaitStart && !chatStreaming;
-  const assistantStatusFooter = showAssistantWaitState ? (
-    <AssistantWaitingCard collapseLayout />
-  ) : showAssistantRespondingState ? (
-    <AssistantWaitingCard label={t("session.assistant_responding")} collapseLayout />
+  const reserveAssistantStatusSpace = effectiveActivityStatus === "idle" && awaitingAssistantBaseline !== null && assistantOutputAfterAwaitStart && !chatStreaming;
+  const assistantStatusFooter = effectiveActivityStatus !== "idle" ? (
+    <AssistantWaitingCard label={assistantStatusLabel(effectiveActivityStatus)} collapseLayout />
   ) : showNoVisibleAssistantOutput ? (
     <AssistantNoVisibleOutputCard text={noVisibleAssistantOutputText} />
   ) : reserveAssistantStatusSpace ? (
@@ -746,6 +763,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     // catch below. This restores the "append a prompt while it's still
     // talking" behavior that the Solid composer had.
     setError(null);
+    useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, { type: "busy" });
     setSending(true);
     setAwaitingAssistantBaseline(renderedMessages.length);
     setNoVisibleAssistantOutputBaseline(null);
@@ -759,12 +777,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     } catch (nextError) {
       const parsed = parseSessionError(nextError);
       setError(parsed);
+      useSessionActivityStore.getState().setError(props.workspaceId, props.sessionId);
       setComposerDraft(props.sessionId, "");
       setAwaitingAssistantBaseline(null);
       setNoVisibleAssistantOutputBaseline(null);
       setSending(false);
     }
-  }, [attachments, buildDraft, clearComposerSession, draft, props.onDraftChange, props.onSendDraft, props.sessionId, renderedMessages.length, setComposerDraft]);
+  }, [attachments, buildDraft, clearComposerSession, draft, props.onDraftChange, props.onSendDraft, props.sessionId, props.workspaceId, renderedMessages.length, setComposerDraft]);
 
   const handleAbort = useCallback(async () => {
     if (!chatStreaming) return;
@@ -1122,9 +1141,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   </div>
                 )}
               </div>
-            ) : renderedMessages.length === 0 && showAssistantWaitState ? (
+            ) : renderedMessages.length === 0 && effectiveActivityStatus !== "idle" ? (
               <div className="px-6 py-12">
-                <AssistantWaitingCard />
+                <AssistantWaitingCard label={assistantStatusLabel(effectiveActivityStatus)} />
               </div>
             ) : renderedMessages.length === 0 && snapshot && snapshot.messages.length === 0 ? (
               error ? (

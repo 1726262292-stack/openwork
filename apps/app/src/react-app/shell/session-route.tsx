@@ -13,7 +13,6 @@ import type {
   AgentPartInput,
   FilePartInput,
   ProviderListResponse,
-  SessionStatus,
   TextPartInput,
 } from "@opencode-ai/sdk/v2/client";
 
@@ -28,6 +27,7 @@ import {
 } from "../../app/lib/openwork-server";
 import {
   resolveWorkspaceEndpoint,
+  workspaceServerId,
   type ResolvedWorkspaceEndpoint,
 } from "../../app/lib/workspace-endpoint";
 import { buildOpenworkEnvRuntimeKey } from "../../app/lib/openwork-env-runtime";
@@ -84,6 +84,7 @@ import { isDesktopProviderBlocked } from "../../app/cloud/desktop-app-restrictio
 import { useCheckDesktopRestriction } from "../domains/cloud/desktop-config-provider";
 import { useRestrictionNotice } from "../domains/cloud/restriction-notice-provider";
 import { ReactSessionRuntime } from "../domains/session/sync/runtime-sync";
+import { useSessionActivityStore } from "../domains/session/status/session-activity-store";
 import { buildOpenworkEnvSystemContext } from "../domains/session/sync/env-context";
 import {
   permissionKey as reactPermissionKey,
@@ -490,7 +491,6 @@ export function SessionRoute() {
   const [workspaces, setWorkspaces] = useState<RouteWorkspace[]>([]);
   const [workspaceOrderIds, setWorkspaceOrderIds] = useState<string[]>(() => readWorkspaceOrderIds());
   const [sessionsByWorkspaceId, setSessionsByWorkspaceId] = useState<Record<string, any[]>>({});
-  const [runtimeSessionStatusById, setRuntimeSessionStatusById] = useState<Record<string, string>>({});
   const [errorsByWorkspaceId, setErrorsByWorkspaceId] = useState<Record<string, string | null>>({});
   const [workspaceConnectionOverrides, setWorkspaceConnectionOverrides] = useState<Record<string, WorkspaceConnectionState>>({});
   const [routeError, setRouteError] = useState<string | null>(null);
@@ -665,20 +665,6 @@ export function SessionRoute() {
       }),
     [selectedWorkspaceId, sessionsByWorkspaceId],
   );
-  const listedSessionStatusById = useMemo(() => {
-    const next: Record<string, string> = {};
-    for (const session of Object.values(sessionsByWorkspaceId).flat()) {
-      const id = String(session?.id ?? "").trim();
-      if (!id) continue;
-      next[id] = getSessionStatus(session);
-    }
-    return next;
-  }, [sessionsByWorkspaceId]);
-  const sidebarSessionStatusById = useMemo(
-    () => ({ ...listedSessionStatusById, ...runtimeSessionStatusById }),
-    [listedSessionStatusById, runtimeSessionStatusById],
-  );
-
   const backgroundSessionLoadInFlight = useRef<Map<string, number>>(new Map());
   const rememberPendingCreatedSession = useCallback((workspaceId: string, sessionId: string) => {
     const id = sessionId.trim();
@@ -1109,16 +1095,6 @@ export function SessionRoute() {
     });
   }, [selectedWorkspaceId]);
 
-  const handleRuntimeSessionStatus = useCallback((update: { sessionId: string; status: SessionStatus }) => {
-    const sessionId = update.sessionId;
-    if (!sessionId) return;
-    const status = normalizeSessionStatus(update.status);
-    setRuntimeSessionStatusById((current) => {
-      if (current[sessionId] === status) return current;
-      return { ...current, [sessionId]: status };
-    });
-  }, []);
-
   useEffect(() => {
     workspacesRef.current = workspaces;
   }, [workspaces]);
@@ -1336,6 +1312,34 @@ export function SessionRoute() {
     () => toSessionGroups(workspaces, sessionsByWorkspaceId, errorsByWorkspaceId, new Set(retryingWorkspaceIds)),
     [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, workspaces],
   );
+  const seedWorkspaceActivitySessions = useSessionActivityStore((state) => state.seedWorkspaceSessions);
+  const sessionActivityByWorkspaceId = useSessionActivityStore((state) => state.statusesByWorkspaceId);
+
+  useEffect(() => {
+    for (const group of workspaceSessionGroups) {
+      seedWorkspaceActivitySessions(group.workspace.id, group.sessions);
+      const serverId = workspaceServerId(group.workspace);
+      if (serverId && serverId !== group.workspace.id) {
+        seedWorkspaceActivitySessions(serverId, group.sessions);
+      }
+    }
+  }, [seedWorkspaceActivitySessions, workspaceSessionGroups]);
+
+  const sidebarSessionStatusById = useMemo(() => {
+    const next: Record<string, string> = {};
+    for (const group of workspaceSessionGroups) {
+      const serverId = workspaceServerId(group.workspace);
+      const workspaceStatuses = {
+        ...(sessionActivityByWorkspaceId[group.workspace.id] ?? {}),
+        ...(serverId ? sessionActivityByWorkspaceId[serverId] ?? {} : {}),
+      };
+      for (const session of group.sessions) {
+        const status = workspaceStatuses[session.id];
+        if (status) next[session.id] = status;
+      }
+    }
+    return next;
+  }, [sessionActivityByWorkspaceId, workspaceSessionGroups]);
 
   const sidebarActiveWorkspaceId = useMemo(() => {
     const sessionId = selectedSessionId?.trim() ?? "";
@@ -2622,7 +2626,6 @@ export function SessionRoute() {
         opencodeBaseUrl={opencodeBaseUrl}
         openworkToken={selectedWorkspaceServerToken}
         onSessionUpdated={handleRuntimeSessionUpdated}
-        onSessionStatus={handleRuntimeSessionStatus}
       />
     ) : null}
     <SessionPage
