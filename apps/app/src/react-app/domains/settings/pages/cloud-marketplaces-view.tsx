@@ -366,7 +366,7 @@ export function CloudMarketplacesView({
       ) : null}
 
       {visibleRows.length > 0 ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3">
           {visibleRows.map((row) => (
             <MarketplacePackageCard
               key={`${row.marketplaceId}:${row.plugin.id}`}

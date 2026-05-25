@@ -71,20 +71,27 @@ import {
   buildSessionTreeState,
   flattenSessionRows,
   getRootSessions,
+  isStreamingSessionStatus,
   workspaceKindLabel,
   workspaceLabel,
 } from "./utils";
 import type { SessionListItem, SessionTreeState } from "./utils";
 import { cn } from "@/lib/utils";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
+import { getSessionActivityStatusLabel, type SessionActivityStatus } from "../status/session-activity-store";
 
-function SessionStatusIndicator(props: { isStreaming: boolean; isActive: boolean }) {
+function SessionStatusIndicator(props: { status?: string; isStreaming: boolean; isActive: boolean }) {
+  const activityTitle = isSessionActivityStatus(props.status) && props.status !== "idle"
+    ? getSessionActivityStatusLabel(props.status)
+    : undefined;
+  const title = activityTitle ?? (props.isStreaming ? t("workspace_list.session_streaming") : t("workspace_list.session_active"));
+
   if (props.isStreaming) {
     return (
       <span
-        className="flex size-3.5 shrink-0 items-center justify-center text-amber-500"
-        title={t("workspace_list.session_streaming")}
-        aria-label={t("workspace_list.session_streaming")}
+        className={cn("flex size-3.5 shrink-0 items-center justify-center", sessionActivityTextClass(props.status))}
+        title={title}
+        aria-label={title}
       >
         <Loader2 className="size-3.5 animate-spin" />
       </span>
@@ -94,9 +101,9 @@ function SessionStatusIndicator(props: { isStreaming: boolean; isActive: boolean
   if (props.isActive) {
     return (
       <span
-        className="size-1.5 shrink-0 rounded-full bg-amber-500"
-        title={t("workspace_list.session_active")}
-        aria-label={t("workspace_list.session_active")}
+        className={cn("size-1.5 shrink-0 rounded-full", sessionActivityDotClass(props.status))}
+        title={title}
+        aria-label={title}
       />
     );
   }
@@ -386,6 +393,26 @@ function useSessionTree(
     () => buildSessionTreeState(sessions, sessionStatusById),
     [sessions, sessionStatusById],
   );
+}
+
+function isSessionActivityStatus(status: string | undefined): status is SessionActivityStatus {
+  return status === "idle" || status === "thinking" || status === "responding" || status === "error" || status === "compacting" || status === "waiting";
+}
+
+function sessionActivityDotClass(status: string | undefined) {
+  if (status === "waiting") return "bg-sky-500";
+  if (status === "error") return "bg-red-500";
+  if (status === "compacting") return "bg-violet-500";
+  if (status === "responding") return "bg-emerald-500";
+  return "bg-amber-500";
+}
+
+function sessionActivityTextClass(status: string | undefined) {
+  if (status === "waiting") return "text-sky-500";
+  if (status === "error") return "text-red-500";
+  if (status === "compacting") return "text-violet-500";
+  if (status === "responding") return "text-emerald-500";
+  return "text-amber-500";
 }
 
 export function AppSidebar(props: AppSidebarProps) {
@@ -890,8 +917,9 @@ function SessionMenuItem({ session, tree, workspaceId, forcedExpandedSessionIds,
   const displayTitle = getDisplaySessionTitle(session.title);
   const hasChildren = (tree.descendantCountBySessionId.get(session.id) ?? 0) > 0;
   const isExpanded = ctx.expandedSessionIds.has(session.id) || forcedExpandedSessionIds.has(session.id);
+  const sessionActivityStatus = ctx.sessionStatusById?.[session.id];
   const isSessionActive = tree.activeIds.has(session.id);
-  const isSessionStreaming = tree.streamingIds.has(session.id);
+  const isSessionStreaming = tree.streamingIds.has(session.id) || isStreamingSessionStatus(sessionActivityStatus);
 
   const openSession = () => {
     ctx.onOpenSession(workspaceId, session.id);
@@ -923,7 +951,7 @@ function SessionMenuItem({ session, tree, workspaceId, forcedExpandedSessionIds,
                   onPointerEnter={prefetchSession}
                   onFocus={prefetchSession}
                 >
-                  <SessionStatusIndicator isStreaming={isSessionStreaming} isActive={isSessionActive} />
+                  <SessionStatusIndicator status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
                   <span
                     className="min-w-0 flex-1 truncate transition-[padding] duration-75 group-hover/menu-sub-item:pe-12 group-has-data-popup-open/menu-sub-item:pe-12 pe-4"
                     title={displayTitle}
@@ -956,7 +984,7 @@ function SessionMenuItem({ session, tree, workspaceId, forcedExpandedSessionIds,
           onFocus={prefetchSession}
           className={cn("transition-[padding] duration-75 group-hover/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8", depth > 0 && "ps-13")}
         >
-          <SessionStatusIndicator isStreaming={isSessionStreaming} isActive={isSessionActive} />
+          <SessionStatusIndicator status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
           <span className="truncate" title={displayTitle}>{displayTitle}</span>
         </SidebarMenuSubButton>
       </SessionContextMenu>

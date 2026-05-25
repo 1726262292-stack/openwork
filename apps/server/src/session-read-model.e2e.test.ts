@@ -237,6 +237,24 @@ describe("workspace session read APIs", () => {
 
   });
 
+  test("accepts guest-side rem_ workspace aliases for session reads", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode();
+    const openwork = await startOpenworkServer({
+      workspaceRoot,
+      opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
+    });
+
+    const response = await fetch(`http://127.0.0.1:${openwork.server.port}/workspace/rem_ws_1/sessions`, {
+      headers: auth(openwork.token),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.items[0]?.id).toBe("ses_1");
+    expect(body.items[0]?.directory).toBe(workspaceRoot);
+    expect(mock.requests.find((request) => request.pathname === "/session")?.directory).toBe(workspaceRoot);
+  });
+
   test("returns 404 when the upstream session is missing", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const mock = startMockOpencode();
