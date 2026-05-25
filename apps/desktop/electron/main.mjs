@@ -19,7 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, session, shell } from "electron";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
@@ -484,6 +484,40 @@ const pendingDeepLinks = [];
 let uiControlServer = null;
 let uiControlDiscoveryPath = null;
 const uiControlToken = randomBytes(32).toString("hex");
+
+function isLocalRendererOrigin(origin) {
+  const value = String(origin ?? "").trim();
+  if (!value || value === "file://") return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === "file:" || url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+function isMainWindowWebContents(webContents) {
+  return Boolean(mainWindow && webContents && webContents.id === mainWindow.webContents.id);
+}
+
+function shouldAllowMainWindowAudioCapture(webContents, permission, origin, details = {}) {
+  if (!isMainWindowWebContents(webContents)) return false;
+  if (permission !== "media" && permission !== "audioCapture") return false;
+  if (!isLocalRendererOrigin(origin)) return false;
+  const mediaType = typeof details.mediaType === "string" ? details.mediaType : "";
+  if (mediaType && mediaType !== "audio") return false;
+  const mediaTypes = Array.isArray(details.mediaTypes) ? details.mediaTypes : [];
+  return mediaTypes.length === 0 || (mediaTypes.includes("audio") && !mediaTypes.includes("video"));
+}
+
+function installMediaPermissionHandlers() {
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    callback(shouldAllowMainWindowAudioCapture(webContents, permission, details?.requestingUrl, details));
+  });
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => (
+    shouldAllowMainWindowAudioCapture(webContents, permission, requestingOrigin, details)
+  ));
+}
 
 // ── Embedded browser panel ─────────────────────────────────────────────
 const browserTabs = new Map();
@@ -2996,6 +3030,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    installMediaPermissionHandlers();
     installApplicationMenu();
     await runtimeManager.prepareFreshRuntime().catch(() => undefined);
 
