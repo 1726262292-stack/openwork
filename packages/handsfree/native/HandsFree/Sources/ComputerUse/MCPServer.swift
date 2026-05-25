@@ -7,7 +7,7 @@ actor MCPServer {
     private let input = InputService()
 
     func run() async {
-        log("HandsFree computer-use server starting")
+        log("Computer Use server starting")
         while let line = readLine(strippingNewline: true) {
             guard !line.isEmpty else { continue }
             guard let data = line.data(using: .utf8),
@@ -25,7 +25,7 @@ actor MCPServer {
                 respond(id: id, result: [
                     "protocolVersion": "2025-03-26",
                     "capabilities": ["tools": [:]],
-                    "serverInfo": ["name": "openwork-handsfree-computer-use", "version": "0.1.0"],
+                    "serverInfo": ["name": "openwork-computer-use", "version": "0.1.0"],
                 ])
             case "notifications/initialized":
                 break
@@ -505,7 +505,7 @@ actor MCPServer {
     }
 
     private func log(_ message: String) {
-        fputs("[HandsFreeComputerUse] \(message)\n", stderr)
+        fputs("[ComputerUse] \(message)\n", stderr)
     }
 
     private func intArg(_ args: [String: Any], _ key: String) -> Int? {

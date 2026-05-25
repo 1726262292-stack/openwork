@@ -273,9 +273,9 @@ export function createConnectionsStore(options: {
   };
 
   const resolveLocalMcpCommand = async (entry: McpDirectoryInfo) => {
-    if (entry.serverName === "handsfree-computer-use") {
+    if (entry.serverName === "computer-use") {
       try {
-        const command = await (window as any).__OPENWORK_ELECTRON__?.invokeDesktop?.("getHandsFreeMcpCommand");
+        const command = await (window as any).__OPENWORK_ELECTRON__?.invokeDesktop?.("getComputerUseMcpCommand");
         if (Array.isArray(command) && command.every((part) => typeof part === "string") && command.length > 0) {
           return command;
         }

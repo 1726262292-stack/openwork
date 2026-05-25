@@ -1,6 +1,6 @@
-# OpenWork HandsFree Computer Use
+# OpenWork Computer Use
 
-Native macOS computer-use runtime imported from the HandsFree prototype.
+Native macOS computer-use runtime for OpenWork.
 
 This package focuses on the reusable control layer:
 

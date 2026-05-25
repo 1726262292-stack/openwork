@@ -24,7 +24,7 @@ import type { ProviderListItem } from "../../../../app/types";
 // Side-effect: register extension configs
 import "../../settings/openai-image-gen-config";
 import "../../settings/ollama-config";
-import "../../settings/handsfree-config";
+import "../../settings/computer-use-config";
 import "../../settings/browser-extension-config";
 
 export type ExtensionsPaneSlotProps = {

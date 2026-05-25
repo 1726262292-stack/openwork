@@ -7,7 +7,7 @@ import type { McpDirectoryInfo } from "../../../app/constants";
  * Each extension picks what it needs; unused fields are ignored.
  */
 export type ExtensionConfigContext = {
-  handsFree?: {
+  computerUse?: {
     connected: boolean;
     connecting: boolean;
     onConnect: () => void | Promise<void>;

@@ -196,7 +196,7 @@ export function McpView(props: McpViewProps) {
   const [detailSkillContent, setDetailSkillContent] = useState<string | null>(null);
   const [openworkUiMcpCommand, setOpenworkUiMcpCommand] = useState<string[] | null>(null);
   const [openworkUiMcpEnvironment, setOpenworkUiMcpEnvironment] = useState<Record<string, string> | null>(null);
-  const [handsFreeMcpCommand, setHandsFreeMcpCommand] = useState<string[] | null>(null);
+  const [computerUseMcpCommand, setComputerUseMcpCommand] = useState<string[] | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ExtensionFilter>("all");
   const [, setExtensionStateVersion] = useState(0);
@@ -267,14 +267,14 @@ export function McpView(props: McpViewProps) {
             ),
           ));
         }
-        const handsFreeCommand = await (window as any).__OPENWORK_ELECTRON__?.invokeDesktop?.("getHandsFreeMcpCommand");
-        if (Array.isArray(handsFreeCommand) && handsFreeCommand.every((part) => typeof part === "string")) {
-          setHandsFreeMcpCommand(handsFreeCommand);
+        const computerUseCommand = await (window as any).__OPENWORK_ELECTRON__?.invokeDesktop?.("getComputerUseMcpCommand");
+        if (Array.isArray(computerUseCommand) && computerUseCommand.every((part) => typeof part === "string")) {
+          setComputerUseMcpCommand(computerUseCommand);
         }
       } catch {
         setOpenworkUiMcpCommand(null);
         setOpenworkUiMcpEnvironment(null);
-        setHandsFreeMcpCommand(null);
+        setComputerUseMcpCommand(null);
       }
     })();
   }, []);
@@ -352,7 +352,7 @@ export function McpView(props: McpViewProps) {
 
   const launchCommandForEntry = (entry: McpDirectoryInfo) => {
     if (entry.serverName === "openwork-ui") return openworkUiMcpCommand ?? undefined;
-    if (entry.serverName === "handsfree-computer-use") return handsFreeMcpCommand ?? entry.command;
+    if (entry.serverName === "computer-use") return computerUseMcpCommand ?? entry.command;
     return entry.command;
   };
 

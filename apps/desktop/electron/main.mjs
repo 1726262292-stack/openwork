@@ -42,15 +42,15 @@ const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/different-ai/openwork/rele
 const RELEASE_PAGE_URL = "https://github.com/different-ai/openwork/releases/latest";
 const DOCS_PAGE_URL = "https://openworklabs.com/docs";
 
-function getHandsFreeMcpCommand() {
+function getComputerUseMcpCommand() {
   if (process.env.OPENWORK_DEV_MODE === "1") {
     return ["node", path.resolve(__dirname, "../../..", "packages/handsfree/bin/openwork-handsfree-computer-use.mjs"), "mcp"];
   }
   return ["npx", "-y", "@openwork/handsfree", "mcp"];
 }
 
-function callHandsFreeMcpTool(name, args = {}) {
-  const [command, ...commandArgs] = getHandsFreeMcpCommand();
+function callComputerUseMcpTool(name, args = {}) {
+  const [command, ...commandArgs] = getComputerUseMcpCommand();
   return new Promise((resolve, reject) => {
     const child = spawn(command, commandArgs, {
       stdio: ["pipe", "pipe", "pipe"],
@@ -80,7 +80,7 @@ function callHandsFreeMcpTool(name, args = {}) {
     };
 
     const timeout = setTimeout(() => {
-      fail(new Error(`HandsFree MCP ${name} timed out.${stderr.trim() ? ` ${stderr.trim()}` : ""}`));
+      fail(new Error(`Computer Use MCP ${name} timed out.${stderr.trim() ? ` ${stderr.trim()}` : ""}`));
     }, 45_000);
 
     child.stdout.setEncoding("utf8");
@@ -112,7 +112,7 @@ function callHandsFreeMcpTool(name, args = {}) {
     child.on("error", fail);
     child.on("exit", (code) => {
       if (!settled && code !== 0) {
-        fail(new Error(stderr.trim() || `HandsFree MCP exited with status ${code ?? "unknown"}.`));
+        fail(new Error(stderr.trim() || `Computer Use MCP exited with status ${code ?? "unknown"}.`));
       }
     });
 
@@ -122,16 +122,16 @@ function callHandsFreeMcpTool(name, args = {}) {
   });
 }
 
-function handsFreeToolText(response) {
+function computerUseToolText(response) {
   const content = response?.result?.content;
   if (!Array.isArray(content)) return "";
   const textPart = content.find((part) => part?.type === "text" && typeof part.text === "string");
   return textPart?.text ?? "";
 }
 
-async function checkHandsFreePermissions() {
-  const response = await callHandsFreeMcpTool("check_permissions");
-  const text = handsFreeToolText(response);
+async function checkComputerUsePermissions() {
+  const response = await callComputerUseMcpTool("check_permissions");
+  const text = computerUseToolText(response);
   try {
     const parsed = JSON.parse(text);
     return {
@@ -144,12 +144,12 @@ async function checkHandsFreePermissions() {
       ok: false,
       accessibility: false,
       screenRecording: false,
-      error: text || "HandsFree permission check returned an unreadable response.",
+      error: text || "Computer Use permission check returned an unreadable response.",
     };
   }
 }
 
-function handsFreePermissionSettingsUrl(target) {
+function computerUsePermissionSettingsUrl(target) {
   if (target === "screenRecording") {
     return "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
   }
@@ -2476,15 +2476,15 @@ async function handleDesktopInvoke(event, command, ...args) {
       }
       return ["npx", "-y", "openwork-ui-mcp"];
     }
-    case "getHandsFreeMcpCommand": {
-      return getHandsFreeMcpCommand();
+    case "getComputerUseMcpCommand": {
+      return getComputerUseMcpCommand();
     }
-    case "checkHandsFreePermissions": {
-      return checkHandsFreePermissions();
+    case "checkComputerUsePermissions": {
+      return checkComputerUsePermissions();
     }
-    case "openHandsFreePermissionSettings": {
+    case "openComputerUsePermissionSettings": {
       const target = String(args[0] ?? "accessibility");
-      await shell.openExternal(handsFreePermissionSettingsUrl(target));
+      await shell.openExternal(computerUsePermissionSettingsUrl(target));
       return { ok: true };
     }
     case "getOpenworkUiMcpEnvironment": {

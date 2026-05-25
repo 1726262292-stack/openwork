@@ -18,26 +18,26 @@ import { registerExtensionConfig } from "./extension-registry";
 
 type PermissionTarget = "accessibility" | "screenRecording";
 
-type HandsFreePermissionStatus = {
+type ComputerUsePermissionStatus = {
   ok: boolean;
   accessibility: boolean;
   screenRecording: boolean;
   error?: string;
 };
 
-type HandsFreeConfigProps = {
+type ComputerUseConfigProps = {
   connected: boolean;
   connecting: boolean;
   onConnect?: () => void | Promise<void>;
   onRefresh?: () => void | Promise<void>;
 };
 
-registerExtensionConfig("handsfree-computer-use", (ctx) => (
-  <HandsFreeConfig
-    connected={ctx.handsFree?.connected ?? false}
-    connecting={ctx.handsFree?.connecting ?? false}
-    onConnect={ctx.handsFree?.onConnect}
-    onRefresh={ctx.handsFree?.onRefresh}
+registerExtensionConfig("computer-use", (ctx) => (
+  <ComputerUseConfig
+    connected={ctx.computerUse?.connected ?? false}
+    connecting={ctx.computerUse?.connecting ?? false}
+    onConnect={ctx.computerUse?.onConnect}
+    onRefresh={ctx.computerUse?.onRefresh}
   />
 ));
 
@@ -45,13 +45,13 @@ function hasDesktopBridge() {
   return typeof window !== "undefined" && Boolean(window.__OPENWORK_ELECTRON__?.invokeDesktop);
 }
 
-function normalizePermissionStatus(value: unknown): HandsFreePermissionStatus {
+function normalizePermissionStatus(value: unknown): ComputerUsePermissionStatus {
   if (typeof value !== "object" || value === null) {
     return {
       ok: false,
       accessibility: false,
       screenRecording: false,
-      error: "HandsFree returned an unreadable permission response.",
+      error: "Computer Use returned an unreadable permission response.",
     };
   }
 
@@ -60,7 +60,7 @@ function normalizePermissionStatus(value: unknown): HandsFreePermissionStatus {
       ok: false,
       accessibility: false,
       screenRecording: false,
-      error: "HandsFree did not return both required macOS permission checks.",
+      error: "Computer Use did not return both required macOS permission checks.",
     };
   }
 
@@ -77,22 +77,22 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function HandsFreeConfig(props: HandsFreeConfigProps) {
-  const [permissions, setPermissions] = useState<HandsFreePermissionStatus | null>(null);
+export function ComputerUseConfig(props: ComputerUseConfigProps) {
+  const [permissions, setPermissions] = useState<ComputerUsePermissionStatus | null>(null);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
 
   const refreshPermissions = useCallback(async () => {
     if (!hasDesktopBridge()) {
-      setError("HandsFree setup is only available in the OpenWork desktop app on macOS.");
+      setError("Computer Use setup is only available in the OpenWork desktop app on macOS.");
       return;
     }
 
     setChecking(true);
     setError(null);
     try {
-      const result = await desktopBridge.checkHandsFreePermissions();
+      const result = await desktopBridge.checkComputerUsePermissions();
       const next = normalizePermissionStatus(result);
       setPermissions(next);
       if (next.error) {
@@ -117,8 +117,8 @@ export function HandsFreeConfig(props: HandsFreeConfigProps) {
 
     setError(null);
     try {
-      await desktopBridge.openHandsFreePermissionSettings(target);
-      setHint("Enable the process macOS shows for HandsFree. In dev builds this may be OpenWork - Dev, Electron, node, swift, HandsFreeComputerUse, Terminal, iTerm, or your IDE. If it is already enabled, toggle it off and on, restart OpenWork, then click Verify permissions.");
+      await desktopBridge.openComputerUsePermissionSettings(target);
+      setHint("Enable the process macOS shows for Computer Use. In dev builds this may be OpenWork - Dev, Electron, node, swift, HandsFreeComputerUse, Terminal, iTerm, or your IDE. If it is already enabled, toggle it off and on, restart OpenWork, then click Verify permissions.");
     } catch (caught) {
       setError(errorMessage(caught));
     }
@@ -129,7 +129,7 @@ export function HandsFreeConfig(props: HandsFreeConfigProps) {
   return (
     <Card variant="outline" size="sm">
       <CardHeader>
-        <CardTitle>HandsFree setup</CardTitle>
+        <CardTitle>Computer Use setup</CardTitle>
         <CardDescription>Connect the local MCP server and grant the macOS permissions it needs to control apps.</CardDescription>
         <CardAction>
           <Button variant="ghost" size="icon-sm" onClick={() => void refreshPermissions()} disabled={checking}>
@@ -153,8 +153,8 @@ export function HandsFreeConfig(props: HandsFreeConfigProps) {
         ) : null}
 
         <SetupRow
-          title="1. Connect HandsFree MCP"
-          description="Adds the local HandsFree server to this workspace so Composer can use the computer-control tools."
+          title="1. Connect Computer Use MCP"
+          description="Adds the local Computer Use server to this workspace so Composer can use the computer-control tools."
           complete={props.connected}
         >
           <Button onClick={() => void props.onConnect?.()} disabled={!props.onConnect || props.connected || props.connecting}>
@@ -165,7 +165,7 @@ export function HandsFreeConfig(props: HandsFreeConfigProps) {
 
         <SetupRow
           title="2. Grant macOS permissions"
-          description="HandsFree needs Accessibility for semantic UI actions and Screen Recording for snapshots."
+          description="Computer Use needs Accessibility for semantic UI actions and Screen Recording for snapshots."
           complete={allPermissionsGranted}
         >
           <div className="flex flex-col gap-2">
@@ -173,7 +173,7 @@ export function HandsFreeConfig(props: HandsFreeConfigProps) {
               <Alert>
                 <CircleAlert />
                 <AlertDescription>
-                  Accessibility is checked inside the HandsFree runtime process. If macOS already shows OpenWork as enabled, also look for node, swift, HandsFreeComputerUse, Electron, Terminal, iTerm, or your IDE.
+                  Accessibility is checked inside the Computer Use runtime process. If macOS already shows OpenWork as enabled, also look for node, swift, HandsFreeComputerUse, Electron, Terminal, iTerm, or your IDE.
                 </AlertDescription>
               </Alert>
             ) : null}
@@ -195,7 +195,7 @@ export function HandsFreeConfig(props: HandsFreeConfigProps) {
       <CardFooter className="border-t border-border">
         <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-xs text-muted-foreground">
-            {allPermissionsGranted ? "Permissions verified. Try a Composer prompt that asks HandsFree to open an app and type." : "After granting permissions, return here and verify again."}
+            {allPermissionsGranted ? "Permissions verified. Try a Composer prompt that asks Computer Use to open an app and type." : "After granting permissions, return here and verify again."}
           </div>
           <div className="flex gap-2">
             {props.onRefresh ? (
