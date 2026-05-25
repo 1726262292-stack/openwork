@@ -2116,9 +2116,12 @@ async function handleDesktopInvoke(event, command, ...args) {
           const directory = typeof nextWorkspace.directory === "string" && nextWorkspace.directory.trim()
             ? nextWorkspace.directory.trim()
             : null;
-          let remoteWorkspaceId = typeof nextWorkspace.openworkWorkspaceId === "string" && nextWorkspace.openworkWorkspaceId.trim()
-            ? nextWorkspace.openworkWorkspaceId.trim()
-            : parseOpenworkWorkspaceIdFromUrl(rawHostUrl) || parseOpenworkWorkspaceIdFromUrl(nextBaseUrl);
+          const parsedWorkspaceId = parseOpenworkWorkspaceIdFromUrl(rawHostUrl) || parseOpenworkWorkspaceIdFromUrl(nextBaseUrl);
+          let remoteWorkspaceId = parsedWorkspaceId || (
+            typeof nextWorkspace.openworkWorkspaceId === "string" && nextWorkspace.openworkWorkspaceId.trim()
+              ? nextWorkspace.openworkWorkspaceId.trim()
+              : null
+          );
           let remoteWorkspaceName = nextWorkspace.openworkWorkspaceName ?? null;
           if (!remoteWorkspaceId) {
             const discovered = await discoverOpenworkWorkspace({

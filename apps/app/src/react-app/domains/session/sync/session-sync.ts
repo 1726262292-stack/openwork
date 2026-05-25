@@ -8,6 +8,7 @@ import type { OpencodeEvent, PendingPermission, PendingQuestion } from "../../..
 import { snapshotToUIMessages } from "./usechat-adapter";
 import type { OpenworkSessionSnapshot } from "../../../../app/lib/openwork-server";
 import { reconcileTranscriptMessages } from "./transcript-reconcile";
+import { useSessionActivityStore } from "../status/session-activity-store";
 
 type SyncOptions = {
   workspaceId: string;
@@ -104,6 +105,37 @@ function isLiveStatus(status: SessionStatus | null | undefined) {
   return status?.type === "busy" || status?.type === "retry";
 }
 
+function messageHasVisibleAssistantOutput(message: UIMessage) {
+  if (message.role !== "assistant") return false;
+  return message.parts.some((part) => {
+    if ("text" in part && typeof part.text === "string") return part.text.trim().length > 0;
+    return part.type === "dynamic-tool" || part.type === "file";
+  });
+}
+
+function assistantOutputAfterLatestUser(messages: UIMessage[]) {
+  let lastUserIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "user") {
+      lastUserIndex = index;
+      break;
+    }
+  }
+  return messages.slice(lastUserIndex + 1).some(messageHasVisibleAssistantOutput);
+}
+
+function sessionIdFromProperties(properties: unknown) {
+  if (!properties || typeof properties !== "object") return "";
+  const sessionID = (properties as { sessionID?: unknown }).sessionID;
+  return typeof sessionID === "string" ? sessionID : "";
+}
+
+function partHasVisibleAssistantOutput(part: Part) {
+  const partType = String(part.type);
+  if ("text" in part && typeof part.text === "string" && part.text.trim().length > 0) return true;
+  return partType === "tool" || partType === "file" || partType === "agent";
+}
+
 function clearTrackedSession(input: SyncOptions, entry: SyncEntry, sessionId: string) {
   entry.trackedSessionRefs.delete(sessionId);
   const retainedTimer = entry.retainedSessionTimers.get(sessionId);
@@ -166,6 +198,12 @@ export function seedPermissionState(
   permissions: PermissionRequest[],
   options: { snapshotStartedAt?: number } = {},
 ) {
+  useSessionActivityStore.getState().replaceWaitingRequests(
+    workspaceId,
+    sessionId,
+    "permission",
+    permissions.flatMap((permission) => permission.sessionID === sessionId ? [permission.id] : []),
+  );
   const queryClient = getReactQueryClient();
   const now = Date.now();
   queryClient.setQueryData<PendingPermission[]>(permissionKey(workspaceId, sessionId), (current = []) => {
@@ -194,6 +232,12 @@ export function seedQuestionState(
   questions: QuestionRequest[],
   options: { snapshotStartedAt?: number } = {},
 ) {
+  useSessionActivityStore.getState().replaceWaitingRequests(
+    workspaceId,
+    sessionId,
+    "question",
+    questions.flatMap((question) => question.sessionID === sessionId ? [question.id] : []),
+  );
   const queryClient = getReactQueryClient();
   const now = Date.now();
   queryClient.setQueryData<PendingQuestion[]>(questionKey(workspaceId, sessionId), (current = []) => {
@@ -442,9 +486,35 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     return;
   }
 
+  if (event.type === "session.deleted") {
+    const props = (event.properties ?? {}) as { sessionID?: string; info?: { id?: string } };
+    const sessionId = props.sessionID ?? props.info?.id ?? "";
+    if (sessionId) useSessionActivityStore.getState().removeSession(workspaceId, sessionId);
+    return;
+  }
+
+  if (event.type === "session.error") {
+    const sessionId = sessionIdFromProperties(event.properties);
+    if (sessionId) useSessionActivityStore.getState().setError(workspaceId, sessionId);
+    return;
+  }
+
+  if (event.type === "session.next.compaction.started") {
+    const sessionId = sessionIdFromProperties(event.properties);
+    if (sessionId) useSessionActivityStore.getState().setCompacting(workspaceId, sessionId, true);
+    return;
+  }
+
+  if (event.type === "session.next.compaction.ended" || event.type === "session.compacted") {
+    const sessionId = sessionIdFromProperties(event.properties);
+    if (sessionId) useSessionActivityStore.getState().setCompacting(workspaceId, sessionId, false);
+    return;
+  }
+
   if (event.type === "session.status") {
     const props = (event.properties ?? {}) as { sessionID?: string; status?: SessionStatus };
     if (!props.sessionID || !props.status) return;
+    useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, props.status);
     const tracked = isTrackedSession(entry, props.sessionID);
     if (tracked) queryClient.setQueryData(statusKey(workspaceId, props.sessionID), props.status);
     for (const listener of entry.sessionStatusListeners) listener({ sessionId: props.sessionID, status: props.status });
@@ -463,6 +533,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "permission.asked") {
     const permission = event.properties as PermissionRequest;
     if (!permission?.id || !permission.sessionID) return;
+    useSessionActivityStore.getState().setWaitingRequest(workspaceId, permission.sessionID, "permission", permission.id, true);
     if (!isTrackedSession(entry, permission.sessionID)) return;
     const receivedAt = Date.now();
     queryClient.setQueryData<PendingPermission[]>(permissionKey(workspaceId, permission.sessionID), (current = []) => {
@@ -479,6 +550,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "permission.replied") {
     const props = (event.properties ?? {}) as { sessionID?: string; requestID?: string };
     if (!props.sessionID || !props.requestID) return;
+    useSessionActivityStore.getState().setWaitingRequest(workspaceId, props.sessionID, "permission", props.requestID, false);
     if (!isTrackedSession(entry, props.sessionID)) return;
     queryClient.setQueryData<PendingPermission[]>(permissionKey(workspaceId, props.sessionID), (current = []) =>
       current.filter((permission) => permission.id !== props.requestID),
@@ -489,6 +561,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "question.asked") {
     const question = event.properties as QuestionRequest;
     if (!question?.id || !question.sessionID) return;
+    useSessionActivityStore.getState().setWaitingRequest(workspaceId, question.sessionID, "question", question.id, true);
     if (!isTrackedSession(entry, question.sessionID)) return;
     const receivedAt = Date.now();
     queryClient.setQueryData<PendingQuestion[]>(questionKey(workspaceId, question.sessionID), (current = []) => {
@@ -505,6 +578,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "question.replied" || event.type === "question.rejected") {
     const props = (event.properties ?? {}) as { sessionID?: string; requestID?: string };
     if (!props.sessionID || !props.requestID) return;
+    useSessionActivityStore.getState().setWaitingRequest(workspaceId, props.sessionID, "question", props.requestID, false);
     if (!isTrackedSession(entry, props.sessionID)) return;
     queryClient.setQueryData<PendingQuestion[]>(questionKey(workspaceId, props.sessionID), (current = []) =>
       current.filter((question) => question.id !== props.requestID),
@@ -518,6 +592,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     if (!info?.id || !info.sessionID || (info.role !== "user" && info.role !== "assistant" && info.role !== "system")) {
       return;
     }
+    useSessionActivityStore.getState().markMessageRole(workspaceId, info.sessionID, info.id, info.role);
     if (!isTrackedSession(entry, info.sessionID)) return;
     const next = { id: info.id, role: info.role, parts: [] } satisfies UIMessage;
     queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, info.sessionID), (current = []) =>
@@ -530,6 +605,9 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     const props = (event.properties ?? {}) as { part?: Part };
     const part = props.part;
     if (!part?.sessionID || !part.messageID) return;
+    if (partHasVisibleAssistantOutput(part)) {
+      useSessionActivityStore.getState().markAssistantOutput(workspaceId, part.sessionID, part.messageID);
+    }
     if (!isTrackedSession(entry, part.sessionID)) return;
     const mapped = toUIPart(part);
     if (!mapped) return;
@@ -586,6 +664,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       delta?: string;
     };
     if (!props.sessionID || !props.messageID || !props.partID || !props.delta) return;
+    useSessionActivityStore.getState().markAssistantOutput(workspaceId, props.sessionID, props.messageID, { allowUnknownMessageRole: true });
     if (!isTrackedSession(entry, props.sessionID)) return;
     // Note: we do NOT trust `props.field` to disambiguate reasoning vs
     // text. Opencode emits `field: "text"` for both kinds; the actual
@@ -607,6 +686,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.idle") {
     const props = (event.properties ?? {}) as { sessionID?: string };
     if (!props.sessionID) return;
+    useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, idleStatus);
     const tracked = isTrackedSession(entry, props.sessionID);
     if (tracked) queryClient.setQueryData(statusKey(workspaceId, props.sessionID), idleStatus);
     for (const listener of entry.sessionStatusListeners) listener({ sessionId: props.sessionID, status: idleStatus });
@@ -830,6 +910,13 @@ export function seedSessionState(workspaceId: string, snapshot: OpenworkSessionS
   const key = transcriptKey(workspaceId, snapshot.session.id);
   const incoming = snapshotToUIMessages(snapshot);
   const existing = queryClient.getQueryData<UIMessage[]>(key);
+
+  useSessionActivityStore.getState().seedSessionRun(
+    workspaceId,
+    snapshot.session.id,
+    snapshot.status,
+    assistantOutputAfterLatestUser(incoming),
+  );
 
   queryClient.setQueryData(key, reconcileTranscriptMessages({
     currentMessages: existing ?? [],
