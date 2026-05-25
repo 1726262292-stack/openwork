@@ -41,8 +41,32 @@ const APP_IDENTIFIER = isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER;
 const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/different-ai/openwork/releases/latest/download";
 const RELEASE_PAGE_URL = "https://github.com/different-ai/openwork/releases/latest";
 const DOCS_PAGE_URL = "https://openworklabs.com/docs";
+const COMPUTER_USE_HELPER_APP_NAME = "Computer Use.app";
+const COMPUTER_USE_HELPER_EXECUTABLE = "ComputerUse";
+
+function computerUseHelperExecutablePath() {
+  const explicitBinary = process.env.OPENWORK_COMPUTER_USE_BINARY?.trim();
+  const explicitApp = process.env.OPENWORK_COMPUTER_USE_APP?.trim();
+  const candidates = [
+    explicitBinary,
+    explicitApp ? path.join(explicitApp, "Contents", "MacOS", COMPUTER_USE_HELPER_EXECUTABLE) : null,
+    process.resourcesPath
+      ? path.join(process.resourcesPath, "helpers", COMPUTER_USE_HELPER_APP_NAME, "Contents", "MacOS", COMPUTER_USE_HELPER_EXECUTABLE)
+      : null,
+    path.resolve(__dirname, "..", "resources", "helpers", COMPUTER_USE_HELPER_APP_NAME, "Contents", "MacOS", COMPUTER_USE_HELPER_EXECUTABLE),
+  ].filter(Boolean);
+
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
 
 function getComputerUseMcpCommand() {
+  const helperExecutable = computerUseHelperExecutablePath();
+  if (helperExecutable) return [helperExecutable, "mcp"];
+
+  if (app.isPackaged) {
+    throw new Error("Computer Use helper app is missing from this OpenWork build.");
+  }
+
   if (process.env.OPENWORK_DEV_MODE === "1") {
     return ["node", path.resolve(__dirname, "../../..", "packages/handsfree/bin/openwork-handsfree-computer-use.mjs"), "mcp"];
   }

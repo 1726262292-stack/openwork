@@ -280,7 +280,7 @@ export function createConnectionsStore(options: {
           return command;
         }
       } catch {
-        // Fall through to the published package command.
+        throw new Error("Computer Use helper app is unavailable. Restart OpenWork or reinstall the app.");
       }
     }
     if (entry.serverName !== "openwork-ui") {

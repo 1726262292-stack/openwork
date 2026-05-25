@@ -118,7 +118,7 @@ export function ComputerUseConfig(props: ComputerUseConfigProps) {
     setError(null);
     try {
       await desktopBridge.openComputerUsePermissionSettings(target);
-      setHint("Enable the process macOS shows for Computer Use. In dev builds this may be OpenWork - Dev, Electron, node, swift, HandsFreeComputerUse, Terminal, iTerm, or your IDE. If it is already enabled, toggle it off and on, restart OpenWork, then click Verify permissions.");
+      setHint("Enable Computer Use in macOS Privacy settings. If it is already enabled, toggle it off and on, restart OpenWork, then click Verify permissions.");
     } catch (caught) {
       setError(errorMessage(caught));
     }
@@ -173,7 +173,7 @@ export function ComputerUseConfig(props: ComputerUseConfigProps) {
               <Alert>
                 <CircleAlert />
                 <AlertDescription>
-                  Accessibility is checked inside the Computer Use runtime process. If macOS already shows OpenWork as enabled, also look for node, swift, HandsFreeComputerUse, Electron, Terminal, iTerm, or your IDE.
+                  Accessibility is checked inside the bundled Computer Use helper app, which owns the macOS permission separately from OpenWork.
                 </AlertDescription>
               </Alert>
             ) : null}
