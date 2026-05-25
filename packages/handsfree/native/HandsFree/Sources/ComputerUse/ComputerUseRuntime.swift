@@ -9,14 +9,14 @@ actor ComputerUseRuntime {
     private var activationSession: BackgroundActivationSession?
     private var activationKey: String?
     private var activatedWindowKey: String?
+    private var activationPreviousPID: pid_t?
+    private var activationTargetPID: pid_t?
+    private var frontmostMonitor: FrontmostApplicationMonitor?
 
     func setStrictMode(_ enabled: Bool) -> ActionMetadata {
         strictMode = enabled
         if !enabled {
-            activationSession?.stop()
-            activationSession = nil
-            activationKey = nil
-            activatedWindowKey = nil
+            resetBackgroundActivation()
         }
         return ActionMetadata(
             ok: true,
@@ -31,10 +31,7 @@ actor ComputerUseRuntime {
     func snapshot(appName: String?, strict requestedStrict: Bool?) async throws -> AppSnapshot {
         let effectiveStrict = requestedStrict ?? strictMode
         if !effectiveStrict {
-            activationSession?.stop()
-            activationSession = nil
-            activationKey = nil
-            activatedWindowKey = nil
+            resetBackgroundActivation()
         }
 
         var target = try accessibility.resolveTarget(appName: appName)
@@ -164,16 +161,19 @@ actor ComputerUseRuntime {
     }
 
     private func ensureBackgroundActivation(target: WindowTarget) async throws -> Bool {
+        ensureFrontmostMonitor()
         guard let previousPID = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
             throw ComputerUseError.noFrontmostApplication
         }
         let nextActivationKey = "\(previousPID):\(target.pid)"
         if activationKey != nextActivationKey {
-            activationSession?.stop()
+            resetBackgroundActivation()
             let next = BackgroundActivationSession(previousPID: previousPID, targetPID: target.pid)
             try next.start()
             activationSession = next
             activationKey = nextActivationKey
+            activationPreviousPID = previousPID
+            activationTargetPID = target.pid
             activatedWindowKey = nil
         }
 
@@ -186,6 +186,28 @@ actor ComputerUseRuntime {
             activatedWindowKey = nextWindowKey
         }
         return true
+    }
+
+    private func ensureFrontmostMonitor() {
+        if frontmostMonitor != nil { return }
+        frontmostMonitor = FrontmostApplicationMonitor { [weak self] pid in
+            Task { await self?.frontmostApplicationChanged(pid: pid) }
+        }
+    }
+
+    private func frontmostApplicationChanged(pid: pid_t?) {
+        guard let pid, activationSession != nil else { return }
+        if pid == activationPreviousPID { return }
+        resetBackgroundActivation()
+    }
+
+    private func resetBackgroundActivation() {
+        activationSession?.stop()
+        activationSession = nil
+        activationKey = nil
+        activatedWindowKey = nil
+        activationPreviousPID = nil
+        activationTargetPID = nil
     }
 
     private func requireSnapshot() throws -> AppSnapshot {

@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import ScreenCaptureKit
 
 actor MCPServer {
     private let runtime = ComputerUseRuntime()
@@ -208,7 +209,7 @@ actor MCPServer {
             case "display_info":
                 return jsonResult(displayInfo())
             case "cua_screenshot":
-                return try cuaScreenshotResult()
+                return try await cuaScreenshotResult()
             case "cua_click":
                 try await input.click(point: CGPoint(x: intArg(args, "x") ?? 0, y: intArg(args, "y") ?? 0))
                 return jsonResult(["ok": true])
@@ -294,7 +295,7 @@ actor MCPServer {
     private func checkPermissions() -> [String: Any] {
         let accessibilityOptions = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         let accessibility = AXIsProcessTrustedWithOptions(accessibilityOptions)
-        let screenRecording = CGWindowListCreateImage(CGRect(x: 0, y: 0, width: 1, height: 1), .optionOnScreenOnly, kCGNullWindowID, []) != nil
+        let screenRecording = CGPreflightScreenCaptureAccess()
         return ["ok": true, "accessibility": accessibility, "screenRecording": screenRecording]
     }
 
@@ -347,9 +348,10 @@ actor MCPServer {
         ]
     }
 
-    private func cuaScreenshotResult() throws -> [[String: Any]] {
+    private func cuaScreenshotResult() async throws -> [[String: Any]] {
         guard let screen = NSScreen.main else { throw ComputerUseError.screenshotFailed }
-        guard let cgImage = CGWindowListCreateImage(CGRect.null, .optionOnScreenOnly, kCGNullWindowID, [.bestResolution]) else {
+        let cgImage = await screenCaptureKitDisplayImage() ?? CGWindowListCreateImage(CGRect.null, .optionOnScreenOnly, kCGNullWindowID, [.bestResolution])
+        guard let cgImage else {
             throw ComputerUseError.screenshotFailed
         }
         let logicalWidth = Int(screen.frame.width)
@@ -384,6 +386,21 @@ actor MCPServer {
             ["type": "text", "text": jsonString(["ok": true, "width": logicalWidth, "height": logicalHeight]) ?? "{\"ok\":true}"],
             ["type": "image", "data": png.base64EncodedString(), "mimeType": "image/png"],
         ]
+    }
+
+    private func screenCaptureKitDisplayImage() async -> CGImage? {
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            guard let display = content.displays.first else { return nil }
+            let configuration = SCStreamConfiguration()
+            configuration.width = display.width
+            configuration.height = display.height
+            configuration.showsCursor = true
+            let filter = SCContentFilter(display: display, excludingWindows: [])
+            return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        } catch {
+            return nil
+        }
     }
 
     private func runningApps() -> [NSRunningApplication] {
