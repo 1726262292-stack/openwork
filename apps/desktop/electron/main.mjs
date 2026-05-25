@@ -500,10 +500,10 @@ function isMainWindowWebContents(webContents) {
   return Boolean(mainWindow && webContents && webContents.id === mainWindow.webContents.id);
 }
 
-function shouldAllowMainWindowAudioCapture(webContents, permission, origin, details = {}) {
+function shouldAllowMainWindowPermission(webContents, permission, origin, details = {}) {
   if (!isMainWindowWebContents(webContents)) return false;
-  if (permission !== "media" && permission !== "audioCapture") return false;
   if (!isLocalRendererOrigin(origin)) return false;
+  if (permission !== "media" && permission !== "audioCapture") return true;
   const mediaType = typeof details.mediaType === "string" ? details.mediaType : "";
   if (mediaType && mediaType !== "audio") return false;
   const mediaTypes = Array.isArray(details.mediaTypes) ? details.mediaTypes : [];
@@ -512,10 +512,10 @@ function shouldAllowMainWindowAudioCapture(webContents, permission, origin, deta
 
 function installMediaPermissionHandlers() {
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-    callback(shouldAllowMainWindowAudioCapture(webContents, permission, details?.requestingUrl, details));
+    callback(shouldAllowMainWindowPermission(webContents, permission, details?.requestingUrl, details));
   });
   session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => (
-    shouldAllowMainWindowAudioCapture(webContents, permission, requestingOrigin, details)
+    shouldAllowMainWindowPermission(webContents, permission, requestingOrigin, details)
   ));
 }
 
