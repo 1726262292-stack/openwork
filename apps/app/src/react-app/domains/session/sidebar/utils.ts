@@ -16,13 +16,7 @@ export type SessionTreeState = {
 };
 
 export const isStreamingSessionStatus = (status: string | undefined) =>
-  status === "running" ||
-  status === "busy" ||
-  status === "retry" ||
-  status === "streaming" ||
-  status === "thinking" ||
-  status === "responding" ||
-  status === "compacting";
+  Boolean(status && status !== "idle");
 
 const normalizeSessionParentID = (session: SessionListItem) => {
   const parentID = session.parentID?.trim();

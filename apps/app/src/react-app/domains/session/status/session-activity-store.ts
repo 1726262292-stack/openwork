@@ -68,6 +68,10 @@ function normalizeRunStatus(status: unknown): "idle" | "running" | "retry" {
   return "idle";
 }
 
+function sessionRunStatus(session: SessionLike) {
+  return session.status ?? session.state ?? session.runStatus;
+}
+
 function statusForRecord(record: SessionActivityRecord): SessionActivityStatus {
   if (record.errorActive) return "error";
   if (record.waitingPermissionIds.length > 0 || record.waitingQuestionIds.length > 0) return "waiting";
@@ -137,12 +141,14 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
       for (const session of sessions) {
         const sessionId = session.id.trim();
         if (!sessionId) continue;
-        const status = session.status ?? session.state ?? session.runStatus;
+        const status = sessionRunStatus(session);
+        if (status === undefined || status === null) continue;
         nextState = {
           ...nextState,
           ...updateRecord(nextState, id, sessionId, (record) => {
             const normalized = normalizeRunStatus(status);
             const runActive = normalized === "running" || normalized === "retry";
+            if (!runActive && record.status !== "idle") return record;
             return {
               ...record,
               runActive,
@@ -165,6 +171,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
     set((state) => updateRecord(state, workspace, session, (record) => {
       const normalized = normalizeRunStatus(status);
       const runActive = normalized === "running" || normalized === "retry";
+      if (!runActive && record.status !== "idle") return record;
       return {
         ...record,
         runActive,
