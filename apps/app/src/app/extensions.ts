@@ -83,6 +83,7 @@ export type OpenWorkExtensionManifest = {
   id: string;
   name: string;
   description: string;
+  preview?: boolean;
   source: OpenWorkExtensionSource;
   icon?: {
     src?: string;
@@ -151,6 +152,7 @@ export const BUILT_IN_OPENWORK_EXTENSION_MANIFESTS: OpenWorkExtensionManifest[] 
     id: "handsfree-computer-use",
     name: "HandsFree Computer Use",
     description: "Control macOS apps through semantic accessibility refs, screenshots, background-safe clicks, keyboard input, and strict mode.",
+    preview: true,
     source: { format: "openwork-builtin", origin: "builtin", trusted: true },
     icon: { src: "/openwork-mark.svg" },
     composer: { prompt: "Use HandsFree Computer Use to " },

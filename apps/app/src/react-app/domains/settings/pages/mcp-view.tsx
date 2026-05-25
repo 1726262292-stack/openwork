@@ -658,6 +658,7 @@ export function McpView(props: McpViewProps) {
             connected={isConnected}
             connecting={props.mcpConnectingName === detailEntry.name}
             hidden={hidden}
+            preview={detailEntry.preview}
             disabledReason={disabledReason}
             setupInstructions={detailEntry.extensionManifest?.setup?.instructions}
             resourceLabels={extensionResourceLabels(detailEntry)}
@@ -819,6 +820,7 @@ function McpQuickConnectSection(props: {
               connected={configured}
               connecting={connecting}
               hidden={hidden}
+              preview={entry.preview}
               disabledReason={disabledReason}
               disabled={props.busy}
               actionLabel={configured ? "View details" : t("mcp.tap_to_connect")}
