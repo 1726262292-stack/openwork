@@ -145,7 +145,10 @@ export function useDesktopRuntimeBoot() {
           }
           let serverInfo = boot.openworkServer;
           if (preferredRemoteAccess && serverInfo?.remoteAccessEnabled !== true) {
-            const restarted = await openworkServerRestart({ remoteAccessEnabled: true });
+            const restarted = await openworkServerRestart({ remoteAccessEnabled: true }).catch((error) => {
+              console.warn("[desktop-boot] openworkServerRestart failed:", error);
+              return null;
+            });
             if (isOpenworkServerInfoLike(restarted)) serverInfo = restarted;
           }
           if (serverInfo?.baseUrl) {
