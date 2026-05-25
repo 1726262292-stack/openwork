@@ -727,7 +727,24 @@ export function SessionRoute() {
 
       const fetchOnce = async (workspace: RouteWorkspace, attempt: number): Promise<void> => {
         const endpoint = endpointForWorkspace(workspace);
-        if (!endpoint) return;
+        if (!endpoint) {
+          if (workspace.workspaceType === "remote") {
+            const message = "Remote worker URL is missing. Edit connection and add a server URL.";
+            setErrorsByWorkspaceId((current) => ({ ...current, [workspace.id]: message }));
+            setWorkspaceConnectionOverrides((current) => ({
+              ...current,
+              [workspace.id]: {
+                status: "error",
+                message,
+                checkedAt: Date.now(),
+              },
+            }));
+            setRetryingWorkspaceIds((current) =>
+              current.includes(workspace.id) ? current.filter((id) => id !== workspace.id) : current,
+            );
+          }
+          return;
+        }
         const startedAt = backgroundSessionLoadInFlight.current.get(workspace.id) ?? 0;
         if (startedAt && Date.now() - startedAt < 5_000) return;
         const requestStartedAt = Date.now();

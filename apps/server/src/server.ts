@@ -445,6 +445,18 @@ function buildOpencodeProxyUrl(baseUrl: string, path: string, search: string) {
   return target.toString();
 }
 
+function createOpencodeDirectoryFetch(directory: string): typeof fetch {
+  return Object.assign(
+    (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const headers = new Headers(init?.headers ?? request.headers);
+      headers.set("x-opencode-directory", directory);
+      return fetch(new Request(request, { headers }));
+    },
+    { preconnect: fetch.preconnect },
+  );
+}
+
 type OpencodeClientResult<T, E> =
   | { data: T | undefined; error: undefined; response: Response }
   | { data: undefined; error: E; response: Response };
@@ -452,10 +464,12 @@ type OpencodeClientResult<T, E> =
 function createWorkspaceOpencodeClient(config: ServerConfig, workspace: WorkspaceInfo) {
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const directory = resolveOpencodeDirectory(workspace);
+  const directoryFetch = directory ? createOpencodeDirectoryFetch(directory) : undefined;
 
   return createOpencodeClient({
     baseUrl: connection.baseUrl?.trim(),
     ...(directory ? { directory } : {}),
+    ...(directoryFetch ? { fetch: directoryFetch } : {}),
     ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}),
   });
 }
@@ -3360,7 +3374,11 @@ async function readWorkspaceSessionSnapshot(
 }
 
 async function resolveWorkspace(config: ServerConfig, id: string): Promise<WorkspaceInfo> {
-  const workspace = config.workspaces.find((entry) => entry.id === id);
+  const workspaceId = id.trim();
+  const aliasWorkspaceId = workspaceId.startsWith("rem_") ? workspaceId.slice("rem_".length) : "";
+  const workspace =
+    config.workspaces.find((entry) => entry.id === workspaceId) ??
+    (aliasWorkspaceId ? config.workspaces.find((entry) => entry.id === aliasWorkspaceId) : undefined);
   if (!workspace) {
     throw new ApiError(404, "workspace_not_found", "Workspace not found");
   }
