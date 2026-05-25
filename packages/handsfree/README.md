@@ -14,12 +14,14 @@ This package focuses on the reusable control layer:
 - Background activation using per-process event taps plus AppKit and center-click primers.
 - Non-UI orchestration modules from the original Electron prototype: realtime tool schemas/instructions and the GPT computer-use loop.
 
-Computer Use does not render a second visible cursor. In strict mode it uses the
-same non-interrupting mechanism described in Bridge-style background computer
-use: AX first, then `CGEvent.postToPid` addressed to the target process/window,
-with per-process focus-message taps and activation primers so the user's
-frontmost app can remain frontmost while the target app accepts events.
-Foreground HID fallback is only used when strict mode is disabled.
+Computer Use renders a lightweight second cursor overlay from the helper app so
+users can see where the agent is acting. The overlay is visual only: strict mode
+does not move the real system cursor. Actual control uses the same
+non-interrupting mechanism described in Bridge-style background computer use: AX
+first, then `CGEvent.postToPid` addressed to the target process/window, with
+per-process focus-message taps and activation primers so the user's frontmost app
+can remain frontmost while the target app accepts events. Foreground HID fallback
+is only used when strict mode is disabled.
 
 Build the native stdio server:
 

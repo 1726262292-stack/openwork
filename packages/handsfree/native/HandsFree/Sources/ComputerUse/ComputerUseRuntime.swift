@@ -57,6 +57,7 @@ actor ComputerUseRuntime {
         let effectiveStrict = requestedStrict ?? snapshot.strictMode
 
         if let record = findRecord(ref: ref, index: index, in: snapshot) {
+            AgentCursorOverlay.shared.show(at: record.semantic.frame.center)
             if record.semantic.capabilities.canPress, accessibility.press(record: record) {
                 return ActionMetadata(ok: true, path: .accessibility, strictMode: effectiveStrict, backgroundSafe: true, fallbackUsed: false, message: "Pressed \(record.semantic.ref) via AXPress.")
             }
@@ -109,6 +110,7 @@ actor ComputerUseRuntime {
             }
             return CGPoint(x: snapshot.screenshotMeta.capturedBounds.midX, y: snapshot.screenshotMeta.capturedBounds.midY)
         }()
+        AgentCursorOverlay.shared.show(at: point)
 
         if effectiveStrict {
             guard let windowNumber = snapshot.windowNumber else {
@@ -127,6 +129,7 @@ actor ComputerUseRuntime {
         guard let record = findRecord(ref: ref, index: index, in: snapshot) else {
             throw ComputerUseError.invalidElement(ref ?? index.map(String.init) ?? "<missing>")
         }
+        AgentCursorOverlay.shared.show(at: record.semantic.frame.center)
         let ok = accessibility.setValue(record: record, value: value)
         return ActionMetadata(ok: ok, path: .accessibility, strictMode: snapshot.strictMode, backgroundSafe: true, fallbackUsed: false, message: ok ? "Set \(record.semantic.ref) via AXValue." : "Element value is not settable.")
     }
@@ -136,6 +139,7 @@ actor ComputerUseRuntime {
         guard let record = findRecord(ref: ref, index: index, in: snapshot) else {
             throw ComputerUseError.invalidElement(ref ?? index.map(String.init) ?? "<missing>")
         }
+        AgentCursorOverlay.shared.show(at: record.semantic.frame.center)
         let ok = accessibility.performAction(record: record, action: action)
         return ActionMetadata(ok: ok, path: .accessibility, strictMode: snapshot.strictMode, backgroundSafe: true, fallbackUsed: false, message: ok ? "Performed \(action) on \(record.semantic.ref)." : "AX action \(action) failed.")
     }
@@ -148,6 +152,7 @@ actor ComputerUseRuntime {
 
     private func clickPoint(_ point: CGPoint, clickCount: Int, strict: Bool, fallbackUsed: Bool) async throws -> ActionMetadata {
         let snapshot = try requireSnapshot()
+        AgentCursorOverlay.shared.show(at: point)
         if strict {
             guard let windowNumber = snapshot.windowNumber else {
                 throw ComputerUseError.strictModeViolation("background click requires a CG window number")
