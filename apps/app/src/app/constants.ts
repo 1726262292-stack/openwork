@@ -39,6 +39,8 @@ export type McpDirectoryInfo = {
   composerPrompt?: string;
   /** Whether OpenWork should show this extension as enabled before user setup. */
   defaultEnabled?: boolean;
+  /** Whether this extension is still in preview. */
+  preview?: boolean;
 };
 
 /** Derive a safe MCP server name from a display name or explicit serverName. */
@@ -167,6 +169,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     kind: "extension",
     iconSrc: "/openwork-mark.svg",
     composerPrompt: "Use HandsFree Computer Use to ",
+    preview: true,
   },
   {
     id: "openai-image-gen",

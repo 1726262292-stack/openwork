@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import {
@@ -41,6 +41,120 @@ const APP_IDENTIFIER = isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER;
 const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/different-ai/openwork/releases/latest/download";
 const RELEASE_PAGE_URL = "https://github.com/different-ai/openwork/releases/latest";
 const DOCS_PAGE_URL = "https://openworklabs.com/docs";
+
+function getHandsFreeMcpCommand() {
+  if (process.env.OPENWORK_DEV_MODE === "1") {
+    return ["node", path.resolve(__dirname, "../../..", "packages/handsfree/bin/openwork-handsfree-computer-use.mjs"), "mcp"];
+  }
+  return ["npx", "-y", "@openwork/handsfree", "mcp"];
+}
+
+function callHandsFreeMcpTool(name, args = {}) {
+  const [command, ...commandArgs] = getHandsFreeMcpCommand();
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, commandArgs, {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: process.env,
+    });
+    let stdoutBuffer = "";
+    let stderr = "";
+    let settled = false;
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      child.kill();
+    };
+
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    const finish = (response) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(response);
+    };
+
+    const timeout = setTimeout(() => {
+      fail(new Error(`HandsFree MCP ${name} timed out.${stderr.trim() ? ` ${stderr.trim()}` : ""}`));
+    }, 45_000);
+
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdoutBuffer += chunk;
+      for (;;) {
+        const newlineIndex = stdoutBuffer.indexOf("\n");
+        if (newlineIndex === -1) break;
+        const line = stdoutBuffer.slice(0, newlineIndex).trim();
+        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
+        if (!line) continue;
+        try {
+          const response = JSON.parse(line);
+          if (response.id === 2) {
+            finish(response);
+            return;
+          }
+        } catch {
+          // Package managers can write progress lines; ignore non-JSON stdout.
+        }
+      }
+    });
+
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+
+    child.on("error", fail);
+    child.on("exit", (code) => {
+      if (!settled && code !== 0) {
+        fail(new Error(stderr.trim() || `HandsFree MCP exited with status ${code ?? "unknown"}.`));
+      }
+    });
+
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })}\n`);
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } })}\n`);
+  });
+}
+
+function handsFreeToolText(response) {
+  const content = response?.result?.content;
+  if (!Array.isArray(content)) return "";
+  const textPart = content.find((part) => part?.type === "text" && typeof part.text === "string");
+  return textPart?.text ?? "";
+}
+
+async function checkHandsFreePermissions() {
+  const response = await callHandsFreeMcpTool("check_permissions");
+  const text = handsFreeToolText(response);
+  try {
+    const parsed = JSON.parse(text);
+    return {
+      ok: parsed?.ok === true,
+      accessibility: parsed?.accessibility === true,
+      screenRecording: parsed?.screenRecording === true,
+    };
+  } catch {
+    return {
+      ok: false,
+      accessibility: false,
+      screenRecording: false,
+      error: text || "HandsFree permission check returned an unreadable response.",
+    };
+  }
+}
+
+function handsFreePermissionSettingsUrl(target) {
+  if (target === "screenRecording") {
+    return "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
+  }
+  return "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+}
 
 // Production Electron shares the same on-disk state folder as the Tauri shell
 // so in-place migration is a no-op for almost every file. Dev mode uses the
@@ -2363,10 +2477,15 @@ async function handleDesktopInvoke(event, command, ...args) {
       return ["npx", "-y", "openwork-ui-mcp"];
     }
     case "getHandsFreeMcpCommand": {
-      if (process.env.OPENWORK_DEV_MODE === "1") {
-        return ["node", path.resolve(__dirname, "../../..", "packages/handsfree/bin/openwork-handsfree-computer-use.mjs"), "mcp"];
-      }
-      return ["npx", "-y", "@openwork/handsfree", "mcp"];
+      return getHandsFreeMcpCommand();
+    }
+    case "checkHandsFreePermissions": {
+      return checkHandsFreePermissions();
+    }
+    case "openHandsFreePermissionSettings": {
+      const target = String(args[0] ?? "accessibility");
+      await shell.openExternal(handsFreePermissionSettingsUrl(target));
+      return { ok: true };
     }
     case "getOpenworkUiMcpEnvironment": {
       return {

@@ -605,6 +605,7 @@ export function McpView(props: McpViewProps) {
             kind={detailEntry.kind ?? "mcp"}
             connected={isConnected}
             connecting={props.mcpConnectingName === detailEntry.name}
+            preview={detailEntry.preview}
             launchCommand={launchCommandForEntry(detailEntry)}
             environment={detailEntry.serverName === "openwork-ui" ? openworkUiMcpEnvironment ?? undefined : undefined}
             url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
@@ -741,6 +742,7 @@ function McpQuickConnectSection(props: {
               kind={entry.kind ?? "mcp"}
               connected={configured}
               connecting={connecting}
+              preview={entry.preview}
               disabled={props.busy}
               actionLabel={configured ? "View details" : t("mcp.tap_to_connect")}
               onClick={() => props.onDetail(entry)}

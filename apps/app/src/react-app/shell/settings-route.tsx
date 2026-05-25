@@ -39,6 +39,7 @@ import { AiSettingsView } from "../domains/settings/pages/ai-view";
 // Side-effect imports: register extension config components into the registry.
 import "../domains/settings/openai-image-gen-config";
 import "../domains/settings/ollama-config";
+import "../domains/settings/handsfree-config";
 import "../domains/settings/browser-extension-config";
 import { getExtensionConfigSlot, type ExtensionConfigContext } from "../domains/settings/extension-registry";
 import { PreferencesView } from "../domains/settings/pages/preferences-view";
@@ -1960,6 +1961,12 @@ function SettingsRouteContent() {
                   void connectionsStore.connectMcp(entry);
                 }}
                 configSlotForEntry={(entry) => getExtensionConfigSlot(entry, {
+                  handsFree: {
+                    connected: connectionsSnapshot.mcpServers.some((server) => server.name === "handsfree-computer-use"),
+                    connecting: connectionsSnapshot.mcpConnectingName === entry.name,
+                    onConnect: () => connectionsStore.connectMcp(entry),
+                    onRefresh: () => connectionsStore.refreshMcpServers(),
+                  },
                   imageExtension: {
                     busy: imageExtensionBusy || imageGenerationBusy,
                     status: imageExtensionStatus ?? imageGenerationStatus,

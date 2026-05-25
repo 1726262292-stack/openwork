@@ -17,6 +17,8 @@ export type ExtensionCardProps = {
   kind?: ExtensionKind;
   /** Whether the extension is already installed/connected. */
   connected?: boolean;
+  /** Whether this extension is still in preview. */
+  preview?: boolean;
   /** Whether a connect operation is in progress. */
   connecting?: boolean;
   /** Whether interaction is disabled. */
@@ -57,6 +59,7 @@ export function ExtensionCard(props: ExtensionCardProps) {
     fallbackIcon: FallbackIcon = Plug2,
     kind = "mcp",
     connected = false,
+    preview = false,
     connecting = false,
     disabled = false,
     actionLabel,
@@ -117,6 +120,11 @@ export function ExtensionCard(props: ExtensionCardProps) {
                 {kindLabel[kind]}
               </span>
             )}
+            {preview ? (
+              <span className="rounded-md bg-blue-3 px-1.5 py-0.5 text-[10px] font-medium text-blue-11">
+                Preview
+              </span>
+            ) : null}
           </div>
           <p className="mt-0.5 line-clamp-2 text-xs text-dls-secondary">{description}</p>
           {!connected && !connecting && actionLabel ? (

@@ -7,6 +7,12 @@ import type { McpDirectoryInfo } from "../../../app/constants";
  * Each extension picks what it needs; unused fields are ignored.
  */
 export type ExtensionConfigContext = {
+  handsFree?: {
+    connected: boolean;
+    connecting: boolean;
+    onConnect: () => void | Promise<void>;
+    onRefresh: () => void | Promise<void>;
+  };
   imageExtension: {
     busy: boolean;
     status: string | null;

@@ -39,6 +39,8 @@ export type ExtensionDetailModalProps = {
   fallbackIcon?: LucideIcon;
   kind?: ExtensionKind;
   connected?: boolean;
+  /** Whether this extension is still in preview. */
+  preview?: boolean;
   connecting?: boolean;
   /** Remote URL if applicable. */
   url?: string;
@@ -165,6 +167,7 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
     fallbackIcon: FallbackIcon = Plug2,
     kind = "mcp",
     connected = false,
+    preview = false,
     connecting = false,
     url,
     oauth,
@@ -220,7 +223,14 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
 
             <div className="min-w-0 flex flex-col gap-1 justify-center self-stretch">
               <DialogTitle>{name}</DialogTitle>
-              <DialogDescription>{kindLabel[kind]}</DialogDescription>
+              <DialogDescription className="flex flex-wrap items-center gap-2">
+                <span>{kindLabel[kind]}</span>
+                {preview ? (
+                  <span className="rounded-md bg-blue-3 px-1.5 py-0.5 text-[10px] font-medium text-blue-11">
+                    Preview
+                  </span>
+                ) : null}
+              </DialogDescription>
             </div>
           </div>
         </DialogHeader>
@@ -291,6 +301,13 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                         : (connected ? "Connected" : connecting ? "Connecting..." : "Not connected")}
                     </span>
                   </div>
+
+                  {preview ? (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Release stage</span>
+                      <span className="font-medium text-blue-11">Preview</span>
+                    </div>
+                  ) : null}
                 </div>
               </CardContent>
             </Card>

@@ -24,6 +24,7 @@ import type { ProviderListItem } from "../../../../app/types";
 // Side-effect: register extension configs
 import "../../settings/openai-image-gen-config";
 import "../../settings/ollama-config";
+import "../../settings/handsfree-config";
 import "../../settings/browser-extension-config";
 
 export type ExtensionsPaneSlotProps = {
@@ -149,6 +150,7 @@ export function ExtensionsPaneSlot(props: ExtensionsPaneSlotProps) {
               iconSrc={entry.iconSrc}
               kind={entry.kind ?? "mcp"}
               connected={connected}
+              preview={entry.preview}
               actionLabel={connected ? "Configure" : entry.defaultEnabled ? "Enable in composer" : "Tap to connect"}
               onClick={() => setDetailEntry(entry)}
             />
@@ -171,6 +173,7 @@ export function ExtensionsPaneSlot(props: ExtensionsPaneSlotProps) {
             iconSrc={detailEntry.iconSrc}
             kind={detailEntry.kind ?? "mcp"}
             connected={connected}
+            preview={detailEntry.preview}
             url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
             oauth={detailEntry.oauth}
             configSlot={slot}
