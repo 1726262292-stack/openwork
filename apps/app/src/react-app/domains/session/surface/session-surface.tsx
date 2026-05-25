@@ -31,6 +31,7 @@ import {
 } from "../../../shell/app-inspector";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { ReactSessionComposer } from "./composer/composer";
+import { decodeComposerMentionValue, encodeComposerMentionValue } from "./composer/mention-encoding";
 import { DevProfiler } from "../../../shell/dev-profiler";
 import { PaperGrainGradient } from "@openwork/ui/react";
 import { OwDotTicker } from "../../../shell/dot-ticker";
@@ -690,8 +691,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
   });
 
   const buildDraft = useCallback((text: string, nextAttachments: ComposerAttachment[]): ComposerDraft => {
-    const trimmed = text.trim();
-    const slashMatch = trimmed.match(/^\/([^\s]+)\s*(.*)$/);
     const parts: ComposerPart[] = text.split(/(\[pasted text [^\]]+\]|@[^\s@]+)/).flatMap((segment) => {
       if (!segment) return [] as ComposerDraft["parts"];
       const pasteMatch = segment.match(/^\[pasted text (.+)\]$/);
@@ -702,7 +701,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         }
       }
       if (segment.startsWith("@")) {
-        const value = segment.slice(1);
+        const value = decodeComposerMentionValue(segment.slice(1));
         const kind = mentions[value];
         if (kind === "agent") return [{ type: "agent", name: value } satisfies ComposerDraft["parts"][number]];
         if (kind === "file") return [{ type: "file", path: value, label: value } satisfies ComposerDraft["parts"][number]];
@@ -715,13 +714,17 @@ export function SessionSurface(props: SessionSurfaceProps) {
     for (const part of pasteParts) {
       resolved = resolved.replace(`[pasted text ${part.label}]`, part.text);
     }
+    for (const value of Object.keys(mentions)) {
+      resolved = resolved.replaceAll(`@${encodeComposerMentionValue(value)}`, `@${value}`);
+    }
+    const resolvedSlashMatch = resolved.trim().match(/^\/([^\s]+)\s*(.*)$/);
     return {
       mode: "prompt",
       parts,
       attachments: nextAttachments,
       text,
       resolvedText: resolved,
-      command: slashMatch ? { name: slashMatch[1] ?? "", arguments: slashMatch[2] ?? "" } : undefined,
+      command: resolvedSlashMatch ? { name: resolvedSlashMatch[1] ?? "", arguments: resolvedSlashMatch[2] ?? "" } : undefined,
     };
   }, [mentions, pasteParts]);
 
@@ -827,7 +830,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   };
 
   const handleInsertMention = (kind: "agent" | "file", value: string) => {
-    setComposerDraft(props.sessionId, draft.replace(/@([^\s@]*)$/, `@${value} `));
+    setComposerDraft(props.sessionId, draft.replace(/@([^\s@]*)$/, `@${encodeComposerMentionValue(value)} `));
     setComposerMentions(props.sessionId, { ...mentions, [value]: kind });
   };
 
