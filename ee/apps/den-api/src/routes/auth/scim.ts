@@ -22,6 +22,11 @@ function readBearerToken(headers: Headers) {
   return match?.[1]?.trim() ?? null
 }
 
+function logScimSyncWarning(action: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  console.warn(`[scim][external_identity_sync_failed] action=${action} reason=${message}`)
+}
+
 async function syncScimMutationFromResponse(input: {
   bearerToken: string
   response: Response
@@ -37,7 +42,9 @@ async function syncScimMutationFromResponse(input: {
         bearerToken: input.bearerToken,
         userId: normalizeDenTypeId("user", input.fallbackUserId),
       })
-    } catch {}
+    } catch (error) {
+      logScimSyncWarning("sync_user_id", error)
+    }
     return
   }
 
@@ -51,7 +58,9 @@ async function syncScimMutationFromResponse(input: {
       bearerToken: input.bearerToken,
       resource: payload,
     })
-  } catch {}
+  } catch (error) {
+    logScimSyncWarning("sync_resource", error)
+  }
 }
 
 export function registerScimAuthRoutes<T extends { Variables: AuthContextVariables }>(app: Hono<T>) {
