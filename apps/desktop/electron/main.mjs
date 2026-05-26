@@ -1540,7 +1540,7 @@ async function googleWorkspaceAuthStatus() {
 }
 
 function sendGoogleWorkspaceCallbackPage(response, status, title, body) {
-  response.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
+  response.writeHead(status, { "Content-Type": "text/html; charset=utf-8", Connection: "close" });
   response.end(`<!doctype html><html><head><title>${escapeHtml(title)}</title></head><body style="font-family: system-ui, sans-serif; padding: 32px;"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p><script>setTimeout(() => window.close(), 800);</script></body></html>`);
 }
 
@@ -1642,6 +1642,7 @@ async function googleWorkspaceConnect() {
     return googleWorkspaceStatusPayload(record);
   } finally {
     if (callbackServer) {
+      callbackServer.closeAllConnections?.();
       await new Promise((resolve) => callbackServer.close(() => resolve(undefined))).catch(() => undefined);
     }
   }
