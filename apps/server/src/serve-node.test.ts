@@ -69,4 +69,23 @@ describe("serve", () => {
     expect(second.port).toBe(port);
     await second.stop();
   });
+
+  test("reuses the in-flight shutdown for repeated stop calls", async () => {
+    const first = await serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => Response.json({ ok: true }),
+    });
+    const port = first.port;
+
+    await Promise.all([first.stop(), first.stop()]);
+
+    const second = await serve({
+      hostname: "127.0.0.1",
+      port,
+      fetch: () => Response.json({ ok: true }),
+    });
+    expect(second.port).toBe(port);
+    await second.stop();
+  });
 });

@@ -182,28 +182,27 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
       if (addr && typeof addr === "object") {
         boundPort = addr.port;
       }
-      let stopped = false;
+      let stopPromise: Promise<void> | null = null;
       resolve({
         port: boundPort,
-        stop: () => new Promise<void>((stopResolve, stopReject) => {
-          if (stopped) {
-            stopResolve();
-            return;
-          }
-          stopped = true;
-          server.close((error) => {
-            if (error) {
-              if (String(error).includes("ERR_SERVER_NOT_RUNNING") || String(error).includes("Server is not running")) {
-                stopResolve();
+        stop: () => {
+          if (stopPromise) return stopPromise;
+          stopPromise = new Promise<void>((stopResolve, stopReject) => {
+            server.close((error) => {
+              if (error) {
+                if (String(error).includes("ERR_SERVER_NOT_RUNNING") || String(error).includes("Server is not running")) {
+                  stopResolve();
+                  return;
+                }
+                stopReject(error);
                 return;
               }
-              stopReject(error);
-              return;
-            }
-            stopResolve();
+              stopResolve();
+            });
+            server.closeAllConnections();
           });
-          server.closeAllConnections();
-        }),
+          return stopPromise;
+        },
       });
     });
   });
