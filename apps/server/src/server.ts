@@ -563,10 +563,10 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
 
   return {
     ...server,
-    stop: () => {
+    stop: async () => {
       watcherHandle.close();
       reloadBaselineRefreshers.delete(config);
-      server.stop();
+      await server.stop();
     },
   };
 }
