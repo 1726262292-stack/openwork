@@ -741,7 +741,7 @@ export function SessionRoute() {
             ...current,
             [workspace.id]: {
               status: "connecting",
-              message: "Loading tasks from remote worker...",
+              message: t("workspace_list.loading_remote_tasks"),
               checkedAt: null,
             },
           }));
@@ -769,8 +769,8 @@ export function SessionRoute() {
                 [workspace.id]: {
                   status: "connected",
                   message: items.length > 0
-                    ? `Connected. Loaded ${items.length} ${items.length === 1 ? "task" : "tasks"}.`
-                    : "Connected. No tasks found on this remote workspace.",
+                    ? t("workspace_list.connected_loaded_tasks", { count: items.length })
+                    : t("workspace.connected_no_tasks"),
                   checkedAt: Date.now(),
                 },
               };
@@ -819,7 +819,6 @@ export function SessionRoute() {
               [workspace.id]: connectionState.message ?? "Remote worker connection failed.",
             }));
             setWorkspaceConnectionOverrides((current) => {
-              if (current[workspace.id]?.status === "connecting") return current;
               return {
                 ...current,
                 [workspace.id]: connectionState,
