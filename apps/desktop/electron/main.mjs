@@ -56,6 +56,7 @@ const GOOGLE_WORKSPACE_SCOPES = [
 const GOOGLE_WORKSPACE_DESKTOP_CLIENT_ID = "929071212606-uj6ag13l8llsqrpbo2rked168rjdd98o.apps.googleusercontent.com";
 const GOOGLE_WORKSPACE_CLIENT_ID_ENV = "OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_ID";
 const GOOGLE_WORKSPACE_CLIENT_SECRET_ENV = "OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET";
+const GOOGLE_WORKSPACE_TOKEN_BROKER_URL_ENV = "OPENWORK_GOOGLE_WORKSPACE_TOKEN_BROKER_URL";
 const GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT_ENV = "OPENWORK_GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT";
 const GOOGLE_WORKSPACE_AUTH_TIMEOUT_MS = 5 * 60 * 1000;
 const GOOGLE_WORKSPACE_API_TIMEOUT_MS = 30_000;
@@ -1341,10 +1342,11 @@ async function writeJsonFileAtomic(outputPath, value) {
 function googleWorkspaceCredentials() {
   const clientId = process.env[GOOGLE_WORKSPACE_CLIENT_ID_ENV]?.trim() || process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_ID?.trim() || GOOGLE_WORKSPACE_DESKTOP_CLIENT_ID;
   const clientSecret = process.env[GOOGLE_WORKSPACE_CLIENT_SECRET_ENV]?.trim() || process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET?.trim() || "";
+  const tokenBrokerUrl = process.env[GOOGLE_WORKSPACE_TOKEN_BROKER_URL_ENV]?.trim() || process.env.GOOGLE_WORKSPACE_TOKEN_BROKER_URL?.trim() || "";
   const missing = [];
   if (!clientId) missing.push(GOOGLE_WORKSPACE_CLIENT_ID_ENV);
-  if (!clientSecret) missing.push(GOOGLE_WORKSPACE_CLIENT_SECRET_ENV);
-  return { clientId, clientSecret, missing };
+  if (!clientSecret && !tokenBrokerUrl) missing.push(`${GOOGLE_WORKSPACE_CLIENT_SECRET_ENV} or ${GOOGLE_WORKSPACE_TOKEN_BROKER_URL_ENV}`);
+  return { clientId, clientSecret, tokenBrokerUrl, missing };
 }
 
 function googleWorkspaceVaultPath() {
@@ -1459,6 +1461,14 @@ async function fetchGoogleJson(url, init = {}) {
   return payload;
 }
 
+async function fetchGoogleWorkspaceTokenBrokerJson(tokenBrokerUrl, body) {
+  return fetchGoogleJson(tokenBrokerUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 async function fetchGoogleUserInfo(accessToken) {
   return fetchGoogleJson("https://www.googleapis.com/oauth2/v3/userinfo", {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -1475,9 +1485,20 @@ function escapeHtml(value) {
 }
 
 async function exchangeGoogleWorkspaceCode({ code, redirectUri, verifier }) {
-  const { clientId, clientSecret, missing } = googleWorkspaceCredentials();
+  const { clientId, clientSecret, tokenBrokerUrl, missing } = googleWorkspaceCredentials();
   if (missing.length > 0) {
     throw new Error(`Missing Google OAuth configuration: ${missing.join(", ")}`);
+  }
+
+  if (tokenBrokerUrl) {
+    return fetchGoogleWorkspaceTokenBrokerJson(tokenBrokerUrl, {
+      grantType: "authorization_code",
+      provider: "google-workspace",
+      clientId,
+      code,
+      codeVerifier: verifier,
+      redirectUri,
+    });
   }
 
   const body = new URLSearchParams({
@@ -1502,9 +1523,30 @@ async function refreshGoogleWorkspaceVault(record) {
   if (token?.accessToken && expiresAt > Date.now() + 60_000) return record;
   if (!token?.refreshToken) throw new Error("Google Workspace refresh token is missing. Reconnect Google Workspace.");
 
-  const { clientId, clientSecret, missing } = googleWorkspaceCredentials();
+  const { clientId, clientSecret, tokenBrokerUrl, missing } = googleWorkspaceCredentials();
   if (missing.length > 0) {
     throw new Error(`Missing Google OAuth configuration: ${missing.join(", ")}`);
+  }
+
+  if (tokenBrokerUrl) {
+    const refreshed = await fetchGoogleWorkspaceTokenBrokerJson(tokenBrokerUrl, {
+      grantType: "refresh_token",
+      provider: "google-workspace",
+      clientId,
+      refreshToken: token.refreshToken,
+    });
+    const next = {
+      ...record,
+      scopes: typeof refreshed.scope === "string" ? refreshed.scope.split(/\s+/).filter(Boolean) : record.scopes,
+      token: {
+        accessToken: refreshed.access_token,
+        refreshToken: refreshed.refresh_token ?? token.refreshToken,
+        expiresAt: Date.now() + Number(refreshed.expires_in ?? 3600) * 1000,
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    await writeGoogleWorkspaceVault(next);
+    return next;
   }
 
   const refreshed = await fetchGoogleJson("https://oauth2.googleapis.com/token", {
