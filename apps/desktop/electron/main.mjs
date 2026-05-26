@@ -1566,7 +1566,7 @@ async function googleWorkspaceConnect() {
       callbackServer = createServer(async (request, response) => {
         try {
           const url = new URL(request.url ?? "/", "http://127.0.0.1");
-          if (url.pathname !== "/oauth/google-workspace/callback") {
+          if (url.pathname !== "/" && url.pathname !== "/oauth/google-workspace/callback") {
             response.writeHead(404);
             response.end("Not found");
             return;
@@ -1601,7 +1601,7 @@ async function googleWorkspaceConnect() {
           const address = callbackServer.address();
           const port = typeof address === "object" && address ? address.port : null;
           if (!port) throw new Error("Could not start Google Workspace OAuth callback server.");
-          const redirectUri = `http://127.0.0.1:${port}/oauth/google-workspace/callback`;
+          const redirectUri = `http://127.0.0.1:${port}/`;
           const authorizationUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
           authorizationUrl.searchParams.set("client_id", credentials.clientId);
           authorizationUrl.searchParams.set("redirect_uri", redirectUri);
@@ -1622,7 +1622,7 @@ async function googleWorkspaceConnect() {
     const address = callbackServer.address();
     const port = typeof address === "object" && address ? address.port : null;
     if (!port) throw new Error("Google Workspace OAuth callback server stopped unexpectedly.");
-    const redirectUri = `http://127.0.0.1:${port}/oauth/google-workspace/callback`;
+    const redirectUri = `http://127.0.0.1:${port}/`;
     const token = await exchangeGoogleWorkspaceCode({ code: authResult.code, redirectUri, verifier: pkce.verifier });
     if (!token.access_token) throw new Error("Google OAuth response did not include an access token.");
     const account = await fetchGoogleUserInfo(token.access_token);
