@@ -339,19 +339,21 @@ function GoogleWorkspaceConfig() {
         </CardFooter>
       </Card>
 
-      <Card variant="outline" size="sm">
-        <CardHeader>
-          <CardTitle>Local dev test</CardTitle>
-          <CardDescription>
-            Run the desktop app with the OpenWork Google Workspace OAuth client ID. Desktop OAuth uses PKCE, so there is no client secret.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-2xl border border-border bg-muted/40 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
-            OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_ID=&quot;{DEV_CLIENT_ID}&quot; pnpm dev
-          </div>
-        </CardContent>
-      </Card>
+      {!status?.connected ? (
+        <Card variant="outline" size="sm">
+          <CardHeader>
+            <CardTitle>Local dev test</CardTitle>
+            <CardDescription>
+              Optional development override for the OpenWork Google Workspace OAuth client ID. Desktop OAuth uses PKCE, so there is no client secret.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-2xl border border-border bg-muted/40 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
+              OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_ID=&quot;{DEV_CLIENT_ID}&quot; pnpm dev
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card variant="outline" size="sm">
         <CardHeader>

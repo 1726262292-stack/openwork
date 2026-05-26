@@ -1587,7 +1587,7 @@ async function googleWorkspaceConnect() {
             return;
           }
 
-          sendGoogleWorkspaceCallbackPage(response, 200, "Google Workspace connected", "You can return to OpenWork.");
+          sendGoogleWorkspaceCallbackPage(response, 200, "Google Workspace authorization received", "You can return to OpenWork while the desktop app finishes connecting.");
           clearTimeout(timeout);
           resolve({ code });
         } catch (error) {
