@@ -606,12 +606,16 @@ function buildOpencodeProxyUrl(baseUrl: string, path: string, search: string) {
   return target.toString();
 }
 
+function buildOpencodeDirectoryHeader(directory: string) {
+  return /[^\x00-\x7F]/.test(directory) ? encodeURIComponent(directory) : directory;
+}
+
 function createOpencodeDirectoryFetch(directory: string): typeof fetch {
   return Object.assign(
     (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const request = input instanceof Request ? input : new Request(input, init);
       const headers = new Headers(init?.headers ?? request.headers);
-      headers.set("x-opencode-directory", directory);
+      headers.set("x-opencode-directory", buildOpencodeDirectoryHeader(directory));
       return fetch(new Request(request, { headers }));
     },
     { preconnect: fetch.preconnect },
@@ -673,7 +677,7 @@ async function proxyOpencodeRequest(input: {
 
   const directory = workspace ? resolveOpencodeDirectory(workspace) : null;
   if (directory && !headers.has("x-opencode-directory")) {
-    headers.set("x-opencode-directory", directory);
+    headers.set("x-opencode-directory", buildOpencodeDirectoryHeader(directory));
   }
 
   const auth = workspace ? resolveWorkspaceOpencodeConnection(input.config, workspace).authHeader ?? null : null;
