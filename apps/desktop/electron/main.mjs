@@ -1347,20 +1347,18 @@ function googleWorkspaceVaultPath() {
   return path.join(app.getPath("userData"), "google-workspace-oauth.vault");
 }
 
+function googleWorkspacePlainTextVaultPath() {
+  return path.join(app.getPath("userData"), "google-workspace-oauth.dev-plaintext.json");
+}
+
 function googleWorkspacePlainTextVaultEnabled() {
   return isDevMode && process.env[GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT_ENV] === "1";
 }
 
-function googleWorkspacePrepareSafeStorage() {
-  if (googleWorkspacePlainTextVaultEnabled() && typeof safeStorage.setUsePlainTextEncryption === "function") {
-    safeStorage.setUsePlainTextEncryption(true);
-  }
-}
-
 function googleWorkspaceVaultMode() {
+  if (googleWorkspacePlainTextVaultEnabled()) return "plaintext-dev";
   try {
-    googleWorkspacePrepareSafeStorage();
-    if (safeStorage.isEncryptionAvailable()) return googleWorkspacePlainTextVaultEnabled() ? "plaintext-dev" : "encrypted";
+    if (safeStorage.isEncryptionAvailable()) return "encrypted";
     return "unavailable";
   } catch {
     return "unavailable";
@@ -1393,13 +1391,13 @@ function googleWorkspaceSafeAccount(account) {
 
 async function readGoogleWorkspaceVault() {
   try {
-    const raw = await readFile(googleWorkspaceVaultPath(), "utf8");
+    const vaultMode = googleWorkspaceVaultMode();
+    const raw = await readFile(vaultMode === "plaintext-dev" ? googleWorkspacePlainTextVaultPath() : googleWorkspaceVaultPath(), "utf8");
     if (!raw.trim()) return null;
-    if (!googleWorkspaceVaultAvailable()) {
+    if (vaultMode === "unavailable") {
       throw new Error("Encrypted token vault is unavailable on this machine.");
     }
-    const decrypted = safeStorage.decryptString(Buffer.from(raw.trim(), "base64"));
-    const parsed = JSON.parse(decrypted);
+    const parsed = JSON.parse(vaultMode === "plaintext-dev" ? raw : safeStorage.decryptString(Buffer.from(raw.trim(), "base64")));
     if (!parsed || typeof parsed !== "object") return null;
     return parsed;
   } catch (error) {
@@ -1409,8 +1407,13 @@ async function readGoogleWorkspaceVault() {
 }
 
 async function writeGoogleWorkspaceVault(value) {
-  if (!googleWorkspaceVaultAvailable()) {
+  const vaultMode = googleWorkspaceVaultMode();
+  if (vaultMode === "unavailable") {
     throw new Error("Encrypted token vault is unavailable on this machine.");
+  }
+  if (vaultMode === "plaintext-dev") {
+    await writeJsonFileAtomic(googleWorkspacePlainTextVaultPath(), value);
+    return;
   }
   const encrypted = safeStorage.encryptString(JSON.stringify(value));
   await mkdir(path.dirname(googleWorkspaceVaultPath()), { recursive: true });
@@ -1418,7 +1421,10 @@ async function writeGoogleWorkspaceVault(value) {
 }
 
 async function removeGoogleWorkspaceVault() {
-  await rm(googleWorkspaceVaultPath(), { force: true });
+  await Promise.all([
+    rm(googleWorkspaceVaultPath(), { force: true }),
+    rm(googleWorkspacePlainTextVaultPath(), { force: true }),
+  ]);
 }
 
 async function fetchGoogleJson(url, init = {}) {
