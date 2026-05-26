@@ -42,6 +42,7 @@ import "../domains/settings/ollama-config";
 import "../domains/settings/computer-use-config";
 import "../domains/settings/browser-extension-config";
 import "../domains/settings/openwork-voice-config";
+import "../domains/settings/google-workspace-config";
 import { getExtensionConfigSlot, type ExtensionConfigContext } from "../domains/settings/extension-registry";
 import { PreferencesView } from "../domains/settings/pages/preferences-view";
 import { ShellCustomizationView } from "../domains/settings/pages/shell-view";

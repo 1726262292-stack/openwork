@@ -19,7 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, safeStorage, shell } from "electron";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
@@ -45,6 +45,16 @@ const DOCS_PAGE_URL = "https://openworklabs.com/docs";
 const BROWSER_PLUGIN = "opencode-chrome-devtools";
 const COMPUTER_USE_HELPER_APP_NAME = "Computer Use.app";
 const COMPUTER_USE_HELPER_EXECUTABLE = "ComputerUse";
+const GOOGLE_WORKSPACE_SCOPES = [
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/gmail.compose",
+  "https://www.googleapis.com/auth/drive.file",
+];
+const GOOGLE_WORKSPACE_CLIENT_ID_ENV = "OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_ID";
+const GOOGLE_WORKSPACE_AUTH_TIMEOUT_MS = 5 * 60 * 1000;
 
 function computerUseHelperExecutablePath() {
   const explicitBinary = process.env.OPENWORK_COMPUTER_USE_BINARY?.trim();
@@ -1324,6 +1334,408 @@ async function writeJsonFileAtomic(outputPath, value) {
   await rename(tempPath, outputPath);
 }
 
+function googleWorkspaceCredentials() {
+  const clientId = process.env[GOOGLE_WORKSPACE_CLIENT_ID_ENV]?.trim() || process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_ID?.trim() || "";
+  const missing = [];
+  if (!clientId) missing.push(GOOGLE_WORKSPACE_CLIENT_ID_ENV);
+  return { clientId, missing };
+}
+
+function googleWorkspaceVaultPath() {
+  return path.join(app.getPath("userData"), "google-workspace-oauth.vault");
+}
+
+function googleWorkspaceVaultAvailable() {
+  try {
+    return safeStorage.isEncryptionAvailable();
+  } catch {
+    return false;
+  }
+}
+
+function base64Url(buffer) {
+  return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function createGoogleWorkspacePkce() {
+  const verifier = base64Url(randomBytes(48));
+  const challenge = base64Url(createHash("sha256").update(verifier).digest());
+  return { verifier, challenge };
+}
+
+function googleWorkspaceSafeAccount(account) {
+  if (!account || typeof account !== "object") return null;
+  return {
+    email: typeof account.email === "string" ? account.email : null,
+    name: typeof account.name === "string" ? account.name : null,
+    picture: typeof account.picture === "string" ? account.picture : null,
+    sub: typeof account.sub === "string" ? account.sub : null,
+  };
+}
+
+async function readGoogleWorkspaceVault() {
+  try {
+    const raw = await readFile(googleWorkspaceVaultPath(), "utf8");
+    if (!raw.trim()) return null;
+    if (!googleWorkspaceVaultAvailable()) {
+      throw new Error("Encrypted token vault is unavailable on this machine.");
+    }
+    const decrypted = safeStorage.decryptString(Buffer.from(raw.trim(), "base64"));
+    const parsed = JSON.parse(decrypted);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function writeGoogleWorkspaceVault(value) {
+  if (!googleWorkspaceVaultAvailable()) {
+    throw new Error("Encrypted token vault is unavailable on this machine.");
+  }
+  const encrypted = safeStorage.encryptString(JSON.stringify(value));
+  await mkdir(path.dirname(googleWorkspaceVaultPath()), { recursive: true });
+  await writeFile(googleWorkspaceVaultPath(), `${encrypted.toString("base64")}\n`, "utf8");
+}
+
+async function removeGoogleWorkspaceVault() {
+  await rm(googleWorkspaceVaultPath(), { force: true });
+}
+
+async function fetchGoogleJson(url, init = {}) {
+  const response = await fetch(url, init);
+  const text = await response.text();
+  let payload = null;
+  if (text.trim()) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = { raw: text };
+    }
+  }
+  if (!response.ok) {
+    const details = payload?.error_description ?? payload?.error?.message ?? payload?.error ?? response.statusText;
+    throw new Error(`Google request failed (${response.status}): ${details}`);
+  }
+  return payload;
+}
+
+async function fetchGoogleUserInfo(accessToken) {
+  return fetchGoogleJson("https://www.googleapis.com/oauth2/v3/userinfo", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+async function exchangeGoogleWorkspaceCode({ code, redirectUri, verifier }) {
+  const { clientId, missing } = googleWorkspaceCredentials();
+  if (missing.length > 0) {
+    throw new Error(`Missing Google OAuth configuration: ${missing.join(", ")}`);
+  }
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    code,
+    code_verifier: verifier,
+    grant_type: "authorization_code",
+    redirect_uri: redirectUri,
+  });
+
+  return fetchGoogleJson("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+}
+
+async function refreshGoogleWorkspaceVault(record) {
+  const token = record?.token;
+  const expiresAt = Number(token?.expiresAt ?? 0);
+  if (token?.accessToken && expiresAt > Date.now() + 60_000) return record;
+  if (!token?.refreshToken) throw new Error("Google Workspace refresh token is missing. Reconnect Google Workspace.");
+
+  const { clientId, missing } = googleWorkspaceCredentials();
+  if (missing.length > 0) {
+    throw new Error(`Missing Google OAuth configuration: ${missing.join(", ")}`);
+  }
+
+  const refreshed = await fetchGoogleJson("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      grant_type: "refresh_token",
+      refresh_token: token.refreshToken,
+    }),
+  });
+
+  const next = {
+    ...record,
+    scopes: typeof refreshed.scope === "string" ? refreshed.scope.split(/\s+/).filter(Boolean) : record.scopes,
+    token: {
+      accessToken: refreshed.access_token,
+      refreshToken: token.refreshToken,
+      expiresAt: Date.now() + Number(refreshed.expires_in ?? 3600) * 1000,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+  await writeGoogleWorkspaceVault(next);
+  return next;
+}
+
+function googleWorkspaceStatusPayload(record = null, extra = {}) {
+  const credentials = googleWorkspaceCredentials();
+  return {
+    configured: credentials.missing.length === 0,
+    missing: credentials.missing,
+    vault: googleWorkspaceVaultAvailable() ? "encrypted" : "unavailable",
+    connected: Boolean(record?.token?.refreshToken || record?.token?.accessToken),
+    account: googleWorkspaceSafeAccount(record?.account),
+    scopes: Array.isArray(record?.scopes) ? record.scopes : [],
+    connectedAt: typeof record?.connectedAt === "string" ? record.connectedAt : null,
+    ...extra,
+  };
+}
+
+async function googleWorkspaceAuthStatus() {
+  try {
+    const record = await readGoogleWorkspaceVault();
+    return googleWorkspaceStatusPayload(record);
+  } catch (error) {
+    return googleWorkspaceStatusPayload(null, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+function sendGoogleWorkspaceCallbackPage(response, status, title, body) {
+  response.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
+  response.end(`<!doctype html><html><head><title>${escapeHtml(title)}</title></head><body style="font-family: system-ui, sans-serif; padding: 32px;"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p><script>setTimeout(() => window.close(), 800);</script></body></html>`);
+}
+
+async function googleWorkspaceConnect() {
+  const credentials = googleWorkspaceCredentials();
+  if (credentials.missing.length > 0) {
+    throw new Error(`Missing Google OAuth configuration: ${credentials.missing.join(", ")}`);
+  }
+  if (!googleWorkspaceVaultAvailable()) {
+    throw new Error("Encrypted token vault is unavailable on this machine.");
+  }
+
+  const state = base64Url(randomBytes(24));
+  const pkce = createGoogleWorkspacePkce();
+  let callbackServer = null;
+
+  try {
+    const authResult = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error("Google Workspace OAuth timed out."));
+      }, GOOGLE_WORKSPACE_AUTH_TIMEOUT_MS);
+
+      callbackServer = createServer(async (request, response) => {
+        try {
+          const url = new URL(request.url ?? "/", "http://127.0.0.1");
+          if (url.pathname !== "/oauth/google-workspace/callback") {
+            response.writeHead(404);
+            response.end("Not found");
+            return;
+          }
+
+          const error = url.searchParams.get("error");
+          if (error) {
+            sendGoogleWorkspaceCallbackPage(response, 400, "Google Workspace connection failed", error);
+            reject(new Error(`Google OAuth returned error: ${error}`));
+            return;
+          }
+
+          const returnedState = url.searchParams.get("state") ?? "";
+          const code = url.searchParams.get("code") ?? "";
+          if (returnedState !== state || !code) {
+            sendGoogleWorkspaceCallbackPage(response, 400, "Google Workspace connection failed", "Invalid OAuth callback.");
+            reject(new Error("Invalid Google OAuth callback."));
+            return;
+          }
+
+          sendGoogleWorkspaceCallbackPage(response, 200, "Google Workspace connected", "You can return to OpenWork.");
+          clearTimeout(timeout);
+          resolve({ code });
+        } catch (error) {
+          reject(error);
+        }
+      });
+
+      callbackServer.once("error", reject);
+      callbackServer.listen(0, "127.0.0.1", async () => {
+        try {
+          const address = callbackServer.address();
+          const port = typeof address === "object" && address ? address.port : null;
+          if (!port) throw new Error("Could not start Google Workspace OAuth callback server.");
+          const redirectUri = `http://127.0.0.1:${port}/oauth/google-workspace/callback`;
+          const authorizationUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+          authorizationUrl.searchParams.set("client_id", credentials.clientId);
+          authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+          authorizationUrl.searchParams.set("response_type", "code");
+          authorizationUrl.searchParams.set("scope", GOOGLE_WORKSPACE_SCOPES.join(" "));
+          authorizationUrl.searchParams.set("access_type", "offline");
+          authorizationUrl.searchParams.set("prompt", "consent");
+          authorizationUrl.searchParams.set("state", state);
+          authorizationUrl.searchParams.set("code_challenge", pkce.challenge);
+          authorizationUrl.searchParams.set("code_challenge_method", "S256");
+          await shell.openExternal(authorizationUrl.toString());
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+
+    const address = callbackServer.address();
+    const port = typeof address === "object" && address ? address.port : null;
+    if (!port) throw new Error("Google Workspace OAuth callback server stopped unexpectedly.");
+    const redirectUri = `http://127.0.0.1:${port}/oauth/google-workspace/callback`;
+    const token = await exchangeGoogleWorkspaceCode({ code: authResult.code, redirectUri, verifier: pkce.verifier });
+    if (!token.access_token) throw new Error("Google OAuth response did not include an access token.");
+    const account = await fetchGoogleUserInfo(token.access_token);
+    const record = {
+      version: 1,
+      account,
+      scopes: typeof token.scope === "string" ? token.scope.split(/\s+/).filter(Boolean) : GOOGLE_WORKSPACE_SCOPES,
+      token: {
+        accessToken: token.access_token,
+        refreshToken: token.refresh_token ?? null,
+        expiresAt: Date.now() + Number(token.expires_in ?? 3600) * 1000,
+      },
+      connectedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await writeGoogleWorkspaceVault(record);
+    return googleWorkspaceStatusPayload(record);
+  } finally {
+    if (callbackServer) {
+      await new Promise((resolve) => callbackServer.close(() => resolve(undefined))).catch(() => undefined);
+    }
+  }
+}
+
+async function googleWorkspaceDisconnect() {
+  const record = await readGoogleWorkspaceVault();
+  const token = record?.token?.refreshToken ?? record?.token?.accessToken;
+  let revokeError = null;
+  if (token) {
+    try {
+      await fetchGoogleJson("https://oauth2.googleapis.com/revoke", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ token }),
+      });
+    } catch (error) {
+      revokeError = error;
+    }
+  }
+  await removeGoogleWorkspaceVault();
+  if (revokeError) {
+    return googleWorkspaceStatusPayload(null, {
+      error: `Local Google Workspace tokens were removed, but Google token revocation failed: ${revokeError instanceof Error ? revokeError.message : String(revokeError)}`,
+    });
+  }
+  return googleWorkspaceStatusPayload(null, { testStatus: "Google Workspace access revoked and local tokens removed." });
+}
+
+async function googleWorkspaceTestConnection() {
+  const record = await readGoogleWorkspaceVault();
+  if (!record) throw new Error("Google Workspace is not connected.");
+  const refreshed = await refreshGoogleWorkspaceVault(record);
+  await fetchGoogleUserInfo(refreshed.token.accessToken);
+  await fetchGoogleJson("https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=1", {
+    headers: { Authorization: `Bearer ${refreshed.token.accessToken}` },
+  });
+  return googleWorkspaceStatusPayload(refreshed, { testStatus: "Google profile and Calendar read access verified." });
+}
+
+function base64UrlString(value) {
+  return Buffer.from(value, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function multipartRelatedBody(metadata, content, boundary) {
+  return [
+    `--${boundary}`,
+    "Content-Type: application/json; charset=UTF-8",
+    "",
+    JSON.stringify(metadata),
+    `--${boundary}`,
+    "Content-Type: text/plain; charset=UTF-8",
+    "",
+    content,
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
+}
+
+async function googleWorkspaceRunScopeSmokeTest() {
+  const record = await readGoogleWorkspaceVault();
+  if (!record) throw new Error("Google Workspace is not connected.");
+  const refreshed = await refreshGoogleWorkspaceVault(record);
+  const accessToken = refreshed.token.accessToken;
+  const account = await fetchGoogleUserInfo(accessToken);
+  const email = typeof account.email === "string" ? account.email : refreshed.account?.email;
+  if (!email) throw new Error("Google account email is unavailable.");
+
+  await fetchGoogleJson("https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=1", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  const createdAt = new Date().toISOString();
+  const driveBoundary = `openwork_${randomBytes(8).toString("hex")}`;
+  const driveContent = `OpenWork Google Workspace smoke test created at ${createdAt}.`;
+  const driveFile = await fetchGoogleJson("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": `multipart/related; boundary=${driveBoundary}`,
+    },
+    body: multipartRelatedBody({ name: "OpenWork Google Workspace smoke test.txt", mimeType: "text/plain" }, driveContent, driveBoundary),
+  });
+
+  await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(driveFile.id)}?alt=media`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  }).then(async (response) => {
+    if (!response.ok) throw new Error(`Google Drive smoke read failed (${response.status}): ${await response.text()}`);
+    return response.text();
+  });
+
+  const rawDraft = [
+    `To: ${email}`,
+    "Subject: OpenWork Google Workspace smoke test draft",
+    "Content-Type: text/plain; charset=UTF-8",
+    "",
+    `This draft was created by OpenWork to verify Gmail draft access at ${createdAt}.`,
+    "OpenWork does not send this email automatically.",
+  ].join("\r\n");
+  const draft = await fetchGoogleJson("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ message: { raw: base64UrlString(rawDraft) } }),
+  });
+
+  return googleWorkspaceStatusPayload(refreshed, {
+    testStatus: "Calendar read, Drive file create/read, and Gmail draft creation verified.",
+    smokeTest: {
+      driveFileId: driveFile.id,
+      driveFileName: driveFile.name,
+      gmailDraftId: draft.id,
+    },
+  });
+}
+
 function normalizeDesktopBootstrapConfig(input) {
   const baseUrl = typeof input?.baseUrl === "string" ? input.baseUrl.trim() : "";
   if (!baseUrl) {
@@ -2447,6 +2859,16 @@ async function handleDesktopInvoke(event, command, ...args) {
       } catch {
         return null;
       }
+    case "googleWorkspaceAuthStatus":
+      return googleWorkspaceAuthStatus();
+    case "googleWorkspaceConnect":
+      return googleWorkspaceConnect();
+    case "googleWorkspaceDisconnect":
+      return googleWorkspaceDisconnect();
+    case "googleWorkspaceTestConnection":
+      return googleWorkspaceTestConnection();
+    case "googleWorkspaceRunScopeSmokeTest":
+      return googleWorkspaceRunScopeSmokeTest();
     case "getOpenworkUiMcpCommand": {
       if (process.env.OPENWORK_DEV_MODE === "1") {
         return ["node", path.resolve(__dirname, "../../..", "packages/openwork-ui-mcp/index.mjs")];
