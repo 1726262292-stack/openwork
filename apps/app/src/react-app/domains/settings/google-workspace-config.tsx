@@ -102,10 +102,10 @@ function GoogleWorkspaceConfig() {
   const canConnect = desktopAvailable && status?.configured === true && status.vault !== "unavailable";
   const canTest = desktopAvailable && status?.connected === true;
 
-  const loadStatus = async () => {
+  const loadStatus = async (options: { clearError?: boolean } = {}) => {
     if (!desktopAvailable) return;
     setBusyAction("status");
-    setError(null);
+    if (options.clearError !== false) setError(null);
     try {
       const result = await googleWorkspaceAuthStatus();
       setStatus(normalizeGoogleWorkspaceAuthStatus(result));
@@ -134,7 +134,7 @@ function GoogleWorkspaceConfig() {
       setStatus(normalizeGoogleWorkspaceAuthStatus(result));
     } catch (err) {
       setError(err instanceof Error ? err.message : `Google Workspace ${action} failed.`);
-      await loadStatus();
+      await loadStatus({ clearError: false });
     } finally {
       setBusyAction(null);
     }

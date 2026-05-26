@@ -1634,7 +1634,12 @@ async function googleWorkspaceConnect() {
     const port = typeof address === "object" && address ? address.port : null;
     if (!port) throw new Error("Google Workspace OAuth callback server stopped unexpectedly.");
     const redirectUri = `http://127.0.0.1:${port}/`;
-    const token = await exchangeGoogleWorkspaceCode({ code: authResult.code, redirectUri, verifier: pkce.verifier });
+    let token;
+    try {
+      token = await exchangeGoogleWorkspaceCode({ code: authResult.code, redirectUri, verifier: pkce.verifier });
+    } catch (error) {
+      throw new Error(`Google authorized OpenWork, but token exchange failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
     if (!token.access_token) throw new Error("Google OAuth response did not include an access token.");
     const account = await fetchGoogleUserInfo(token.access_token);
     const record = {
