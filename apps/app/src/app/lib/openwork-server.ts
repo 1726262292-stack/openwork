@@ -851,7 +851,6 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
     config: 10_000,
     workspaceExport: 30_000,
     workspaceImport: 30_000,
-    shareBundle: 20_000,
     binary: 60_000,
   };
 
@@ -987,30 +986,6 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
           timeoutMs: timeouts.workspaceImport,
         },
       ),
-    publishBundle: (payload: unknown, bundleType: "skill" | "skills-set", options?: { name?: string; timeoutMs?: number }) =>
-      requestJson<{ url: string }>(baseUrl, "/share/bundles/publish", {
-        token,
-        hostToken,
-        method: "POST",
-        body: {
-          payload,
-          bundleType,
-          name: options?.name,
-          timeoutMs: options?.timeoutMs,
-        },
-        timeoutMs: options?.timeoutMs ?? timeouts.shareBundle,
-      }),
-    fetchBundle: (bundleUrl: string, options?: { timeoutMs?: number }) =>
-      requestJson<Record<string, unknown>>(baseUrl, "/share/bundles/fetch", {
-        token,
-        hostToken,
-        method: "POST",
-        body: {
-          bundleUrl,
-          timeoutMs: options?.timeoutMs,
-        },
-        timeoutMs: options?.timeoutMs ?? timeouts.shareBundle,
-      }),
     getConfig: (workspaceId: string) =>
       requestJson<{ opencode: Record<string, unknown>; openwork: Record<string, unknown>; updatedAt?: number | null }>(
         baseUrl,

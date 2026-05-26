@@ -1,4 +1,4 @@
-import { createDenClient, readDenSettings, writeDenSettings } from "../lib/den";
+import { createDenClient, readDenSettings, writeDenSettings } from "./den";
 
 export async function saveInstalledSkillToOpenWorkOrg(input: {
   skillText: string;
