@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import net from "node:net";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
   cp,
   mkdir,
@@ -1340,13 +1340,27 @@ async function writeJsonFileAtomic(outputPath, value) {
 }
 
 function googleWorkspaceCredentials() {
-  const clientId = process.env[GOOGLE_WORKSPACE_CLIENT_ID_ENV]?.trim() || process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_ID?.trim() || GOOGLE_WORKSPACE_DESKTOP_CLIENT_ID;
-  const clientSecret = process.env[GOOGLE_WORKSPACE_CLIENT_SECRET_ENV]?.trim() || process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET?.trim() || "";
+  const buildConfig = googleWorkspaceBuildConfig();
+  const clientId = process.env[GOOGLE_WORKSPACE_CLIENT_ID_ENV]?.trim() || process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_ID?.trim() || buildConfig.clientId || GOOGLE_WORKSPACE_DESKTOP_CLIENT_ID;
+  const clientSecret = process.env[GOOGLE_WORKSPACE_CLIENT_SECRET_ENV]?.trim() || process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET?.trim() || buildConfig.clientSecret || "";
   const tokenBrokerUrl = process.env[GOOGLE_WORKSPACE_TOKEN_BROKER_URL_ENV]?.trim() || process.env.GOOGLE_WORKSPACE_TOKEN_BROKER_URL?.trim() || "";
   const missing = [];
   if (!clientId) missing.push(GOOGLE_WORKSPACE_CLIENT_ID_ENV);
   if (!clientSecret && !tokenBrokerUrl) missing.push(`${GOOGLE_WORKSPACE_CLIENT_SECRET_ENV} or ${GOOGLE_WORKSPACE_TOKEN_BROKER_URL_ENV}`);
   return { clientId, clientSecret, tokenBrokerUrl, missing };
+}
+
+function googleWorkspaceBuildConfig() {
+  try {
+    const raw = readFileSync(path.join(__dirname, "google-workspace-oauth.generated.json"), "utf8");
+    const parsed = JSON.parse(raw);
+    return {
+      clientId: typeof parsed.clientId === "string" ? parsed.clientId.trim() : "",
+      clientSecret: typeof parsed.clientSecret === "string" ? parsed.clientSecret.trim() : "",
+    };
+  } catch {
+    return { clientId: "", clientSecret: "" };
+  }
 }
 
 function googleWorkspaceVaultPath() {
