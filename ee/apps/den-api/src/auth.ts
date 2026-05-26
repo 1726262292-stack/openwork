@@ -22,7 +22,7 @@ import { sso } from "@better-auth/sso";
 import { APIError } from "better-call";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { and, eq } from "@openwork-ee/den-db/drizzle";
+import { sql } from "@openwork-ee/den-db/drizzle";
 import { emailOTP, jwt, organization } from "better-auth/plugins";
 
 function localMcpResourceAliases(resource: string) {
@@ -419,23 +419,14 @@ export const auth = betterAuth({
           return;
         }
 
-        const existingRows = await db
-          .select()
-          .from(schema.ExternalIdentityTable)
-          .where(and(
-            eq(schema.ExternalIdentityTable.organizationId, normalizeDenTypeId("organization", provider.organizationId)),
-            eq(schema.ExternalIdentityTable.userId, normalizeDenTypeId("user", user.id)),
-          ))
-          .limit(1);
         const now = new Date();
-        const existing = existingRows[0] ?? null;
         const remoteId = pickRemoteIdentity(userInfo);
         const displayName = maybeString(userInfo.name) ?? maybeString(userInfo.displayName) ?? maybeString(user.name);
         const email = maybeString(userInfo.email) ?? maybeString(user.email);
         const payload = {
           organizationId: normalizeDenTypeId("organization", provider.organizationId),
           userId: normalizeDenTypeId("user", user.id),
-          source: existing?.scimProviderId ? "scim+sso" : "sso",
+          source: "sso",
           ssoProviderId: provider.providerId,
           remoteId,
           userName: maybeString(userInfo.preferred_username) ?? email,
@@ -446,25 +437,25 @@ export const auth = betterAuth({
           lastSsoLoginAt: now,
         };
 
-        if (existing) {
-          await db
-            .update(schema.ExternalIdentityTable)
-            .set({
-              ...payload,
-              scimProviderId: existing.scimProviderId,
-              externalId: existing.externalId,
-              nameJson: existing.nameJson,
-              emailsJson: existing.emailsJson,
-              lastScimSyncAt: existing.lastScimSyncAt,
-            })
-            .where(eq(schema.ExternalIdentityTable.id, existing.id));
-          return;
-        }
-
-        await db.insert(schema.ExternalIdentityTable).values({
-          id: createDenTypeId("externalIdentity"),
-          ...payload,
-        });
+        await db
+          .insert(schema.ExternalIdentityTable)
+          .values({
+            id: createDenTypeId("externalIdentity"),
+            ...payload,
+          })
+          .onDuplicateKeyUpdate({
+            set: {
+              source: sql<string>`case when ${schema.ExternalIdentityTable.scimProviderId} is null then 'sso' else 'scim+sso' end`,
+              ssoProviderId: payload.ssoProviderId,
+              remoteId: payload.remoteId,
+              userName: payload.userName,
+              email: payload.email,
+              displayName: payload.displayName,
+              attributesJson: payload.attributesJson,
+              active: payload.active,
+              lastSsoLoginAt: payload.lastSsoLoginAt,
+            },
+          });
       },
     }),
     apiKey({

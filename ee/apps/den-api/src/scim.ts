@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer"
+import { timingSafeEqual } from "node:crypto"
 import { and, eq, isNotNull, isNull } from "@openwork-ee/den-db/drizzle"
 import { AuthAccountTable, AuthUserTable, ExternalIdentityTable, MemberTable, ScimProviderTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
@@ -42,6 +43,12 @@ function asArray(value: unknown): unknown[] | null {
   return Array.isArray(value) ? value : null
 }
 
+function safeEqualSecret(left: string, right: string) {
+  const leftBytes = Uint8Array.from(Buffer.from(left))
+  const rightBytes = Uint8Array.from(Buffer.from(right))
+  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes)
+}
+
 async function resolveScimProviderFromBearerToken(bearerToken: string) {
   let decoded: string
   try {
@@ -63,7 +70,7 @@ async function resolveScimProviderFromBearerToken(bearerToken: string) {
     .limit(1)
 
   const provider = providerRows[0] ?? null
-  if (!provider || provider.scimToken !== rawToken) {
+  if (!provider || !safeEqualSecret(provider.scimToken, rawToken)) {
     return null
   }
 

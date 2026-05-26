@@ -1174,6 +1174,9 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
     try {
       const trimmedEmail = email.trim();
       if (trimmedEmail && await redirectToRequiredSso(trimmedEmail)) {
+        if (shouldTrackSocialSignup) {
+          window.sessionStorage.removeItem(PENDING_SOCIAL_SIGNUP_STORAGE_KEY);
+        }
         return;
       }
       const callbackURL = getSocialCallbackUrl();

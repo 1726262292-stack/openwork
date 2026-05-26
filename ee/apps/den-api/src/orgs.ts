@@ -1029,17 +1029,10 @@ export async function removeOrganizationMember(input: {
     return null
   }
 
-  const teams = await db
-    .select({ id: TeamTable.id })
-    .from(TeamTable)
-    .where(eq(TeamTable.organizationId, input.organizationId))
-
   await db.transaction(async (tx) => {
-    for (const team of teams) {
-      await tx
-        .delete(TeamMemberTable)
-        .where(and(eq(TeamMemberTable.teamId, team.id), eq(TeamMemberTable.orgMembershipId, member.id)))
-    }
+    await tx
+      .delete(TeamMemberTable)
+      .where(eq(TeamMemberTable.orgMembershipId, member.id))
 
     await tx
       .update(MemberTable)

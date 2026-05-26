@@ -45,10 +45,12 @@ export function ScimScreen() {
     [orgContext?.currentMember.isOwner, orgContext?.currentMember.role],
   );
 
-  async function loadScimConfig() {
+  async function loadScimConfig(isCurrent = () => true) {
     if (!orgId || !access.canManageScim) {
-      setBaseUrl(null);
-      setConnection(null);
+      if (isCurrent()) {
+        setBaseUrl(null);
+        setConnection(null);
+      }
       return;
     }
 
@@ -68,19 +70,29 @@ export function ScimScreen() {
       }
 
       const parsed = parseOrgScimPayload(payload);
-      setBaseUrl(parsed.baseUrl);
-      setConnection(parsed.connection);
+      if (isCurrent()) {
+        setBaseUrl(parsed.baseUrl);
+        setConnection(parsed.connection);
+      }
     } catch (nextError) {
-      setError(
-        nextError instanceof Error ? nextError.message : "Failed to load SCIM settings.",
-      );
+      if (isCurrent()) {
+        setError(
+          nextError instanceof Error ? nextError.message : "Failed to load SCIM settings.",
+        );
+      }
     } finally {
-      setBusy(false);
+      if (isCurrent()) {
+        setBusy(false);
+      }
     }
   }
 
   useEffect(() => {
-    void loadScimConfig();
+    let active = true;
+    void loadScimConfig(() => active);
+    return () => {
+      active = false;
+    };
   }, [orgId, access.canManageScim]);
 
   useEffect(() => {

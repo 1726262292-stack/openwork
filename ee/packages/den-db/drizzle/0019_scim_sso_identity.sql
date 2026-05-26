@@ -62,7 +62,7 @@ CREATE TABLE `sso_provider` (
 	`saml_config` text,
 	`user_id` varchar(64) NOT NULL,
 	`provider_id` varchar(255) NOT NULL,
-	`organization_id` varchar(64),
+	`organization_id` varchar(64) NOT NULL,
 	`domain_verified` boolean NOT NULL DEFAULT false,
 	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
 	`updated_at` timestamp(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),

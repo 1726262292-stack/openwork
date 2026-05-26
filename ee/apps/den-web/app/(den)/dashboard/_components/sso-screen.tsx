@@ -289,7 +289,7 @@ export function SsoScreen() {
                   </label>
                   <label className="block text-[14px] text-gray-700">
                     <span className="mb-2 block font-medium">Client Secret</span>
-                    <input className="w-full rounded-[18px] border border-gray-200 px-4 py-3" value={clientSecret} onChange={(event) => setClientSecret(event.target.value)} />
+                    <input type="password" className="w-full rounded-[18px] border border-gray-200 px-4 py-3" value={clientSecret} onChange={(event) => setClientSecret(event.target.value)} />
                   </label>
                   <label className="block text-[14px] text-gray-700 md:col-span-2">
                     <span className="mb-2 block font-medium">Scopes</span>

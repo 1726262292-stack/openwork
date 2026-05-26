@@ -72,6 +72,10 @@ function getOidcDiscoveryUrl(issuer: string) {
   return `${issuer.replace(/\/$/, "")}/.well-known/openid-configuration`
 }
 
+function normalizeIssuer(value: string) {
+  return value.replace(/\/$/, "")
+}
+
 async function resolveOidcEndpoints(input: OidcRegistrationInput) {
   if (input.skipDiscovery) {
     if (!input.authorizationEndpoint || !input.tokenEndpoint || !input.jwksEndpoint) {
@@ -100,7 +104,7 @@ async function resolveOidcEndpoints(input: OidcRegistrationInput) {
   if (!parsed.success) {
     throw new Error("OIDC discovery document is missing required endpoints.")
   }
-  if (parsed.data.issuer !== input.issuer) {
+  if (normalizeIssuer(parsed.data.issuer) !== normalizeIssuer(input.issuer)) {
     throw new Error("OIDC discovery issuer does not match the configured issuer.")
   }
 
@@ -203,46 +207,45 @@ export async function deleteOrganizationSsoConnection(organizationId: Organizati
     return false
   }
 
-  await cleanupExternalIdentitiesForDeletedSsoConnection(connection)
-  await db.delete(SsoConnectionTable).where(eq(SsoConnectionTable.id, connection.id))
-  await db.delete(SsoProviderTable).where(eq(SsoProviderTable.providerId, connection.providerId))
+  await db.transaction(async (tx) => {
+    await tx
+      .update(ExternalIdentityTable)
+      .set({
+        source: "scim",
+        ssoProviderId: null,
+        remoteId: null,
+        attributesJson: null,
+        lastSsoLoginAt: null,
+      })
+      .where(and(
+        eq(ExternalIdentityTable.organizationId, connection.organizationId),
+        eq(ExternalIdentityTable.ssoProviderId, connection.providerId),
+        isNotNull(ExternalIdentityTable.scimProviderId),
+      ))
+
+    await tx
+      .update(ExternalIdentityTable)
+      .set({
+        active: false,
+        ssoProviderId: null,
+        remoteId: null,
+        attributesJson: null,
+        lastSsoLoginAt: null,
+      })
+      .where(and(
+        eq(ExternalIdentityTable.organizationId, connection.organizationId),
+        eq(ExternalIdentityTable.ssoProviderId, connection.providerId),
+        isNull(ExternalIdentityTable.scimProviderId),
+      ))
+
+    await tx
+      .delete(AuthAccountTable)
+      .where(eq(AuthAccountTable.providerId, connection.providerId))
+
+    await tx.delete(SsoConnectionTable).where(eq(SsoConnectionTable.id, connection.id))
+    await tx.delete(SsoProviderTable).where(eq(SsoProviderTable.providerId, connection.providerId))
+  })
   return true
-}
-
-async function cleanupExternalIdentitiesForDeletedSsoConnection(connection: SsoConnection) {
-  await db
-    .update(ExternalIdentityTable)
-    .set({
-      source: "scim",
-      ssoProviderId: null,
-      remoteId: null,
-      attributesJson: null,
-      lastSsoLoginAt: null,
-    })
-    .where(and(
-      eq(ExternalIdentityTable.organizationId, connection.organizationId),
-      eq(ExternalIdentityTable.ssoProviderId, connection.providerId),
-      isNotNull(ExternalIdentityTable.scimProviderId),
-    ))
-
-  await db
-    .update(ExternalIdentityTable)
-    .set({
-      active: false,
-      ssoProviderId: null,
-      remoteId: null,
-      attributesJson: null,
-      lastSsoLoginAt: null,
-    })
-    .where(and(
-      eq(ExternalIdentityTable.organizationId, connection.organizationId),
-      eq(ExternalIdentityTable.ssoProviderId, connection.providerId),
-      isNull(ExternalIdentityTable.scimProviderId),
-    ))
-
-  await db
-    .delete(AuthAccountTable)
-    .where(eq(AuthAccountTable.providerId, connection.providerId))
 }
 
 export async function registerOrganizationSsoConnection(input: OrganizationSsoRegistrationInput) {

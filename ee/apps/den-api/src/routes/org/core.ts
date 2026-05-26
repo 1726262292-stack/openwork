@@ -391,10 +391,11 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         })
         .from(OrganizationTable)
         .innerJoin(SsoConnectionTable, eq(OrganizationTable.id, SsoConnectionTable.organizationId))
+        .where(eq(SsoConnectionTable.domain, domain))
 
       const match = matches.find((row) => {
         const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata as Record<string, unknown> : {}
-        return metadata.requireSso === true && row.domain.toLowerCase() === domain
+        return metadata.requireSso === true
       })
 
       if (!match) {

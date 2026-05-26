@@ -46,10 +46,12 @@ async function syncScimMutationFromResponse(input: {
     return
   }
 
-  await syncExternalIdentityFromScimResource({
-    bearerToken: input.bearerToken,
-    resource: payload,
-  })
+  try {
+    await syncExternalIdentityFromScimResource({
+      bearerToken: input.bearerToken,
+      resource: payload,
+    })
+  } catch {}
 }
 
 export function registerScimAuthRoutes<T extends { Variables: AuthContextVariables }>(app: Hono<T>) {

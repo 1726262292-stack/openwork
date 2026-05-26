@@ -1688,7 +1688,7 @@
           "name": "organization_id",
           "type": "varchar(64)",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "domain_verified": {

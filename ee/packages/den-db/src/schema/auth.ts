@@ -260,7 +260,7 @@ export const SsoProviderTable = mysqlTable(
     samlConfig: encryptedTextColumn("saml_config"),
     userId: denTypeIdColumn("user", "user_id").notNull(),
     providerId: varchar("provider_id", { length: 255 }).notNull(),
-    organizationId: denTypeIdColumn("organization", "organization_id"),
+    organizationId: denTypeIdColumn("organization", "organization_id").notNull(),
     domainVerified: boolean("domain_verified").notNull().default(false),
     createdAt: timestamp("created_at", { fsp: 3 }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { fsp: 3 })
