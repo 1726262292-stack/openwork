@@ -53,7 +53,9 @@ const GOOGLE_WORKSPACE_SCOPES = [
   "https://www.googleapis.com/auth/gmail.compose",
   "https://www.googleapis.com/auth/drive.file",
 ];
+const GOOGLE_WORKSPACE_DESKTOP_CLIENT_ID = "929071212606-uj6ag13l8llsqrpbo2rked168rjdd98o.apps.googleusercontent.com";
 const GOOGLE_WORKSPACE_CLIENT_ID_ENV = "OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_ID";
+const GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT_ENV = "OPENWORK_GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT";
 const GOOGLE_WORKSPACE_AUTH_TIMEOUT_MS = 5 * 60 * 1000;
 
 function computerUseHelperExecutablePath() {
@@ -1335,7 +1337,7 @@ async function writeJsonFileAtomic(outputPath, value) {
 }
 
 function googleWorkspaceCredentials() {
-  const clientId = process.env[GOOGLE_WORKSPACE_CLIENT_ID_ENV]?.trim() || process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_ID?.trim() || "";
+  const clientId = process.env[GOOGLE_WORKSPACE_CLIENT_ID_ENV]?.trim() || process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_ID?.trim() || GOOGLE_WORKSPACE_DESKTOP_CLIENT_ID;
   const missing = [];
   if (!clientId) missing.push(GOOGLE_WORKSPACE_CLIENT_ID_ENV);
   return { clientId, missing };
@@ -1345,12 +1347,28 @@ function googleWorkspaceVaultPath() {
   return path.join(app.getPath("userData"), "google-workspace-oauth.vault");
 }
 
-function googleWorkspaceVaultAvailable() {
-  try {
-    return safeStorage.isEncryptionAvailable();
-  } catch {
-    return false;
+function googleWorkspacePlainTextVaultEnabled() {
+  return isDevMode && process.env[GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT_ENV] === "1";
+}
+
+function googleWorkspacePrepareSafeStorage() {
+  if (googleWorkspacePlainTextVaultEnabled() && typeof safeStorage.setUsePlainTextEncryption === "function") {
+    safeStorage.setUsePlainTextEncryption(true);
   }
+}
+
+function googleWorkspaceVaultMode() {
+  try {
+    googleWorkspacePrepareSafeStorage();
+    if (safeStorage.isEncryptionAvailable()) return googleWorkspacePlainTextVaultEnabled() ? "plaintext-dev" : "encrypted";
+    return "unavailable";
+  } catch {
+    return "unavailable";
+  }
+}
+
+function googleWorkspaceVaultAvailable() {
+  return googleWorkspaceVaultMode() !== "unavailable";
 }
 
 function base64Url(buffer) {
@@ -1497,7 +1515,7 @@ function googleWorkspaceStatusPayload(record = null, extra = {}) {
   return {
     configured: credentials.missing.length === 0,
     missing: credentials.missing,
-    vault: googleWorkspaceVaultAvailable() ? "encrypted" : "unavailable",
+    vault: googleWorkspaceVaultMode(),
     connected: Boolean(record?.token?.refreshToken || record?.token?.accessToken),
     account: googleWorkspaceSafeAccount(record?.account),
     scopes: Array.isArray(record?.scopes) ? record.scopes : [],
