@@ -57,6 +57,7 @@ const GOOGLE_WORKSPACE_DESKTOP_CLIENT_ID = "929071212606-uj6ag13l8llsqrpbo2rked1
 const GOOGLE_WORKSPACE_CLIENT_ID_ENV = "OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_ID";
 const GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT_ENV = "OPENWORK_GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT";
 const GOOGLE_WORKSPACE_AUTH_TIMEOUT_MS = 5 * 60 * 1000;
+const GOOGLE_WORKSPACE_API_TIMEOUT_MS = 30_000;
 
 function computerUseHelperExecutablePath() {
   const explicitBinary = process.env.OPENWORK_COMPUTER_USE_BINARY?.trim();
@@ -1428,7 +1429,17 @@ async function removeGoogleWorkspaceVault() {
 }
 
 async function fetchGoogleJson(url, init = {}) {
-  const response = await fetch(url, init);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GOOGLE_WORKSPACE_API_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("Google request timed out. Check your connection and try again.");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   const text = await response.text();
   let payload = null;
   if (text.trim()) {
