@@ -753,6 +753,7 @@ function WorkspaceSidebarGroup({
     if (connectionState.status === "error") return connectionState.message?.trim() || taskLoadError.message;
     if (group.status === "error") return taskLoadError.label;
     if (isConnectionActionBusy) return t("workspace_list.connecting");
+    if (isRemoteWorkspace && connectionState.status === "connected") return connectionState.message?.trim() || "Connected";
     if (!ctx.developerMode) return "";
     if (isSelected) return t("workspace.selected");
     return workspaceKindLabel(workspace);
@@ -890,7 +891,11 @@ function WorkspaceSidebarGroup({
                       onClick={() => ctx.onCreateTaskInWorkspace(workspace.id)}
                       aria-disabled={ctx.newTaskDisabled}
                     >
-                      <span className="truncate">{t("workspace.no_tasks")}</span>
+                      <span className="truncate">
+                        {isRemoteWorkspace && connectionState.status === "connected"
+                          ? connectionState.message?.trim() || "Connected. No tasks found."
+                          : t("workspace.no_tasks")}
+                      </span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>
                 )}
