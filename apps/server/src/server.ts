@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile, writeFile, rm, readdir, rename, stat, appendFile, mkdir } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
 import { ApprovalService } from "./approvals.js";
@@ -1064,6 +1064,7 @@ function normalizeUrlTarget(value: string): string | null {
 export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, input: unknown): Promise<Array<Record<string, unknown>>> {
   const targets = Array.isArray(input) ? input.slice(0, 80) : [];
   const results = new Map<string, Record<string, unknown>>();
+  const workspaceResolved = resolve(workspaceRoot);
 
   for (const item of targets) {
     if (!item || typeof item !== "object") continue;
@@ -1095,7 +1096,16 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
 
     let relativePath: string;
     try {
-      relativePath = normalizeWorkspaceRelativePath(rawValue, { allowSubdirs: true });
+      if (isAbsolute(rawValue)) {
+        const absolutePath = resolve(rawValue);
+        const pathFromWorkspace = relative(workspaceResolved, absolutePath);
+        if (!pathFromWorkspace || pathFromWorkspace === ".." || pathFromWorkspace.startsWith(`..${sep}`) || isAbsolute(pathFromWorkspace)) {
+          continue;
+        }
+        relativePath = normalizeWorkspaceRelativePath(pathFromWorkspace, { allowSubdirs: true });
+      } else {
+        relativePath = normalizeWorkspaceRelativePath(rawValue, { allowSubdirs: true });
+      }
     } catch {
       continue;
     }
