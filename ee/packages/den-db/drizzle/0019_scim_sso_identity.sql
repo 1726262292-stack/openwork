@@ -5,11 +5,11 @@ CREATE TABLE `external_identity` (
 	`source` varchar(32) NOT NULL,
 	`scim_provider_id` varchar(255),
 	`sso_provider_id` varchar(255),
-	`remote_id` varchar(512),
-	`external_id` varchar(512),
-	`user_name` varchar(512),
-	`email` varchar(512),
-	`display_name` varchar(512),
+	`remote_id` varchar(191),
+	`external_id` varchar(191),
+	`user_name` varchar(191),
+	`email` varchar(191),
+	`display_name` varchar(191),
 	`name_json` json,
 	`emails_json` json,
 	`attributes_json` json,
@@ -22,6 +22,18 @@ CREATE TABLE `external_identity` (
 	CONSTRAINT `external_identity_org_user` UNIQUE(`organization_id`,`user_id`),
 	CONSTRAINT `external_identity_org_sso_remote` UNIQUE(`organization_id`,`sso_provider_id`,`remote_id`),
 	CONSTRAINT `external_identity_org_scim_external` UNIQUE(`organization_id`,`scim_provider_id`,`external_id`)
+);
+--> statement-breakpoint
+CREATE TABLE `scim_provider` (
+	`id` varchar(64) NOT NULL,
+	`provider_id` varchar(255) NOT NULL,
+	`scim_token` text NOT NULL,
+	`organization_id` varchar(64) NOT NULL,
+	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`updated_at` timestamp(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+	CONSTRAINT `scim_provider_id` PRIMARY KEY(`id`),
+	CONSTRAINT `scim_provider_provider_id` UNIQUE(`provider_id`),
+	CONSTRAINT `scim_provider_organization_id` UNIQUE(`organization_id`)
 );
 --> statement-breakpoint
 CREATE TABLE `sso_connection` (
