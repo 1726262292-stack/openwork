@@ -3,7 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import react, { reactCompilerPreset } from "@vitejs/plugin-react";
+import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 
 const portValue = Number.parseInt(process.env.PORT ?? "", 10);
@@ -93,6 +94,7 @@ export default defineConfig({
     },
     tailwindcss(),
     react(),
+    babel({ presets: [reactCompilerPreset({ compilationMode: "annotation" })] }),
   ],
   server: {
     port: devPort,
@@ -101,7 +103,7 @@ export default defineConfig({
   },
   build: {
     target: "esnext",
-    rollupOptions: {
+    rolldownOptions: {
       input: {
         app: resolve(appRoot, "index.html"),
         overlay: resolve(appRoot, "overlay.html"),
