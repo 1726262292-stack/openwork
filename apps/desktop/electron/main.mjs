@@ -55,6 +55,7 @@ const GOOGLE_WORKSPACE_SCOPES = [
 ];
 const GOOGLE_WORKSPACE_DESKTOP_CLIENT_ID = "929071212606-uj6ag13l8llsqrpbo2rked168rjdd98o.apps.googleusercontent.com";
 const GOOGLE_WORKSPACE_CLIENT_ID_ENV = "OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_ID";
+const GOOGLE_WORKSPACE_CLIENT_SECRET_ENV = "OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET";
 const GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT_ENV = "OPENWORK_GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT";
 const GOOGLE_WORKSPACE_AUTH_TIMEOUT_MS = 5 * 60 * 1000;
 const GOOGLE_WORKSPACE_API_TIMEOUT_MS = 30_000;
@@ -1339,9 +1340,11 @@ async function writeJsonFileAtomic(outputPath, value) {
 
 function googleWorkspaceCredentials() {
   const clientId = process.env[GOOGLE_WORKSPACE_CLIENT_ID_ENV]?.trim() || process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_ID?.trim() || GOOGLE_WORKSPACE_DESKTOP_CLIENT_ID;
+  const clientSecret = process.env[GOOGLE_WORKSPACE_CLIENT_SECRET_ENV]?.trim() || process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET?.trim() || "";
   const missing = [];
   if (!clientId) missing.push(GOOGLE_WORKSPACE_CLIENT_ID_ENV);
-  return { clientId, missing };
+  if (!clientSecret) missing.push(GOOGLE_WORKSPACE_CLIENT_SECRET_ENV);
+  return { clientId, clientSecret, missing };
 }
 
 function googleWorkspaceVaultPath() {
@@ -1472,13 +1475,14 @@ function escapeHtml(value) {
 }
 
 async function exchangeGoogleWorkspaceCode({ code, redirectUri, verifier }) {
-  const { clientId, missing } = googleWorkspaceCredentials();
+  const { clientId, clientSecret, missing } = googleWorkspaceCredentials();
   if (missing.length > 0) {
     throw new Error(`Missing Google OAuth configuration: ${missing.join(", ")}`);
   }
 
   const body = new URLSearchParams({
     client_id: clientId,
+    client_secret: clientSecret,
     code,
     code_verifier: verifier,
     grant_type: "authorization_code",
@@ -1498,7 +1502,7 @@ async function refreshGoogleWorkspaceVault(record) {
   if (token?.accessToken && expiresAt > Date.now() + 60_000) return record;
   if (!token?.refreshToken) throw new Error("Google Workspace refresh token is missing. Reconnect Google Workspace.");
 
-  const { clientId, missing } = googleWorkspaceCredentials();
+  const { clientId, clientSecret, missing } = googleWorkspaceCredentials();
   if (missing.length > 0) {
     throw new Error(`Missing Google OAuth configuration: ${missing.join(", ")}`);
   }
@@ -1508,6 +1512,7 @@ async function refreshGoogleWorkspaceVault(record) {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: clientId,
+      client_secret: clientSecret,
       grant_type: "refresh_token",
       refresh_token: token.refreshToken,
     }),
