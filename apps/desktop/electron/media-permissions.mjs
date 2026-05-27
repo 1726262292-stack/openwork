@@ -1,7 +1,6 @@
 export function configureFakeMediaForTests(app, enabled) {
   if (!enabled) return;
   app.commandLine.appendSwitch("use-fake-device-for-media-stream");
-  app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
 }
 
 function isLocalRendererOrigin(origin) {
