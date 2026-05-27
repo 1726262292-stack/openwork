@@ -43,10 +43,10 @@ import { useShellConfig } from "../../../shell/shell-config";
 import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-store";
 
 import { isElectronRuntime } from "../../../../app/utils";
-import { BrowserPanel } from "../browser/browser-panel";
-import { ArtifactPanel } from "../artifacts/artifact-panel";
 import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, type OpenTarget } from "../artifacts/open-target";
 import { VoicePanel } from "../voice/voice-panel";
+import { SidePanel } from "../panel/side-panel";
+import { useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { getExtensionId, isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED } from "../../settings/extension-state";
@@ -58,6 +58,7 @@ const STARTUP_SKELETON_ROWS = [
   { id: "final", titleWidth: "36%", bodyWidth: "74%" },
 ];
 const GLOBAL_VOICE_SIDE_PANEL_KEY = "__openwork_voice__";
+const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
 
 type StatusBarOverrides = Pick<
   StatusBarProps,
@@ -228,23 +229,30 @@ export function SessionPage(props: SessionPageProps) {
   const voiceSidePanelOpen = useUiStateStore((state) => state.sidePanelState[GLOBAL_VOICE_SIDE_PANEL_KEY] === "voice");
   const setSidePanelState = useUiStateStore((state) => state.setSidePanelState);
   const toggleSidePanelState = useUiStateStore((state) => state.toggleSidePanelState);
-  const [artifactTarget, setArtifactTarget] = useState<OpenTarget | null>(null);
-  const [openTargets, setOpenTargets] = useState<OpenTarget[]>([]);
-  const [hiddenAccessibleTargetIds, setHiddenAccessibleTargetIds] = useState<Set<string>>(() => new Set());
+  const openTab = usePanelTabStore((state) => state.openTab);
+  const closeTab = usePanelTabStore((state) => state.closeTab);
+  const selectTab = usePanelTabStore((state) => state.selectTab);
+  const transcriptTargets = usePanelTabStore((state) => (
+    props.selectedSessionId ? state.transcriptArtifactTargets[props.selectedSessionId] ?? EMPTY_TRANSCRIPT_TARGETS : EMPTY_TRANSCRIPT_TARGETS
+  ));
+  const sessionPanelState = useSessionPanelState(props.selectedSessionId ?? "");
+  const activePanelTab = useActivePanelTab(props.selectedSessionId ?? "");
+  const [hiddenTargetRevision, setHiddenTargetRevision] = useState(0);
   const [, setExtensionStateVersion] = useState(0);
-  const loadedHiddenTargetsKeyRef = useRef<string | null>(null);
+  const hiddenAccessibleTargetIds = useMemo(
+    () => readHiddenAccessibleTargetIds(props.selectedWorkspaceId, props.selectedSessionId),
+    [props.selectedSessionId, props.selectedWorkspaceId, hiddenTargetRevision],
+  );
   const accessibleTargets = useMemo(
-    () => openTargets.filter((target) => isTrackableAccessibleTarget(target) && !hiddenAccessibleTargetIds.has(target.id)),
-    [hiddenAccessibleTargetIds, openTargets],
+    () => transcriptTargets.filter((target) => isTrackableAccessibleTarget(target) && !hiddenAccessibleTargetIds.has(target.id)),
+    [hiddenAccessibleTargetIds, transcriptTargets],
   );
   const artifactFileTargets = useMemo(() => accessibleTargets.filter(isCollectibleArtifactTarget), [accessibleTargets]);
-  const visibleArtifactTarget = artifactTarget ?? artifactFileTargets[0] ?? null;
   const artifactTargetCount = artifactFileTargets.length;
   const hasArtifactTargets = artifactTargetCount > 0;
   const activeSidePanel = voiceSidePanelOpen ? "voice" : sessionSidePanel;
   const sidePanelOpen = activeSidePanel !== null;
-  const browserRailActive = activeSidePanel === "browser";
-  const artifactRailActive = activeSidePanel === "artifacts";
+  const panelRailActive = activeSidePanel === "panel";
   const extensionsRailActive = activeSidePanel === "extensions";
   const voiceRailActive = activeSidePanel === "voice";
   const voiceExtension = useMemo(
@@ -286,11 +294,10 @@ export function SessionPage(props: SessionPageProps) {
     toggleSidePanelState(props.selectedSessionId, panel);
   }, [props.selectedSessionId, setSidePanelState, toggleSidePanelState]);
 
-  // Sync browser panel state with Electron main process IPC events.
   // When the agent calls a built-in browser tool, the main process opens
   // the WebContentsView and sends panel-opened; when hide_browser is called
-  // it sends panel-closed.  Without this listener the React UI never knows
-  // the panel opened and doesn't render the BrowserPanel toolbar.
+  // it sends panel-closed. Without this listener the React UI never knows
+  // the panel opened and doesn't render the unified panel chrome.
   useEffect(() => {
     if (!isElectronRuntime()) return;
     const browser = (window as Window).__OPENWORK_ELECTRON__?.browser;
@@ -300,7 +307,7 @@ export function SessionPage(props: SessionPageProps) {
         preserveSidePanelOnPanelOpenRef.current = false;
         return;
       }
-      setCurrentSidePanel("browser");
+      setCurrentSidePanel("panel");
     });
     const unsubClose = browser.onPanelClosed?.(() => setCurrentSidePanel(null));
     return () => { unsubOpen?.(); unsubClose?.(); };
@@ -324,16 +331,6 @@ export function SessionPage(props: SessionPageProps) {
     setBrowserPanelDefaultWidth(browserPanelWidth);
   }, [sidePanelOpen, browserPanelWidth]);
   useEffect(() => {
-    loadedHiddenTargetsKeyRef.current = hiddenAccessibleTargetsStorageKey(props.selectedWorkspaceId, props.selectedSessionId);
-    setArtifactTarget(null);
-    setOpenTargets([]);
-    setHiddenAccessibleTargetIds(readHiddenAccessibleTargetIds(props.selectedWorkspaceId, props.selectedSessionId));
-  }, [props.selectedSessionId, props.selectedWorkspaceId]);
-  useEffect(() => {
-    if (loadedHiddenTargetsKeyRef.current !== hiddenAccessibleTargetsStorageKey(props.selectedWorkspaceId, props.selectedSessionId)) return;
-    writeHiddenAccessibleTargetIds(props.selectedWorkspaceId, props.selectedSessionId, hiddenAccessibleTargetIds);
-  }, [hiddenAccessibleTargetIds, props.selectedSessionId, props.selectedWorkspaceId]);
-  useEffect(() => {
     props.onAccessibleTargetsChange?.(accessibleTargets);
   }, [accessibleTargets, props.onAccessibleTargetsChange]);
   const commitBrowserPanelWidth = useCallback(() => {
@@ -348,40 +345,59 @@ export function SessionPage(props: SessionPageProps) {
     if (target.kind === "url" || target.preview === "browser") {
       const url = browserUrlForTarget(target);
       if (isElectronRuntime()) {
-        setCurrentSidePanel("browser");
+        setCurrentSidePanel("panel");
         void window.__OPENWORK_ELECTRON__?.browser?.createTab?.(url);
       } else {
         window.open(url, "_blank", "noopener,noreferrer");
       }
       return;
     }
-    if (options?.auto && artifactTarget?.id === target.id) return;
-    setArtifactTarget(target);
-    preserveSidePanelOnPanelOpenRef.current = true;
-    setCurrentSidePanel("artifacts");
-  }, [artifactTarget?.id, browserUrlForTarget, setCurrentSidePanel]);
-  const handleOpenTargetsChange = useCallback((targets: OpenTarget[]) => {
-    setOpenTargets(targets);
-    setArtifactTarget((current) => {
-      if (!current) return current;
-      const updated = targets.find((target) => target.id === current.id || target.value === current.value);
-      if (!updated) return current;
-      return isCollectibleArtifactTarget(updated) ? updated : null;
+    if (!props.selectedSessionId || !isCollectibleArtifactTarget(target)) return;
+    if (options?.auto && activePanelTab?.id === target.id) return;
+    openTab(props.selectedSessionId, {
+      id: target.id,
+      type: "artifact",
+      label: target.name,
+      preview: target.preview,
     });
-  }, []);
+    preserveSidePanelOnPanelOpenRef.current = true;
+    setCurrentSidePanel("panel");
+  }, [activePanelTab?.id, browserUrlForTarget, openTab, props.selectedSessionId, setCurrentSidePanel]);
   const closeRightPane = useCallback(() => {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
   const openBrowserRailPane = useCallback(() => {
-    toggleCurrentSidePanel("browser");
+    toggleCurrentSidePanel("panel");
   }, [toggleCurrentSidePanel]);
   const openArtifactRailPane = useCallback(() => {
-    if (!hasArtifactTargets) return;
-    if (!artifactRailActive) {
+    if (!hasArtifactTargets || !props.selectedSessionId) return;
+    const activeTab = sessionPanelState.tabs.find((tab) => tab.id === sessionPanelState.activeTabId);
+    const artifactTargetIds = new Set(artifactFileTargets.map((target) => target.id));
+    const artifactTab = sessionPanelState.tabs.find((tab) => (
+      tab.type === "artifact" && artifactTargetIds.has(tab.id)
+    ));
+    const firstArtifact = artifactFileTargets[0];
+    if (panelRailActive && activeTab?.type === "artifact") {
+      toggleCurrentSidePanel("panel");
+      return;
+    }
+    if (!panelRailActive) {
       preserveSidePanelOnPanelOpenRef.current = true;
     }
-    toggleCurrentSidePanel("artifacts");
-  }, [artifactRailActive, hasArtifactTargets, toggleCurrentSidePanel]);
+    if (artifactTab) {
+      selectTab(props.selectedSessionId, artifactTab.id);
+    } else if (firstArtifact) {
+      openTab(props.selectedSessionId, {
+        id: firstArtifact.id,
+        type: "artifact",
+        label: firstArtifact.name,
+        preview: firstArtifact.preview,
+      });
+    }
+    if (!panelRailActive) {
+      toggleCurrentSidePanel("panel");
+    }
+  }, [artifactFileTargets, hasArtifactTargets, openTab, panelRailActive, props.selectedSessionId, selectTab, sessionPanelState, toggleCurrentSidePanel]);
   const openExtensionsRailPane = useCallback(() => {
     toggleCurrentSidePanel("extensions");
   }, [toggleCurrentSidePanel]);
@@ -389,9 +405,14 @@ export function SessionPage(props: SessionPageProps) {
     toggleCurrentSidePanel("voice");
   }, [toggleCurrentSidePanel]);
   const removeAccessibleTarget = useCallback((target: OpenTarget) => {
-    setHiddenAccessibleTargetIds((current) => new Set(current).add(target.id));
-    setArtifactTarget((current) => current?.id === target.id ? null : current);
-  }, []);
+    const nextHiddenIds = new Set(hiddenAccessibleTargetIds);
+    nextHiddenIds.add(target.id);
+    writeHiddenAccessibleTargetIds(props.selectedWorkspaceId, props.selectedSessionId, nextHiddenIds);
+    setHiddenTargetRevision((value) => value + 1);
+    if (props.selectedSessionId) {
+      closeTab(props.selectedSessionId, target.id);
+    }
+  }, [closeTab, hiddenAccessibleTargetIds, props.selectedSessionId, props.selectedWorkspaceId]);
   useEffect(() => {
     const open = (event: Event) => {
       const requested = (event as CustomEvent<OpenTarget>).detail;
@@ -741,7 +762,6 @@ export function SessionPage(props: SessionPageProps) {
                   respondQuestion={props.respondQuestion}
                   safeStringify={props.safeStringify}
                   onOpenTarget={openTarget}
-                  onOpenTargetsChange={handleOpenTargetsChange}
                 />
               ) : null}
 
@@ -914,20 +934,16 @@ export function SessionPage(props: SessionPageProps) {
                       sessionId={props.selectedSessionId}
                       onClose={closeRightPane}
                     />
-                  ) : activeSidePanel === "artifacts" && visibleArtifactTarget && props.openworkServerClient && props.runtimeWorkspaceId ? (
-                    <ArtifactPanel
+                  ) : activeSidePanel === "panel" && props.selectedSessionId ? (
+                    <SidePanel
+                      sessionId={props.selectedSessionId}
                       client={props.openworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
                       isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
-                      target={visibleArtifactTarget}
-                      targets={artifactFileTargets}
-                      onSelectTarget={openTarget}
                       onClose={closeRightPane}
                     />
-                  ) : (
-                    <BrowserPanel onClose={closeRightPane} />
-                  )}
+                  ) : null}
                 </ResizablePanel>
               </>
             ) : null}
@@ -939,12 +955,12 @@ export function SessionPage(props: SessionPageProps) {
                 size="icon-sm"
                 className={cn(
                   "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                  browserRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                  panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
                 )}
                 onClick={openBrowserRailPane}
                 title="Browser"
                 aria-label="Browser"
-                aria-pressed={browserRailActive}
+                aria-pressed={panelRailActive}
               >
                 <Globe size={17} />
               </Button>
@@ -970,12 +986,12 @@ export function SessionPage(props: SessionPageProps) {
               size="icon-sm"
               className={cn(
                 "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                artifactRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
               )}
               onClick={openArtifactRailPane}
               title={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
               aria-label={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
-              aria-pressed={artifactRailActive}
+              aria-pressed={panelRailActive}
               disabled={!hasArtifactTargets}
             >
               <FileText size={17} />

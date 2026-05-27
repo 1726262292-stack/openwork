@@ -25,6 +25,12 @@ export type {
 } from "./desktop-types";
 
 import type { WorkspaceList } from "./desktop-types";
+import type { BrowserPanelTab } from "../../react-app/domains/session/panel/panel-tab-store";
+
+export type BrowserStatePayload = {
+  activeTabId?: string | null;
+  tabs?: BrowserPanelTab[];
+};
 
 // ---------------------------------------------------------------------------
 // Electron bridge surface
@@ -88,68 +94,16 @@ declare global {
         forward?: () => Promise<void>;
         reload?: () => Promise<void>;
         setBounds?: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
-        getState?: () => Promise<{
-          url: string;
-          title: string;
-          canGoBack: boolean;
-          canGoForward: boolean;
-          isLoading: boolean;
-          activeTabId?: string | null;
-          tabs?: Array<{
-            tabId: string;
-            url: string;
-            title: string;
-            favicon?: string | null;
-            canGoBack: boolean;
-            canGoForward: boolean;
-            isLoading: boolean;
-            isActive: boolean;
-          }>;
-        } | null>;
+        getState?: () => Promise<BrowserStatePayload | null>;
         createTab?: (url?: string) => Promise<{ tabId: string }>;
         closeTab?: (tabId: string) => Promise<string | null>;
         closeAllTabs?: () => Promise<string[]>;
         selectTab?: (tabId: string) => Promise<string>;
-        reorderTabs?: (tabIds: string[]) => Promise<Array<{
-          tabId: string;
-          url: string;
-          title: string;
-          favicon?: string | null;
-          canGoBack: boolean;
-          canGoForward: boolean;
-          isLoading: boolean;
-          isActive: boolean;
-        }>>;
-        listTabs?: () => Promise<Array<{
-          tabId: string;
-          url: string;
-          title: string;
-          favicon?: string | null;
-          canGoBack: boolean;
-          canGoForward: boolean;
-          isLoading: boolean;
-          isActive: boolean;
-        }>>;
+        reorderTabs?: (tabIds: string[]) => Promise<BrowserPanelTab[]>;
+        listTabs?: () => Promise<BrowserPanelTab[]>;
         showTabContextMenu?: (tabId: string, point?: { x: number; y: number }) => Promise<void>;
         destroy?: () => Promise<void>;
-        onStateChange?: (callback: (state: {
-          url: string;
-          title: string;
-          canGoBack: boolean;
-          canGoForward: boolean;
-          isLoading: boolean;
-          activeTabId?: string | null;
-          tabs?: Array<{
-            tabId: string;
-            url: string;
-            title: string;
-            favicon?: string | null;
-            canGoBack: boolean;
-            canGoForward: boolean;
-            isLoading: boolean;
-            isActive: boolean;
-          }>;
-        }) => void) => () => void;
+        onStateChange?: (callback: (state: BrowserStatePayload) => void) => () => void;
         onPanelOpened?: (callback: () => void) => () => void;
         onPanelClosed?: (callback: () => void) => () => void;
       };

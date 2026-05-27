@@ -508,7 +508,7 @@ let activeBrowserTabId = null;
 let browserViewVisible = false;
 let lastBrowserBounds = null;
 let browserTabCounter = 0;
-const BROWSER_DEFAULT_URL = "https://www.google.com";
+const BROWSER_DEFAULT_URL = "about:blank";
 const MENU_OVERLAY_HTML = "overlay.html";
 const MENU_OVERLAY_WIDTH = 196;
 const MENU_OVERLAY_HEIGHT = 176;
@@ -725,45 +725,48 @@ function getActiveWebContents() {
   return getActiveBrowserView()?.webContents ?? null;
 }
 
+function getBrowserTabLabel(title, url) {
+  if (title) {
+    return title;
+  }
+
+  if (url && url !== "about:blank") {
+    return url;
+  }
+
+  return "New tab";
+}
+
+function browserTabToPanelTab(tabId, tab) {
+  const webContents = tab.view.webContents;
+  const url = webContents.getURL();
+  const title = webContents.getTitle();
+  const isLoading = webContents.isLoading();
+
+  return {
+    id: tabId,
+    type: "browser",
+    label: getBrowserTabLabel(title, url),
+    url,
+    favicon: tab.favicon ?? null,
+    status: isLoading ? "loading" : "ready",
+    canGoBack: webContents.canGoBack(),
+    canGoForward: webContents.canGoForward(),
+  };
+}
+
 function listBrowserTabs() {
   return browserTabOrder
     .map((tabId) => {
       const tab = browserTabs.get(tabId);
       if (!tab || tab.view.webContents.isDestroyed()) return null;
-      return {
-        tabId,
-        url: tab.view.webContents.getURL(),
-        title: tab.view.webContents.getTitle(),
-        favicon: tab.favicon,
-        canGoBack: tab.view.webContents.canGoBack(),
-        canGoForward: tab.view.webContents.canGoForward(),
-        isLoading: tab.view.webContents.isLoading(),
-        isActive: tabId === activeBrowserTabId,
-      };
+      return browserTabToPanelTab(tabId, tab);
     })
     .filter(Boolean);
 }
 
 function browserStatePayload() {
-  const activeTab = getBrowserTab();
-  const activeWebContents = activeTab?.view.webContents;
-  const activeState = activeWebContents && !activeWebContents.isDestroyed()
-    ? {
-        url: activeWebContents.getURL(),
-        title: activeWebContents.getTitle(),
-        canGoBack: activeWebContents.canGoBack(),
-        canGoForward: activeWebContents.canGoForward(),
-        isLoading: activeWebContents.isLoading(),
-      }
-    : {
-        url: "",
-        title: "",
-        canGoBack: false,
-        canGoForward: false,
-        isLoading: false,
-      };
   return {
-    ...activeState,
     activeTabId: activeBrowserTabId,
     tabs: listBrowserTabs(),
   };
@@ -1117,10 +1120,10 @@ function sendBrowserState() {
  * Attach the browser view to the main window.
  * @param {object} bounds — { x, y, width, height }
  * @param {object} [opts]
- * @param {boolean} [opts.preloadDefault=true] - load default URL if the view has no URL
- * @param {boolean} [opts.ensureTab=true] - create a blank tab if needed
+ * @param {boolean} [opts.preloadDefault=false] - load default URL if the view has no URL
+ * @param {boolean} [opts.ensureTab=false] - create a blank tab if needed
  */
-function attachBrowserView(bounds, { preloadDefault = true, ensureTab = true } = {}) {
+function attachBrowserView(bounds, { preloadDefault = false, ensureTab = false } = {}) {
   if (!mainWindow) return;
   lastBrowserBounds = bounds;
   browserViewVisible = true;
@@ -2916,10 +2919,6 @@ async function createMainWindow() {
     const packagedIndexPath = path.join(process.resourcesPath, "app-dist", "index.html");
     const devIndexPath = path.resolve(__dirname, "../../app/dist/index.html");
     await mainWindow.loadFile(app.isPackaged ? packagedIndexPath : devIndexPath);
-  }
-
-  if (!activeBrowserTabId) {
-    createBrowserTab("about:blank", { select: true });
   }
 
   return mainWindow;

@@ -48,6 +48,7 @@ import { getSessionActivityStatusLabel, useSessionActivityStore, type SessionAct
 import { PermissionApprovalPanel } from "../chat/permission-approval-modal";
 import { QuestionPanel } from "../modals/question-modal";
 import { deriveOpenTargets, selectAutoOpenTarget, type OpenTarget } from "../artifacts/open-target";
+import { usePanelTabStore } from "../panel/panel-tab-store";
 import {
   seedSessionState,
   statusKey as reactStatusKey,
@@ -120,7 +121,6 @@ export type SessionSurfaceProps = {
   onRevertToMessage?: (messageId: string) => void;
   onForkAtMessage?: (messageId: string) => void;
   onOpenTarget?: (target: OpenTarget, options?: { auto?: boolean }) => void;
-  onOpenTargetsChange?: (targets: OpenTarget[]) => void;
 };
 
 function messageToReadableText(message: UIMessage) {
@@ -666,8 +666,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }, [openTargetsFingerprint, props.client, props.sessionId, props.workspaceId]);
 
   useEffect(() => {
-    props.onOpenTargetsChange?.(verifiedOpenTargets);
-  }, [props.onOpenTargetsChange, verifiedOpenTargets]);
+    usePanelTabStore.getState().syncTranscriptArtifacts(props.sessionId, verifiedOpenTargets);
+  }, [props.sessionId, verifiedOpenTargets]);
 
   useEffect(() => {
     if (!pendingSessionLoad) {
