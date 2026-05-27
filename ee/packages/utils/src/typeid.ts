@@ -67,7 +67,6 @@ export const idTypesMapNameToPrefix = {
   inferenceUsageLedgerEntry: "iule",
   inferenceUsageLedgerBucketCharge: "iulc",
   inferenceModelAlias: "ima",
-  tempTemplateSharing: "tts",
   adminAllowlist: "aal",
   worker: "wrk",
   workerInstance: "wki",

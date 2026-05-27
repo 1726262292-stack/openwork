@@ -12,10 +12,6 @@ export type OrgRouteVariables =
   & Partial<OrganizationContextVariables>
   & Partial<MemberTeamsContext>
 
-export const orgIdParamSchema = z.object({
-  orgId: denTypeIdSchema("organization"),
-})
-
 export function idParamSchema<K extends string>(key: K, typeName?: DenTypeIdName) {
   if (!typeName) {
     return z.object({
@@ -65,14 +61,6 @@ const createNanoid = customAlphabet("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg
 
 export function buildInvitationLink(inviteToken: string) {
   return new URL(`/join-org?invite=${encodeURIComponent(inviteToken)}`, getInvitationOrigin()).toString()
-}
-
-export function parseTemplateJson(value: string) {
-  try {
-    return JSON.parse(value)
-  } catch {
-    return null
-  }
 }
 
 export function ensureOwner(c: { get: (key: "organizationContext") => OrgRouteVariables["organizationContext"] }) {

@@ -9,12 +9,14 @@ import { requestId } from "hono/request-id"
 import { describeRoute, openAPIRouteHandler, resolver } from "hono-openapi"
 import { z } from "zod"
 import { env } from "./env.js"
+import { registerMcpRoutes } from "./mcp/index.js"
 import type { MemberTeamsContext, OrganizationContextVariables, UserOrganizationsContext } from "./middleware/index.js"
 import { buildOperationId, emptyResponse, htmlResponse, jsonResponse } from "./openapi.js"
 import { registerAdminRoutes } from "./routes/admin/index.js"
 import { registerAuthRoutes } from "./routes/auth/index.js"
 import { registerMeRoutes } from "./routes/me/index.js"
 import { registerOrgRoutes } from "./routes/org/index.js"
+import { registerTelemetryRoutes } from "./routes/telemetry/index.js"
 import { registerVersionRoutes } from "./routes/version/index.js"
 import { registerWebhookRoutes } from "./routes/webhooks/index.js"
 import { registerWorkerRoutes } from "./routes/workers/index.js"
@@ -65,7 +67,7 @@ if (env.corsOrigins.length > 0) {
       cors({
         origin: env.corsOrigins,
         credentials: true,
-        allowHeaders: ["Content-Type", "Authorization", "X-Api-Key", "X-Request-Id"],
+        allowHeaders: ["Content-Type", "Authorization", "X-Api-Key", "X-Request-Id", "X-OpenWork-Legacy-Org-Id"],
         allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         exposeHeaders: ["Content-Length", "X-Request-Id"],
         maxAge: 600,
@@ -120,6 +122,8 @@ registerOrgRoutes(app)
 registerVersionRoutes(app)
 registerWebhookRoutes(app)
 registerWorkerRoutes(app)
+registerMcpRoutes(app)
+registerTelemetryRoutes(app)
 
 app.get(
   "/openapi.json",
@@ -168,6 +172,7 @@ app.get(
         { name: "Workers", description: "Worker lifecycle, billing, and runtime routes." },
         { name: "Worker Runtime", description: "Worker runtime inspection and upgrade routes." },
         { name: "Worker Activity", description: "Worker heartbeat and activity reporting routes." },
+        { name: "Telemetry", description: "Telemetry event ingestion and adoption analytics." },
         { name: "Admin", description: "Administrative reporting routes." },
         { name: "Users", description: "Current user and membership routes." },
       ],

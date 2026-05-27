@@ -16,7 +16,6 @@ import {
   LogOut,
   MessageSquare,
   Puzzle,
-  Share2,
   Shield,
   SlidersHorizontal,
   Sparkles,
@@ -41,7 +40,6 @@ import {
   getPluginsRoute,
   getSsoRoute,
   getScimRoute,
-  getSharedSetupsRoute,
   getSkillHubsRoute,
 } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
@@ -109,9 +107,6 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
   if (pathname === dashboardRoot) {
     return "Home";
   }
-  if (pathname.startsWith(getSharedSetupsRoute(orgSlug))) {
-    return "Team Templates";
-  }
   if (pathname.startsWith(getMembersRoute(orgSlug))) {
     return "Members";
   }
@@ -125,7 +120,7 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
     return "SSO";
   }
   if (pathname.startsWith(getBackgroundAgentsRoute(orgSlug))) {
-    return "Shared Workspaces";
+    return "Background Tasks";
   }
   if (pathname.startsWith(getCustomLlmProvidersRoute(orgSlug))) {
     return "LLM Providers";

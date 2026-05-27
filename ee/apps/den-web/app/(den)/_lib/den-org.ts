@@ -318,10 +318,6 @@ export function getMembersRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/members`;
 }
 
-export function getSharedSetupsRoute(orgSlug?: string | null): string {
-  return `${getOrgDashboardRoute(orgSlug)}/shared-setups`;
-}
-
 export function getBackgroundAgentsRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/background-agents`;
 }
