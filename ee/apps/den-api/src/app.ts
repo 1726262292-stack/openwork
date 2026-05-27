@@ -40,7 +40,16 @@ const openApiDocumentSchema = z.object({
 
 const app = new Hono<{ Variables: AppVariables }>()
 
-app.use("*", logger())
+const requestLogger = logger()
+
+app.use("*", async (c, next) => {
+  if (c.req.path === "/health") {
+    await next()
+    return
+  }
+
+  return requestLogger(c, next)
+})
 app.use("*", requestId({
   headerName: "",
   generator: () => createDenTypeId("request"),
