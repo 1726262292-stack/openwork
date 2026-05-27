@@ -49,7 +49,7 @@ export const idTypesMapNameToPrefix = {
   desktopPolicy: "dpo",
   desktopPolicyMember: "dpm",
   organizationRole: "orl",
-  orgSubscription: "osb",
+  orgSubscription: "osub",
   scimProvider: "scp",
   ssoConnection: "ssc",
   ssoProvider: "ssp",
