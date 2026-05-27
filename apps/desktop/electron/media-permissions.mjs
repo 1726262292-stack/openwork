@@ -23,7 +23,7 @@ function shouldAllowMainWindowPermission(input) {
   const mediaType = typeof details.mediaType === "string" ? details.mediaType : "";
   if (mediaType && mediaType !== "audio") return false;
   const mediaTypes = Array.isArray(details.mediaTypes) ? details.mediaTypes : [];
-  return mediaTypes.length === 0 || (mediaTypes.includes("audio") && !mediaTypes.includes("video"));
+  return mediaType === "audio" || (mediaTypes.includes("audio") && !mediaTypes.includes("video"));
 }
 
 export function installMediaPermissionHandlers(session, getMainWindow) {
