@@ -114,13 +114,14 @@ async function ensureVoicePanel(client) {
 
 async function collectProof(client, expectedRoute) {
   const started = Date.now();
-  let proof = await readProof(client);
-  while (Date.now() - started < 60000) {
+  let proof = null;
+  while (true) {
+    proof = await readProof(client);
     const routeMatched = expectedRoute && proof.href.includes(expectedRoute);
     const acted = proof.narration.includes("Done:") || proof.narration.includes("Running");
     if (routeMatched || (!expectedRoute && acted)) return { ...proof, elapsedMs: Date.now() - started };
+    if (Date.now() - started >= 60000) break;
     await new Promise((resolve) => setTimeout(resolve, 1000));
-    proof = await readProof(client);
   }
   return { ...proof, elapsedMs: Date.now() - started, timedOut: true };
 }
@@ -205,15 +206,27 @@ function connectCdp(webSocketDebuggerUrl) {
     const socket = new WebSocket(webSocketDebuggerUrl);
     let nextId = 1;
     const pending = new Map();
+    let opened = false;
+
+    const rejectPending = (error) => {
+      for (const callbacks of pending.values()) callbacks.reject(error);
+      pending.clear();
+    };
 
     socket.addEventListener("open", () => {
+      opened = true;
       resolve({
         close: () => socket.close(),
         send(method, params = {}) {
           const id = nextId++;
-          socket.send(JSON.stringify({ id, method, params }));
           return new Promise((innerResolve, innerReject) => {
             pending.set(id, { resolve: innerResolve, reject: innerReject });
+            try {
+              socket.send(JSON.stringify({ id, method, params }));
+            } catch (error) {
+              pending.delete(id);
+              innerReject(error);
+            }
           });
         },
       });
@@ -227,7 +240,16 @@ function connectCdp(webSocketDebuggerUrl) {
       if (message.error) callbacks.reject(new Error(message.error.message));
       else callbacks.resolve(message.result);
     });
-    socket.addEventListener("error", () => reject(new Error("CDP websocket failed.")));
+    socket.addEventListener("error", () => {
+      const error = new Error("CDP websocket failed.");
+      rejectPending(error);
+      if (!opened) reject(error);
+    });
+    socket.addEventListener("close", () => {
+      const error = new Error("CDP websocket closed.");
+      rejectPending(error);
+      if (!opened) reject(error);
+    });
   });
 }
 
