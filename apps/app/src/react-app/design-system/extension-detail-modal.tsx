@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { CheckCircle2, ExternalLink, Loader2, Plug2 } from "lucide-react";
+import { CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   Card,
@@ -29,6 +29,7 @@ import { MarkdownBlock } from "../domains/session/surface/markdown";
 import { modalBodyClass } from "../domains/workspace/modal-styles";
 import { resolveExtensionIconSrc } from "./extension-icon-src";
 import { ExtensionMeshAvatar } from "./extension-mesh-avatar";
+import { grainArtCategoryForExtensionKind } from "./grain-art";
 
 export type ExtensionDetailModalProps = {
   open: boolean;
@@ -186,7 +187,6 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
     description,
     iconSlug,
     iconSrc,
-    fallbackIcon: FallbackIcon = Plug2,
     kind = "mcp",
     connected = false,
     connectedLabel,
@@ -247,9 +247,11 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                     <img src={`https://cdn.simpleicons.org/${iconSlug}`} alt="" width={20} height={20} loading="lazy" style={{ display: "block" }} />
                   </div>
                 ) : (
-                  kind === "plugin" || kind === "skill" ? (
-                    <ExtensionMeshAvatar name={name} className="size-9 rounded-lg text-xs font-bold shadow-inner" />
-                  ) : <FallbackIcon size={24} className="text-muted-foreground" />
+                  <ExtensionMeshAvatar
+                    name={name}
+                    category={grainArtCategoryForExtensionKind(kind)}
+                    className="size-9 rounded-lg text-xs font-bold shadow-inner"
+                  />
                 )}
               </div>
               {connected ? (
