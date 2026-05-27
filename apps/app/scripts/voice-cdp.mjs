@@ -10,6 +10,7 @@ const args = parseArgs(process.argv.slice(2));
 const cdpUrl = args.cdpUrl ?? process.env.CDP_URL ?? "http://127.0.0.1:9825";
 const mode = args.mode ?? "preflight";
 const text = args.text ?? "Open extension settings.";
+const expectRoute = args.expectRoute ?? "";
 const requireAudioPermission = args.requireAudioPermission === true;
 
 async function main() {
@@ -35,6 +36,8 @@ async function main() {
       const pcm16Base64 = await synthesizePcm16Base64(text);
       const audio = await executeControl(client, "voice.inject_audio", { pcm16Base64 });
       console.log(JSON.stringify({ step: "audio", result: audio }, null, 2));
+      const proof = await collectProof(client, expectRoute);
+      console.log(JSON.stringify({ step: "proof", result: proof }, null, 2));
     }
   } finally {
     client.close();
@@ -48,6 +51,7 @@ function parseArgs(values) {
     if (value === "--mode") parsed.mode = values[++index];
     else if (value === "--text") parsed.text = values[++index];
     else if (value === "--cdp-url") parsed.cdpUrl = values[++index];
+    else if (value === "--expect-route") parsed.expectRoute = values[++index];
     else if (value === "--require-audio-permission") parsed.requireAudioPermission = true;
   }
   return parsed;
@@ -97,6 +101,7 @@ async function mediaPreflight() {
 
 async function ensureVoicePanel(client) {
   await evaluate(client, "window.__openworkControl.setEnabled(true)");
+  await evaluate(client, "window.localStorage.setItem('openwork.extension.enabled.openwork-voice', '1'); window.dispatchEvent(new CustomEvent('openwork:extension-state-changed', { detail: { id: 'openwork-voice', enabled: true } }))");
   let actions = await evaluate(client, "window.__openworkControl.listActions().map((action) => action.id)");
   if (actions.includes("voice.inject_audio")) return;
   if (actions.includes("voice.panel.open")) {
@@ -105,6 +110,28 @@ async function ensureVoicePanel(client) {
     return;
   }
   throw new Error(`Voice panel actions are not registered. Open a session and enable Voice Mode first. Voice actions: ${actions.filter((id) => id.startsWith("voice.")).join(", ")}`);
+}
+
+async function collectProof(client, expectedRoute) {
+  const started = Date.now();
+  let proof = await readProof(client);
+  while (Date.now() - started < 60000) {
+    const routeMatched = expectedRoute && proof.href.includes(expectedRoute);
+    const acted = proof.narration.includes("Done:") || proof.narration.includes("Running");
+    if (routeMatched || (!expectedRoute && acted)) return { ...proof, elapsedMs: Date.now() - started };
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    proof = await readProof(client);
+  }
+  return { ...proof, elapsedMs: Date.now() - started, timedOut: true };
+}
+
+async function readProof(client) {
+  return evaluate(client, `({
+    href: location.href,
+    narration: window.__openworkControl?.snapshot?.().narration ?? "",
+    route: window.__openworkControl?.snapshot?.().route ?? "",
+    bodyText: document.body.innerText.slice(-2400),
+  })`);
 }
 
 async function executeControl(client, actionId, actionArgs = undefined) {
