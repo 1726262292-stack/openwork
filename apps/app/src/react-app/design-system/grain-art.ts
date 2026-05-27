@@ -20,7 +20,7 @@ function categoryPrefix(category: GrainArtCategory) {
 export function grainArtSrc(category: GrainArtCategory, seed: string) {
   const index = (hashSeed(`${category}:${seed}`) % GRAIN_ART_COUNT) + 1;
   const padded = String(index).padStart(3, "0");
-  return `/grain-art/${category}/${categoryPrefix(category)}-${padded}.png`;
+  return `${import.meta.env.BASE_URL}grain-art/${category}/${categoryPrefix(category)}-${padded}.png`;
 }
 
 export function grainArtCategoryForExtensionKind(kind: ExtensionKind): GrainArtCategory {
