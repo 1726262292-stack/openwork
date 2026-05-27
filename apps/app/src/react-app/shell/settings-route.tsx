@@ -59,8 +59,8 @@ import { CloudProvidersView } from "../domains/settings/pages/cloud-providers-vi
 import { CloudWorkersView } from "../domains/settings/pages/cloud-workers-view";
 import { DebugView } from "../domains/settings/pages/debug-view";
 import { EnvironmentView } from "../domains/settings/pages/environment-view";
+import { ExtensionsCatalogView } from "../domains/settings/pages/extensions-catalog-view";
 import { ExtensionsView } from "../domains/settings/pages/extensions-view";
-import { McpView } from "../domains/settings/pages/mcp-view";
 import { RecoveryView } from "../domains/settings/pages/recovery-view";
 import { MessagingView } from "../domains/settings/pages/messaging-view";
 import { SkillsView } from "../domains/settings/pages/skills-view";
@@ -1658,7 +1658,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         }]
       : [],
   );
-  const mcpConnectedAppsCount = connectionsSnapshot.mcpServers.length;
+  const connectedExtensionCount = connectionsSnapshot.mcpServers.length;
 
   // Build enablement context from all available runtime state.
   const enablementContext = useMemo<EnablementContext>(() => {
@@ -2080,7 +2080,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             accessHint={pluginsAccessHint}
             suggestedPlugins={SUGGESTED_PLUGINS}
             extensions={extensionsStore}
-            mcpConnectedAppsCount={mcpConnectedAppsCount}
+            connectedExtensionCount={connectedExtensionCount}
             initialSection={route.extensionsSection}
             setSectionRoute={(section) => {
               const path = `extensions/${section}`;
@@ -2091,8 +2091,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void extensionsStore.refreshPlugins();
               void extensionsStore.refreshCloudOrgMarketplaces({ force: true });
             }}
-            mcpView={
-              <McpView
+            catalogView={
+              <ExtensionsCatalogView
                 busy={busy}
                 selectedWorkspaceRoot={selectedWorkspaceRoot}
                 isRemoteWorkspace={isRemoteWorkspace}

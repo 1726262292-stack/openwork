@@ -1,10 +1,8 @@
-import type { SetStateAction } from "react";
-
 import type { OpencodeConfigFile } from "../../../../app/lib/desktop";
 
 export type ConfigScope = "project" | "global";
 
-export type McpViewLocalState = {
+export type ExtensionsViewLocalState = {
   logoutOpen: boolean;
   logoutTarget: string | null;
   logoutBusy: boolean;
@@ -20,13 +18,13 @@ export type McpViewLocalState = {
   togglingMcp: string | null;
 };
 
-type McpViewLocalAction<K extends keyof McpViewLocalState = keyof McpViewLocalState> =
-  | { type: "set"; key: K; value: SetStateAction<any> }
+type ExtensionsViewLocalAction<K extends keyof ExtensionsViewLocalState = keyof ExtensionsViewLocalState> =
+  | { type: "set"; key: K; value: ExtensionsViewLocalState[K] }
   | { type: "configUnavailable" }
   | { type: "configLoaded"; project: OpencodeConfigFile | null; global: OpencodeConfigFile | null }
   | { type: "configLoadError"; error: string };
 
-export const initialMcpViewLocalState: McpViewLocalState = {
+export const initialExtensionsViewLocalState: ExtensionsViewLocalState = {
   logoutOpen: false,
   logoutTarget: null,
   logoutBusy: false,
@@ -42,17 +40,14 @@ export const initialMcpViewLocalState: McpViewLocalState = {
   togglingMcp: null,
 };
 
-export function mcpViewLocalReducer(
-  state: McpViewLocalState,
-  action: McpViewLocalAction,
-): McpViewLocalState {
+export function extensionsViewLocalReducer(
+  state: ExtensionsViewLocalState,
+  action: ExtensionsViewLocalAction,
+): ExtensionsViewLocalState {
   switch (action.type) {
     case "set": {
       const current = state[action.key];
-      const next =
-        typeof action.value === "function"
-          ? (action.value as (value: typeof current) => typeof current)(current)
-          : action.value;
+      const next = action.value;
       if (Object.is(current, next)) return state;
       return { ...state, [action.key]: next };
     }

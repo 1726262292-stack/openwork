@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useReducer, useRef, useState, type SetStateAction } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import {
   BookOpen,
   CheckCircle2,
@@ -52,11 +52,11 @@ import {
   setOpenWorkExtensionHidden,
 } from "../extension-state";
 import {
-  initialMcpViewLocalState,
-  mcpViewLocalReducer,
+  initialExtensionsViewLocalState,
+  extensionsViewLocalReducer,
   type ConfigScope,
-  type McpViewLocalState,
-} from "./mcp-view-state";
+  type ExtensionsViewLocalState,
+} from "./extensions-view-state";
 
 export type ReactMcpStatus =
   | "connected"
@@ -75,7 +75,7 @@ export type SkillItem = {
 
 const getSkillHiddenId = (skill: SkillItem) => `skill:${skill.name}`;
 
-export type McpViewProps = {
+export type ExtensionsCatalogViewProps = {
   busy: boolean;
   selectedWorkspaceRoot: string;
   isRemoteWorkspace: boolean;
@@ -227,23 +227,22 @@ function isToggleOnlyExtension(entry: McpDirectoryInfo) {
 
 type ExtensionFilter = "all" | "mcp" | "skill" | "plugin";
 
-export function McpView(props: McpViewProps) {
+export function ExtensionsCatalogView(props: ExtensionsCatalogViewProps) {
   const showHeader = props.showHeader !== false;
   const [detailEntry, setDetailEntry] = useState<McpDirectoryInfo | null>(null);
   const [detailSkill, setDetailSkill] = useState<SkillItem | null>(null);
   const [detailSkillContent, setDetailSkillContent] = useState<string | null>(null);
   const [detailPlugin, setDetailPlugin] = useState<CloudImportedPlugin | null>(null);
-  const [openworkUiMcpCommand, setOpenworkUiMcpCommand] = useState<string[] | null>(null);
-  const [openworkUiMcpEnvironment, setOpenworkUiMcpEnvironment] = useState<Record<string, string> | null>(null);
-  const [computerUseMcpCommand, setComputerUseMcpCommand] = useState<string[] | null>(null);
+  const [mcpCommandOverrides, setMcpCommandOverrides] = useState<Record<string, string[] | undefined>>({});
+  const [mcpEnvironmentOverrides, setMcpEnvironmentOverrides] = useState<Record<string, Record<string, string> | undefined>>({});
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ExtensionFilter>("all");
   const [showHidden, setShowHidden] = useState(false);
   const [, setExtensionStateVersion] = useState(0);
 
   const [localState, dispatchLocal] = useReducer(
-    mcpViewLocalReducer,
-    initialMcpViewLocalState,
+    extensionsViewLocalReducer,
+    initialExtensionsViewLocalState,
   );
   const {
     logoutOpen,
@@ -260,21 +259,21 @@ export function McpView(props: McpViewProps) {
     addMcpModalOpen,
     togglingMcp,
   } = localState;
-  const setLocal = <K extends keyof McpViewLocalState>(
+  const setLocal = <K extends keyof ExtensionsViewLocalState>(
     key: K,
-    value: SetStateAction<McpViewLocalState[K]>,
+    value: ExtensionsViewLocalState[K],
   ) => dispatchLocal({ type: "set", key, value });
-  const setLogoutOpen = (value: SetStateAction<boolean>) => setLocal("logoutOpen", value);
-  const setLogoutTarget = (value: SetStateAction<string | null>) => setLocal("logoutTarget", value);
-  const setLogoutBusy = (value: SetStateAction<boolean>) => setLocal("logoutBusy", value);
-  const setRemoveOpen = (value: SetStateAction<boolean>) => setLocal("removeOpen", value);
-  const setRemoveTarget = (value: SetStateAction<string | null>) => setLocal("removeTarget", value);
-  const setConfigScope = (value: SetStateAction<ConfigScope>) => setLocal("configScope", value);
-  const setConfigError = (value: SetStateAction<string | null>) => setLocal("configError", value);
-  const setRevealBusy = (value: SetStateAction<boolean>) => setLocal("revealBusy", value);
-  const setShowAdvanced = (value: SetStateAction<boolean>) => setLocal("showAdvanced", value);
-  const setAddMcpModalOpen = (value: SetStateAction<boolean>) => setLocal("addMcpModalOpen", value);
-  const setTogglingMcp = (value: SetStateAction<string | null>) => setLocal("togglingMcp", value);
+  const setLogoutOpen = (value: boolean) => setLocal("logoutOpen", value);
+  const setLogoutTarget = (value: string | null) => setLocal("logoutTarget", value);
+  const setLogoutBusy = (value: boolean) => setLocal("logoutBusy", value);
+  const setRemoveOpen = (value: boolean) => setLocal("removeOpen", value);
+  const setRemoveTarget = (value: string | null) => setLocal("removeTarget", value);
+  const setConfigScope = (value: ConfigScope) => setLocal("configScope", value);
+  const setConfigError = (value: string | null) => setLocal("configError", value);
+  const setRevealBusy = (value: boolean) => setLocal("revealBusy", value);
+  const setShowAdvanced = (value: boolean) => setLocal("showAdvanced", value);
+  const setAddMcpModalOpen = (value: boolean) => setLocal("addMcpModalOpen", value);
+  const setTogglingMcp = (value: string | null) => setLocal("togglingMcp", value);
   const configRequestId = useRef(0);
 
   const quickConnectList = props.quickConnect;
@@ -293,26 +292,29 @@ export function McpView(props: McpViewProps) {
     if (!isDesktopRuntime()) return;
     void (async () => {
       try {
+        const commandOverrides: Record<string, string[] | undefined> = {};
+        const environmentOverrides: Record<string, Record<string, string> | undefined> = {};
         const command = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("getOpenworkUiMcpCommand");
         if (Array.isArray(command) && command.every((part) => typeof part === "string")) {
-          setOpenworkUiMcpCommand(command);
+          commandOverrides["openwork-ui"] = command;
         }
         const environment = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("getOpenworkUiMcpEnvironment");
         if (environment && typeof environment === "object" && !Array.isArray(environment)) {
-          setOpenworkUiMcpEnvironment(Object.fromEntries(
+          environmentOverrides["openwork-ui"] = Object.fromEntries(
             Object.entries(environment).filter((entry): entry is [string, string] =>
               typeof entry[0] === "string" && typeof entry[1] === "string"
             ),
-          ));
+          );
         }
         const computerUseCommand = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("getComputerUseMcpCommand");
         if (Array.isArray(computerUseCommand) && computerUseCommand.every((part) => typeof part === "string")) {
-          setComputerUseMcpCommand(computerUseCommand);
+          commandOverrides["computer-use"] = computerUseCommand;
         }
+        setMcpCommandOverrides(commandOverrides);
+        setMcpEnvironmentOverrides(environmentOverrides);
       } catch {
-        setOpenworkUiMcpCommand(null);
-        setOpenworkUiMcpEnvironment(null);
-        setComputerUseMcpCommand(null);
+        setMcpCommandOverrides({});
+        setMcpEnvironmentOverrides({});
       }
     })();
   }, []);
@@ -404,9 +406,13 @@ export function McpView(props: McpViewProps) {
   };
 
   const launchCommandForEntry = (entry: McpDirectoryInfo) => {
-    if (entry.serverName === "openwork-ui") return openworkUiMcpCommand ?? undefined;
-    if (entry.serverName === "computer-use") return computerUseMcpCommand ?? entry.command;
+    if (entry.serverName) return mcpCommandOverrides[entry.serverName] ?? entry.command;
     return entry.command;
+  };
+
+  const environmentForEntry = (entry: McpDirectoryInfo) => {
+    if (!entry.serverName) return undefined;
+    return mcpEnvironmentOverrides[entry.serverName];
   };
 
   const supportsOauth = (entry: McpServerEntry) =>
@@ -484,7 +490,7 @@ export function McpView(props: McpViewProps) {
   return (
     <section className="space-y-8 max-w-3xl w-full animate-in fade-in duration-300">
       {showHeader ? (
-        <McpViewHeader connectedCount={connectedCount} />
+        <ExtensionsCatalogHeader connectedCount={connectedCount} />
       ) : null}
 
       {props.mcpStatus ? (
@@ -668,7 +674,7 @@ export function McpView(props: McpViewProps) {
         revealBusy={revealBusy}
         revealLabel={revealLabel}
         configError={configError}
-        onToggle={() => setShowAdvanced((current) => !current)}
+        onToggle={() => setShowAdvanced(!showAdvanced)}
         onScopeChange={setConfigScope}
         onReveal={revealConfig}
       />
@@ -714,7 +720,7 @@ export function McpView(props: McpViewProps) {
             resourceLabels={shouldShowExtensionDetail(detailEntry, "resources") ? extensionResourceLabels(detailEntry) : []}
             contributionLabels={shouldShowExtensionDetail(detailEntry, "contributions") ? extensionContributionLabels(detailEntry) : []}
             launchCommand={launchCommandForEntry(detailEntry)}
-            environment={detailEntry.serverName === "openwork-ui" ? openworkUiMcpEnvironment ?? undefined : undefined}
+            environment={environmentForEntry(detailEntry)}
             url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
             oauth={detailEntry.oauth}
             configSlot={disabledReason ? null : extensionConfigSlot}
@@ -790,7 +796,7 @@ export function McpView(props: McpViewProps) {
   );
 }
 
-function McpViewHeader(props: { connectedCount: number }) {
+function ExtensionsCatalogHeader(props: { connectedCount: number }) {
   return (
     <div>
       <h2 className="text-3xl font-semibold text-dls-text">{t("mcp.apps_title")}</h2>
@@ -946,7 +952,7 @@ function McpConfiguredServersSection(props: {
   onRequestLogout: (name: string) => void;
   onRemove: (name: string) => void;
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
-  onToggleBusy: (value: SetStateAction<string | null>) => void;
+  onToggleBusy: (value: string | null) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -1017,7 +1023,7 @@ function McpConfiguredServerRow(props: {
   onRequestLogout: (name: string) => void;
   onRemove: (name: string) => void;
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
-  onToggleBusy: (value: SetStateAction<string | null>) => void;
+  onToggleBusy: (value: string | null) => void;
 }) {
   const Icon = serviceIcon(props.entry.name);
   return (
@@ -1227,4 +1233,4 @@ function McpConfigScopeButton(props: {
   );
 }
 
-export default McpView;
+export default ExtensionsCatalogView;

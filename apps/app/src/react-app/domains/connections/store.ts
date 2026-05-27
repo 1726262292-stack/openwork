@@ -36,6 +36,21 @@ import type { OpenworkServerStore } from "./openwork-server-store";
 
 type SetStateAction<T> = T | ((current: T) => T);
 
+const DESKTOP_MCP_COMMANDS: Record<string, { command: string; fallbackOnError: boolean }> = {
+  "openwork.computerUseMcp": { command: "getComputerUseMcpCommand", fallbackOnError: false },
+  "openwork.uiMcp": { command: "getOpenworkUiMcpCommand", fallbackOnError: true },
+};
+
+const DESKTOP_MCP_ENVIRONMENT_COMMANDS: Record<string, string> = {
+  "openwork.uiMcp": "getOpenworkUiMcpEnvironment",
+};
+
+function isUiControlBridgeInfo(value: unknown): value is { baseUrl: string; token?: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (!("baseUrl" in value) || typeof value.baseUrl !== "string") return false;
+  return !("token" in value) || typeof value.token === "string";
+}
+
 export type ConnectionsStoreSnapshot = {
   mcpServers: McpServerEntry[];
   mcpStatus: string | null;
@@ -292,21 +307,28 @@ export function createConnectionsStore(options: {
 
   const resolveLocalMcpCommand = async (entry: McpDirectoryInfo) => {
     const mcpResource = extensionResource(entry.extensionManifest, "mcp");
-    if (mcpResource?.localCommandRef === "openwork.computerUseMcp") {
-      const command = await resolveDesktopCommand("getComputerUseMcpCommand", false);
-      return command ?? entry.command;
-    }
-    if (mcpResource?.localCommandRef === "openwork.uiMcp" || entry.serverName === "openwork-ui") {
-      const command = await resolveDesktopCommand("getOpenworkUiMcpCommand");
+    const commandResolver = mcpResource?.localCommandRef
+      ? DESKTOP_MCP_COMMANDS[mcpResource.localCommandRef]
+      : entry.kind === "ui-control"
+      ? DESKTOP_MCP_COMMANDS["openwork.uiMcp"]
+      : undefined;
+    if (commandResolver) {
+      const command = await resolveDesktopCommand(commandResolver.command, commandResolver.fallbackOnError);
       return command ?? entry.command;
     }
     return entry.command;
   };
 
   const resolveLocalMcpEnvironment = async (entry: McpDirectoryInfo) => {
-    if (entry.serverName !== "openwork-ui") return undefined;
+    const mcpResource = extensionResource(entry.extensionManifest, "mcp");
+    const environmentCommand = mcpResource?.localCommandRef
+      ? DESKTOP_MCP_ENVIRONMENT_COMMANDS[mcpResource.localCommandRef]
+      : entry.kind === "ui-control"
+      ? DESKTOP_MCP_ENVIRONMENT_COMMANDS["openwork.uiMcp"]
+      : undefined;
+    if (!environmentCommand) return undefined;
     try {
-      const environment = await (window as any).__OPENWORK_ELECTRON__?.invokeDesktop?.("getOpenworkUiMcpEnvironment");
+      const environment = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.(environmentCommand);
       if (environment && typeof environment === "object" && !Array.isArray(environment)) {
         return Object.fromEntries(
           Object.entries(environment).filter((entry): entry is [string, string] =>
@@ -315,7 +337,7 @@ export function createConnectionsStore(options: {
         );
       }
     } catch {
-      // Discovery fallback in openwork-ui-mcp still handles normal launches.
+      // Discovery fallback in the MCP package still handles normal launches.
     }
     return undefined;
   };
@@ -521,13 +543,13 @@ export function createConnectionsStore(options: {
     try {
       mutateState((current) => ({ ...current, mcpStatus: null, mcpConnectingName: entry.name }));
 
-      // Resolve dynamic URLs for built-in MCPs
+      // Resolve dynamic URLs for built-in UI-control MCPs.
       let resolvedUrl = entry.url;
       let resolvedHeaders: Record<string, string> | undefined;
-      if (!resolvedUrl && entry.serverName === "openwork-ui") {
+      if (!resolvedUrl && entry.kind === "ui-control") {
         try {
-          const bridgeInfo = await (window as any).__OPENWORK_ELECTRON__?.invokeDesktop?.("getUiControlBridgeInfo");
-          if (bridgeInfo?.baseUrl) {
+          const bridgeInfo = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("getUiControlBridgeInfo");
+          if (isUiControlBridgeInfo(bridgeInfo)) {
             resolvedUrl = `${bridgeInfo.baseUrl}/mcp`;
             if (bridgeInfo.token) {
               resolvedHeaders = { Authorization: `Bearer ${bridgeInfo.token}` };

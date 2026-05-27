@@ -35,9 +35,9 @@ export type ExtensionsViewProps = {
   accessHint?: string | null;
   suggestedPlugins: SuggestedPlugin[];
   extensions: PluginsExtensionsStore;
-  mcpConnectedAppsCount: number;
-  /** The MCP view (quick-connect grid + configured servers). Skills are injected into it. */
-  mcpView: ReactNode;
+  connectedExtensionCount: number;
+  /** Runtime extension catalog: MCPs, skills, and marketplace imports in one view. */
+  catalogView: ReactNode;
   /** Organization marketplace content, rendered in the same Extensions pane. */
   cloudMarketplaceView?: ReactNode;
   onRefresh: () => void;
@@ -57,11 +57,11 @@ export function ExtensionsView(props: ExtensionsViewProps) {
     <section className="space-y-6 max-w-3xl w-full animate-in fade-in duration-300">
       <div className="flex items-center justify-between">
         <div className="flex flex-wrap items-center gap-2">
-          {props.mcpConnectedAppsCount > 0 ? (
+          {props.connectedExtensionCount > 0 ? (
             <div className="inline-flex items-center gap-2 rounded-full bg-green-3 px-3 py-1">
               <div className="size-2 rounded-full bg-green-9" />
               <span className="text-xs font-medium text-green-11">
-                {t("extensions.app_count", { count: props.mcpConnectedAppsCount })}
+                {t("extensions.app_count", { count: props.connectedExtensionCount })}
               </span>
             </div>
           ) : null}
@@ -91,7 +91,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       {view === "my" ? (
         <>
           {/* Runtime extensions: MCPs + skills + marketplace imports in one view */}
-          {props.mcpView}
+          {props.catalogView}
 
           {/* OpenCode plugins -- advanced, collapsed */}
           {pluginCount > 0 ? (
