@@ -2113,6 +2113,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   openworkServerClient: selectedWorkspaceEndpoint?.client ?? openworkClient,
                   extensionConnections: {
                     "google-workspace": googleWorkspaceConnected,
+                    "openai-image-gen": imageExtensionInstalled,
+                    ollama: providerConnectedIds.includes("ollama"),
                   },
                   onExtensionConnectionChange: (extensionId, connected) => {
                     if (extensionId === "google-workspace") setGoogleWorkspaceConnected(connected);
@@ -2155,12 +2157,17 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                     openworkServerClient: selectedWorkspaceEndpoint?.client ?? openworkClient,
                     extensionConnections: {
                       "google-workspace": googleWorkspaceConnected,
+                      "openai-image-gen": imageExtensionInstalled,
+                      ollama: providerConnectedIds.includes("ollama"),
+                    },
+                    computerUse: {
+                      connected: connectionsSnapshot.mcpServers.some((server) => server.name === "computer-use"),
+                      connecting: connectionsSnapshot.mcpConnectingName === entry.name,
+                      onConnect: () => connectionsStore.connectMcp(entry),
+                      onRefresh: () => connectionsStore.refreshMcpServers(),
                     },
                   });
                   if (runtimeConnected !== null) return runtimeConnected;
-                  const id = entry.serverName ?? entry.name;
-                  if (id === "openai-image-gen") return imageExtensionInstalled;
-                  if (id === "ollama") return providerConnectedIds.includes("ollama");
                   return false;
                 }}
                 authorizeMcp={(entry) => {

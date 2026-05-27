@@ -19,7 +19,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { registerExtensionConfig, type ExtensionConfigContext } from "./extension-registry";
+import { registerExtensionRuntime, type ExtensionConfigContext } from "./extension-registry";
 
 export type OpenWorkVoiceConfigProps = {
   busy: boolean;
@@ -41,8 +41,11 @@ const openWorkVoiceConfigFactory = (ctx: ExtensionConfigContext) => (
   />
 );
 
-registerExtensionConfig("openwork.voice.settings", openWorkVoiceConfigFactory);
-registerExtensionConfig("openwork-voice", openWorkVoiceConfigFactory);
+registerExtensionRuntime({
+  id: "openwork-voice",
+  settingsPanelRefs: ["openwork.voice.settings"],
+  settingsPanel: openWorkVoiceConfigFactory,
+});
 
 export function OpenWorkVoiceConfig(props: OpenWorkVoiceConfigProps) {
   const [apiKey, setApiKey] = useState("");

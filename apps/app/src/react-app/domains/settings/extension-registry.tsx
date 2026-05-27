@@ -53,7 +53,7 @@ export type ExtensionConfigFactory = (ctx: ExtensionConfigContext) => ReactNode;
 
 export type ExtensionRuntimeContext = Pick<
   ExtensionConfigContext,
-  "openworkServerClient" | "extensionConnections" | "onExtensionConnectionChange"
+  "openworkServerClient" | "extensionConnections" | "onExtensionConnectionChange" | "computerUse"
 >;
 
 export type OpenWorkExtensionRuntime = {

@@ -2,12 +2,15 @@
 import { MonitorSmartphone } from "lucide-react";
 
 import { surfaceCardClass } from "../workspace/modal-styles";
-import { registerExtensionConfig } from "./extension-registry";
+import { registerExtensionRuntime } from "./extension-registry";
 
 const openWorkBrowserConfigFactory = () => <OpenWorkBrowserConfig />;
 
-registerExtensionConfig("openwork.browser.settings", openWorkBrowserConfigFactory);
-registerExtensionConfig("openwork-browser", openWorkBrowserConfigFactory);
+registerExtensionRuntime({
+  id: "openwork-browser",
+  settingsPanelRefs: ["openwork.browser.settings"],
+  settingsPanel: openWorkBrowserConfigFactory,
+});
 
 function OpenWorkBrowserConfig() {
   return (

@@ -14,7 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { registerExtensionConfig } from "./extension-registry";
+import { registerExtensionRuntime } from "./extension-registry";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,14 +38,18 @@ type ComputerUseConfigProps = {
 // Registration
 // ---------------------------------------------------------------------------
 
-registerExtensionConfig("computer-use", (ctx) => (
-  <ComputerUseConfig
-    connected={ctx.computerUse?.connected ?? false}
-    connecting={ctx.computerUse?.connecting ?? false}
-    onConnect={ctx.computerUse?.onConnect}
-    onRefresh={ctx.computerUse?.onRefresh}
-  />
-));
+registerExtensionRuntime({
+  id: "computer-use",
+  settingsPanel: (ctx) => (
+    <ComputerUseConfig
+      connected={ctx.computerUse?.connected ?? false}
+      connecting={ctx.computerUse?.connecting ?? false}
+      onConnect={ctx.computerUse?.onConnect}
+      onRefresh={ctx.computerUse?.onRefresh}
+    />
+  ),
+  isConnected: (_entry, ctx) => ctx.computerUse?.connected === true,
+});
 
 // ---------------------------------------------------------------------------
 // Helpers

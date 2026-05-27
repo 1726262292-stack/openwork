@@ -19,7 +19,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { registerExtensionConfig, type ExtensionConfigContext } from "./extension-registry";
+import { registerExtensionRuntime, type ExtensionConfigContext } from "./extension-registry";
 
 export type OpenAiImageGenConfigProps = {
   busy: boolean;
@@ -41,8 +41,12 @@ const openAiImageGenConfigFactory = (ctx: ExtensionConfigContext) => (
   />
 );
 
-registerExtensionConfig("openwork.imageGen.settings", openAiImageGenConfigFactory);
-registerExtensionConfig("openai-image-gen", openAiImageGenConfigFactory);
+registerExtensionRuntime({
+  id: "openai-image-gen",
+  settingsPanelRefs: ["openwork.imageGen.settings"],
+  settingsPanel: openAiImageGenConfigFactory,
+  isConnected: (_entry, ctx) => ctx.extensionConnections?.["openai-image-gen"] === true,
+});
 
 const DEFAULT_PROMPT =
   "A friendly robot owl holding a paintbrush, teal neon UI frame, high contrast";
