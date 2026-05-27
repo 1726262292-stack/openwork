@@ -1,10 +1,11 @@
 /** @jsxImportSource react */
-import { AlertCircle, CheckCircle2, Loader2, Plug2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ExtensionKind } from "../../app/constants";
 import type { EnablementResult } from "../../app/extensions";
 import { resolveExtensionIconSrc } from "./extension-icon-src";
 import { ExtensionMeshAvatar } from "./extension-mesh-avatar";
+import { grainArtCategoryForExtensionKind } from "./grain-art";
 
 export type ExtensionCardProps = {
   name: string;
@@ -65,7 +66,6 @@ export function ExtensionCard(props: ExtensionCardProps) {
     description,
     iconSlug,
     iconSrc,
-    fallbackIcon: FallbackIcon = Plug2,
     kind = "mcp",
     connected: connectedProp = false,
     connectedLabel = "Connected",
@@ -117,9 +117,11 @@ export function ExtensionCard(props: ExtensionCardProps) {
                 <img src={`https://cdn.simpleicons.org/${iconSlug}`} alt="" width={16} height={16} loading="lazy" style={{ display: "block" }} />
               </div>
             ) : (
-              kind === "plugin" || kind === "skill" ? (
-                <ExtensionMeshAvatar name={name} className="size-7 rounded-md text-[10px] font-bold shadow-inner" />
-              ) : <FallbackIcon size={18} className="text-dls-secondary" />
+              <ExtensionMeshAvatar
+                name={name}
+                category={grainArtCategoryForExtensionKind(kind)}
+                className="size-7 rounded-md text-[10px] font-bold shadow-inner"
+              />
             )}
           </div>
           {connected ? (
