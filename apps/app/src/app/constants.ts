@@ -35,6 +35,8 @@ export type McpDirectoryInfo = {
   url?: string;
   type?: "remote" | "local";
   command?: string[];
+  /** OpenWork desktop command resolver for local MCP launch details. */
+  localCommandRef?: string;
   oauth: boolean;
   /** Extension category for UI grouping. Defaults to "mcp". */
   kind?: ExtensionKind;
@@ -63,6 +65,7 @@ function extensionManifestToDirectoryInfo(manifest: OpenWorkExtensionManifest): 
     description: manifest.description,
     type: mcpResource?.command ? "local" : undefined,
     command: mcpResource?.command,
+    localCommandRef: mcpResource?.localCommandRef,
     oauth: false,
     kind: "extension",
     iconSlug: manifest.icon?.simpleIconSlug,
@@ -73,6 +76,10 @@ function extensionManifestToDirectoryInfo(manifest: OpenWorkExtensionManifest): 
     preview: manifest.preview,
     extensionManifest: manifest,
   };
+}
+
+export function getLocalMcpCommandRef(entry: Pick<McpDirectoryInfo, "extensionManifest" | "localCommandRef">): string | undefined {
+  return extensionResource(entry.extensionManifest, "mcp")?.localCommandRef ?? entry.localCommandRef;
 }
 
 export function isBuiltInOpenWorkExtension(entry: Pick<McpDirectoryInfo, "kind" | "extensionManifest">): boolean {
@@ -168,6 +175,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     type: "local",
     // Dev builds replace this with the local checkout path before writing config.
     command: ["npx", "-y", "openwork-ui-mcp"],
+    localCommandRef: "openwork.uiMcp",
     oauth: false,
     kind: "ui-control",
     iconSrc: "/openwork-mark.svg",

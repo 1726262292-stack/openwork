@@ -22,7 +22,7 @@ import {
   Zap,
 } from "lucide-react";
 
-import { isBuiltInOpenWorkExtension, getMcpServerName, type McpDirectoryInfo } from "../../../../app/constants";
+import { isBuiltInOpenWorkExtension, getLocalMcpCommandRef, getMcpServerName, type McpDirectoryInfo } from "../../../../app/constants";
 import { evaluateEnablement, defaultMcpEnablement } from "../../../../app/enablement";
 import type { EnablementResult } from "../../../../app/extensions";
 import type { CloudImportedPlugin } from "../../../../app/cloud/import-state";
@@ -115,6 +115,11 @@ export type ExtensionsCatalogViewProps = {
 };
 
 const builtInExtensionDisabledReason = "Disabled by organization";
+
+const DESKTOP_MCP_DETAIL_COMMANDS: Record<string, { command?: string; environment?: string }> = {
+  "openwork.computerUseMcp": { command: "getComputerUseMcpCommand" },
+  "openwork.uiMcp": { command: "getOpenworkUiMcpCommand", environment: "getOpenworkUiMcpEnvironment" },
+};
 
 const statusDot = (status: ReactMcpStatus) => {
   switch (status) {
@@ -294,21 +299,26 @@ export function ExtensionsCatalogView(props: ExtensionsCatalogViewProps) {
       try {
         const commandOverrides: Record<string, string[] | undefined> = {};
         const environmentOverrides: Record<string, Record<string, string> | undefined> = {};
-        const command = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("getOpenworkUiMcpCommand");
-        if (Array.isArray(command) && command.every((part) => typeof part === "string")) {
-          commandOverrides["openwork-ui"] = command;
-        }
-        const environment = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("getOpenworkUiMcpEnvironment");
-        if (environment && typeof environment === "object" && !Array.isArray(environment)) {
-          environmentOverrides["openwork-ui"] = Object.fromEntries(
-            Object.entries(environment).filter((entry): entry is [string, string] =>
-              typeof entry[0] === "string" && typeof entry[1] === "string"
-            ),
-          );
-        }
-        const computerUseCommand = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("getComputerUseMcpCommand");
-        if (Array.isArray(computerUseCommand) && computerUseCommand.every((part) => typeof part === "string")) {
-          commandOverrides["computer-use"] = computerUseCommand;
+        for (const entry of quickConnectList) {
+          const localCommandRef = getLocalMcpCommandRef(entry);
+          const detailCommands = localCommandRef ? DESKTOP_MCP_DETAIL_COMMANDS[localCommandRef] : undefined;
+          const identityKey = getMcpIdentityKey(entry);
+          if (detailCommands?.command) {
+            const command = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.(detailCommands.command);
+            if (Array.isArray(command) && command.every((part) => typeof part === "string")) {
+              commandOverrides[identityKey] = command;
+            }
+          }
+          if (detailCommands?.environment) {
+            const environment = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.(detailCommands.environment);
+            if (environment && typeof environment === "object" && !Array.isArray(environment)) {
+              environmentOverrides[identityKey] = Object.fromEntries(
+                Object.entries(environment).filter((entry): entry is [string, string] =>
+                  typeof entry[0] === "string" && typeof entry[1] === "string"
+                ),
+              );
+            }
+          }
         }
         setMcpCommandOverrides(commandOverrides);
         setMcpEnvironmentOverrides(environmentOverrides);
@@ -406,13 +416,12 @@ export function ExtensionsCatalogView(props: ExtensionsCatalogViewProps) {
   };
 
   const launchCommandForEntry = (entry: McpDirectoryInfo) => {
-    if (entry.serverName) return mcpCommandOverrides[entry.serverName] ?? entry.command;
-    return entry.command;
+    const identityKey = getMcpIdentityKey(entry);
+    return mcpCommandOverrides[identityKey] ?? entry.command;
   };
 
   const environmentForEntry = (entry: McpDirectoryInfo) => {
-    if (!entry.serverName) return undefined;
-    return mcpEnvironmentOverrides[entry.serverName];
+    return mcpEnvironmentOverrides[getMcpIdentityKey(entry)];
   };
 
   const supportsOauth = (entry: McpServerEntry) =>

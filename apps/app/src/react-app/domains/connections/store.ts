@@ -4,11 +4,11 @@ import { applyEdits, modify, parse, printParseErrorCode } from "jsonc-parser";
 
 import { t } from "../../../i18n";
 import {
+  getLocalMcpCommandRef,
   getMcpServerName,
   MCP_QUICK_CONNECT,
   type McpDirectoryInfo,
 } from "../../../app/constants";
-import { extensionResource } from "../../../app/extensions";
 import { createClient, unwrap } from "../../../app/lib/opencode";
 import { finishPerf, perfNow, recordPerfLog } from "../../../app/lib/perf-log";
 import {
@@ -306,12 +306,8 @@ export function createConnectionsStore(options: {
   };
 
   const resolveLocalMcpCommand = async (entry: McpDirectoryInfo) => {
-    const mcpResource = extensionResource(entry.extensionManifest, "mcp");
-    const commandResolver = mcpResource?.localCommandRef
-      ? DESKTOP_MCP_COMMANDS[mcpResource.localCommandRef]
-      : entry.kind === "ui-control"
-      ? DESKTOP_MCP_COMMANDS["openwork.uiMcp"]
-      : undefined;
+    const localCommandRef = getLocalMcpCommandRef(entry);
+    const commandResolver = localCommandRef ? DESKTOP_MCP_COMMANDS[localCommandRef] : undefined;
     if (commandResolver) {
       const command = await resolveDesktopCommand(commandResolver.command, commandResolver.fallbackOnError);
       return command ?? entry.command;
@@ -320,12 +316,8 @@ export function createConnectionsStore(options: {
   };
 
   const resolveLocalMcpEnvironment = async (entry: McpDirectoryInfo) => {
-    const mcpResource = extensionResource(entry.extensionManifest, "mcp");
-    const environmentCommand = mcpResource?.localCommandRef
-      ? DESKTOP_MCP_ENVIRONMENT_COMMANDS[mcpResource.localCommandRef]
-      : entry.kind === "ui-control"
-      ? DESKTOP_MCP_ENVIRONMENT_COMMANDS["openwork.uiMcp"]
-      : undefined;
+    const localCommandRef = getLocalMcpCommandRef(entry);
+    const environmentCommand = localCommandRef ? DESKTOP_MCP_ENVIRONMENT_COMMANDS[localCommandRef] : undefined;
     if (!environmentCommand) return undefined;
     try {
       const environment = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.(environmentCommand);
