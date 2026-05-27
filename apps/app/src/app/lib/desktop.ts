@@ -51,6 +51,17 @@ declare global {
           downloadUrl: string;
           releaseUrl: string;
         }>;
+        getMicrophoneStatus?: () => Promise<{
+          platform: string;
+          status: string;
+        }>;
+        askMicrophoneAccess?: () => Promise<{
+          platform: string;
+          before?: string;
+          after?: string;
+          status?: string;
+          granted: boolean;
+        }>;
       };
       migration?: {
         readSnapshot?: () => Promise<unknown>;

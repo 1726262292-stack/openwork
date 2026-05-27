@@ -198,6 +198,16 @@ function setRealtimeDiagnostics(text: string) {
   setVoiceRuntimeSnapshot((current) => ({ ...current, realtimeDiagnostics: text }));
 }
 
+async function requestMacMicrophoneAccess() {
+  const ask = window.__OPENWORK_ELECTRON__?.system?.askMicrophoneAccess;
+  if (!ask) return true;
+  const result = await ask();
+  if (result.platform !== "darwin") return true;
+  const status = result.after ?? result.before ?? result.status ?? "unknown";
+  setVoiceRuntimeSnapshot((current) => ({ ...current, micDiagnostics: `macOS microphone permission is ${status}.` }));
+  return result.granted;
+}
+
 async function executeOpenWorkTool(name: string, args: Record<string, unknown>) {
   const control = window.__openworkControl;
   if (!control) return { ok: false, error: "OpenWork control surface is not available." };
@@ -479,6 +489,8 @@ export function VoicePanel(props: VoicePanelProps) {
     voiceRealtime.peer = peer;
     if (audioInput) {
       setRuntimeStatus("connecting", "Requesting microphone...");
+      const macPermissionGranted = await requestMacMicrophoneAccess();
+      if (!macPermissionGranted) throw new Error("macOS denied microphone access. Enable OpenWork in System Settings > Privacy & Security > Microphone, then restart OpenWork.");
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });

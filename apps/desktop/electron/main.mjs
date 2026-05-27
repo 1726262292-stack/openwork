@@ -19,7 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, session, shell } from "electron";
+import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, session, shell, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
@@ -2904,6 +2904,17 @@ ipcMain.handle("openwork:shell:relaunch", async () => {
   app.exit(0);
 });
 ipcMain.handle("openwork:system:architecture", async () => resolveArchitectureInfo());
+ipcMain.handle("openwork:system:microphoneStatus", async () => {
+  if (process.platform !== "darwin") return { platform: process.platform, status: "not-mac" };
+  return { platform: process.platform, status: systemPreferences.getMediaAccessStatus("microphone") };
+});
+ipcMain.handle("openwork:system:askMicrophoneAccess", async () => {
+  if (process.platform !== "darwin") return { platform: process.platform, granted: true, status: "not-mac" };
+  const before = systemPreferences.getMediaAccessStatus("microphone");
+  const granted = await systemPreferences.askForMediaAccess("microphone");
+  const after = systemPreferences.getMediaAccessStatus("microphone");
+  return { platform: process.platform, before, after, granted };
+});
 
 // ── Embedded browser IPC ────────────────────────────────────────────────
 ipcMain.handle("openwork:browser:show", (_event, bounds) => attachBrowserView(bounds));

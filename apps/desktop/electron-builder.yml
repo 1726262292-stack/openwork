@@ -34,6 +34,8 @@ mac:
   hardenedRuntime: true
   gatekeeperAssess: false
   notarize: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     NSMicrophoneUsageDescription: OpenWork uses the microphone when you start Voice Mode so you can speak commands to your agent.
   extraResources:
