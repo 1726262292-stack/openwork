@@ -19,7 +19,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, session, shell } from "electron";
+import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, session, shell, systemPreferences } from "electron";
+import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
@@ -397,6 +398,7 @@ if (extraLaunchArgs) {
     }
   }
 }
+configureFakeMediaForTests(app, envFlagEnabled("OPENWORK_ELECTRON_FAKE_MEDIA"));
 const DEFAULT_DEN_BASE_URL = "https://app.openworklabs.com";
 const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:4096";
 const FORCE_DESKTOP_REQUIRE_SIGNIN = envFlagEnabled("OPENWORK_FORCE_SIGNIN");
@@ -466,40 +468,6 @@ const pendingDeepLinks = [];
 let uiControlServer = null;
 let uiControlDiscoveryPath = null;
 const uiControlToken = randomBytes(32).toString("hex");
-
-function isLocalRendererOrigin(origin) {
-  const value = String(origin ?? "").trim();
-  if (!value || value === "file://") return true;
-  try {
-    const url = new URL(value);
-    return url.protocol === "file:" || url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
-  } catch {
-    return false;
-  }
-}
-
-function isMainWindowWebContents(webContents) {
-  return Boolean(mainWindow && webContents && webContents.id === mainWindow.webContents.id);
-}
-
-function shouldAllowMainWindowPermission(webContents, permission, origin, details = {}) {
-  if (!isMainWindowWebContents(webContents)) return false;
-  if (!isLocalRendererOrigin(origin)) return false;
-  if (permission !== "media" && permission !== "audioCapture") return true;
-  const mediaType = typeof details.mediaType === "string" ? details.mediaType : "";
-  if (mediaType && mediaType !== "audio") return false;
-  const mediaTypes = Array.isArray(details.mediaTypes) ? details.mediaTypes : [];
-  return mediaTypes.length === 0 || (mediaTypes.includes("audio") && !mediaTypes.includes("video"));
-}
-
-function installMediaPermissionHandlers() {
-  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-    callback(shouldAllowMainWindowPermission(webContents, permission, details?.requestingUrl, details));
-  });
-  session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => (
-    shouldAllowMainWindowPermission(webContents, permission, requestingOrigin, details)
-  ));
-}
 
 // ── Embedded browser panel ─────────────────────────────────────────────
 const browserTabs = new Map();
@@ -2935,6 +2903,17 @@ ipcMain.handle("openwork:shell:relaunch", async () => {
   app.exit(0);
 });
 ipcMain.handle("openwork:system:architecture", async () => resolveArchitectureInfo());
+ipcMain.handle("openwork:system:microphoneStatus", async () => {
+  if (process.platform !== "darwin") return { platform: process.platform, status: "not-mac" };
+  return { platform: process.platform, status: systemPreferences.getMediaAccessStatus("microphone") };
+});
+ipcMain.handle("openwork:system:askMicrophoneAccess", async () => {
+  if (process.platform !== "darwin") return { platform: process.platform, granted: true, status: "not-mac" };
+  const before = systemPreferences.getMediaAccessStatus("microphone");
+  const granted = await systemPreferences.askForMediaAccess("microphone");
+  const after = systemPreferences.getMediaAccessStatus("microphone");
+  return { platform: process.platform, before, after, granted };
+});
 
 // ── Embedded browser IPC ────────────────────────────────────────────────
 ipcMain.handle("openwork:browser:show", (_event, bounds) => attachBrowserView(bounds));
@@ -3018,7 +2997,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
-    installMediaPermissionHandlers();
+    installMediaPermissionHandlers(session, () => mainWindow);
     installApplicationMenu();
     await runtimeManager.prepareFreshRuntime().catch(() => undefined);
 
