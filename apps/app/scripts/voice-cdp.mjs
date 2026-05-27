@@ -17,6 +17,7 @@ async function main() {
   const client = await connectCdp(target.webSocketDebuggerUrl);
 
   try {
+    await waitFor(client, "Boolean(window.__openworkControl)", 15000);
     const preflight = await runPreflight(client);
     if (mode === "preflight") {
       console.log(JSON.stringify(preflight, null, 2));
@@ -165,7 +166,9 @@ async function pickTarget(baseUrl) {
   if (!response.ok) throw new Error(`Could not list CDP targets: ${response.status}`);
   const targets = await response.json();
   const pages = targets.filter((target) => target.type === "page" && target.webSocketDebuggerUrl);
-  const target = pages.find((page) => page.url.includes("localhost") || page.url.includes("127.0.0.1")) ?? pages[0];
+  const target = pages.find((page) => page.title === "OpenWork") ??
+    pages.find((page) => page.url.includes("localhost") || page.url.includes("127.0.0.1") || page.url.includes("[::1]")) ??
+    pages[0];
   if (!target) throw new Error("No CDP page target found.");
   return target;
 }
