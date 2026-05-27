@@ -103,7 +103,12 @@ async function ensureMcpClientScopes(request: Request) {
   }
 
   const scopes = new Set(readStoredClientScopes(client.scopes))
-  if (!scopes.has("mcp:read") && !scopes.has("mcp:write")) {
+  const hasMcpRead = scopes.has("mcp:read")
+  const hasMcpWrite = scopes.has("mcp:write")
+  if (!hasMcpRead && !hasMcpWrite) {
+    return
+  }
+  if (hasMcpRead && hasMcpWrite) {
     return
   }
 
