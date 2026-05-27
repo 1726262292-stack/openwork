@@ -25,6 +25,7 @@ import type { DenOrgSkillCard, ReloadReason } from "../types";
 import type {
   OpenWorkExtensionContribution,
   OpenWorkExtensionContributionType,
+  OpenWorkExtensionDetail,
   OpenWorkExtensionLifecycle,
   OpenWorkExtensionManifest,
   OpenWorkExtensionResource,
@@ -1173,6 +1174,16 @@ function parseExtensionLifecycle(value: unknown): OpenWorkExtensionLifecycle | u
   };
 }
 
+function parseExtensionDetail(value: unknown): OpenWorkExtensionDetail | undefined {
+  if (!isRecord(value)) return undefined;
+  const detail: OpenWorkExtensionDetail = {};
+  if (typeof value.setup === "boolean") detail.setup = value.setup;
+  if (typeof value.resources === "boolean") detail.resources = value.resources;
+  if (typeof value.contributions === "boolean") detail.contributions = value.contributions;
+  if (typeof value.enablement === "boolean") detail.enablement = value.enablement;
+  return Object.keys(detail).length ? detail : undefined;
+}
+
 function parseExtensionPlatform(value: unknown): OpenWorkExtensionManifest["platform"] | undefined {
   if (!Array.isArray(value)) return undefined;
   const platforms = value.flatMap((item) => {
@@ -1216,6 +1227,7 @@ function parseOpenWorkExtensionManifest(value: unknown): OpenWorkExtensionManife
   if (Array.isArray(value.contributions) && contributions?.length !== value.contributions.length) return null;
   const setup = parseExtensionSetup(value.setup);
   const lifecycle = parseExtensionLifecycle(value.lifecycle);
+  const detail = parseExtensionDetail(value.detail);
   const platform = parseExtensionPlatform(value.platform);
   if (Array.isArray(value.platform) && !platform) return null;
   return {
@@ -1235,6 +1247,7 @@ function parseOpenWorkExtensionManifest(value: unknown): OpenWorkExtensionManife
     resources,
     ...(contributions ? { contributions } : {}),
     ...(lifecycle ? { lifecycle } : {}),
+    ...(detail ? { detail } : {}),
     ...(typeof value.defaultEnabled === "boolean" ? { defaultEnabled: value.defaultEnabled } : {}),
     ...(typeof value.defaultHidden === "boolean" ? { defaultHidden: value.defaultHidden } : {}),
     ...(platform ? { platform } : {}),

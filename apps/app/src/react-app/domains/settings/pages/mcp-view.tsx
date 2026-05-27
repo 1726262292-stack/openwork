@@ -214,6 +214,10 @@ function extensionContributionLabels(entry: McpDirectoryInfo) {
   return entry.extensionManifest?.contributions?.map((contribution) => contribution.label ?? contribution.ref ?? contribution.type) ?? [];
 }
 
+function shouldShowExtensionDetail(entry: McpDirectoryInfo, section: "setup" | "resources" | "contributions" | "enablement") {
+  return entry.extensionManifest?.detail?.[section] !== false;
+}
+
 function isToggleOnlyExtension(entry: McpDirectoryInfo) {
   if (entry.kind !== "extension") return false;
   return entry.extensionManifest?.contributions?.some((contribution) =>
@@ -691,7 +695,6 @@ export function McpView(props: McpViewProps) {
           : detailEntry.kind === "extension" && !isMcpBackedExtension(detailEntry)
           ? props.isExtensionConnected?.(detailEntry) ?? false
           : isQuickConnectConfigured(detailEntry);
-        const isGoogleWorkspace = detailEntry.id === "google-workspace";
         return (
           <ExtensionDetailModal
             open={!!detailEntry}
@@ -707,15 +710,15 @@ export function McpView(props: McpViewProps) {
             hidden={hidden}
             preview={detailEntry.preview}
             disabledReason={disabledReason}
-            setupInstructions={isGoogleWorkspace ? undefined : detailEntry.extensionManifest?.setup?.instructions}
-            resourceLabels={isGoogleWorkspace ? [] : extensionResourceLabels(detailEntry)}
-            contributionLabels={isGoogleWorkspace ? [] : extensionContributionLabels(detailEntry)}
+            setupInstructions={shouldShowExtensionDetail(detailEntry, "setup") ? detailEntry.extensionManifest?.setup?.instructions : undefined}
+            resourceLabels={shouldShowExtensionDetail(detailEntry, "resources") ? extensionResourceLabels(detailEntry) : []}
+            contributionLabels={shouldShowExtensionDetail(detailEntry, "contributions") ? extensionContributionLabels(detailEntry) : []}
             launchCommand={launchCommandForEntry(detailEntry)}
             environment={detailEntry.serverName === "openwork-ui" ? openworkUiMcpEnvironment ?? undefined : undefined}
             url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
             oauth={detailEntry.oauth}
             configSlot={disabledReason ? null : extensionConfigSlot}
-            showEnablementCard={!isGoogleWorkspace}
+            showEnablementCard={shouldShowExtensionDetail(detailEntry, "enablement")}
             onConnect={disabledReason ? undefined : isToggleOnlyExtension(detailEntry) ? () => {
               setOpenWorkExtensionEnabled(detailEntry, true);
               setDetailEntry(null);

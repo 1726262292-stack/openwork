@@ -78,6 +78,13 @@ export type OpenWorkExtensionLifecycle = {
   detection?: string[];
 };
 
+export type OpenWorkExtensionDetail = {
+  setup?: boolean;
+  resources?: boolean;
+  contributions?: boolean;
+  enablement?: boolean;
+};
+
 // ---------------------------------------------------------------------------
 // Enablement — declarative conditions for extension "active" state
 // ---------------------------------------------------------------------------
@@ -122,6 +129,7 @@ export type OpenWorkExtensionManifest = {
   resources: OpenWorkExtensionResource[];
   contributions?: OpenWorkExtensionContribution[];
   lifecycle?: OpenWorkExtensionLifecycle;
+  detail?: OpenWorkExtensionDetail;
   /** Declarative conditions that must ALL be true for the extension to be "active". */
   enablement?: EnablementCondition[];
   defaultEnabled?: boolean;
@@ -322,6 +330,7 @@ export const BUILT_IN_OPENWORK_EXTENSION_MANIFESTS: OpenWorkExtensionManifest[] 
       { type: "composer-prompt", prompt: "Use Google Workspace to ", location: "composer" },
     ],
     lifecycle: { reload: ["config"], detection: ["provider:google-workspace"] },
+    detail: { setup: false, resources: false, contributions: false, enablement: false },
     defaultHidden: true,
   },
   {
