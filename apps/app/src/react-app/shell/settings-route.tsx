@@ -109,6 +109,7 @@ import { RenameWorkspaceModal } from "../domains/workspace/rename-workspace-moda
 import { ShareWorkspaceModal } from "../domains/workspace/share-workspace-modal";
 import { useShareWorkspaceState } from "../domains/workspace/share-workspace-state";
 import { useRemoteWorkspaceConnectionEditor } from "../domains/workspace/use-remote-workspace-connection-editor";
+import { useStatusToasts } from "../domains/shell-feedback/status-toasts";
 import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
   getRemoteWorkspaceConnectionKey,
@@ -527,6 +528,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [renameWorkspaceId, setRenameWorkspaceId] = useState<string | null>(null);
   const [renameWorkspaceTitle, setRenameWorkspaceTitle] = useState("");
   const [renameWorkspaceBusy, setRenameWorkspaceBusy] = useState(false);
+  const { showToast } = useStatusToasts();
   const [exportWorkspaceBusy, setExportWorkspaceBusy] = useState(false);
   const [autoCompactContext, setAutoCompactContext] = useState(true);
   const [autoCompactContextBusy, setAutoCompactContextBusy] = useState(false);
@@ -1811,18 +1813,27 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     if (!trimmed) return;
     setRenameWorkspaceBusy(true);
     try {
-      if (openworkClient) {
-        await openworkClient
-          .updateWorkspaceDisplayName(renameWorkspaceId, trimmed)
-          .catch(() => undefined);
+      if (!openworkClient) {
+        showToast({
+          title: "OpenWork server is unavailable. Reconnect the server before renaming workspaces.",
+          tone: "error",
+        });
+        return;
       }
+      await openworkClient.updateWorkspaceDisplayName(renameWorkspaceId, trimmed);
       setRenameWorkspaceId(null);
       setRenameWorkspaceTitle("");
       await refreshRouteState();
+    } catch (error) {
+      showToast({
+        title: "Workspace rename failed",
+        description: describeRouteError(error),
+        tone: "error",
+      });
     } finally {
       setRenameWorkspaceBusy(false);
     }
-  }, [openworkClient, refreshRouteState, renameWorkspaceId, renameWorkspaceTitle]);
+  }, [openworkClient, refreshRouteState, renameWorkspaceId, renameWorkspaceTitle, showToast]);
 
   const handleRevealWorkspace = useCallback(async (workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);

@@ -107,10 +107,10 @@ export function EnvironmentVariableProvider({ children, client, runtimeKey, onAp
   
   const { mutate: applyAsync, isPending: isApplying, reset: resetApply, error: applyError } = useMutation({
     mutationFn: async () => onApplyChanges?.(),
-    onSuccess: async (result) => {
+    onSuccess: (result) => {
       clearOpenworkEnvSystemContextCache();
-      await client?.setUserEnvPendingChanges(false, runtimeKey).catch(() => undefined);
       queryClient.setQueryData(["settings", "environment", "pending-changes", runtimeKey], false);
+      client?.setUserEnvPendingChanges(false, runtimeKey).catch(() => undefined);
       showToast({
         title: result?.statusMessage ?? t("settings.environment.apply_success"),
         tone: "success",
@@ -124,12 +124,11 @@ export function EnvironmentVariableProvider({ children, client, runtimeKey, onAp
     },
   });
 
-  const markChangesPending = useCallback(async () => {
+  const markChangesPending = useCallback(() => {
     clearOpenworkEnvSystemContextCache();
-    await client?.setUserEnvPendingChanges(true, runtimeKey).catch(() => undefined);
-
     queryClient.setQueryData(["settings", "environment", "pending-changes", runtimeKey], true);
     resetApply();
+    client?.setUserEnvPendingChanges(true, runtimeKey).catch(() => undefined);
 
     showToast({ title: t("settings.environment.restart_required"), tone: "info" });
   }, [client, resetApply, queryClient, runtimeKey, showToast]);
@@ -158,7 +157,7 @@ export function EnvironmentVariableProvider({ children, client, runtimeKey, onAp
       return client.upsertUserEnv([{ key, value: nextEditor.value }]);
     },
     onSuccess: async () => {
-      await markChangesPending();
+      markChangesPending();
 
       await queryClient.invalidateQueries({
         queryKey: environmentUserEnvQueryKey(runtimeKey),
@@ -177,7 +176,7 @@ export function EnvironmentVariableProvider({ children, client, runtimeKey, onAp
       return key;
     },
     onSuccess: async () => {
-      await markChangesPending();
+      markChangesPending();
 
       await queryClient.invalidateQueries({
         queryKey: environmentUserEnvQueryKey(runtimeKey),

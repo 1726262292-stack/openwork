@@ -31,7 +31,7 @@ export type EmbeddedServerHandle = {
   /** The resolved server config (with OpenCode URLs populated). */
   config: ServerConfig;
   /** Stop the HTTP server and managed OpenCode (if any). */
-  stop: () => void;
+  stop: () => Promise<void>;
 };
 
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {

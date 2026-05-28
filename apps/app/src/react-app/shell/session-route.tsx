@@ -2201,23 +2201,27 @@ export function SessionRoute() {
     if (!trimmed) return;
     setRenameWorkspaceBusy(true);
     try {
-      // Rename on both ends so the sidebar reflects the change regardless of
-      // which list wins the next refresh (server-provided routeWorkspaces or
-      // desktop-provided workspaceBootstrap results). Either call failing on
-      // its own should NOT block the other — the user's intent was "rename
-      // this workspace" and a soft failure in one store is recoverable.
-      if (client) {
-        await client
-          .updateWorkspaceDisplayName(renameWorkspaceId, trimmed)
-          .catch(() => undefined);
+      if (!client) {
+        showToast({
+          title: "OpenWork server is unavailable. Reconnect the server before renaming workspaces.",
+          tone: "error",
+        });
+        return;
       }
+      await client.updateWorkspaceDisplayName(renameWorkspaceId, trimmed);
       setRenameWorkspaceId(null);
       setRenameWorkspaceTitle("");
       await refreshRouteState();
+    } catch (error) {
+      showToast({
+        title: "Workspace rename failed",
+        description: describeRouteError(error),
+        tone: "error",
+      });
     } finally {
       setRenameWorkspaceBusy(false);
     }
-  }, [client, refreshRouteState, renameWorkspaceId, renameWorkspaceTitle]);
+  }, [client, refreshRouteState, renameWorkspaceId, renameWorkspaceTitle, showToast]);
 
   const handleRevealWorkspace = useCallback(async (workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
