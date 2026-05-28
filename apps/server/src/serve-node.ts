@@ -30,6 +30,19 @@ function isWriteAfterEndError(error: unknown): boolean {
   return code === "ERR_STREAM_WRITE_AFTER_END" || error.message.includes("write after end");
 }
 
+function isExpectedConnectionAbort(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as NodeJS.ErrnoException).code;
+  const causeCode = (error as { cause?: { code?: string } }).cause?.code;
+  return (
+    code === "ECONNRESET" ||
+    code === "UND_ERR_SOCKET" ||
+    causeCode === "UND_ERR_SOCKET" ||
+    error.name === "AbortError" ||
+    error.message === "terminated"
+  );
+}
+
 function endResponse(nodeRes: ServerResponse, chunk?: string): void {
   if (!isResponseWritable(nodeRes)) return;
   nodeRes.end(chunk);
@@ -159,6 +172,12 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
       const webRes = await fetchHandler(webReq);
       await writeWebResponse(webRes, nodeRes);
     } catch (error) {
+      if (isExpectedConnectionAbort(error)) {
+        if (isResponseWritable(nodeRes) && !nodeRes.headersSent) {
+          nodeRes.destroy();
+        }
+        return;
+      }
       console.error("[serve-node] Unhandled error:", error);
       if (!isResponseWritable(nodeRes)) return;
       if (!nodeRes.headersSent) {

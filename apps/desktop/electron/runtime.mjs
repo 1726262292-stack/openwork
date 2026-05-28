@@ -1266,7 +1266,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   async function stopAllRuntimeChildren() {
     // Stop the in-process server (and its managed OpenCode child) if running.
     if (inProcessServer) {
-      try { inProcessServer.stop(); } catch { /* ignore */ }
+      try { await inProcessServer.stop(); } catch { /* ignore */ }
       inProcessServer = null;
     }
     await stopChild(openworkServerState);

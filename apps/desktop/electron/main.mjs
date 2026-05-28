@@ -1702,12 +1702,50 @@ const runtimeManager = createRuntimeManager({
 });
 
 let runtimeDisposedForQuit = false;
+let runtimeDisposeInProgress = false;
 let runtimeBootstrapPromise = null;
 
+function showShutdownScreen() {
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return;
+  try {
+    win.show();
+    win.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { height: 100%; margin: 0; background: #0b0b0f; color: #f4f4f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      body { display: grid; place-items: center; }
+      main { display: grid; gap: 10px; justify-items: center; }
+      .spinner { width: 22px; height: 22px; border: 2px solid rgba(244,244,245,.25); border-top-color: #f4f4f5; border-radius: 50%; animation: spin .9s linear infinite; }
+      .title { font-size: 15px; font-weight: 600; }
+      .body { font-size: 13px; color: #a1a1aa; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="spinner" aria-hidden="true"></div>
+      <div class="title">Stopping OpenWork services</div>
+      <div class="body">Closing local workers and background services...</div>
+    </main>
+  </body>
+</html>`)}`);
+  } catch {
+    // Ignore renderer teardown races during quit.
+  }
+}
+
 async function disposeRuntimeBeforeQuit() {
-  if (runtimeDisposedForQuit) return;
-  runtimeDisposedForQuit = true;
-  await runtimeManager.dispose().catch(() => undefined);
+  if (runtimeDisposedForQuit || runtimeDisposeInProgress) return;
+  runtimeDisposeInProgress = true;
+  try {
+    await runtimeManager.dispose().catch(() => undefined);
+    runtimeDisposedForQuit = true;
+  } finally {
+    runtimeDisposeInProgress = false;
+  }
 }
 
 function assertOpenworkServerReady(info) {
@@ -2977,6 +3015,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", (event) => {
     if (runtimeDisposedForQuit) return;
     event.preventDefault();
+    if (runtimeDisposeInProgress) return;
+    showShutdownScreen();
     void Promise.all([disposeRuntimeBeforeQuit(), stopUiControlServer()]).finally(() => app.quit());
   });
 
