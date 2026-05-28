@@ -175,6 +175,18 @@ export type OpenworkWorkspaceFileWriteResult = {
   revision?: string;
 };
 
+export type OpenworkAuthorizedFoldersResponse = {
+  folders: string[];
+  hiddenCount: number;
+  workspaceRoot: string;
+};
+
+export type OpenworkAuthorizedFoldersUpdateResponse = {
+  folders: string[];
+  hiddenCount: number;
+  updatedAt: number;
+};
+
 function arrayBufferToBase64(data: ArrayBuffer): string {
   const bytes = new Uint8Array(data);
   let binary = "";
@@ -338,6 +350,13 @@ export type OpenworkInboxUploadResult = {
   ok: boolean;
   path: string;
   bytes: number;
+};
+
+export type OpenworkUserEnvItem = {
+  key: string;
+  updatedAt: number;
+  hasValue: boolean;
+  value?: string;
 };
 
 export type OpenworkActor = {
@@ -916,6 +935,26 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         body: payload,
         timeoutMs: timeouts.activateWorkspace,
       }),
+    createRemoteWorkspace: (payload: {
+      baseUrl: string;
+      openworkHostUrl?: string | null;
+      openworkToken?: string | null;
+      openworkWorkspaceId?: string | null;
+      openworkWorkspaceName?: string | null;
+      displayName?: string | null;
+      directory?: string | null;
+      remoteType?: "openwork" | "opencode";
+      sandboxBackend?: string | null;
+      sandboxRunId?: string | null;
+      sandboxContainerName?: string | null;
+    }) =>
+      requestJson<WorkspaceList>(baseUrl, "/workspaces/remote", {
+        token,
+        hostToken,
+        method: "POST",
+        body: payload,
+        timeoutMs: timeouts.activateWorkspace,
+      }),
     updateWorkspaceDisplayName: (workspaceId: string, displayName: string | null) =>
       requestJson<WorkspaceList>(baseUrl, `/workspaces/${encodeURIComponent(workspaceId)}/display-name`, {
         token,
@@ -924,12 +963,14 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         body: { displayName },
         timeoutMs: timeouts.activateWorkspace,
       }),
-    activateWorkspace: (workspaceId: string) =>
-      requestJson<{ activeId: string; workspace: OpenworkWorkspaceInfo }>(
+    activateWorkspace: (workspaceId: string, options?: { persist?: boolean }) => {
+      const query = options?.persist ? "?persist=true" : "";
+      return requestJson<{ activeId: string; workspace: OpenworkWorkspaceInfo; persisted: boolean }>(
         baseUrl,
-        `/workspaces/${encodeURIComponent(workspaceId)}/activate`,
+        `/workspaces/${encodeURIComponent(workspaceId)}/activate${query}`,
         { token, hostToken, method: "POST", timeoutMs: timeouts.activateWorkspace },
-      ),
+      );
+    },
     deleteWorkspace: (workspaceId: string) =>
       requestJson<{ ok: boolean; deleted: boolean; persisted: boolean; activeId: string | null; items: OpenworkWorkspaceInfo[]; workspaces?: WorkspaceInfo[] }>(
         baseUrl,
@@ -1035,6 +1076,24 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         baseUrl,
         `/workspace/${workspaceId}/config`,
         { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    listAuthorizedFolders: (workspaceId: string) =>
+      requestJson<OpenworkAuthorizedFoldersResponse>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/authorized-folders`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    setAuthorizedFolders: (workspaceId: string, folders: string[]) =>
+      requestJson<OpenworkAuthorizedFoldersUpdateResponse>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/authorized-folders`,
+        {
+          token,
+          hostToken,
+          method: "PUT",
+          body: { folders },
+          timeoutMs: timeouts.config,
+        },
       ),
     patchConfig: (workspaceId: string, payload: { opencode?: Record<string, unknown>; openwork?: Record<string, unknown> }) =>
       requestJson<{ updatedAt?: number | null }>(baseUrl, `/workspace/${workspaceId}/config`, {
@@ -1384,10 +1443,37 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         { token, hostToken, timeoutMs: timeouts.config },
       ),
 
-    listUserEnv: () =>
-      requestJson<{ items: Array<{ key: string; value: string; updatedAt: number }> }>(
+    getUserEnvStatus: (runtimeKey?: string | null) => {
+      const params = new URLSearchParams();
+      if (runtimeKey?.trim()) params.set("runtimeKey", runtimeKey.trim());
+      const query = params.size ? `?${params.toString()}` : "";
+      return requestJson<{ runtimeKey: string; pendingChanges: boolean }>(
         baseUrl,
-        "/env",
+        `/env/status${query}`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      );
+    },
+
+    setUserEnvPendingChanges: (pendingChanges: boolean, runtimeKey?: string | null) =>
+      requestJson<{ runtimeKey: string; pendingChanges: boolean }>(baseUrl, "/env/status", {
+        token,
+        hostToken,
+        method: "PUT",
+        body: { pendingChanges, runtimeKey: runtimeKey?.trim() || undefined },
+        timeoutMs: timeouts.config,
+      }),
+
+    listUserEnv: () =>
+      requestJson<{ items: OpenworkUserEnvItem[] }>(
+        baseUrl,
+        "/env?includeValues=false",
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+
+    getUserEnv: (key: string) =>
+      requestJson<{ item: OpenworkUserEnvItem & { value: string } }>(
+        baseUrl,
+        `/env/${encodeURIComponent(key)}`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
 

@@ -83,13 +83,9 @@ import {
   pickDirectory,
   resolveWorkspaceListSelectedId,
   workspaceBootstrap,
-  workspaceCreate,
-  workspaceCreateRemote,
-  workspaceExportConfig,
   workspaceForget,
   workspaceSetRuntimeActive,
   workspaceSetSelected,
-  workspaceUpdateDisplayName,
   type WorkspaceInfo,
   type WorkspaceList,
   revealDesktopItemInDir,
@@ -313,6 +309,24 @@ function workspaceLabel(workspace: OpenworkWorkspaceInfo) {
     workspace.path?.trim() ||
     t("session.workspace_fallback")
   );
+}
+
+function workspaceExportFilename(workspace: OpenworkWorkspaceInfo) {
+  const slug = workspaceLabel(workspace).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return `${slug || "workspace"}-openwork-export.json`;
+}
+
+function downloadWorkspaceJson(filename: string, payload: unknown) {
+  if (typeof document === "undefined") return;
+  const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 function toSessionGroups(
@@ -721,6 +735,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         workspaceType: () => routeStateRef.current.selectedWorkspaceType,
         openworkServer: openworkServerStore,
         runtimeWorkspaceId: () => routeStateRef.current.runtimeWorkspaceId,
+        ensureRuntimeWorkspaceId: async () =>
+          routeStateRef.current.runtimeWorkspaceId?.trim() ||
+          routeStateRef.current.selectedWorkspaceId.trim() ||
+          null,
         developerMode: () => routeStateRef.current.developerMode,
         markReloadRequired: reloadCoordinator.markReloadRequired,
       }),
@@ -741,6 +759,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         selectedWorkspaceDisplay: () => routeStateRef.current.selectedWorkspaceDisplay,
         selectedWorkspaceRoot: () => routeStateRef.current.selectedWorkspaceRoot,
         runtimeWorkspaceId: () => routeStateRef.current.runtimeWorkspaceId,
+        ensureRuntimeWorkspaceId: async () =>
+          routeStateRef.current.runtimeWorkspaceId?.trim() ||
+          routeStateRef.current.selectedWorkspaceId.trim() ||
+          null,
         openworkServer: openworkServerStore,
         setProviders,
         setProviderDefaults,
@@ -772,6 +794,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           openworkServerCapabilities: routeStateRef.current.openworkServerCapabilities,
         }),
         runtimeWorkspaceId: () => routeStateRef.current.runtimeWorkspaceId,
+        ensureRuntimeWorkspaceId: async () =>
+          routeStateRef.current.runtimeWorkspaceId?.trim() ||
+          routeStateRef.current.selectedWorkspaceId.trim() ||
+          null,
         setBusy,
         setBusyLabel,
         setBusyStartedAt: () => {},
@@ -1760,12 +1786,17 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const handleSelectSettingsWorkspace = useCallback((workspaceId: string) => {
     setLegacySelectedWorkspaceId(workspaceId);
     writeActiveWorkspaceId(workspaceId);
+    const workspace = workspaces.find((item) => item.id === workspaceId) ?? null;
+    const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
+    if (endpoint) {
+      void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true }).catch(() => undefined);
+    }
     if (isDesktopRuntime()) {
       void workspaceSetSelected(workspaceId).catch(() => undefined);
       void workspaceSetRuntimeActive(workspaceId).catch(() => undefined);
     }
     navigate(workspaceSettingsRoute(workspaceId, settingsPathForRoute(route)), { state: location.state });
-  }, [location, navigate, route]);
+  }, [baseUrl, location, navigate, route, token, workspaces]);
 
   const handleOpenRenameWorkspace = useCallback((workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -1780,12 +1811,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     if (!trimmed) return;
     setRenameWorkspaceBusy(true);
     try {
-      if (isDesktopRuntime()) {
-        await workspaceUpdateDisplayName({
-          workspaceId: renameWorkspaceId,
-          displayName: trimmed,
-        }).catch(() => undefined);
-      }
       if (openworkClient) {
         await openworkClient
           .updateWorkspaceDisplayName(renameWorkspaceId, trimmed)
@@ -1807,33 +1832,32 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }, [workspaces]);
 
   const handleExportWorkspaceConfig = useCallback(async (workspaceId: string) => {
-    if (!isDesktopRuntime()) return;
     const workspace = workspaces.find((item) => item.id === workspaceId) ?? null;
     if (!workspace) return;
-    const outputPath = await pickDirectory({
-      title: `Choose where to export ${workspaceLabel(workspace)}`,
-    });
-    const targetPath = Array.isArray(outputPath) ? outputPath[0] : outputPath;
-    if (!targetPath) return;
-    setExportWorkspaceBusy(true);
-    try {
-      await workspaceExportConfig({ workspaceId, outputPath: targetPath });
-      await revealDesktopItemInDir(targetPath).catch(() => undefined);
-    } finally {
-      setExportWorkspaceBusy(false);
+    const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
+    if (endpoint) {
+      setExportWorkspaceBusy(true);
+      try {
+        const payload = await endpoint.client.exportWorkspace(endpoint.workspaceId);
+        downloadWorkspaceJson(workspaceExportFilename(workspace), payload);
+      } finally {
+        setExportWorkspaceBusy(false);
+      }
+      return;
     }
-  }, [workspaces]);
+    throw new Error("OpenWork server is unavailable. Reconnect the server before exporting workspace config.");
+  }, [baseUrl, token, workspaces]);
 
   const handleForgetWorkspace = useCallback(async (workspaceId: string) => {
     if (typeof window !== "undefined") {
       const message = t("workspace_list.remove_confirm") || "Remove this workspace from the sidebar?";
       if (!window.confirm(message)) return;
     }
-    if (isDesktopRuntime()) {
-      await workspaceForget(workspaceId).catch(() => undefined);
-    }
     if (openworkClient) {
       await openworkClient.deleteWorkspace(workspaceId).catch(() => undefined);
+    }
+    if (isDesktopRuntime()) {
+      await workspaceForget(workspaceId).catch(() => undefined);
     }
     if (selectedWorkspaceId === workspaceId) {
       const nextWorkspace = workspaces.find((workspace) => workspace.id !== workspaceId);
@@ -1852,25 +1876,19 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     setCreateWorkspaceError(null);
     try {
       const workspaceName = folderNameFromPath(folder);
-      const list = await workspaceCreate({
-        folderPath: folder,
-        name: workspaceName,
-        preset,
-      }) as WorkspaceList;
+      let list: WorkspaceList | null = null;
+      if (openworkClient) {
+        list = await openworkClient
+          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset })
+          .catch(() => null);
+      }
+      if (!list) {
+        throw new Error("OpenWork server is unavailable. Start or reconnect the server before creating a workspace.");
+      }
       const createdId = resolveWorkspaceListSelectedId(list) || list.workspaces[list.workspaces.length - 1]?.id || "";
       if (createdId) {
         await workspaceSetSelected(createdId).catch(() => undefined);
         await workspaceSetRuntimeActive(createdId).catch(() => undefined);
-      }
-      // Register the workspace with the running openwork-server so
-      // listWorkspaces() reflects it immediately. Without this the UI only
-      // picks up the new workspace after an app restart (because the server
-      // is launched with a fixed --workspace list at boot and the bridge
-      // write only updates desktop-side state).
-      if (openworkClient) {
-        await openworkClient
-          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset })
-          .catch(() => undefined);
       }
       setCreateWorkspaceOpen(false);
       await refreshRouteState();
@@ -1892,14 +1910,22 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     setCreateWorkspaceRemoteBusy(true);
     setCreateWorkspaceRemoteError(null);
     try {
-      const list = await workspaceCreateRemote({
+      const remoteType: "openwork" = "openwork";
+      const payload = {
         baseUrl: baseUrlValue,
         openworkHostUrl: baseUrlValue,
         openworkToken: input.openworkToken?.trim() || null,
         displayName: input.displayName?.trim() || null,
         directory: input.directory?.trim() || null,
-        remoteType: "openwork",
-      }) as WorkspaceList;
+        remoteType,
+      };
+      let list: WorkspaceList | null = null;
+      if (openworkClient) {
+        list = await openworkClient.createRemoteWorkspace(payload).catch(() => null);
+      }
+      if (!list) {
+        throw new Error("OpenWork server is unavailable. Start or reconnect the server before connecting a remote workspace.");
+      }
       const createdId = resolveWorkspaceListSelectedId(list) || list.workspaces[list.workspaces.length - 1]?.id || "";
       if (createdId) {
         await workspaceSetSelected(createdId).catch(() => undefined);

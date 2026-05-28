@@ -19,7 +19,7 @@ import { computeReloadFingerprint } from "./reload-fingerprint.js";
 import { startReloadWatchers } from "./reload-watcher.js";
 import { opencodeConfigPath, openworkConfigPath, projectCommandsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId } from "./utils.js";
-import { workspaceIdForPath } from "./workspaces.js";
+import { workspaceIdForPath, workspaceIdForRemote } from "./workspaces.js";
 import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
@@ -114,6 +114,130 @@ function readStringField(value: unknown, key: string): string {
   if (!isRecord(value)) return "";
   const field = value[key];
   return typeof field === "string" ? field.trim() : "";
+}
+
+function normalizeRemoteDirectory(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function parseOpenworkWorkspaceIdFromUrl(input: string | null | undefined): string | null {
+  const raw = input?.trim() ?? "";
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    const segments = url.pathname.split("/").filter(Boolean);
+    const workspaceIndex = segments.indexOf("workspace");
+    const legacyIndex = segments.indexOf("w");
+    const mountIndex = workspaceIndex >= 0 ? workspaceIndex : legacyIndex;
+    return mountIndex >= 0 && segments[mountIndex + 1]
+      ? decodeURIComponent(segments[mountIndex + 1])
+      : null;
+  } catch {
+    const match = raw.match(/\/(?:workspace|w)\/([^/?#]+)/);
+    if (!match?.[1]) return null;
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+}
+
+function stripOpenworkWorkspaceMount(input: string | null | undefined): string | null {
+  const raw = input?.trim() ?? "";
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    const segments = url.pathname.split("/").filter(Boolean);
+    const workspaceIndex = segments.indexOf("workspace");
+    const legacyIndex = segments.indexOf("w");
+    const mountIndex = workspaceIndex >= 0 ? workspaceIndex : legacyIndex;
+    if (mountIndex >= 0 && segments[mountIndex + 1]) {
+      const prefix = segments.slice(0, mountIndex).join("/");
+      url.pathname = prefix ? `/${prefix}` : "/";
+    }
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return raw.replace(/\/(?:workspace|w)\/[^/?#]+.*$/, "").replace(/\/+$/, "") || raw;
+  }
+}
+
+function openworkRemoteWorkspaceId(hostUrl: string, workspaceId: string | null | undefined): string {
+  const remoteWorkspaceId = workspaceId?.trim() || parseOpenworkWorkspaceIdFromUrl(hostUrl);
+  return remoteWorkspaceId ? `rem_${remoteWorkspaceId}` : workspaceIdForRemote(hostUrl, null);
+}
+
+function workspaceDirectoryCandidates(workspace: Record<string, unknown>): string[] {
+  const opencode = isRecord(workspace.opencode) ? workspace.opencode : {};
+  return [workspace.directory, workspace.path, opencode.directory]
+    .map(normalizeRemoteDirectory)
+    .filter(Boolean);
+}
+
+function selectOpenworkWorkspaceForConnection(list: unknown, directory: string | null): Record<string, unknown> | null {
+  if (!isRecord(list)) return null;
+  const rawItems = Array.isArray(list.items)
+    ? list.items
+    : Array.isArray(list.workspaces)
+      ? list.workspaces
+      : [];
+  const items = rawItems.filter(isRecord);
+  if (!items.length) return null;
+
+  const expectedDirectory = normalizeRemoteDirectory(directory);
+  if (expectedDirectory) {
+    return items.find((item) => workspaceDirectoryCandidates(item).includes(expectedDirectory)) ?? null;
+  }
+
+  const activeId = readStringField(list, "activeId");
+  return (activeId ? items.find((item) => readStringField(item, "id") === activeId) : null) ?? items[0] ?? null;
+}
+
+function openworkWorkspaceDisplayName(workspace: Record<string, unknown>): string | null {
+  return readStringField(workspace, "displayName")
+    || readStringField(workspace, "openworkWorkspaceName")
+    || readStringField(workspace, "name")
+    || readStringField(workspace, "id")
+    || null;
+}
+
+async function fetchOpenworkWorkspaceList(hostUrl: string, token: string, hostToken: string): Promise<unknown> {
+  const url = `${hostUrl.replace(/\/+$/, "")}/workspaces`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (hostToken) headers.set("X-OpenWork-Host-Token", hostToken);
+
+  try {
+    const response = await fetch(url, { headers, signal: controller.signal });
+    if (!response.ok) {
+      throw new ApiError(
+        502,
+        "openwork_workspace_discovery_failed",
+        `OpenWork workspace discovery failed (${response.status} ${response.statusText || "HTTP error"})`,
+      );
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(502, "openwork_workspace_discovery_failed", "OpenWork workspace discovery failed", {
+      error: String(error),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function discoverOpenworkWorkspace(input: {
+  hostUrl: string;
+  token: string;
+  hostToken: string;
+  directory: string | null;
+}): Promise<Record<string, unknown> | null> {
+  const list = await fetchOpenworkWorkspaceList(input.hostUrl, input.token, input.hostToken);
+  return selectOpenworkWorkspaceForConnection(list, input.directory);
 }
 
 async function resolveOpenAiRealtimeApiKey(env: EnvService): Promise<string> {
@@ -1383,6 +1507,144 @@ function buildConfigTrigger(path: string): ReloadTrigger {
   };
 }
 
+export type AuthorizedFoldersResponse = {
+  folders: string[];
+  hiddenCount: number;
+  workspaceRoot: string;
+};
+
+export type AuthorizedFoldersUpdateResponse = {
+  folders: string[];
+  hiddenCount: number;
+  updatedAt: number;
+};
+
+type AuthorizedFoldersConfig = {
+  folders: string[];
+  hiddenEntries: Record<string, unknown>;
+};
+
+function normalizeAuthorizedFolderPath(input: string | null | undefined): string {
+  const trimmed = (input ?? "").trim();
+  if (!trimmed) return "";
+  if (trimmed === "/*") return "/";
+  const withoutWildcard = trimmed.replace(/[\\/]\*+$/, "");
+  const withoutVerbatim = /^\\\\\?\\UNC\\/i.test(withoutWildcard)
+    ? `\\${withoutWildcard.slice(7)}`
+    : /^\\\\\?\\[a-zA-Z]:[\\/]/.test(withoutWildcard)
+      ? withoutWildcard.slice(4)
+      : withoutWildcard;
+  const unified = withoutVerbatim.replace(/\\/g, "/");
+  const withoutTrailing = unified.replace(/\/+$/, "");
+  return withoutTrailing || "/";
+}
+
+function externalDirectoryKeyToAuthorizedFolder(key: string, value: unknown): string | null {
+  if (value !== "allow") return null;
+  const trimmed = key.trim();
+  if (!trimmed) return null;
+  if (trimmed === "/*") return "/";
+  if (!trimmed.endsWith("/*")) return null;
+  return normalizeAuthorizedFolderPath(trimmed.slice(0, -2));
+}
+
+function authorizedFolderToExternalDirectoryKey(folder: string): string {
+  return folder === "/" ? "/*" : `${folder}/*`;
+}
+
+function hasOwnKey(object: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function readAuthorizedFoldersFromOpencodeConfig(
+  opencodeConfig: Record<string, unknown>,
+  workspaceRoot: string,
+): AuthorizedFoldersConfig {
+  const workspaceRootFolder = normalizeAuthorizedFolderPath(workspaceRoot);
+  const permission = ensurePlainObject(opencodeConfig.permission);
+  const externalDirectory = ensurePlainObject(permission.external_directory);
+  const folders: string[] = [];
+  const hiddenEntries: Record<string, unknown> = {};
+  const seen = new Set<string>();
+
+  for (const [key, value] of Object.entries(externalDirectory)) {
+    const folder = externalDirectoryKeyToAuthorizedFolder(key, value);
+    if (!folder) {
+      hiddenEntries[key] = value;
+      continue;
+    }
+    if (folder === workspaceRootFolder || seen.has(folder)) continue;
+    seen.add(folder);
+    folders.push(folder);
+  }
+
+  return { folders, hiddenEntries };
+}
+
+function parseAuthorizedFoldersPayload(input: unknown, workspaceRoot: string): string[] {
+  if (!Array.isArray(input)) {
+    throw new ApiError(400, "invalid_payload", "folders must be an array");
+  }
+
+  const workspaceRootFolder = normalizeAuthorizedFolderPath(workspaceRoot);
+  const folders: string[] = [];
+  const seen = new Set<string>();
+
+  for (const item of input) {
+    if (typeof item !== "string") {
+      throw new ApiError(400, "invalid_payload", "folders must be an array of strings");
+    }
+    const folder = normalizeAuthorizedFolderPath(item);
+    if (!folder || folder === workspaceRootFolder || seen.has(folder)) continue;
+    seen.add(folder);
+    folders.push(folder);
+  }
+
+  return folders;
+}
+
+function mergeAuthorizedFoldersIntoExternalDirectory(
+  folders: string[],
+  hiddenEntries: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const next: Record<string, unknown> = { ...hiddenEntries };
+  for (const folder of folders) {
+    next[authorizedFolderToExternalDirectoryKey(folder)] = "allow";
+  }
+  return Object.keys(next).length ? next : undefined;
+}
+
+async function writeAuthorizedFoldersToOpencodeConfig(
+  configPath: string,
+  existingOpencode: Record<string, unknown>,
+  nextExternalDirectory: Record<string, unknown> | undefined,
+): Promise<void> {
+  const existingPermission = ensurePlainObject(existingOpencode.permission);
+  const hasExternalDirectory = hasOwnKey(existingPermission, "external_directory");
+  if (typeof nextExternalDirectory === "undefined" && !hasExternalDirectory) return;
+
+  const existingPermissionKeys = Object.keys(existingPermission);
+  const removePermissionParent =
+    typeof nextExternalDirectory === "undefined" &&
+    (existingPermissionKeys.length === 0 ||
+      (existingPermissionKeys.length === 1 && hasExternalDirectory));
+
+  if (removePermissionParent) {
+    await updateJsoncPath(configPath, ["permission"], undefined);
+    return;
+  }
+
+  await updateJsoncPath(configPath, ["permission", "external_directory"], nextExternalDirectory);
+}
+
+function buildAuthorizedFoldersResponse(workspace: WorkspaceInfo, config: AuthorizedFoldersConfig): AuthorizedFoldersResponse {
+  return {
+    folders: config.folders,
+    hiddenCount: Object.keys(config.hiddenEntries).length,
+    workspaceRoot: normalizeAuthorizedFolderPath(workspace.path),
+  };
+}
+
 function serializeWorkspace(workspace: ServerConfig["workspaces"][number]) {
   const { opencodeUsername, opencodePassword, ...rest } = workspace;
   const opencodeDirectory = resolveOpencodeDirectory(workspace);
@@ -1411,6 +1673,7 @@ function createRoutes(
   const routes: Route[] = [];
   const fileSessions = new FileSessionStore();
   const googleWorkspaceConnectFlows = createGoogleWorkspaceConnectFlowManager(config);
+  const envPendingChangesByRuntime = new Map<string, boolean>();
 
   const serializeFileSession = (session: {
     id: string;
@@ -1718,18 +1981,68 @@ function createRoutes(
   }
 
   // User-level env vars (see apps/app/pr/environment-variables.md). All routes
-  // require the desktop host token (not owner bearer tokens) because values are
-  // returned raw; the React pane masks them only for display. Reload semantics
-  // are driven from the UI after a write; this surface is user-scoped, not
-  // workspace-scoped, so no audit.
-  addRoute(routes, "GET", "/env", "host-token", async () => {
+  // require the desktop host token (not owner bearer tokens). List callers can
+  // request metadata-only results so renderer settings panes do not receive
+  // every raw secret value up front. Reload semantics are driven from the UI
+  // after a write; this surface is user-scoped, not workspace-scoped, so no audit.
+  addRoute(routes, "GET", "/env", "host-token", async (ctx) => {
+    const includeValues = parseOptionalBoolean(ctx.url.searchParams.get("includeValues"), "includeValues") ?? true;
     const items = await env.list().catch(rethrowEnvStoreReadError);
-    return jsonResponse({ items });
+    return jsonResponse({
+      items: items.map((item) => ({
+        key: item.key,
+        updatedAt: item.updatedAt,
+        hasValue: item.value.length > 0,
+        ...(includeValues ? { value: item.value } : {}),
+      })),
+    });
   });
 
   addRoute(routes, "GET", "/env/keys", "host-token", async () => {
     const items = await env.list().catch(rethrowEnvStoreReadError);
     return jsonResponse({ keys: items.map((item) => item.key) });
+  });
+
+  function envRuntimeKeyFromUrl(url: URL): string {
+    return url.searchParams.get("runtimeKey")?.trim() || "default";
+  }
+
+  addRoute(routes, "GET", "/env/status", "host-token", async (ctx) => {
+    const runtimeKey = envRuntimeKeyFromUrl(ctx.url);
+    return jsonResponse({ runtimeKey, pendingChanges: envPendingChangesByRuntime.get(runtimeKey) === true });
+  });
+
+  addRoute(routes, "PUT", "/env/status", "host-token", async (ctx) => {
+    const body = await readJsonBody(ctx.request);
+    const runtimeKey = typeof body.runtimeKey === "string" && body.runtimeKey.trim()
+      ? body.runtimeKey.trim()
+      : "default";
+    const pendingChanges = body.pendingChanges === true;
+    if (pendingChanges) {
+      envPendingChangesByRuntime.set(runtimeKey, true);
+    } else {
+      envPendingChangesByRuntime.delete(runtimeKey);
+    }
+    return jsonResponse({ runtimeKey, pendingChanges });
+  });
+
+  addRoute(routes, "GET", "/env/:key", "host-token", async (ctx) => {
+    const key = ctx.params.key;
+    if (!isValidEnvKey(key)) {
+      throw new ApiError(400, "invalid_env_key", "Invalid environment variable name");
+    }
+    const item = (await env.list().catch(rethrowEnvStoreReadError)).find((entry) => entry.key === key);
+    if (!item) {
+      throw new ApiError(404, "env_not_found", "Environment variable not found");
+    }
+    return jsonResponse({
+      item: {
+        key: item.key,
+        updatedAt: item.updatedAt,
+        hasValue: item.value.length > 0,
+        value: item.value,
+      },
+    });
   });
 
   addRoute(routes, "PUT", "/env", "host-token", async (ctx) => {
@@ -1840,9 +2153,101 @@ function createRoutes(
     }, 201);
   });
 
+  addRoute(routes, "POST", "/workspaces/remote", "host", async (ctx) => {
+    ensureWritable(config);
+    const body = await readJsonBody(ctx.request);
+    const baseUrl = readStringField(body, "baseUrl");
+    if (!baseUrl) {
+      throw new ApiError(400, "invalid_payload", "baseUrl is required");
+    }
+    if (!/^https?:\/\//i.test(baseUrl)) {
+      throw new ApiError(400, "invalid_payload", "baseUrl must start with http:// or https://");
+    }
+
+    const remoteType = readStringField(body, "remoteType") === "opencode" ? "opencode" : "openwork";
+    const directory = readStringField(body, "directory") || null;
+    const displayName = readStringField(body, "displayName") || null;
+    const rawOpenworkHostUrl = readStringField(body, "openworkHostUrl") || null;
+    const openworkHostUrl = remoteType === "openwork"
+      ? stripOpenworkWorkspaceMount(rawOpenworkHostUrl ?? baseUrl)
+      : rawOpenworkHostUrl;
+    const openworkToken = readStringField(body, "openworkToken");
+    const openworkHostToken = readStringField(body, "openworkHostToken");
+    const sandboxBackend = readStringField(body, "sandboxBackend");
+    const sandboxRunId = readStringField(body, "sandboxRunId");
+    const sandboxContainerName = readStringField(body, "sandboxContainerName");
+    let openworkWorkspaceId = remoteType === "openwork"
+      ? readStringField(body, "openworkWorkspaceId")
+        || parseOpenworkWorkspaceIdFromUrl(rawOpenworkHostUrl)
+        || parseOpenworkWorkspaceIdFromUrl(baseUrl)
+      : "";
+    let openworkWorkspaceName = readStringField(body, "openworkWorkspaceName") || null;
+
+    if (remoteType === "openwork" && !openworkWorkspaceId) {
+      const discovered = await discoverOpenworkWorkspace({
+        hostUrl: openworkHostUrl ?? baseUrl,
+        token: openworkToken,
+        hostToken: openworkHostToken,
+        directory,
+      });
+      openworkWorkspaceId = discovered ? readStringField(discovered, "id") : "";
+      openworkWorkspaceName = discovered ? openworkWorkspaceDisplayName(discovered) : openworkWorkspaceName;
+      if (!openworkWorkspaceId) {
+        throw new ApiError(
+          400,
+          "openwork_workspace_not_found",
+          directory
+            ? `OpenWork server has no workspace matching ${directory}.`
+            : "OpenWork server returned no workspaces.",
+        );
+      }
+    }
+
+    const workspace: WorkspaceInfo = {
+      id: remoteType === "openwork"
+        ? openworkRemoteWorkspaceId(openworkHostUrl ?? baseUrl, openworkWorkspaceId)
+        : workspaceIdForRemote(baseUrl, directory),
+      name: displayName ?? openworkWorkspaceName ?? "Remote workspace",
+      path: directory ?? "",
+      preset: "remote",
+      workspaceType: "remote",
+      remoteType,
+      baseUrl: remoteType === "openwork" ? (openworkHostUrl ?? baseUrl) : baseUrl,
+      ...(directory ? { directory } : {}),
+      ...(displayName ? { displayName } : {}),
+      ...(remoteType === "openwork" && openworkHostUrl ? { openworkHostUrl } : {}),
+      ...(openworkToken ? { openworkToken } : {}),
+      ...(remoteType === "openwork" && openworkWorkspaceId ? { openworkWorkspaceId } : {}),
+      ...(remoteType === "openwork" && openworkWorkspaceName ? { openworkWorkspaceName } : {}),
+      ...(sandboxBackend ? { sandboxBackend } : {}),
+      ...(sandboxRunId ? { sandboxRunId } : {}),
+      ...(sandboxContainerName ? { sandboxContainerName } : {}),
+    };
+
+    config.workspaces = [workspace, ...config.workspaces.filter((entry) => entry.id !== workspace.id)];
+    const persisted = await persistServerWorkspaceState(config);
+    onWorkspacesChanged();
+
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "host" },
+      action: "workspace.create",
+      target: workspace.path || workspace.baseUrl || "workspace",
+      summary: `Created remote workspace ${workspace.name}`,
+      timestamp: Date.now(),
+    });
+
+    return jsonResponse({
+      activeId: workspace.id,
+      workspaces: config.workspaces.map(serializeWorkspace),
+      persisted,
+    }, 201);
+  });
+
   addRoute(routes, "PATCH", "/workspaces/:id/display-name", "host", async (ctx) => {
     ensureWritable(config);
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await resolveWorkspaceForRegistry(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const nextDisplayName = typeof body.displayName === "string" && body.displayName.trim()
       ? body.displayName.trim()
@@ -1866,7 +2271,7 @@ function createRoutes(
       workspaceId: workspace.id,
       actor: ctx.actor ?? { type: "host" },
       action: "workspace.rename",
-      target: workspace.path,
+      target: workspace.path || workspace.baseUrl || "workspace",
       summary: `Updated workspace display name${nextDisplayName ? ` to ${nextDisplayName}` : ""}`,
       timestamp: Date.now(),
     });
@@ -1879,11 +2284,17 @@ function createRoutes(
   });
 
   addRoute(routes, "POST", "/workspaces/:id/activate", "host", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await resolveWorkspaceForRegistry(config, ctx.params.id);
+    const queryPersist = parseOptionalBoolean(ctx.url.searchParams.get("persist"), "persist");
+    const body = queryPersist === undefined ? await readOptionalJsonBody(ctx.request) : {};
+    const persist = queryPersist ?? (body.persist === true);
+    if (persist) ensureWritable(config);
     config.workspaces = [
       workspace,
       ...config.workspaces.filter((entry) => entry.id !== workspace.id),
     ];
+    const persisted = persist ? await persistServerWorkspaceState(config) : false;
+    if (persist) onWorkspacesChanged();
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -1893,23 +2304,22 @@ function createRoutes(
       summary: "Switched active workspace",
       timestamp: Date.now(),
     });
-    const connection = resolveWorkspaceOpencodeConnection(config, workspace);
-    if (connection.baseUrl?.trim()) {
+    if (workspace.workspaceType === "local" && resolveWorkspaceOpencodeConnection(config, workspace).baseUrl?.trim()) {
       await reloadOpencodeEngine(config, workspace);
     }
-    return jsonResponse({ activeId: workspace.id, workspace: serializeWorkspace(workspace), persisted: false });
+    return jsonResponse({ activeId: workspace.id, workspace: serializeWorkspace(workspace), persisted });
   });
 
   addRoute(routes, "DELETE", "/workspaces/:id", "host", async (ctx) => {
     ensureWritable(config);
 
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await resolveWorkspaceForRegistry(config, ctx.params.id);
 
     const before = config.workspaces.length;
     config.workspaces = config.workspaces.filter((entry) => entry.id !== workspace.id);
     const deleted = before !== config.workspaces.length;
 
-    if (deleted) {
+    if (deleted && workspace.workspaceType === "local") {
       // Only remove exact matches; authorizedRoots can contain broader entries.
       config.authorizedRoots = config.authorizedRoots.filter((root) => resolve(root) !== resolve(workspace.path));
     }
@@ -1943,6 +2353,65 @@ function createRoutes(
     const openwork = await readOpenworkConfig(workspace.path);
     const lastAudit = await readLastAudit(workspace.path, workspace.id);
     return jsonResponse({ opencode, openwork, updatedAt: lastAudit?.timestamp ?? null });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/authorized-folders", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const opencode = await readOpencodeConfig(workspace.path);
+    const foldersConfig = readAuthorizedFoldersFromOpencodeConfig(opencode, workspace.path);
+    return jsonResponse(buildAuthorizedFoldersResponse(workspace, foldersConfig));
+  });
+
+  addRoute(routes, "PUT", "/workspace/:id/authorized-folders", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const folders = parseAuthorizedFoldersPayload(body.folders, workspace.path);
+    const configPath = opencodeConfigPath(workspace.path);
+
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "config.authorized_folders.write",
+      summary: "Update authorized folders",
+      paths: [configPath],
+    });
+
+    const configFingerprintBefore = await computeReloadFingerprint(workspace.path, "config");
+    const existingOpencode = await readOpencodeConfig(workspace.path);
+    const existingFoldersConfig = readAuthorizedFoldersFromOpencodeConfig(existingOpencode, workspace.path);
+    const nextExternalDirectory = mergeAuthorizedFoldersIntoExternalDirectory(
+      folders,
+      existingFoldersConfig.hiddenEntries,
+    );
+
+    await writeAuthorizedFoldersToOpencodeConfig(configPath, existingOpencode, nextExternalDirectory);
+
+    const updatedAt = Date.now();
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "config.authorized_folders.write",
+      target: configPath,
+      summary: "Updated authorized folders",
+      timestamp: updatedAt,
+    });
+
+    if (configFingerprintBefore !== await computeReloadFingerprint(workspace.path, "config")) {
+      emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
+    }
+
+    const updatedFoldersConfig = readAuthorizedFoldersFromOpencodeConfig({
+      permission: { external_directory: nextExternalDirectory ?? {} },
+    }, workspace.path);
+
+    const response: AuthorizedFoldersUpdateResponse = {
+      folders: updatedFoldersConfig.folders,
+      hiddenCount: Object.keys(updatedFoldersConfig.hiddenEntries).length,
+      updatedAt,
+    };
+    return jsonResponse(response);
   });
 
   addRoute(routes, "GET", "/workspace/:id/opencode-config", "client", async (ctx) => {
@@ -3605,6 +4074,21 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
   return { ...workspace, path: resolvedWorkspace };
 }
 
+async function resolveWorkspaceForRegistry(config: ServerConfig, id: string): Promise<WorkspaceInfo> {
+  const workspaceId = id.trim();
+  const aliasWorkspaceId = workspaceId.startsWith("rem_") ? workspaceId.slice("rem_".length) : "";
+  const workspace =
+    config.workspaces.find((entry) => entry.id === workspaceId) ??
+    (aliasWorkspaceId ? config.workspaces.find((entry) => entry.id === aliasWorkspaceId) : undefined);
+  if (!workspace) {
+    throw new ApiError(404, "workspace_not_found", "Workspace not found");
+  }
+  if (workspace.workspaceType === "remote") {
+    return { ...workspace, path: workspace.path?.trim() ?? "" };
+  }
+  return resolveWorkspace(config, id);
+}
+
 function reloadOpencodeEngineAfterInternalBootstrap(config: ServerConfig, workspace: WorkspaceInfo): void {
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   if (!connection.baseUrl?.trim()) return;
@@ -3647,6 +4131,16 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown>> 
   try {
     const json = await request.json();
     return json as Record<string, unknown>;
+  } catch {
+    throw new ApiError(400, "invalid_json", "Invalid JSON body");
+  }
+}
+
+async function readOptionalJsonBody(request: Request): Promise<Record<string, unknown>> {
+  const text = await request.text();
+  if (!text.trim()) return {};
+  try {
+    return ensurePlainObject(JSON.parse(text));
   } catch {
     throw new ApiError(400, "invalid_json", "Invalid JSON body");
   }

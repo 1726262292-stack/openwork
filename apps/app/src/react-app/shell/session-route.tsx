@@ -37,13 +37,9 @@ import {
   pickDirectory,
   resolveWorkspaceListSelectedId,
   workspaceBootstrap,
-  workspaceCreate,
-  workspaceCreateRemote,
-  workspaceExportConfig,
   workspaceForget,
   workspaceSetRuntimeActive,
   workspaceSetSelected,
-  workspaceUpdateDisplayName,
   type EngineInfo,
   type OpenworkServerInfo,
   type WorkspaceInfo,
@@ -210,6 +206,24 @@ function workspaceLabel(workspace: OpenworkWorkspaceInfo) {
     workspace.path?.trim() ||
     t("session.workspace_fallback")
   );
+}
+
+function workspaceExportFilename(workspace: OpenworkWorkspaceInfo) {
+  const slug = workspaceLabel(workspace).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return `${slug || "workspace"}-openwork-export.json`;
+}
+
+function downloadWorkspaceJson(filename: string, payload: unknown) {
+  if (typeof document === "undefined") return;
+  const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 const emptyWorkspaceDisplay: WorkspaceDisplay = {
@@ -2192,12 +2206,6 @@ export function SessionRoute() {
       // desktop-provided workspaceBootstrap results). Either call failing on
       // its own should NOT block the other — the user's intent was "rename
       // this workspace" and a soft failure in one store is recoverable.
-      if (isDesktopRuntime()) {
-        await workspaceUpdateDisplayName({
-          workspaceId: renameWorkspaceId,
-          displayName: trimmed,
-        }).catch(() => undefined);
-      }
       if (client) {
         await client
           .updateWorkspaceDisplayName(renameWorkspaceId, trimmed)
@@ -2236,22 +2244,17 @@ export function SessionRoute() {
 
   const handleExportWorkspaceConfig = useCallback(
     async (workspaceId: string) => {
-      if (!isDesktopRuntime()) return;
       const workspace = workspaces.find((item) => item.id === workspaceId) ?? null;
       if (!workspace) return;
-      const outputPath = await pickDirectory({
-        title: `Choose where to export ${workspaceLabel(workspace)}`,
-      });
-      const targetPath = Array.isArray(outputPath) ? outputPath[0] : outputPath;
-      if (!targetPath) return;
-      await workspaceExportConfig({ workspaceId, outputPath: targetPath });
-      try {
-        await revealDesktopItemInDir(targetPath);
-      } catch {
-        // ignore reveal failures
+      const endpoint = endpointForWorkspace(workspace);
+      if (endpoint) {
+        const payload = await endpoint.client.exportWorkspace(endpoint.workspaceId);
+        downloadWorkspaceJson(workspaceExportFilename(workspace), payload);
+        return;
       }
+      throw new Error("OpenWork server is unavailable. Reconnect the server before exporting workspace config.");
     },
-    [workspaces],
+    [endpointForWorkspace, workspaces],
   );
 
   const handleForgetWorkspace = useCallback(
@@ -2264,11 +2267,11 @@ export function SessionRoute() {
       }
       // Remove from both stores so the next refresh can't resurrect the row
       // from whichever list wins the merge.
-      if (isDesktopRuntime()) {
-        await workspaceForget(workspaceId).catch(() => undefined);
-      }
       if (client) {
         await client.deleteWorkspace(workspaceId).catch(() => undefined);
+      }
+      if (isDesktopRuntime()) {
+        await workspaceForget(workspaceId).catch(() => undefined);
       }
       if (selectedWorkspaceId === workspaceId) {
         setLegacySelectedWorkspaceId("");
@@ -2548,11 +2551,20 @@ export function SessionRoute() {
     setCreateWorkspaceError(null);
     try {
       const workspaceName = folderNameFromPath(folder);
-      const list = await workspaceCreate({
-        folderPath: folder,
-        name: workspaceName,
-        preset,
-      }) as WorkspaceList;
+      let list: WorkspaceList | null = null;
+      let createdOnServer = false;
+      if (client) {
+        list = await client
+          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset })
+          .then((serverList) => {
+            createdOnServer = true;
+            return serverList;
+          })
+          .catch(() => null);
+      }
+      if (!list) {
+        throw new Error("OpenWork server is unavailable. Start or reconnect the server before creating a workspace.");
+      }
       const createdId = resolveWorkspaceListSelectedId(list) || list.workspaces[list.workspaces.length - 1]?.id || "";
       let targetWorkspaceId = createdId;
       let targetWorkspace = list.workspaces.find((workspace: WorkspaceInfo) => workspace.id === createdId) ?? null;
@@ -2560,27 +2572,13 @@ export function SessionRoute() {
         await workspaceSetSelected(createdId).catch(() => undefined);
         await workspaceSetRuntimeActive(createdId).catch(() => undefined);
       }
-      // Register the workspace with the running openwork-server so
-      // listWorkspaces() reflects it immediately. Without this the UI only
-      // picks up the new workspace after an app restart (because the server
-      // is launched with a fixed --workspace list at boot and the bridge
-      // write only updates desktop-side state).
-      if (client) {
-        const serverList = await client
-          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset })
-          .catch(() => null);
-        targetWorkspaceId = serverList
-          ? resolveWorkspaceListSelectedId(serverList) || serverList.workspaces[serverList.workspaces.length - 1]?.id || targetWorkspaceId
-          : targetWorkspaceId;
-        targetWorkspace = serverList?.workspaces.find((workspace) => workspace.id === targetWorkspaceId) ?? targetWorkspace;
-      }
       setCreateWorkspaceOpen(false);
       // Mark onboarding complete so the /welcome redirect never fires again.
       local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
       await refreshRouteState();
       if (targetWorkspaceId) {
         const workspacePath = targetWorkspace?.path?.trim() || folder;
-        const session = baseUrl && token
+        const session = createdOnServer && baseUrl && token
           ? unwrap(await createClient(
               `${(buildOpenworkWorkspaceBaseUrl(baseUrl, targetWorkspaceId) ?? baseUrl).replace(/\/+$/, "")}/opencode`,
               workspacePath || undefined,
@@ -2609,7 +2607,7 @@ export function SessionRoute() {
     } finally {
       setCreateWorkspaceBusy(false);
     }
-  }, [client, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession]);
+  }, [baseUrl, client, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, token]);
 
   const handleCreateRemoteWorkspace = useCallback(async (input: {
     openworkHostUrl?: string | null;
@@ -2622,14 +2620,22 @@ export function SessionRoute() {
     setCreateWorkspaceRemoteBusy(true);
     setCreateWorkspaceRemoteError(null);
     try {
-      const list = await workspaceCreateRemote({
+      const remoteType: "openwork" = "openwork";
+      const payload = {
         baseUrl: baseUrlValue,
         openworkHostUrl: baseUrlValue,
         openworkToken: input.openworkToken?.trim() || null,
         displayName: input.displayName?.trim() || null,
         directory: input.directory?.trim() || null,
-        remoteType: "openwork",
-      }) as WorkspaceList;
+        remoteType,
+      };
+      let list: WorkspaceList | null = null;
+      if (client) {
+        list = await client.createRemoteWorkspace(payload).catch(() => null);
+      }
+      if (!list) {
+        throw new Error("OpenWork server is unavailable. Start or reconnect the server before connecting a remote workspace.");
+      }
       const createdId = resolveWorkspaceListSelectedId(list) || list.workspaces[list.workspaces.length - 1]?.id || "";
       if (createdId) {
         await workspaceSetSelected(createdId).catch(() => undefined);
@@ -2646,7 +2652,7 @@ export function SessionRoute() {
     } finally {
       setCreateWorkspaceRemoteBusy(false);
     }
-  }, [local, refreshRouteState]);
+  }, [client, local, refreshRouteState]);
 
   return (
     <WorkspaceProvider
@@ -2770,11 +2776,11 @@ export function SessionRoute() {
           // Without this, the permissions from opencode.jsonc are never
           // applied on the workspace the user is already on at launch. See
           // issue #870.
-          if (workspaceId && client) {
+          if (workspaceId) {
             const workspace = workspaces.find((item) => item.id === workspaceId) ?? null;
             const endpoint = endpointForWorkspace(workspace);
             if (endpoint) {
-              void endpoint.client.activateWorkspace(endpoint.workspaceId).catch(() => undefined);
+              void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true }).catch(() => undefined);
             }
           }
           // If we remember what the user last opened here and that session

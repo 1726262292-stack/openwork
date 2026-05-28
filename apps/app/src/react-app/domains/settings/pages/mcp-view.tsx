@@ -318,8 +318,9 @@ export function McpView(props: McpViewProps) {
     const nextId = configRequestId.current + 1;
     configRequestId.current = nextId;
     const readConfig = props.readConfigFile;
+    const canReadDesktopConfig = !props.isRemoteWorkspace && isDesktopRuntime();
 
-    if (!readConfig && !isDesktopRuntime()) {
+    if (!readConfig && !canReadDesktopConfig) {
       dispatchLocal({ type: "configUnavailable" });
       return;
     }
@@ -331,9 +332,15 @@ export function McpView(props: McpViewProps) {
           root
             ? readConfig
               ? readConfig("project")
-              : readOpencodeConfig("project", root)
+              : canReadDesktopConfig
+              ? readOpencodeConfig("project", root)
+              : Promise.resolve(null)
             : Promise.resolve(null),
-          readConfig ? readConfig("global") : readOpencodeConfig("global", root),
+          readConfig
+            ? readConfig("global")
+            : canReadDesktopConfig
+            ? readOpencodeConfig("global", root)
+            : Promise.resolve(null),
         ]);
         if (nextId !== configRequestId.current) return;
         dispatchLocal({
@@ -349,7 +356,7 @@ export function McpView(props: McpViewProps) {
         });
       }
     })();
-  }, [props.readConfigFile, props.selectedWorkspaceRoot]);
+  }, [props.isRemoteWorkspace, props.readConfigFile, props.selectedWorkspaceRoot]);
 
   const activeConfig = configScope === "project" ? projectConfig : globalConfig;
 
@@ -359,6 +366,7 @@ export function McpView(props: McpViewProps) {
 
   const canRevealConfig =
     isDesktopRuntime() &&
+    !props.isRemoteWorkspace &&
     !revealBusy &&
     !(configScope === "project" && !props.selectedWorkspaceRoot.trim()) &&
     Boolean(activeConfig?.exists);
@@ -458,7 +466,9 @@ export function McpView(props: McpViewProps) {
     try {
       const resolved = props.readConfigFile
         ? await props.readConfigFile(configScope)
-        : await readOpencodeConfig(configScope, root);
+        : !props.isRemoteWorkspace
+        ? await readOpencodeConfig(configScope, root)
+        : null;
       const configFile = resolved as OpencodeConfigFile | null;
       if (!configFile) {
         throw new Error(t("mcp.config_load_failed"));
