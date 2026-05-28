@@ -265,6 +265,34 @@ describe("workspace activation", () => {
 });
 
 describe("workspace lifecycle registry", () => {
+  test("creates server config file when adding a local workspace", async () => {
+    const configRoot = await createWorkspaceRoot();
+    const workspaceRoot = await createWorkspaceRoot();
+    const configPath = join(configRoot, "server.json");
+    const openwork = await startOpenworkServerWithWorkspaces({
+      configPath,
+      workspaces: [],
+      authorizedRoots: [],
+    });
+
+    const base = `http://127.0.0.1:${openwork.server.port}`;
+    const response = await fetch(`${base}/workspaces/local`, {
+      method: "POST",
+      headers: { ...hostAuth(openwork.hostToken), "Content-Type": "application/json" },
+      body: JSON.stringify({ folderPath: workspaceRoot, name: "Persisted Local", preset: "starter" }),
+    });
+
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.persisted).toBe(true);
+
+    const persisted = await readPersistedConfig(configPath);
+    const workspaces = workspacesFromConfig(persisted);
+    expect(workspaces[0]?.path).toBe(workspaceRoot);
+    expect(workspaces[0]?.name).toBe("Persisted Local");
+    expect(authorizedRootsFromConfig(persisted)).toEqual([workspaceRoot]);
+  });
+
   test("creates and persists remote OpenWork workspace records", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const configPath = join(workspaceRoot, "server.json");
