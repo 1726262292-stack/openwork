@@ -5,7 +5,7 @@ import type { Part } from "@opencode-ai/sdk/v2/client";
 import { abortSessionSafe } from "../../../../app/lib/opencode-session";
 import type { OpenworkSessionMessage, OpenworkSessionSnapshot } from "../../../../app/lib/openwork-server";
 import { normalizeEvent, safeStringify } from "../../../../app/utils";
-import type { OpencodeEvent } from "../../../../app/types";
+import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type OpencodeEvent } from "../../../../app/types";
 import { createClient } from "../../../../app/lib/opencode";
 
 type TransportOptions = {
@@ -47,6 +47,86 @@ type TextPart = Extract<Part, { type: "text" | "reasoning" }>;
 type FilePart = Extract<Part, { type: "file" }>;
 
 const STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
+
+function recordValue(value: unknown, key: string) {
+  if (!value || typeof value !== "object") return undefined;
+  return (value as Record<string, unknown>)[key];
+}
+
+function firstStringValue(records: unknown[], keys: string[]) {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = recordValue(record, key);
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+  }
+  return null;
+}
+
+function firstNumberValue(records: unknown[], keys: string[]) {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = recordValue(record, key);
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+    }
+  }
+  return null;
+}
+
+export function describeOpencodeSessionError(error: unknown, fallback = "Session failed") {
+  if (error instanceof Error) return error.message || fallback;
+  if (typeof error === "string") return error.trim() || fallback;
+  if (!error || typeof error !== "object") return fallback;
+
+  const data = recordValue(error, "data");
+  const cause = recordValue(error, "cause");
+  const causeData = recordValue(cause, "data");
+  const records = [error, data, cause, causeData].filter(Boolean);
+  const message = firstStringValue(records, ["message", "detail", "reason", "error"]);
+  const status = firstNumberValue(records, ["statusCode", "status"]);
+  const provider = firstStringValue(records, ["providerID", "providerId", "provider"]);
+  const code = firstStringValue(records, ["code", "errorCode"]);
+  const responseBody = firstStringValue(records, ["responseBody", "body", "response"]);
+
+  const lines = [message ?? fallback];
+  if (status && !lines[0]?.includes(String(status))) lines.push(`Status: ${status}`);
+  if (provider && !lines[0]?.includes(provider)) lines.push(`Provider: ${provider}`);
+  if (code) lines.push(`Code: ${code}`);
+  if (responseBody && responseBody !== message) lines.push(`Response: ${responseBody}`);
+  if (lines.some((line) => line !== fallback)) return lines.join("\n");
+
+  const serialized = safeStringify(error);
+  return serialized && serialized !== "{}" ? serialized : fallback;
+}
+
+function sessionErrorMessageId(turnKey: string) {
+  return `${SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX}${turnKey}`;
+}
+
+/**
+ * Build the synthetic chat message that surfaces a session error.
+ *
+ * The error is keyed to the *turn* that failed (`turnKey`), not the session.
+ * Both the live `session.error` event and the snapshot reload derive the same
+ * `turnKey` from the errored assistant message id, so they reconcile to one
+ * message instead of duplicating — while a brand new error on a later turn
+ * still produces its own message instead of overwriting the previous one.
+ */
+export function createSessionErrorUIMessage(turnKey: string, text: string, options?: { created?: number }): UIMessage {
+  const id = sessionErrorMessageId(turnKey);
+  const created = options?.created;
+  return {
+    id,
+    role: "assistant",
+    ...(typeof created === "number" ? { metadata: { opencode: { created } } } : {}),
+    parts: [{
+      type: "text",
+      text,
+      state: "done",
+      providerMetadata: { opencode: { partId: `${id}:text` } },
+    }],
+  };
+}
 
 function fileProviderMetadata(part: FilePart) {
   if (part.source) {
@@ -161,9 +241,9 @@ function mapToolPart(part: ToolPart): DynamicToolUIPart {
 }
 
 export function snapshotToUIMessages(snapshot: OpenworkSessionSnapshot): UIMessage[] {
-  return snapshot.messages.map((message) => {
+  return snapshot.messages.flatMap((message) => {
     const created = message.info.time?.created;
-    return {
+    const uiMessage = {
       id: message.info.id,
       role: message.info.role,
       ...(typeof created === "number" ? { metadata: { opencode: { created } } } : {}),
@@ -222,6 +302,18 @@ export function snapshotToUIMessages(snapshot: OpenworkSessionSnapshot): UIMessa
         return [];
       }),
     };
+
+    // Surface a failed turn as its own synthetic error message keyed by the
+    // errored assistant message id. The live `session.error` event keys its
+    // message off the latest assistant turn the same way, so the two
+    // reconcile to one message instead of duplicating — while a later turn's
+    // error still gets its own message. An empty assistant carcass for the
+    // errored turn is dropped so the error reads as that turn's outcome.
+    const error = message.info.role === "assistant" && "error" in message.info ? message.info.error : undefined;
+    if (!error) return [uiMessage];
+
+    const errorMessage = createSessionErrorUIMessage(message.info.id, describeOpencodeSessionError(error), { created });
+    return uiMessage.parts.length > 0 ? [uiMessage, errorMessage] : [errorMessage];
   });
 }
 
@@ -435,13 +527,7 @@ function handleEventChunk(
   if (event.type === "session.error") {
     const record = (event.properties ?? {}) as Record<string, unknown>;
     if (record.sessionID !== sessionId) return;
-    const errorObj = record.error;
-    const errorText =
-      typeof errorObj === "object" && errorObj && "message" in (errorObj as Record<string, unknown>)
-        ? String((errorObj as Record<string, unknown>).message ?? "")
-        : typeof record.error === "string"
-          ? record.error
-          : "Session failed";
+    const errorText = describeOpencodeSessionError(record.error);
     finalizeOpenParts(controller, state);
     controller.enqueue({ type: "error", errorText: errorText || "Session failed" });
     controller.enqueue({ type: "finish", finishReason: "error" });

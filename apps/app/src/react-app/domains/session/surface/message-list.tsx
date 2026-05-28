@@ -471,15 +471,16 @@ async function revealFileInFinder(path: string) {
   }
 }
 
-function CopyButton(props: { getText: () => string }) {
+function CopyButton(props: { getText: () => string; label?: string }) {
   const [copied, setCopied] = useState(false);
+  const label = props.label ?? "Copy message";
 
   return (
     <Button
       variant="ghost"
       size="icon-sm"
-      title="Copy message"
-      aria-label="Copy message"
+      title={label}
+      aria-label={label}
       onClick={async () => {
         await navigator.clipboard.writeText(props.getText());
         setCopied(true);
@@ -958,9 +959,11 @@ function MessageBlockRow(props: {
     : [];
 
   if (isSyntheticSessionError) {
-    const messageText = block.renderableParts
+    const fullErrorText = block.renderableParts
       .map((part) => partToText(part))
-      .join(" ")
+      .join("\n")
+      .trim();
+    const messageText = fullErrorText
       .replace(/\s*\n+\s*/g, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
@@ -974,11 +977,14 @@ function MessageBlockRow(props: {
       >
         <div className={cn("w-full relative", !props.isNestedVariant && "max-w-[650px]", searchOutlineClass)}>
           <div
-            className="inline-flex max-w-full items-start gap-2 rounded-[18px] border border-red-7/20 bg-red-1/35 px-3 py-2 text-sm leading-5 text-red-12 shadow-sm"
+            className="inline-flex max-w-full items-start gap-2 rounded-[18px] border border-red-7/20 bg-red-1/35 py-2 pl-3 pr-2 text-sm leading-5 text-red-12 shadow-sm"
             role="alert"
           >
             <CircleAlert size={14} className="mt-0.5 shrink-0" />
-            <div className="min-w-0 wrap-break-word">{messageText}</div>
+            <div className="min-w-0 wrap-break-word pt-px">{messageText}</div>
+            <div className="shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
+              <CopyButton getText={() => fullErrorText} label="Copy error" />
+            </div>
           </div>
         </div>
       </div>
