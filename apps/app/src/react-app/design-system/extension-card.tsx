@@ -5,7 +5,6 @@ import type { ExtensionKind } from "../../app/constants";
 import type { EnablementResult } from "../../app/extensions";
 import { resolveExtensionIconSrc } from "./extension-icon-src";
 import { ExtensionMeshAvatar } from "./extension-mesh-avatar";
-import { grainArtCategoryForExtensionKind } from "./grain-art";
 
 export type ExtensionCardProps = {
   name: string;
@@ -119,8 +118,8 @@ export function ExtensionCard(props: ExtensionCardProps) {
             ) : (
               <ExtensionMeshAvatar
                 name={name}
-                category={grainArtCategoryForExtensionKind(kind)}
-                className="size-7 rounded-md text-[10px] font-bold shadow-inner"
+                category={kind}
+                className="size-7 rounded-md shadow-inner"
               />
             )}
           </div>

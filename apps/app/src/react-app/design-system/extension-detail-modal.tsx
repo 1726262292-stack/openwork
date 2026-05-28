@@ -29,7 +29,6 @@ import { MarkdownBlock } from "../domains/session/surface/markdown";
 import { modalBodyClass } from "../domains/workspace/modal-styles";
 import { resolveExtensionIconSrc } from "./extension-icon-src";
 import { ExtensionMeshAvatar } from "./extension-mesh-avatar";
-import { grainArtCategoryForExtensionKind } from "./grain-art";
 
 export type ExtensionDetailModalProps = {
   open: boolean;
@@ -249,8 +248,8 @@ export function ExtensionDetailModal(props: ExtensionDetailModalProps) {
                 ) : (
                   <ExtensionMeshAvatar
                     name={name}
-                    category={grainArtCategoryForExtensionKind(kind)}
-                    className="size-9 rounded-lg text-xs font-bold shadow-inner"
+                    category={kind}
+                    className="size-9 rounded-lg shadow-inner"
                   />
                 )}
               </div>
