@@ -101,9 +101,9 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     port: server.port,
     url: `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${server.port}`,
     config,
-    stop() {
+    async stop() {
       managedOpencode?.close();
-      server.stop();
+      await server.stop();
     },
   };
 }
