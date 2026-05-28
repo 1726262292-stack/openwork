@@ -1925,11 +1925,8 @@ export function createDenClient(options: { baseUrl: string; apiBaseUrl?: string 
       return getOrgPluginResolved(plugin, payload);
     },
 
-    async getBillingStatus(options: { includeCheckout?: boolean; includePortal?: boolean; includeInvoices?: boolean } = {}): Promise<DenBillingSummary> {
+    async getBillingStatus(options: { includePortal?: boolean; includeInvoices?: boolean } = {}): Promise<DenBillingSummary> {
       const params = new URLSearchParams();
-      if (options.includeCheckout) {
-        params.set("includeCheckout", "1");
-      }
       if (options.includePortal === false) {
         params.set("excludePortal", "1");
       }

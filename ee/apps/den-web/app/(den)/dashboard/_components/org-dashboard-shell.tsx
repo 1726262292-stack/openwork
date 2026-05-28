@@ -143,7 +143,7 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
   if (pathname.startsWith(getIntegrationsRoute(orgSlug))) {
     return "Integrations";
   }
-  if (pathname.startsWith(getBillingRoute(orgSlug)) || pathname === "/checkout") {
+  if (pathname.startsWith(getBillingRoute(orgSlug))) {
     return "Billing";
   }
   if (pathname.startsWith(getOrgSettingsRoute(orgSlug))) {
@@ -259,7 +259,7 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
               }]
             : []),
           {
-            href: activeOrg ? getBillingRoute(activeOrg.slug) : "/checkout",
+            href: getBillingRoute(activeOrg?.slug),
             label: "Billing",
             icon: CreditCard,
           },
