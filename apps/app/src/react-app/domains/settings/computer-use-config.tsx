@@ -83,7 +83,7 @@ export function ComputerUseConfig(props: ComputerUseConfigProps) {
   // Spawn --check → fresh TCC read. Works whether or not the GUI is open.
   const verify = useCallback(async () => {
     if (!hasDesktopBridge()) {
-      setError("Computer Use setup requires the OpenWork desktop app on macOS.");
+      setError("Computer Use is Mac only and requires the OpenWork desktop app on macOS.");
       return;
     }
     setBusy(true);
@@ -106,7 +106,7 @@ export function ComputerUseConfig(props: ComputerUseConfigProps) {
   // Open the setup GUI then immediately re-verify.
   const grant = async () => {
     if (!hasDesktopBridge()) {
-      setError("OpenWork desktop is required.");
+      setError("Computer Use is Mac only and requires the OpenWork desktop app on macOS.");
       return;
     }
     setBusy(true);
@@ -128,9 +128,9 @@ export function ComputerUseConfig(props: ComputerUseConfigProps) {
   return (
     <Card variant="outline" size="sm">
       <CardHeader>
-        <CardTitle>Computer Use setup</CardTitle>
+        <CardTitle>Computer Use setup (Mac only)</CardTitle>
         <CardDescription>
-          Connect the local MCP server and grant the macOS permissions it needs to control apps.
+          Computer Use only works on Mac. Connect the local MCP server and grant the macOS permissions it needs to control apps.
         </CardDescription>
         <CardAction>
           <Button variant="ghost" size="icon-sm" onClick={() => void verify()} disabled={busy}>
