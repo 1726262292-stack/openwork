@@ -12,6 +12,7 @@ import type { WorkspaceCloudImports } from "./import-state";
 
 const CACHE_VERSION = 1;
 const LOCAL_STORAGE_CACHE_KEY = "openwork.desktopCloudSync.v1";
+let desktopCloudSyncQueue: Promise<void> = Promise.resolve();
 
 export type DesktopCloudSyncChangeKind = "new" | "modified" | "removed";
 export type DesktopCloudSyncResourceKind = "llmProvider" | "marketplace" | "plugin" | "configItem";
@@ -376,7 +377,7 @@ export function diffInstalledDesktopCloudResources(
   return changes;
 }
 
-export async function refreshDesktopCloudSync(options?: {
+async function runDesktopCloudSyncRefresh(options?: {
   cloudImports?: WorkspaceCloudImports | null;
 }): Promise<{
   cacheEntry: DesktopCloudSyncCacheEntry;
@@ -426,6 +427,20 @@ export async function refreshDesktopCloudSync(options?: {
   });
 
   return { cacheEntry, changes };
+}
+
+export function refreshDesktopCloudSync(options?: {
+  cloudImports?: WorkspaceCloudImports | null;
+}): Promise<{
+  cacheEntry: DesktopCloudSyncCacheEntry;
+  changes: DesktopCloudSyncChange[];
+} | null> {
+  const run = desktopCloudSyncQueue.then(() => runDesktopCloudSyncRefresh(options));
+  desktopCloudSyncQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
 }
 
 export async function readDesktopCloudSyncState(): Promise<DesktopCloudSyncCacheStore> {

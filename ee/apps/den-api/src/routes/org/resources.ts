@@ -138,17 +138,17 @@ async function listAccessibleMarketplaces(input: {
     ))
     .orderBy(desc(MarketplaceTable.updatedAt), desc(MarketplaceTable.id))
 
-  const visibleMarketplaces: typeof marketplaceRows = []
-  for (const row of marketplaceRows) {
-    const role = await resolvePluginArchResourceRole({
-      context: input.context,
-      resourceId: row.id,
-      resourceKind: "marketplace",
-    })
-    if (role) {
-      visibleMarketplaces.push(row)
-    }
-  }
+  const marketplaceAccess = await Promise.all(
+    marketplaceRows.map(async (row) => ({
+      row,
+      role: await resolvePluginArchResourceRole({
+        context: input.context,
+        resourceId: row.id,
+        resourceKind: "marketplace",
+      }),
+    })),
+  )
+  const visibleMarketplaces = marketplaceAccess.flatMap((entry) => entry.role ? [entry.row] : [])
 
   const marketplaceIds = visibleMarketplaces.map((marketplace) => marketplace.id)
   if (marketplaceIds.length === 0) {
