@@ -43,6 +43,7 @@ import {
   withWorkspaceCloudImports,
   type CloudImportedProvider,
 } from "../../../../app/cloud/import-state";
+import { refreshDesktopCloudSync } from "../../../../app/cloud/desktop-cloud-sync";
 import { dispatchNewProviders } from "../../../../app/lib/provider-events";
 import {
   isDesktopProviderBlocked,
@@ -417,9 +418,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   ) => {
     const config = await readWorkspaceOpenworkConfigRecord();
     const cloudImports = readWorkspaceCloudImports(config);
-    const nextConfig = withWorkspaceCloudImports(config, {
+    const nextCloudImports = {
       ...cloudImports,
       providers: nextProviders,
+    };
+    const nextConfig = withWorkspaceCloudImports(config, {
+      ...nextCloudImports,
     });
     const persisted = await writeWorkspaceOpenworkConfigRecord(nextConfig);
     if (!persisted) {
@@ -428,6 +432,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       );
     }
     setStateField("importedCloudProviders", nextProviders);
+    void refreshDesktopCloudSync({ cloudImports: nextCloudImports }).catch(() => null);
   };
 
   const readProjectConfigFile = async () => {

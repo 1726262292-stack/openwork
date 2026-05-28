@@ -249,6 +249,32 @@ export type DenBillingSummary = {
   benefitId: string | null;
 };
 
+export type DenResourceSnapshotConfigItem = {
+  configItemId: string;
+  lastUpdatedAt: string;
+};
+
+export type DenResourceSnapshotPlugin = {
+  pluginId: string;
+  lastUpdatedAt: string;
+  configItems: DenResourceSnapshotConfigItem[];
+};
+
+export type DenResourceSnapshotMarketplace = {
+  lastUpdatedAt: string;
+  plugins: DenResourceSnapshotPlugin[];
+};
+
+export type DenResourceSnapshot = {
+  organizationId: string;
+  orgMemberId: string;
+  teamIds: string[];
+  resources: {
+    llmProviders: Record<string, string>;
+    marketplaces: Record<string, DenResourceSnapshotMarketplace>;
+  };
+};
+
 type DenAuthResult = {
   user: DenUser | null;
   token: string | null;
@@ -298,6 +324,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+}
+
 function getDenAppVersionMetadata(payload: unknown): DenAppVersionMetadata | null {
   if (!isRecord(payload)) return null;
 
@@ -314,6 +346,84 @@ function getDenAppVersionMetadata(payload: unknown): DenAppVersionMetadata | nul
 
 export function normalizeDenDesktopConfig(payload: unknown): DenDesktopConfig {
   return normalizeDesktopConfig(payload);
+}
+
+function readTimestampRecord(value: unknown): Record<string, string> {
+  if (!isRecord(value) || Array.isArray(value)) return {};
+
+  const record: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    const id = key.trim();
+    const timestampValue = typeof entry === "string" ? entry.trim() : "";
+    if (id && timestampValue) {
+      record[id] = timestampValue;
+    }
+  }
+  return record;
+}
+
+function readDenResourceSnapshotConfigItems(value: unknown): DenResourceSnapshotConfigItem[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const configItemId = typeof entry.configItemId === "string" ? entry.configItemId.trim() : "";
+    const lastUpdatedAt = typeof entry.lastUpdatedAt === "string" ? entry.lastUpdatedAt.trim() : "";
+    return configItemId && lastUpdatedAt ? [{ configItemId, lastUpdatedAt }] : [];
+  });
+}
+
+function readDenResourceSnapshotPlugins(value: unknown): DenResourceSnapshotPlugin[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const pluginId = typeof entry.pluginId === "string" ? entry.pluginId.trim() : "";
+    const lastUpdatedAt = typeof entry.lastUpdatedAt === "string" ? entry.lastUpdatedAt.trim() : "";
+    if (!pluginId || !lastUpdatedAt) return [];
+
+    return [{
+      pluginId,
+      lastUpdatedAt,
+      configItems: readDenResourceSnapshotConfigItems(entry.configItems),
+    }];
+  });
+}
+
+function readDenResourceSnapshotMarketplaces(value: unknown): Record<string, DenResourceSnapshotMarketplace> {
+  if (!isRecord(value) || Array.isArray(value)) return {};
+
+  const marketplaces: Record<string, DenResourceSnapshotMarketplace> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!isRecord(entry)) continue;
+    const marketplaceId = key.trim();
+    const lastUpdatedAt = typeof entry.lastUpdatedAt === "string" ? entry.lastUpdatedAt.trim() : "";
+    if (!marketplaceId || !lastUpdatedAt) continue;
+    marketplaces[marketplaceId] = {
+      lastUpdatedAt,
+      plugins: readDenResourceSnapshotPlugins(entry.plugins),
+    };
+  }
+  return marketplaces;
+}
+
+export function normalizeDenResourceSnapshot(payload: unknown): DenResourceSnapshot | null {
+  if (!isRecord(payload)) return null;
+
+  const organizationId = typeof payload.organizationId === "string" ? payload.organizationId.trim() : "";
+  const orgMemberId = typeof payload.orgMemberId === "string" ? payload.orgMemberId.trim() : "";
+  const resources = isRecord(payload.resources) ? payload.resources : null;
+  if (!organizationId || !orgMemberId || !resources) return null;
+
+  return {
+    organizationId,
+    orgMemberId,
+    teamIds: readStringArray(payload.teamIds),
+    resources: {
+      llmProviders: readTimestampRecord(resources.llmProviders),
+      marketplaces: readDenResourceSnapshotMarketplaces(resources.marketplaces),
+    },
+  };
 }
 
 export function normalizeDenBaseUrl(input: string | null | undefined): string | null {
@@ -1628,6 +1738,19 @@ export function createDenClient(options: { baseUrl: string; apiBaseUrl?: string 
         token,
       });
       return normalizeDenDesktopConfig(payload);
+    },
+
+    async getResourceSnapshot(orgId?: string | null): Promise<DenResourceSnapshot> {
+      const payload = await requestJson<unknown>(baseUrls, "/v1/resources", {
+        method: "GET",
+        token,
+        organizationId: orgId,
+      });
+      const snapshot = normalizeDenResourceSnapshot(payload);
+      if (!snapshot) {
+        throw new DenApiError(500, "invalid_resource_snapshot_payload", "Resource snapshot response was invalid.");
+      }
+      return snapshot;
     },
 
     async exchangeDesktopHandoff(grant: string): Promise<DenDesktopHandoffExchange> {

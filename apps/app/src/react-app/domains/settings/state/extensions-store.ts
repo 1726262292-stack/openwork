@@ -56,11 +56,13 @@ import {
 import {
   readWorkspaceCloudImports,
   withWorkspaceCloudImports,
+  type CloudImportedMarketplace,
   type CloudImportedPlugin,
   type CloudImportedPluginFile,
   type CloudImportedSkill,
   type CloudImportedSkillHub,
 } from "../../../../app/cloud/import-state";
+import { refreshDesktopCloudSync } from "../../../../app/cloud/desktop-cloud-sync";
 import type { OpenworkServerStore } from "../../connections/openwork-server-store";
 
 const OPENCODE_SKILL_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -95,6 +97,7 @@ export type ExtensionsStoreSnapshot = {
   importedCloudSkillHubs: Record<string, CloudImportedSkillHub>;
   cloudOrgMarketplaces: DenOrgMarketplaceResolved[];
   cloudOrgMarketplacesStatus: string | null;
+  importedCloudMarketplaces: Record<string, CloudImportedMarketplace>;
   importedCloudPlugins: Record<string, CloudImportedPlugin>;
   hubRepo: HubSkillRepo | null;
   hubRepos: HubSkillRepo[];
@@ -130,6 +133,7 @@ type MutableState = {
   importedCloudSkillHubs: Record<string, CloudImportedSkillHub>;
   cloudOrgMarketplaces: DenOrgMarketplaceResolved[];
   cloudOrgMarketplacesStatus: string | null;
+  importedCloudMarketplaces: Record<string, CloudImportedMarketplace>;
   importedCloudPlugins: Record<string, CloudImportedPlugin>;
   hubRepo: HubSkillRepo | null;
   hubRepos: HubSkillRepo[];
@@ -331,6 +335,7 @@ export function createExtensionsStore(options: {
     importedCloudSkillHubs: {},
     cloudOrgMarketplaces: [],
     cloudOrgMarketplacesStatus: null,
+    importedCloudMarketplaces: {},
     importedCloudPlugins: {},
     hubRepo: DEFAULT_HUB_REPO,
     hubRepos: [DEFAULT_HUB_REPO],
@@ -404,6 +409,7 @@ export function createExtensionsStore(options: {
       importedCloudSkillHubs: state.importedCloudSkillHubs,
       cloudOrgMarketplaces: state.cloudOrgMarketplaces,
       cloudOrgMarketplacesStatus: state.cloudOrgMarketplacesStatus,
+      importedCloudMarketplaces: state.importedCloudMarketplaces,
       importedCloudPlugins: state.importedCloudPlugins,
       hubRepo: state.hubRepo,
       hubRepos: state.hubRepos,
@@ -554,12 +560,30 @@ export function createExtensionsStore(options: {
     try {
       const config = await readWorkspaceOpenworkConfigRecord();
       const cloudImports = readWorkspaceCloudImports(config);
+      setStateField("importedCloudMarketplaces", cloudImports.marketplaces);
       setStateField("importedCloudPlugins", cloudImports.plugins);
       return cloudImports.plugins;
     } catch {
+      setStateField("importedCloudMarketplaces", {});
       setStateField("importedCloudPlugins", {});
       return {};
     }
+  };
+
+  const persistImportedCloudMarketplaces = async (nextMarketplaces: Record<string, CloudImportedMarketplace>) => {
+    const config = await readWorkspaceOpenworkConfigRecord();
+    const cloudImports = readWorkspaceCloudImports(config);
+    const nextCloudImports = {
+      ...cloudImports,
+      marketplaces: nextMarketplaces,
+    };
+    const nextConfig = withWorkspaceCloudImports(config, nextCloudImports);
+    const persisted = await writeWorkspaceOpenworkConfigRecord(nextConfig);
+    if (!persisted) {
+      throw new Error("OpenWork server unavailable. Connect to manage imported cloud marketplaces.");
+    }
+    setStateField("importedCloudMarketplaces", nextMarketplaces);
+    void refreshDesktopCloudSync({ cloudImports: nextCloudImports }).catch(() => null);
   };
 
   const persistImportedCloudSkillHubs = async (nextSkillHubs: Record<string, CloudImportedSkillHub>) => {
@@ -593,16 +617,21 @@ export function createExtensionsStore(options: {
   const persistImportedCloudPlugins = async (nextPlugins: Record<string, CloudImportedPlugin>) => {
     const config = await readWorkspaceOpenworkConfigRecord();
     const cloudImports = readWorkspaceCloudImports(config);
-    const nextConfig = withWorkspaceCloudImports(config, {
+    const nextCloudImports = {
       ...cloudImports,
       plugins: nextPlugins,
-    });
+    };
+    const nextConfig = withWorkspaceCloudImports(config, nextCloudImports);
     const persisted = await writeWorkspaceOpenworkConfigRecord(nextConfig);
     if (!persisted) {
       throw new Error("OpenWork server unavailable. Connect to manage imported cloud plugins.");
     }
     setStateField("importedCloudPlugins", nextPlugins);
+    void refreshDesktopCloudSync({ cloudImports: nextCloudImports }).catch(() => null);
   };
+
+  const findCloudMarketplace = (marketplaceId: string) =>
+    snapshot.cloudOrgMarketplaces.find((entry) => entry.marketplace.id === marketplaceId)?.marketplace ?? null;
 
   const buildCloudSkillContent = (name: string, description: string, body: string) => {
     const safeDescription = description.replace(/\s+/g, " ").trim();
@@ -1073,6 +1102,24 @@ export function createExtensionsStore(options: {
       },
     } satisfies Record<string, CloudImportedPlugin>;
     await persistImportedCloudPlugins(nextPlugins);
+
+    if (marketplaceId) {
+      const marketplace = findCloudMarketplace(marketplaceId);
+      const existingMarketplace = snapshot.importedCloudMarketplaces[marketplaceId] ?? null;
+      const pluginIds = new Set(existingMarketplace?.pluginIds ?? []);
+      pluginIds.add(resolved.plugin.id);
+      await persistImportedCloudMarketplaces({
+        ...snapshot.importedCloudMarketplaces,
+        [marketplaceId]: {
+          marketplaceId,
+          name: marketplace?.name ?? existingMarketplace?.name ?? marketplaceId,
+          updatedAt: marketplace?.updatedAt ?? existingMarketplace?.updatedAt ?? null,
+          pluginIds: [...pluginIds].toSorted(),
+          importedAt: existingMarketplace?.importedAt ?? Date.now(),
+        },
+      });
+    }
+
     return files;
   };
 
@@ -2774,6 +2821,7 @@ export function createExtensionsStore(options: {
     importedCloudSkillHubs: () => snapshot.importedCloudSkillHubs,
     cloudOrgMarketplaces: () => snapshot.cloudOrgMarketplaces,
     cloudOrgMarketplacesStatus: () => snapshot.cloudOrgMarketplacesStatus,
+    importedCloudMarketplaces: () => snapshot.importedCloudMarketplaces,
     importedCloudPlugins: () => snapshot.importedCloudPlugins,
     hubRepo: () => snapshot.hubRepo,
     hubRepos: () => snapshot.hubRepos,
