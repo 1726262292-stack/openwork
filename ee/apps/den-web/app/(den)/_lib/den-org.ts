@@ -7,6 +7,7 @@ export type DenOrgSummary = {
   role: string;
   orgMemberId: string;
   membershipId: string;
+  memberCount: number;
   createdAt: string | null;
   updatedAt: string | null;
   isActive: boolean;
@@ -472,6 +473,7 @@ export function parseOrgListPayload(payload: unknown): {
         role,
         orgMemberId,
         membershipId,
+        memberCount: typeof entry.memberCount === "number" ? entry.memberCount : 0,
         createdAt: asIsoString(entry.createdAt),
         updatedAt: asIsoString(entry.updatedAt),
         isActive: asBoolean(entry.isActive),
