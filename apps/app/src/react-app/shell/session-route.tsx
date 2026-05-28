@@ -410,13 +410,21 @@ function getSessionStatus(session: any) {
   return typeof status === "string" ? status : normalizeSessionStatus(status);
 }
 
-async function fileToDataUrl(file: File) {
+async function fileToDataUrl(file: File, mimeType: string) {
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error(`Failed to read attachment: ${file.name}`));
     reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(new Blob([file], { type: mimeType }));
   });
+}
+
+function attachmentMime(attachment: ComposerAttachment) {
+  if (attachment.kind === "image") return attachment.mimeType;
+  if (attachment.mimeType === "application/pdf") return attachment.mimeType;
+  if (attachment.mimeType === "application/json") return "text/plain";
+  if (attachment.mimeType.startsWith("text/")) return "text/plain";
+  return attachment.mimeType;
 }
 
 async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
@@ -465,12 +473,15 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
 
   parts.push(
     ...(await Promise.all(
-      draft.attachments.map(async (attachment) => ({
-        type: "file" as const,
-        url: await fileToDataUrl(attachment.file),
-        filename: attachment.name,
-        mime: attachment.mimeType,
-      })),
+      draft.attachments.map(async (attachment) => {
+        const mime = attachmentMime(attachment);
+        return {
+          type: "file" as const,
+          url: await fileToDataUrl(attachment.file, mime),
+          filename: attachment.name,
+          mime,
+        };
+      }),
     )),
   );
 
