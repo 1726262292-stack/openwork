@@ -26252,7 +26252,7 @@
         "name": "Claude Opus 4.8",
         "family": "claude-opus",
         "attachment": true,
-        "reasoning": true,
+        "reasoning": false,
         "tool_call": true,
         "temperature": false,
         "release_date": "2026-05-28",
