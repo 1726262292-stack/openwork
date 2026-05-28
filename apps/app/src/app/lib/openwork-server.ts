@@ -2,6 +2,7 @@ import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch } from "./desktop";
 import { isDesktopRuntime } from "../utils";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
+import type { DenResourceSnapshot } from "./den";
 
 export type OpenworkServerCapabilities = {
   skills: { read: boolean; write: boolean; source: "openwork" | "opencode" };
@@ -185,6 +186,28 @@ export type OpenworkAuthorizedFoldersUpdateResponse = {
   folders: string[];
   hiddenCount: number;
   updatedAt: number;
+};
+
+export type OpenworkDesktopCloudSyncChange = {
+  id: string;
+  kind: "new" | "modified" | "removed";
+  resourceKind: "llmProvider" | "marketplace" | "plugin" | "configItem";
+  marketplaceId?: string;
+  pluginId?: string;
+  previousLastUpdatedAt: string | null;
+  nextLastUpdatedAt: string | null;
+  queuedAt: number;
+};
+
+export type OpenworkDesktopCloudSyncState = {
+  entries: Record<string, unknown>;
+  updatedAt: number;
+  version: 1;
+};
+
+export type OpenworkDesktopCloudSyncResult = {
+  changes: OpenworkDesktopCloudSyncChange[];
+  state: OpenworkDesktopCloudSyncState;
 };
 
 function arrayBufferToBase64(data: ArrayBuffer): string {
@@ -1101,6 +1124,20 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         hostToken,
         method: "PATCH",
         body: payload,
+      }),
+    getDesktopCloudSync: (workspaceId: string) =>
+      requestJson<OpenworkDesktopCloudSyncState>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/desktop-cloud-sync`, {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+    syncDesktopCloud: (workspaceId: string, snapshot: DenResourceSnapshot) =>
+      requestJson<OpenworkDesktopCloudSyncResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/desktop-cloud-sync`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: { snapshot },
+        timeoutMs: timeouts.config,
       }),
     readOpencodeConfigFile: (workspaceId: string, scope: "project" | "global" = "project") => {
       const query = `?scope=${scope}`;

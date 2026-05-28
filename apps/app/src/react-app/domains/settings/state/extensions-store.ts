@@ -583,7 +583,11 @@ export function createExtensionsStore(options: {
       throw new Error("OpenWork server unavailable. Connect to manage imported cloud marketplaces.");
     }
     setStateField("importedCloudMarketplaces", nextMarketplaces);
-    void refreshDesktopCloudSync({ cloudImports: nextCloudImports }).catch(() => null);
+    const target = await resolveWorkspaceServerTarget();
+    void refreshDesktopCloudSync({
+      openworkClient: target.openworkClient,
+      workspaceId: target.openworkWorkspaceId,
+    }).catch(() => null);
   };
 
   const persistImportedCloudSkillHubs = async (nextSkillHubs: Record<string, CloudImportedSkillHub>) => {
@@ -627,7 +631,11 @@ export function createExtensionsStore(options: {
       throw new Error("OpenWork server unavailable. Connect to manage imported cloud plugins.");
     }
     setStateField("importedCloudPlugins", nextPlugins);
-    void refreshDesktopCloudSync({ cloudImports: nextCloudImports }).catch(() => null);
+    const target = await resolveWorkspaceServerTarget();
+    void refreshDesktopCloudSync({
+      openworkClient: target.openworkClient,
+      workspaceId: target.openworkWorkspaceId,
+    }).catch(() => null);
   };
 
   const findCloudMarketplace = (marketplaceId: string) =>

@@ -29,7 +29,6 @@ import {
   type DeepLinkBridgeDetail,
 } from "../../../app/lib/deep-link-bridge";
 import { parseDenAuthDeepLink } from "../../../app/lib/openwork-links";
-import { refreshDesktopCloudSync } from "../../../app/cloud/desktop-cloud-sync";
 
 export type DenAuthStatus = "checking" | "signed_in" | "signed_out";
 
@@ -88,7 +87,6 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
         forceServerSync:
           !settings.activeOrgId?.trim() || !settings.activeOrgSlug?.trim(),
       }).catch(() => null);
-      await refreshDesktopCloudSync().catch(() => null);
 
       if (currentRun !== refreshTokenRef.current) return;
 

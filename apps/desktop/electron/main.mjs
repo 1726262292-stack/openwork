@@ -1178,10 +1178,6 @@ function workspaceStatePath() {
   return path.join(app.getPath("userData"), "openwork-workspaces.json");
 }
 
-function desktopCloudSyncPath() {
-  return path.join(app.getPath("userData"), "desktop-cloud-sync.json");
-}
-
 // Earlier Electron alpha builds copied Tauri's openwork-workspaces.json into an
 // Electron-only workspace-state.json. Keep importing that file when the shared
 // canonical file is missing, but write openwork-workspaces.json going forward so
@@ -2511,11 +2507,6 @@ async function handleDesktopInvoke(event, command, ...args) {
       return debugDesktopBootstrapConfig();
     case "setDesktopBootstrapConfig":
       return setDesktopBootstrapConfig(args[0] ?? {});
-    case "readDesktopCloudSyncCache":
-      return readJsonFile(desktopCloudSyncPath(), null);
-    case "writeDesktopCloudSyncCache":
-      await writeJsonFileAtomic(desktopCloudSyncPath(), args[0] ?? null);
-      return undefined;
     case "nukeOpenworkAndOpencodeConfigAndExit": {
       await rm(app.getPath("userData"), { recursive: true, force: true });
       app.exit(0);

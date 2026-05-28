@@ -27,6 +27,11 @@ import { EnvService, EnvStoreReadError, InvalidEnvKeyError, isValidEnvKey } from
 import { TOY_UI_CSS, TOY_UI_FAVICON_SVG, TOY_UI_HTML, TOY_UI_JS, cssResponse, htmlResponse, jsResponse, svgResponse } from "./toy-ui.js";
 import { FileSessionStore } from "./file-sessions.js";
 import {
+  normalizeResourceSnapshot,
+  readDesktopCloudSyncState,
+  syncDesktopCloudResources,
+} from "./desktop-cloud-sync.js";
+import {
   applyMaterializedBlueprintSessions,
   normalizeBlueprintSessionTemplates,
   readMaterializedBlueprintSessions,
@@ -76,6 +81,7 @@ const FILE_SESSION_CATALOG_DEFAULT_LIMIT = 2000;
 const FILE_SESSION_CATALOG_MAX_LIMIT = 10000;
 const OPENWORK_VOICE_REALTIME_MODEL = "gpt-realtime-2";
 const OPENWORK_VOICE_TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
+let desktopCloudSyncQueue: Promise<void> = Promise.resolve();
 
 const OPENWORK_VOICE_REALTIME_TOOLS = [
   {
@@ -275,6 +281,15 @@ Help the user control OpenWork by using the semantic OpenWork UI tools.
 - If audio is unclear, ask the user to repeat it instead of guessing.
 - Ignore background speech that is not addressed to OpenWork.
 - Summarize tool results briefly and offer the next useful step.`;
+}
+
+function enqueueDesktopCloudSync<T>(operation: () => Promise<T>): Promise<T> {
+  const run = desktopCloudSyncQueue.then(operation);
+  desktopCloudSyncQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
 }
 
 function readOpenAiClientSecret(payload: unknown): { clientSecret: string; expiresAt: number | null } {
@@ -2353,6 +2368,40 @@ function createRoutes(
     const openwork = await readOpenworkConfig(workspace.path);
     const lastAudit = await readLastAudit(workspace.path, workspace.id);
     return jsonResponse({ opencode, openwork, updatedAt: lastAudit?.timestamp ?? null });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/desktop-cloud-sync", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const openwork = await readOpenworkConfig(workspace.path);
+    return jsonResponse(readDesktopCloudSyncState(openwork));
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/desktop-cloud-sync", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const snapshot = normalizeResourceSnapshot(body.snapshot);
+    if (!snapshot) {
+      throw new ApiError(400, "invalid_payload", "snapshot is required");
+    }
+
+    const result = await enqueueDesktopCloudSync(async () => {
+      const openwork = await readOpenworkConfig(workspace.path);
+      const next = syncDesktopCloudResources({ openwork, snapshot });
+      await writeOpenworkConfig(workspace.path, next.openwork, false);
+      await recordAudit(workspace.path, {
+        id: shortId(),
+        workspaceId: workspace.id,
+        actor: ctx.actor ?? { type: "remote" },
+        action: "desktop_cloud_sync.update",
+        target: openworkConfigPath(workspace.path),
+        summary: "Updated desktop cloud sync state",
+        timestamp: Date.now(),
+      });
+      return next;
+    });
+    return jsonResponse({ changes: result.changes, state: result.state });
   });
 
   addRoute(routes, "GET", "/workspace/:id/authorized-folders", "client", async (ctx) => {

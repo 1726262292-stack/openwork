@@ -396,8 +396,6 @@ const {
   writeOpencodeConfig,
   resetOpenworkState,
   resetOpencodeCache,
-  readDesktopCloudSyncCache,
-  writeDesktopCloudSyncCache,
   opencodeMcpAuth,
   setWindowDecorations,
 } = desktopBridge;
@@ -451,8 +449,6 @@ export {
   writeOpencodeConfig,
   resetOpenworkState,
   resetOpencodeCache,
-  readDesktopCloudSyncCache,
-  writeDesktopCloudSyncCache,
   opencodeMcpAuth,
   setWindowDecorations,
 };

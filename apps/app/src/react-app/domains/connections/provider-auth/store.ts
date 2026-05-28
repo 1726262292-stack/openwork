@@ -432,7 +432,11 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       );
     }
     setStateField("importedCloudProviders", nextProviders);
-    void refreshDesktopCloudSync({ cloudImports: nextCloudImports }).catch(() => null);
+    const target = await resolveOpenworkConfigTarget("write");
+    void refreshDesktopCloudSync({
+      openworkClient: target.openworkClient,
+      workspaceId: target.openworkWorkspaceId,
+    }).catch(() => null);
   };
 
   const readProjectConfigFile = async () => {

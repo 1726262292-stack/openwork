@@ -19,7 +19,6 @@ import {
   dispatchDenSessionUpdated,
   type DenSessionUpdatedDetail,
 } from "../../../../app/lib/den-session-events";
-import { refreshDesktopCloudSync } from "../../../../app/cloud/desktop-cloud-sync";
 import { t } from "@/i18n";
 import { useStatusToasts } from "../../shell-feedback/status-toasts";
 import { useCloudSession } from "./cloud-session-provider";
@@ -323,7 +322,6 @@ export function useDenSession({
         }
         if (next) {
           await ensureDenActiveOrganization({ forceServerSync: true }).catch(() => null);
-          await refreshDesktopCloudSync().catch(() => null);
         }
         if (!quiet && response.orgs.length > 0) {
           showToast({
@@ -490,7 +488,6 @@ export function useDenSession({
       // 5. Force a full server sync (Den + localStorage reconciliation)
       try {
         await ensureDenActiveOrganization({ forceServerSync: true });
-        await refreshDesktopCloudSync().catch(() => null);
       } catch {
         // Best-effort; the explicit setActiveOrganization above already
         // covered the critical path.
