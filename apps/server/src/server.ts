@@ -4199,6 +4199,7 @@ async function readServerConfigFile(configPath: string): Promise<OpenworkServerC
 }
 
 function serializeWorkspaceConfigEntry(workspace: WorkspaceInfo): Record<string, unknown> {
+  const isLocalWorkspace = workspace.workspaceType !== "remote";
   return {
     id: workspace.id,
     path: workspace.path,
@@ -4206,8 +4207,8 @@ function serializeWorkspaceConfigEntry(workspace: WorkspaceInfo): Record<string,
     preset: workspace.preset,
     workspaceType: workspace.workspaceType,
     ...(workspace.remoteType ? { remoteType: workspace.remoteType } : {}),
-    ...(workspace.baseUrl ? { baseUrl: workspace.baseUrl } : {}),
-    ...(workspace.directory ? { directory: workspace.directory } : {}),
+    ...(!isLocalWorkspace && workspace.baseUrl ? { baseUrl: workspace.baseUrl } : {}),
+    ...(!isLocalWorkspace && workspace.directory ? { directory: workspace.directory } : {}),
     ...(workspace.displayName ? { displayName: workspace.displayName } : {}),
     ...(workspace.openworkHostUrl ? { openworkHostUrl: workspace.openworkHostUrl } : {}),
     ...(workspace.openworkToken ? { openworkToken: workspace.openworkToken } : {}),
@@ -4216,8 +4217,8 @@ function serializeWorkspaceConfigEntry(workspace: WorkspaceInfo): Record<string,
     ...(workspace.sandboxBackend ? { sandboxBackend: workspace.sandboxBackend } : {}),
     ...(workspace.sandboxRunId ? { sandboxRunId: workspace.sandboxRunId } : {}),
     ...(workspace.sandboxContainerName ? { sandboxContainerName: workspace.sandboxContainerName } : {}),
-    ...(workspace.opencodeUsername ? { opencodeUsername: workspace.opencodeUsername } : {}),
-    ...(workspace.opencodePassword ? { opencodePassword: workspace.opencodePassword } : {}),
+    ...(!isLocalWorkspace && workspace.opencodeUsername ? { opencodeUsername: workspace.opencodeUsername } : {}),
+    ...(!isLocalWorkspace && workspace.opencodePassword ? { opencodePassword: workspace.opencodePassword } : {}),
   };
 }
 

@@ -148,6 +148,9 @@ async function startOpenworkServerWithWorkspaces(input: {
   configPath: string;
   workspaces: ServerConfig["workspaces"];
   authorizedRoots: string[];
+  opencodeBaseUrl?: string;
+  opencodeUsername?: string;
+  opencodePassword?: string;
 }) {
   const config: ServerConfig = {
     host: "127.0.0.1",
@@ -159,6 +162,9 @@ async function startOpenworkServerWithWorkspaces(input: {
     corsOrigins: ["*"],
     workspaces: input.workspaces,
     authorizedRoots: input.authorizedRoots,
+    opencodeBaseUrl: input.opencodeBaseUrl,
+    opencodeUsername: input.opencodeUsername,
+    opencodePassword: input.opencodePassword,
     readOnly: false,
     startedAt: Date.now(),
     tokenSource: "cli",
@@ -291,6 +297,36 @@ describe("workspace lifecycle registry", () => {
     expect(workspaces[0]?.path).toBe(workspaceRoot);
     expect(workspaces[0]?.name).toBe("Persisted Local");
     expect(authorizedRootsFromConfig(persisted)).toEqual([workspaceRoot]);
+  });
+
+  test("does not persist transient local OpenCode runtime fields", async () => {
+    const configRoot = await createWorkspaceRoot();
+    const workspaceRoot = await createWorkspaceRoot();
+    const configPath = join(configRoot, "server.json");
+    const openwork = await startOpenworkServerWithWorkspaces({
+      configPath,
+      workspaces: [],
+      authorizedRoots: [],
+      opencodeBaseUrl: "http://127.0.0.1:49999",
+      opencodeUsername: "runtime-user",
+      opencodePassword: "runtime-pass",
+    });
+
+    const base = `http://127.0.0.1:${openwork.server.port}`;
+    const response = await fetch(`${base}/workspaces/local`, {
+      method: "POST",
+      headers: { ...hostAuth(openwork.hostToken), "Content-Type": "application/json" },
+      body: JSON.stringify({ folderPath: workspaceRoot, name: "Runtime Local", preset: "starter" }),
+    });
+    expect(response.status).toBe(201);
+
+    const persisted = await readPersistedConfig(configPath);
+    const workspace = workspacesFromConfig(persisted)[0];
+    expect(workspace?.path).toBe(workspaceRoot);
+    expect(workspace?.baseUrl).toBeUndefined();
+    expect(workspace?.directory).toBeUndefined();
+    expect(workspace?.opencodeUsername).toBeUndefined();
+    expect(workspace?.opencodePassword).toBeUndefined();
   });
 
   test("creates and persists remote OpenWork workspace records", async () => {
