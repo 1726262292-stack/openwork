@@ -47,6 +47,23 @@ export function prioritizeWorkspacePaths(preferredPath, workspacePaths = []) {
   return paths;
 }
 
+export function resolveOpenworkServerConfigPath(env = process.env) {
+  const override = String(env.OPENWORK_SERVER_CONFIG ?? "").trim();
+  if (override) return path.resolve(override);
+  if (process.platform === "win32") {
+    const appData = String(env.APPDATA ?? "").trim();
+    const root = appData || path.join(os.homedir(), "AppData", "Roaming");
+    return path.join(root, "openwork", "server.json");
+  }
+  const xdgConfigHome = String(env.XDG_CONFIG_HOME ?? "").trim();
+  const root = xdgConfigHome || path.join(os.homedir(), ".config");
+  return path.join(root, "openwork", "server.json");
+}
+
+export function seedWorkspacePathsForEmbeddedServer(workspacePaths, serverConfigExists) {
+  return serverConfigExists ? [] : workspacePaths;
+}
+
 function nowMs() {
   return Date.now();
 }
@@ -1002,11 +1019,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     }
     await stopChild(openworkServerState);
 
-    const workspacePaths = options.workspacePaths.filter((value) => value.trim().length > 0);
-    const activeWorkspace = workspacePaths[0] ?? "";
     const host = options.remoteAccessEnabled ? "0.0.0.0" : "127.0.0.1";
-    const port = await resolveOpenworkPort(host, activeWorkspace);
-    const tokens = await loadOrCreateWorkspaceTokens(activeWorkspace);
 
     const managedOpencode = options.manageOpencode ? resolveOpencodeBinary(options.opencodeBinPath) : null;
     openworkServerState.managedOpencodeBinPath = managedOpencode?.path ?? null;
@@ -1019,6 +1032,19 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // Inject user env vars so the server and managed OpenCode inherit them.
     const serverEnv = await buildChildEnv({});
     Object.assign(process.env, serverEnv);
+
+    // Once the embedded server has a persisted registry, it is the source of
+    // truth. Do not pass Electron's legacy workspace list as CLI workspaces or
+    // the server config loader will ignore server.json and lose server-created
+    // workspaces after restart.
+    const serverConfigPath = resolveOpenworkServerConfigPath(process.env);
+    const workspacePaths = seedWorkspacePathsForEmbeddedServer(
+      options.workspacePaths.filter((value) => value.trim().length > 0),
+      existsSync(serverConfigPath),
+    );
+    const activeWorkspace = workspacePaths[0] ?? "";
+    const port = await resolveOpenworkPort(host, activeWorkspace);
+    const tokens = await loadOrCreateWorkspaceTokens(activeWorkspace);
 
     // One call: resolve config, spawn managed OpenCode, start HTTP server.
     // Dev must prefer apps/server/dist; build output also stages a packaged
@@ -1041,6 +1067,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       port,
       corsOrigins: ["*"],
       approvalMode: "auto",
+      configPath: serverConfigPath,
       workspaces: workspacePaths,
       token: tokens.clientToken,
       hostToken: tokens.hostToken,
@@ -1357,7 +1384,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   async function openworkServerRestart(options = {}) {
     const workspacePaths = prioritizeWorkspacePaths(engineState.projectDir, await listLocalWorkspacePaths());
     const shouldManageOpencode = Boolean(
-      openworkServerState.managedOpencodeBinPath || engineState.opencodeBinPath,
+      openworkServerState.managedOpencodeBinPath || engineState.opencodeBinPath || !engineState.baseUrl,
     );
     return startOpenworkServer({
       workspacePaths,
