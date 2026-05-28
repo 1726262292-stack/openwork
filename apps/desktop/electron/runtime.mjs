@@ -1062,6 +1062,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       throw new Error(`Cannot find OpenWork embedded server bundle. Checked: ${candidates.join(", ")}`);
     }
     const { startEmbeddedServer } = await import(pathToFileURL(embeddedPath).href);
+    // startEmbeddedServer falls back to an OS-assigned port if `port` races
+    // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port
+    // below is authoritative.
     const handle = await startEmbeddedServer({
       host,
       port,
@@ -1313,6 +1316,27 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     if (!safeProjectDir) {
       throw new Error("projectDir is required");
     }
+
+    // Reuse a healthy server instead of tearing it down. During boot the
+    // main process kicks off bootRuntimeForSelectedWorkspace while renderer
+    // routes independently call ensureDesktopLocalOpenworkConnection. Both go
+    // through this serialized path; without this guard the second call runs
+    // prepareFreshRuntime (killing the freshly bound server) and then rebinds
+    // the sticky preferred port, racing the not-yet-released socket into
+    // EADDRINUSE and leaving the runtime in error -> boot screen.
+    const requestedRemoteAccess = options.openworkRemoteAccess === true;
+    if (
+      openworkServerState.inProcess &&
+      lifecycleState === "healthy" &&
+      normalizeWorkspaceKey(engineState.projectDir) === normalizeWorkspaceKey(safeProjectDir) &&
+      openworkServerState.remoteAccessEnabled === requestedRemoteAccess
+    ) {
+      const existing = snapshotOpenworkServerState(openworkServerState);
+      if (existing.running && existing.baseUrl && (existing.ownerToken || existing.clientToken)) {
+        return snapshotEngineState(engineState);
+      }
+    }
+
     await mkdir(safeProjectDir, { recursive: true });
     await ensureOpencodeConfig(safeProjectDir);
     await prepareFreshRuntime();
