@@ -488,9 +488,6 @@ export async function upsertSimulatedSubscription(input: { organizationId: OrgId
       updated_at: now,
     },
   })
-  if (input.product === INFERENCE_SUBSCRIPTION_TYPE) {
-    await setInferenceEnabled({ organizationId: input.organizationId, enabled: ACTIVE_STATUSES.has(input.status) })
-  }
   return findSubscriptionByOrg(input.organizationId, input.product)
 }
 
