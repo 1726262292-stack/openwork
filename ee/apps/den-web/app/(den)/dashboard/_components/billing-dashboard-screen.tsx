@@ -100,7 +100,7 @@ function parsePolarBilling(payload: unknown): PolarBilling | null {
 }
 
 function productStatus(product: BillingProduct | null) {
-  return product?.hasActiveSubscription ? formatSubscriptionStatus(product.subscription?.status ?? "active") : "Not subscribed";
+  return product?.subscription ? formatSubscriptionStatus(product.subscription.status) : "Not subscribed";
 }
 
 export function BillingDashboardScreen() {

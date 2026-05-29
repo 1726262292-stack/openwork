@@ -411,7 +411,7 @@ async function getBillingProductSummary(input: { organizationId: OrgId; product:
     currency: "usd",
     interval: "month",
     usedSeats,
-    purchasedSeats: input.product === ORG_SEATS_SUBSCRIPTION_TYPE && hasActiveSubscription ? row?.quantity ?? 0 : null,
+    purchasedSeats: input.product === ORG_SEATS_SUBSCRIPTION_TYPE && row ? row.quantity : null,
     memberCount: usedSeats,
     hasActiveSubscription,
     portalUrl,
