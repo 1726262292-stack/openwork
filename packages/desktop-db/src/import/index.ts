@@ -20,7 +20,7 @@ export {
   resolveTokensJsonPath,
   type ImportOptions,
 } from "./paths";
-export { fileFingerprint, dirFingerprint, snapshotOnce } from "./fingerprint";
+export { fileHash, dirHash, fileExists } from "./fingerprint";
 export {
   runPhase1ImportOnce,
   type ImportOnceReport,

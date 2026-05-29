@@ -4,7 +4,8 @@
 // desktop workspace list, per-workspace server tokens, and preferred ports are a single
 // source of truth shared with the server. The original Electron JSON files
 // (openwork-workspaces.json, openwork-server-tokens.json, openwork-server-state.json)
-// are imported once and preserved as `.pre-db.bak` snapshots for revert.
+// are imported once and left untouched in place (no copy/rename/delete) so an older
+// (pre-DB) app version still works after a rollback.
 
 import {
   openDb,

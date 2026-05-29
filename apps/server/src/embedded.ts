@@ -38,7 +38,8 @@ export type EmbeddedServerHandle = {
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await resolveServerConfig(options);
   // Import OpenWork-owned state into the DB once, then make the DB the source of truth
-  // for the workspace registry. Source files are preserved (snapshotted to .pre-db.bak).
+  // for the workspace registry. Source files are imported once and left untouched in
+  // place (no copy/rename/delete) so an older app version still works after a rollback.
   await reconcileConfigWithDb(config);
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
   const opencodeModelsUrl = process.env.OPENWORK_DEV_MODE === "1"

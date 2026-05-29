@@ -84,7 +84,9 @@ describe("runDesktopImportOnce", () => {
     expect(report["electron:openwork-server-tokens.json"]!.status).toBe("imported");
     expect(report["electron:openwork-server-state.json"]!.status).toBe("imported");
 
-    expect(existsSync(`${workspacesPath}.pre-db.bak`)).toBe(true);
+    // Source files are left in place, untouched (no .bak snapshot).
+    expect(existsSync(workspacesPath)).toBe(true);
+    expect(existsSync(`${workspacesPath}.pre-db.bak`)).toBe(false);
 
     const workspaces = db.select().from(workspaceTable).all();
     expect(workspaces.length).toBe(2);

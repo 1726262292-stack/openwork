@@ -3,7 +3,7 @@
  *
  * The DB is the runtime source of truth for OpenWork-owned state (server config,
  * workspace registry, tokens, audit). The original JSON/JSONL files are preserved
- * (and snapshotted to `.pre-db.bak`) for revert; they are no longer written at runtime.
+ * for revert (imported once, left untouched in place); they are no longer written at runtime.
  */
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";

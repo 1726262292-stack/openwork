@@ -1,20 +1,35 @@
-import { copyFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 
-/** "<mtimeMs>:<size>" for a file, or null if it doesn't exist. */
-export async function fileFingerprint(path: string): Promise<string | null> {
+/**
+ * Fast, non-cryptographic content hash (FNV-1a, 32-bit, hex). Used only to record
+ * "what we imported" for diagnostics — NOT for security. We never modify or copy the
+ * source files; they stay exactly where they are so an older (pre-DB) app version can
+ * still read them after a rollback.
+ */
+function fnv1a(bytes: Uint8Array): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i += 1) {
+    hash ^= bytes[i]!;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+/** Content hash for a file, or null if it doesn't exist. Never mutates the file. */
+export async function fileHash(path: string): Promise<string | null> {
   try {
-    const s = await stat(path);
-    return `${Math.round(s.mtimeMs)}:${s.size}`;
+    const buf = await readFile(path);
+    return fnv1a(new Uint8Array(buf));
   } catch {
     return null;
   }
 }
 
 /**
- * A combined fingerprint for a directory of files (used for the audit dir): sorted
- * "<name>=<mtimeMs>:<size>" pairs joined with "|". Returns null if the dir is absent.
+ * Combined content hash for a directory of files (used for the audit dir): sorted
+ * "<name>=<hash>" pairs joined with "|". Returns null if the dir is absent/empty.
  */
-export async function dirFingerprint(dir: string, suffix = ""): Promise<string | null> {
+export async function dirHash(dir: string, suffix = ""): Promise<string | null> {
   let names: string[];
   try {
     names = await readdir(dir);
@@ -24,24 +39,19 @@ export async function dirFingerprint(dir: string, suffix = ""): Promise<string |
   const parts: string[] = [];
   for (const name of names.sort()) {
     if (suffix && !name.endsWith(suffix)) continue;
-    const fp = await fileFingerprint(`${dir}/${name}`);
-    if (fp) parts.push(`${name}=${fp}`);
+    const h = await fileHash(`${dir}/${name}`);
+    if (h) parts.push(`${name}=${h}`);
   }
-  return parts.join("|");
+  if (parts.length === 0) return null;
+  return fnv1a(new TextEncoder().encode(parts.join("|")));
 }
 
-/**
- * Write a one-time `<path>.pre-db.bak` snapshot of a source file (only if the source
- * exists and the backup doesn't already exist). Returns the backup path, or null if
- * the source is missing. Never deletes or modifies the source.
- */
-export async function snapshotOnce(path: string): Promise<string | null> {
-  const fp = await fileFingerprint(path);
-  if (!fp) return null;
-  const backup = `${path}.pre-db.bak`;
-  const existing = await fileFingerprint(backup);
-  if (!existing) {
-    await copyFile(path, backup);
+/** Whether a file exists (no read). */
+export async function fileExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
   }
-  return backup;
 }

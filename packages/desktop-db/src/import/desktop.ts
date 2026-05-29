@@ -1,8 +1,6 @@
-import { eq } from "drizzle-orm";
 import type { DesktopDb } from "../client";
 import {
   envVarTable,
-  migrationStateTable,
   preferenceTable,
   workspacePortTable,
   workspaceServerTokenTable,
@@ -15,7 +13,7 @@ import {
   BOOTSTRAP_REQUIRE_SIGNIN_PREF,
 } from "../bootstrap";
 import { type ImportResult, readJsonFile } from "./helpers";
-import { fileFingerprint, snapshotOnce } from "./fingerprint";
+import { runImportSourcesOnce, type ImportSource } from "./gate";
 
 /**
  * Importers for the Electron desktop-only state files (under `app.getPath("userData")`):
@@ -262,105 +260,33 @@ export interface DesktopImportOptions {
   bootstrapPath?: string;
 }
 
-export type DesktopImportStatus = "imported" | "already-done" | "missing" | "error";
-
-export interface DesktopImportEntry {
-  source: string;
-  status: DesktopImportStatus;
-  fingerprint: string;
-  rowCount: number;
-  backupPath: string | null;
-  error?: string;
-}
-
-export type DesktopImportReport = Record<string, DesktopImportEntry>;
-
-async function getState(db: DesktopDb, source: string) {
-  const rows = await db
-    .select()
-    .from(migrationStateTable)
-    .where(eq(migrationStateTable.source, source));
-  return rows[0] ?? null;
-}
-
-function recordState(
-  db: DesktopDb,
-  entry: { source: string; status: string; fingerprint: string; rowCount: number; backupPath: string | null },
-) {
-  const now = Date.now();
-  db.insert(migrationStateTable)
-    .values({ ...entry, importedAt: now })
-    .onConflictDoUpdate({
-      target: migrationStateTable.source,
-      set: {
-        status: entry.status,
-        fingerprint: entry.fingerprint,
-        rowCount: entry.rowCount,
-        backupPath: entry.backupPath,
-        importedAt: now,
-      },
-    })
-    .run();
-}
+export type { ImportOnceStatus as DesktopImportStatus, ImportOnceEntry as DesktopImportEntry } from "./gate";
+export type DesktopImportReport = Record<string, import("./gate").ImportOnceEntry>;
 
 /**
- * One-time import of the three Electron state files, gated by `migration_state`
- * (keyed `electron:<file>`). Snapshots `.pre-db.bak`, preserves the originals, and
- * skips when the source fingerprint is unchanged. Cheap on subsequent starts.
+ * One-time import of the Electron state files (+ env.json, desktop-bootstrap.json),
+ * gated by `migration_state` (keyed `electron:<file>` / `env.json` / etc.).
+ *
+ * Each source is imported AT MOST ONCE. Source files are never modified, copied, or
+ * deleted — they stay in place so an older (pre-DB) app version still works after a
+ * rollback. Cheap on subsequent starts (a single DB lookup per source before file I/O).
  */
 export async function runDesktopImportOnce(
   db: DesktopDb,
   options: DesktopImportOptions,
 ): Promise<DesktopImportReport> {
-  const sources: Array<{
-    key: string;
-    path: string;
-    run: (db: DesktopDb, path: string) => Promise<ImportResult>;
-  }> = [
-    { key: "electron:openwork-workspaces.json", path: options.workspacesPath, run: importElectronWorkspaces },
-    { key: "electron:openwork-server-tokens.json", path: options.serverTokensPath, run: importElectronServerTokens },
-    { key: "electron:openwork-server-state.json", path: options.serverStatePath, run: importElectronServerState },
+  const sources: ImportSource[] = [
+    { key: "electron:openwork-workspaces.json", path: options.workspacesPath, kind: "file", run: importElectronWorkspaces },
+    { key: "electron:openwork-server-tokens.json", path: options.serverTokensPath, kind: "file", run: importElectronServerTokens },
+    { key: "electron:openwork-server-state.json", path: options.serverStatePath, kind: "file", run: importElectronServerState },
   ];
 
   if (options.envPath) {
-    sources.push({ key: "env.json", path: options.envPath, run: importEnvJson });
+    sources.push({ key: "env.json", path: options.envPath, kind: "file", run: importEnvJson });
   }
   if (options.bootstrapPath) {
-    sources.push({ key: "desktop-bootstrap.json", path: options.bootstrapPath, run: importDesktopBootstrap });
+    sources.push({ key: "desktop-bootstrap.json", path: options.bootstrapPath, kind: "file", run: importDesktopBootstrap });
   }
 
-  const report: DesktopImportReport = {};
-
-  for (const source of sources) {
-    const fingerprint = await fileFingerprint(source.path);
-    if (fingerprint === null) {
-      report[source.key] = { source: source.key, status: "missing", fingerprint: "", rowCount: 0, backupPath: null };
-      continue;
-    }
-
-    const prior = await getState(db, source.key);
-    if (prior && prior.status === "imported" && prior.fingerprint === fingerprint) {
-      report[source.key] = {
-        source: source.key,
-        status: "already-done",
-        fingerprint,
-        rowCount: prior.rowCount,
-        backupPath: prior.backupPath ?? null,
-      };
-      continue;
-    }
-
-    try {
-      const backupPath = await snapshotOnce(source.path);
-      const result = await source.run(db, source.path);
-      recordState(db, { source: source.key, status: "imported", fingerprint, rowCount: result.count, backupPath });
-      report[source.key] = { source: source.key, status: "imported", fingerprint, rowCount: result.count, backupPath };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      recordState(db, { source: source.key, status: "error", fingerprint, rowCount: 0, backupPath: null });
-      report[source.key] = { source: source.key, status: "error", fingerprint, rowCount: 0, backupPath: null, error: message };
-    }
-  }
-
-  return report;
+  return runImportSourcesOnce(db, sources);
 }

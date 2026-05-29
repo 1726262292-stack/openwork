@@ -49,7 +49,9 @@ describe("env + bootstrap import", () => {
 
     expect(report["env.json"]!.status).toBe("imported");
     expect(report["desktop-bootstrap.json"]!.status).toBe("imported");
-    expect(existsSync(`${envPath}.pre-db.bak`)).toBe(true);
+    // Source file left untouched (no .bak snapshot).
+    expect(existsSync(envPath)).toBe(true);
+    expect(existsSync(`${envPath}.pre-db.bak`)).toBe(false);
 
     const envVars = await listEnvVars(db);
     expect(envVars.map((v) => v.key)).toEqual(["ANTHROPIC_API_KEY"]);

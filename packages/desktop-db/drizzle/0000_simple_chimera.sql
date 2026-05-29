@@ -56,6 +56,8 @@ CREATE TABLE `workspace` (
 	`display_name` text,
 	`openwork_host_url` text,
 	`openwork_token` text,
+	`openwork_client_token` text,
+	`openwork_host_token` text,
 	`openwork_workspace_id` text,
 	`openwork_workspace_name` text,
 	`sandbox_backend` text,
@@ -216,4 +218,13 @@ CREATE TABLE `preference` (
 	`value` text NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `migration_state` (
+	`source` text PRIMARY KEY NOT NULL,
+	`status` text NOT NULL,
+	`path` text DEFAULT '' NOT NULL,
+	`hash` text DEFAULT '' NOT NULL,
+	`row_count` integer DEFAULT 0 NOT NULL,
+	`imported_at` integer NOT NULL
 );

@@ -42,8 +42,9 @@ function setup() {
 }
 
 describe("runPhase1ImportOnce", () => {
-  test("imports once, snapshots .pre-db.bak, and skips on re-run", async () => {
+  test("imports once, never touches the source files, and skips on re-run", async () => {
     const { serverJsonPath, tokensJsonPath, auditDir } = setup();
+    const serverJsonBefore = readFileSync(serverJsonPath, "utf8");
     const db = await openDb({ path: join(tmp!, "test.db") });
 
     const first = await runPhase1ImportOnce(db, { serverJsonPath, tokensJsonPath, auditDir });
@@ -51,20 +52,22 @@ describe("runPhase1ImportOnce", () => {
     expect(first["tokens.json"]!.status).toBe("imported");
     expect(first.audit!.status).toBe("imported");
 
-    // Source files are preserved + a .pre-db.bak snapshot exists.
+    // Source files are left EXACTLY in place: unchanged content, no .bak/.tmp siblings.
     expect(existsSync(serverJsonPath)).toBe(true);
-    expect(existsSync(`${serverJsonPath}.pre-db.bak`)).toBe(true);
-    expect(existsSync(`${tokensJsonPath}.pre-db.bak`)).toBe(true);
-    expect(readFileSync(`${serverJsonPath}.pre-db.bak`, "utf8")).toBe(
-      readFileSync(serverJsonPath, "utf8"),
-    );
+    expect(readFileSync(serverJsonPath, "utf8")).toBe(serverJsonBefore);
+    expect(existsSync(`${serverJsonPath}.pre-db.bak`)).toBe(false);
+    expect(existsSync(`${tokensJsonPath}.pre-db.bak`)).toBe(false);
+    expect(existsSync(join(auditDir, "..", "audit-pre-db-bak"))).toBe(false);
 
     expect(db.select().from(workspaceTable).all().length).toBe(1);
     expect(db.select().from(tokenTable).all().length).toBe(1);
 
-    // migration_state recorded.
+    // migration_state records path + hash.
     const state = db.select().from(migrationStateTable).all();
-    expect(state.find((s) => s.source === "server.json")?.status).toBe("imported");
+    const serverRow = state.find((s) => s.source === "server.json");
+    expect(serverRow?.status).toBe("imported");
+    expect(serverRow?.path).toBe(serverJsonPath);
+    expect(serverRow?.hash.length).toBeGreaterThan(0);
 
     // Re-run with unchanged sources -> already-done, no duplicate rows.
     const second = await runPhase1ImportOnce(db, { serverJsonPath, tokensJsonPath, auditDir });
@@ -72,6 +75,32 @@ describe("runPhase1ImportOnce", () => {
     expect(second.audit!.status).toBe("already-done");
     expect(db.select().from(workspaceTable).all().length).toBe(1);
     expect(db.select().from(tokenTable).all().length).toBe(1);
+  });
+
+  test("imports ONCE EVER: later source edits are ignored", async () => {
+    const { serverJsonPath, tokensJsonPath, auditDir } = setup();
+    const db = await openDb({ path: join(tmp!, "test.db") });
+
+    await runPhase1ImportOnce(db, { serverJsonPath, tokensJsonPath, auditDir });
+    expect(db.select().from(workspaceTable).all().length).toBe(1);
+
+    // Simulate an older app version editing the original file after import.
+    writeFileSync(
+      serverJsonPath,
+      JSON.stringify({
+        port: 8787,
+        workspaces: [
+          { id: "ws_a", path: "/tmp/a", name: "A" },
+          { id: "ws_b", path: "/tmp/b", name: "B" },
+        ],
+        authorizedRoots: ["/tmp/a", "/tmp/b"],
+      }),
+    );
+
+    const second = await runPhase1ImportOnce(db, { serverJsonPath, tokensJsonPath, auditDir });
+    // Already imported once -> skipped despite the new content.
+    expect(second["server.json"]!.status).toBe("already-done");
+    expect(db.select().from(workspaceTable).all().length).toBe(1);
   });
 
   test("reports missing sources without error", async () => {

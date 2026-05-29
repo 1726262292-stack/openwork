@@ -5,22 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1780012089645,
-      "tag": "0000_giant_shatterstar",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1780013417000,
-      "tag": "0001_shocking_mastermind",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1780014910749,
-      "tag": "0002_flimsy_chamber",
+      "when": 1780021044396,
+      "tag": "0000_simple_chimera",
       "breakpoints": true
     }
   ]
