@@ -2,8 +2,8 @@ import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { getCloudWorkerBillingStatus } from "../../billing/polar.js"
-import { createInferenceCheckoutSession, createInferencePortalSession, getOrgBillingSummary } from "../../stripe-billing.js"
-import { requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { createInferenceCheckoutSession, createInferencePortalSession, createOrgSeatsCheckoutSession, createOrgSeatsPortalSession, getActiveMemberCountForBilling, getOrgBillingSummary, upsertSimulatedSubscription } from "../../stripe-billing.js"
+import { jsonValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { forbiddenSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { getRequiredUserEmail } from "../../user.js"
 import { env } from "../../env.js"
@@ -13,6 +13,12 @@ import { ensureOwner } from "./shared.js"
 const stripeBillingResponseSchema = z.object({}).passthrough().meta({ ref: "OrgStripeBillingResponse" })
 const stripeCheckoutResponseSchema = z.object({ url: z.string() }).meta({ ref: "OrgStripeCheckoutResponse" })
 const stripePortalResponseSchema = z.object({ url: z.string() }).meta({ ref: "OrgStripePortalResponse" })
+const orgSeatsCheckoutSchema = z.object({ quantity: z.number().int().min(1).max(500) })
+const simulatedBillingUpdateSchema = z.object({
+  product: z.enum(["org_seats", "inference"]),
+  quantity: z.number().int().min(1).max(500).optional(),
+  status: z.enum(["active", "trialing", "past_due", "canceled", "unpaid"]).default("active"),
+})
 
 function getRequestOrigin(c: { req: { raw: Request } }) {
   const url = new URL(c.req.raw.url)
@@ -112,6 +118,69 @@ export function registerOrgBillingRoutes<T extends { Variables: OrgRouteVariable
   )
 
   app.post(
+    "/v1/billing/inference/checkout",
+    requireUserMiddleware,
+    resolveOrganizationContextMiddleware,
+    async (c) => {
+      const permission = ensureOwner(c)
+      if (!permission.ok) return c.json(permission.response, 403)
+      const user = c.get("user")
+      const email = getRequiredUserEmail(user)
+      if (!email) return c.json({ error: "user_email_required" }, 400)
+      const payload = c.get("organizationContext")
+      if (!env.stripe.inferenceEnabled) return c.json({ error: "billing_product_disabled" }, 404)
+      if (env.stripe.billingProvider === "simulated") {
+        await upsertSimulatedSubscription({ organizationId: payload.organization.id, orgMemberId: payload.currentMember.id, product: "inference", quantity: 1, status: "active" })
+        return c.json({ url: billingReturnUrl(c) })
+      }
+      const session = await createInferenceCheckoutSession({
+        organizationId: payload.organization.id,
+        orgMemberId: payload.currentMember.id,
+        email,
+        name: user.name ?? email,
+        successUrl: checkoutSuccessUrl(c),
+        cancelUrl: checkoutCancelUrl(c),
+      })
+      return c.json({ url: session.url })
+    },
+  )
+
+  app.post(
+    "/v1/billing/org-seats/checkout",
+    requireUserMiddleware,
+    resolveOrganizationContextMiddleware,
+    jsonValidator(orgSeatsCheckoutSchema),
+    async (c) => {
+      const permission = ensureOwner(c)
+      if (!permission.ok) return c.json(permission.response, 403)
+      const user = c.get("user")
+      const email = getRequiredUserEmail(user)
+      if (!email) return c.json({ error: "user_email_required" }, 400)
+      const payload = c.get("organizationContext")
+      if (!env.stripe.orgSeatsEnabled) return c.json({ error: "billing_product_disabled" }, 404)
+      const input = c.req.valid("json")
+      const activeMembers = await getActiveMemberCountForBilling(payload.organization.id)
+      if (input.quantity < activeMembers) {
+        return c.json({ error: "quantity_below_active_members", activeMembers, message: `Choose at least ${activeMembers} seats for the active members in this organization.` }, 400)
+      }
+      if (env.stripe.billingProvider === "simulated") {
+        await upsertSimulatedSubscription({ organizationId: payload.organization.id, orgMemberId: payload.currentMember.id, product: "org_seats", quantity: input.quantity, status: "active" })
+        return c.json({ url: billingReturnUrl(c) })
+      }
+      const session = await createOrgSeatsCheckoutSession({
+        organizationId: payload.organization.id,
+        orgMemberId: payload.currentMember.id,
+        email,
+        name: user.name ?? email,
+        quantity: input.quantity,
+        successUrl: checkoutSuccessUrl(c),
+        cancelUrl: checkoutCancelUrl(c),
+      })
+      return c.json({ url: session.url })
+    },
+  )
+
+  app.post(
     "/v1/billing/stripe/portal",
     describeRoute({
       tags: ["Organizations"],
@@ -136,6 +205,55 @@ export function registerOrgBillingRoutes<T extends { Variables: OrgRouteVariable
         returnUrl: billingReturnUrl(c),
       })
       return c.json({ url: session.url })
+    },
+  )
+
+  app.post(
+    "/v1/billing/inference/portal",
+    requireUserMiddleware,
+    resolveOrganizationContextMiddleware,
+    async (c) => {
+      const permission = ensureOwner(c)
+      if (!permission.ok) return c.json(permission.response, 403)
+      const payload = c.get("organizationContext")
+      if (env.stripe.billingProvider === "simulated") return c.json({ url: billingReturnUrl(c) })
+      const session = await createInferencePortalSession({ organizationId: payload.organization.id, returnUrl: billingReturnUrl(c) })
+      return c.json({ url: session.url })
+    },
+  )
+
+  app.post(
+    "/v1/billing/org-seats/portal",
+    requireUserMiddleware,
+    resolveOrganizationContextMiddleware,
+    async (c) => {
+      const permission = ensureOwner(c)
+      if (!permission.ok) return c.json(permission.response, 403)
+      const payload = c.get("organizationContext")
+      if (env.stripe.billingProvider === "simulated") return c.json({ url: billingReturnUrl(c) })
+      const session = await createOrgSeatsPortalSession({ organizationId: payload.organization.id, returnUrl: billingReturnUrl(c) })
+      return c.json({ url: session.url })
+    },
+  )
+
+  app.post(
+    "/v1/billing/simulated/subscription",
+    requireUserMiddleware,
+    resolveOrganizationContextMiddleware,
+    jsonValidator(simulatedBillingUpdateSchema),
+    async (c) => {
+      if (env.stripe.billingProvider !== "simulated") return c.json({ error: "billing_simulator_disabled" }, 404)
+      const permission = ensureOwner(c)
+      if (!permission.ok) return c.json(permission.response, 403)
+      const payload = c.get("organizationContext")
+      const input = c.req.valid("json")
+      const activeMembers = await getActiveMemberCountForBilling(payload.organization.id)
+      const quantity = input.product === "org_seats" ? input.quantity ?? activeMembers : 1
+      if (input.product === "org_seats" && quantity < activeMembers) {
+        return c.json({ error: "quantity_below_active_members", activeMembers }, 400)
+      }
+      await upsertSimulatedSubscription({ organizationId: payload.organization.id, orgMemberId: payload.currentMember.id, product: input.product, quantity, status: input.status })
+      return c.json(await getOrgBillingSummary({ organizationId: payload.organization.id, includePortalUrl: true, returnUrl: billingReturnUrl(c) }))
     },
   )
 }

@@ -14,9 +14,11 @@ import { setInferenceEnabled } from "./inference.js"
 type OrgId = typeof OrganizationTable.$inferSelect.id
 type MemberId = typeof MemberTable.$inferSelect.id
 type OrgSubscriptionStatusValue = (typeof OrgSubscriptionStatus)[number]
+type BillingProduct = "inference" | "org_seats"
 
 const STRIPE_API_VERSION = "2026-04-22.dahlia"
 const INFERENCE_SUBSCRIPTION_TYPE = "inference" as const
+const ORG_SEATS_SUBSCRIPTION_TYPE = "org_seats" as const
 const ACTIVE_STATUSES = new Set<OrgSubscriptionStatusValue>(["active", "trialing"])
 const EXPIRED_STATUSES = new Set<OrgSubscriptionStatusValue>(["past_due", "canceled", "unpaid", "incomplete_expired", "expired"])
 
@@ -39,6 +41,21 @@ function requireInferencePriceId() {
     throw new Error("stripe_inference_price_id_missing")
   }
   return env.stripe.inferencePriceId
+}
+
+function requireOrgSeatsPriceId() {
+  if (!env.stripe.orgSeatsPriceId) {
+    throw new Error("stripe_org_seats_price_id_missing")
+  }
+  return env.stripe.orgSeatsPriceId
+}
+
+function productPriceId(product: BillingProduct) {
+  return product === ORG_SEATS_SUBSCRIPTION_TYPE ? requireOrgSeatsPriceId() : requireInferencePriceId()
+}
+
+function productMetadataName(product: BillingProduct) {
+  return product === ORG_SEATS_SUBSCRIPTION_TYPE ? "openwork_team_seats" : "openwork_models"
 }
 
 function fromUnixSeconds(value: number | null | undefined) {
@@ -72,9 +89,13 @@ function firstSubscriptionItem(subscription: Stripe.Subscription) {
 function getSubscriptionMetadata(subscription: Stripe.Subscription) {
   const orgId = subscription.metadata.org_id?.trim() ?? ""
   const orgMemberId = subscription.metadata.created_by_org_member_id?.trim() ?? ""
+  const subscriptionType = subscription.metadata.subscription_type?.trim() === ORG_SEATS_SUBSCRIPTION_TYPE
+    ? ORG_SEATS_SUBSCRIPTION_TYPE
+    : INFERENCE_SUBSCRIPTION_TYPE
   return {
     organizationId: orgId || null,
     orgMemberId: orgMemberId || null,
+    subscriptionType,
   }
 }
 
@@ -90,16 +111,24 @@ export async function getActiveMemberCountForBilling(organizationId: OrgId) {
   return activeMemberCount(organizationId)
 }
 
-async function findInferenceSubscriptionByOrg(organizationId: OrgId) {
+async function findSubscriptionByOrg(organizationId: OrgId, product: BillingProduct) {
   return db
     .select()
     .from(OrgSubscriptionTable)
     .where(and(
       eq(OrgSubscriptionTable.organization_id, organizationId),
-      eq(OrgSubscriptionTable.type, INFERENCE_SUBSCRIPTION_TYPE),
+      eq(OrgSubscriptionTable.type, product),
     ))
     .limit(1)
     .then((rows) => rows[0] ?? null)
+}
+
+async function findInferenceSubscriptionByOrg(organizationId: OrgId) {
+  return findSubscriptionByOrg(organizationId, INFERENCE_SUBSCRIPTION_TYPE)
+}
+
+async function findOrgSeatsSubscriptionByOrg(organizationId: OrgId) {
+  return findSubscriptionByOrg(organizationId, ORG_SEATS_SUBSCRIPTION_TYPE)
 }
 
 async function findInferenceSubscriptionByStripeId(stripeSubscriptionId: string) {
@@ -157,7 +186,7 @@ export async function upsertInferenceSubscriptionFromStripe(subscription: Stripe
     id: createDenTypeId("orgSubscription"),
     organization_id: metadata.organizationId as OrgId,
     created_by_org_membership_id: metadata.orgMemberId as MemberId | null,
-    type: INFERENCE_SUBSCRIPTION_TYPE,
+    type: metadata.subscriptionType,
     status,
     stripe_customer_id: customerIdFromSubscription(subscription),
     stripe_subscription_id: subscription.id,
@@ -179,6 +208,7 @@ export async function upsertInferenceSubscriptionFromStripe(subscription: Stripe
       created_by_org_membership_id: values.created_by_org_membership_id,
       status: values.status,
       stripe_customer_id: values.stripe_customer_id,
+      stripe_subscription_id: values.stripe_subscription_id,
       stripe_price_id: values.stripe_price_id,
       stripe_subscription_item_id: values.stripe_subscription_item_id,
       quantity: values.quantity,
@@ -192,7 +222,7 @@ export async function upsertInferenceSubscriptionFromStripe(subscription: Stripe
     },
   })
 
-  if (EXPIRED_STATUSES.has(status)) {
+  if (metadata.subscriptionType === INFERENCE_SUBSCRIPTION_TYPE && EXPIRED_STATUSES.has(status)) {
     await setInferenceEnabled({ organizationId: metadata.organizationId as OrgId, enabled: false })
   }
 
@@ -242,16 +272,18 @@ export async function findOrCreateStripeCustomer(input: {
   return customer.id
 }
 
-export async function createInferenceCheckoutSession(input: {
+async function createCheckoutSession(input: {
+  product: BillingProduct
   organizationId: OrgId
   orgMemberId: MemberId
   email: string
   name: string
+  quantity?: number
   successUrl: string
   cancelUrl: string
 }) {
-  const priceId = requireInferencePriceId()
-  const quantity = Math.max(1, await activeMemberCount(input.organizationId))
+  const priceId = productPriceId(input.product)
+  const quantity = Math.max(1, input.quantity ?? await activeMemberCount(input.organizationId))
   const customer = await findOrCreateStripeCustomer({
     organizationId: input.organizationId,
     email: input.email,
@@ -259,7 +291,7 @@ export async function createInferenceCheckoutSession(input: {
     metadata: {
       org_id: input.organizationId,
       created_by_org_member_id: input.orgMemberId,
-      openwork_product: "openwork_models",
+      openwork_product: productMetadataName(input.product),
     },
   })
   return stripe().checkout.sessions.create({
@@ -273,21 +305,52 @@ export async function createInferenceCheckoutSession(input: {
     metadata: {
       org_id: input.organizationId,
       created_by_org_member_id: input.orgMemberId,
-      openwork_product: "openwork_models",
+      openwork_product: productMetadataName(input.product),
     },
     subscription_data: {
       metadata: {
         org_id: input.organizationId,
         created_by_org_member_id: input.orgMemberId,
-        openwork_product: "openwork_models",
-        subscription_type: INFERENCE_SUBSCRIPTION_TYPE,
+        openwork_product: productMetadataName(input.product),
+        subscription_type: input.product,
       },
     },
   })
 }
 
+export async function createInferenceCheckoutSession(input: {
+  organizationId: OrgId
+  orgMemberId: MemberId
+  email: string
+  name: string
+  successUrl: string
+  cancelUrl: string
+}) {
+  return createCheckoutSession({ ...input, product: INFERENCE_SUBSCRIPTION_TYPE })
+}
+
+export async function createOrgSeatsCheckoutSession(input: {
+  organizationId: OrgId
+  orgMemberId: MemberId
+  email: string
+  name: string
+  quantity: number
+  successUrl: string
+  cancelUrl: string
+}) {
+  return createCheckoutSession({ ...input, product: ORG_SEATS_SUBSCRIPTION_TYPE })
+}
+
 export async function createInferencePortalSession(input: { organizationId: OrgId; returnUrl: string }) {
-  const row = await findInferenceSubscriptionByOrg(input.organizationId)
+  return createPortalSession({ organizationId: input.organizationId, returnUrl: input.returnUrl, product: INFERENCE_SUBSCRIPTION_TYPE })
+}
+
+export async function createOrgSeatsPortalSession(input: { organizationId: OrgId; returnUrl: string }) {
+  return createPortalSession({ organizationId: input.organizationId, returnUrl: input.returnUrl, product: ORG_SEATS_SUBSCRIPTION_TYPE })
+}
+
+async function createPortalSession(input: { organizationId: OrgId; returnUrl: string; product: BillingProduct }) {
+  const row = await findSubscriptionByOrg(input.organizationId, input.product)
   if (!row?.stripe_customer_id) {
     throw new Error("stripe_customer_missing")
   }
@@ -297,41 +360,138 @@ export async function createInferencePortalSession(input: { organizationId: OrgI
   })
 }
 
-export async function getOrgBillingSummary(input: { organizationId: OrgId; includePortalUrl?: boolean; returnUrl: string }) {
-  const row = await findInferenceSubscriptionByOrg(input.organizationId)
-  const memberCount = await activeMemberCount(input.organizationId)
+function productEnabled(product: BillingProduct) {
+  if (env.stripe.billingProvider === "disabled") return false
+  return product === ORG_SEATS_SUBSCRIPTION_TYPE ? env.stripe.orgSeatsEnabled : env.stripe.inferenceEnabled
+}
+
+function productConfigured(product: BillingProduct) {
+  if (!productEnabled(product)) return false
+  if (env.stripe.billingProvider === "disabled") return false
+  if (env.stripe.billingProvider === "simulated") return true
+  return Boolean(env.stripe.secretKey && (product === ORG_SEATS_SUBSCRIPTION_TYPE ? env.stripe.orgSeatsPriceId : env.stripe.inferencePriceId))
+}
+
+function productUnitAmount(product: BillingProduct) {
+  return product === ORG_SEATS_SUBSCRIPTION_TYPE ? 2000 : 1000
+}
+
+function serializeSubscription(row: Awaited<ReturnType<typeof findSubscriptionByOrg>>) {
+  return row ? {
+    id: row.id,
+    status: row.status,
+    stripeCustomerId: row.stripe_customer_id,
+    stripeSubscriptionId: row.stripe_subscription_id,
+    quantity: row.quantity,
+    currentPeriodStart: row.current_period_start?.toISOString() ?? null,
+    currentPeriodEnd: row.current_period_end?.toISOString() ?? null,
+    cancelAtPeriodEnd: row.cancel_at_period_end,
+  } : null
+}
+
+async function getBillingProductSummary(input: { organizationId: OrgId; product: BillingProduct; includePortalUrl?: boolean; returnUrl: string }) {
+  const row = await findSubscriptionByOrg(input.organizationId, input.product)
+  const usedSeats = await activeMemberCount(input.organizationId)
   const hasActiveSubscription = Boolean(row && ACTIVE_STATUSES.has(row.status))
   let portalUrl: string | null = null
-  if (input.includePortalUrl && row?.stripe_customer_id) {
+  if (input.includePortalUrl && row?.stripe_customer_id && env.stripe.billingProvider === "stripe") {
     try {
-      portalUrl = (await createInferencePortalSession({ organizationId: input.organizationId, returnUrl: input.returnUrl })).url
+      portalUrl = (await createPortalSession({ organizationId: input.organizationId, returnUrl: input.returnUrl, product: input.product })).url
     } catch (error) {
-      console.warn("[stripe-billing] failed to create billing portal session", error)
+      console.warn(`[stripe-billing] failed to create ${input.product} billing portal session`, error)
     }
   }
 
   return {
-    stripe: {
-      configured: Boolean(env.stripe.secretKey && env.stripe.inferencePriceId),
-      priceId: env.stripe.inferencePriceId ?? null,
-      unitAmount: 1000,
-      currency: "usd",
-      interval: "month",
-      memberCount,
-      hasActiveSubscription,
-      portalUrl,
-      subscription: row ? {
-        id: row.id,
-        status: row.status,
-        stripeCustomerId: row.stripe_customer_id,
-        stripeSubscriptionId: row.stripe_subscription_id,
-        quantity: row.quantity,
-        currentPeriodStart: row.current_period_start?.toISOString() ?? null,
-        currentPeriodEnd: row.current_period_end?.toISOString() ?? null,
-        cancelAtPeriodEnd: row.cancel_at_period_end,
-      } : null,
-    },
+    enabled: productEnabled(input.product),
+    configured: productConfigured(input.product),
+    provider: env.stripe.billingProvider,
+    priceId: input.product === ORG_SEATS_SUBSCRIPTION_TYPE ? env.stripe.orgSeatsPriceId ?? null : env.stripe.inferencePriceId ?? null,
+    unitAmount: productUnitAmount(input.product),
+    currency: "usd",
+    interval: "month",
+    usedSeats,
+    purchasedSeats: input.product === ORG_SEATS_SUBSCRIPTION_TYPE && hasActiveSubscription ? row?.quantity ?? 0 : null,
+    memberCount: usedSeats,
+    hasActiveSubscription,
+    portalUrl,
+    enforceSeats: input.product === ORG_SEATS_SUBSCRIPTION_TYPE && env.stripe.enforcementEnabled && productConfigured(input.product),
+    subscription: serializeSubscription(row),
   }
+}
+
+export async function getOrgBillingSummary(input: { organizationId: OrgId; includePortalUrl?: boolean; returnUrl: string }) {
+  const inference = await getBillingProductSummary({ ...input, product: INFERENCE_SUBSCRIPTION_TYPE })
+  const orgSeats = await getBillingProductSummary({ ...input, product: ORG_SEATS_SUBSCRIPTION_TYPE })
+
+  return {
+    provider: env.stripe.billingProvider,
+    products: { inference, orgSeats },
+    stripe: inference,
+  }
+}
+
+export async function getOrgSeatEntitlement(organizationId: OrgId) {
+  const orgSeats = await getBillingProductSummary({ organizationId, product: ORG_SEATS_SUBSCRIPTION_TYPE, returnUrl: "" })
+  if (!orgSeats.enforceSeats) {
+    return { allowed: true, reason: "billing_not_enforced" as const, ...orgSeats }
+  }
+  if (!orgSeats.hasActiveSubscription) {
+    return { allowed: false, reason: "subscription_inactive" as const, ...orgSeats }
+  }
+  if (orgSeats.purchasedSeats !== null && orgSeats.usedSeats >= orgSeats.purchasedSeats) {
+    return { allowed: false, reason: "seat_limit_reached" as const, ...orgSeats }
+  }
+  return { allowed: true, reason: "has_available_seat" as const, ...orgSeats }
+}
+
+export async function upsertSimulatedSubscription(input: { organizationId: OrgId; orgMemberId: MemberId | null; product: BillingProduct; quantity: number; status: OrgSubscriptionStatusValue }) {
+  if (env.stripe.billingProvider !== "simulated") {
+    throw new Error("billing_simulator_disabled")
+  }
+  const now = new Date()
+  const values = {
+    id: createDenTypeId("orgSubscription"),
+    organization_id: input.organizationId,
+    created_by_org_membership_id: input.orgMemberId,
+    type: input.product,
+    status: input.status,
+    stripe_customer_id: `sim_cus_${input.organizationId}`,
+    stripe_subscription_id: `sim_sub_${input.organizationId}_${input.product}`,
+    stripe_price_id: input.product === ORG_SEATS_SUBSCRIPTION_TYPE ? "sim_org_seats" : "sim_inference",
+    stripe_subscription_item_id: `sim_item_${input.organizationId}_${input.product}`,
+    quantity: Math.max(1, input.quantity),
+    current_period_start: now,
+    current_period_end: new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30),
+    cancel_at_period_end: false,
+    canceled_at: input.status === "canceled" ? now : null,
+    ended_at: null,
+    last_event_id: `sim_evt_${Date.now()}`,
+    created_at: now,
+    updated_at: now,
+  }
+  await db.insert(OrgSubscriptionTable).values(values).onDuplicateKeyUpdate({
+    set: {
+      created_by_org_membership_id: values.created_by_org_membership_id,
+      status: values.status,
+      stripe_customer_id: values.stripe_customer_id,
+      stripe_subscription_id: values.stripe_subscription_id,
+      stripe_price_id: values.stripe_price_id,
+      stripe_subscription_item_id: values.stripe_subscription_item_id,
+      quantity: values.quantity,
+      current_period_start: values.current_period_start,
+      current_period_end: values.current_period_end,
+      cancel_at_period_end: values.cancel_at_period_end,
+      canceled_at: values.canceled_at,
+      ended_at: values.ended_at,
+      last_event_id: values.last_event_id,
+      updated_at: now,
+    },
+  })
+  if (input.product === INFERENCE_SUBSCRIPTION_TYPE) {
+    await setInferenceEnabled({ organizationId: input.organizationId, enabled: ACTIVE_STATUSES.has(input.status) })
+  }
+  return findSubscriptionByOrg(input.organizationId, input.product)
 }
 
 export async function syncInferenceSubscriptionQuantityAfterMemberChange(input: { organizationId: OrgId; memberCount: number }) {
@@ -363,7 +523,7 @@ export async function handleStripeWebhook(input: { payload: string; signature: s
         const subscription = await stripe().subscriptions.retrieve(session.subscription)
         await upsertInferenceSubscriptionFromStripe(subscription, event.id)
         const metadata = getSubscriptionMetadata(subscription)
-        if (metadata.organizationId && ACTIVE_STATUSES.has(subscriptionStatus(subscription.status))) {
+        if (metadata.subscriptionType === INFERENCE_SUBSCRIPTION_TYPE && metadata.organizationId && ACTIVE_STATUSES.has(subscriptionStatus(subscription.status))) {
           await setInferenceEnabled({ organizationId: metadata.organizationId as OrgId, enabled: true })
         }
       }
@@ -387,7 +547,9 @@ export async function handleStripeWebhook(input: { payload: string; signature: s
             .update(OrgSubscriptionTable)
             .set({ status: "expired", last_event_id: event.id, updated_at: new Date() })
             .where(eq(OrgSubscriptionTable.id, row.id))
-          await setInferenceEnabled({ organizationId: row.organization_id, enabled: false })
+          if (row.type === INFERENCE_SUBSCRIPTION_TYPE) {
+            await setInferenceEnabled({ organizationId: row.organization_id, enabled: false })
+          }
         }
       }
       break

@@ -252,6 +252,12 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
           allowedEmailDomains: error.allowedEmailDomains,
         }, 409)
       }
+      if (error instanceof Error && error.message === "org_seat_limit_reached") {
+        return c.json({
+          error: "org_seat_limit_reached",
+          message: "This organization has used all purchased team seats.",
+        }, 409)
+      }
       throw error
     }
 

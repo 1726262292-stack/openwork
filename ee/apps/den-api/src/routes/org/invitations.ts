@@ -10,6 +10,7 @@ import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, n
 import { getOrganizationLimitStatus } from "../../organization-limits.js"
 import { runPostOrganizationMemberChangeHooks } from "../../organization-member-hooks.js"
 import { isEmailAllowedForOrganization, listAssignableRoles, removeOrganizationMember } from "../../orgs.js"
+import { getOrgSeatEntitlement } from "../../stripe-billing.js"
 import { DenEmailSendError, sendEmail } from "../../utils/email/send-email.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { buildInvitationLink, createInvitationId, createInvitationToken, ensureInviteManager, idParamSchema, normalizeRoleName } from "./shared.js"
@@ -132,6 +133,19 @@ export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVaria
           limit: memberLimit.limit,
           currentCount: memberLimit.currentCount,
           message: `This workspace currently supports up to ${memberLimit.limit} members. Contact support to increase the limit.`,
+        }, 409)
+      }
+
+      const seatEntitlement = await getOrgSeatEntitlement(payload.organization.id)
+      if (!seatEntitlement.allowed) {
+        return c.json({
+          error: "org_seat_limit_reached",
+          reason: seatEntitlement.reason,
+          purchasedSeats: seatEntitlement.purchasedSeats,
+          usedSeats: seatEntitlement.usedSeats,
+          message: seatEntitlement.reason === "subscription_inactive"
+            ? "Buy team seats before inviting more members."
+            : "This organization has used all purchased team seats.",
         }, 409)
       }
     }

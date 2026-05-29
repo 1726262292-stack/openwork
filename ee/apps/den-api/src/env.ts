@@ -97,8 +97,13 @@ const EnvSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_INFERENCE_PRICE_ID: z.string().optional(),
+  STRIPE_ORG_SEATS_PRICE_ID: z.string().optional(),
   STRIPE_BILLING_SUCCESS_URL: z.string().optional(),
   STRIPE_BILLING_CANCEL_URL: z.string().optional(),
+  OPENWORK_BILLING_PROVIDER: z.enum(["disabled", "simulated", "stripe"]).optional(),
+  FEATURE_BILLING_ORG_SEATS: z.string().optional(),
+  FEATURE_BILLING_INFERENCE: z.string().optional(),
+  FEATURE_BILLING_ENFORCEMENT: z.string().optional(),
 }).superRefine((value, ctx) => {
   const inferredMode = value.DB_MODE ?? (value.DATABASE_URL ? "mysql" : "planetscale")
 
@@ -151,6 +156,12 @@ const betterAuthTrustedOrigins = splitCsv(parsed.DEN_BETTER_AUTH_TRUSTED_ORIGINS
 
 const polarFeatureGateEnabled =
   (parsed.POLAR_FEATURE_GATE_ENABLED ?? "false").toLowerCase() === "true"
+
+function envFlag(value: string | undefined, defaultValue: boolean) {
+  const normalized = value?.trim().toLowerCase()
+  if (!normalized) return defaultValue
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on"
+}
 
 const devMode = (parsed.OPENWORK_DEV_MODE ?? "0").trim() === "1"
 const port = Number(parsed.PORT ?? "8790")
@@ -224,9 +235,14 @@ export const env = {
   openRouterManagementApiKey: optionalString(parsed.OPENROUTER_MANAGEMENT_API_KEY),
   openRouterWorkspaceId: optionalString(parsed.OPENROUTER_WORKSPACE_ID),
   stripe: {
+    billingProvider: parsed.OPENWORK_BILLING_PROVIDER ?? "stripe",
+    orgSeatsEnabled: envFlag(parsed.FEATURE_BILLING_ORG_SEATS, false),
+    inferenceEnabled: envFlag(parsed.FEATURE_BILLING_INFERENCE, true),
+    enforcementEnabled: envFlag(parsed.FEATURE_BILLING_ENFORCEMENT, false),
     secretKey: optionalString(parsed.STRIPE_SECRET_KEY),
     webhookSecret: optionalString(parsed.STRIPE_WEBHOOK_SECRET),
     inferencePriceId: optionalString(parsed.STRIPE_INFERENCE_PRICE_ID),
+    orgSeatsPriceId: optionalString(parsed.STRIPE_ORG_SEATS_PRICE_ID),
     billingSuccessUrl: optionalString(parsed.STRIPE_BILLING_SUCCESS_URL),
     billingCancelUrl: optionalString(parsed.STRIPE_BILLING_CANCEL_URL),
   },

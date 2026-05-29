@@ -12,6 +12,7 @@ import {
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { db } from "./db.js"
 import { runPostOrganizationMemberChangeHooks } from "./organization-member-hooks.js"
+import { getOrgSeatEntitlement } from "./stripe-billing.js"
 import { DEFAULT_ORGANIZATION_LIMITS, normalizeOrganizationMetadata, serializeOrganizationMetadata } from "./organization-limits.js"
 import { denDefaultDynamicOrganizationRoles, denOrganizationStaticRoles } from "./organization-access.js"
 import { ensureDefaultDesktopPolicyForOrganization } from "./desktop-policies.js"
@@ -431,6 +432,13 @@ async function acceptInvitation(invitation: InvitationRow, userId: UserId) {
   const invitedMember = invitedMemberRows[0] ?? null
   const existingMember = existingMemberRows[0] ?? null
   let member = existingMember
+
+  if (!member && !invitedMember) {
+    const seatEntitlement = await getOrgSeatEntitlement(invitation.organizationId)
+    if (!seatEntitlement.allowed) {
+      throw new Error("org_seat_limit_reached")
+    }
+  }
 
   if (!member && invitedMember) {
     await db
