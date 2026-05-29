@@ -47,6 +47,7 @@ import { useSessionScrollController } from "./scroll-controller";
 import { getSessionActivityStatusLabel, useSessionActivityStore, type SessionActivityStatus } from "../status/session-activity-store";
 import { PermissionApprovalPanel } from "../chat/permission-approval-modal";
 import { QuestionPanel } from "../modals/question-modal";
+import { QueuedMessagesPanel } from "../modals/queued-messages-panel";
 import { deriveOpenTargets, selectAutoOpenTarget, type OpenTarget } from "../artifacts/open-target";
 import { usePanelTabStore } from "../panel/panel-tab-store";
 import {
@@ -416,6 +417,34 @@ function revokeAttachmentPreview(attachment: { previewUrl?: string | undefined }
   URL.revokeObjectURL(attachment.previewUrl);
 }
 
+// Combine multiple queued follow-up drafts into a single send. Their text and
+// parts are concatenated with blank-line separators and attachments are
+// merged, so the whole queue is delivered to the agent as one message.
+function mergeDrafts(drafts: ComposerDraft[]): ComposerDraft | null {
+  if (drafts.length === 0) return null;
+  if (drafts.length === 1) return drafts[0] ?? null;
+  const separator: ComposerPart = { type: "text", text: "\n\n" };
+  const parts: ComposerPart[] = [];
+  const attachments: ComposerAttachment[] = [];
+  const texts: string[] = [];
+  const resolvedTexts: string[] = [];
+  drafts.forEach((draft, index) => {
+    if (index > 0) parts.push(separator);
+    parts.push(...draft.parts);
+    attachments.push(...draft.attachments);
+    texts.push(draft.text);
+    resolvedTexts.push(draft.resolvedText ?? draft.text);
+  });
+  return {
+    mode: "prompt",
+    parts,
+    attachments,
+    text: texts.join("\n\n"),
+    resolvedText: resolvedTexts.join("\n\n"),
+    command: undefined,
+  };
+}
+
 export function SessionSurface(props: SessionSurfaceProps) {
   const local = useLocal();
   const { config: shellConfig } = useShellConfig();
@@ -435,6 +464,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const [notice, setNotice] = useState<ReactComposerNotice | null>(null);
   const [error, setError] = useState<SessionError | null>(null);
   const [sending, setSending] = useState(false);
+  // Locally queued follow-up drafts. OpenCode has no server-side queue, so we
+  // hold these client-side and auto-send the first one once the session goes
+  // idle (see the drain effect below).
+  const [queuedDrafts, setQueuedDrafts] = useState<ComposerDraft[]>([]);
   const [showDelayedLoading, setShowDelayedLoading] = useState(false);
   const [awaitingAssistantBaseline, setAwaitingAssistantBaseline] = useState<number | null>(null);
   const [noVisibleAssistantOutputBaseline, setNoVisibleAssistantOutputBaseline] = useState<number | null>(null);
@@ -749,36 +782,69 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
   };
 
-  const handleSend = useCallback(async () => {
-    const text = draft.trim();
-    if (!text && attachments.length === 0) return;
-    // Intentionally allow sending while the assistant is still streaming.
-    // OpenCode accepts follow-up user turns mid-run and queues them; if the
-    // backend can't accept the follow-up it'll surface an error via the
-    // catch below. This restores the "append a prompt while it's still
-    // talking" behavior that the Solid composer had.
+  // Core sender shared by initial send and steered follow-ups. OpenCode
+  // accepts follow-up user turns mid-run (steering) — the running loop picks
+  // up the new message — so this is safe to call while the agent is busy.
+  const sendDraft = useCallback(async (nextDraft: ComposerDraft, draftAttachments: ComposerAttachment[]) => {
     setError(null);
     useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, { type: "busy" });
     setSending(true);
     setAwaitingAssistantBaseline(renderedMessages.length);
     setNoVisibleAssistantOutputBaseline(null);
     try {
-      const nextDraft = buildDraft(text, attachments);
       await props.onSendDraft(nextDraft);
-      attachments.forEach(revokeAttachmentPreview);
-      clearComposerSession(props.sessionId);
-      props.onDraftChange(buildDraft("", []));
+      draftAttachments.forEach(revokeAttachmentPreview);
       setSending(false);
     } catch (nextError) {
       const parsed = parseSessionError(nextError);
       setError(parsed);
       useSessionActivityStore.getState().setError(props.workspaceId, props.sessionId);
-      setComposerDraft(props.sessionId, "");
       setAwaitingAssistantBaseline(null);
       setNoVisibleAssistantOutputBaseline(null);
       setSending(false);
+      throw nextError;
     }
-  }, [attachments, buildDraft, clearComposerSession, draft, props.onDraftChange, props.onSendDraft, props.sessionId, props.workspaceId, renderedMessages.length, setComposerDraft]);
+  }, [props.onSendDraft, props.sessionId, props.workspaceId, renderedMessages.length]);
+
+  const clearComposer = useCallback(() => {
+    clearComposerSession(props.sessionId);
+    props.onDraftChange(buildDraft("", []));
+  }, [buildDraft, clearComposerSession, props.onDraftChange, props.sessionId]);
+
+  // Initial send (agent idle) and explicit "Steer" follow-up (agent busy)
+  // share the same immediate path.
+  const handleSend = useCallback(async () => {
+    const text = draft.trim();
+    if (!text && attachments.length === 0) return;
+    const nextDraft = buildDraft(text, attachments);
+    const sentAttachments = attachments;
+    try {
+      await sendDraft(nextDraft, sentAttachments);
+      clearComposer();
+    } catch {
+      setComposerDraft(props.sessionId, "");
+    }
+  }, [attachments, buildDraft, clearComposer, draft, props.sessionId, sendDraft, setComposerDraft]);
+
+  const handleSteer = handleSend;
+
+  // Queue: hold the draft locally and clear the composer. The drain effect
+  // sends it once the session reports idle.
+  const handleQueue = useCallback(() => {
+    const text = draft.trim();
+    if (!text && attachments.length === 0) return;
+    setQueuedDrafts((current) => [...current, buildDraft(text, attachments)]);
+    clearComposer();
+  }, [attachments, buildDraft, clearComposer, draft]);
+
+  const removeQueuedDraft = useCallback((index: number) => {
+    setQueuedDrafts((current) => current.filter((_, itemIndex) => itemIndex !== index));
+  }, []);
+
+  const queuedMessages = useMemo(
+    () => queuedDrafts.map((draftItem) => draftItem.text.trim()).filter(Boolean),
+    [queuedDrafts],
+  );
 
   const handleAbort = useCallback(async () => {
     if (!chatStreaming) return;
@@ -801,6 +867,31 @@ export function SessionSurface(props: SessionSurfaceProps) {
       setSending(false);
     }
   }, [liveStatus.type]);
+
+  // Drain the queued follow-ups once the session goes idle. OpenCode has no
+  // server-side queue, so we send everything that's queued as a single merged
+  // message. The ref guards against re-entrancy while the send is in flight.
+  const drainingQueueRef = useRef(false);
+  useEffect(() => {
+    if (drainingQueueRef.current) return;
+    if (queuedDrafts.length === 0) return;
+    if (chatStreaming || liveStatus.type !== "idle") return;
+    const merged = mergeDrafts(queuedDrafts);
+    if (!merged) return;
+    const drained = queuedDrafts;
+    drainingQueueRef.current = true;
+    setQueuedDrafts([]);
+    void (async () => {
+      try {
+        await sendDraft(merged, merged.attachments);
+      } catch {
+        // Restore the queue so the user can retry / edit on failure.
+        setQueuedDrafts((current) => [...drained, ...current]);
+      } finally {
+        drainingQueueRef.current = false;
+      }
+    })();
+  }, [queuedDrafts, chatStreaming, liveStatus.type, sendDraft]);
 
   useEffect(() => {
     props.onDraftChange(buildDraft(draft, attachments));
@@ -1278,8 +1369,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
           mentions={mentions}
           onDraftChange={handleComposerDraftChange}
         onSend={handleSend}
+        onSteer={handleSteer}
+        onQueue={handleQueue}
         onStop={handleAbort}
         busy={chatStreaming}
+        queuedCount={queuedMessages.length}
         disabled={model.transitionState !== "idle" || Boolean(props.modelUnavailable)}
         modelUnavailable={Boolean(props.modelUnavailable)}
         statusLabel={statusLabel(snapshot ?? undefined, chatStreaming)}
@@ -1324,10 +1418,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
         isRemoteWorkspace={props.isRemoteWorkspace}
           isSandboxWorkspace={props.isSandboxWorkspace}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
-          compactTopSpacing={Boolean(props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission)}
+          compactTopSpacing={Boolean(props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
           topAccessory={
-            props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission ? (
+            props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0 ? (
               <div>
+                {queuedMessages.length > 0 ? (
+                  <QueuedMessagesPanel messages={queuedMessages} onRemove={removeQueuedDraft} />
+                ) : null}
                 {props.activeQuestion ? (
                   <QuestionPanel
                     questions={props.activeQuestion.questions}
@@ -1338,9 +1435,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       }
                     }}
                   />
-                ) : (
+                ) : (props.todos ?? []).some((todo) => todo.content.trim()) ? (
                   <TodoPanel todos={props.todos ?? []} />
-                )}
+                ) : null}
                 {props.activePermission ? (
                   <PermissionApprovalPanel
                     permission={props.activePermission}
