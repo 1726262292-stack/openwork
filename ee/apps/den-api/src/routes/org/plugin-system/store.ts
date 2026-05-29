@@ -2590,35 +2590,57 @@ async function buildConnectorAutomationContext(input: { connectorInstance: Conne
 
 async function maybeAutoImportGithubConnectorInstance(input: {
   connectorInstance: ConnectorInstanceRow
+  connectorSyncEventId?: ConnectorSyncEventId
   connectorTarget: ConnectorTargetRow
 }) {
   const instanceConfig = input.connectorInstance.instanceConfigJson && typeof input.connectorInstance.instanceConfigJson === "object"
     ? input.connectorInstance.instanceConfigJson as Record<string, unknown>
     : {}
-  if (instanceConfig.autoImportNewPlugins !== true) {
-    return { autoImported: false as const, createdPluginCount: 0, materializedConfigObjectCount: 0 }
-  }
+  // Treat an unset flag as enabled to match getGithubDiscoveryContext defaults: a repo the
+  // user has already configured should re-sync on push unless they explicitly opted out.
+  const autoImportNewPlugins = instanceConfig.autoImportNewPlugins !== false
 
   const context = await buildConnectorAutomationContext({ connectorInstance: input.connectorInstance })
+  // Force a fresh discovery so the latest head revision and file contents are fetched. Without
+  // this, the cached discovery snapshot keeps the previous sourceRevisionRef and the version
+  // guard in materializeGithubImportedObject would skip creating a new version on push.
   const discovery = await resolveGithubConnectorDiscovery({
     connectorInstanceId: input.connectorInstance.id,
     context,
+    forceRefresh: true,
   })
   const selectedKeys = discovery.cache.discoveredPlugins
     .filter((plugin) => plugin.supported)
     .map((plugin) => plugin.key)
 
   const applied = await applyGithubConnectorDiscovery({
-    autoImportNewPlugins: true,
+    autoImportNewPlugins,
     connectorInstanceId: input.connectorInstance.id,
+    connectorSyncEventId: input.connectorSyncEventId,
     context,
+    forceRefresh: true,
     selectedKeys,
   })
 
   return {
     autoImported: true as const,
+    autoImportNewPlugins,
+    classification: discovery.cache.classification,
+    createdMarketplace: applied.createdMarketplace
+      ? { id: applied.createdMarketplace.id, name: applied.createdMarketplace.name }
+      : null,
     createdPluginCount: applied.createdPlugins.length,
+    createdPlugins: applied.createdPlugins.map((plugin) => ({ id: plugin.id, name: plugin.name })),
+    discoveredPluginCount: discovery.cache.discoveredPlugins.length,
     materializedConfigObjectCount: applied.materializedConfigObjects.length,
+    materializedConfigObjects: applied.materializedConfigObjects.map((object) => ({
+      id: object.id,
+      objectType: object.objectType,
+      path: object.currentRelativePath,
+      title: object.title,
+      versionId: object.latestVersion?.id ?? null,
+    })),
+    sourceRevisionRef: applied.sourceRevisionRef,
   }
 }
 
@@ -2768,13 +2790,14 @@ async function persistGithubConnectorDiscoveryCache(input: {
   })
 }
 
-async function resolveGithubConnectorDiscovery(input: { connectorInstanceId: ConnectorInstanceId; context: PluginArchActorContext }) {
+async function resolveGithubConnectorDiscovery(input: { connectorInstanceId: ConnectorInstanceId; context: PluginArchActorContext; forceRefresh?: boolean }) {
   const discoveryContext = await getGithubDiscoveryContext(input)
   const targetConfig = discoveryContext.connectorTarget.targetConfigJson && typeof discoveryContext.connectorTarget.targetConfigJson === "object"
     ? discoveryContext.connectorTarget.targetConfigJson as Record<string, unknown>
     : null
   const cached = readGithubDiscoveryCache(targetConfig)
-  if (cached
+  if (!input.forceRefresh
+    && cached
     && cached.branch === discoveryContext.branch
     && cached.ref === discoveryContext.ref
     && cached.repositoryFullName === discoveryContext.repositoryFullName) {
@@ -2926,6 +2949,7 @@ function importedObjectMetadata(input: { objectType: ConnectorMappingRow["object
 async function materializeGithubImportedObject(input: {
   connectorInstance: ReturnType<typeof serializeConnectorInstance>
   connectorMapping: ReturnType<typeof serializeConnectorMapping>
+  connectorSyncEventId?: ConnectorSyncEventId
   connectorTarget: ReturnType<typeof serializeConnectorTarget>
   context: PluginArchActorContext
   externalLocator: string
@@ -2994,7 +3018,7 @@ async function materializeGithubImportedObject(input: {
 
       await tx.insert(ConfigObjectVersionTable).values({
         configObjectId,
-        connectorSyncEventId: null,
+        connectorSyncEventId: input.connectorSyncEventId ?? null,
         createdAt: now,
         createdByOrgMembershipId,
         createdVia: "connector",
@@ -3072,7 +3096,7 @@ async function materializeGithubImportedObject(input: {
 
       await tx.insert(ConfigObjectVersionTable).values({
         configObjectId: binding.configObjectId,
-        connectorSyncEventId: null,
+        connectorSyncEventId: input.connectorSyncEventId ?? null,
         createdAt: now,
         createdByOrgMembershipId,
         createdVia: "connector",
@@ -3129,6 +3153,7 @@ async function materializeGithubImportedObject(input: {
 
 async function materializeGithubImportPlans(input: {
   connectorInstance: ReturnType<typeof serializeConnectorInstance>
+  connectorSyncEventId?: ConnectorSyncEventId
   connectorTarget: ReturnType<typeof serializeConnectorTarget>
   context: PluginArchActorContext
   importPlans: Array<{ mapping: ReturnType<typeof serializeConnectorMapping>; paths: string[] }>
@@ -3173,6 +3198,7 @@ async function materializeGithubImportPlans(input: {
       materializedConfigObjects.push(await materializeGithubImportedObject({
         connectorInstance: input.connectorInstance,
         connectorMapping: plan.mapping,
+        connectorSyncEventId: input.connectorSyncEventId,
         connectorTarget: input.connectorTarget,
         context: input.context,
         externalLocator: path,
@@ -3413,8 +3439,8 @@ export async function getGithubConnectorDiscoveryTree(input: { connectorInstance
   })
 }
 
-export async function applyGithubConnectorDiscovery(input: { autoImportNewPlugins: boolean; connectorInstanceId: ConnectorInstanceId; context: PluginArchActorContext; selectedKeys: string[] }) {
-  const discovery = await resolveGithubConnectorDiscovery({ connectorInstanceId: input.connectorInstanceId, context: input.context })
+export async function applyGithubConnectorDiscovery(input: { autoImportNewPlugins: boolean; connectorInstanceId: ConnectorInstanceId; connectorSyncEventId?: ConnectorSyncEventId; context: PluginArchActorContext; forceRefresh?: boolean; selectedKeys: string[] }) {
+  const discovery = await resolveGithubConnectorDiscovery({ connectorInstanceId: input.connectorInstanceId, context: input.context, forceRefresh: input.forceRefresh })
   const selectedKeySet = new Set(input.selectedKeys.map((key) => key.trim()).filter(Boolean))
   const selectedPlugins = discovery.cache.discoveredPlugins.filter((plugin) => plugin.supported && selectedKeySet.has(plugin.key))
   await db.update(ConnectorInstanceTable).set({
@@ -3474,6 +3500,7 @@ export async function applyGithubConnectorDiscovery(input: { autoImportNewPlugin
 
   const materializedConfigObjects = await materializeGithubImportPlans({
     connectorInstance: discovery.connectorInstance,
+    connectorSyncEventId: input.connectorSyncEventId,
     connectorTarget: discovery.connectorTarget,
     context: input.context,
     importPlans,
@@ -3756,45 +3783,70 @@ export async function enqueueGithubWebhookSync(input: {
       ))
       .limit(1)
 
-    let autoImportSummary: {
-      autoImported: boolean
-      createdPluginCount: number
-      materializedConfigObjectCount: number
-    }
+    // Generate the sync event id up front so config object versions created during auto-import
+    // can be linked back to the triggering sync event.
+    const id = existing[0]?.id ?? createDenTypeId("connectorSyncEvent")
+
+    type AutoImportSummary = Awaited<ReturnType<typeof maybeAutoImportGithubConnectorInstance>>
+    const startedAt = new Date()
+    let autoImportSummary: AutoImportSummary | null = null
+    let autoImportError: string | null = null
     try {
       autoImportSummary = await maybeAutoImportGithubConnectorInstance({
         connectorInstance: row.instance,
+        connectorSyncEventId: id,
         connectorTarget: row.target,
       })
     } catch (error) {
-      autoImportSummary = {
-        autoImported: false,
-        createdPluginCount: 0,
-        materializedConfigObjectCount: 0,
-      }
+      autoImportError = error instanceof Error ? error.message : String(error)
+      // Surface the failure instead of swallowing it silently so a sync that records an event
+      // but never creates a version is diagnosable.
+      console.error(`[connectors][github] auto-import failed for target ${row.target.id} (delivery ${input.deliveryId}): ${autoImportError}`)
     }
 
-    const eventStatus = autoImportSummary.autoImported ? "completed" as const : "queued" as const
-    const completedAt = autoImportSummary.autoImported ? new Date() : null
+    const completedAt = new Date()
+    const eventStatus = autoImportError
+      ? "failed" as const
+      : autoImportSummary
+        ? autoImportSummary.materializedConfigObjectCount > 0
+          ? "completed" as const
+          : "partial" as const
+        : "queued" as const
 
-    const id = existing[0]?.id ?? createDenTypeId("connectorSyncEvent")
+    const summaryJson = {
+      // Inputs
+      deliveryId: input.deliveryId,
+      headSha: input.headSha,
+      installationId: input.installationId,
+      ref: input.ref,
+      repositoryFullName: input.repositoryFullName,
+      repositoryId: input.repositoryId,
+      // Outcome
+      outcome: eventStatus,
+      error: autoImportError,
+      autoImportApplied: autoImportSummary?.autoImported ?? false,
+      autoImportNewPlugins: autoImportSummary?.autoImportNewPlugins ?? null,
+      classification: autoImportSummary?.classification ?? null,
+      resolvedSourceRevisionRef: autoImportSummary?.sourceRevisionRef ?? null,
+      discoveredPluginCount: autoImportSummary?.discoveredPluginCount ?? 0,
+      createdMarketplace: autoImportSummary?.createdMarketplace ?? null,
+      createdPluginCount: autoImportSummary?.createdPluginCount ?? 0,
+      createdPlugins: autoImportSummary?.createdPlugins ?? [],
+      materializedConfigObjectCount: autoImportSummary?.materializedConfigObjectCount ?? 0,
+      materializedConfigObjects: autoImportSummary?.materializedConfigObjects ?? [],
+      // Timing
+      startedAt: startedAt.toISOString(),
+      completedAt: completedAt.toISOString(),
+      durationMs: completedAt.getTime() - startedAt.getTime(),
+    }
+
     if (existing[0]) {
       await db.update(ConnectorSyncEventTable).set({
         completedAt,
         externalEventRef: input.deliveryId,
-        startedAt: new Date(),
+        startedAt,
         status: eventStatus,
-        summaryJson: {
-          autoImportApplied: autoImportSummary.autoImported,
-          autoImportCreatedPluginCount: autoImportSummary.createdPluginCount,
-          autoImportMaterializedConfigObjectCount: autoImportSummary.materializedConfigObjectCount,
-          deliveryId: input.deliveryId,
-          headSha: input.headSha,
-          repositoryFullName: input.repositoryFullName,
-          repositoryId: input.repositoryId,
-          queuedAt: new Date().toISOString(),
-          ref: input.ref,
-        },
+        summaryJson,
       }).where(eq(ConnectorSyncEventTable.id, id))
     } else {
       await db.insert(ConnectorSyncEventTable).values({
@@ -3808,19 +3860,9 @@ export async function enqueueGithubWebhookSync(input: {
         organizationId: row.instance.organizationId,
         remoteId: input.repositoryFullName,
         sourceRevisionRef: input.headSha,
-        startedAt: new Date(),
+        startedAt,
         status: eventStatus,
-        summaryJson: {
-          autoImportApplied: autoImportSummary.autoImported,
-          autoImportCreatedPluginCount: autoImportSummary.createdPluginCount,
-          autoImportMaterializedConfigObjectCount: autoImportSummary.materializedConfigObjectCount,
-          deliveryId: input.deliveryId,
-          headSha: input.headSha,
-          installationId: input.installationId,
-          repositoryFullName: input.repositoryFullName,
-          repositoryId: input.repositoryId,
-          ref: input.ref,
-        },
+        summaryJson,
       })
     }
     queuedIds.push(id)
