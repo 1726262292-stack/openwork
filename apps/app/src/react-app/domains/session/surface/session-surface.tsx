@@ -841,8 +841,16 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setQueuedDrafts((current) => current.filter((_, itemIndex) => itemIndex !== index));
   }, []);
 
+  // One label per queued draft, kept index-aligned with `queuedDrafts` so the
+  // panel's remove action targets the correct entry. Attachment-only drafts
+  // (no text) fall back to a count label instead of being dropped.
   const queuedMessages = useMemo(
-    () => queuedDrafts.map((draftItem) => draftItem.text.trim()).filter(Boolean),
+    () =>
+      queuedDrafts.map((draftItem) => {
+        const text = draftItem.text.trim();
+        if (text) return text;
+        return t("composer.queued_attachments_only", { count: draftItem.attachments.length });
+      }),
     [queuedDrafts],
   );
 
