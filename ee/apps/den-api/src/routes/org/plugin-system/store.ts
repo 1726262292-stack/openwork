@@ -1779,6 +1779,10 @@ export async function disconnectConnectorAccount(input: { connectorAccountId: Co
       .where(inArray(ConfigObjectTable.connectorInstanceId, instanceIds))
   const configObjectIds = configObjectRows.map((entry) => entry.id)
 
+  // Resolve every imported marketplace/plugin id to delete up front so the
+  // transaction below is a single pass of pure writes (no reads on the tx).
+  const importedResourceCleanupPlan = await planConnectorImportedResourceCleanupIds(connectorPluginIds)
+
   await db.transaction(async (tx) => {
     if (instanceIds.length > 0) {
       await tx.delete(ConnectorSourceTombstoneTable).where(inArray(ConnectorSourceTombstoneTable.connectorInstanceId, instanceIds))
@@ -1804,7 +1808,7 @@ export async function disconnectConnectorAccount(input: { connectorAccountId: Co
       await tx.delete(ConnectorInstanceTable).where(inArray(ConnectorInstanceTable.id, instanceIds))
     }
 
-    await cleanupConnectorImportedResources({ seedPluginIds: connectorPluginIds, tx })
+    await deleteConnectorImportedResources({ plan: importedResourceCleanupPlan, tx })
 
     await tx.delete(ConnectorAccountTable).where(eq(ConnectorAccountTable.id, row.id))
   })
@@ -1940,51 +1944,24 @@ function commonSelectorRootPath(selectors: string[]): string | null {
   return ""
 }
 
-async function assertConnectorImportedResourceCleanup(input: {
+type ConnectorImportedResourceCleanupPlan = {
   marketplaceIdsToDelete: MarketplaceId[]
   pluginIdsToDelete: PluginId[]
-  tx: DbTransaction
-}) {
-  if (input.pluginIdsToDelete.length > 0) {
-    const [remainingPlugins, remainingPluginMappings, remainingPluginMemberships, remainingPluginGrants] = await Promise.all([
-      input.tx.select({ id: PluginTable.id }).from(PluginTable).where(inArray(PluginTable.id, input.pluginIdsToDelete)),
-      input.tx.select({ id: ConnectorMappingTable.id }).from(ConnectorMappingTable).where(inArray(ConnectorMappingTable.pluginId, input.pluginIdsToDelete)),
-      input.tx.select({ id: PluginConfigObjectTable.id }).from(PluginConfigObjectTable).where(inArray(PluginConfigObjectTable.pluginId, input.pluginIdsToDelete)),
-      input.tx.select({ id: PluginAccessGrantTable.id }).from(PluginAccessGrantTable).where(inArray(PluginAccessGrantTable.pluginId, input.pluginIdsToDelete)),
-    ])
-
-    if (remainingPlugins.length > 0 || remainingPluginMappings.length > 0 || remainingPluginMemberships.length > 0 || remainingPluginGrants.length > 0) {
-      throw new Error("Connector cleanup left plugin records behind.")
-    }
-  }
-
-  if (input.marketplaceIdsToDelete.length > 0) {
-    const [remainingMarketplaces, remainingMarketplaceMemberships, remainingMarketplaceGrants] = await Promise.all([
-      input.tx.select({ id: MarketplaceTable.id }).from(MarketplaceTable).where(inArray(MarketplaceTable.id, input.marketplaceIdsToDelete)),
-      input.tx.select({ id: MarketplacePluginTable.id }).from(MarketplacePluginTable).where(inArray(MarketplacePluginTable.marketplaceId, input.marketplaceIdsToDelete)),
-      input.tx.select({ id: MarketplaceAccessGrantTable.id }).from(MarketplaceAccessGrantTable).where(inArray(MarketplaceAccessGrantTable.marketplaceId, input.marketplaceIdsToDelete)),
-    ])
-
-    if (remainingMarketplaces.length > 0 || remainingMarketplaceMemberships.length > 0 || remainingMarketplaceGrants.length > 0) {
-      throw new Error("Connector cleanup left marketplace records behind.")
-    }
-  }
 }
 
-async function cleanupConnectorImportedResources(input: {
-  seedPluginIds: PluginId[]
-  tx: DbTransaction
-}) {
-  const seedPluginIds = uniqueIds(input.seedPluginIds)
-  if (seedPluginIds.length === 0) {
-    return { deletedMarketplaceCount: 0, deletedPluginCount: 0 }
+// Read-only planning pass. Runs outside of any transaction so that the
+// subsequent delete pass can execute as a single transaction of pure writes.
+async function planConnectorImportedResourceCleanupIds(seedPluginIds: PluginId[]): Promise<ConnectorImportedResourceCleanupPlan> {
+  const uniqueSeedPluginIds = uniqueIds(seedPluginIds)
+  if (uniqueSeedPluginIds.length === 0) {
+    return { marketplaceIdsToDelete: [], pluginIdsToDelete: [] }
   }
 
-  const connectorMarketplaceRows = await input.tx
+  const connectorMarketplaceRows = await db
     .select({ marketplaceId: MarketplacePluginTable.marketplaceId })
     .from(MarketplacePluginTable)
     .where(and(
-      inArray(MarketplacePluginTable.pluginId, seedPluginIds),
+      inArray(MarketplacePluginTable.pluginId, uniqueSeedPluginIds),
       eq(MarketplacePluginTable.membershipSource, "connector"),
       isNull(MarketplacePluginTable.removedAt),
     ))
@@ -1992,7 +1969,7 @@ async function cleanupConnectorImportedResources(input: {
 
   const activeMarketplaceMemberships = candidateMarketplaceIds.length === 0
     ? []
-    : await input.tx
+    : await db
       .select({
         marketplaceId: MarketplacePluginTable.marketplaceId,
         membershipSource: MarketplacePluginTable.membershipSource,
@@ -2005,7 +1982,7 @@ async function cleanupConnectorImportedResources(input: {
       ))
 
   const candidatePluginIds = uniqueIds([
-    ...seedPluginIds,
+    ...uniqueSeedPluginIds,
     ...activeMarketplaceMemberships
       .filter((membership) => membership.membershipSource === "connector")
       .map((membership) => membership.pluginId),
@@ -2013,7 +1990,7 @@ async function cleanupConnectorImportedResources(input: {
 
   const activePluginMembershipRows = candidatePluginIds.length === 0
     ? []
-    : await input.tx
+    : await db
       .select({ pluginId: PluginConfigObjectTable.pluginId })
       .from(PluginConfigObjectTable)
       .where(and(
@@ -2023,12 +2000,12 @@ async function cleanupConnectorImportedResources(input: {
 
   const activeMappingRows = candidatePluginIds.length === 0
     ? []
-    : await input.tx
+    : await db
       .select({ pluginId: ConnectorMappingTable.pluginId })
       .from(ConnectorMappingTable)
       .where(inArray(ConnectorMappingTable.pluginId, candidatePluginIds))
 
-  const { marketplaceIdsToDelete, pluginIdsToDelete } = planConnectorImportedResourceCleanup({
+  return planConnectorImportedResourceCleanup({
     activeMarketplaceMemberships,
     activeMappingPluginIds: activeMappingRows
       .map((row) => row.pluginId)
@@ -2037,6 +2014,15 @@ async function cleanupConnectorImportedResources(input: {
     candidateMarketplaceIds,
     candidatePluginIds,
   })
+}
+
+// Write-only delete pass. Must run inside a transaction. Contains no reads so it
+// is safe to run alongside the other deletes on the same Vitess connection.
+async function deleteConnectorImportedResources(input: {
+  plan: ConnectorImportedResourceCleanupPlan
+  tx: DbTransaction
+}) {
+  const { marketplaceIdsToDelete, pluginIdsToDelete } = input.plan
 
   if (pluginIdsToDelete.length > 0) {
     await input.tx.delete(PluginConfigObjectTable).where(inArray(PluginConfigObjectTable.pluginId, pluginIdsToDelete))
@@ -2049,17 +2035,6 @@ async function cleanupConnectorImportedResources(input: {
     await input.tx.delete(MarketplacePluginTable).where(inArray(MarketplacePluginTable.marketplaceId, marketplaceIdsToDelete))
     await input.tx.delete(MarketplaceAccessGrantTable).where(inArray(MarketplaceAccessGrantTable.marketplaceId, marketplaceIdsToDelete))
     await input.tx.delete(MarketplaceTable).where(inArray(MarketplaceTable.id, marketplaceIdsToDelete))
-  }
-
-  await assertConnectorImportedResourceCleanup({
-    marketplaceIdsToDelete,
-    pluginIdsToDelete,
-    tx: input.tx,
-  })
-
-  return {
-    deletedMarketplaceCount: marketplaceIdsToDelete.length,
-    deletedPluginCount: pluginIdsToDelete.length,
   }
 }
 
@@ -2173,6 +2148,10 @@ export async function removeConnectorInstance(input: { connectorInstanceId: Conn
     .where(eq(ConfigObjectTable.connectorInstanceId, instance.id))
   const configObjectIds = configObjectRows.map((entry) => entry.id)
 
+  // Resolve every imported marketplace/plugin id to delete up front so the
+  // transaction below is a single pass of pure writes (no reads on the tx).
+  const importedResourceCleanupPlan = await planConnectorImportedResourceCleanupIds(pluginIds)
+
   await db.transaction(async (tx) => {
     await tx.delete(ConnectorSourceTombstoneTable).where(eq(ConnectorSourceTombstoneTable.connectorInstanceId, instance.id))
     await tx.delete(ConnectorSourceBindingTable).where(eq(ConnectorSourceBindingTable.connectorInstanceId, instance.id))
@@ -2194,7 +2173,7 @@ export async function removeConnectorInstance(input: { connectorInstanceId: Conn
     await tx.delete(ConnectorInstanceAccessGrantTable).where(eq(ConnectorInstanceAccessGrantTable.connectorInstanceId, instance.id))
     await tx.delete(ConnectorInstanceTable).where(eq(ConnectorInstanceTable.id, instance.id))
 
-    await cleanupConnectorImportedResources({ seedPluginIds: pluginIds, tx })
+    await deleteConnectorImportedResources({ plan: importedResourceCleanupPlan, tx })
   })
 
   return {
