@@ -44,6 +44,7 @@ import "../domains/settings/computer-use-config";
 import "../domains/settings/browser-extension-config";
 import "../domains/settings/openwork-voice-config";
 import "../domains/settings/google-workspace-config";
+import "../domains/settings/outlook-365-config";
 import { useSettingsExtensionController } from "../domains/settings/settings-extension-controller";
 import { buildExtensionItems } from "../domains/settings/extension-items";
 import { isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED, setOpenWorkExtensionEnabled } from "../domains/settings/extension-state";
@@ -526,6 +527,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [localProviderStatus, setLocalProviderStatus] = useState<string | null>(null);
   const [localProviderError, setLocalProviderError] = useState<string | null>(null);
   const [googleWorkspaceConnected, setGoogleWorkspaceConnected] = useState(false);
+  const [outlook365Connected, setOutlook365Connected] = useState(false);
   const [imageExtensionBusy, setImageExtensionBusy] = useState(false);
   const [imageExtensionStatus, setImageExtensionStatus] = useState<string | null>(null);
   const [imageExtensionError, setImageExtensionError] = useState<string | null>(null);
@@ -940,16 +942,22 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
     if (!client) {
       setGoogleWorkspaceConnected(false);
+      setOutlook365Connected(false);
       return;
     }
 
     let cancelled = false;
-    void client.googleWorkspaceStatus()
-      .then((result) => {
-        if (!cancelled) setGoogleWorkspaceConnected(result.connected === true);
+    void Promise.allSettled([client.googleWorkspaceStatus(), client.outlook365Status()])
+      .then(([googleResult, outlookResult]) => {
+        if (cancelled) return;
+        setGoogleWorkspaceConnected(googleResult.status === "fulfilled" && googleResult.value.connected === true);
+        setOutlook365Connected(outlookResult.status === "fulfilled" && outlookResult.value.connected === true);
       })
       .catch(() => {
-        if (!cancelled) setGoogleWorkspaceConnected(false);
+        if (!cancelled) {
+          setGoogleWorkspaceConnected(false);
+          setOutlook365Connected(false);
+        }
       });
 
     return () => {
@@ -1693,6 +1701,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     onComputerUsePermissionsChange: setComputerUsePermissions,
     googleWorkspaceConnected,
     setGoogleWorkspaceConnected,
+    outlook365Connected,
+    setOutlook365Connected,
     connectMcp: (entry) => connectionsStore.connectMcp(entry),
     refreshMcpServers: () => connectionsStore.refreshMcpServers(),
     providers,

@@ -21,6 +21,8 @@ type SettingsExtensionControllerInput = {
   onComputerUsePermissionsChange: (permissions: { accessibility: boolean; screenRecording: boolean }) => void;
   googleWorkspaceConnected: boolean;
   setGoogleWorkspaceConnected: (connected: boolean) => void;
+  outlook365Connected: boolean;
+  setOutlook365Connected: (connected: boolean) => void;
   connectMcp: (entry: McpDirectoryInfo) => void | Promise<void>;
   refreshMcpServers: () => void | Promise<void>;
   providers: ProviderLike[];
@@ -61,9 +63,11 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
     openworkServerClient: input.openworkServerClient,
     extensionConnections: {
       "google-workspace": input.googleWorkspaceConnected,
+      "outlook-365": input.outlook365Connected,
     },
     onExtensionConnectionChange: (extensionId, connected) => {
       if (extensionId === "google-workspace") input.setGoogleWorkspaceConnected(connected);
+      if (extensionId === "outlook-365") input.setOutlook365Connected(connected);
     },
     computerUse: {
       connected: input.mcpServers.some((server) => server.name === "computer-use"),
@@ -96,6 +100,7 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
       openworkServerClient: input.openworkServerClient,
       extensionConnections: {
         "google-workspace": input.googleWorkspaceConnected,
+        "outlook-365": input.outlook365Connected,
       },
     });
     return runtimeConnected ?? false;

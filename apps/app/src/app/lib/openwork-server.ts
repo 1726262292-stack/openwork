@@ -334,6 +334,40 @@ export type GoogleWorkspaceConnectStatus = {
   googleWorkspace: GoogleWorkspaceAuthStatus | null;
 };
 
+export type Outlook365Account = {
+  id: string | null;
+  displayName: string | null;
+  mail: string | null;
+  userPrincipalName: string | null;
+};
+
+export type Outlook365AuthStatus = {
+  configured: boolean;
+  missing: string[];
+  vault: "encrypted" | "plaintext-dev" | "unavailable";
+  connected: boolean;
+  account: Outlook365Account | null;
+  scopes: string[];
+  connectedAt: string | null;
+  error: string | null;
+  testStatus: string | null;
+  mock: boolean;
+};
+
+export type Outlook365ConnectStart = {
+  flowId: string;
+  authUrl: string;
+  expiresAt: number;
+};
+
+export type Outlook365ConnectStatus = {
+  flowId: string;
+  status: "pending" | "connected" | "failed" | "expired";
+  expiresAt: number;
+  error: string | null;
+  outlook365: Outlook365AuthStatus | null;
+};
+
 export type OpenworkExtensionActionCall = {
   extensionId: string;
   action: string;
@@ -964,6 +998,11 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
     googleWorkspaceDisconnect: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/disconnect", { token, hostToken, method: "POST", timeoutMs: timeouts.status }),
     googleWorkspaceTestConnection: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/test", { token, hostToken, method: "POST", timeoutMs: 60_000 }),
     googleWorkspaceRunScopeSmokeTest: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/smoke-test", { token, hostToken, method: "POST", timeoutMs: 120_000 }),
+    outlook365Status: () => requestJson<Outlook365AuthStatus>(baseUrl, "/experimental/outlook-365/status", { token, hostToken, timeoutMs: timeouts.status }),
+    outlook365ConnectStart: () => requestJson<Outlook365ConnectStart>(baseUrl, "/experimental/outlook-365/connect/start", { token, hostToken, method: "POST", timeoutMs: timeouts.status }),
+    outlook365ConnectStatus: (flowId: string) => requestJson<Outlook365ConnectStatus>(baseUrl, `/experimental/outlook-365/connect/status/${encodeURIComponent(flowId)}`, { token, hostToken, timeoutMs: timeouts.status }),
+    outlook365Disconnect: () => requestJson<Outlook365AuthStatus>(baseUrl, "/experimental/outlook-365/disconnect", { token, hostToken, method: "POST", timeoutMs: timeouts.status }),
+    outlook365TestConnection: () => requestJson<Outlook365AuthStatus>(baseUrl, "/experimental/outlook-365/test", { token, hostToken, method: "POST", timeoutMs: 60_000 }),
     callExtensionAction: (payload: OpenworkExtensionActionCall) =>
       requestJson<OpenworkExtensionActionResult>(baseUrl, "/experimental/extensions/call", {
         token,

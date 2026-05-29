@@ -65,6 +65,12 @@ import {
   googleWorkspaceStatus,
   googleWorkspaceTestConnection,
 } from "./extensions/google-workspace.js";
+import {
+  createOutlook365ConnectFlowManager,
+  outlook365Disconnect,
+  outlook365Status,
+  outlook365TestConnection,
+} from "./extensions/outlook-365.js";
 import { callExperimentalExtensionAction, listExperimentalExtensionActions } from "./extensions/index.js";
 import pkg from "../package.json" with { type: "json" };
 import constants from "../../../constants.json" with { type: "json" };
@@ -1688,6 +1694,7 @@ function createRoutes(
   const routes: Route[] = [];
   const fileSessions = new FileSessionStore();
   const googleWorkspaceConnectFlows = createGoogleWorkspaceConnectFlowManager(config);
+  const outlook365ConnectFlows = createOutlook365ConnectFlowManager(config);
   const envPendingChangesByRuntime = new Map<string, boolean>();
 
   const serializeFileSession = (session: {
@@ -1949,6 +1956,28 @@ function createRoutes(
 
   addRoute(routes, "POST", "/experimental/google-workspace/smoke-test", "client", async () => {
     return jsonResponse(await googleWorkspaceRunScopeSmokeTest(config));
+  });
+
+  addRoute(routes, "GET", "/experimental/outlook-365/status", "client", async () => {
+    return jsonResponse(await outlook365Status(config));
+  });
+
+  addRoute(routes, "POST", "/experimental/outlook-365/connect/start", "client", async (ctx) => {
+    if (ctx.actor?.scope === "viewer") throw new ApiError(403, "forbidden", "Viewer tokens cannot connect Outlook 365");
+    return jsonResponse(await outlook365ConnectFlows.start(), 201);
+  });
+
+  addRoute(routes, "GET", "/experimental/outlook-365/connect/status/:flowId", "client", async (ctx) => {
+    return jsonResponse(await outlook365ConnectFlows.status(ctx.params.flowId));
+  });
+
+  addRoute(routes, "POST", "/experimental/outlook-365/disconnect", "client", async (ctx) => {
+    if (ctx.actor?.scope === "viewer") throw new ApiError(403, "forbidden", "Viewer tokens cannot disconnect Outlook 365");
+    return jsonResponse(await outlook365Disconnect(config));
+  });
+
+  addRoute(routes, "POST", "/experimental/outlook-365/test", "client", async () => {
+    return jsonResponse(await outlook365TestConnection(config));
   });
 
   addRoute(routes, "GET", "/workspaces", "client", async () => {
