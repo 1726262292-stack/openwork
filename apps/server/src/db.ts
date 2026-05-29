@@ -15,6 +15,7 @@ import {
   workspaceTable,
   authorizedRootTable,
   drizzle,
+  getDesktopBootstrapConfig,
   type DesktopDb,
   type ImportOnceReport,
 } from "@openwork/desktop-db";
@@ -130,6 +131,13 @@ export async function loadWorkspaceRegistryFromDb(
  */
 export async function reconcileConfigWithDb(config: ServerConfig): Promise<void> {
   await ensureImported(config);
+  const db = await getDb(config);
+
+  // Surface the desktop cloud (Den) URLs from the DB bootstrap config.
+  const bootstrap = await getDesktopBootstrapConfig(db);
+  if (bootstrap.baseUrl) config.denBaseUrl = bootstrap.baseUrl;
+  if (bootstrap.apiBaseUrl) config.denApiBaseUrl = bootstrap.apiBaseUrl;
+
   const registry = await loadWorkspaceRegistryFromDb(config);
   if (!registry) return;
 

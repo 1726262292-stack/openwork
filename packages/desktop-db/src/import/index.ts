@@ -31,6 +31,8 @@ export {
   importElectronWorkspaces,
   importElectronServerTokens,
   importElectronServerState,
+  importEnvJson,
+  importDesktopBootstrap,
   runDesktopImportOnce,
   DESKTOP_SELECTED_WORKSPACE_PREF,
   DESKTOP_WATCHED_WORKSPACE_PREF,

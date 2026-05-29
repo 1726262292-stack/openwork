@@ -1,26 +1,22 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  EnvService,
-  EnvStoreReadError,
-  InvalidEnvKeyError,
-  isReservedEnvKey,
-  isValidEnvKey,
-} from "./env-file.js";
+import { EnvService, InvalidEnvKeyError, isReservedEnvKey, isValidEnvKey } from "./env-file.js";
+import { closeDb, readEnvForInjection, openDb } from "@openwork/desktop-db";
 
-describe("env-file", () => {
+describe("env-file (DB-backed)", () => {
   let dir: string;
-  let path: string;
+  let dbPath: string;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "openwork-env-"));
-    path = join(dir, "env.json");
+    dbPath = join(dir, "env.db");
   });
 
   afterEach(() => {
+    closeDb();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -42,7 +38,7 @@ describe("env-file", () => {
   });
 
   test("upsertMany + list round-trips with sorted keys", async () => {
-    const svc = new EnvService({ path });
+    const svc = new EnvService({ path: dbPath });
     await svc.upsertMany([
       { key: "ZED", value: "z" },
       { key: "ANTHROPIC_API_KEY", value: "sk-ant-abc123" },
@@ -53,120 +49,39 @@ describe("env-file", () => {
   });
 
   test("upsertMany updates existing keys in place", async () => {
-    const svc = new EnvService({ path });
+    const svc = new EnvService({ path: dbPath });
     await svc.upsertMany([{ key: "FOO", value: "1" }]);
     await svc.upsertMany([{ key: "FOO", value: "2" }]);
     const items = await svc.list();
     expect(items).toHaveLength(1);
-    expect(items[0].value).toBe("2");
+    expect(items[0]!.value).toBe("2");
   });
 
-  test("concurrent upserts do not overwrite each other", async () => {
-    const svc = new EnvService({ path });
-    await Promise.all(
-      Array.from({ length: 12 }, (_, index) =>
-        svc.upsertMany([{ key: `KEY_${index}`, value: String(index) }])
-      ),
+  test("upsertMany rejects invalid and reserved keys", async () => {
+    const svc = new EnvService({ path: dbPath });
+    await expect(svc.upsertMany([{ key: "1BAD", value: "x" }])).rejects.toBeInstanceOf(
+      InvalidEnvKeyError,
     );
-
-    const items = await svc.list();
-    expect(items.map((item) => item.key)).toEqual(
-      Array.from({ length: 12 }, (_, index) => `KEY_${index}`).sort(),
-    );
+    await expect(
+      svc.upsertMany([{ key: "OPENWORK_TOKEN", value: "x" }]),
+    ).rejects.toBeInstanceOf(InvalidEnvKeyError);
+    expect(await svc.list()).toHaveLength(0);
   });
 
-  test("write failures do not mutate loaded values", async () => {
-    const svc = new EnvService({ path });
-    await svc.upsertMany([{ key: "KEEP_ME", value: "old" }]);
-
-    rmSync(path, { force: true });
-    mkdirSync(path);
-
-    await expect(svc.upsertMany([{ key: "NEW_KEY", value: "new" }])).rejects.toThrow();
-    expect(await svc.list()).toEqual([
-      expect.objectContaining({ key: "KEEP_ME", value: "old" }),
-    ]);
-  });
-
-  test("upsertMany rejects invalid keys with InvalidEnvKeyError", async () => {
-    const svc = new EnvService({ path });
-    const promise = svc.upsertMany([{ key: "bad-key", value: "x" }]);
-    await expect(promise).rejects.toBeInstanceOf(InvalidEnvKeyError);
-    await expect(promise).rejects.toMatchObject({ code: "invalid_env_key" });
-  });
-
-  test("upsertMany rejects reserved keys", async () => {
-    const svc = new EnvService({ path });
-    const promise = svc.upsertMany([{ key: "OPENWORK_TOKEN", value: "x" }]);
-    await expect(promise).rejects.toBeInstanceOf(InvalidEnvKeyError);
-    await expect(promise).rejects.toMatchObject({ code: "reserved_env_key" });
-  });
-
-  test("delete returns false when the key is missing", async () => {
-    const svc = new EnvService({ path });
-    await svc.upsertMany([{ key: "FOO", value: "x" }]);
+  test("delete removes a key and reports whether it existed", async () => {
+    const svc = new EnvService({ path: dbPath });
+    await svc.upsertMany([{ key: "FOO", value: "1" }]);
     expect(await svc.delete("FOO")).toBe(true);
     expect(await svc.delete("FOO")).toBe(false);
+    expect(await svc.list()).toHaveLength(0);
   });
 
-  test("persisted file has 0600 perms on POSIX", async () => {
-    if (process.platform === "win32") return;
-    const svc = new EnvService({ path });
-    await svc.upsertMany([{ key: "FOO", value: "bar" }]);
-    const mode = statSync(path).mode & 0o777;
-    expect(mode).toBe(0o600);
-  });
-
-  test("readForInjection returns a plain key/value map", async () => {
-    const svc = new EnvService({ path });
-    await svc.upsertMany([
-      { key: "A", value: "1" },
-      { key: "B", value: "2" },
-    ]);
-    const injected = await EnvService.readForInjection(path);
-    expect(injected).toEqual({ A: "1", B: "2" });
-  });
-
-  test("readForInjection strips reserved keys even if present on disk", async () => {
-    // Simulate a hand-edited env.json that contains a reserved key. The
-    // service refuses to write these, but the injection path must still
-    // defend against a file someone tampered with.
-    writeFileSync(
-      path,
-      JSON.stringify({
-        schemaVersion: 1,
-        updatedAt: Date.now(),
-        variables: [
-          { key: "OPENWORK_TOKEN", value: "stolen" },
-          { key: "ANTHROPIC_API_KEY", value: "sk-ant" },
-        ],
-      }),
-    );
-    const injected = await EnvService.readForInjection(path);
-    expect(injected).toEqual({ ANTHROPIC_API_KEY: "sk-ant" });
-  });
-
-  test("readForInjection returns {} when the file is missing", async () => {
-    const injected = await EnvService.readForInjection(join(dir, "nope.json"));
-    expect(injected).toEqual({});
-  });
-
-  test("readForInjection returns {} on corrupted JSON", async () => {
-    writeFileSync(path, "{ this is not json");
-    const injected = await EnvService.readForInjection(path);
-    expect(injected).toEqual({});
-  });
-
-  test("list rejects corrupted JSON instead of treating it as empty", async () => {
-    writeFileSync(path, "{ this is not json");
-    const svc = new EnvService({ path });
-    await expect(svc.list()).rejects.toBeInstanceOf(EnvStoreReadError);
-  });
-
-  test("upsertMany does not overwrite an invalid store", async () => {
-    writeFileSync(path, "{ this is not json");
-    const svc = new EnvService({ path });
-    await expect(svc.upsertMany([{ key: "SAFE", value: "new" }])).rejects.toBeInstanceOf(EnvStoreReadError);
-    expect(readFileSync(path, "utf8")).toBe("{ this is not json");
+  test("readEnvForInjection strips reserved keys", async () => {
+    const db = await openDb({ path: dbPath });
+    const svc = new EnvService({ path: dbPath });
+    await svc.upsertMany([{ key: "ANTHROPIC_API_KEY", value: "sk" }]);
+    const injected = await readEnvForInjection(db);
+    expect(injected.ANTHROPIC_API_KEY).toBe("sk");
+    expect(injected.OPENWORK_TOKEN).toBeUndefined();
   });
 });

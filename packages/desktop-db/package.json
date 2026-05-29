@@ -40,6 +40,16 @@
       "development": "./src/preferences.ts",
       "types": "./dist/preferences.d.ts",
       "default": "./dist/preferences.js"
+    },
+    "./env-store": {
+      "development": "./src/env-store.ts",
+      "types": "./dist/env-store.d.ts",
+      "default": "./dist/env-store.js"
+    },
+    "./bootstrap": {
+      "development": "./src/bootstrap.ts",
+      "types": "./dist/bootstrap.d.ts",
+      "default": "./dist/bootstrap.js"
     }
   },
   "files": [

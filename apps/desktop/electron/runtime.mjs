@@ -14,6 +14,7 @@ import {
   setWorkspaceOwnerTokenInDb,
   readPreferredPortFromDb,
   persistPreferredPortInDb,
+  readUserEnvForInjection,
 } from "./desktop-db.mjs";
 
 const __runtimeDir = path.dirname(fileURLToPath(import.meta.url));
@@ -426,29 +427,12 @@ function resolveUserEnvFilePath() {
   return path.join(os.homedir(), ".config", "openwork", "env.json");
 }
 
-const USER_ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const USER_ENV_RESERVED_PREFIXES = ["OPENWORK_", "OPENCODE_"];
-
-// Synchronous, best-effort; absent or malformed returns {}. Reserved prefixes
-// are stripped so a tampered file can never shadow OPENWORK_* / OPENCODE_*.
-function loadUserEnvFile() {
-  try {
-    const raw = readFileSync(resolveUserEnvFilePath(), "utf8");
-    const parsed = JSON.parse(raw);
-    if (!parsed || !Array.isArray(parsed.variables)) return {};
-    const out = {};
-    for (const entry of parsed.variables) {
-      if (!entry || typeof entry !== "object") continue;
-      const { key, value } = entry;
-      if (typeof key !== "string" || typeof value !== "string") continue;
-      if (!USER_ENV_KEY_PATTERN.test(key)) continue;
-      if (USER_ENV_RESERVED_PREFIXES.some((p) => key.startsWith(p))) continue;
-      out[key] = value;
-    }
-    return out;
-  } catch {
-    return {};
-  }
+// Mirrors main.mjs desktopBootstrapPath(): ~/.config/openwork/desktop-bootstrap.json
+// (or OPENWORK_DESKTOP_BOOTSTRAP_PATH override).
+function resolveDesktopBootstrapPath() {
+  const override = String(process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH ?? "").trim();
+  if (override) return path.resolve(override);
+  return path.join(os.homedir(), ".config", "openwork", "desktop-bootstrap.json");
 }
 
 export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths }) {
@@ -489,6 +473,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return getDesktopDb({
       serverConfigPath: resolveOpenworkServerConfigPath(process.env),
       userDataDir,
+      envPath: resolveUserEnvFilePath(),
+      bootstrapPath: resolveDesktopBootstrapPath(),
     });
   }
 
@@ -610,11 +596,19 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
   async function buildChildEnv(extra = {}) {
     /** @type {NodeJS.ProcessEnv} */
-    // User env is layered first so process.env + any caller overrides always
-    // win. See apps/server/src/env-file.ts and src-tauri/src/env_file.rs —
-    // all three loaders must agree on path + reserved-keys policy.
+    // User env vars now live in the shared desktop DB (env_var table), no longer in
+    // env.json. They're layered first so process.env + caller overrides win; reserved
+    // OPENWORK_/OPENCODE_ keys are stripped by readUserEnvForInjection.
+    /** @type {Record<string, string>} */
+    let userEnv = {};
+    try {
+      userEnv = await readUserEnvForInjection(await runtimeDb());
+    } catch (error) {
+      console.warn("[runtime] failed to read user env vars from DB", error);
+    }
+    /** @type {Record<string, string | undefined>} */
     const env = {
-      ...loadUserEnvFile(),
+      ...userEnv,
       ...process.env,
       BUN_CONFIG_DNS_RESULT_ORDER: "verbatim",
       ...extra,

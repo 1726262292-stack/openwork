@@ -9,6 +9,8 @@ export default defineConfig({
     "schema/index": "src/schema/index.ts",
     "import/index": "src/import/index.ts",
     preferences: "src/preferences.ts",
+    "env-store": "src/env-store.ts",
+    bootstrap: "src/bootstrap.ts",
   },
   tsconfig: "./tsconfig.json",
   format: ["esm"],

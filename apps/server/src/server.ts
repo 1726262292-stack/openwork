@@ -552,7 +552,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
   const approvals = new ApprovalService(config.approval);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
-  const env = new EnvService();
+  const env = new EnvService({ config });
   const logger = createServerLogger(config);
   let watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   const refreshWorkspaceReloadBaseline = (workspaceId: string, reasons?: ReloadReason[]) =>

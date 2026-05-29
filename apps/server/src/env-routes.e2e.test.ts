@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -19,12 +19,16 @@ const priorTokenStore = process.env.OPENWORK_TOKEN_STORE;
 const priorOpenAiApiKey = process.env.OPENAI_API_KEY;
 const nativeFetch = globalThis.fetch;
 
+let currentDir = "";
+
 function baseConfig(): ServerConfig {
   return {
     host: "127.0.0.1",
     port: 0,
     token: "owt_env_client_token",
     hostToken: HOST_TOKEN,
+    // Per-test config dir => per-test DB (<dir>/openwork.db) so env vars/tokens are isolated.
+    configPath: join(currentDir, "server.json"),
     approval: { mode: "auto", timeoutMs: 1000 },
     corsOrigins: ["*"],
     workspaces: [],
@@ -54,6 +58,7 @@ function hostAuth() {
 beforeEach(() => {
   const dir = mkdtempSync(join(tmpdir(), "openwork-env-routes-"));
   dirs.push(dir);
+  currentDir = dir;
   // Redirect the shared env.json path into a throwaway dir so the test never
   // touches the developer's real ~/.config/openwork/env.json.
   process.env.OPENWORK_ENV_STORE = join(dir, "env.json");
@@ -222,20 +227,8 @@ describe("env routes", () => {
     expect(await list.json()).toEqual({ keys: ["ANTHROPIC_API_KEY", "NBA_LIVE_KEY"] });
   });
 
-  test("invalid env store returns 409 instead of overwriting on PUT", async () => {
-    writeFileSync(process.env.OPENWORK_ENV_STORE!, "{ this is not json");
-    const { base } = await boot();
-
-    const put = await fetch(`${base}/env`, {
-      method: "PUT",
-      headers: hostAuth(),
-      body: JSON.stringify({ key: "SAFE", value: "new" }),
-    });
-
-    expect(put.status).toBe(409);
-    const body = (await put.json()) as { code: string; message: string };
-    expect(body.code).toBe("invalid_env_store");
-  });
+  // The DB-backed env store cannot be "invalid JSON" like the old env.json file, so the
+  // 409 invalid_env_store path is no longer reachable; that test was removed.
 
   test("PUT accepts a batch via entries[]", async () => {
     const { base } = await boot();

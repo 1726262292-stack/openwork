@@ -1,12 +1,19 @@
 import { eq } from "drizzle-orm";
 import type { DesktopDb } from "../client";
 import {
+  envVarTable,
   migrationStateTable,
   preferenceTable,
   workspacePortTable,
   workspaceServerTokenTable,
   workspaceTable,
 } from "../schema/index";
+import { isReservedEnvKey, isValidEnvKey } from "../env-store";
+import {
+  BOOTSTRAP_API_BASE_URL_PREF,
+  BOOTSTRAP_BASE_URL_PREF,
+  BOOTSTRAP_REQUIRE_SIGNIN_PREF,
+} from "../bootstrap";
 import { type ImportResult, readJsonFile } from "./helpers";
 import { fileFingerprint, snapshotOnce } from "./fingerprint";
 
@@ -192,10 +199,67 @@ export async function importElectronServerState(db: DesktopDb, path: string): Pr
   return { count, found: true };
 }
 
+interface EnvJsonFile {
+  schemaVersion?: number;
+  variables?: Array<{ key?: unknown; value?: unknown; updatedAt?: unknown }>;
+}
+
+/** Import env.json -> env_var table (skips invalid + reserved keys). */
+export async function importEnvJson(db: DesktopDb, path: string): Promise<ImportResult> {
+  const parsed = await readJsonFile<EnvJsonFile>(path);
+  if (!parsed) return { count: 0, found: false };
+  const now = Date.now();
+  let count = 0;
+  const variables = Array.isArray(parsed.variables) ? parsed.variables : [];
+
+  db.transaction((tx) => {
+    for (const entry of variables) {
+      const key = typeof entry?.key === "string" ? entry.key : "";
+      const value = typeof entry?.value === "string" ? entry.value : "";
+      if (!isValidEnvKey(key) || isReservedEnvKey(key)) continue;
+      const updatedAt = typeof entry?.updatedAt === "number" ? entry.updatedAt : now;
+      tx.insert(envVarTable)
+        .values({ key, value, updatedAt })
+        .onConflictDoUpdate({ target: envVarTable.key, set: { value, updatedAt } })
+        .run();
+      count += 1;
+    }
+  });
+
+  return { count, found: true };
+}
+
+interface BootstrapJsonFile {
+  baseUrl?: unknown;
+  apiBaseUrl?: unknown;
+  requireSignin?: unknown;
+}
+
+/** Import desktop-bootstrap.json -> bootstrap preference rows. */
+export async function importDesktopBootstrap(db: DesktopDb, path: string): Promise<ImportResult> {
+  const parsed = await readJsonFile<BootstrapJsonFile>(path);
+  if (!parsed) return { count: 0, found: false };
+  const now = Date.now();
+  const baseUrl = typeof parsed.baseUrl === "string" ? parsed.baseUrl.trim() : "";
+  const apiBaseUrl = typeof parsed.apiBaseUrl === "string" ? parsed.apiBaseUrl.trim() : "";
+  const requireSignin = parsed.requireSignin === true;
+
+  // preference.value is NOT NULL JSON; store "" for unset URLs.
+  db.transaction((tx) => {
+    setPreference(tx as unknown as DesktopDb, BOOTSTRAP_BASE_URL_PREF, baseUrl, now);
+    setPreference(tx as unknown as DesktopDb, BOOTSTRAP_API_BASE_URL_PREF, apiBaseUrl, now);
+    setPreference(tx as unknown as DesktopDb, BOOTSTRAP_REQUIRE_SIGNIN_PREF, requireSignin, now);
+  });
+
+  return { count: 1, found: true };
+}
+
 export interface DesktopImportOptions {
   workspacesPath: string;
   serverTokensPath: string;
   serverStatePath: string;
+  envPath?: string;
+  bootstrapPath?: string;
 }
 
 export type DesktopImportStatus = "imported" | "already-done" | "missing" | "error";
@@ -257,6 +321,13 @@ export async function runDesktopImportOnce(
     { key: "electron:openwork-server-tokens.json", path: options.serverTokensPath, run: importElectronServerTokens },
     { key: "electron:openwork-server-state.json", path: options.serverStatePath, run: importElectronServerState },
   ];
+
+  if (options.envPath) {
+    sources.push({ key: "env.json", path: options.envPath, run: importEnvJson });
+  }
+  if (options.bootstrapPath) {
+    sources.push({ key: "desktop-bootstrap.json", path: options.bootstrapPath, run: importDesktopBootstrap });
+  }
 
   const report: DesktopImportReport = {};
 

@@ -22,6 +22,26 @@ export {
   removePreferences,
 } from "./preferences";
 export {
+  isValidEnvKey,
+  isReservedEnvKey,
+  listEnvVars,
+  getEnvVar,
+  upsertEnvVars,
+  deleteEnvVar,
+  readEnvForInjection,
+  InvalidEnvKeyError,
+  type EnvRecord,
+  type EnvEntry,
+} from "./env-store";
+export {
+  BOOTSTRAP_BASE_URL_PREF,
+  BOOTSTRAP_API_BASE_URL_PREF,
+  BOOTSTRAP_REQUIRE_SIGNIN_PREF,
+  getDesktopBootstrapConfig,
+  setDesktopBootstrapConfig,
+  type DesktopBootstrapConfig,
+} from "./bootstrap";
+export {
   runPhase1Import,
   runPhase1ImportOnce,
   importServerJson,
@@ -39,6 +59,8 @@ export {
   importElectronWorkspaces,
   importElectronServerTokens,
   importElectronServerState,
+  importEnvJson,
+  importDesktopBootstrap,
   runDesktopImportOnce,
   DESKTOP_SELECTED_WORKSPACE_PREF,
   DESKTOP_WATCHED_WORKSPACE_PREF,

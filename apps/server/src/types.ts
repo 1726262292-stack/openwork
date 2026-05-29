@@ -91,6 +91,9 @@ export interface ServerConfig {
   hostTokenSource: "cli" | "env" | "file" | "generated";
   logFormat: LogFormat;
   logRequests: boolean;
+  /** Desktop cloud (Den) connection URLs, sourced from the DB bootstrap config. */
+  denBaseUrl?: string;
+  denApiBaseUrl?: string;
 }
 
 export interface Capabilities {

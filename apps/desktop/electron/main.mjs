@@ -30,6 +30,8 @@ import {
   getAllPreferences,
   setPreference as setDesktopPreference,
   removePreference as removeDesktopPreference,
+  getDesktopBootstrap,
+  setDesktopBootstrap,
 } from "./desktop-db.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
 import { exportWorkspaceConfig, importWorkspaceConfig } from "./workspace-archive.mjs";
@@ -1192,6 +1194,10 @@ function desktopDb() {
   return getDesktopDb({
     serverConfigPath: resolveOpenworkServerConfigPath(process.env),
     userDataDir: app.getPath("userData"),
+    envPath: process.env.OPENWORK_ENV_STORE?.trim()
+      ? path.resolve(process.env.OPENWORK_ENV_STORE.trim())
+      : path.join(os.homedir(), ".config", "openwork", "env.json"),
+    bootstrapPath: desktopBootstrapPath(),
   });
 }
 
@@ -1347,13 +1353,25 @@ function normalizeDesktopBootstrapConfig(input) {
 }
 
 async function getDesktopBootstrapConfig() {
-  const configPath = desktopBootstrapPath();
   try {
-    const raw = await readFile(configPath, "utf8");
-    return normalizeDesktopBootstrapConfig(JSON.parse(raw));
+    const db = await desktopDb();
+    const stored = await getDesktopBootstrap(db);
+    // A stored baseUrl means the user/import configured it; otherwise fall back to
+    // build defaults. requireSignin is forced on for locked builds.
+    if (stored.baseUrl) {
+      return {
+        baseUrl: stored.baseUrl,
+        apiBaseUrl: stored.apiBaseUrl ?? null,
+        requireSignin: FORCE_DESKTOP_REQUIRE_SIGNIN || stored.requireSignin === true,
+      };
+    }
+    return {
+      baseUrl: DEFAULT_DEN_BASE_URL,
+      apiBaseUrl: null,
+      requireSignin: FORCE_DESKTOP_REQUIRE_SIGNIN || stored.requireSignin === true || DEFAULT_DESKTOP_REQUIRE_SIGNIN,
+    };
   } catch (error) {
     console.warn("[desktop-bootstrap] falling back to defaults", {
-      path: configPath,
       error: error instanceof Error ? error.message : String(error),
     });
     return {
@@ -1365,23 +1383,23 @@ async function getDesktopBootstrapConfig() {
 }
 
 async function debugDesktopBootstrapConfig() {
-  const configPath = desktopBootstrapPath();
+  const legacyPath = desktopBootstrapPath();
   const result = {
-    path: configPath,
+    source: "db",
+    legacyFilePath: legacyPath,
+    legacyFileExists: existsSync(legacyPath),
     home: os.homedir(),
     envHome: process.env.HOME ?? null,
     envOverride: process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH ?? null,
-    exists: existsSync(configPath),
-    raw: null,
-    parsed: null,
+    stored: null,
     normalized: null,
     error: null,
   };
 
   try {
-    result.raw = await readFile(configPath, "utf8");
-    result.parsed = JSON.parse(result.raw);
-    result.normalized = normalizeDesktopBootstrapConfig(result.parsed);
+    const db = await desktopDb();
+    result.stored = await getDesktopBootstrap(db);
+    result.normalized = await getDesktopBootstrapConfig();
   } catch (error) {
     result.error = error instanceof Error ? error.message : String(error);
   }
@@ -1391,9 +1409,12 @@ async function debugDesktopBootstrapConfig() {
 
 async function setDesktopBootstrapConfig(config) {
   const normalized = normalizeDesktopBootstrapConfig(config);
-  const outputPath = desktopBootstrapPath();
-  await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+  const db = await desktopDb();
+  await setDesktopBootstrap(db, {
+    baseUrl: normalized.baseUrl,
+    apiBaseUrl: normalized.apiBaseUrl,
+    requireSignin: normalized.requireSignin,
+  });
   return normalized;
 }
 

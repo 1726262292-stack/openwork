@@ -23,6 +23,9 @@ import {
   getPreference as getPreferenceFromDb,
   setPreference as setPreferenceInDb,
   removePreference as removePreferenceFromDb,
+  readEnvForInjection,
+  getDesktopBootstrapConfig as getBootstrapFromDb,
+  setDesktopBootstrapConfig as setBootstrapInDb,
 } from "@openwork/desktop-db";
 
 const { eq, asc } = drizzle;
@@ -35,7 +38,7 @@ let importedFor = null;
  * files. `serverConfigPath` pins the DB next to server.json. `userDataDir` locates the
  * three legacy JSON files. Cached per process.
  */
-export async function getDesktopDb({ serverConfigPath, userDataDir }) {
+export async function getDesktopDb({ serverConfigPath, userDataDir, envPath, bootstrapPath }) {
   const dbPath = resolveDbPathForServerConfig(serverConfigPath);
   if (!dbPromise) {
     dbPromise = openDb({ path: dbPath });
@@ -49,6 +52,8 @@ export async function getDesktopDb({ serverConfigPath, userDataDir }) {
       workspacesPath: path.join(userDataDir, "openwork-workspaces.json"),
       serverTokensPath: path.join(userDataDir, "openwork-server-tokens.json"),
       serverStatePath: path.join(userDataDir, "openwork-server-state.json"),
+      envPath: envPath ?? undefined,
+      bootstrapPath: bootstrapPath ?? undefined,
     }).catch((error) => {
       console.warn("[desktop-db] one-time import failed", error);
     });
@@ -253,6 +258,24 @@ export async function setPreference(db, key, value) {
 
 export async function removePreference(db, key) {
   await removePreferenceFromDb(db, key);
+}
+
+// --- User env vars (env_var table) for child-process injection ---
+
+/** Flat `key -> value` of user env vars (reserved keys stripped) for process.env. */
+export async function readUserEnvForInjection(db) {
+  return readEnvForInjection(db);
+}
+
+// --- Desktop bootstrap (cloud / Den) config ---
+
+export async function getDesktopBootstrap(db) {
+  return getBootstrapFromDb(db);
+}
+
+export async function setDesktopBootstrap(db, config) {
+  await setBootstrapInDb(db, config);
+  return getBootstrapFromDb(db);
 }
 
 export { authorizedRootTable };
