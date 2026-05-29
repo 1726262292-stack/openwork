@@ -1,9 +1,14 @@
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 
 import { ensureDir, exists } from "./utils.js";
 import { ApiError } from "./errors.js";
-import { openworkConfigPath, opencodeConfigPath } from "./workspace-files.js";
+import {
+  openworkConfigPath,
+  opencodeConfigPath,
+  defaultWorkspaceOpenworkConfig,
+  writeWorkspaceOpenworkConfig,
+} from "./workspace-files.js";
 import { readJsoncFile, updateJsoncPath, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
 import type { ReloadReason } from "./types.js";
 
@@ -69,20 +74,6 @@ Hard rule: never copy private memory into repo files. Store only redacted summar
 ${OPENWORK_ARTIFACT_GUIDANCE}
 `;
 
-type WorkspaceOpenworkConfig = {
-  version: number;
-  workspace?: {
-    name?: string | null;
-    createdAt?: number | null;
-    preset?: string | null;
-  } | null;
-  authorizedRoots: string[];
-  reload?: {
-    auto?: boolean;
-    resume?: boolean;
-  } | null;
-};
-
 type EnsureWorkspaceFilesResult = {
   changed: boolean;
   reloadReasons: ReloadReason[];
@@ -99,25 +90,12 @@ function isSchemaOnlyOpencodeConfig(config: Record<string, unknown>): boolean {
 }
 
 async function ensureWorkspaceOpenworkConfig(workspaceRoot: string, preset: string): Promise<boolean> {
-  const path = openworkConfigPath(workspaceRoot);
-  if (await exists(path)) return false;
-  const now = Date.now();
-  const config: WorkspaceOpenworkConfig = {
-    version: 1,
-    workspace: {
-      name: basename(workspaceRoot) || "Workspace",
-      createdAt: now,
-      preset,
-    },
-    authorizedRoots: [workspaceRoot],
-    reload: null,
-  };
-  await ensureDir(join(workspaceRoot, ".opencode"));
-  await writeFile(path, JSON.stringify(config, null, 2) + "\n", "utf8");
+  if (await exists(openworkConfigPath(workspaceRoot))) return false;
+  await writeWorkspaceOpenworkConfig(workspaceRoot, defaultWorkspaceOpenworkConfig(workspaceRoot, preset));
   return true;
 }
 
-async function ensureOpencodeConfig(workspaceRoot: string): Promise<boolean> {
+export async function ensureOpencodeConfig(workspaceRoot: string): Promise<boolean> {
   const path = opencodeConfigPath(workspaceRoot);
   if (await exists(path)) {
     await readJsoncFile<Record<string, unknown>>(path, {});

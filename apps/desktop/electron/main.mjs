@@ -17,7 +17,7 @@ import {
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, session, shell, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
@@ -43,7 +43,6 @@ const APP_IDENTIFIER = isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER;
 const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/different-ai/openwork/releases/latest/download";
 const RELEASE_PAGE_URL = "https://github.com/different-ai/openwork/releases/latest";
 const DOCS_PAGE_URL = "https://openworklabs.com/docs";
-const BROWSER_PLUGIN = "opencode-chrome-devtools";
 const COMPUTER_USE_HELPER_APP_NAME = "OpenWork Computer Use.app";
 const COMPUTER_USE_HELPER_EXECUTABLE = "ComputerUse";
 
@@ -1424,43 +1423,46 @@ function validateSkillName(raw) {
   return trimmed;
 }
 
-function defaultWorkspaceOpenworkConfig(workspacePath, preset = null) {
-  return {
-    version: 1,
-    workspace: workspacePath
-      ? {
-          name: path.basename(workspacePath) || "Workspace",
-          createdAt: Date.now(),
-          preset: preset || null,
-        }
-      : null,
-    authorizedRoots: workspacePath ? [workspacePath] : [],
-    reload: null,
-  };
-}
+// Workspace config helpers (openwork.json schema + opencode.json defaults) live
+// in the openwork-server library so the Electron main process and the in-process
+// server share one source of truth. The compiled bundle is imported lazily by
+// absolute path, mirroring runtime.mjs's dev-vs-packaged candidate resolution.
+let serverConfigHelpersPromise = null;
 
-async function workspaceOpencodeConfigPath(workspacePath) {
-  const candidates = [
-    path.join(workspacePath, "opencode.jsonc"),
-    path.join(workspacePath, "opencode.json"),
-    path.join(workspacePath, ".opencode", "opencode.jsonc"),
-    path.join(workspacePath, ".opencode", "opencode.json"),
+function serverDistCandidates(file) {
+  const devPath = path.resolve(__dirname, "..", "..", "server", "dist", file);
+  const packagedPaths = [
+    path.resolve(__dirname, "..", "server", "dist", file),
+    ...(process.resourcesPath ? [path.resolve(process.resourcesPath, "server", "dist", file)] : []),
   ];
-  for (const candidate of candidates) {
-    if (await pathExists(candidate)) return candidate;
-  }
-  return candidates[0];
+  return process.env.OPENWORK_DEV_MODE === "1"
+    ? [devPath, ...packagedPaths]
+    : [...packagedPaths, devPath];
 }
 
-async function ensureDefaultWorkspaceOpencodeConfig(workspacePath) {
-  const configPath = await workspaceOpencodeConfigPath(workspacePath);
-  if (await pathExists(configPath)) return false;
-  await writeJsonFileAtomic(configPath, {
-    $schema: "https://opencode.ai/config.json",
-    default_agent: "openwork",
-    plugin: [BROWSER_PLUGIN],
-  });
-  return true;
+function loadServerConfigHelpers() {
+  if (serverConfigHelpersPromise) return serverConfigHelpersPromise;
+  serverConfigHelpersPromise = (async () => {
+    const filesCandidates = serverDistCandidates("workspace-files.js");
+    const initCandidates = serverDistCandidates("workspace-init.js");
+    const filesPath = filesCandidates.find((candidate) => existsSync(candidate));
+    const initPath = initCandidates.find((candidate) => existsSync(candidate));
+    if (!filesPath || !initPath) {
+      serverConfigHelpersPromise = null;
+      throw new Error(
+        `Cannot find openwork-server config bundle. Checked: ${[...filesCandidates, ...initCandidates].join(", ")}`,
+      );
+    }
+    const files = await import(pathToFileURL(filesPath).href);
+    const init = await import(pathToFileURL(initPath).href);
+    return {
+      defaultWorkspaceOpenworkConfig: files.defaultWorkspaceOpenworkConfig,
+      readWorkspaceOpenworkConfig: files.readWorkspaceOpenworkConfig,
+      writeWorkspaceOpenworkConfig: files.writeWorkspaceOpenworkConfig,
+      ensureOpencodeConfig: init.ensureOpencodeConfig,
+    };
+  })();
+  return serverConfigHelpersPromise;
 }
 
 async function normalizeLocalWorkspacePath(rawPath) {
@@ -1567,22 +1569,6 @@ async function fetchOpenworkWorkspaceList(hostUrl, token, hostToken) {
 async function discoverOpenworkWorkspace({ hostUrl, token, hostToken, directory }) {
   const list = await fetchOpenworkWorkspaceList(hostUrl, token, hostToken);
   return selectOpenworkWorkspaceForConnection(list, directory);
-}
-
-async function readWorkspaceOpenworkConfig(workspacePath) {
-  const openworkPath = path.join(workspacePath, ".opencode", "openwork.json");
-  if (!(await pathExists(openworkPath))) {
-    return defaultWorkspaceOpenworkConfig(workspacePath);
-  }
-  const raw = await readFile(openworkPath, "utf8");
-  return JSON.parse(raw);
-}
-
-async function writeWorkspaceOpenworkConfig(workspacePath, config) {
-  const openworkPath = path.join(workspacePath, ".opencode", "openwork.json");
-  await mkdir(path.dirname(openworkPath), { recursive: true });
-  await writeFile(openworkPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-  return execResult(true, `Wrote ${openworkPath}`);
 }
 
 async function readWorkspaceState() {
@@ -2174,8 +2160,14 @@ async function handleDesktopInvoke(event, command, ...args) {
         workspaceType: "local",
       });
       await mkdir(path.join(folderPath, ".opencode"), { recursive: true });
-      await ensureDefaultWorkspaceOpencodeConfig(folderPath);
-      await writeWorkspaceOpenworkConfig(folderPath, defaultWorkspaceOpenworkConfig(folderPath, preset));
+      {
+        const helpers = await loadServerConfigHelpers();
+        await helpers.ensureOpencodeConfig(folderPath);
+        await helpers.writeWorkspaceOpenworkConfig(
+          folderPath,
+          helpers.defaultWorkspaceOpenworkConfig(folderPath, preset),
+        );
+      }
 
       return mutateWorkspaceState((state) => {
         const workspacePathKey = normalizeWorkspacePathKey(workspace.path);
@@ -2356,22 +2348,29 @@ async function handleDesktopInvoke(event, command, ...args) {
       if (!workspacePath || !authorizedRoot) {
         throw new Error("workspacePath and folderPath are required");
       }
-      const config = await readWorkspaceOpenworkConfig(workspacePath);
+      const helpers = await loadServerConfigHelpers();
+      const config = await helpers.readWorkspaceOpenworkConfig(workspacePath);
       if (!Array.isArray(config.authorizedRoots)) {
         config.authorizedRoots = [];
       }
       if (!config.authorizedRoots.includes(authorizedRoot)) {
         config.authorizedRoots.push(authorizedRoot);
       }
-      return writeWorkspaceOpenworkConfig(workspacePath, config);
+      const written = await helpers.writeWorkspaceOpenworkConfig(workspacePath, config);
+      return execResult(true, `Wrote ${written}`);
     }
     case "workspaceOpenworkRead":
-      return readWorkspaceOpenworkConfig(String(args[0]?.workspacePath ?? "").trim());
-    case "workspaceOpenworkWrite":
-      return writeWorkspaceOpenworkConfig(
+      return (await loadServerConfigHelpers()).readWorkspaceOpenworkConfig(
         String(args[0]?.workspacePath ?? "").trim(),
-        args[0]?.config ?? defaultWorkspaceOpenworkConfig(""),
       );
+    case "workspaceOpenworkWrite": {
+      const helpers = await loadServerConfigHelpers();
+      const written = await helpers.writeWorkspaceOpenworkConfig(
+        String(args[0]?.workspacePath ?? "").trim(),
+        args[0]?.config ?? helpers.defaultWorkspaceOpenworkConfig(""),
+      );
+      return execResult(true, `Wrote ${written}`);
+    }
     case "workspaceExportConfig": {
       const input = args[0] ?? {};
       const workspaceId = String(input.workspaceId ?? "").trim();
