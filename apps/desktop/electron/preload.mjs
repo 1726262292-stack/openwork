@@ -135,6 +135,17 @@ contextBridge.exposeInMainWorld("__OPENWORK_ELECTRON__", {
       return () => ipcRenderer.removeListener("openwork:browser:panel-closed", handler);
     },
   },
+  preferences: {
+    getAll() {
+      return ipcRenderer.invoke("openwork:desktop", "preferenceGetAll");
+    },
+    set(key, value) {
+      return ipcRenderer.invoke("openwork:desktop", "preferenceSet", key, value);
+    },
+    remove(key) {
+      return ipcRenderer.invoke("openwork:desktop", "preferenceRemove", key);
+    },
+  },
   meta: {
     initialDeepLinks: [],
     platform: normalizePlatform(process.platform),

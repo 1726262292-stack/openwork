@@ -3,10 +3,24 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { auditLogPath } from "./audit.js";
 import { buildCommandContent } from "./commands.js";
 import { startServer } from "./server.js";
 import { buildSkillContent } from "./skills.js";
+import { getDb } from "./db.js";
+import { auditTable, drizzle } from "@openwork/desktop-db";
+
+/**
+ * Read audit summaries for a workspace from the DB (audit moved from JSONL to SQLite).
+ * `dataDir` is the test's config dir, so the DB is `<dataDir>/openwork.db`.
+ */
+async function auditSummaries(dataDir: string, workspaceId: string): Promise<string[]> {
+  const db = await getDb({ configPath: join(dataDir, "config.json") } as ServerConfig);
+  const rows = await db
+    .select()
+    .from(auditTable)
+    .where(drizzle.eq(auditTable.workspaceId, workspaceId));
+  return rows.map((row) => row.summary);
+}
 import type { ServerConfig } from "./types.js";
 import {
   buildWorkspaceImportPreview,
@@ -342,7 +356,7 @@ describe("workspace import preview", () => {
       expect(importResponse.status).toBe(200);
       const imported = await importResponse.json() as Record<string, unknown>;
       expect(imported.preview).toEqual(preview);
-      expect(await pathExists(auditLogPath("workspace"))).toBe(false);
+      expect((await auditSummaries(dataDir, "workspace")).length).toBe(0);
     } finally {
       server.stop(true);
       if (originalDataDir === undefined) {
@@ -381,7 +395,7 @@ describe("workspace import preview", () => {
       expect(response.status).toBe(400);
       const body = await response.json() as { code: string };
       expect(body.code).toBe("invalid_workspace_import_preview_fingerprint");
-      expect(await pathExists(auditLogPath("workspace"))).toBe(false);
+      expect((await auditSummaries(dataDir, "workspace")).length).toBe(0);
     } finally {
       server.stop(true);
       if (originalDataDir === undefined) {
@@ -424,7 +438,7 @@ describe("workspace import preview", () => {
       expect(typeof body.preview.fingerprint).toBe("string");
       expect(body.preview.summary.create).toBe(1);
       expect(await pathExists(join(workspace, "opencode.jsonc"))).toBe(false);
-      expect(await pathExists(auditLogPath("workspace"))).toBe(false);
+      expect((await auditSummaries(dataDir, "workspace")).length).toBe(0);
     } finally {
       server.stop(true);
       if (originalDataDir === undefined) {
@@ -470,7 +484,7 @@ describe("workspace import preview", () => {
       expect(await readFile(join(workspace, "opencode.jsonc"), "utf8")).toContain('"plugin"');
       expect(await readFile(join(workspace, ".opencode", "skills", "demo", "SKILL.md"), "utf8")).toContain("Demo skill");
       expect(await readFile(join(workspace, ".opencode", "agents", "demo.md"), "utf8")).toBe("Demo agent\n");
-      expect(await readFile(auditLogPath("workspace"), "utf8")).toContain("Imported workspace config");
+      expect((await auditSummaries(dataDir, "workspace")).join("\n")).toContain("Imported workspace config");
     } finally {
       server.stop(true);
       if (originalDataDir === undefined) {
@@ -541,7 +555,7 @@ describe("workspace import preview", () => {
       expect(await readFile(join(workspace, ".opencode", "skills", "keep", "SKILL.md"), "utf8")).toBe(keepSkillContent);
       expect(await readFile(join(workspace, ".opencode", "commands", "keep-command.md"), "utf8")).toBe(keepCommandContent);
       expect(await readFile(join(workspace, ".opencode", "tools", "shared.ts"), "utf8")).toBe("shared tool\n");
-      expect(await readFile(auditLogPath("workspace"), "utf8")).toContain("Imported workspace config (remove 3)");
+      expect((await auditSummaries(dataDir, "workspace")).join("\n")).toContain("Imported workspace config (remove 3)");
     } finally {
       server.stop(true);
       if (originalDataDir === undefined) {
@@ -644,7 +658,7 @@ describe("workspace import preview", () => {
       expect(rejected.code).toBe("workspace_import_preview_stale");
       expect(rejected.preview.fingerprint).not.toBe(preview.fingerprint);
       expect(await readFile(join(workspace, "opencode.jsonc"), "utf8")).toContain("changed-after-preview");
-      expect(await pathExists(auditLogPath("workspace"))).toBe(false);
+      expect((await auditSummaries(dataDir, "workspace")).length).toBe(0);
     } finally {
       server.stop(true);
       if (originalDataDir === undefined) {
@@ -705,7 +719,7 @@ describe("workspace import preview", () => {
       expect(rejected.code).toBe("workspace_import_preview_stale");
       expect(rejected.preview.fingerprint).not.toBe(preview.fingerprint);
       expect(await readFile(join(workspace, "opencode.jsonc"), "utf8")).toContain("changed-during-approval");
-      expect(await pathExists(auditLogPath("workspace"))).toBe(false);
+      expect((await auditSummaries(dataDir, "workspace")).length).toBe(0);
     } finally {
       server.stop(true);
       if (originalDataDir === undefined) {

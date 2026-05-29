@@ -1,13 +1,11 @@
-import { dirname, join } from "node:path";
-import { appendFile, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import type { AuditEntry } from "./types.js";
-import { ensureDir, exists } from "./utils.js";
+import { getDb } from "./db.js";
+import { auditTable, createDesktopTypeId, drizzle } from "@openwork/desktop-db";
 
 function expandHome(value: string): string {
-  if (value.startsWith("~/")) {
-    return join(homedir(), value.slice(2));
-  }
+  if (value.startsWith("~/")) return join(homedir(), value.slice(2));
   return value;
 }
 
@@ -17,68 +15,84 @@ function resolveOpenworkDataDir(): string {
   return join(homedir(), ".openwork", "openwork-server");
 }
 
+/**
+ * @deprecated Audit is now stored in the SQLite DB; this only points at the legacy
+ * JSONL location (preserved on disk for revert). Kept for path/back-compat references.
+ */
 export function auditLogPath(workspaceId: string): string {
   return join(resolveOpenworkDataDir(), "audit", `${workspaceId}.jsonl`);
 }
 
+/** @deprecated See {@link auditLogPath}. */
 export function legacyAuditLogPath(workspaceRoot: string): string {
   return join(workspaceRoot, ".opencode", "openwork", "audit.jsonl");
 }
 
-async function resolveReadableAuditPath(workspaceRoot: string, workspaceId: string): Promise<string | null> {
-  const primary = auditLogPath(workspaceId);
-  if (await exists(primary)) return primary;
-  const legacy = legacyAuditLogPath(workspaceRoot);
-  if (await exists(legacy)) return legacy;
-  return null;
+/**
+ * DB-backed audit log (replaces `~/.openwork/openwork-server/audit/<id>.jsonl`).
+ *
+ * The original JSONL files are preserved on disk (snapshotted to `audit-pre-db-bak/`)
+ * and imported once into the `audit` table. New entries are written to the DB only.
+ *
+ * `recordAudit` keeps its `(workspaceRoot, entry)` signature for call-site
+ * compatibility; `workspaceRoot` is no longer used (the empty-workspaceId "legacy"
+ * case is preserved as `workspaceId = ""`).
+ */
+export async function recordAudit(_workspaceRoot: string, entry: AuditEntry): Promise<void> {
+  const db = await getDb();
+  await db
+    .insert(auditTable)
+    .values({
+      id: createDesktopTypeId("audit"),
+      sourceId: entry.id ?? null,
+      workspaceId: entry.workspaceId?.trim() ?? "",
+      actor: entry.actor,
+      action: entry.action,
+      target: entry.target,
+      summary: entry.summary,
+      timestamp: entry.timestamp,
+    })
+    .run();
 }
 
-export async function recordAudit(workspaceRoot: string, entry: AuditEntry): Promise<void> {
-  const workspaceId = entry.workspaceId?.trim();
-  if (!workspaceId) {
-    const path = legacyAuditLogPath(workspaceRoot);
-    await ensureDir(dirname(path));
-    await appendFile(path, JSON.stringify(entry) + "\n", "utf8");
-    return;
-  }
-
-  const path = auditLogPath(workspaceId);
-  await ensureDir(dirname(path));
-  await appendFile(path, JSON.stringify(entry) + "\n", "utf8");
+function rowToEntry(row: typeof auditTable.$inferSelect): AuditEntry {
+  return {
+    id: row.sourceId ?? row.id,
+    workspaceId: row.workspaceId,
+    actor: row.actor,
+    action: row.action,
+    target: row.target,
+    summary: row.summary,
+    timestamp: row.timestamp,
+  };
 }
 
-export async function readLastAudit(workspaceRoot: string, workspaceId: string): Promise<AuditEntry | null> {
-  const path = await resolveReadableAuditPath(workspaceRoot, workspaceId);
-  if (!path) return null;
-  const content = await readFile(path, "utf8");
-  const lines = content.trim().split("\n");
-  const last = lines[lines.length - 1];
-  if (!last) return null;
-  try {
-    return JSON.parse(last) as AuditEntry;
-  } catch {
-    return null;
-  }
+export async function readLastAudit(
+  _workspaceRoot: string,
+  workspaceId: string,
+): Promise<AuditEntry | null> {
+  const db = await getDb();
+  const rows = await db
+    .select()
+    .from(auditTable)
+    .where(drizzle.eq(auditTable.workspaceId, workspaceId))
+    .orderBy(drizzle.desc(auditTable.timestamp))
+    .limit(1);
+  const row = rows[0];
+  return row ? rowToEntry(row) : null;
 }
 
 export async function readAuditEntries(
-  workspaceRoot: string,
+  _workspaceRoot: string,
   workspaceId: string,
   limit = 50,
 ): Promise<AuditEntry[]> {
-  const path = await resolveReadableAuditPath(workspaceRoot, workspaceId);
-  if (!path) return [];
-  const content = await readFile(path, "utf8");
-  const rawLines = content.trim().split("\n").filter(Boolean);
-  if (!rawLines.length) return [];
-  const slice = rawLines.slice(-Math.max(1, limit));
-  const entries: AuditEntry[] = [];
-  for (let i = slice.length - 1; i >= 0; i -= 1) {
-    try {
-      entries.push(JSON.parse(slice[i]) as AuditEntry);
-    } catch {
-      // ignore malformed entry
-    }
-  }
-  return entries;
+  const db = await getDb();
+  const rows = await db
+    .select()
+    .from(auditTable)
+    .where(drizzle.eq(auditTable.workspaceId, workspaceId))
+    .orderBy(drizzle.desc(auditTable.timestamp))
+    .limit(Math.max(1, limit));
+  return rows.map(rowToEntry);
 }

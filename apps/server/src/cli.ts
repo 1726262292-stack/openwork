@@ -3,6 +3,7 @@
 import { mkdir } from "node:fs/promises";
 
 import { parseCliArgs, printHelp, resolveServerConfig } from "./config.js";
+import { reconcileConfigWithDb } from "./db.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
 import { createServerLogger, startServer } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
@@ -22,6 +23,7 @@ if (args.version) {
 }
 
 const config = await resolveServerConfig(args);
+await reconcileConfigWithDb(config);
 const logger = createServerLogger(config);
 const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
 let managedOpencode: ManagedOpencodeServer | null = null;

@@ -7,6 +7,7 @@
  */
 import { mkdir } from "node:fs/promises";
 import { resolveServerConfig, type CliArgs } from "./config.js";
+import { reconcileConfigWithDb } from "./db.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
 import { startServer } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
@@ -36,6 +37,9 @@ export type EmbeddedServerHandle = {
 
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await resolveServerConfig(options);
+  // Import OpenWork-owned state into the DB once, then make the DB the source of truth
+  // for the workspace registry. Source files are preserved (snapshotted to .pre-db.bak).
+  await reconcileConfigWithDb(config);
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
   const opencodeModelsUrl = process.env.OPENWORK_DEV_MODE === "1"
     ? "http://localhost:8791/models"

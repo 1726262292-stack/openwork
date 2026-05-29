@@ -7,6 +7,14 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pathToFileURL } from "node:url";
+import {
+  getDesktopDb,
+  loadWorkspaceTokensFromDb,
+  saveWorkspaceTokensToDb,
+  setWorkspaceOwnerTokenInDb,
+  readPreferredPortFromDb,
+  persistPreferredPortInDb,
+} from "./desktop-db.mjs";
 
 const __runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -475,6 +483,15 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return path.join(userDataDir, "openwork-server-state.json");
   }
 
+  // Shared desktop DB (next to server.json). Per-workspace tokens and preferred ports
+  // live here now; the legacy JSON files are imported once and kept as .pre-db.bak.
+  function runtimeDb() {
+    return getDesktopDb({
+      serverConfigPath: resolveOpenworkServerConfigPath(process.env),
+      userDataDir,
+    });
+  }
+
   function managedOpencodeWorkdir() {
     return path.join(userDataDir, "managed-opencode-workdir");
   }
@@ -526,78 +543,43 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     }
   }
 
-  async function loadTokenStore() {
-    return readJsonFile(openworkServerTokenStorePath(), { version: 1, workspaces: {} });
-  }
-
-  async function saveTokenStore(store) {
-    const filePath = openworkServerTokenStorePath();
-    await mkdir(path.dirname(filePath), { recursive: true });
-    await writeFile(filePath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
-  }
-
-  async function loadPortState() {
-    return readJsonFile(openworkServerStatePath(), {
-      version: 3,
-      workspacePorts: {},
-      preferredPort: null,
-    });
-  }
-
-  async function savePortState(state) {
-    const filePath = openworkServerStatePath();
-    await mkdir(path.dirname(filePath), { recursive: true });
-    await writeFile(filePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
-  }
+  // Per-workspace server tokens + preferred ports are now stored in the shared desktop
+  // DB. The legacy openwork-server-tokens.json / openwork-server-state.json files are
+  // imported once and preserved as .pre-db.bak snapshots.
 
   async function loadOrCreateWorkspaceTokens(workspaceKey) {
-    const store = await loadTokenStore();
+    const db = await runtimeDb();
     const normalized = normalizeWorkspaceKey(workspaceKey);
-    if (store.workspaces?.[normalized]) {
-      return store.workspaces[normalized];
+    const existing = await loadWorkspaceTokensFromDb(db, normalized);
+    if (existing && existing.clientToken && existing.hostToken) {
+      return existing;
     }
     const next = {
       clientToken: randomUUID(),
       hostToken: randomUUID(),
-      ownerToken: null,
+      ownerToken: existing?.ownerToken ?? null,
       updatedAt: nowMs(),
     };
-    store.workspaces ??= {};
-    store.workspaces[normalized] = next;
-    await saveTokenStore(store);
+    await saveWorkspaceTokensToDb(db, normalized, next);
     return next;
   }
 
   async function persistWorkspaceOwnerToken(workspaceKey, ownerToken) {
-    const store = await loadTokenStore();
+    const db = await runtimeDb();
     const normalized = normalizeWorkspaceKey(workspaceKey);
-    if (!store.workspaces?.[normalized]) return;
-    store.workspaces[normalized].ownerToken = ownerToken;
-    store.workspaces[normalized].updatedAt = nowMs();
-    await saveTokenStore(store);
+    await setWorkspaceOwnerTokenInDb(db, normalized, ownerToken);
   }
 
   async function readPreferredOpenworkPort(workspaceKey) {
-    const state = await loadPortState();
+    const db = await runtimeDb();
     const normalized = normalizeWorkspaceKey(workspaceKey);
-    if (normalized && state.workspacePorts?.[normalized]) {
-      return state.workspacePorts[normalized];
-    }
-    return state.preferredPort ?? null;
+    return readPreferredPortFromDb(db, normalized);
   }
 
   async function persistPreferredOpenworkPort(workspaceKey, port) {
-    const state = await loadPortState();
+    const db = await runtimeDb();
     const normalized = normalizeWorkspaceKey(workspaceKey);
-    state.version = 3;
-    state.workspacePorts ??= {};
-    if (normalized) {
-      state.workspacePorts[normalized] = port;
-      state.preferredPort = null;
-    } else {
-      state.preferredPort = port;
-    }
-    await savePortState(state);
+    await persistPreferredPortInDb(db, normalized, port);
   }
 
   async function resolveOpenworkPort(host, workspaceKey) {

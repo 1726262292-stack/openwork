@@ -23,6 +23,8 @@ import { workspaceIdForPath, workspaceIdForRemote } from "./workspaces.js";
 import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
+import { getDb, ensureImported } from "./db.js";
+import { workspaceTable, authorizedRootTable, createDesktopTypeId } from "@openwork/desktop-db";
 import { EnvService, EnvStoreReadError, InvalidEnvKeyError, isValidEnvKey } from "./env-file.js";
 import { TOY_UI_CSS, TOY_UI_FAVICON_SVG, TOY_UI_HTML, TOY_UI_JS, cssResponse, htmlResponse, jsResponse, svgResponse } from "./toy-ui.js";
 import { FileSessionStore } from "./file-sessions.js";
@@ -4226,75 +4228,65 @@ function ensurePlainObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-type OpenworkServerConfigFile = Record<string, unknown> & {
-  workspaces?: Array<Record<string, unknown>>;
-  authorizedRoots?: string[];
-};
-
-async function readServerConfigFile(configPath: string): Promise<OpenworkServerConfigFile> {
-  if (!(await exists(configPath))) {
-    return {};
-  }
-
-  try {
-    const raw = await readFile(configPath, "utf8");
-    return ensurePlainObject(JSON.parse(raw)) as OpenworkServerConfigFile;
-  } catch (error) {
-    throw new ApiError(422, "invalid_json", "Failed to parse server config", {
-      path: configPath,
-      error: String(error),
-    });
-  }
-}
-
-function serializeWorkspaceConfigEntry(workspace: WorkspaceInfo): Record<string, unknown> {
-  const isLocalWorkspace = workspace.workspaceType !== "remote";
-  return {
-    id: workspace.id,
-    path: workspace.path,
-    name: workspace.name,
-    preset: workspace.preset,
-    workspaceType: workspace.workspaceType,
-    ...(workspace.remoteType ? { remoteType: workspace.remoteType } : {}),
-    ...(!isLocalWorkspace && workspace.baseUrl ? { baseUrl: workspace.baseUrl } : {}),
-    ...(!isLocalWorkspace && workspace.directory ? { directory: workspace.directory } : {}),
-    ...(workspace.displayName ? { displayName: workspace.displayName } : {}),
-    ...(workspace.openworkHostUrl ? { openworkHostUrl: workspace.openworkHostUrl } : {}),
-    ...(workspace.openworkToken ? { openworkToken: workspace.openworkToken } : {}),
-    ...(workspace.openworkWorkspaceId ? { openworkWorkspaceId: workspace.openworkWorkspaceId } : {}),
-    ...(workspace.openworkWorkspaceName ? { openworkWorkspaceName: workspace.openworkWorkspaceName } : {}),
-    ...(workspace.sandboxBackend ? { sandboxBackend: workspace.sandboxBackend } : {}),
-    ...(workspace.sandboxRunId ? { sandboxRunId: workspace.sandboxRunId } : {}),
-    ...(workspace.sandboxContainerName ? { sandboxContainerName: workspace.sandboxContainerName } : {}),
-    ...(!isLocalWorkspace && workspace.opencodeUsername ? { opencodeUsername: workspace.opencodeUsername } : {}),
-    ...(!isLocalWorkspace && workspace.opencodePassword ? { opencodePassword: workspace.opencodePassword } : {}),
-  };
-}
-
+/**
+ * Persist the workspace registry + authorizedRoots to the SQLite DB.
+ *
+ * The original `server.json` is preserved on disk (snapshotted to `.pre-db.bak` on
+ * first import) and is NO LONGER written at runtime — the DB is the source of truth.
+ */
 async function persistServerWorkspaceState(config: ServerConfig): Promise<boolean> {
-  const configPath = config.configPath?.trim() ?? "";
-  if (!configPath) return false;
+  const db = await getDb(config);
 
-  const parsed = await readServerConfigFile(configPath);
-  const next: OpenworkServerConfigFile = {
-    ...parsed,
-    workspaces: config.workspaces.map(serializeWorkspaceConfigEntry),
-    authorizedRoots: Array.from(new Set(config.authorizedRoots.map((root) => resolve(root)))),
-  };
+  db.transaction((tx) => {
+    // Replace the full workspace set, preserving array order via sortOrder.
+    tx.delete(authorizedRootTable).run();
+    tx.delete(workspaceTable).run();
 
-  await ensureDir(dirname(configPath));
-  const tmpPath = `${configPath}.tmp.${shortId()}`;
-  try {
-    await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
-    await rename(tmpPath, configPath);
-    return true;
-  } finally {
-    try {
-      await rm(tmpPath);
-    } catch {
-      // ignore
+    const now = Date.now();
+    config.workspaces.forEach((workspace, index) => {
+      const isLocal = workspace.workspaceType !== "remote";
+      tx.insert(workspaceTable)
+        .values({
+          id: workspace.id,
+          path: workspace.path,
+          name: workspace.name,
+          preset: workspace.preset ?? null,
+          workspaceType: workspace.workspaceType ?? "local",
+          remoteType: workspace.remoteType ?? null,
+          baseUrl: !isLocal ? workspace.baseUrl ?? null : null,
+          directory: !isLocal ? workspace.directory ?? null : null,
+          displayName: workspace.displayName ?? null,
+          openworkHostUrl: workspace.openworkHostUrl ?? null,
+          openworkToken: workspace.openworkToken ?? null,
+          openworkWorkspaceId: workspace.openworkWorkspaceId ?? null,
+          openworkWorkspaceName: workspace.openworkWorkspaceName ?? null,
+          sandboxBackend: workspace.sandboxBackend ?? null,
+          sandboxRunId: workspace.sandboxRunId ?? null,
+          sandboxContainerName: workspace.sandboxContainerName ?? null,
+          opencodeUsername: !isLocal ? workspace.opencodeUsername ?? null : null,
+          opencodePassword: !isLocal ? workspace.opencodePassword ?? null : null,
+          sortOrder: index,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    });
+
+    const roots = Array.from(new Set(config.authorizedRoots.map((root) => resolve(root))));
+    for (const root of roots) {
+      tx.insert(authorizedRootTable)
+        .values({
+          id: createDesktopTypeId("authorizedRoot"),
+          workspaceId: null,
+          path: root,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
     }
-  }
+  });
+
+  return true;
 }
 
 function normalizeOpencodeScope(value: string | null | undefined): "project" | "global" {

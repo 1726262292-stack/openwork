@@ -1,10 +1,49 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { startServer } from "./server.js";
+import { getDb, resetDbForTests } from "./db.js";
+import { workspaceTable, authorizedRootTable, drizzle } from "@openwork/desktop-db";
 import type { ServerConfig } from "./types.js";
+
+/**
+ * Read the persisted workspace registry from the DB (the source of truth after the
+ * server-state-to-db migration). `configPath` determines the DB location
+ * (`<configDir>/openwork.db`), mirroring `resolveDbPath` in db.ts.
+ */
+async function readPersistedRegistry(configPath: string): Promise<{
+  workspaces: Array<Record<string, unknown>>;
+  authorizedRoots: string[];
+}> {
+  const db = await getDb({ configPath } as ServerConfig);
+  const rows = await db
+    .select()
+    .from(workspaceTable)
+    .orderBy(drizzle.asc(workspaceTable.sortOrder));
+  const workspaces = rows.map((row) => {
+    const isLocal = row.workspaceType !== "remote";
+    return {
+      id: row.id,
+      path: row.path,
+      name: row.name,
+      preset: row.preset ?? undefined,
+      workspaceType: row.workspaceType,
+      remoteType: row.remoteType ?? undefined,
+      baseUrl: !isLocal ? row.baseUrl ?? undefined : undefined,
+      directory: !isLocal ? row.directory ?? undefined : undefined,
+      displayName: row.displayName ?? undefined,
+      openworkWorkspaceId: row.openworkWorkspaceId ?? undefined,
+      openworkWorkspaceName: row.openworkWorkspaceName ?? undefined,
+      sandboxRunId: row.sandboxRunId ?? undefined,
+      opencodeUsername: !isLocal ? row.opencodeUsername ?? undefined : undefined,
+      opencodePassword: !isLocal ? row.opencodePassword ?? undefined : undefined,
+    } as Record<string, unknown>;
+  });
+  const rootRows = await db.select().from(authorizedRootTable);
+  return { workspaces, authorizedRoots: rootRows.map((r) => r.path) };
+}
 
 type Served = {
   port: number;
@@ -18,6 +57,7 @@ afterEach(async () => {
   while (stops.length) {
     await stops.pop()?.();
   }
+  resetDbForTests();
   while (roots.length) {
     await rm(roots.pop()!, { recursive: true, force: true });
   }
@@ -34,37 +74,28 @@ function hostAuth(token: string) {
   return { "X-OpenWork-Host-Token": token };
 }
 
-function workspaceIdsFromConfig(value: unknown): string[] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-  if (!("workspaces" in value) || !Array.isArray(value.workspaces)) return [];
+type PersistedRegistry = { workspaces: Array<Record<string, unknown>>; authorizedRoots: string[] };
+
+function workspaceIdsFromConfig(value: PersistedRegistry): string[] {
   return value.workspaces.flatMap((workspace) =>
-    workspace && typeof workspace === "object" && !Array.isArray(workspace) && "id" in workspace && typeof workspace.id === "string"
-      ? [workspace.id]
-      : [],
+    typeof workspace.id === "string" ? [workspace.id] : [],
   );
 }
 
-function workspacesFromConfig(value: unknown): Array<Record<string, unknown>> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-  if (!("workspaces" in value) || !Array.isArray(value.workspaces)) return [];
-  return value.workspaces.filter(
-    (workspace): workspace is Record<string, unknown> =>
-      Boolean(workspace) && typeof workspace === "object" && !Array.isArray(workspace),
-  );
+function workspacesFromConfig(value: PersistedRegistry): Array<Record<string, unknown>> {
+  return value.workspaces;
 }
 
-function authorizedRootsFromConfig(value: unknown): string[] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-  if (!("authorizedRoots" in value) || !Array.isArray(value.authorizedRoots)) return [];
-  return value.authorizedRoots.filter((root): root is string => typeof root === "string");
+function authorizedRootsFromConfig(value: PersistedRegistry): string[] {
+  return value.authorizedRoots;
 }
 
 async function readPersistedWorkspaceIds(configPath: string) {
-  return workspaceIdsFromConfig(JSON.parse(await readFile(configPath, "utf8")));
+  return workspaceIdsFromConfig(await readPersistedRegistry(configPath));
 }
 
-async function readPersistedConfig(configPath: string): Promise<unknown> {
-  return JSON.parse(await readFile(configPath, "utf8"));
+async function readPersistedConfig(configPath: string): Promise<PersistedRegistry> {
+  return readPersistedRegistry(configPath);
 }
 
 function startMockOpencode() {

@@ -22,7 +22,15 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, session, shell, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
-import { createRuntimeManager } from "./runtime.mjs";
+import { createRuntimeManager, resolveOpenworkServerConfigPath } from "./runtime.mjs";
+import {
+  getDesktopDb,
+  readWorkspaceStateFromDb,
+  writeWorkspaceStateToDb,
+  getAllPreferences,
+  setPreference as setDesktopPreference,
+  removePreference as removeDesktopPreference,
+} from "./desktop-db.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
 import { exportWorkspaceConfig, importWorkspaceConfig } from "./workspace-archive.mjs";
 import {
@@ -1178,6 +1186,15 @@ function workspaceStatePath() {
   return path.join(app.getPath("userData"), "openwork-workspaces.json");
 }
 
+// Open the shared desktop DB (next to server.json). The one-time import of the legacy
+// Electron JSON files runs on first call; the originals are preserved as .pre-db.bak.
+function desktopDb() {
+  return getDesktopDb({
+    serverConfigPath: resolveOpenworkServerConfigPath(process.env),
+    userDataDir: app.getPath("userData"),
+  });
+}
+
 // Earlier Electron alpha builds copied Tauri's openwork-workspaces.json into an
 // Electron-only workspace-state.json. Keep importing that file when the shared
 // canonical file is missing, but write openwork-workspaces.json going forward so
@@ -1586,7 +1603,8 @@ async function writeWorkspaceOpenworkConfig(workspacePath, config) {
 }
 
 async function readWorkspaceState() {
-  const state = await readJsonFile(workspaceStatePath(), EMPTY_WORKSPACE_LIST);
+  const db = await desktopDb();
+  const state = await readWorkspaceStateFromDb(db);
   const selectedId =
     typeof state?.selectedId === "string"
       ? state.selectedId
@@ -1672,21 +1690,17 @@ async function readWorkspaceState() {
 }
 
 async function writeWorkspaceState(nextState) {
-  const outputPath = workspaceStatePath();
   const selectedId = String(nextState?.selectedId ?? nextState?.activeId ?? "");
   const watchedId = typeof nextState?.watchedId === "string" ? nextState.watchedId : "";
-  const output = {
+  const db = await desktopDb();
+  // DB is the source of truth (shared with the server). The legacy
+  // openwork-workspaces.json is no longer written; its .pre-db.bak snapshot remains
+  // for revert.
+  const output = await writeWorkspaceStateToDb(db, {
     ...nextState,
-    // Tauri's Rust state uses selectedWorkspaceId/watchedWorkspaceId on disk
-    // (with activeId as a legacy alias). Keep Electron's selectedId/watchedId
-    // too so older Electron builds can still read the same file.
     selectedId,
-    selectedWorkspaceId: selectedId,
-    watchedId: watchedId || null,
-    watchedWorkspaceId: watchedId,
-    activeId: selectedId || null,
-  };
-  await writeJsonFileAtomic(outputPath, output);
+    watchedId,
+  });
   return output;
 }
 
@@ -2144,6 +2158,20 @@ function applyNativeTheme(mode) {
 
 async function handleDesktopInvoke(event, command, ...args) {
   switch (command) {
+    case "preferenceGetAll":
+      return getAllPreferences(await desktopDb());
+    case "preferenceSet": {
+      const key = typeof args[0] === "string" ? args[0] : "";
+      if (!key) return false;
+      await setDesktopPreference(await desktopDb(), key, args[1] ?? "");
+      return true;
+    }
+    case "preferenceRemove": {
+      const key = typeof args[0] === "string" ? args[0] : "";
+      if (!key) return false;
+      await removeDesktopPreference(await desktopDb(), key);
+      return true;
+    }
     case "workspaceBootstrap":
       return readWorkspaceState();
     case "workspaceSetSelected":

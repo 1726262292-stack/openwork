@@ -118,6 +118,11 @@ declare global {
         onPanelOpened?: (callback: () => void) => () => void;
         onPanelClosed?: (callback: () => void) => () => void;
       };
+      preferences?: {
+        getAll?: () => Promise<Record<string, string>>;
+        set?: (key: string, value: string) => Promise<boolean>;
+        remove?: (key: string) => Promise<boolean>;
+      };
       meta?: {
         initialDeepLinks?: string[];
         platform?: "darwin" | "linux" | "windows";

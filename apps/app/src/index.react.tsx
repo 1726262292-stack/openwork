@@ -18,11 +18,15 @@ import {
 import { AppProviders } from "./react-app/shell/providers";
 import { AppRoot } from "./react-app/shell/app-root";
 import { startDeepLinkBridge } from "./react-app/shell/startup-deep-links";
+import { initDesktopPreferenceSync } from "./react-app/shell/desktop-pref-sync";
 import "./app/index.css";
 
 bootstrapTheme();
 initLocale();
 startDeepLinkBridge();
+// Hydrate localStorage from the desktop DB (and install write-through) BEFORE any
+// store/provider reads localStorage. No-op on web.
+await initDesktopPreferenceSync();
 await initializeDenBootstrapConfig();
 
 const root = document.getElementById("root");

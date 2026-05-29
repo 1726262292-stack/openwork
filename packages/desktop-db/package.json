@@ -1,0 +1,71 @@
+{
+  "name": "@openwork/desktop-db",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "source": "./src/index.ts",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./typeid": {
+      "development": "./src/typeid.ts",
+      "types": "./dist/typeid.d.ts",
+      "default": "./dist/typeid.js"
+    },
+    "./schema": {
+      "development": "./src/schema/index.ts",
+      "types": "./dist/schema/index.d.ts",
+      "default": "./dist/schema/index.js"
+    },
+    "./client": {
+      "development": "./src/client.ts",
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    },
+    "./drizzle": {
+      "development": "./src/drizzle.ts",
+      "types": "./dist/drizzle.d.ts",
+      "default": "./dist/drizzle.js"
+    },
+    "./import": {
+      "development": "./src/import/index.ts",
+      "types": "./dist/import/index.d.ts",
+      "default": "./dist/import/index.js"
+    },
+    "./preferences": {
+      "development": "./src/preferences.ts",
+      "types": "./dist/preferences.d.ts",
+      "default": "./dist/preferences.js"
+    }
+  },
+  "files": [
+    "src",
+    "dist",
+    "drizzle"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "drizzle-orm": "^0.45.1",
+    "typeid-js": "^1.2.0",
+    "uuid": "^11.1.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.10.2",
+    "bun-types": "^1.3.6",
+    "drizzle-kit": "^0.31.9",
+    "tsup": "^8.5.0",
+    "typescript": "^5.6.3"
+  }
+}
