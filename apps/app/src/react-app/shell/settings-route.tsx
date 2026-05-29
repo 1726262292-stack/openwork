@@ -1023,7 +1023,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       });
       await workspaceClient.writeWorkspaceBinaryFile(workspaceId, {
         path: ".opencode/package.json",
-        data: encoder.encode(JSON.stringify({ dependencies: { "@opencode-ai/plugin": "1.14.38" } }, null, 2)).buffer,
+        data: encoder.encode(JSON.stringify({ dependencies: { "@opencode-ai/plugin": "1.15.12" } }, null, 2)).buffer,
         force: true,
       });
       // upsertUserEnv requires the host token; use openworkClient which carries it.
