@@ -2599,6 +2599,21 @@ async function maybeAutoImportGithubConnectorInstance(input: {
   // Treat an unset flag as enabled to match getGithubDiscoveryContext defaults: a repo the
   // user has already configured should re-sync on push unless they explicitly opted out.
   const autoImportNewPlugins = instanceConfig.autoImportNewPlugins !== false
+  if (!autoImportNewPlugins) {
+    // User explicitly disabled auto-import: do not run discovery or materialize any objects.
+    return {
+      autoImported: false as const,
+      autoImportNewPlugins,
+      classification: null,
+      createdMarketplace: null,
+      createdPluginCount: 0,
+      createdPlugins: [],
+      discoveredPluginCount: 0,
+      materializedConfigObjectCount: 0,
+      materializedConfigObjects: [],
+      sourceRevisionRef: null,
+    }
+  }
 
   const context = await buildConnectorAutomationContext({ connectorInstance: input.connectorInstance })
   // Force a fresh discovery so the latest head revision and file contents are fetched. Without
@@ -3807,11 +3822,13 @@ export async function enqueueGithubWebhookSync(input: {
     const completedAt = new Date()
     const eventStatus = autoImportError
       ? "failed" as const
-      : autoImportSummary
-        ? autoImportSummary.materializedConfigObjectCount > 0
-          ? "completed" as const
-          : "partial" as const
-        : "queued" as const
+      : !autoImportSummary
+        ? "queued" as const
+        : !autoImportSummary.autoImported
+          ? "ignored" as const
+          : autoImportSummary.materializedConfigObjectCount > 0
+            ? "completed" as const
+            : "partial" as const
 
     const summaryJson = {
       // Inputs
