@@ -2,7 +2,7 @@ import * as React from "react";
 
 import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 
-export type OpenTargetHandler = (target: OpenTarget, options?: { auto?: boolean }) => void;
+type OpenTargetHandler = (target: OpenTarget, options?: { auto?: boolean }) => void;
 
 type OpenTargetContextValue = {
   openTargets: OpenTarget[];

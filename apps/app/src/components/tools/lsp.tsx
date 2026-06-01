@@ -20,7 +20,7 @@ const LSP_OPERATION_LABELS: Record<LspInput["operation"], string> = {
   outgoingCalls: "Outgoing calls",
 }
 
-export function getLspToolTitle(part: LspToolPart): string | null {
+function getLspToolTitle(part: LspToolPart): string | null {
   const filename = parseFilename(part.input.filePath)
   const operation = LSP_OPERATION_LABELS[part.input.operation]
 
@@ -35,7 +35,7 @@ export function getLspToolTitle(part: LspToolPart): string | null {
   return `${operation} in ${filename}`
 }
 
-export function getLspToolDetail(part: LspToolPart): string | undefined {
+function getLspToolDetail(part: LspToolPart): string | undefined {
   const line = part.input.line
   const character = part.input.character
   const query = part.input.query?.trim()

@@ -7,7 +7,7 @@ interface TodoWriteToolProps {
   part: TodoWriteToolPart
 }
 
-export function getTodoWriteToolTitle(part: TodoWriteToolPart): string | null {
+function getTodoWriteToolTitle(part: TodoWriteToolPart): string | null {
   const count = part.input.todos.length
 
   if (part.state === "output-error") {

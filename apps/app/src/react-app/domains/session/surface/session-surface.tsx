@@ -40,7 +40,6 @@ import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import type { ReactComposerNotice } from "./composer/notice";
 import { SessionDebugPanel } from "./debug-panel";
 import { deriveRenderedSessionMessages, resolveRenderedSessionSnapshot } from "./session-render-state";
-import { SessionTranscript } from "./message-list";
 import { useLocal } from "../../../kernel/local-provider";
 import { deriveSessionRenderModel } from "../sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
@@ -190,49 +189,8 @@ function messageHasVisibleAssistantOutput(message: UIMessage) {
   });
 }
 
-function formatAssistantFallbackValue(value: unknown) {
-  if (value === undefined || value === null) return "";
-  if (typeof value === "string") return value.trim();
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function assistantFallbackPartToText(part: UIMessage["parts"][number]) {
-  if (part.type === "text" || part.type === "reasoning") return part.text.trim();
-  if (part.type === "file") return (part.filename ?? part.url).trim();
-
-  const record = part as Record<string, unknown>;
-  const toolName = typeof record.toolName === "string" ? record.toolName : null;
-  if (toolName) {
-    if (typeof record.errorText === "string" && record.errorText.trim()) {
-      return `[tool:${toolName}] ${record.errorText.trim()}`;
-    }
-    const output = formatAssistantFallbackValue(record.output);
-    if (output) return `[tool:${toolName}] ${output}`;
-    const input = formatAssistantFallbackValue(record.input);
-    if (input) return `[tool:${toolName}] ${input}`;
-    return `[tool:${toolName}]`;
-  }
-
-  const unknown = formatAssistantFallbackValue(record);
-  return unknown === "{}" ? "" : unknown;
-}
-
-function assistantFallbackText(messages: UIMessage[], baseline: number) {
-  return messages
-    .slice(baseline)
-    .filter((message) => message.role === "assistant")
-    .flatMap((message) => message.parts.map(assistantFallbackPartToText))
-    .filter(Boolean)
-    .join("\n\n")
-    .trim();
-}
-
-function AssistantWaitingCard({ label = t("session.assistant_thinking"), collapseLayout = false }: { label?: string; collapseLayout?: boolean }) {
-  const content = (
+function AssistantWaitingCard({ label = t("session.assistant_thinking") }: { label?: string }) {
+  return (
     <div className="flex justify-start" role="status" aria-live="polite">
       <div className="inline-flex items-center gap-1.5 px-1 py-1 text-[12px] text-dls-secondary">
         <div style={{ width: 20, height: 20, borderRadius: "50%", overflow: "hidden" }}>
@@ -249,32 +207,6 @@ function AssistantWaitingCard({ label = t("session.assistant_thinking"), collaps
         </div>
         <span>{label}</span>
       </div>
-    </div>
-  );
-
-  if (collapseLayout) {
-    return <div>{content}</div>;
-  }
-
-  return (
-    content
-  );
-}
-
-function AssistantNoVisibleOutputCard(props: { text: string }) {
-  return (
-    <div className="font-mono text-[13px] leading-[1.7] text-gray-8 whitespace-pre-wrap" role="status" aria-live="polite">
-      <div className="max-w-[720px]">
-        {props.text || t("session.assistant_empty_response")}
-      </div>
-    </div>
-  );
-}
-
-function AssistantStatusSpacer() {
-  return (
-    <div className="invisible" aria-hidden="true">
-      <AssistantWaitingCard label={t("session.assistant_responding")} collapseLayout />
     </div>
   );
 }
@@ -475,7 +407,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const [queuedDrafts, setQueuedDrafts] = useState<ComposerDraft[]>([]);
   const [showDelayedLoading, setShowDelayedLoading] = useState(false);
   const [awaitingAssistantBaseline, setAwaitingAssistantBaseline] = useState<number | null>(null);
-  const [noVisibleAssistantOutputBaseline, setNoVisibleAssistantOutputBaseline] = useState<number | null>(null);
   const [rendered, setRendered] = useState<{ sessionId: string; snapshot: OpenworkSessionSnapshot } | null>(null);
   const [toolSkills, setToolSkills] = useState<SkillCard[]>([]);
   const [toolMcpServers, setToolMcpServers] = useState<McpServerEntry[]>([]);
@@ -525,7 +456,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setSending(false);
     setShowDelayedLoading(false);
     setAwaitingAssistantBaseline(null);
-    setNoVisibleAssistantOutputBaseline(null);
     // Composer draft state lives in the shared store keyed by session id, so
     // switching sessions preserves each session's own in-progress composer.
     setNotice(null);
@@ -637,16 +567,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
       .slice(awaitingAssistantBaseline)
       .some(messageHasVisibleAssistantOutput);
   }, [awaitingAssistantBaseline, renderedMessages]);
-  const noVisibleAssistantOutputText = useMemo(() => {
-    if (noVisibleAssistantOutputBaseline === null) return "";
-    return assistantFallbackText(renderedMessages, noVisibleAssistantOutputBaseline);
-  }, [noVisibleAssistantOutputBaseline, renderedMessages]);
-  const assistantOutputAfterNoVisibleFallback = useMemo(() => {
-    if (noVisibleAssistantOutputBaseline === null) return false;
-    return renderedMessages
-      .slice(noVisibleAssistantOutputBaseline)
-      .some(messageHasVisibleAssistantOutput);
-  }, [noVisibleAssistantOutputBaseline, renderedMessages]);
   const showAssistantWaitState = awaitingAssistantBaseline !== null && !assistantOutputAfterAwaitStart;
   const showAssistantRespondingState = awaitingAssistantBaseline !== null && assistantOutputAfterAwaitStart && chatStreaming;
   const effectiveActivityStatus: SessionActivityStatus = sessionActivityStatus !== "idle"
@@ -656,15 +576,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
       : showAssistantRespondingState
         ? "responding"
         : "idle";
-  const showNoVisibleAssistantOutput = noVisibleAssistantOutputBaseline !== null && !assistantOutputAfterNoVisibleFallback;
-  const reserveAssistantStatusSpace = effectiveActivityStatus === "idle" && awaitingAssistantBaseline !== null && assistantOutputAfterAwaitStart && !chatStreaming;
-  const assistantStatusFooter = effectiveActivityStatus !== "idle" ? (
-    <AssistantWaitingCard label={getSessionActivityStatusLabel(effectiveActivityStatus)} collapseLayout />
-  ) : showNoVisibleAssistantOutput ? (
-    <AssistantNoVisibleOutputCard text={noVisibleAssistantOutputText} />
-  ) : reserveAssistantStatusSpace ? (
-    <AssistantStatusSpacer />
-  ) : null;
   useReactRenderWatchdog("SessionSurface", {
     sessionId: props.sessionId,
     workspaceId: props.workspaceId,
@@ -674,7 +585,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
     pendingSessionLoad,
     showAssistantWaitState,
     showAssistantRespondingState,
-    noVisibleAssistantOutputBaseline,
     hasSnapshot: Boolean(snapshot),
   });
 
@@ -738,7 +648,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
     if (sending || liveStatus.type !== "idle" || renderedMessages.length <= awaitingAssistantBaseline) return;
     const id = window.setTimeout(() => {
-      setNoVisibleAssistantOutputBaseline(awaitingAssistantBaseline);
       setAwaitingAssistantBaseline(null);
     }, 1200);
     return () => window.clearTimeout(id);
@@ -815,7 +724,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
     useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, { type: "busy" });
     setSending(true);
     setAwaitingAssistantBaseline(renderedMessages.length);
-    setNoVisibleAssistantOutputBaseline(null);
     try {
       await props.onSendDraft(nextDraft);
       draftAttachments.forEach(revokeAttachmentPreview);
@@ -826,7 +734,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
       useSessionActivityStore.getState().setError(props.workspaceId, props.sessionId, parsed.message);
       setComposerDraft(props.sessionId, "");
       setAwaitingAssistantBaseline(null);
-      setNoVisibleAssistantOutputBaseline(null);
       setSending(false);
       throw nextError;
     }
@@ -1314,47 +1221,25 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 onOpenModelPicker={props.onModelClick}
               />
             ) : (
-              <DevProfiler id="SessionTranscript">
-                <>
-                  <OpenTargetProvider
-                    openTargets={verifiedOpenTargets}
-                    onOpenTarget={props.onOpenTarget}
-                  >
-                    <MessageListProvider
-                      workspaceId={props.workspaceId}
-                      sessionId={props.sessionId}
-                      showThinking={showThinking}
-                      developerMode={props.developerMode}
-                      displaySuggestions={shellConfig.starterCards}
-                      dispatchAction={handleMessageListDispatchAction}
-                      setPrompt={handleMessageListSetPrompt}
-                      onRevertToUserMessage={handleRevertToUserMessage}
-                      onForkAtMessage={handleForkAtMessage}
-                    >
-                      <MessageList messages={renderedMessages} status={status} />
-                    </MessageListProvider>
-                  </OpenTargetProvider>
-                  {/* <SessionTranscript
-                    messages={renderedMessages}
-                    isStreaming={chatStreaming}
-                    developerMode={props.developerMode}
+              <DevProfiler id="MessageList">
+                <OpenTargetProvider
+                  openTargets={verifiedOpenTargets}
+                  onOpenTarget={props.onOpenTarget}
+                >
+                  <MessageListProvider
+                    workspaceId={props.workspaceId}
+                    sessionId={props.sessionId}
                     showThinking={showThinking}
-                    scrollElement={() => scrollRef.current}
-                    onRevertToMessage={props.onRevertToMessage}
-                    onForkAtMessage={props.onForkAtMessage}
-                    openTargets={verifiedOpenTargets}
-                    onOpenTarget={props.onOpenTarget}
-                    footer={assistantStatusFooter}
-                  />
-                  {error ? (
-                    <SessionErrorCard
-                      error={error}
-                      onDismiss={handleDismissError}
-                      onChangeModel={props.onChangeModel}
-                      onOpenModelPicker={props.onModelClick}
-                    /> */}
-                  {/* ) : null} */}
-                </>
+                    developerMode={props.developerMode}
+                    displaySuggestions={shellConfig.starterCards}
+                    dispatchAction={handleMessageListDispatchAction}
+                    setPrompt={handleMessageListSetPrompt}
+                    onRevertToUserMessage={handleRevertToUserMessage}
+                    onForkAtMessage={handleForkAtMessage}
+                  >
+                    <MessageList messages={renderedMessages} status={status} />
+                  </MessageListProvider>
+                </OpenTargetProvider>
               </DevProfiler>
             )}
           </div>

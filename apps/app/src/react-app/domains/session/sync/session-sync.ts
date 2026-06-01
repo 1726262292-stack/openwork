@@ -25,7 +25,7 @@ type SyncOptions = {
   onSessionStatus?: (update: { sessionId: string; status: SessionStatus }) => void;
 };
 
-export type PendingDelta = {
+type PendingDelta = {
   sessionId: string;
   messageId: string;
   partId: string;

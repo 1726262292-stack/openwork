@@ -7,7 +7,7 @@ interface ApplyPatchToolProps {
   part: ApplyPatchToolPart
 }
 
-export function getApplyPatchToolTitle(part: ApplyPatchToolPart): string | null {
+function getApplyPatchToolTitle(part: ApplyPatchToolPart): string | null {
   if (part.state === "output-error") {
     return "Apply patch attempted"
   }

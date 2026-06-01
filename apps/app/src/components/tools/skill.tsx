@@ -7,7 +7,7 @@ interface SkillToolProps {
   part: SkillToolPart
 }
 
-export function getSkillToolTitle(part: SkillToolPart): string | null {
+function getSkillToolTitle(part: SkillToolPart): string | null {
   const name = part.input.name.trim()
 
   if (part.state === "output-error") {

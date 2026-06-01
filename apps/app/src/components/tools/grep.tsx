@@ -8,7 +8,7 @@ interface GrepToolProps {
   part: GrepToolPart
 }
 
-export function getGrepToolTitle(part: GrepToolPart): string | null {
+function getGrepToolTitle(part: GrepToolPart): string | null {
   const pattern = part.input.pattern.trim()
 
   if (part.state === "output-error") {
@@ -24,7 +24,7 @@ export function getGrepToolTitle(part: GrepToolPart): string | null {
   return pattern ? `Searched ${truncateText(pattern, 44)}` : "Searched code"
 }
 
-export function getGrepToolDetail(part: GrepToolPart): string | undefined {
+function getGrepToolDetail(part: GrepToolPart): string | undefined {
   const root = part.input.path?.trim()
   if (!root) {
     return undefined

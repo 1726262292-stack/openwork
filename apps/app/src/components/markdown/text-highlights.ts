@@ -1,7 +1,7 @@
 const SEARCH_HIGHLIGHT_MARK_ATTR = "data-search-highlight";
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-export function clearTextHighlights(root: HTMLElement) {
+function clearTextHighlights(root: HTMLElement) {
   const marks = root.querySelectorAll(`mark[${SEARCH_HIGHLIGHT_MARK_ATTR}="true"]`);
 
   for (const mark of marks) {

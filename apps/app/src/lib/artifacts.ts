@@ -101,7 +101,7 @@ export function getArtifactType(filename: string): ArtifactType {
   return "unknown";
 }
 
-export function getFileExtension(filename: string) {
+function getFileExtension(filename: string) {
   return filename.split(".").pop()?.toLowerCase();
 }
 
@@ -235,7 +235,7 @@ function getArtifactPathsFromMessage(message: UIMessage) {
   return paths.map((path) => path?.trim().toLowerCase()).filter((path) => path) as string[];
 }
 
-export function getArtifactsFromMessages(messages: UIMessage[], openTargets: OpenTarget[] = []) {
+function getArtifactsFromMessages(messages: UIMessage[], openTargets: OpenTarget[] = []) {
   const artifacts = new Map<string, ArtifactItem>();
 
   for (const message of messages) {

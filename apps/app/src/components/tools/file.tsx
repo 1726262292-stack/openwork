@@ -69,31 +69,31 @@ export function WriteFileTool({ part }: WriteFileToolProps) {
   )
 }
 
-export interface ReadLine {
+interface ReadLine {
   number: number
   text: string
 }
 
-export interface ReadLineRange {
+interface ReadLineRange {
   firstLine: number
   lastLine: number
   totalLines?: number
 }
 
-export interface ParsedReadFileOutput {
+interface ParsedReadFileOutput {
   type: "file"
   lines: ReadLine[]
   lineRange?: ReadLineRange
   truncated: boolean
 }
 
-export interface ParsedReadDirectoryOutput {
+interface ParsedReadDirectoryOutput {
   type: "directory"
   entries: string[]
   truncated: boolean
 }
 
-export type ParsedReadOutput = ParsedReadFileOutput | ParsedReadDirectoryOutput
+type ParsedReadOutput = ParsedReadFileOutput | ParsedReadDirectoryOutput
 
 const END_OF_FILE_PATTERN = /^\(End of file - total (\d+) lines\)$/
 const OUTPUT_CAPPED_PATTERN = /^\(Output capped at 50 KB\. Showing lines (\d+)-(\d+)\. Use offset=(\d+) to continue\.\)$/
@@ -102,7 +102,7 @@ const DIRECTORY_COUNT_PATTERN = /^\((\d+) entries\)$/
 const DIRECTORY_TRUNCATED_PATTERN = /^\(Showing (\d+) of (\d+) entries\. Use 'offset' parameter to read beyond entry (\d+)\)$/
 const LINE_PATTERN = /^(\d+): ?(.*)$/
 
-export function parseReadOutput(output: string): ParsedReadOutput {
+function parseReadOutput(output: string): ParsedReadOutput {
   const type = extractTag(output, "type")
 
   if (type === "directory") {

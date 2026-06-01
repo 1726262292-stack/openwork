@@ -6,9 +6,9 @@ interface MessageGroup {
 }
 
 export type UIMessageWithIndex = { index: number, message: UIMessage }
-export type MessageListItem = MessageGroup | UIMessageWithIndex
+type MessageListItem = MessageGroup | UIMessageWithIndex
 
-export function getMessageText(message: UIMessage): string {
+function getMessageText(message: UIMessage): string {
   return message.parts
     .filter((part) => part.type === "text")
     .map((part) => part.text)
@@ -53,10 +53,6 @@ export function isMessageGroup(item: MessageListItem): item is MessageGroup {
   return "messages" in item
 }
 
-export function isFollowedByUserMessage(messages: UIMessage[], index: number) {
-  return index < messages.length && messages[index].role === "user"
-}
-
 export function groupMessages(messages: UIMessage[], status: ThreadStatus): MessageListItem[] {
   const items: MessageListItem[] = []
   let index = 0
@@ -83,7 +79,7 @@ export function groupMessages(messages: UIMessage[], status: ThreadStatus): Mess
   return items
 }
 
-export type AssistantRenderGroup =
+type AssistantRenderGroup =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string; isStreaming: boolean }
   | { kind: "file"; part: FileUIPart }

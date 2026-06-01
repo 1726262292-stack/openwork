@@ -8,7 +8,7 @@ interface EditToolProps {
   part: EditToolPart
 }
 
-export function getEditToolTitle(part: EditToolPart): string | null {
+function getEditToolTitle(part: EditToolPart): string | null {
   const filename = parseFilename(part.input.filePath)
 
   if (part.state === "output-error") {

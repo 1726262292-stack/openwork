@@ -242,7 +242,7 @@ type AssistantMessageProps = {
   isLastStep: boolean
 }
 
-export const AssistantMessage = React.memo(
+const AssistantMessage = React.memo(
   ({ message }: AssistantMessageProps) => {
     const { showThinking } = useMessageList()
     const assistantRenderGroups = React.useMemo(
@@ -331,7 +331,7 @@ function renderUserTextWithSkillChips(text: string) {
   })
 }
 
-export const UserMessage = React.memo(
+const UserMessage = React.memo(
   ({ message, isStreaming }: UserMessageProps) => {
     const { onRevertToUserMessage, onForkAtMessage } = useMessageList()
 
@@ -395,7 +395,7 @@ type MessageComponentProps = {
   isLastStep: boolean
 }
 
-export const MessageComponent = React.memo(
+const MessageComponent = React.memo(
   ({ message, isLastMessage, isStreaming, isLastStep }: MessageComponentProps) => {
     if (isEmptyMessage(message) && !isStreaming) {
       return (

@@ -20,7 +20,7 @@ function getFirstQuestionLabel(part: QuestionToolPart) {
   return label ? truncateText(label, 56) : undefined
 }
 
-export function getQuestionToolTitle(part: QuestionToolPart): string | null {
+function getQuestionToolTitle(part: QuestionToolPart): string | null {
   const label = getFirstQuestionLabel(part)
   const count = part.input.questions.length
 
@@ -39,7 +39,7 @@ export function getQuestionToolTitle(part: QuestionToolPart): string | null {
   return count > 1 ? `Asked ${count} questions` : "Asked a question"
 }
 
-export function getQuestionToolDetail(part: QuestionToolPart): string | undefined {
+function getQuestionToolDetail(part: QuestionToolPart): string | undefined {
   const count = part.input.questions.length
 
   if (part.state === "output-available") {

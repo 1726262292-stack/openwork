@@ -45,28 +45,6 @@ type SessionActivityStore = {
   removeSession: (workspaceId: string, sessionId: string) => void;
 };
 
-export function sessionErrorMessageFromProperties(properties: unknown): string {
-  if (!properties || typeof properties !== "object") {
-    return "Session failed";
-  }
-
-  const record = properties as Record<string, unknown>;
-
-  if (typeof record.error === "object" && record.error !== null && "message" in record.error) {
-    const message = record.error.message;
-
-    if (typeof message === "string" && message.trim()) {
-      return message.trim();
-    }
-  }
-
-  if (typeof record.error === "string" && record.error.trim()) {
-    return record.error.trim();
-  }
-
-  return "Session failed";
-}
-
 const createRecord = (): SessionActivityRecord => ({
   status: "idle",
   runActive: false,

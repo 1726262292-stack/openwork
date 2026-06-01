@@ -1,13 +1,13 @@
 import { create } from "zustand";
 
-export const SESSION_SCROLL_STORAGE_KEY = "openwork:session-scroll:v1";
+const SESSION_SCROLL_STORAGE_KEY = "openwork:session-scroll:v1";
 
-export type StickyBottomSessionScrollState = {
+type StickyBottomSessionScrollState = {
   mode: "stickyBottom";
   topClippedMessageId: string | null;
 };
 
-export type ManualSessionScrollState = {
+type ManualSessionScrollState = {
   mode: "manual";
   scrollTop: number;
   topClippedMessageId: string | null;
@@ -15,9 +15,9 @@ export type ManualSessionScrollState = {
 
 export type SessionScrollState = StickyBottomSessionScrollState | ManualSessionScrollState;
 
-export type SessionScrollStateById = Record<string, SessionScrollState>;
+type SessionScrollStateById = Record<string, SessionScrollState>;
 
-export const INITIAL_SESSION_SCROLL_STATE: StickyBottomSessionScrollState = {
+const INITIAL_SESSION_SCROLL_STATE: StickyBottomSessionScrollState = {
   mode: "stickyBottom",
   topClippedMessageId: null,
 };

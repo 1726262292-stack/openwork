@@ -8,7 +8,7 @@ interface GlobToolProps {
   part: GlobToolPart
 }
 
-export function getGlobToolTitle(part: GlobToolPart): string | null {
+function getGlobToolTitle(part: GlobToolPart): string | null {
   const pattern = part.input.pattern.trim()
 
   if (part.state === "output-error") {
@@ -24,7 +24,7 @@ export function getGlobToolTitle(part: GlobToolPart): string | null {
   return pattern ? `Searched ${truncateText(pattern, 44)}` : "Searched code"
 }
 
-export function getGlobToolDetail(part: GlobToolPart): string | undefined {
+function getGlobToolDetail(part: GlobToolPart): string | undefined {
   const root = part.input.path?.trim()
   if (!root) {
     return undefined
