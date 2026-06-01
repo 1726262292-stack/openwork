@@ -367,8 +367,18 @@ export function SessionPage(props: SessionPageProps) {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
   const openBrowserRailPane = useCallback(() => {
+    // Opening the browser pane should land on a usable page, not an empty
+    // panel that forces the user to click "+". If no browser tab exists yet,
+    // create one (defaults to the new-tab URL in the main process).
+    const opening = !panelRailActive;
+    if (opening && isElectronRuntime()) {
+      const hasBrowserTab = sessionPanelState.tabs.some((tab) => tab.type === "browser");
+      if (!hasBrowserTab) {
+        void window.__OPENWORK_ELECTRON__?.browser?.createTab?.();
+      }
+    }
     toggleCurrentSidePanel("panel");
-  }, [toggleCurrentSidePanel]);
+  }, [panelRailActive, sessionPanelState.tabs, toggleCurrentSidePanel]);
   const openArtifactRailPane = useCallback(() => {
     if (!hasArtifactTargets || !props.selectedSessionId) return;
     const activeTab = sessionPanelState.tabs.find((tab) => tab.id === sessionPanelState.activeTabId);

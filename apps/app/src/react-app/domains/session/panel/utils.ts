@@ -12,12 +12,12 @@ export function getNativeMenuPoint(
   el: HTMLElement | null,
   point?: { clientX: number; clientY: number },
 ) {
-  const zoom = window.__OPENWORK_ZOOM_FACTOR__ ?? 1;
-
+  // Same coordinate space as computeBounds: viewport CSS px already match the
+  // content-area DIP the native overlay uses, so no zoom multiplication.
   if (point) {
     return {
-      x: Math.round(point.clientX * zoom),
-      y: Math.round(point.clientY * zoom),
+      x: Math.round(point.clientX),
+      y: Math.round(point.clientY),
     };
   }
 
@@ -28,20 +28,26 @@ export function getNativeMenuPoint(
   const rect = el.getBoundingClientRect();
 
   return {
-    x: Math.round((rect.left + 8) * zoom),
-    y: Math.round((rect.bottom + 4) * zoom),
+    x: Math.round(rect.left + 8),
+    y: Math.round(rect.bottom + 4),
   };
 }
 
 export function computeBounds(el: HTMLElement) {
+  // WebContentsView.setBounds expects device-independent pixels relative to the
+  // window content area — the same space getBoundingClientRect() reports. The
+  // renderer's zoom is already baked into the measured rect, so it must NOT be
+  // multiplied in again (doing so pushed the native view off-panel at zoom != 1).
+  // Derive width/height from rounded edges to avoid a 1px seam on the far edge.
   const rect = el.getBoundingClientRect();
-  const zoom = window.__OPENWORK_ZOOM_FACTOR__ ?? 1;
+  const x = Math.round(rect.x);
+  const y = Math.round(rect.y);
 
   return {
-    x: Math.round(rect.x * zoom),
-    y: Math.round(rect.y * zoom),
-    width: Math.round(rect.width * zoom),
-    height: Math.round(rect.height * zoom),
+    x,
+    y,
+    width: Math.round(rect.right) - x,
+    height: Math.round(rect.bottom) - y,
   };
 }
 

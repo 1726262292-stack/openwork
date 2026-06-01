@@ -477,6 +477,9 @@ let browserViewVisible = false;
 let lastBrowserBounds = null;
 let browserTabCounter = 0;
 const BROWSER_DEFAULT_URL = "about:blank";
+// URL a user-initiated new tab (the "+" button / opening the browser panel)
+// lands on. The agent's programmatic path keeps BROWSER_DEFAULT_URL.
+const BROWSER_NEW_TAB_URL = "https://www.google.com";
 const MENU_OVERLAY_HTML = "overlay.html";
 const MENU_OVERLAY_WIDTH = 196;
 const MENU_OVERLAY_HEIGHT = 176;
@@ -2978,7 +2981,8 @@ ipcMain.handle("openwork:browser:bounds", (_event, bounds) => {
 });
 ipcMain.handle("openwork:browser:state", () => browserStatePayload());
 ipcMain.handle("openwork:browser:createTab", (_event, url) => {
-  const tab = createBrowserTab(url ?? "about:blank", { select: true });
+  const target = typeof url === "string" && url.trim() ? url : BROWSER_NEW_TAB_URL;
+  const tab = createBrowserTab(target, { select: true });
   return { tabId: tab.tabId };
 });
 ipcMain.handle("openwork:browser:closeTab", (_event, tabId) => closeBrowserTab(tabId == null ? undefined : String(tabId)));
