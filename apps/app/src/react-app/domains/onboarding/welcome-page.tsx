@@ -120,6 +120,9 @@ function ShowcasePanel() {
 
 type WelcomePageProps = {
   onGetStarted: () => void;
+  getStartedLabel?: string;
+  busy?: boolean;
+  error?: string | null;
 };
 
 type OnboardingStepProps = {
@@ -142,7 +145,7 @@ function OnboardingStep({ number, title, children }: OnboardingStepProps) {
   );
 }
 
-export function WelcomePage({ onGetStarted }: WelcomePageProps) {
+export function WelcomePage({ onGetStarted, getStartedLabel, busy, error }: WelcomePageProps) {
   return (
     <Page className="min-h-screen">
       <PageBackground />
@@ -168,8 +171,8 @@ export function WelcomePage({ onGetStarted }: WelcomePageProps) {
                       Get started
                     </h2>
                   </div>
-                  <OnboardingStep number="1" title="Select a folder">
-                    Pick any folder on your machine to create a workspace.
+                  <OnboardingStep number="1" title="Pick a folder">
+                    Choose any folder on your machine to get started.
                   </OnboardingStep>
                   <OnboardingStep number="2" title="Chat">
                     Describe what you need. OpenWork handles the rest.
@@ -179,13 +182,19 @@ export function WelcomePage({ onGetStarted }: WelcomePageProps) {
                   </OnboardingStep>
                 </div>
 
-                <Button
-                  size="lg"
-                  className="w-full"
-                  onClick={onGetStarted}
-                >
-                  {t("welcome.get_started")}
-                </Button>
+                <div className="space-y-2">
+                  <Button
+                    size="lg"
+                    className="w-full"
+                    onClick={onGetStarted}
+                    disabled={busy}
+                  >
+                    {busy ? t("welcome.creating_workspace") : (getStartedLabel || t("welcome.get_started"))}
+                  </Button>
+                  {error ? (
+                    <p className="text-center text-xs text-destructive">{error}</p>
+                  ) : null}
+                </div>
               </div>
             </div>
 

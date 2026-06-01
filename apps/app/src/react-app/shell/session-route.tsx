@@ -76,7 +76,7 @@ import { t } from "../../i18n";
 import { useLocal } from "../kernel/local-provider";
 import { usePlatform } from "../kernel/platform";
 import { SessionPage } from "../domains/session/chat/session-page";
-import { isDesktopProviderBlocked } from "../../app/cloud/desktop-app-restrictions";
+import { isDesktopProviderBlocked, DESKTOP_RESTRICTION_OPENCODE_PROVIDER_ID } from "../../app/cloud/desktop-app-restrictions";
 import { useCheckDesktopRestriction } from "../domains/cloud/desktop-config-provider";
 import { useRestrictionNotice } from "../domains/cloud/restriction-notice-provider";
 import { ReactSessionRuntime } from "../domains/session/sync/runtime-sync";
@@ -582,6 +582,12 @@ export function SessionRoute() {
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
   const [providerDefaults, setProviderDefaults] = useState<Record<string, string>>({});
   const [providerConnectedIds, setProviderConnectedIds] = useState<string[]>([]);
+  // Exclude the built-in OpenCode Zen provider from the "user" count so the
+  // onboarding CTA ("Connect a model") only considers user-added providers.
+  const userProviderConnectedIds = useMemo(
+    () => providerConnectedIds.filter((id) => id !== DESKTOP_RESTRICTION_OPENCODE_PROVIDER_ID),
+    [providerConnectedIds],
+  );
   const [disabledProviderIds, setDisabledProviderIds] = useState<string[]>([]);
   // Bump to re-filter provider list when den session changes (sign-in/out)
   const [denSessionVersion, setDenSessionVersion] = useState(0);
@@ -1631,7 +1637,7 @@ export function SessionRoute() {
     window.location.hash = hash.replace(/[?&]onboarding=1/, "");
     // Give the provider store a moment to hydrate, then check.
     const timer = window.setTimeout(() => {
-      if (providerConnectedIds.length === 0) {
+      if (userProviderConnectedIds.length === 0) {
         sessionProviderAuthStore.openProviderAuthModal();
       }
     }, 1500);
@@ -2049,7 +2055,7 @@ export function SessionRoute() {
         }));
         setCompactModelPickerOpen(false);
       },
-      providerConnectedCount: providerConnectedIds.length,
+      providerConnectedCount: userProviderConnectedIds.length,
       onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
         handleOpenSettings(section === "skills" ? "/settings/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
       },
@@ -2733,7 +2739,7 @@ export function SessionRoute() {
       headerStatus={canCreateTask ? t("status.connected") : t("session.loading_detail")}
       busyHint={effectiveLoading ? t("session.loading_detail") : null}
       startupPhase={effectiveLoading ? "nativeInit" : "ready"}
-      providerConnectedIds={providerConnectedIds}
+      providerConnectedIds={userProviderConnectedIds}
       providers={providers}
       mcpConnectedCount={0}
       onSendFeedback={() => {

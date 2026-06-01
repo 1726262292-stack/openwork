@@ -14,10 +14,13 @@ import {
 import { isDesktopRuntime } from "../../app/utils";
 import { createClient, unwrap } from "../../app/lib/opencode";
 import { useLocal } from "../kernel/local-provider";
+import { usePlatform } from "../kernel/platform";
 import { WelcomePage } from "../domains/onboarding/welcome-page";
+import { ProviderSelectionStep } from "../domains/onboarding/provider-selection-step";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
 import { resolveOpenworkConnection } from "./openwork-connection";
 import { buildOpenworkWorkspaceBaseUrl, createOpenworkServerClient } from "../../app/lib/openwork-server";
+import { buildDenAuthUrl, readDenSettings } from "../../app/lib/den";
 import { writeActiveWorkspaceId, writeLastSessionFor } from "./session-memory";
 import { workspaceSessionRoute } from "./workspace-routes";
 
@@ -39,6 +42,9 @@ type WelcomeState = {
   createError: string | null;
   remoteBusy: boolean;
   remoteError: string | null;
+  providerStep: boolean;
+  pendingWorkspaceId: string | null;
+  pendingSessionId: string | null;
 };
 
 type WelcomeAction =
@@ -49,7 +55,8 @@ type WelcomeAction =
   | { type: "create:finish" }
   | { type: "remote:start" }
   | { type: "remote:error"; error: string }
-  | { type: "remote:finish" };
+  | { type: "remote:finish" }
+  | { type: "provider-step"; workspaceId: string; sessionId: string | null };
 
 const initialWelcomeState: WelcomeState = {
   modalOpen: false,
@@ -57,6 +64,9 @@ const initialWelcomeState: WelcomeState = {
   createError: null,
   remoteBusy: false,
   remoteError: null,
+  providerStep: false,
+  pendingWorkspaceId: null,
+  pendingSessionId: null,
 };
 
 function welcomeReducer(state: WelcomeState, action: WelcomeAction): WelcomeState {
@@ -77,6 +87,8 @@ function welcomeReducer(state: WelcomeState, action: WelcomeAction): WelcomeStat
       return { ...state, remoteError: action.error };
     case "remote:finish":
       return { ...state, remoteBusy: false };
+    case "provider-step":
+      return { ...state, providerStep: true, pendingWorkspaceId: action.workspaceId, pendingSessionId: action.sessionId };
   }
 }
 
@@ -91,6 +103,7 @@ function welcomeReducer(state: WelcomeState, action: WelcomeAction): WelcomeStat
 export function WelcomeRoute() {
   const navigate = useNavigate();
   const local = useLocal();
+  const platform = usePlatform();
   const [state, dispatch] = useReducer(welcomeReducer, initialWelcomeState);
 
   // If user already completed onboarding, redirect away immediately.
@@ -167,9 +180,9 @@ export function WelcomeRoute() {
         }
         markOnboardingComplete();
         dispatch({ type: "close" });
-        const sessionRoute = targetWorkspaceId ? workspaceSessionRoute(targetWorkspaceId, targetSessionId) : "/session";
-        navigate(`${sessionRoute}?onboarding=1`, { replace: true });
-        if (targetSessionId) focusPromptSoon();
+        // Show the provider selection step before navigating to the session.
+        dispatch({ type: "provider-step", workspaceId: targetWorkspaceId, sessionId: targetSessionId });
+
       } catch (error) {
         dispatch({
           type: "create:error",
@@ -245,9 +258,25 @@ export function WelcomeRoute() {
     [markOnboardingComplete, navigate],
   );
 
+  const handleGetStarted = useCallback(async () => {
+    if (!isDesktopRuntime()) {
+      // Non-desktop: fall back to the modal for remote workspace creation.
+      dispatch({ type: "open" });
+      return;
+    }
+    const folder = await pickDirectory({ title: t("onboarding.authorize_folder") }) as string | null;
+    if (!folder) return;
+    await handleCreateWorkspace("starter", folder);
+  }, [handleCreateWorkspace]);
+
   return (
     <>
-      <WelcomePage onGetStarted={() => dispatch({ type: "open" })} />
+      <WelcomePage
+        onGetStarted={handleGetStarted}
+        getStartedLabel={t("welcome.pick_folder")}
+        busy={state.createBusy}
+        error={state.createError}
+      />
       <CreateWorkspaceModal
         open={state.modalOpen}
         onClose={() => dispatch({ type: "close" })}
@@ -269,6 +298,34 @@ export function WelcomeRoute() {
             : t("app.local_disabled_reason")
         }
       />
+      {state.providerStep ? (
+        <ProviderSelectionStep
+          onOpenWorkModels={() => {
+            const settings = readDenSettings();
+            platform.openLink(buildDenAuthUrl(settings.baseUrl, "sign-up"));
+            // Navigate to session after opening sign-up — user will complete in browser
+            const route = state.pendingWorkspaceId
+              ? workspaceSessionRoute(state.pendingWorkspaceId, state.pendingSessionId)
+              : "/session";
+            navigate(route, { replace: true });
+            if (state.pendingSessionId) focusPromptSoon();
+          }}
+          onBringYourOwn={() => {
+            const route = state.pendingWorkspaceId
+              ? workspaceSessionRoute(state.pendingWorkspaceId, state.pendingSessionId)
+              : "/session";
+            navigate(`${route}?onboarding=1`, { replace: true });
+            if (state.pendingSessionId) focusPromptSoon();
+          }}
+          onSkip={() => {
+            const route = state.pendingWorkspaceId
+              ? workspaceSessionRoute(state.pendingWorkspaceId, state.pendingSessionId)
+              : "/session";
+            navigate(route, { replace: true });
+            if (state.pendingSessionId) focusPromptSoon();
+          }}
+        />
+      ) : null}
     </>
   );
 }
