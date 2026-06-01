@@ -8,16 +8,27 @@ export function getElectronBrowser() {
   return window.__OPENWORK_ELECTRON__?.browser ?? null;
 }
 
+// The renderer uses Electron's webContents.setZoomFactor, which scales the page
+// so getBoundingClientRect() / innerWidth report CSS pixels DIVIDED by the zoom
+// factor (e.g. at zoom 1.5 a 1180 DIP window measures ~786). WebContentsView
+// bounds, however, are in window device-independent pixels. So renderer rects
+// must be multiplied back by the zoom factor to land in the native coordinate
+// space. At zoom = 1 this is the identity.
+function getZoomFactor() {
+  const zoom = window.__OPENWORK_ZOOM_FACTOR__;
+  return typeof zoom === "number" && zoom > 0 ? zoom : 1;
+}
+
 export function getNativeMenuPoint(
   el: HTMLElement | null,
   point?: { clientX: number; clientY: number },
 ) {
-  // Same coordinate space as computeBounds: viewport CSS px already match the
-  // content-area DIP the native overlay uses, so no zoom multiplication.
+  const zoom = getZoomFactor();
+
   if (point) {
     return {
-      x: Math.round(point.clientX),
-      y: Math.round(point.clientY),
+      x: Math.round(point.clientX * zoom),
+      y: Math.round(point.clientY * zoom),
     };
   }
 
@@ -28,26 +39,24 @@ export function getNativeMenuPoint(
   const rect = el.getBoundingClientRect();
 
   return {
-    x: Math.round(rect.left + 8),
-    y: Math.round(rect.bottom + 4),
+    x: Math.round((rect.left + 8) * zoom),
+    y: Math.round((rect.bottom + 4) * zoom),
   };
 }
 
 export function computeBounds(el: HTMLElement) {
-  // WebContentsView.setBounds expects device-independent pixels relative to the
-  // window content area — the same space getBoundingClientRect() reports. The
-  // renderer's zoom is already baked into the measured rect, so it must NOT be
-  // multiplied in again (doing so pushed the native view off-panel at zoom != 1).
-  // Derive width/height from rounded edges to avoid a 1px seam on the far edge.
+  // Scale each edge to native DIP, then derive width/height from the rounded
+  // edges so the far edge has no sub-pixel seam at any zoom level.
   const rect = el.getBoundingClientRect();
-  const x = Math.round(rect.x);
-  const y = Math.round(rect.y);
+  const zoom = getZoomFactor();
+  const x = Math.round(rect.x * zoom);
+  const y = Math.round(rect.y * zoom);
 
   return {
     x,
     y,
-    width: Math.round(rect.right) - x,
-    height: Math.round(rect.bottom) - y,
+    width: Math.round(rect.right * zoom) - x,
+    height: Math.round(rect.bottom * zoom) - y,
   };
 }
 
