@@ -404,6 +404,67 @@ export function useControlAction(action: OpenworkControlAction | null | false | 
   }, [actionId, registerAction]);
 }
 
+/**
+ * Register a dynamic list of control actions. Unlike calling useControlAction
+ * per item, this scales to an arbitrary, changing number of actions without
+ * violating the rules of hooks. Each action is tracked by its stable id; the
+ * latest closure for that id is always used, and removed ids are unregistered.
+ */
+export function useControlActions(actions: readonly OpenworkControlAction[]) {
+  const control = useOpenworkControl();
+  const registerAction = control?.registerAction;
+
+  // One ref per action id, so executeAction always sees the freshest closure.
+  const refsById = useRef<Map<string, { current: OpenworkControlAction | null }>>(new Map());
+  for (const action of actions) {
+    const existing = refsById.current.get(action.id);
+    if (existing) {
+      existing.current = action;
+    } else {
+      refsById.current.set(action.id, { current: action });
+    }
+  }
+
+  const ids = actions.map((action) => action.id).join("\u0000");
+
+  useEffect(() => {
+    if (!registerAction) return undefined;
+    const liveIds = new Set(actions.map((action) => action.id));
+    // Drop refs for ids that no longer exist.
+    for (const id of Array.from(refsById.current.keys())) {
+      if (!liveIds.has(id)) refsById.current.delete(id);
+    }
+    const cleanups = actions.map((action) => {
+      const ref = refsById.current.get(action.id);
+      return ref ? registerAction(action.id, ref) : undefined;
+    });
+    return () => {
+      for (const cleanup of cleanups) cleanup?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registerAction, ids]);
+}
+
+const SETTINGS_TABS: ReadonlySet<string> = new Set<string>([
+  "general",
+  "ai",
+  "preferences",
+  "permissions",
+  "shell",
+  "cloud-account",
+  "cloud-marketplaces",
+  "cloud-workers",
+  "cloud-providers",
+  "skills",
+  "extensions",
+  "environment",
+  "advanced",
+  "appearance",
+  "updates",
+  "recovery",
+  "debug",
+]);
+
 export function OpenworkRouteControlActions() {
   const navigate = useNavigate();
 
@@ -457,14 +518,51 @@ export function OpenworkRouteControlActions() {
       sideEffect: "navigation",
       execute: () => navigate("/settings/appearance"),
     },
+    {
+      id: "settings.panel.open",
+      label: "Open a settings panel",
+      description: "Navigate to a specific settings panel by tab id.",
+      sideEffect: "navigation",
+      requiresArgs: true,
+      args: [
+        {
+          name: "panel",
+          type: "string",
+          required: true,
+          description:
+            "Settings tab: general | ai | preferences | permissions | shell | extensions | skills | environment | advanced | appearance | updates | recovery | debug | cloud-account | cloud-workers | cloud-providers | cloud-marketplaces",
+        },
+      ],
+      previewArgs: { panel: "ai" },
+      execute: (args) => {
+        const requested = (args as { panel?: unknown } | undefined)?.panel;
+        const panel = typeof requested === "string" ? requested.trim() : "";
+        if (!SETTINGS_TABS.has(panel)) {
+          return {
+            ok: false,
+            error: `Unknown settings panel: ${panel || "(empty)"}. Expected one of ${Array.from(SETTINGS_TABS).join(", ")}.`,
+          };
+        }
+        navigate(`/settings/${panel}`);
+        return { ok: true, panel };
+      },
+    },
+    {
+      id: "route.back",
+      label: "Go back",
+      description: "Navigate back one entry in history.",
+      sideEffect: "navigation",
+      execute: () => navigate(-1),
+    },
+    {
+      id: "route.forward",
+      label: "Go forward",
+      description: "Navigate forward one entry in history.",
+      sideEffect: "navigation",
+      execute: () => navigate(1),
+    },
   ], [navigate]);
 
-  useControlAction(actions[0]);
-  useControlAction(actions[1]);
-  useControlAction(actions[2]);
-  useControlAction(actions[3]);
-  useControlAction(actions[4]);
-  useControlAction(actions[5]);
-  useControlAction(actions[6]);
+  useControlActions(actions);
   return null;
 }
