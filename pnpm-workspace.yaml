@@ -2,6 +2,13 @@ minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
   - "@opencode-ai/sdk"
 
+# Do not auto-verify node_modules against the lockfile before running scripts.
+# A stale/out-of-date lockfile (e.g. an in-progress, uncommitted workspace
+# package not yet reflected in pnpm-lock.yaml) must NEVER cause a read-only
+# command like `pnpm run typecheck` to trigger an implicit `pnpm install`,
+# which can destructively purge the root node_modules directory.
+verifyDepsBeforeRun: false
+
 packages:
   - "apps/*"
   - "packages/*"

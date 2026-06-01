@@ -12,7 +12,6 @@
     "prebuild:web": "pnpm --dir ../../packages/ui build",
     "build:web": "vite build",
     "preview": "vite preview",
-    "pretypecheck": "pnpm --dir ../../packages/ui build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:health": "node scripts/health.mjs",
     "test:mention-send": "node scripts/mention-send.mjs",
