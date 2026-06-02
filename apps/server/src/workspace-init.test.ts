@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ensureWorkspaceFiles } from "./workspace-init.js";
-import { openworkExtensionsPreviewPluginPath } from "./openwork-extensions-plugin-path.js";
+import { openworkExtensionsPreviewPluginPath, openworkPluginPath } from "./openwork-extensions-plugin-path.js";
 
 async function withWorkspace(fn: (root: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "openwork-workspace-init-"));
@@ -34,6 +34,27 @@ describe("ensureWorkspaceFiles", () => {
     const plugin = await readFile(pluginPath, "utf8");
     expect(pluginPath).toContain(join("opencode-plugins", "openwork-extensions-preview.ts"));
     expect(plugin).toContain("openwork_extension_call");
+  });
+
+  test("uses external resources plugin path in packaged Electron", () => {
+    const previousResourcesPath = process.resourcesPath;
+    const resourcesPath = join("/Applications", "OpenWork.app", "Contents", "Resources");
+    process.resourcesPath = resourcesPath;
+    try {
+      const pluginPath = openworkPluginPath(
+        "openwork-extensions-preview",
+        join(resourcesPath, "app.asar", "server", "dist"),
+      );
+
+      expect(pluginPath).toBe(join(resourcesPath, "opencode-plugins", "openwork-extensions-preview.js"));
+      expect(pluginPath).not.toContain("app.asar");
+    } finally {
+      if (previousResourcesPath) {
+        process.resourcesPath = previousResourcesPath;
+      } else {
+        delete process.resourcesPath;
+      }
+    }
   });
 
   test("does not create workspace extension preview plugin", async () => {
