@@ -73,6 +73,8 @@ export const idTypesMapNameToPrefix = {
   daytonaSandbox: "dts",
   workerToken: "wkt",
   workerBundle: "wkb",
+  cloudTask: "ctk",
+  cloudTaskRun: "ctr",
   auditEvent: "aev",
   telemetryEvent: "tev",
 } as const

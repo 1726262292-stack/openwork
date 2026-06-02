@@ -14,6 +14,7 @@ import type { MemberTeamsContext, OrganizationContextVariables, UserOrganization
 import { buildOperationId, emptyResponse, htmlResponse, jsonResponse } from "./openapi.js"
 import { registerAdminRoutes } from "./routes/admin/index.js"
 import { registerAuthRoutes } from "./routes/auth/index.js"
+import { registerCloudTaskRoutes } from "./routes/cloud-tasks/index.js"
 import { registerMeRoutes } from "./routes/me/index.js"
 import { registerOrgRoutes } from "./routes/org/index.js"
 import { registerTelemetryRoutes } from "./routes/telemetry/index.js"
@@ -117,6 +118,7 @@ app.get(
 
 registerAdminRoutes(app)
 registerAuthRoutes(app)
+registerCloudTaskRoutes(app)
 registerMeRoutes(app)
 registerOrgRoutes(app)
 registerVersionRoutes(app)
@@ -169,6 +171,7 @@ app.get(
         { name: "LLM Providers", description: "Organization LLM provider catalog, configuration, and access routes." },
         { name: "Skills", description: "Organization skill authoring and sharing routes." },
         { name: "Skill Hubs", description: "Organization skill hub management and access routes." },
+        { name: "Cloud Tasks", description: "Task-first OpenWork Cloud automations and run dispatch." },
         { name: "Workers", description: "Worker lifecycle, billing, and runtime routes." },
         { name: "Worker Runtime", description: "Worker runtime inspection and upgrade routes." },
         { name: "Worker Activity", description: "Worker heartbeat and activity reporting routes." },

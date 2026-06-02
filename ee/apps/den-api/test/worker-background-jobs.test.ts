@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   buildBackgroundJobPromptBody,
+  buildCloudTaskRunJobInput,
   readOpencodeSessionId,
   startWorkerBackgroundJob,
 } from "../src/workers/background-jobs.js"
@@ -33,6 +34,29 @@ describe("worker background jobs", () => {
       agent: "openwork",
       variant: "medium",
       parts: [{ type: "text", text: "Review the repo" }],
+    })
+  })
+
+  test("builds worker job input from a cloud task row without changing secrets", () => {
+    expect(buildCloudTaskRunJobInput({
+      task: {
+        name: "Daily repo review",
+        prompt: "Review the repo",
+        model_provider_id: "openwork",
+        model_id: "openwork/deepseek/deepseek-v4-flash",
+        agent: "openwork",
+        variant: "medium",
+      },
+      openworkUrl: "https://worker.example/w/ws_1",
+      clientToken: "client-token",
+    })).toEqual({
+      openworkUrl: "https://worker.example/w/ws_1",
+      clientToken: "client-token",
+      prompt: "Review the repo",
+      title: "Daily repo review",
+      model: { providerID: "openwork", modelID: "openwork/deepseek/deepseek-v4-flash" },
+      agent: "openwork",
+      variant: "medium",
     })
   })
 

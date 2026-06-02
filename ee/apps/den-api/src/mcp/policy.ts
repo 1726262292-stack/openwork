@@ -11,6 +11,7 @@ const SAFE_INCLUDED_TAGS = new Set([
   "LLM Providers",
   "Skills",
   "Skill Hubs",
+  "Cloud Tasks",
   "Workers",
   "Worker Runtime",
   "Worker Activity",
@@ -31,6 +32,10 @@ const BLOCKED_OPERATION_IDS = new Set([
   "deleteV1OrgsByOrgId",
   "postWorkersByWorkerIdTokens",
   "postV1WorkersByWorkerIdTokens",
+  "postWorkersByIdBackgroundJobs",
+  "postV1WorkersByIdBackgroundJobs",
+  "postWorkersByWorkerIdBackgroundJobs",
+  "postV1WorkersByWorkerIdBackgroundJobs",
 ])
 
 export type OpenApiOperation = {

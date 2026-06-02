@@ -13,6 +13,15 @@ export type WorkerBackgroundJobInput = {
   variant?: string
 }
 
+type CloudTaskJobSource = {
+  name: string
+  prompt: string
+  model_provider_id: string | null
+  model_id: string | null
+  agent: string | null
+  variant: string | null
+}
+
 export type WorkerBackgroundJobResult = {
   jobId: string
   status: "accepted"
@@ -68,6 +77,26 @@ export function buildBackgroundJobPromptBody(input: WorkerBackgroundJobInput) {
     ...(input.agent ? { agent: input.agent } : {}),
     ...(input.variant ? { variant: input.variant } : {}),
     parts: [{ type: "text", text: input.prompt }],
+  }
+}
+
+export function buildCloudTaskRunJobInput(input: {
+  task: CloudTaskJobSource
+  openworkUrl: string
+  clientToken: string
+}): WorkerBackgroundJobInput {
+  const model = input.task.model_provider_id && input.task.model_id
+    ? { providerID: input.task.model_provider_id, modelID: input.task.model_id }
+    : undefined
+
+  return {
+    openworkUrl: input.openworkUrl,
+    clientToken: input.clientToken,
+    prompt: input.task.prompt,
+    title: input.task.name,
+    ...(model ? { model } : {}),
+    ...(input.task.agent ? { agent: input.task.agent } : {}),
+    ...(input.task.variant ? { variant: input.task.variant } : {}),
   }
 }
 

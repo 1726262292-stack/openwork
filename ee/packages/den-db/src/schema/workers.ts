@@ -1,9 +1,11 @@
-import { index, json, mysqlEnum, mysqlTable, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core"
+import { boolean, index, json, mysqlEnum, mysqlTable, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core"
 import { denTypeIdColumn, timestamps } from "../columns"
 
 export const WorkerDestination = ["local", "cloud"] as const
 export const WorkerStatus = ["provisioning", "healthy", "failed", "stopped"] as const
 export const TokenScope = ["client", "host", "activity"] as const
+export const CloudTaskScheduleType = ["manual", "daily"] as const
+export const CloudTaskRunStatus = ["pending", "provisioning", "running", "accepted", "failed", "cancelled"] as const
 
 export const WorkerTable = mysqlTable(
   "worker",
@@ -87,6 +89,57 @@ export const WorkerBundleTable = mysqlTable(
     created_at: timestamps.created_at,
   },
   (table) => [index("worker_bundle_worker_id").on(table.worker_id)],
+)
+
+export const CloudTaskTable = mysqlTable(
+  "cloud_task",
+  {
+    id: denTypeIdColumn("cloudTask", "id").notNull().primaryKey(),
+    org_id: denTypeIdColumn("org", "org_id").notNull(),
+    created_by_user_id: denTypeIdColumn("user", "created_by_user_id"),
+    created_by_member_id: denTypeIdColumn("member", "created_by_member_id"),
+    name: varchar("name", { length: 255 }).notNull(),
+    prompt: varchar("prompt", { length: 12000 }).notNull(),
+    schedule_type: mysqlEnum("schedule_type", CloudTaskScheduleType).notNull(),
+    schedule_time_of_day: varchar("schedule_time_of_day", { length: 5 }),
+    schedule_timezone: varchar("schedule_timezone", { length: 64 }),
+    model_provider_id: varchar("model_provider_id", { length: 255 }),
+    model_id: varchar("model_id", { length: 255 }),
+    agent: varchar("agent", { length: 255 }),
+    variant: varchar("variant", { length: 255 }),
+    enabled: boolean("enabled").notNull().default(true),
+    next_run_at: timestamp("next_run_at", { fsp: 3 }),
+    last_run_id: denTypeIdColumn("cloudTaskRun", "last_run_id"),
+    ...timestamps,
+  },
+  (table) => [
+    index("cloud_task_org_id").on(table.org_id),
+    index("cloud_task_created_by_user_id").on(table.created_by_user_id),
+    index("cloud_task_next_run_at").on(table.next_run_at),
+  ],
+)
+
+export const CloudTaskRunTable = mysqlTable(
+  "cloud_task_run",
+  {
+    id: denTypeIdColumn("cloudTaskRun", "id").notNull().primaryKey(),
+    task_id: denTypeIdColumn("cloudTask", "task_id").notNull(),
+    org_id: denTypeIdColumn("org", "org_id").notNull(),
+    worker_id: denTypeIdColumn("worker", "worker_id"),
+    status: mysqlEnum("status", CloudTaskRunStatus).notNull(),
+    session_id: varchar("session_id", { length: 128 }),
+    openwork_url: varchar("openwork_url", { length: 2048 }),
+    error_message: varchar("error_message", { length: 2048 }),
+    started_at: timestamp("started_at", { fsp: 3 }),
+    completed_at: timestamp("completed_at", { fsp: 3 }),
+    ...timestamps,
+  },
+  (table) => [
+    index("cloud_task_run_task_id").on(table.task_id),
+    index("cloud_task_run_org_id").on(table.org_id),
+    index("cloud_task_run_worker_id").on(table.worker_id),
+    index("cloud_task_run_status").on(table.status),
+  ],
 )
 
 export const AuditEventTable = mysqlTable(
