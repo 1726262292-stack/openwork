@@ -30,6 +30,8 @@ type SessionManagementActions = {
   reorderSessions: (workspaceId: string, sessionIds: string[]) => void;
   assignGroup: (workspaceId: string, sessionId: string, groupId: string | null) => void;
   createGroup: (workspaceId: string, label: string) => void;
+  /** Remove a group definition. Sessions assigned to it become ungrouped. */
+  removeGroup: (workspaceId: string, groupId: string) => void;
   forgetWorkspace: (workspaceId: string) => void;
 };
 
@@ -85,6 +87,23 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
             groupsByWorkspace: {
               ...state.groupsByWorkspace,
               [workspaceId]: { ...ws, groups: [...ws.groups, { id, label }] },
+            },
+          };
+        }),
+
+      removeGroup: (workspaceId, groupId) =>
+        set((state) => {
+          const ws = state.groupsByWorkspace[workspaceId] ?? EMPTY_GROUP_STATE;
+          const groups = ws.groups.filter((g) => g.id !== groupId);
+          // Unassign sessions that belonged to the removed group.
+          const assignments: Record<string, string> = {};
+          for (const [sid, gid] of Object.entries(ws.assignments)) {
+            if (gid !== groupId) assignments[sid] = gid;
+          }
+          return {
+            groupsByWorkspace: {
+              ...state.groupsByWorkspace,
+              [workspaceId]: { groups, assignments },
             },
           };
         }),

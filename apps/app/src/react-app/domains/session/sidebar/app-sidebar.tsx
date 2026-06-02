@@ -86,12 +86,13 @@ import {
   workspaceKindLabel,
   workspaceLabel,
 } from "./utils";
-import type { SessionListItem, SessionTreeState } from "./utils";
+import type { FlattenedSessionRow, SessionListItem, SessionTreeState } from "./utils";
 import {
   useSessionManagementStore,
   usePinnedSessionIds,
   useSessionOrder,
   useWorkspaceGroups,
+  type SessionGroupDefinition,
 } from "./session-management-store";
 import { cn } from "@/lib/utils";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
@@ -970,46 +971,44 @@ function WorkspaceSidebarGroup({
                   </SidebarMenuSubItem>
                 ) : activeSessions.length > 0 || archivedSessions.length > 0 ? (
                   <>
-                    <Reorder.Group
-                      as="div"
-                      axis="y"
-                      values={visibleRootIds}
-                      onReorder={(ids) => {
-                        // Append non-visible root IDs so hidden sessions keep their saved order.
-                        const visible = new Set(ids);
-                        const allRootIds = getRootSessions(activeSessions).map((s) => s.id);
-                        const full = [...ids, ...allRootIds.filter((id) => !visible.has(id))];
-                        store.getState().reorderSessions(workspace.id, full);
-                      }}
-                      className="flex flex-col"
-                    >
-                      {sessionRows.map((row, idx) => {
-                        const groupId = wsAssignments[row.session.id] ?? null;
-                        // Only compare against the previous *root-level* row to
-                        // avoid spurious separators between a parent and its children.
-                        let prevRootGroupId: string | null = null;
-                        for (let j = idx - 1; j >= 0; j--) {
-                          if (sessionRows[j].depth === 0) { prevRootGroupId = wsAssignments[sessionRows[j].session.id] ?? null; break; }
-                        }
-                        const separator = row.depth === 0 && groupId && groupId !== prevRootGroupId
-                          ? wsGroups.find((g) => g.id === groupId)
-                          : null;
-                        return (
-                          <React.Fragment key={row.session.id}>
-                            {separator ? <SessionGroupSeparator label={separator.label} /> : null}
-                            <SessionMenuItem
-                              session={row.session}
-                              depth={row.depth}
-                              tree={tree}
-                              workspaceId={workspace.id}
-                              forcedExpandedSessionIds={forcedExpandedSessionIds}
-                              isPinned={pinnedIds.has(row.session.id)}
-                              draggable={row.depth === 0}
-                            />
-                          </React.Fragment>
-                        );
-                      })}
-                    </Reorder.Group>
+                    {wsGroups.length > 0 ? (
+                      <GroupedSessionList
+                        sessionRows={sessionRows}
+                        groups={wsGroups}
+                        assignments={wsAssignments}
+                        pinnedIds={pinnedIds}
+                        tree={tree}
+                        workspaceId={workspace.id}
+                        forcedExpandedSessionIds={forcedExpandedSessionIds}
+                        store={store}
+                      />
+                    ) : (
+                      <Reorder.Group
+                        as="div"
+                        axis="y"
+                        values={visibleRootIds}
+                        onReorder={(ids) => {
+                          const visible = new Set(ids);
+                          const allRootIds = getRootSessions(activeSessions).map((s) => s.id);
+                          const full = [...ids, ...allRootIds.filter((id) => !visible.has(id))];
+                          store.getState().reorderSessions(workspace.id, full);
+                        }}
+                        className="flex flex-col"
+                      >
+                        {sessionRows.map((row) => (
+                          <SessionMenuItem
+                            key={row.session.id}
+                            session={row.session}
+                            depth={row.depth}
+                            tree={tree}
+                            workspaceId={workspace.id}
+                            forcedExpandedSessionIds={forcedExpandedSessionIds}
+                            isPinned={pinnedIds.has(row.session.id)}
+                            draggable={row.depth === 0}
+                          />
+                        ))}
+                      </Reorder.Group>
+                    )}
                     {activeRootCount > previewCount ? (
                       <SidebarMenuSubItem>
                         <SidebarMenuSubButton
@@ -1064,13 +1063,117 @@ function WorkspaceSidebarGroup({
   );
 }
 
-function SessionGroupSeparator({ label }: { label: string }) {
+function SessionGroupSeparator({ label, onRemove }: { label: string; onRemove?: () => void }) {
   return (
-    <div className="px-2 pb-1 pt-2.5 first:pt-1">
+    <div className="group/separator flex items-center gap-1 px-2 pb-1 pt-2.5 first:pt-1">
       <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
+      {onRemove ? (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="ml-auto size-4 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity hover:text-destructive group-hover/separator:opacity-100"
+          aria-label={t("session_management.remove_group")}
+        >
+          <Trash2 className="size-3" />
+        </button>
+      ) : null}
     </div>
+  );
+}
+
+/** Renders sessions partitioned by group. Empty groups always show. Ungrouped sessions render at the end. */
+function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree, workspaceId, forcedExpandedSessionIds, store }: {
+  sessionRows: FlattenedSessionRow[];
+  groups: SessionGroupDefinition[];
+  assignments: Record<string, string>;
+  pinnedIds: Set<string>;
+  tree: SessionTreeState;
+  workspaceId: string;
+  forcedExpandedSessionIds: Set<string>;
+  store: typeof useSessionManagementStore;
+}) {
+  // Partition root rows into per-group buckets + ungrouped.
+  const rootRowsByGroup = new Map<string, FlattenedSessionRow[]>();
+  const ungroupedRows: FlattenedSessionRow[] = [];
+  // Child rows follow their parent regardless of group.
+  const childrenByParent = new Map<string, FlattenedSessionRow[]>();
+
+  for (const row of sessionRows) {
+    if (row.depth > 0) {
+      // Attach to parent (the previous depth-0 row).
+      // We walk backwards to find the parent id.
+      const parentIdx = sessionRows.indexOf(row) - 1;
+      let parentId: string | null = null;
+      for (let j = sessionRows.indexOf(row) - 1; j >= 0; j--) {
+        if (sessionRows[j].depth < row.depth) { parentId = sessionRows[j].session.id; break; }
+      }
+      if (parentId) {
+        const kids = childrenByParent.get(parentId) ?? [];
+        kids.push(row);
+        childrenByParent.set(parentId, kids);
+      }
+      continue;
+    }
+    const groupId = assignments[row.session.id];
+    if (groupId && groups.some((g) => g.id === groupId)) {
+      const bucket = rootRowsByGroup.get(groupId) ?? [];
+      bucket.push(row);
+      rootRowsByGroup.set(groupId, bucket);
+    } else {
+      ungroupedRows.push(row);
+    }
+  }
+
+  const renderRow = (row: FlattenedSessionRow) => (
+    <React.Fragment key={row.session.id}>
+      <SessionMenuItem
+        session={row.session}
+        depth={row.depth}
+        tree={tree}
+        workspaceId={workspaceId}
+        forcedExpandedSessionIds={forcedExpandedSessionIds}
+        isPinned={pinnedIds.has(row.session.id)}
+      />
+      {(childrenByParent.get(row.session.id) ?? []).map((child) => (
+        <SessionMenuItem
+          key={child.session.id}
+          session={child.session}
+          depth={child.depth}
+          tree={tree}
+          workspaceId={workspaceId}
+          forcedExpandedSessionIds={forcedExpandedSessionIds}
+          isPinned={pinnedIds.has(child.session.id)}
+        />
+      ))}
+    </React.Fragment>
+  );
+
+  return (
+    <>
+      {groups.map((group) => {
+        const rows = rootRowsByGroup.get(group.id) ?? [];
+        return (
+          <React.Fragment key={group.id}>
+            <SessionGroupSeparator
+              label={group.label}
+              onRemove={() => store.getState().removeGroup(workspaceId, group.id)}
+            />
+            {rows.length > 0
+              ? rows.map(renderRow)
+              : (
+                <SidebarMenuSubItem>
+                  <SidebarMenuSubButton aria-disabled className="text-muted-foreground text-xs italic">
+                    <span className="truncate">{t("session_management.empty_group")}</span>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
+              )}
+          </React.Fragment>
+        );
+      })}
+      {ungroupedRows.length > 0 ? ungroupedRows.map(renderRow) : null}
+    </>
   );
 }
 
