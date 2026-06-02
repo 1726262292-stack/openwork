@@ -83,6 +83,7 @@ function createEngineState() {
     opencodeBinSource: null,
     lastStdout: null,
     lastStderr: null,
+    execution: null,
   };
 }
 
@@ -102,6 +103,7 @@ function snapshotEngineState(state) {
     pid: child?.pid ?? null,
     lastStdout: state.lastStdout,
     lastStderr: state.lastStderr,
+    execution: state.execution,
   };
 }
 
@@ -124,6 +126,7 @@ function createOpenworkServerState() {
     managedOpencodeBinSource: null,
     lastStdout: null,
     lastStderr: null,
+    managedOpencodeExecution: null,
   };
 }
 
@@ -147,6 +150,25 @@ function snapshotOpenworkServerState(state) {
     pid: child?.pid ?? null,
     lastStdout: state.lastStdout,
     lastStderr: state.lastStderr,
+    managedOpencodeExecution: state.managedOpencodeExecution,
+  };
+}
+
+const SECRET_ENV_PATTERN = /(TOKEN|PASSWORD|USERNAME|AUTH|SECRET|KEY|CREDENTIAL)/i;
+
+function redactedExecutionSnapshot(command, args, cwd, injectedEnv) {
+  return {
+    command,
+    args: [...args],
+    cwd,
+    env: Object.entries(injectedEnv ?? {})
+      .filter((entry) => typeof entry[1] === "string")
+      .map(([name, value]) => ({
+        name,
+        value: SECRET_ENV_PATTERN.test(name) ? "<redacted>" : value,
+        redacted: SECRET_ENV_PATTERN.test(name),
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
   };
 }
 
@@ -1081,6 +1103,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       opencodeCwd: managedOpencodeWorkdir(),
     });
     inProcessServer = handle;
+    openworkServerState.managedOpencodeExecution = handle.managedOpencodeExecution ?? null;
 
     const boundPort = handle.port;
     const baseUrl = handle.url;
@@ -1130,6 +1153,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
           engineState.baseUrl = opencode.baseUrl;
           engineState.opencodeUsername = opencode.username ?? null;
           engineState.opencodePassword = opencode.password ?? null;
+          engineState.execution = handle.managedOpencodeExecution ?? null;
           engineState.child = null;
           engineState.childExited = false;
         }
@@ -1242,10 +1266,16 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       OPENCODE_SERVER_PASSWORD: password,
     });
 
+    const args = ["serve", "--hostname", "127.0.0.1", "--port", String(port), "--cors", "*"];
+    engineState.execution = redactedExecutionSnapshot(opencodeBinary.path, args, projectDir, {
+      OPENCODE_SERVER_USERNAME: username,
+      OPENCODE_SERVER_PASSWORD: password,
+    });
+
     spawnManagedChild(
       engineState,
       opencodeBinary.path,
-      ["serve", "--hostname", "127.0.0.1", "--port", String(port), "--cors", "*"],
+      args,
       {
         cwd: projectDir,
         env,

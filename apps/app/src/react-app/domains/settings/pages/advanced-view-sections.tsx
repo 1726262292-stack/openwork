@@ -8,7 +8,6 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { OpenworkServerStatus } from "@/app/lib/openwork-server";
-import type { EngineInfo } from "@/app/lib/desktop-types";
 import { isDesktopRuntime } from "@/app/utils";
 import { t } from "@/i18n";
 import {
@@ -66,15 +65,7 @@ function RuntimeStatusCard(props: RuntimeStatusCardProps) {
   );
 }
 
-function formatOpencodeBinary(info: EngineInfo | null) {
-  const binary = info?.opencodeBinPath?.trim();
-  if (!binary) return "—";
-  const source = info?.opencodeBinSource?.trim();
-  return source ? `${binary} (${source})` : binary;
-}
-
 interface AdvancedRuntimeSectionProps {
-  engineInfo: EngineInfo | null;
   clientStatusLabel: string;
   clientTone: SettingsTone;
   openworkStatusLabel: string;
@@ -96,11 +87,6 @@ export function AdvancedRuntimeSection(props: AdvancedRuntimeSectionProps) {
           description={t("settings.opencode_engine_desc")}
           statusLabel={props.clientStatusLabel}
           tone={props.clientTone}
-          detailLines={[
-            t("settings.diag_opencode_binary", undefined, {
-              binary: formatOpencodeBinary(props.engineInfo),
-            }),
-          ]}
         />
         <RuntimeStatusCard
           icon={<Server size={18} />}

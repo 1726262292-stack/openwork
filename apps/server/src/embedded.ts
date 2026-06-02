@@ -7,7 +7,7 @@
  */
 import { mkdir } from "node:fs/promises";
 import { resolveServerConfig, type CliArgs } from "./config.js";
-import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
+import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
 import { startServer } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { buildOpenworkRuntimeConfig } from "./openwork-runtime-config.js";
@@ -30,6 +30,8 @@ export type EmbeddedServerHandle = {
   url: string;
   /** The resolved server config (with OpenCode URLs populated). */
   config: ServerConfig;
+  /** Redacted details for the managed OpenCode child process, when spawned. */
+  managedOpencodeExecution: OpencodeExecutionSnapshot | null;
   /** Stop the HTTP server and managed OpenCode (if any). */
   stop: () => Promise<void>;
 };
@@ -97,6 +99,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     port: server.port,
     url: `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${server.port}`,
     config,
+    managedOpencodeExecution: managedOpencode?.execution ?? null,
     async stop() {
       managedOpencode?.close();
       await server.stop();

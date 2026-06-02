@@ -2264,17 +2264,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return (
           <AdvancedView
             busy={busy}
-            baseUrl={opencodeBaseUrl}
-            headerStatus={openworkServerSnapshot.openworkServerStatus}
             clientConnected={Boolean(opencodeClient)}
             opencodeConnectStatus={null}
             openworkServerStatus={openworkServerSnapshot.openworkServerStatus}
-            openworkServerUrl={openworkServerSnapshot.openworkServerUrl}
-            openworkReconnectBusy={openworkServerSnapshot.openworkReconnectBusy}
-            reconnectOpenworkServer={openworkServerStore.reconnectOpenworkServer}
-            engineInfo={null}
-            restartLocalServer={handleRestartLocalServer}
-            stopHost={() => {}}
             developerMode={developerMode}
             toggleDeveloperMode={() => setDeveloperMode((current) => {
               const next = !current;
@@ -2283,36 +2275,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             })}
             opencodeDevModeEnabled={false}
             openDebugDeepLink={async () => ({ ok: false, message: "Debug deep links are not wired into the React settings route yet." })}
-            opencodeEnableExa={true}
-            toggleOpencodeEnableExa={() => {}}
-            microsandboxCreateSandboxEnabled={local.prefs.featureFlags.microsandboxCreateSandbox}
-            toggleMicrosandboxCreateSandbox={() => {
-              local.setPrefs((previous) => ({
-                ...previous,
-                featureFlags: {
-                  ...previous.featureFlags,
-                  microsandboxCreateSandbox: !previous.featureFlags.microsandboxCreateSandbox,
-                },
-              }));
-            }}
-            configView={{
-              busy,
-              clientConnected: Boolean(opencodeClient),
-              anyActiveRuns: false,
-              openworkServerStatus: openworkServerSnapshot.openworkServerStatus,
-              openworkServerUrl: openworkServerSnapshot.openworkServerUrl,
-              openworkServerSettings: openworkServerSnapshot.openworkServerSettings,
-              openworkServerHostInfo: openworkServerSnapshot.openworkServerHostInfo,
-              runtimeWorkspaceId,
-              updateOpenworkServerSettings: openworkServerStore.updateOpenworkServerSettings,
-              resetOpenworkServerSettings: openworkServerStore.resetOpenworkServerSettings,
-              testOpenworkServerConnection: openworkServerStore.testOpenworkServerConnection,
-              canReloadWorkspace: reloadCoordinator.canReloadWorkspaceEngine,
-              reloadWorkspaceEngine: reloadCoordinator.reloadWorkspaceEngine,
-              reloadBusy: false,
-              reloadError: routeError,
-              developerMode,
-            }}
           />
         );
       case "appearance":
