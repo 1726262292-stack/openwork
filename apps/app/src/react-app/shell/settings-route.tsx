@@ -55,6 +55,7 @@ import { AuthorizedFoldersPanel } from "@/react-app/domains/settings/panels/auth
 import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
+import { CloudAccountProvider } from "../domains/settings/cloud/cloud-account-provider";
 import { CloudAccountView } from "@/react-app/domains/settings/pages/cloud-account-view";
 import { CloudMarketplacesView } from "@/react-app/domains/settings/pages/cloud-marketplaces-view";
 import { CloudProvidersView } from "@/react-app/domains/settings/pages/cloud-providers-view";
@@ -2247,10 +2248,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         );
       case "cloud-account":
         return (
-          <CloudAccountView
-            developerMode={developerMode}
-            session={denSession}
-          />
+          <CloudAccountProvider developerMode={developerMode} session={denSession}>
+            <CloudAccountView />
+          </CloudAccountProvider>
         );
       case "cloud-marketplaces":
         return (

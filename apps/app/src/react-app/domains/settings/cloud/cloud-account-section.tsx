@@ -3,41 +3,15 @@ import { Building2, Check, LogOut, Loader2 } from "lucide-react";
 
 import type { DenOrgSummary } from "../../../../app/lib/den";
 import { Button } from "@/components/ui/button";
-import {
-  SettingsNotice,
-  SettingsSectionHeaderDescription,
-} from "../settings-section";
 import { t } from "@/i18n";
+import { useCloudAccount } from "./cloud-account-provider";
 import { useCloudSession } from "./cloud-session-provider";
+import { OrganizationSelect } from "@/components/organization-select";
 
-export interface CloudAccountSectionProps {
-  activeOrgId: string;
-  authBusy: boolean;
-  needsOrgSelection?: boolean;
-  orgs: DenOrgSummary[];
-  orgsBusy: boolean;
-  orgsError: string | null;
-  sessionBusy: boolean;
-  onActiveOrgChange: (orgId: string) => void | Promise<void>;
-  onRefreshOrgs: () => void | Promise<void>;
-  onSignOut: () => void | Promise<void>;
-}
-
-export function CloudAccountSection({
-  activeOrgId,
-  authBusy,
-  needsOrgSelection,
-  orgs,
-  orgsBusy,
-  orgsError,
-  sessionBusy,
-  onActiveOrgChange,
-  onRefreshOrgs,
-  onSignOut,
-}: CloudAccountSectionProps) {
-  const { user } = useCloudSession();
-  const activeOrg = orgs.find((org) => org.id === activeOrgId) ?? null;
-  const controlsDisabled = authBusy || sessionBusy;
+export function CloudAccountSection() {
+  const { isBusy, session } = useCloudAccount();
+  const { activeOrganization, user } = useCloudSession();
+  const activeOrg = session.orgs.find((org) => org.id === activeOrganization?.id) ?? null;
 
   return (
     <section className="flex flex-col gap-y-6">
@@ -60,37 +34,56 @@ export function CloudAccountSection({
           variant="outline"
           size="sm"
           className="shrink-0"
-          onClick={() => void onSignOut()}
-          disabled={controlsDisabled}
+          onClick={() => void session.onSignOut()}
+          disabled={isBusy}
         >
           <LogOut className="size-3.5" />
-          {authBusy ? t("den.signing_out") : t("den.sign_out")}
+          {session.authBusy ? t("den.signing_out") : t("den.sign_out")}
         </Button>
       </div>
 
       {/* Org picker (stepper-style) or connected org display */}
-      {needsOrgSelection ? (
+      {session.needsOrgSelection ? (
         <OrgPicker
-          orgs={orgs}
-          orgsBusy={orgsBusy}
-          disabled={controlsDisabled}
-          onSelect={onActiveOrgChange}
-          onRefresh={onRefreshOrgs}
+          orgs={session.orgs}
+          orgsBusy={session.orgsBusy}
+          disabled={isBusy}
+          onSelect={session.onActiveOrgChange}
+          onRefresh={session.onRefreshOrgs}
         />
       ) : activeOrg ? (
         <ConnectedOrg org={activeOrg} />
-      ) : orgsBusy ? (
+      ) : session.orgsBusy ? (
         <div className="flex items-center gap-2 text-sm text-dls-secondary">
           <Loader2 size={14} className="animate-spin" />
           Loading organizations...
         </div>
       ) : null}
-
-      {orgsError ? <SettingsNotice tone="error">{orgsError}</SettingsNotice> : null}
     </section>
   );
 }
 
+interface CloudOrganizationSelectProps {
+
+}
+
+function CloudOrganization() {
+  const { isBusy, session } = useCloudAccount();
+  const { activeOrganization, user } = useCloudSession();
+  const activeOrg = session.orgs.find((org) => org.id === activeOrganization?.id) ?? null;
+
+  return (
+    <OrganizationSelect
+      organizations={session.orgs}
+      value={activeOrg}
+      onValueChange={(organization) => { 
+        if (organization) {
+        void session.onActiveOrgChange(organization.id);
+      } }}
+      disabled={session.needsOrgSelection}
+    />
+  );
+}
 /* ------------------------------------------------------------------ */
 /*  Connected org: read-only display                                   */
 /* ------------------------------------------------------------------ */

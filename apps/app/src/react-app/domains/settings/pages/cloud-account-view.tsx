@@ -1,25 +1,29 @@
 /** @jsxImportSource react */
 import * as React from "react";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, CircleAlert } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { t } from "@/i18n";
+import { useCloudAccount } from "../cloud/cloud-account-provider";
 import { CloudAccountSection } from "../cloud/cloud-account-section";
 import { useCloudSession } from "../cloud/cloud-session-provider";
 import { CloudDevMode } from "../cloud/dev-mode";
-import type { useDenSession } from "../cloud/use-den-session";
 import {
-  SettingsInset,
-  SettingsNotice,
   SettingsSection,
   SettingsSectionHeader,
   SettingsSectionHeaderContent,
@@ -29,67 +33,83 @@ import {
   SettingsStatusBadge,
 } from "../settings-section";
 
-type CloudAccountSession = Pick<
-  ReturnType<typeof useDenSession>,
-  | "authBusy"
-  | "authError"
-  | "baseUrlDraft"
-  | "baseUrlError"
-  | "needsOrgSelection"
-  | "orgs"
-  | "orgsBusy"
-  | "orgsError"
-  | "sessionBusy"
-  | "summaryLabel"
-  | "summaryTone"
-  | "onActiveOrgChange"
-  | "onApplyBaseUrl"
-  | "onBaseUrlDraftChange"
-  | "onClearAuthError"
-  | "onOpenBrowserAuth"
-  | "onOpenControlPlane"
-  | "onRefreshOrgs"
-  | "onResetBaseUrl"
-  | "onSignOut"
-  | "onSubmitManualAuth"
->;
+interface EnterSignInCodeDialogProps {
+  disabled: boolean;
+}
 
-export type CloudAccountViewProps = {
-  developerMode: boolean;
-  session: CloudAccountSession;
-};
-
-type DenSignedOutPanelProps = Pick<
-  CloudAccountSession,
-  | "authBusy"
-  | "authError"
-  | "onClearAuthError"
-  | "onOpenBrowserAuth"
-  | "onSubmitManualAuth"
-  | "sessionBusy"
->;
-
-function DenSignedOutPanel({
-  authBusy,
-  authError,
-  onClearAuthError,
-  onOpenBrowserAuth,
-  onSubmitManualAuth,
-  sessionBusy,
-}: DenSignedOutPanelProps) {
-  const [manualAuthOpen, setManualAuthOpen] = React.useState(false);
+function EnterSignInCodeDialog({ disabled }: EnterSignInCodeDialogProps) {
+  const { session } = useCloudAccount();
+  const [open, setOpen] = React.useState(false);
   const [manualAuthInput, setManualAuthInput] = React.useState("");
-  const controlsDisabled = [authBusy, sessionBusy].some(Boolean);
 
   const submitManualAuth = async () => {
-    const ok = await onSubmitManualAuth(manualAuthInput);
-    if (!ok) return;
+    const ok = await session.onSubmitManualAuth(manualAuthInput);
+
+    if (!ok) {
+      return;
+    }
+
     setManualAuthInput("");
-    setManualAuthOpen(false);
+    setOpen(false);
   };
 
   return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        session.onClearAuthError();
+      }}
+    >
+      <DialogTrigger
+        render={<Button variant="link" size="sm" className="w-fit self-start" disabled={disabled} />}
+      >
+        {t("den.enter_code_trigger")}
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("den.enter_code_title")}</DialogTitle>
+          <DialogDescription>{t("den.enter_code_hint")}</DialogDescription>
+        </DialogHeader>
+        <Field data-disabled={disabled}>
+          <FieldLabel htmlFor="den-signin-link">{t("den.enter_code_label")}</FieldLabel>
+          <Input
+            id="den-signin-link"
+            value={manualAuthInput}
+            onChange={(event) => setManualAuthInput(event.currentTarget.value)}
+            placeholder={t("den.enter_code_placeholder")}
+            disabled={disabled}
+          />
+        </Field>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" disabled={disabled} />}>
+            {t("common.cancel")}
+          </DialogClose>
+          <Button
+            onClick={() => void submitManualAuth()}
+            disabled={[disabled, !manualAuthInput.trim()].some(Boolean)}
+          >
+            {session.authBusy ? t("den.enter_code_submitting") : t("den.enter_code_submit")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DenSignedOutPanel() {
+  const { error, session } = useCloudAccount();
+  const disabled = [session.authBusy, session.sessionBusy].some(Boolean);
+
+  return (
     <SettingsSection>
+      {error ? (
+        <Alert variant="destructive">
+          <CircleAlert />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+
       <SettingsSectionHeader>
         <SettingsSectionHeaderContent>
           <SettingsSectionHeaderTitle>{t("den.signin_title")}</SettingsSectionHeaderTitle>
@@ -101,71 +121,32 @@ function DenSignedOutPanel({
 
       <div className="flex flex-col gap-6">
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => onOpenBrowserAuth("sign-in")}>
+          <Button onClick={() => session.onOpenBrowserAuth("sign-in")}>
             {t("den.signin_button")}
             <ArrowUpRight size={13} />
           </Button>
-          <Button variant="outline" onClick={() => onOpenBrowserAuth("sign-up")}>
+          <Button variant="outline" onClick={() => session.onOpenBrowserAuth("sign-up")}>
             {t("den.create_account")}
             <ArrowUpRight size={13} />
           </Button>
         </div>
 
-        <Collapsible
-          open={manualAuthOpen}
-          onOpenChange={(open) => {
-            setManualAuthOpen(open);
-            onClearAuthError();
-          }}
-          disabled={controlsDisabled}
-          className="flex flex-col gap-3"
-        >
-          <CollapsibleTrigger
-            render={<Button variant="ghost" size="sm" className="w-fit self-start" disabled={controlsDisabled} />}
-          >
-            {manualAuthOpen ? t("den.hide_signin_code") : t("den.paste_signin_code")}
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <SettingsInset className="flex flex-col gap-y-3">
-              <Field data-disabled={controlsDisabled}>
-                <FieldLabel htmlFor="den-signin-link">{t("den.signin_link_label")}</FieldLabel>
-                <Input
-                  id="den-signin-link"
-                  value={manualAuthInput}
-                  onChange={(event) => setManualAuthInput(event.currentTarget.value)}
-                  placeholder={t("den.signin_link_placeholder")}
-                  disabled={controlsDisabled}
-                />
-                <FieldDescription className="text-xs">{t("den.signin_link_hint")}</FieldDescription>
-              </Field>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  onClick={() => void submitManualAuth()}
-                  disabled={[controlsDisabled, !manualAuthInput.trim()].some(Boolean)}
-                >
-                  {authBusy ? t("den.finishing") : t("den.finish_signin")}
-                </Button>
-              </div>
-            </SettingsInset>
-          </CollapsibleContent>
-        </Collapsible>
+        <EnterSignInCodeDialog disabled={disabled} />
       </div>
-
-      {authError ? <SettingsNotice tone="error">{authError}</SettingsNotice> : null}
-
-      <SettingsInset className="text-sm text-gray-10">
-        {t("den.auto_reconnect_hint")}
-      </SettingsInset>
     </SettingsSection>
   );
 }
 
-export function CloudAccountView({ developerMode, session }: CloudAccountViewProps) {
-  const { activeOrganization, isSignedIn, statusMessage } = useCloudSession();
+export function CloudAccountView() {
+  const { developerMode, error, session } = useCloudAccount();
+  const { isSignedIn, statusMessage } = useCloudSession();
   const navigate = useNavigate();
 
   React.useEffect(() => {
-    if (!isSignedIn || !session.needsOrgSelection) return;
+    if (!isSignedIn || !session.needsOrgSelection) {
+      return;
+    }
+
     navigate("/onboarding", { replace: true });
   }, [isSignedIn, navigate, session.needsOrgSelection]);
 
@@ -173,70 +154,41 @@ export function CloudAccountView({ developerMode, session }: CloudAccountViewPro
     <SettingsStack>
       <Separator />
 
-      <SettingsSection>
-        <SettingsSectionHeader>
-          <SettingsSectionHeaderContent>
-            <SettingsSectionHeaderTitle>
-              {t("den.cloud_section_title")}
-              <SettingsStatusBadge tone={session.summaryTone} label={session.summaryLabel} />
-            </SettingsSectionHeaderTitle>
-            <SettingsSectionHeaderDescription>
-              {t(isSignedIn ? "den.cloud_signed_in_desc" : "den.cloud_section_desc")}
-            </SettingsSectionHeaderDescription>
-            {!isSignedIn ? (
-              <SettingsSectionHeaderDescription className="text-xs">
-                {t("den.cloud_sleep_hint")}
+      {isSignedIn ? (
+        <SettingsSection>
+          <SettingsSectionHeader>
+            <SettingsSectionHeaderContent>
+              <SettingsSectionHeaderTitle>
+                {t("den.cloud_section_title")}
+                <SettingsStatusBadge tone={session.summaryTone} label={session.summaryLabel} />
+              </SettingsSectionHeaderTitle>
+              <SettingsSectionHeaderDescription>
+                {t("den.cloud_signed_in_desc")}
               </SettingsSectionHeaderDescription>
-            ) : null}
-          </SettingsSectionHeaderContent>
-        </SettingsSectionHeader>
+            </SettingsSectionHeaderContent>
+          </SettingsSectionHeader>
 
-        {developerMode ? (
-          <CloudDevMode
-            authBusy={session.authBusy}
-            baseUrlDraft={session.baseUrlDraft}
-            onApplyBaseUrl={session.onApplyBaseUrl}
-            onBaseUrlDraftChange={session.onBaseUrlDraftChange}
-            onOpenControlPlane={session.onOpenControlPlane}
-            onResetBaseUrl={session.onResetBaseUrl}
-            sessionBusy={session.sessionBusy}
-          />
-        ) : null}
+          {developerMode ? <CloudDevMode /> : null}
 
-        {session.baseUrlError ? <SettingsNotice tone="error">{session.baseUrlError}</SettingsNotice> : null}
+          {error ? (
+            <Alert variant="destructive">
+              <CircleAlert />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
 
-        {statusMessage && !session.authError && !session.orgsError ? (
-          <SettingsNotice>{statusMessage}</SettingsNotice>
-        ) : null}
+          {statusMessage && !error ? (
+            <Alert>
+              <CheckCircle2 />
+              <AlertDescription>{statusMessage}</AlertDescription>
+            </Alert>
+          ) : null}
 
-        {isSignedIn ? (
-          <CloudAccountSection
-            activeOrgId={activeOrganization?.id ?? ""}
-            authBusy={session.authBusy}
-            needsOrgSelection={session.needsOrgSelection}
-            orgs={session.orgs}
-            orgsBusy={session.orgsBusy}
-            orgsError={session.orgsError}
-            sessionBusy={session.sessionBusy}
-            onActiveOrgChange={session.onActiveOrgChange}
-            onRefreshOrgs={session.onRefreshOrgs}
-            onSignOut={session.onSignOut}
-          />
-        ) : null}
-      </SettingsSection>
-
-      <Separator />
-
-      {!isSignedIn ? (
-        <DenSignedOutPanel
-          authBusy={session.authBusy}
-          authError={session.authError}
-          onClearAuthError={session.onClearAuthError}
-          onOpenBrowserAuth={session.onOpenBrowserAuth}
-          onSubmitManualAuth={session.onSubmitManualAuth}
-          sessionBusy={session.sessionBusy}
-        />
-      ) : null}
+          <CloudAccountSection />
+        </SettingsSection>
+      ) : (
+        <DenSignedOutPanel />
+      )}
     </SettingsStack>
   );
 }
