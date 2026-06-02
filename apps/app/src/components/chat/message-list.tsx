@@ -6,6 +6,7 @@ import {
   Check,
   Copy,
   FileIcon,
+  LoaderCircle,
   Split,
   Undo2,
 } from "lucide-react"
@@ -22,6 +23,9 @@ import {
   type FileUIPart,
   type UIMessage,
 } from "ai"
+import type { SessionStatus } from "@opencode-ai/sdk/v2/client"
+import { openDesktopUrl } from "@/app/lib/desktop"
+import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types"
 import { ApplyPatchTool } from "@/components/tools/apply-patch"
 import { BashTool } from "@/components/tools/bash"
 import { EditTool } from "@/components/tools/edit"
@@ -38,7 +42,6 @@ import { useMessageList, useSessionErrorMessage } from "@/components/chat/messag
 import { ArtifactList } from "@/components/chat/artifact"
 import { TaskSuggestions } from "@/components/chat/task-suggestions"
 import {
-  DescriptiveButton,
   DescriptiveButtonContent,
   DescriptiveButtonDescription,
   DescriptiveButtonIcon,
@@ -139,12 +142,23 @@ const ToolMessage = ({ part }: ToolMessageProps) => {
 
 const isEmptyMessage = (message: UIMessage): boolean => message.parts.length === 0
 
-interface FileMessageProps {
-  part: FileUIPart
-  tone: "assistant" | "user"
+type RetryStatus = Extract<SessionStatus, { type: "retry" }>
+
+function isSessionErrorMessage(message: UIMessage) {
+  return message.id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX)
 }
 
-function FileMessage({ part, tone }: FileMessageProps) {
+function retryDelaySeconds(status: RetryStatus) {
+  return Math.max(0, Math.round((status.next - Date.now()) / 1000))
+}
+
+interface FileMessageProps {
+  part: FileUIPart
+  tone: "user" | "assistant"
+}
+
+// TODO: Add tone to the file message
+function FileMessage({ part }: FileMessageProps) {
   const title = getFileTitle(part)
   const badge = getMediaBadge(part)
   const isImage = part.mediaType.startsWith("image/") && part.url
@@ -162,7 +176,7 @@ function FileMessage({ part, tone }: FileMessageProps) {
   }
 
   return (
-    <DescriptiveButton className="px-2 py-1 items-center gap-2">
+    <div className="flex h-auto w-fit min-w-0 max-w-full shrink items-center justify-start gap-2 rounded-xl border border-border ps-2 pe-4 py-1 text-left text-sm font-medium whitespace-normal">
       <DescriptiveButtonIcon>
         <FileIcon className="size-6 shrink-0" />
       </DescriptiveButtonIcon>
@@ -174,7 +188,7 @@ function FileMessage({ part, tone }: FileMessageProps) {
           </DescriptiveButtonDescription>
         ) : null}
       </DescriptiveButtonContent>
-    </DescriptiveButton>
+    </div>
   )
 }
 
@@ -397,6 +411,10 @@ type MessageComponentProps = {
 
 const MessageComponent = React.memo(
   ({ message, isLastMessage, isStreaming, isLastStep }: MessageComponentProps) => {
+    if (isSessionErrorMessage(message)) {
+      return <ErrorMessage error={getMessagesText([message]) || "Session failed"} />
+    }
+
     if (isEmptyMessage(message) && !isStreaming) {
       return (
         <EmptyMessage
@@ -456,18 +474,78 @@ interface ErrorMessageProps {
   error: string | null
 }
 
-const ErrorMessage = React.memo(({ error }: ErrorMessageProps) => (
-  <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
-    <div className="group flex w-full flex-col items-start gap-0">
-      <div className="text-foreground flex min-w-0 flex-1 flex-row items-center gap-2 rounded-lg border-2 border-red-300 bg-red-300/20 px-2 py-1">
-        <AlertTriangle size={16} className="text-destructive" />
-        <p className="text-destructive">{error}</p>
+function ErrorMessage({ error }: ErrorMessageProps) {
+  return (
+    <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
+      <div className="group flex w-full flex-col items-start gap-0">
+        <div className="text-foreground flex min-w-0 flex-1 flex-row items-start gap-2 rounded-lg border-2 border-red-300 bg-red-300/20 px-2 py-1">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-destructive" />
+          <p className="whitespace-pre-wrap text-destructive">{error}</p>
+        </div>
       </div>
-    </div>
-  </Message>
-))
+    </Message>
+  )
+}
 
-ErrorMessage.displayName = "ErrorMessage"
+interface RetryMessageProps {
+  status: RetryStatus
+}
+
+function RetryActionButton(props: { link: string; label: string }) {
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-7 border-amber-500/70 bg-amber-50 text-xs text-amber-950 hover:bg-amber-100"
+      onClick={() => void openDesktopUrl(props.link)}
+    >
+      {props.label}
+    </Button>
+  )
+}
+
+const RetryMessage = React.memo(({ status }: RetryMessageProps) => {
+  const [seconds, setSeconds] = React.useState(() => retryDelaySeconds(status))
+
+  React.useEffect(() => {
+    const update = () => setSeconds(retryDelaySeconds(status))
+    update()
+    const timer = window.setInterval(update, 1000)
+    return () => window.clearInterval(timer)
+  }, [status])
+
+  const info = seconds > 0
+    ? `Retrying in ${seconds}s · attempt ${status.attempt}`
+    : `Retrying · attempt ${status.attempt}`
+  const action = status.action
+
+  return (
+    <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
+      <div className="group flex w-full flex-col items-start gap-0">
+        <div className="text-foreground flex min-w-0 flex-1 flex-col gap-2 rounded-lg border-2 border-amber-300 bg-amber-300/20 px-3 py-2">
+          <div className="flex items-start gap-2">
+            <LoaderCircle size={16} className="mt-0.5 shrink-0 animate-spin text-amber-700" />
+            <div className="min-w-0 space-y-1">
+              <p className="whitespace-pre-wrap text-sm font-medium text-amber-900">{status.message}</p>
+              <p className="text-xs text-amber-800">{info}</p>
+            </div>
+          </div>
+          {action ? (
+            <div className="ml-6 space-y-1 border-t border-amber-400/60 pt-2">
+              <p className="text-xs font-medium text-amber-950">{action.title}</p>
+              <p className="text-xs text-amber-900">{action.message}</p>
+              {action.link ? (
+                <RetryActionButton link={action.link} label={action.label} />
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </Message>
+  )
+})
+
+RetryMessage.displayName = "RetryMessage"
 
 const isMessageEmptyGroup = (messages: UIMessageWithIndex[]) =>
   messages.every(message => isEmptyMessage(message.message));
@@ -604,12 +682,14 @@ function MessageGroup({
 interface MessageListProps {
   messages: UIMessage[]
   status: ThreadStatus
+  retryStatus?: RetryStatus | null
 }
 
-export function MessageList({ messages, status }: MessageListProps) {
+export function MessageList({ messages, status, retryStatus }: MessageListProps) {
   const isStreaming = status === "streaming" || status === "retrying"
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();
+  const hasSessionErrorMessage = React.useMemo(() => messages.some(isSessionErrorMessage), [messages])
 
   return (
     <div className={cn("flex flex-col gap-2 @container/message-list")}>
@@ -644,7 +724,8 @@ export function MessageList({ messages, status }: MessageListProps) {
       })}
 
       {status === "streaming" && <LoadingMessage />}
-      {error ? <ErrorMessage error={error} /> : null}
+      {retryStatus ? <RetryMessage status={retryStatus} /> : null}
+      {error && !hasSessionErrorMessage ? <ErrorMessage error={error} /> : null}
     </div>
   )
 }

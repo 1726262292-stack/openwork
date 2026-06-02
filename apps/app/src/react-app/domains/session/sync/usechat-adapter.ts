@@ -36,6 +36,15 @@ function firstNumberValue(records: unknown[], keys: string[]) {
   return null;
 }
 
+function defaultErrorMessage(name: string | null, fallback: string) {
+  if (name === "ProviderAuthError") return "Provider authentication failed";
+  if (name === "MessageOutputLengthError") return "The model reached its output limit before finishing";
+  if (name === "StructuredOutputError") return "The model could not produce valid structured output";
+  if (name === "ContextOverflowError") return "The conversation is too large for the model context window";
+  if (name === "MessageAbortedError") return "The message was interrupted";
+  return fallback;
+}
+
 export function describeOpencodeSessionError(error: unknown, fallback = "Session failed") {
   if (error instanceof Error) return error.message || fallback;
   if (typeof error === "string") return error.trim() || fallback;
@@ -45,16 +54,19 @@ export function describeOpencodeSessionError(error: unknown, fallback = "Session
   const cause = recordValue(error, "cause");
   const causeData = recordValue(cause, "data");
   const records = [error, data, cause, causeData].filter(Boolean);
+  const name = firstStringValue(records, ["name", "type"]);
   const message = firstStringValue(records, ["message", "detail", "reason", "error"]);
   const status = firstNumberValue(records, ["statusCode", "status"]);
   const provider = firstStringValue(records, ["providerID", "providerId", "provider"]);
   const code = firstStringValue(records, ["code", "errorCode"]);
+  const retries = firstNumberValue(records, ["retries", "retryCount"]);
   const responseBody = firstStringValue(records, ["responseBody", "body", "response"]);
 
-  const lines = [message ?? fallback];
+  const lines = [message ?? defaultErrorMessage(name, fallback)];
   if (status && !lines[0]?.includes(String(status))) lines.push(`Status: ${status}`);
   if (provider && !lines[0]?.includes(provider)) lines.push(`Provider: ${provider}`);
   if (code) lines.push(`Code: ${code}`);
+  if (retries !== null) lines.push(`Retries: ${retries}`);
   if (responseBody && responseBody !== message) lines.push(`Response: ${responseBody}`);
   if (lines.some((line) => line !== fallback)) return lines.join("\n");
 
