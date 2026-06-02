@@ -24,7 +24,7 @@ import {
   getMembersRoute,
   splitRoleString,
 } from "../../_lib/den-org";
-import { type OrgLimitError, getOrgLimitError } from "../../_lib/den-flow";
+import { type OrgLimitError, type OrgPaymentRequiredError, getOrgLimitError, getOrgPaymentRequiredError } from "../../_lib/den-flow";
 import { buildDenFeedbackUrl } from "../../_lib/feedback";
 import { OrgLimitDialog } from "../../_components/org-limit-dialog";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
@@ -127,6 +127,7 @@ export function ManageMembersScreen() {
     orgError,
     mutationBusy,
     inviteMember,
+    startSeatCheckout,
     cancelInvitation,
     updateMemberRole,
     removeMember,
@@ -156,6 +157,7 @@ export function ManageMembersScreen() {
     Record<string, string[]>
   >({});
   const [limitDialogError, setLimitDialogError] = useState<OrgLimitError | null>(null);
+  const [seatBillingDialogError, setSeatBillingDialogError] = useState<OrgPaymentRequiredError | null>(null);
 
   const assignableRoles = useMemo(
     () => (orgContext?.roles ?? []).filter((role) => !role.protected),
@@ -283,6 +285,12 @@ export function ManageMembersScreen() {
               await inviteMember({ email: inviteEmail, role: inviteRole });
               resetInviteForm();
             } catch (error) {
+              const paymentRequiredError = getOrgPaymentRequiredError(error);
+              if (paymentRequiredError) {
+                setSeatBillingDialogError(paymentRequiredError);
+                return;
+              }
+
               const limitError = getOrgLimitError(error);
               if (limitError) {
                 setLimitDialogError(limitError);
@@ -612,6 +620,21 @@ export function ManageMembersScreen() {
         }
         feedbackHref={feedbackHref}
         onClose={() => setLimitDialogError(null)}
+      />
+      <OrgLimitDialog
+        open={Boolean(seatBillingDialogError)}
+        eyebrow="Seat billing"
+        title="Subscribe to add more users"
+        message="The first 5 users in your organization are free, additional users are charged at $10 per user per month"
+        closeLabel="Cancel"
+        actionLabel="Subscribe"
+        actionLoading={mutationBusy === "seat-checkout"}
+        onClose={() => setSeatBillingDialogError(null)}
+        onAction={() => {
+          void startSeatCheckout().catch((error) => {
+            setPageError(error instanceof Error ? error.message : "Could not start seat billing checkout.");
+          });
+        }}
       />
 
       {pageError ? (
