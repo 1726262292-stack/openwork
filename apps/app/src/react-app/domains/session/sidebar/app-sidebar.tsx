@@ -343,6 +343,11 @@ function WorkspaceActionsMenu({ workspace, isConnectionActionBusy, canRecover, c
           </>
         ) : null}
         <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}>
+          <FolderPlus className="size-4" />
+          {t("session_management.new_group")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem
           variant="destructive"
           onClick={() => ctx.onForgetWorkspace(workspace.id)}
