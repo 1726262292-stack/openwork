@@ -1646,6 +1646,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       ? [{
           id: provider.id,
           name: provider.name ?? provider.id,
+          source: provider.source,
         }]
       : [],
   );
@@ -2083,7 +2084,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onDisconnectProvider={async (providerId) => {
               await providerAuthStore.disconnectProvider(providerId);
             }}
-            canDisconnectProvider={() => true}
+            canDisconnectProvider={(source) => source !== "env"}
             cloudProviderIds={new Set(
               Object.values(providerAuthSnapshot.importedCloudProviders ?? {}).map((p) => p.providerId)
             )}

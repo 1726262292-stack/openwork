@@ -129,6 +129,11 @@ export function AiSettingsView(props: AiSettingsViewProps) {
                           Cloud
                         </span>
                       ) : null}
+                      {provider.source === "env" ? (
+                        <span className="shrink-0 rounded-full border border-amber-6 bg-amber-2 px-2 py-0.5 text-[10px] font-medium text-amber-11">
+                          {providerSourceLabel("env")}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="truncate font-mono text-xs text-muted-foreground">{provider.id}</div>
                   </div>
