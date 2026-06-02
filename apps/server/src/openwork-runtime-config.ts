@@ -7,7 +7,7 @@
  */
 import { openworkExtensionsPreviewPluginPath, openworkCapabilitiesKnowledgePluginPath } from "./openwork-extensions-plugin-path.js";
 import type { ServerConfig } from "./types.js";
-import { readRuntimeOpencodeConfig, runtimeMcpMap, runtimePluginList } from "./runtime-opencode-config-store.js";
+import { readRuntimeOpencodeConfig, runtimeDisabledProviderList, runtimeMcpMap, runtimePluginList } from "./runtime-opencode-config-store.js";
 
 const OPENWORK_AGENT_PROMPT = `You are OpenWork.
 
@@ -45,9 +45,10 @@ OpenWork can preview, edit, and download standard artifacts when you create or u
 
 export async function buildOpenworkRuntimeConfig(config?: ServerConfig, workspaceId?: string): Promise<string> {
   const runtimeConfig = config && workspaceId ? await readRuntimeOpencodeConfig(config, workspaceId) : {};
+  const disabledProviders = runtimeDisabledProviderList(runtimeConfig);
   return JSON.stringify({
     ...runtimeConfig,
-    default_agent: "openwork",
+    default_agent: runtimeConfig.default_agent ?? "openwork",
     agent: {
       openwork: {
         description: "OpenWork default agent",
@@ -62,6 +63,7 @@ export async function buildOpenworkRuntimeConfig(config?: ServerConfig, workspac
       openworkCapabilitiesKnowledgePluginPath(),
       ...runtimePluginList(runtimeConfig),
     ],
+    ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
     mcp: runtimeMcpMap(runtimeConfig),
   });
 }

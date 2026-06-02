@@ -113,7 +113,7 @@ interface AdvancedRuntimeMigrationSectionProps {
     runtime: Record<string, unknown>;
     runtimeKeys: string[];
     legacyOpenwork: { path: string; keys: string[]; error: string | null };
-    userOpencode: { path: string; exists: boolean; keys: string[] };
+    userOpencode: { path: string; exists: boolean; keys: string[]; migratableKeys: string[] };
   } | null;
   configStatusBusy: boolean;
   configStatusError: string | null;
@@ -137,9 +137,9 @@ export function AdvancedRuntimeMigrationSection(props: AdvancedRuntimeMigrationS
 
       <LayoutSectionItem>
         <LayoutSectionItemHeader>
-          <LayoutSectionItemTitle>Move legacy OpenWork config</LayoutSectionItemTitle>
+          <LayoutSectionItemTitle>Move OpenWork-managed config</LayoutSectionItemTitle>
           <LayoutSectionItemDescription>
-            Only moves older OpenWork-owned runtime keys from `.opencode/openwork.json` into the runtime database. It does not migrate user `opencode.jsonc`.
+            Moves older OpenWork-owned runtime keys from `.opencode/openwork.json` and safe OpenWork-managed keys from `opencode.jsonc` into the runtime database.
           </LayoutSectionItemDescription>
           <LayoutSectionItemHeaderActions>
             <Button
@@ -185,6 +185,7 @@ export function AdvancedRuntimeMigrationSection(props: AdvancedRuntimeMigrationS
               <div className="break-all">{props.configStatus.userOpencode.path}</div>
               <div>{props.configStatus.userOpencode.exists ? "Found" : "Not found"}</div>
               <div>User-owned keys: {formatKeys(props.configStatus.userOpencode.keys)}</div>
+              <div>Migratable keys: {formatKeys(props.configStatus.userOpencode.migratableKeys)}</div>
             </div>
             <div>
               <div className="font-medium text-gray-12">Runtime DB JSON</div>

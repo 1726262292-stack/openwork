@@ -190,4 +190,47 @@ describe("runtime OpenCode config store", () => {
       }
     });
   });
+
+  test("explicitly migrates safe OpenWork-managed keys from user opencode config", async () => {
+    await withWorkspace(async ({ root, config }) => {
+      const opencodePath = join(root, "opencode.jsonc");
+      await writeFile(opencodePath, JSON.stringify({
+        $schema: "https://opencode.ai/config.json",
+        default_agent: "openwork",
+        plugin: ["opencode-chrome-devtools", "user-plugin"],
+        provider: { local: { npm: "@ai-sdk/openai-compatible" } },
+        disabled_providers: ["old-provider"],
+        custom_user_key: true,
+      }, null, 2) + "\n", "utf8");
+
+      const server = await startServer(config) as Served;
+      try {
+        const response = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/runtime-config/migrate`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+        });
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({
+          migrated: true,
+          userOpencodeKeys: ["default_agent", "plugin", "disabled_providers", "provider"],
+        });
+
+        const runtime = await readRuntimeOpencodeConfig(config, WORKSPACE_ID);
+        expect(runtime.default_agent).toBe("openwork");
+        expect(runtime.plugin).toEqual(["opencode-chrome-devtools", "user-plugin"]);
+        expect(runtime.provider?.local).toEqual({ npm: "@ai-sdk/openai-compatible" });
+        expect(runtime.disabled_providers).toEqual(["old-provider"]);
+
+        const opencode = JSON.parse(await readFile(opencodePath, "utf8")) as Record<string, unknown>;
+        expect(opencode.$schema).toBe("https://opencode.ai/config.json");
+        expect(opencode.custom_user_key).toBe(true);
+        expect(opencode.default_agent).toBeUndefined();
+        expect(opencode.plugin).toBeUndefined();
+        expect(opencode.provider).toBeUndefined();
+        expect(opencode.disabled_providers).toBeUndefined();
+      } finally {
+        await server.stop(true);
+      }
+    });
+  });
 });

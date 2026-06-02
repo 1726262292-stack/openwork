@@ -191,7 +191,10 @@ export type OpenworkAuthorizedFoldersUpdateResponse = {
 export type OpenworkRuntimeConfigMigrationResult = {
   migrated: boolean;
   keys: string[];
+  legacyKeys: string[];
+  userOpencodeKeys: string[];
   updatedAt: number | null;
+  legacyError?: string | null;
 };
 
 export type OpenworkRuntimeConfigStatus = {
@@ -206,6 +209,7 @@ export type OpenworkRuntimeConfigStatus = {
     path: string;
     exists: boolean;
     keys: string[];
+    migratableKeys: string[];
   };
 };
 
