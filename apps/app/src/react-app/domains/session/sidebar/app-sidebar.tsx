@@ -1063,9 +1063,38 @@ function WorkspaceSidebarGroup({
   );
 }
 
-function SessionGroupSeparator({ label, onRemove }: { label: string; onRemove?: () => void }) {
+const SESSION_DRAG_TYPE = "application/x-openwork-session-id";
+
+function SessionGroupSeparator({ label, groupId, workspaceId, onRemove }: {
+  label: string;
+  groupId: string | null;
+  workspaceId: string;
+  onRemove?: () => void;
+}) {
+  const [dragOver, setDragOver] = React.useState(false);
+  const store = useSessionManagementStore;
+
   return (
-    <div className="group/separator flex items-center gap-1 px-2 pb-1 pt-2.5 first:pt-1">
+    <div
+      className={cn(
+        "group/separator flex items-center gap-1 px-2 pb-1 pt-2.5 first:pt-1 rounded transition-colors",
+        dragOver && "bg-accent/50 ring-1 ring-accent",
+      )}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(SESSION_DRAG_TYPE)) {
+          e.preventDefault();
+          setDragOver(true);
+        }
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        setDragOver(false);
+        const sessionId = e.dataTransfer.getData(SESSION_DRAG_TYPE);
+        if (sessionId) {
+          store.getState().assignGroup(workspaceId, sessionId, groupId);
+        }
+      }}
+    >
       <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
@@ -1158,6 +1187,8 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
           <React.Fragment key={group.id}>
             <SessionGroupSeparator
               label={group.label}
+              groupId={group.id}
+              workspaceId={workspaceId}
               onRemove={() => store.getState().removeGroup(workspaceId, group.id)}
             />
             {rows.length > 0
@@ -1172,7 +1203,12 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
           </React.Fragment>
         );
       })}
-      {ungroupedRows.length > 0 ? ungroupedRows.map(renderRow) : null}
+      {ungroupedRows.length > 0 ? (
+        <>
+          <SessionGroupSeparator label={t("session_management.ungrouped")} groupId={null} workspaceId={workspaceId} />
+          {ungroupedRows.map(renderRow)}
+        </>
+      ) : null}
     </>
   );
 }
@@ -1228,13 +1264,21 @@ function SessionMenuItem({
     ctx.onPrefetchSession?.(workspaceId, session.id);
   };
 
+  const dragProps = depth === 0 ? {
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.setData(SESSION_DRAG_TYPE, session.id);
+      e.dataTransfer.effectAllowed = "move";
+    },
+  } : {};
+
   const item = hasChildren ? (
     <Collapsible
       open={isExpanded}
       onOpenChange={() => ctx.toggleSessionExpanded(session.id)}
       className="group/session-collapsible"
     >
-      <SidebarMenuSubItem>
+      <SidebarMenuSubItem {...dragProps}>
         <SessionContextMenu sessionId={session.id} workspaceId={workspaceId} isPinned={isPinned} isArchived={isArchived}>
           <CollapsibleTrigger
             render={
@@ -1270,7 +1314,7 @@ function SessionMenuItem({
       </SidebarMenuSubItem>
     </Collapsible>
   ) : (
-    <SidebarMenuSubItem>
+    <SidebarMenuSubItem {...dragProps}>
       <SessionContextMenu sessionId={session.id} workspaceId={workspaceId} isPinned={isPinned} isArchived={isArchived}>
         <SidebarMenuSubButton
           isActive={isSelected}
