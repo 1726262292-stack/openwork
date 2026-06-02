@@ -69,6 +69,7 @@ import { callExperimentalExtensionAction, listExperimentalExtensionActions } fro
 import {
   mergeOpencodeConfigs,
   readRuntimeOpencodeConfig,
+  type RuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import pkg from "../package.json" with { type: "json" };
@@ -125,6 +126,82 @@ function readStringField(value: unknown, key: string): string {
   if (!isRecord(value)) return "";
   const field = value[key];
   return typeof field === "string" ? field.trim() : "";
+}
+
+const LEGACY_RUNTIME_CONFIG_KEYS = ["plugin", "mcp", "permission", "provider"] as const;
+
+type LegacyRuntimeConfigKey = typeof LEGACY_RUNTIME_CONFIG_KEYS[number];
+
+function legacyRuntimeConfigFromOpenworkConfig(openwork: Record<string, unknown>): {
+  config: RuntimeOpencodeConfig;
+  keys: LegacyRuntimeConfigKey[];
+} {
+  const keys: LegacyRuntimeConfigKey[] = [];
+  const plugin = Array.isArray(openwork.plugin) ? openwork.plugin.filter((item) => typeof item === "string") : [];
+  const mcp: Record<string, Record<string, unknown>> = {};
+  if (isRecord(openwork.mcp)) {
+    for (const [name, value] of Object.entries(openwork.mcp)) {
+      if (isRecord(value)) mcp[name] = value;
+    }
+  }
+  const permission = isRecord(openwork.permission) ? openwork.permission : null;
+  const externalDirectory = permission && isRecord(permission.external_directory) ? permission.external_directory : null;
+  const provider = isRecord(openwork.provider) ? openwork.provider : null;
+
+  if (plugin.length) keys.push("plugin");
+  if (Object.keys(mcp).length) keys.push("mcp");
+  if (externalDirectory && Object.keys(externalDirectory).length) keys.push("permission");
+  if (provider && Object.keys(provider).length) keys.push("provider");
+
+  return {
+    keys,
+    config: {
+      ...(plugin.length ? { plugin } : {}),
+      ...(Object.keys(mcp).length ? { mcp } : {}),
+      ...(externalDirectory ? { permission: { external_directory: externalDirectory } } : {}),
+      ...(provider ? { provider } : {}),
+    },
+  };
+}
+
+function removeLegacyRuntimeConfig(openwork: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...openwork };
+  for (const key of LEGACY_RUNTIME_CONFIG_KEYS) {
+    delete next[key];
+  }
+  return next;
+}
+
+function mergeLegacyRuntimeConfig(
+  current: RuntimeOpencodeConfig,
+  legacy: RuntimeOpencodeConfig,
+): RuntimeOpencodeConfig {
+  const currentPermission = isRecord(current.permission) ? current.permission : {};
+  const legacyPermission = isRecord(legacy.permission) ? legacy.permission : {};
+  const currentExternalDirectory = isRecord(currentPermission.external_directory) ? currentPermission.external_directory : {};
+  const legacyExternalDirectory = isRecord(legacyPermission.external_directory) ? legacyPermission.external_directory : {};
+  return {
+    plugin: [
+      ...(Array.isArray(current.plugin) ? current.plugin.filter((item) => typeof item === "string") : []),
+      ...(Array.isArray(legacy.plugin) ? legacy.plugin.filter((item) => typeof item === "string") : []),
+    ].filter((item, index, list) => list.indexOf(item) === index),
+    mcp: {
+      ...(isRecord(legacy.mcp) ? legacy.mcp : {}),
+      ...(isRecord(current.mcp) ? current.mcp : {}),
+    },
+    permission: {
+      ...legacyPermission,
+      ...currentPermission,
+      external_directory: {
+        ...legacyExternalDirectory,
+        ...currentExternalDirectory,
+      },
+    },
+    provider: {
+      ...(isRecord(legacy.provider) ? legacy.provider : {}),
+      ...(isRecord(current.provider) ? current.provider : {}),
+    },
+  };
 }
 
 function normalizeRemoteDirectory(value: unknown): string {
@@ -2463,6 +2540,43 @@ function createRoutes(
       updatedAt,
     };
     return jsonResponse(response);
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/runtime-config/migrate", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const configPath = openworkConfigPath(workspace.path);
+
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "config.runtime_migrate",
+      summary: "Migrate legacy runtime OpenCode config",
+      paths: [configPath],
+    });
+
+    const openwork = await readOpenworkConfig(workspace.path);
+    const legacy = legacyRuntimeConfigFromOpenworkConfig(openwork);
+    if (!legacy.keys.length) {
+      return jsonResponse({ migrated: false, keys: [], updatedAt: null });
+    }
+
+    await writeRuntimeOpencodeConfig(config, workspace.id, (current) => mergeLegacyRuntimeConfig(current, legacy.config));
+    await writeOpenworkConfig(workspace.path, removeLegacyRuntimeConfig(openwork), false);
+
+    const updatedAt = Date.now();
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "config.runtime_migrate",
+      target: configPath,
+      summary: `Migrated legacy runtime OpenCode config: ${legacy.keys.join(", ")}`,
+      timestamp: updatedAt,
+    });
+    emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
+
+    return jsonResponse({ migrated: true, keys: legacy.keys, updatedAt });
   });
 
   addRoute(routes, "GET", "/workspace/:id/opencode-config", "client", async (ctx) => {

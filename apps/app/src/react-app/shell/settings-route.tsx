@@ -2275,6 +2275,18 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             })}
             opencodeDevModeEnabled={false}
             openDebugDeepLink={async () => ({ ok: false, message: "Debug deep links are not wired into the React settings route yet." })}
+            canMigrateRuntimeConfig={Boolean(openworkClient && selectedWorkspaceId)}
+            migrateRuntimeConfig={async () => {
+              if (!openworkClient || !selectedWorkspaceId) {
+                throw new Error("Select a workspace before migrating legacy runtime config.");
+              }
+              const result = await openworkClient.migrateRuntimeConfig(selectedWorkspaceId);
+              if (result.migrated) {
+                void connectionsStore.refreshMcpServers();
+                void extensionsStore.refreshPlugins();
+              }
+              return { migrated: result.migrated, keys: result.keys };
+            }}
           />
         );
       case "appearance":

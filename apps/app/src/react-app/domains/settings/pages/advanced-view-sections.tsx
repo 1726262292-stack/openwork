@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import type { ComponentProps, ReactNode } from "react";
-import { CircleAlert, Cpu, Info, RefreshCcw, Server } from "lucide-react";
+import { CircleAlert, Cpu, Database, Info, RefreshCcw, Server } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -96,6 +96,49 @@ export function AdvancedRuntimeSection(props: AdvancedRuntimeSectionProps) {
           tone={props.openworkTone}
         />
       </div>
+    </LayoutSection>
+  );
+}
+
+interface AdvancedRuntimeMigrationSectionProps {
+  busy: boolean;
+  canMigrate: boolean;
+  migrationBusy: boolean;
+  migrationStatus: string | null;
+  onMigrate: () => Promise<void>;
+}
+
+export function AdvancedRuntimeMigrationSection(props: AdvancedRuntimeMigrationSectionProps) {
+  return (
+    <LayoutSection>
+      <LayoutSectionHeader>
+        <LayoutSectionTitle>Legacy runtime config</LayoutSectionTitle>
+        <LayoutSectionDescription>
+          Move OpenWork-managed MCPs, plugins, providers, and permissions from older workspace metadata into the runtime database.
+        </LayoutSectionDescription>
+      </LayoutSectionHeader>
+
+      <LayoutSectionItem>
+        <LayoutSectionItemHeader>
+          <LayoutSectionItemTitle>Move legacy OpenCode runtime config</LayoutSectionItemTitle>
+          <LayoutSectionItemDescription>
+            Use this if you tested an earlier OpenWork build that stored runtime OpenCode settings in `.opencode/openwork.json`.
+          </LayoutSectionItemDescription>
+          <LayoutSectionItemHeaderActions>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void props.onMigrate()}
+              disabled={props.busy || props.migrationBusy || !props.canMigrate}
+            >
+              <Database size={14} />
+              {props.migrationBusy ? "Migrating..." : "Migrate"}
+            </Button>
+          </LayoutSectionItemHeaderActions>
+        </LayoutSectionItemHeader>
+        {props.migrationStatus ? <SettingsNotice>{props.migrationStatus}</SettingsNotice> : null}
+      </LayoutSectionItem>
     </LayoutSection>
   );
 }

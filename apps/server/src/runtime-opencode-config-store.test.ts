@@ -1,14 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addMcp, listMcp, setMcpEnabled } from "./mcp.js";
 import { buildOpenworkRuntimeConfig } from "./openwork-runtime-config.js";
 import { addPlugin, listPlugins, removePlugin } from "./plugins.js";
 import { readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 
 const WORKSPACE_ID = "ws_runtime_test";
+
+type Served = {
+  port: number;
+  stop: (closeActiveConnections?: boolean) => void | Promise<void>;
+};
 
 function serverConfig(root: string, dbPath: string): ServerConfig {
   return {
@@ -106,6 +112,50 @@ describe("runtime OpenCode config store", () => {
 
       expect(mcpItems.map((item) => item.name)).toEqual(["runtime"]);
       expect(pluginItems.items.map((item) => item.spec)).toEqual(["runtime-plugin"]);
+    });
+  });
+
+  test("explicitly migrates legacy OpenWork runtime config into the runtime DB", async () => {
+    await withWorkspace(async ({ root, config }) => {
+      await mkdir(join(root, ".opencode"), { recursive: true });
+      const openworkPath = join(root, ".opencode", "openwork.json");
+      await writeFile(openworkPath, JSON.stringify({
+        version: 1,
+        workspace: { name: "Test" },
+        plugin: ["legacy-plugin"],
+        mcp: { legacy: { type: "remote", url: "https://legacy.example/mcp" } },
+        permission: { external_directory: { "/legacy/*": "allow" } },
+        provider: { legacy: { npm: "legacy-provider" } },
+      }, null, 2) + "\n", "utf8");
+
+      const server = await startServer(config) as Served;
+      try {
+        const response = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/runtime-config/migrate`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+        });
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({
+          migrated: true,
+          keys: ["plugin", "mcp", "permission", "provider"],
+        });
+
+        const runtime = await readRuntimeOpencodeConfig(config, WORKSPACE_ID);
+        expect(runtime.plugin).toEqual(["legacy-plugin"]);
+        expect(runtime.mcp?.legacy?.url).toBe("https://legacy.example/mcp");
+        expect(runtime.permission?.external_directory?.["/legacy/*"]).toBe("allow");
+        expect(runtime.provider?.legacy).toEqual({ npm: "legacy-provider" });
+
+        const openwork = JSON.parse(await readFile(openworkPath, "utf8")) as Record<string, unknown>;
+        expect(openwork.version).toBe(1);
+        expect(openwork.workspace).toEqual({ name: "Test" });
+        expect(openwork.plugin).toBeUndefined();
+        expect(openwork.mcp).toBeUndefined();
+        expect(openwork.permission).toBeUndefined();
+        expect(openwork.provider).toBeUndefined();
+      } finally {
+        await server.stop(true);
+      }
     });
   });
 });

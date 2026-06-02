@@ -188,6 +188,12 @@ export type OpenworkAuthorizedFoldersUpdateResponse = {
   updatedAt: number;
 };
 
+export type OpenworkRuntimeConfigMigrationResult = {
+  migrated: boolean;
+  keys: string[];
+  updatedAt: number | null;
+};
+
 export type OpenworkDesktopCloudSyncChange = {
   id: string;
   kind: "new" | "modified" | "removed";
@@ -1143,6 +1149,17 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
           hostToken,
           method: "PUT",
           body: { folders },
+          timeoutMs: timeouts.config,
+        },
+      ),
+    migrateRuntimeConfig: (workspaceId: string) =>
+      requestJson<OpenworkRuntimeConfigMigrationResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/runtime-config/migrate`,
+        {
+          token,
+          hostToken,
+          method: "POST",
           timeoutMs: timeouts.config,
         },
       ),

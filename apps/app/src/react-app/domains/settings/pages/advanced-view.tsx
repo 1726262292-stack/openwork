@@ -11,6 +11,7 @@ import { LayoutStack } from "../settings-layout";
 import { advancedLocalReducer, initialAdvancedLocalState } from "./advanced-view-state";
 import {
   AdvancedDeveloperSection,
+  AdvancedRuntimeMigrationSection,
   AdvancedRuntimeSection,
 } from "./advanced-view-sections";
 
@@ -23,6 +24,8 @@ export type AdvancedViewProps = {
   toggleDeveloperMode: () => void;
   opencodeDevModeEnabled: boolean;
   openDebugDeepLink: (rawUrl: string) => Promise<{ ok: boolean; message: string }>;
+  canMigrateRuntimeConfig: boolean;
+  migrateRuntimeConfig: () => Promise<{ migrated: boolean; keys: string[] }>;
 };
 
 type AdvancedStatusTone = "ready" | "warning" | "error" | "neutral";
@@ -37,6 +40,8 @@ export function AdvancedView(props: AdvancedViewProps) {
     deepLinkInput: debugDeepLinkInput,
     deepLinkBusy: debugDeepLinkBusy,
     deepLinkStatus: debugDeepLinkStatus,
+    migrationBusy,
+    migrationStatus,
   } = localState;
 
   const clientStatusLabel = (() => {
@@ -96,6 +101,27 @@ export function AdvancedView(props: AdvancedViewProps) {
     }
   };
 
+  const migrateRuntimeConfig = async () => {
+    if (props.busy || migrationBusy || !props.canMigrateRuntimeConfig) return;
+    dispatchLocal({ type: "migrationStart" });
+    try {
+      const result = await props.migrateRuntimeConfig();
+      dispatchLocal({
+        type: "migrationStatus",
+        status: result.migrated
+          ? `Migrated legacy runtime config: ${result.keys.join(", ")}.`
+          : "No legacy runtime config found for this workspace.",
+      });
+    } catch (error) {
+      dispatchLocal({
+        type: "migrationStatus",
+        status: error instanceof Error ? error.message : "Failed to migrate legacy runtime config.",
+      });
+    } finally {
+      dispatchLocal({ type: "migrationDone" });
+    }
+  };
+
   return (
     <LayoutStack>
       <AdvancedRuntimeSection
@@ -103,6 +129,14 @@ export function AdvancedView(props: AdvancedViewProps) {
         clientTone={clientTone}
         openworkStatusLabel={openworkStatusLabel}
         openworkTone={openworkTone}
+      />
+
+      <AdvancedRuntimeMigrationSection
+        busy={props.busy}
+        canMigrate={props.canMigrateRuntimeConfig}
+        migrationBusy={migrationBusy}
+        migrationStatus={migrationStatus}
+        onMigrate={migrateRuntimeConfig}
       />
 
       <AdvancedDeveloperSection
