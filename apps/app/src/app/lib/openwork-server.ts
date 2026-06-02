@@ -200,6 +200,7 @@ export type OpenworkRuntimeConfigStatus = {
   legacyOpenwork: {
     path: string;
     keys: string[];
+    error: string | null;
   };
   userOpencode: {
     path: string;

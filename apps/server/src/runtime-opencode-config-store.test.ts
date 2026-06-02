@@ -168,4 +168,26 @@ describe("runtime OpenCode config store", () => {
       }
     });
   });
+
+  test("runtime config status tolerates malformed legacy OpenWork metadata", async () => {
+    await withWorkspace(async ({ root, config }) => {
+      await mkdir(join(root, ".opencode"), { recursive: true });
+      await writeFile(join(root, ".opencode", "openwork.json"), "{ invalid\n", "utf8");
+      await addMcp(config, WORKSPACE_ID, "runtime", { type: "remote", url: "https://runtime.example/mcp" });
+
+      const server = await startServer(config) as Served;
+      try {
+        const response = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/runtime-config`, {
+          headers: { authorization: `Bearer ${config.token}` },
+        });
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({
+          runtimeKeys: ["mcp"],
+          legacyOpenwork: { keys: [], error: "Failed to parse openwork.json" },
+        });
+      } finally {
+        await server.stop(true);
+      }
+    });
+  });
 });

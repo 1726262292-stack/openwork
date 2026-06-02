@@ -68,8 +68,10 @@ function RuntimeStatusCard(props: RuntimeStatusCardProps) {
 interface AdvancedRuntimeSectionProps {
   clientStatusLabel: string;
   clientTone: SettingsTone;
+  clientDetailLines: string[];
   openworkStatusLabel: string;
   openworkTone: SettingsTone;
+  openworkDetailLines: string[];
 }
 
 export function AdvancedRuntimeSection(props: AdvancedRuntimeSectionProps) {
@@ -87,6 +89,7 @@ export function AdvancedRuntimeSection(props: AdvancedRuntimeSectionProps) {
           description={t("settings.opencode_engine_desc")}
           statusLabel={props.clientStatusLabel}
           tone={props.clientTone}
+          detailLines={props.clientDetailLines}
         />
         <RuntimeStatusCard
           icon={<Server size={18} />}
@@ -94,6 +97,7 @@ export function AdvancedRuntimeSection(props: AdvancedRuntimeSectionProps) {
           description={t("settings.openwork_server_desc")}
           statusLabel={props.openworkStatusLabel}
           tone={props.openworkTone}
+          detailLines={props.openworkDetailLines}
         />
       </div>
     </LayoutSection>
@@ -108,7 +112,7 @@ interface AdvancedRuntimeMigrationSectionProps {
   configStatus: {
     runtime: Record<string, unknown>;
     runtimeKeys: string[];
-    legacyOpenwork: { path: string; keys: string[] };
+    legacyOpenwork: { path: string; keys: string[]; error: string | null };
     userOpencode: { path: string; exists: boolean; keys: string[] };
   } | null;
   configStatusBusy: boolean;
@@ -125,17 +129,17 @@ export function AdvancedRuntimeMigrationSection(props: AdvancedRuntimeMigrationS
   return (
     <LayoutSection>
       <LayoutSectionHeader>
-        <LayoutSectionTitle>Legacy runtime config</LayoutSectionTitle>
+        <LayoutSectionTitle>OpenCode config sources</LayoutSectionTitle>
         <LayoutSectionDescription>
-          Move only older OpenWork-owned runtime config from `.opencode/openwork.json` into the runtime database. User `opencode.jsonc` is shown below but is not migrated by this action.
+          Inspect what OpenWork controls at runtime versus what belongs to your workspace config. This works through the OpenWork server and does not require the OpenCode engine to be healthy.
         </LayoutSectionDescription>
       </LayoutSectionHeader>
 
       <LayoutSectionItem>
         <LayoutSectionItemHeader>
-          <LayoutSectionItemTitle>Move legacy OpenCode runtime config</LayoutSectionItemTitle>
+          <LayoutSectionItemTitle>Move legacy OpenWork config</LayoutSectionItemTitle>
           <LayoutSectionItemDescription>
-            Use this if you tested an earlier OpenWork build that stored runtime OpenCode settings in `.opencode/openwork.json`.
+            Only moves older OpenWork-owned runtime keys from `.opencode/openwork.json` into the runtime database. It does not migrate user `opencode.jsonc`.
           </LayoutSectionItemDescription>
           <LayoutSectionItemHeaderActions>
             <Button
@@ -171,6 +175,9 @@ export function AdvancedRuntimeMigrationSection(props: AdvancedRuntimeMigrationS
             <div>
               <div className="font-medium text-gray-12">Legacy OpenWork metadata</div>
               <div className="break-all">{props.configStatus.legacyOpenwork.path}</div>
+              {props.configStatus.legacyOpenwork.error ? (
+                <div className="text-amber-11">{props.configStatus.legacyOpenwork.error}; fix this file before moving legacy config.</div>
+              ) : null}
               <div>Migratable keys: {formatKeys(props.configStatus.legacyOpenwork.keys)}</div>
             </div>
             <div>

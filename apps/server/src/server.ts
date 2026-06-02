@@ -2598,8 +2598,9 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/runtime-config", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const runtime = await readRuntimeOpencodeConfig(config, workspace.id);
-    const openwork = await readOpenworkConfig(workspace.path);
-    const legacy = legacyRuntimeConfigFromOpenworkConfig(openwork);
+    const openwork = await readOpenworkConfigForStatus(workspace.path);
+    const openworkConfig = openwork.data;
+    const legacy = legacyRuntimeConfigFromOpenworkConfig(openworkConfig);
     const rawOpencode = await readRawOpencodeConfig(opencodeConfigPath(workspace.path));
     const persistedOpencode = await readOpencodeConfig(workspace.path);
 
@@ -2609,6 +2610,7 @@ function createRoutes(
       legacyOpenwork: {
         path: openworkConfigPath(workspace.path),
         keys: legacy.keys,
+        error: openwork.error,
       },
       userOpencode: {
         path: opencodeConfigPath(workspace.path),
@@ -4516,6 +4518,20 @@ async function readOpenworkConfig(workspaceRoot: string): Promise<Record<string,
     return JSON.parse(raw) as Record<string, unknown>;
   } catch {
     throw new ApiError(422, "invalid_json", "Failed to parse openwork.json");
+  }
+}
+
+async function readOpenworkConfigForStatus(workspaceRoot: string): Promise<{
+  data: Record<string, unknown>;
+  error: string | null;
+}> {
+  try {
+    return { data: await readOpenworkConfig(workspaceRoot), error: null };
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "invalid_json") {
+      return { data: {}, error: error.message };
+    }
+    throw error;
   }
 }
 
