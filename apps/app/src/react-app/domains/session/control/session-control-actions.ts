@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 import type { createClient } from "../../../../app/lib/opencode";
 import type { OpenworkServerClient, OpenworkWorkspaceInfo } from "../../../../app/lib/openwork-server";
@@ -211,6 +211,23 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const store = useSessionManagementStore;
 
+  /** Resolve a workspace ID from user input. Falls back to selectedWorkspaceId
+   *  if the input is empty or doesn't match any known workspace (e.g. if the
+   *  caller passes a display name instead of the actual ID). */
+  const resolveWorkspaceId = useCallback((input: string | undefined): string | undefined => {
+    if (!input) return selectedWorkspaceId || undefined;
+    // Exact match on ID.
+    if (workspaces.some((ws) => ws.id === input)) return input;
+    // Fuzzy match on display name / path — return the first matching workspace ID.
+    const byName = workspaces.find(
+      (ws) =>
+        (ws.displayName?.trim() || ws.name?.trim() || ws.path?.trim() || "").toLowerCase() === input.toLowerCase(),
+    );
+    if (byName) return byName.id;
+    // Unknown — fall back to selected.
+    return selectedWorkspaceId || undefined;
+  }, [selectedWorkspaceId, workspaces]);
+
   const pinControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.pin",
     label: "Pin or unpin a session",
@@ -265,13 +282,15 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
     disabled: !selectedWorkspaceId,
     execute: (args) => {
       const label = stringArg(args, "label");
-      const wsId = stringArg(args, "workspaceId") || selectedWorkspaceId;
+      const wsId = resolveWorkspaceId(stringArg(args, "workspaceId"));
       if (!label) return { ok: false, error: "label is required" };
       if (!wsId) return { ok: false, error: "No workspace selected" };
       store.getState().createGroup(wsId, label);
-      return { ok: true, workspaceId: wsId, label };
+      const created = store.getState().groupsByWorkspace[wsId];
+      const newGroup = created?.groups[created.groups.length - 1];
+      return { ok: true, workspaceId: wsId, label, groupId: newGroup?.id ?? null };
     },
-  }), [selectedWorkspaceId]);
+  }), [resolveWorkspaceId]);
   useControlAction(groupCreateControlAction);
 
   const groupMoveControlAction = useMemo<OpenworkControlAction>(() => ({
@@ -290,12 +309,12 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
       const groupId = stringArg(args, "groupId") || null;
       if (!sessionId) return { ok: false, error: "sessionId is required" };
       const targetWorkspace = findSessionWorkspace(workspaces, sessionsByWorkspaceId, sessionId);
-      const wsId = stringArg(args, "workspaceId") || targetWorkspace?.id || selectedWorkspaceId;
+      const wsId = resolveWorkspaceId(stringArg(args, "workspaceId")) || targetWorkspace?.id;
       if (!wsId) return { ok: false, error: "Could not determine workspace" };
       store.getState().assignGroup(wsId, sessionId, groupId);
       return { ok: true, sessionId, groupId, workspaceId: wsId };
     },
-  }), [selectedWorkspaceId, sessionsByWorkspaceId, workspaces]);
+  }), [resolveWorkspaceId, sessionsByWorkspaceId, workspaces]);
   useControlAction(groupMoveControlAction);
 
   const groupRemoveControlAction = useMemo<OpenworkControlAction>(() => ({
@@ -314,14 +333,14 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
     execute: (args) => {
       const groupId = stringArg(args, "groupId");
       const confirmed = booleanArg(args, "confirmed");
-      const wsId = stringArg(args, "workspaceId") || selectedWorkspaceId;
+      const wsId = resolveWorkspaceId(stringArg(args, "workspaceId"));
       if (!groupId) return { ok: false, error: "groupId is required" };
       if (!confirmed) return { ok: false, error: "Requires confirmed: true" };
       if (!wsId) return { ok: false, error: "No workspace selected" };
       store.getState().removeGroup(wsId, groupId);
       return { ok: true, groupId, workspaceId: wsId };
     },
-  }), [selectedWorkspaceId]);
+  }), [resolveWorkspaceId]);
   useControlAction(groupRemoveControlAction);
 
   const groupListControlAction = useMemo<OpenworkControlAction>(() => ({
@@ -331,7 +350,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
     sideEffect: "none",
     args: [{ name: "workspaceId", type: "string", required: false, description: "Workspace ID. Defaults to selected." }],
     execute: (args) => {
-      const wsId = stringArg(args, "workspaceId") || selectedWorkspaceId;
+      const wsId = resolveWorkspaceId(stringArg(args, "workspaceId"));
       if (!wsId) return { ok: false, error: "No workspace selected" };
       const state = store.getState().groupsByWorkspace[wsId];
       return {
@@ -341,6 +360,6 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
         assignments: state?.assignments ?? {},
       };
     },
-  }), [selectedWorkspaceId]);
+  }), [resolveWorkspaceId]);
   useControlAction(groupListControlAction);
 }
