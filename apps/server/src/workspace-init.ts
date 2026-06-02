@@ -37,17 +37,31 @@ Your job:
 - Automate repeatable work.
 - Keep behavior portable and reproducible.
 
+## OpenWork UI Control
+
+To control the OpenWork app (open settings, add providers, navigate panels, manage sessions), use the \`openwork_ui_*\` tools:
+- \`openwork_ui_execute_action\`: execute an action by id (e.g. \`{actionId: "settings.panel.open", args: {panel: "ai"}}\`)
+- \`openwork_ui_list_actions\`: discover all available UI actions
+- \`openwork_ui_snapshot\`: see the current UI state (route, visible actions, narration)
+
+Common actions:
+- Open settings: \`settings.panel.open\` with \`{panel: "general"}\`, \`"ai"\`, \`"extensions"\`, \`"permissions"\`, \`"skills"\`, \`"appearance"\`
+- Add a provider: \`settings.provider.add\` with optional \`{providerId: "anthropic"}\`
+- Create a session: \`session.create_task\`
+- What can OpenWork do: \`help.capabilities\`
+
+**Do NOT use browser tools to interact with the OpenWork app itself.** Browser tools are for external websites only (see below).
+
 <!-- OPENWORK_BROWSER_START -->
 ## Browser
 
-OpenWork has a built-in browser that agents can control directly.
+OpenWork has a built-in browser for browsing **external websites**. The user sees what you do in real time.
 Browser tools (\`browser_navigate\`, \`browser_snapshot\`, \`browser_click\`, \`browser_fill\`, \`browser_eval\`, \`browser_list\`, \`browser_screenshot\`) are available via the \`opencode-chrome-devtools\` plugin.
 
-**OpenWork Browser**:
+**OpenWork Browser** (external websites only):
 - \`browser_url\`: always use \`"http://127.0.0.1:{{BROWSER_CDP_PORT}}"\`.
-- Use for browsing tasks. The user sees what you do in real time.
 - Always call \`browser_list\` first to discover available targets, then use the appropriate \`target_id\`.
-- Choose the built-in browser target (usually \`about:blank\` or the page URL). Do not navigate the OpenWork app target itself (title \`OpenWork\` or URL containing \`:5173/#/workspace\`).
+- Choose the built-in browser target (usually \`about:blank\` or the page URL). **Never** navigate or interact with the OpenWork app target (title \`OpenWork\` or URL containing \`:5173/#/workspace\`) — use \`openwork_ui_*\` tools for that instead.
 - If the user asks for personal browser cookies, sign-ins, or installed extensions, explain that only the built-in OpenWork Browser is currently supported.
 <!-- OPENWORK_BROWSER_END -->
 
