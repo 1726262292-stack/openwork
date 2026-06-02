@@ -65,4 +65,18 @@ describe("OpenWork logical OpenCode config", () => {
       expect(runtimeConfig.mcp?.runtime?.url).toBe("https://runtime.example/mcp");
     });
   });
+
+  test("malformed user opencode config does not block logical config reads", async () => {
+    await withWorkspace(async (root) => {
+      await writeFile(join(root, "opencode.jsonc"), '{ "mcp": {\n}\n}\n}\n', "utf8");
+      await addMcp(root, "runtime", { type: "remote", url: "https://runtime.example/mcp", enabled: true });
+      await addPlugin(root, "runtime-plugin");
+
+      const mcpItems = await listMcp(root);
+      const pluginItems = await listPlugins(root, false);
+
+      expect(mcpItems.map((item) => item.name)).toEqual(["runtime"]);
+      expect(pluginItems.items.map((item) => item.spec)).toEqual(["runtime-plugin"]);
+    });
+  });
 });

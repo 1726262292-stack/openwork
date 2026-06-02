@@ -54,12 +54,7 @@ async function ensureWorkspaceOpenworkConfig(workspaceRoot: string, preset: stri
 async function ensureOpencodeConfig(workspaceRoot: string): Promise<boolean> {
   const path = opencodeConfigPath(workspaceRoot);
   if (await exists(path)) {
-    try {
-      await readJsoncFile<Record<string, unknown>>(path, {});
-    } catch (error) {
-      if (error instanceof ApiError && error.code === "invalid_jsonc") return false;
-      throw error;
-    }
+    await readJsoncFile<Record<string, unknown>>(path, {}, { allowInvalid: true });
   }
   return false;
 }

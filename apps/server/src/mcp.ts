@@ -39,8 +39,8 @@ function isMcpDisabledByTools(config: Record<string, unknown>, name: string): bo
 }
 
 export async function listMcp(workspaceRoot: string): Promise<McpItem[]> {
-  const { data: config } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>);
-  const { data: globalConfig } = await readJsoncFile(globalOpenCodeConfigPath(), {} as Record<string, unknown>);
+  const { data: config } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>, { allowInvalid: true });
+  const { data: globalConfig } = await readJsoncFile(globalOpenCodeConfigPath(), {} as Record<string, unknown>, { allowInvalid: true });
 
   const projectMcpMap = getMcpConfig(config);
   const globalMcpMap = getMcpConfig(globalConfig);

@@ -51,7 +51,7 @@ async function listPluginFiles(dir: string, scope: "project" | "global", workspa
 }
 
 export async function listPlugins(workspaceRoot: string, includeGlobal: boolean): Promise<{ items: PluginItem[]; loadOrder: string[] }> {
-  const { data: config } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>);
+  const { data: config } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>, { allowInvalid: true });
   const pluginSpecs = pluginListFromConfig(config);
   const logicalSpecs = logicalPluginList(await readWorkspaceLogicalOpencodeConfig(workspaceRoot));
   const items: PluginItem[] = pluginSpecs.map((spec) => ({

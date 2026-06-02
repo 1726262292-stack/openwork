@@ -4350,7 +4350,7 @@ async function fetchRuntimeControl(path: string, init?: { method?: string; body?
 }
 
 async function readOpencodeConfig(workspaceRoot: string): Promise<Record<string, unknown>> {
-  const { data } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>);
+  const { data } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>, { allowInvalid: true });
   return data;
 }
 
