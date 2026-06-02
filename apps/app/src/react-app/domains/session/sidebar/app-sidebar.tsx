@@ -1374,21 +1374,21 @@ function ArchivedSessionsSection({
   const pinned = usePinnedSessionIds();
   return (
     <Collapsible open={expanded} onOpenChange={onToggle} className="group/archived">
-      <SidebarMenuSubItem>
-        <CollapsibleTrigger
-          render={
-            <SidebarMenuSubButton className="relative text-muted-foreground text-xs">
-              <Archive className="size-3.5 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">
-                {t("session_management.archived_count", { count: sessions.length })}
-              </span>
-              <span className="flex items-center justify-center size-6 absolute right-2 top-1/2 -translate-y-1/2">
-                <ChevronRight className="size-4 text-muted-foreground transition-transform duration-200 group-data-open/archived:rotate-90" />
-              </span>
-            </SidebarMenuSubButton>
-          }
-        />
-      </SidebarMenuSubItem>
+      <CollapsibleTrigger
+        render={
+          <button
+            type="button"
+            className="group/separator flex w-full cursor-pointer items-center gap-1.5 px-2 pb-1 pt-2.5 rounded transition-colors hover:bg-sidebar-accent/50"
+          >
+            <Archive className="size-3 shrink-0 text-muted-foreground" />
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {t("session_management.archived_label")}
+            </span>
+            <span className="text-[10px] tabular-nums text-muted-foreground/70">{sessions.length}</span>
+            <ChevronRight className="ml-auto size-3.5 text-muted-foreground transition-transform duration-200 group-data-open/archived:rotate-90" />
+          </button>
+        }
+      />
       <CollapsibleContent>
         {sessions.map((session) => (
           <SessionMenuItem
