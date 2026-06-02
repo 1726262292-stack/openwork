@@ -21,21 +21,8 @@ const runtimeOpencodeConfigs = sqliteTable("runtime_opencode_configs", {
 });
 
 type RuntimeOpencodeDb = {
-  select: () => {
-    from: (table: typeof runtimeOpencodeConfigs) => {
-      where: (condition: unknown) => {
-        get: () => { configJson: string } | undefined;
-      };
-    };
-  };
-  insert: (table: typeof runtimeOpencodeConfigs) => {
-    values: (value: { workspaceId: string; configJson: string; updatedAt: number }) => {
-      onConflictDoUpdate: (input: {
-        target: typeof runtimeOpencodeConfigs.workspaceId;
-        set: { configJson: string; updatedAt: number };
-      }) => { run: () => void };
-    };
-  };
+  get: (workspaceId: string) => { configJson: string } | undefined;
+  upsert: (value: { workspaceId: string; configJson: string; updatedAt: number }) => void;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -72,15 +59,40 @@ async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
     const { drizzle } = await import("drizzle-orm/bun-sqlite");
     const sqlite = new Database(path, { create: true });
     sqlite.run("CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
-    return drizzle(sqlite) as unknown as RuntimeOpencodeDb;
+    const db = drizzle(sqlite);
+    return {
+      get: (workspaceId) => db
+        .select()
+        .from(runtimeOpencodeConfigs)
+        .where(eq(runtimeOpencodeConfigs.workspaceId, workspaceId))
+        .get(),
+      upsert: ({ workspaceId, configJson, updatedAt }) => {
+        db
+          .insert(runtimeOpencodeConfigs)
+          .values({ workspaceId, configJson, updatedAt })
+          .onConflictDoUpdate({
+            target: runtimeOpencodeConfigs.workspaceId,
+            set: { configJson, updatedAt },
+          })
+          .run();
+      },
+    };
   }
-  const [{ default: Database }, { drizzle }] = await Promise.all([
-    import("better-sqlite3"),
-    import("drizzle-orm/better-sqlite3"),
-  ]);
-  const sqlite = new Database(path);
+  const { DatabaseSync } = await import("node:sqlite");
+  const sqlite = new DatabaseSync(path);
   sqlite.exec("CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
-  return drizzle(sqlite) as unknown as RuntimeOpencodeDb;
+  const get = sqlite.prepare("SELECT config_json AS configJson FROM runtime_opencode_configs WHERE workspace_id = ?");
+  const upsert = sqlite.prepare("INSERT INTO runtime_opencode_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
+  return {
+    get: (workspaceId) => {
+      const row = get.get(workspaceId);
+      if (!isRecord(row) || typeof row.configJson !== "string") return undefined;
+      return { configJson: row.configJson };
+    },
+    upsert: ({ workspaceId, configJson, updatedAt }) => {
+      upsert.run(workspaceId, configJson, updatedAt);
+    },
+  };
 }
 
 const dbByPath = new Map<string, Promise<RuntimeOpencodeDb>>();
@@ -110,11 +122,7 @@ export function runtimeExternalDirectory(config: RuntimeOpencodeConfig): Record<
 
 export async function readRuntimeOpencodeConfig(config: ServerConfig, workspaceId: string): Promise<RuntimeOpencodeConfig> {
   const db = await runtimeDb(config);
-  const row = db
-    .select()
-    .from(runtimeOpencodeConfigs)
-    .where(eq(runtimeOpencodeConfigs.workspaceId, workspaceId))
-    .get();
+  const row = db.get(workspaceId);
   if (!row) return {};
   try {
     return normalizeRuntimeOpencodeConfig(JSON.parse(row.configJson));
@@ -132,14 +140,7 @@ export async function writeRuntimeOpencodeConfig(
   const next = normalizeRuntimeOpencodeConfig(updater(await readRuntimeOpencodeConfig(config, workspaceId)));
   const now = Date.now();
   const configJson = JSON.stringify(next);
-  db
-    .insert(runtimeOpencodeConfigs)
-    .values({ workspaceId, configJson, updatedAt: now })
-    .onConflictDoUpdate({
-      target: runtimeOpencodeConfigs.workspaceId,
-      set: { configJson, updatedAt: now },
-    })
-    .run();
+  db.upsert({ workspaceId, configJson, updatedAt: now });
   return next;
 }
 
