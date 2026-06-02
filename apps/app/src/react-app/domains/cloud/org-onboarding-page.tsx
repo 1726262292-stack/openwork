@@ -30,7 +30,6 @@ import { useBootState } from "../../shell/boot-state";
 import { resolveModelDisplayName, resolveProviderDisplayName } from "@/app/utils";
 import { ProviderIcon } from "../../design-system/provider-icon";
 import { writeStoredDefaultModel } from "../../kernel/model-config";
-import { orgOnboardingVisibilityEvent } from "../../shell/reload-coordinator";
 import {
   Page,
   PageBackground,
@@ -62,6 +61,7 @@ import {
   RadioGroup,
   RadioGroupItem,
 } from "@/components/ui/radio-group"
+import { events } from "@/lib/event-bus";
 
 const RELOAD_AFTER_ONBOARDING_KEY = "openwork.reloadAfterOrgOnboarding";
 
@@ -113,9 +113,9 @@ export function OrgOnboardingPage() {
   const [hasSelectedOrganization, setHasSelectedOrganization] = useState(false);
   
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent(orgOnboardingVisibilityEvent, { detail: { visible: true } }));
+    events.emit("openwork-org-onboarding-visibility", { visible: true });
     return () => {
-      window.dispatchEvent(new CustomEvent(orgOnboardingVisibilityEvent, { detail: { visible: false } }));
+      events.emit("openwork-org-onboarding-visibility", { visible: false });
     };
   }, []);
 

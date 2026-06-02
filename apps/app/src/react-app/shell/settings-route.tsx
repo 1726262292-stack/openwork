@@ -130,7 +130,8 @@ import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory"
 import { workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { getReactQueryClient } from "../infra/query-client";
 import { ensureProviderListQuery, getConnectedProviderItems, refreshProviderListQueries } from "../domains/connections/provider-list-query";
-import { openModelPickerEvent, pendingModelPickerProviderIdsKey } from "./new-providers-toast";
+import { pendingModelPickerProviderIdsKey } from "./new-providers-toast";
+import { events } from "@/lib/event-bus";
 import {
   OPENAI_IMAGE_EXTENSION_ID,
   OPENAI_IMAGE_MODEL,
@@ -647,7 +648,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     await refreshProviderListQueries(getReactQueryClient());
 
     try {
-      window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
+      events.emit("openwork-server-settings-changed");
     } catch {
       // ignore browser event dispatch failures
     }
@@ -1120,7 +1121,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       }
       await refreshProviderListQueries(getReactQueryClient());
       try {
-        window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
+        events.emit("openwork-server-settings-changed");
       } catch {
         // ignore browser event dispatch failures
       }
@@ -1156,8 +1157,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         window.localStorage.removeItem(pendingModelPickerProviderIdsKey);
       } catch {}
     };
-    window.addEventListener(openModelPickerEvent, handler);
-    return () => window.removeEventListener(openModelPickerEvent, handler);
+    return events.on("openwork-open-model-picker", handler);
   }, []);
 
   useEffect(() => {
@@ -1500,9 +1500,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     const handleSettingsChange = () => {
       void refreshRouteState();
     };
-    window.addEventListener("openwork-server-settings-changed", handleSettingsChange);
+    const stopSettingsUpdates = events.on("openwork-server-settings-changed", handleSettingsChange);
     return () => {
-      window.removeEventListener("openwork-server-settings-changed", handleSettingsChange);
+      stopSettingsUpdates();
     };
   }, [refreshRouteState]);
 

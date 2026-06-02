@@ -35,20 +35,16 @@ import { getReactQueryClient } from "../../../infra/query-client";
 import { ensureProviderListQuery } from "../provider-list-query";
 import type { OpenworkServerStore } from "../openwork-server-store";
 import {
-  denSessionUpdatedEvent,
-  type DenSessionUpdatedDetail,
-} from "../../../../app/lib/den-session-events";
-import {
   readWorkspaceCloudImports,
   withWorkspaceCloudImports,
   type CloudImportedProvider,
 } from "../../../../app/cloud/import-state";
 import { refreshDesktopCloudSync } from "../../../../app/cloud/desktop-cloud-sync";
-import { dispatchNewProviders } from "../../../../app/lib/provider-events";
 import {
   isDesktopProviderBlocked,
   type DesktopAppRestrictionChecker,
 } from "../../../../app/cloud/desktop-app-restrictions";
+import { events } from "@/lib/event-bus";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 type CloudProviderSyncReason = "sign_in" | "app_launch" | "interval" | "settings_cloud_opened";
@@ -888,7 +884,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
               : undefined,
           };
         });
-        dispatchNewProviders({ providers: infos, source: "local_config" });
+        events.emit("openwork-new-providers-available", { providers: infos, source: "local_config" });
       }
     }
   };
@@ -1581,7 +1577,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     // Notify the UI about newly imported providers so the global toast
     // can be shown regardless of which route is active.
     if (newlyImported.length > 0) {
-      dispatchNewProviders({
+      events.emit("openwork-new-providers-available", {
         providers: newlyImported,
         source: reason === "sign_in" ? "sign_in" : "cloud_sync",
       });
@@ -1742,11 +1738,11 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     started = true;
     lastWorkspaceKey = currentWorkspaceKey();
     if (typeof window !== "undefined") {
-      const handleDenSessionUpdate = (event: Event) => {
+      const handleDenSessionUpdate = (event: CustomEvent<{ status?: "success" | "error" | "signed_out" }>) => {
         cloudOrgProvidersLoadKey = "";
         cloudOrgProvidersInFlightKey = "";
         cloudOrgProvidersInFlight = null;
-        const detail = (event as CustomEvent<DenSessionUpdatedDetail>).detail;
+        const detail = event.detail;
 
         if (detail?.status === "success") {
           mutateState((current) => ({
@@ -1801,16 +1797,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           })();
         }
       };
-      window.addEventListener(
-        denSessionUpdatedEvent,
-        handleDenSessionUpdate as EventListener,
-      );
-      denSessionCleanup = () => {
-        window.removeEventListener(
-          denSessionUpdatedEvent,
-          handleDenSessionUpdate as EventListener,
-        );
-      };
+      denSessionCleanup = events.on("openwork-den-session-updated", handleDenSessionUpdate);
     }
     void refreshImportedCloudProviders().then((imported) => {
       // Startup cleanup: if no auth token, remove any cloud providers that

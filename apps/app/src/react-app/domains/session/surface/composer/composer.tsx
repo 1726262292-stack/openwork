@@ -16,6 +16,7 @@ import {
   ReactComposerNotice,
   type ReactComposerNotice as ReactComposerNoticeData,
 } from "./notice";
+import { events } from "@/lib/event-bus";
 
 type MentionItem = {
   id: string;
@@ -101,8 +102,6 @@ type ComposerProps = {
   topAccessory?: ReactNode;
 };
 
-const FLUSH_PROMPT_EVENT = "openwork:flushPromptDraft";
-const FOCUS_PROMPT_EVENT = "openwork:focusPrompt";
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const IMAGE_COMPRESS_MAX_PX = 2048;
 const IMAGE_COMPRESS_QUALITY = 0.82;
@@ -795,16 +794,15 @@ export function ReactSessionComposer(props: ComposerProps) {
       // draft so downstream stores can checkpoint it.
       props.onDraftChange(draftRef.current);
     };
-    window.addEventListener(FOCUS_PROMPT_EVENT, handleFocus);
-    window.addEventListener(FLUSH_PROMPT_EVENT, handleFlush);
-    window.addEventListener("beforeunload", handleFlush);
-    window.addEventListener("pagehide", handleFlush);
-    return () => {
-      window.removeEventListener(FOCUS_PROMPT_EVENT, handleFocus);
-      window.removeEventListener(FLUSH_PROMPT_EVENT, handleFlush);
-      window.removeEventListener("beforeunload", handleFlush);
-      window.removeEventListener("pagehide", handleFlush);
-    };
+
+    const controller = new AbortController();
+
+    events.on("openwork:focusPrompt", handleFocus, { signal: controller.signal });
+    events.on("openwork:flushPromptDraft", handleFlush, { signal: controller.signal });
+    window.addEventListener("beforeunload", handleFlush, { signal: controller.signal });
+    window.addEventListener("pagehide", handleFlush, { signal: controller.signal });
+
+    return () => controller.abort();
   }, [props.onDraftChange]);
 
   const handleKeyDownCapture: React.KeyboardEventHandler<HTMLDivElement> = (event) => {

@@ -15,6 +15,7 @@ import { t } from "../../i18n";
 import { ReloadWorkspaceToast } from "../domains/shell-feedback/reload-workspace-toast";
 import { StatusToastsViewport } from "../domains/shell-feedback/status-toasts";
 import { useSystemState } from "../kernel/system-state";
+import { events } from "@/lib/event-bus";
 
 type ReloadSession = { id: string; title: string };
 
@@ -33,8 +34,6 @@ type ReloadCoordinatorContextValue = {
   reloadPending: boolean;
   registerWorkspaceReloadControls: (controls: WorkspaceReloadControls | null) => () => void;
 };
-
-export const orgOnboardingVisibilityEvent = "openwork-org-onboarding-visibility";
 
 const ReloadCoordinatorContext = createContext<ReloadCoordinatorContextValue | null>(null);
 
@@ -79,13 +78,9 @@ export function ReloadCoordinatorProvider({ children }: { children: ReactNode })
   const systemState = useSystemState(systemStateOptions);
 
   useEffect(() => {
-    const update = (event: Event) => {
-      setOrgOnboardingVisible(Boolean((event as CustomEvent<{ visible?: boolean }>).detail?.visible));
-    };
-    window.addEventListener(orgOnboardingVisibilityEvent, update);
-    return () => {
-      window.removeEventListener(orgOnboardingVisibilityEvent, update);
-    };
+    return events.on("openwork-org-onboarding-visibility", (event) => {
+      setOrgOnboardingVisible(Boolean(event.detail.visible));
+    });
   }, []);
 
   useEffect(() => {

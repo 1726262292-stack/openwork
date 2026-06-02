@@ -11,9 +11,7 @@ export type { SharedDesktopConfig };
 export { normalizeDesktopConfig };
 
 import { isDesktopDeployment } from "./openwork-deployment";
-import {
-  dispatchDenSettingsChanged,
-} from "./den-session-events";
+import { events } from "@/lib/event-bus";
 import {
   desktopFetch,
   getDesktopBootstrapConfig as getDesktopBootstrapConfigFromShell,
@@ -630,7 +628,7 @@ export async function setDenBootstrapConfig(
     applyDesktopBootstrapConfig(normalized);
   }
 
-  dispatchDenSettingsChanged({
+  events.emit("openwork-den-settings-changed", {
     settings: readDenSettings(),
   });
 
@@ -747,7 +745,7 @@ export function writeDenSettings(next: DenSettings, options?: { persistBootstrap
     }
   }
 
-  dispatchDenSettingsChanged({
+  events.emit("openwork-den-settings-changed", {
     settings: readDenSettings(),
   });
 }
@@ -767,7 +765,7 @@ export function clearDenSession(options?: { includeBaseUrls?: boolean }) {
   window.localStorage.removeItem(STORAGE_ACTIVE_ORG_SLUG);
   window.localStorage.removeItem(STORAGE_ACTIVE_ORG_NAME);
 
-  dispatchDenSettingsChanged({
+  events.emit("openwork-den-settings-changed", {
     settings: readDenSettings(),
   });
 }

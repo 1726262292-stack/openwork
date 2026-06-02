@@ -23,6 +23,7 @@ import { buildOpenworkWorkspaceBaseUrl, createOpenworkServerClient } from "../..
 import { buildDenAuthUrl, readDenSettings } from "../../app/lib/den";
 import { writeActiveWorkspaceId, writeLastSessionFor } from "./session-memory";
 import { workspaceSessionRoute } from "./workspace-routes";
+import { events } from "@/lib/event-bus";
 
 function folderNameFromPath(path: string) {
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -32,7 +33,7 @@ function folderNameFromPath(path: string) {
 
 function focusPromptSoon() {
   if (typeof window === "undefined") return;
-  const focus = () => window.dispatchEvent(new Event("openwork:focusPrompt"));
+  const focus = () => events.emit("openwork:focusPrompt");
   [0, 80, 240, 600].forEach((delay) => window.setTimeout(focus, delay));
 }
 

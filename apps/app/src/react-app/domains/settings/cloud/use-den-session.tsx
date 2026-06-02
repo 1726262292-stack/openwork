@@ -14,22 +14,13 @@ import {
   writeDenSettings,
   type DenOrgSummary,
 } from "../../../../app/lib/den";
-import {
-  denSessionUpdatedEvent,
-  dispatchDenSessionUpdated,
-  type DenSessionUpdatedDetail,
-} from "../../../../app/lib/den-session-events";
 import { t } from "@/i18n";
 import { useStatusToasts } from "../../shell-feedback/status-toasts";
 import { useCloudSession } from "./cloud-session-provider";
+import { events, type InferAppEventDetails } from "@/lib/event-bus";
 
+type DenSessionUpdatedDetail = InferAppEventDetails<"openwork-den-session-updated">;
 type SettingsTone = "ready" | "warning" | "neutral" | "error";
-
-declare global {
-  interface WindowEventMap {
-    "openwork-den-session-updated": CustomEvent<DenSessionUpdatedDetail>;
-  }
-}
 
 export type UseDenSessionProps = {
   developerMode: boolean;
@@ -184,7 +175,7 @@ export function useDenSession({
         }
       } catch {}
       // Notify provider auth store so it can clean up cloud-imported providers
-      dispatchDenSessionUpdated({ status: "signed_out", ...eventDetail });
+      events.emit("openwork-den-session-updated", { status: "signed_out", ...eventDetail });
     },
     [clearSessionState, developerMode, setAuthToken, setBaseUrl],
   );
@@ -344,7 +335,7 @@ export function useDenSession({
   }, [refreshOrgs, user]);
 
   React.useEffect(() => {
-    const handler = (event: WindowEventMap[typeof denSessionUpdatedEvent]) => {
+    return events.on("openwork-den-session-updated", (event) => {
       const nextSettings = readDenSettings();
       const nextBaseUrl =
         event.detail?.baseUrl?.trim() || nextSettings.baseUrl || DEFAULT_DEN_BASE_URL;
@@ -369,10 +360,7 @@ export function useDenSession({
       } else if (event.detail?.status === "error") {
         setAuthError(event.detail.message?.trim() || t("den.error_signin_failed"));
       }
-    };
-
-    window.addEventListener(denSessionUpdatedEvent, handler);
-    return () => window.removeEventListener(denSessionUpdatedEvent, handler);
+    });
   }, [clearSessionState, setAuthToken, setBaseUrl]);
 
   const submitManualAuth = React.useCallback(async (input: string) => {
@@ -406,7 +394,7 @@ export function useDenSession({
         activeOrgName: null,
       });
 
-      dispatchDenSessionUpdated({
+      events.emit("openwork-den-session-updated", {
         status: "success",
         baseUrl: nextBaseUrl,
         token: result.token,
@@ -415,7 +403,7 @@ export function useDenSession({
       });
       return true;
     } catch (error) {
-      dispatchDenSessionUpdated({
+      events.emit("openwork-den-session-updated", {
         status: "error",
         message: error instanceof Error ? error.message : t("den.error_signin_failed"),
       });

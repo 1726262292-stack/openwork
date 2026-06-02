@@ -61,6 +61,7 @@ import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { getExtensionId, isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED } from "../../settings/extension-state";
 import { cn } from "@/lib/utils";
+import { events } from "@/lib/event-bus";
 
 const STARTUP_SKELETON_ROWS = [
   { id: "intro", titleWidth: "42%", bodyWidth: "88%" },
@@ -439,29 +440,31 @@ export function SessionPage(props: SessionPageProps) {
     }
   }, [closeTab, hiddenAccessibleTargetIds, props.selectedSessionId, props.selectedWorkspaceId]);
   useEffect(() => {
-    const open = (event: Event) => {
-      const requested = (event as CustomEvent<OpenTarget>).detail;
+    const controller = new AbortController();
+
+    events.on("openwork-open-accessible-target", ({ detail: requested }) => {
       const target = accessibleTargets.find((item) => item.id === requested?.id || item.value === requested?.value) ?? (
         requested?.kind && requested?.value ? requested : null
       );
-      if (target) openTarget(target);
-    };
-    const hide = (event: Event) => {
-      const requested = (event as CustomEvent<OpenTarget>).detail;
+
+      if (target) {
+        openTarget(target);
+      }
+    }, { signal: controller.signal });
+
+    events.on("openwork-hide-accessible-target", ({ detail: requested }) => {
       const target = accessibleTargets.find((item) => item.id === requested?.id || item.value === requested?.value);
-      if (target) removeAccessibleTarget(target);
-    };
-    window.addEventListener("openwork-open-accessible-target", open);
-    window.addEventListener("openwork-hide-accessible-target", hide);
-    return () => {
-      window.removeEventListener("openwork-open-accessible-target", open);
-      window.removeEventListener("openwork-hide-accessible-target", hide);
-    };
+
+      if (target) {
+        removeAccessibleTarget(target);
+      }
+    }, { signal: controller.signal });
+
+    return () => controller.abort();
   }, [accessibleTargets, openTarget, removeAccessibleTarget]);
   useEffect(() => {
     const handler = () => setCurrentSidePanel(null);
-    window.addEventListener("openwork-close-right-pane", handler);
-    return () => window.removeEventListener("openwork-close-right-pane", handler);
+    return events.on("openwork-close-right-pane", handler);
   }, [setCurrentSidePanel]);
   useEffect(() => {
     const refresh = () => setExtensionStateVersion((value) => value + 1);

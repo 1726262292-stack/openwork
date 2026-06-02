@@ -9,7 +9,7 @@ import {
   type DenOrgSummary,
   type DenUser,
 } from "../../../../app/lib/den";
-import { denSettingsChangedEvent } from "../../../../app/lib/den-session-events";
+import { events } from "@/lib/event-bus";
 
 type CloudActiveOrganization = Pick<DenOrgSummary, "id" | "name" | "slug">;
 
@@ -67,8 +67,7 @@ export function CloudSessionProvider({ children }: CloudSessionProviderProps) {
       setApiBaseUrl(readDenSettings().apiBaseUrl || "");
     };
 
-    window.addEventListener(denSettingsChangedEvent, handleSettingsChanged);
-    return () => window.removeEventListener(denSettingsChangedEvent, handleSettingsChanged);
+    return events.on("openwork-den-settings-changed", handleSettingsChanged);
   }, []);
 
   const client = React.useMemo(

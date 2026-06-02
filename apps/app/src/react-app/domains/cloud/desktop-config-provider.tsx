@@ -24,11 +24,8 @@ import {
   readDenSettings,
   type DenDesktopConfig,
 } from "../../../app/lib/den";
-import {
-  denSessionUpdatedEvent,
-  denSettingsChangedEvent,
-} from "../../../app/lib/den-session-events";
 import { useDenAuth } from "./den-auth-provider";
+import { events } from "@/lib/event-bus";
 
 export type DesktopConfigStore = {
   config: DenDesktopConfig;
@@ -252,12 +249,10 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const handleSettingsChanged = () => {
-      bumpSettingsVersion();
-    };
+    const controller = new AbortController();
 
-    window.addEventListener(denSessionUpdatedEvent, handleSettingsChanged);
-    window.addEventListener(denSettingsChangedEvent, handleSettingsChanged);
+    events.on("openwork-den-session-updated", () => bumpSettingsVersion(), { signal: controller.signal });
+    events.on("openwork-den-settings-changed", () => bumpSettingsVersion(), { signal: controller.signal });
 
     const interval = window.setInterval(() => {
       if (!isSignedIn) return;
@@ -265,8 +260,7 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     }, DESKTOP_CONFIG_REFRESH_MS);
 
     return () => {
-      window.removeEventListener(denSessionUpdatedEvent, handleSettingsChanged);
-      window.removeEventListener(denSettingsChangedEvent, handleSettingsChanged);
+      controller.abort();
       window.clearInterval(interval);
     };
   }, [desktopConfigHandler, isSignedIn]);

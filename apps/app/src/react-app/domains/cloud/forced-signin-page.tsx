@@ -14,16 +14,12 @@ import {
   setDenBootstrapConfig,
   writeDenSettings,
 } from "../../../app/lib/den";
-import {
-  denSessionUpdatedEvent,
-  dispatchDenSessionUpdated,
-  type DenSessionUpdatedDetail,
-} from "../../../app/lib/den-session-events";
 import { usePlatform } from "../../kernel/platform";
 import { useBootState } from "../../shell/boot-state";
 import { useDenAuth } from "./den-auth-provider";
 import { useDesktopConfig } from "./desktop-config-provider";
 import { DenSignInSurface } from "./den-signin-surface";
+import { events } from "@/lib/event-bus";
 
 export type ForcedSigninPageProps = {
   developerMode: boolean;
@@ -147,7 +143,7 @@ export function ForcedSigninPage({ developerMode }: ForcedSigninPageProps) {
 
       setManualAuthInput("");
       setManualAuthOpen(false);
-      dispatchDenSessionUpdated({
+      events.emit("openwork-den-session-updated", {
         status: "success",
         baseUrl: nextBaseUrl,
         token: result.token,
@@ -155,7 +151,7 @@ export function ForcedSigninPage({ developerMode }: ForcedSigninPageProps) {
         email: result.user?.email ?? null,
       });
     } catch (error) {
-      dispatchDenSessionUpdated({
+      events.emit("openwork-den-session-updated", {
         status: "error",
         message:
           error instanceof Error
@@ -223,38 +219,29 @@ export function ForcedSigninPage({ developerMode }: ForcedSigninPageProps) {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const handler = (event: Event) => {
-      const customEvent = event as CustomEvent<DenSessionUpdatedDetail>;
+    return events.on("openwork-den-session-updated", (event) => {
       const nextSettings = readDenSettings();
       const nextBaseUrl =
-        customEvent.detail?.baseUrl?.trim() ||
+        event.detail?.baseUrl?.trim() ||
         nextSettings.baseUrl ||
         DEFAULT_DEN_BASE_URL;
       setBaseUrl(nextBaseUrl);
       setBaseUrlDraft(nextBaseUrl);
 
-      if (customEvent.detail?.status === "success") {
+      if (event.detail?.status === "success") {
         setAuthError(null);
-        const email = customEvent.detail.email?.trim();
+        const email = event.detail.email?.trim();
         setStatusMessage(
           email
             ? t("den.status_cloud_signed_in_as", { email })
             : t("den.status_cloud_signin_done"),
         );
-      } else if (customEvent.detail?.status === "error") {
+      } else if (event.detail?.status === "error") {
         setAuthError(
-          customEvent.detail.message?.trim() || t("den.error_signin_failed"),
+          event.detail.message?.trim() || t("den.error_signin_failed"),
         );
       }
-    };
-
-    window.addEventListener(denSessionUpdatedEvent, handler as EventListener);
-    return () => {
-      window.removeEventListener(
-        denSessionUpdatedEvent,
-        handler as EventListener,
-      );
-    };
+    });
   }, []);
 
   return (

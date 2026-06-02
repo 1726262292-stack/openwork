@@ -61,6 +61,7 @@ import {
   SelectMenu,
   type SelectMenuOption,
 } from "../../../design-system/select-menu";
+import { events } from "@/lib/event-bus";
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "cloud" | "hub";
@@ -332,8 +333,7 @@ export function SkillsView(props: SkillsViewProps) {
       dispatchLocal({ type: "denSessionUpdated" });
       void extensions.refreshCloudOrgSkills({ force: true });
     };
-    window.addEventListener("openwork-den-session-updated", onDenSession);
-    return () => window.removeEventListener("openwork-den-session-updated", onDenSession);
+    return events.on("openwork-den-session-updated", onDenSession);
   }, [extensions]);
 
   useEffect(() => {

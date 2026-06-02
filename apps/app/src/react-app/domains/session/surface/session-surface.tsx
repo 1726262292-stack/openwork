@@ -43,6 +43,7 @@ import { deriveRenderedSessionMessages, resolveRenderedSessionSnapshot } from ".
 import { useLocal } from "../../../kernel/local-provider";
 import { deriveSessionRenderModel } from "../sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
+import { events } from "@/lib/event-bus";
 import { SessionScrollOverlay } from "./scroll-overlay";
 import { getSessionActivityStatusLabel, useSessionActivityStore, type SessionActivityStatus } from "../status/session-activity-store";
 import { PermissionApprovalPanel } from "../chat/permission-approval-modal";
@@ -920,17 +921,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
   };
 
   const typeComposerText = useCallback(async (text: string) => {
-    window.dispatchEvent(new Event("openwork:focusPrompt"));
+    events.emit("openwork:focusPrompt");
     setComposerDraft(props.sessionId, text);
     await waitForControl(40);
   }, [props.sessionId, setComposerDraft]);
 
   useEffect(() => {
-    const handleVoiceTranscript = (event: Event) => {
-      if (!(event instanceof CustomEvent)) return;
-      const detail: unknown = event.detail;
-      if (!detail || typeof detail !== "object" || Array.isArray(detail) || !("text" in detail) || typeof detail.text !== "string") return;
-      const text = detail.text;
+    const handleVoiceTranscript = (event: CustomEvent<{ text: string }>) => {
+      const text = event.detail.text;
       void typeComposerText(text);
       props.onDraftChange(buildDraft(text, attachments));
       recordInspectorEvent("voice.transcript.applied", {
@@ -939,8 +937,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         length: text.length,
       });
     };
-    window.addEventListener("openwork:voice-transcript", handleVoiceTranscript);
-    return () => window.removeEventListener("openwork:voice-transcript", handleVoiceTranscript);
+    return events.on("openwork:voice-transcript", handleVoiceTranscript);
   }, [attachments, buildDraft, props.onDraftChange, props.sessionId, props.workspaceId, typeComposerText]);
 
   const composerSetTextControlAction = useMemo<OpenworkControlAction>(() => ({

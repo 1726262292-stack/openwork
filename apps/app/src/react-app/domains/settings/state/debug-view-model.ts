@@ -39,6 +39,7 @@ import { t } from "../../../../i18n";
 import type { DebugViewProps } from "../pages/debug-view";
 import type { ReleaseChannel } from "../../../../app/types";
 import type { OpenworkServerStore, OpenworkServerStoreSnapshot } from "../../connections/openwork-server-store";
+import { events } from "@/lib/event-bus";
 
 const STARTUP_PREFERENCE_KEY = "openwork.startupPreference";
 const ENGINE_SOURCE_KEY = "openwork.engineSource";
@@ -698,9 +699,7 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
           portOverride: hostInfo.port ?? undefined,
           remoteAccessEnabled: hostInfo.remoteAccessEnabled === true,
         });
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
-        }
+        events.emit("openwork-server-settings-changed");
       }
     } catch {
       // best-effort: if this fails, the host-info poller will catch up in ~10s.

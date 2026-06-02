@@ -25,6 +25,7 @@ import {
 import { isDesktopRuntime, isElectronRuntime, safeStringify } from "../../app/utils";
 import { useServer } from "../kernel/server-provider";
 import { useBootState } from "./boot-state";
+import { events } from "@/lib/event-bus";
 
 // Module-scoped latch so React Strict-Mode's "mount-unmount-remount" cycle in
 // dev only triggers the boot sequence once per app launch, and the async work
@@ -108,7 +109,7 @@ export function useDesktopRuntimeBoot() {
             remoteAccessEnabled: serverInfo.remoteAccessEnabled === true,
           });
           try {
-            window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
+            events.emit("openwork-server-settings-changed");
           } catch {
             /* ignore */
           }
@@ -211,9 +212,7 @@ export function useDesktopRuntimeBoot() {
                 remoteAccessEnabled: fresh.remoteAccessEnabled === true,
               });
               try {
-                window.dispatchEvent(
-                  new CustomEvent("openwork-server-settings-changed"),
-                );
+                events.emit("openwork-server-settings-changed");
               } catch {
                 /* ignore */
               }
@@ -301,7 +300,7 @@ export function useDesktopRuntimeBoot() {
                 remoteAccessEnabled: freshInfo.remoteAccessEnabled === true,
               });
               try {
-                window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
+                events.emit("openwork-server-settings-changed");
               } catch {
                 /* ignore */
               }

@@ -12,6 +12,7 @@ import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { publishInspectorSlice, recordInspectorEvent } from "../../../shell/app-inspector";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
+import { events } from "@/lib/event-bus";
 
 type VoiceStatus = "idle" | "connecting" | "listening" | "muted" | "speaking" | "error";
 
@@ -619,7 +620,7 @@ export function VoicePanel(props: VoicePanelProps) {
     const text = voiceTextArgument(args);
     setVoiceRuntimeSnapshot((current) => ({ ...current, latestUserTranscript: text }));
     addEntry("user", text);
-    window.dispatchEvent(new CustomEvent("openwork:voice-transcript", { detail: { text } }));
+    events.emit("openwork:voice-transcript", { text });
     recordInspectorEvent("voice.inject_transcript", { sessionId: props.sessionId, text });
     return { ok: true, transcript: text };
   }, [addEntry, props.sessionId]);

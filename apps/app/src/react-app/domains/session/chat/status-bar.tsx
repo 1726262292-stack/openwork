@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { events } from "@/lib/event-bus";
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import { buildDenAuthUrl, readDenBootstrapConfig } from "@/app/lib/den";
@@ -21,7 +22,6 @@ import {
   markOpenWorkModelsPromoShown,
   OPENWORK_MODELS_PROMO_SHOW_DELAY_MS,
   OPENWORK_MODELS_PROMO_VISIBLE_MS,
-  openWorkModelsPromoChangedEvent,
   shouldShowOpenWorkModelsPromo,
 } from "../../cloud/openwork-models-promo";
 
@@ -179,8 +179,7 @@ export function StatusBar(props: StatusBarProps) {
         setOpenWorkModelsHintVisible(false);
       }
     };
-    window.addEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
-    return () => window.removeEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
+    return events.on("openwork-openwork-models-promo-changed", handlePromoChanged);
   }, []);
 
   useEffect(() => {

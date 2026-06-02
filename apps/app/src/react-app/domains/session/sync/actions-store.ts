@@ -32,6 +32,7 @@ import type {
 } from "../../../../app/types";
 import { addOpencodeCacheHint, safeStringify } from "../../../../app/utils";
 import { clearSessionDraft, saveSessionDraft } from "./draft-store";
+import { events } from "@/lib/event-bus";
 
 type SessionModelConfig = {
   applyPendingSessionChoice: (sessionId: string) => void;
@@ -47,8 +48,6 @@ type SessionActionsSnapshot = {
   lastPromptSent: string;
   sessionAgentById: Record<string, string>;
 };
-
-const FLUSH_PROMPT_EVENT = "openwork:flushPromptDraft";
 
 const fileToDataUrl = (file: File, mimeType: string) =>
   new Promise<string>((resolve, reject) => {
@@ -477,9 +476,7 @@ export function createSessionActionsStore(options: {
   }
 
   async function createSessionAndOpen(initialPrompt?: string) {
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent(FLUSH_PROMPT_EVENT));
-    }
+    events.emit("openwork:flushPromptDraft");
     const workspaceId = options.selectedWorkspaceId().trim();
     if (!workspaceId) {
       return undefined;

@@ -28,7 +28,6 @@ import {
   OPENWORK_MODEL_PREVIEWS,
   OPENWORK_MODELS_PROVIDER_ID,
   OPENWORK_MODELS_PROVIDER_NAME,
-  openWorkModelsPromoChangedEvent,
 } from "@/react-app/domains/cloud/openwork-models-promo";
 import { getConnectedProviderItems, useProviderListQuery } from "@/react-app/domains/connections/provider-list-query";
 import {
@@ -43,8 +42,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { isDesktopProviderBlocked } from "@/app/cloud/desktop-app-restrictions";
-import { openModelPickerEvent } from "@/react-app/shell/new-providers-toast";
-import { newProvidersEvent } from "@/app/lib/provider-events";
+import { events } from "@/lib/event-bus";
 
 function getProviderDisplayName(providerId: string) {
   return providerId
@@ -75,8 +73,7 @@ function useModelOptions(open: boolean) {
     const handler = () => {
       void refetch();
     };
-    window.addEventListener(newProvidersEvent, handler);
-    return () => window.removeEventListener(newProvidersEvent, handler);
+    return events.on("openwork-new-providers-available", handler);
   }, [client, refetch]);
 
   // Apply org-level restrictions (dev #1505) on top of the raw model list
@@ -216,8 +213,7 @@ export function ModelSelect({
 
   React.useEffect(() => {
     const handlePromoChanged = () => setPromoHidden(isOpenWorkModelsPromoHidden());
-    window.addEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
-    return () => window.removeEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
+    return events.on("openwork-openwork-models-promo-changed", handlePromoChanged);
   }, []);
 
   const focusSearchInput = React.useCallback(() => {
@@ -409,7 +405,7 @@ export function ModelSelect({
                 onClick={() => {
                   onOpenChange(false);
                   setSearch("");
-                  window.dispatchEvent(new CustomEvent(openModelPickerEvent));
+                  events.emit("openwork-open-model-picker");
                 }}
               >
                 <Settings2 className="size-3.5" />

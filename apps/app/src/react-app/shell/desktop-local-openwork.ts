@@ -8,6 +8,7 @@ import {
 import { readOpenworkServerSettings, writeOpenworkServerSettings } from "../../app/lib/openwork-server";
 import { safeStringify } from "../../app/utils";
 import { recordInspectorEvent } from "./app-inspector";
+import { events } from "@/lib/event-bus";
 
 type LocalWorkspaceLike = {
   id: string;
@@ -24,11 +25,7 @@ type EnsureDesktopLocalOpenworkOptions = {
 };
 
 function emitOpenworkSettingsChanged() {
-  try {
-    window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
-  } catch {
-    // ignore browser event dispatch failures
-  }
+  events.emit("openwork-server-settings-changed");
 }
 
 function describeError(error: unknown) {

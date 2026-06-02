@@ -2,19 +2,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { Zap, X } from "lucide-react";
 import { resolveProviderDisplayName } from "../../app/utils";
-import {
-  newProvidersEvent,
-  type NewProviderInfo,
-  type NewProvidersEventDetail,
-} from "../../app/lib/provider-events";
 import { ProviderIcon } from "../design-system/provider-icon";
-import { orgOnboardingVisibilityEvent } from "./reload-coordinator";
+import { events, type InferAppEventDetails } from "@/lib/event-bus";
+
+type NewProvidersEventDetail = InferAppEventDetails<"openwork-new-providers-available">;
+type NewProviderInfo = NewProvidersEventDetail["providers"][number];
 
 const SEEN_KEY = "openwork.seenProviderIds";
 const PENDING_MODEL_PICKER_KEY = "openwork.pendingModelPickerProviderIds";
 
-/** Custom event to request the model picker to open. */
-export const openModelPickerEvent = "openwork-open-model-picker";
 export const pendingModelPickerProviderIdsKey = PENDING_MODEL_PICKER_KEY;
 
 function readSeenProviderIds(): Set<string> {
@@ -77,8 +73,8 @@ export function NewProvidersToast() {
   }, []);
 
   useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<NewProvidersEventDetail>).detail;
+    return events.on("openwork-new-providers-available", (event) => {
+      const detail = event.detail;
       if (detail.providers.length === 0 && !detail.newModelCount) return;
       if (orgOnboardingVisible) {
         setPendingProviders((current) => [
@@ -88,17 +84,13 @@ export function NewProvidersToast() {
         return;
       }
       showProviders(detail);
-    };
-    window.addEventListener(newProvidersEvent, handler);
-    return () => window.removeEventListener(newProvidersEvent, handler);
+    });
   }, [orgOnboardingVisible, showProviders]);
 
   useEffect(() => {
-    const handler = (event: Event) => {
-      setOrgOnboardingVisible(Boolean((event as CustomEvent<{ visible?: boolean }>).detail?.visible));
-    };
-    window.addEventListener(orgOnboardingVisibilityEvent, handler);
-    return () => window.removeEventListener(orgOnboardingVisibilityEvent, handler);
+    return events.on("openwork-org-onboarding-visibility", (event) => {
+      setOrgOnboardingVisible(Boolean(event.detail.visible));
+    });
   }, []);
 
   useEffect(() => {
@@ -122,7 +114,7 @@ export function NewProvidersToast() {
         JSON.stringify({ newProviderIds: ids, initialTab: "available" }),
       );
     } catch {}
-    window.dispatchEvent(new CustomEvent(openModelPickerEvent, { detail: { newProviderIds: ids, initialTab: "available" } }));
+    events.emit("openwork-open-model-picker", { newProviderIds: ids, initialTab: "available" });
     window.setTimeout(() => {
       try {
         if (window.localStorage.getItem(PENDING_MODEL_PICKER_KEY)) {

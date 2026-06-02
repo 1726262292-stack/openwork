@@ -20,15 +20,12 @@ import {
   type DenUser,
 } from "../../../app/lib/den";
 import {
-  denSessionUpdatedEvent,
-  dispatchDenSessionUpdated,
-} from "../../../app/lib/den-session-events";
-import {
   deepLinkBridgeEvent,
   drainPendingDeepLinks,
   type DeepLinkBridgeDetail,
 } from "../../../app/lib/deep-link-bridge";
 import { parseDenAuthDeepLink } from "../../../app/lib/openwork-links";
+import { events } from "@/lib/event-bus";
 
 export type DenAuthStatus = "checking" | "signed_in" | "signed_out";
 
@@ -119,10 +116,7 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
       void refresh();
     };
 
-    window.addEventListener(denSessionUpdatedEvent, handleSessionUpdated);
-    return () => {
-      window.removeEventListener(denSessionUpdatedEvent, handleSessionUpdated);
-    };
+    return events.on("openwork-den-session-updated", handleSessionUpdated);
   }, [refresh]);
 
   useEffect(() => {
@@ -149,7 +143,7 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
               activeOrgName: null,
             });
 
-            dispatchDenSessionUpdated({
+            events.emit("openwork-den-session-updated", {
               status: "success",
               baseUrl: parsed.denBaseUrl,
               token: result.token,
@@ -159,7 +153,7 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
           })
           .catch((error) => {
             handledGrantsRef.current.delete(parsed.grant);
-            dispatchDenSessionUpdated({
+            events.emit("openwork-den-session-updated", {
               status: "error",
               message:
                 error instanceof Error

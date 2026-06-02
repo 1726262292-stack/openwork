@@ -1,5 +1,6 @@
 import { INFERENCE_MODEL_ALIASES } from "@openwork/types/den/inference";
 
+import { events } from "@/lib/event-bus";
 import {
   buildDenAuthUrl,
   getDenInferenceUrl,
@@ -11,7 +12,6 @@ export const OPENWORK_MODELS_PROVIDER_ID = "openwork";
 export const OPENWORK_MODELS_PROVIDER_NAME = "OpenWork Models";
 export const OPENWORK_MODELS_PROMO_HIDDEN_KEY = "openwork.openworkModelsPromo.hidden";
 export const OPENWORK_MODELS_PROMO_LAST_SHOWN_KEY = "openwork.openworkModelsPromo.lastShownAt";
-export const openWorkModelsPromoChangedEvent = "openwork-openwork-models-promo-changed";
 export const OPENWORK_MODELS_PROMO_SHOW_DELAY_MS = 4_000;
 export const OPENWORK_MODELS_PROMO_VISIBLE_MS = 14_000;
 export const OPENWORK_MODELS_PROMO_REPEAT_MS = 6 * 60 * 60 * 1000;
@@ -55,7 +55,7 @@ export function hideOpenWorkModelsPromo() {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(OPENWORK_MODELS_PROMO_HIDDEN_KEY, "1");
-    window.dispatchEvent(new Event(openWorkModelsPromoChangedEvent));
+    events.emit("openwork-openwork-models-promo-changed");
   } catch {}
 }
 

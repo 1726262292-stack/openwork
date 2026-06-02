@@ -2,8 +2,8 @@
 import { useEffect, useRef } from "react";
 
 import { CLOUD_SYNC_INTERVAL_MS } from "../../../app/cloud/sync/constants";
-import { denSettingsChangedEvent } from "../../../app/lib/den-session-events";
 import { useDenAuth } from "./den-auth-provider";
+import { events } from "@/lib/event-bus";
 
 type CloudProviderSyncReason = "sign_in" | "app_launch" | "interval" | "settings_cloud_opened";
 type SyncFn = (reason: CloudProviderSyncReason) => Promise<unknown>;
@@ -56,7 +56,7 @@ export function useCloudProviderAutoSync(sync: SyncFn) {
     const handleDenSettingsChanged = () => {
       void tick("sign_in");
     };
-    window.addEventListener(denSettingsChangedEvent, handleDenSettingsChanged);
+    const stopSettingsUpdates = events.on("openwork-den-settings-changed", handleDenSettingsChanged);
 
     const interval = window.setInterval(() => {
       void tick();
@@ -64,7 +64,7 @@ export function useCloudProviderAutoSync(sync: SyncFn) {
 
     return () => {
       cancelled = true;
-      window.removeEventListener(denSettingsChangedEvent, handleDenSettingsChanged);
+      stopSettingsUpdates();
       window.clearInterval(interval);
     };
   }, [denAuth.isSignedIn]);

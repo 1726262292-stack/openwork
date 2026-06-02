@@ -4,7 +4,6 @@ import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import { readDenBootstrapConfig, readDenSettings } from "../../app/lib/den";
-import { denSettingsChangedEvent, denSessionUpdatedEvent } from "../../app/lib/den-session-events";
 import { useDenAuth } from "../domains/cloud/den-auth-provider";
 import { ForcedSigninPage } from "../domains/cloud/forced-signin-page";
 import { OrgOnboardingPage } from "../domains/cloud/org-onboarding-page";
@@ -19,6 +18,7 @@ import { SessionRoute } from "./session-route";
 import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
 import { WelcomeRoute } from "./welcome-route";
+import { events } from "@/lib/event-bus";
 
 
 type DenSigninGateProps = {
@@ -28,11 +28,7 @@ type DenSigninGateProps = {
 const readRequireSigninSnapshot = () => readDenBootstrapConfig().requireSignin;
 
 const subscribeToRequireSignin = (onStoreChange: () => void) => {
-  if (typeof window === "undefined") return () => {};
-  window.addEventListener(denSettingsChangedEvent, onStoreChange);
-  return () => {
-    window.removeEventListener(denSettingsChangedEvent, onStoreChange);
-  };
+  return events.on("openwork-den-settings-changed", onStoreChange);
 };
 
 /**
@@ -95,7 +91,7 @@ function DenSigninGate({ children }: DenSigninGateProps) {
   // Poll for activeOrgId (set asynchronously by refreshOrgs) rather
   // than using a fixed delay — handles both fast and slow org lookups.
   useEffect(() => {
-    const handler = (event: WindowEventMap[typeof denSessionUpdatedEvent]) => {
+    return events.on("openwork-den-session-updated", (event) => {
       if (event.detail?.status !== "success") return;
       let attempts = 0;
       const check = () => {
@@ -110,9 +106,7 @@ function DenSigninGate({ children }: DenSigninGateProps) {
       };
       // First check after a short delay for the auth to settle
       setTimeout(check, 500);
-    };
-    window.addEventListener(denSessionUpdatedEvent, handler);
-    return () => window.removeEventListener(denSessionUpdatedEvent, handler);
+    });
   }, [navigate]);
 
   if (requireSignin && denAuth.status === "checking") {

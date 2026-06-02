@@ -64,6 +64,7 @@ import {
 } from "../../../../app/cloud/import-state";
 import { refreshDesktopCloudSync } from "../../../../app/cloud/desktop-cloud-sync";
 import type { OpenworkServerStore } from "../../connections/openwork-server-store";
+import { events } from "@/lib/event-bus";
 
 const OPENCODE_SKILL_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const OPENCODE_MCP_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/;
@@ -2762,8 +2763,7 @@ export function createExtensionsStore(options: {
         cloudOrgMarketplacesLoaded = false;
         mutateState((current) => ({ ...current, cloudOrgSkillsContextKey: "" }));
       };
-      window.addEventListener("openwork-den-session-updated", onDenSessionUpdated);
-      stopDenSessionListener = () => window.removeEventListener("openwork-den-session-updated", onDenSessionUpdated);
+      stopDenSessionListener = events.on("openwork-den-session-updated", onDenSessionUpdated);
     }
 
     stopOpenworkSubscription = options.openworkServer.subscribe(() => {

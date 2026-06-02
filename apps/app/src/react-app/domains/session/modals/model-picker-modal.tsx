@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { events } from "@/lib/event-bus";
 import { modelEquals, resolveProviderDisplayName } from "../../../../app/utils";
 import type { ModelOption, ModelRef } from "../../../../app/types";
 import { isRecommendedModel } from "../../../../app/defaults";
@@ -32,7 +33,6 @@ import {
   isOpenWorkModelsPromoHidden,
   OPENWORK_MODELS_PROVIDER_ID,
   OPENWORK_MODELS_PROVIDER_NAME,
-  openWorkModelsPromoChangedEvent,
 } from "../../cloud/openwork-models-promo";
 
 export type ModelPickerModalProps = {
@@ -83,8 +83,7 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
 
   useEffect(() => {
     const handlePromoChanged = () => setPromoHidden(isOpenWorkModelsPromoHidden());
-    window.addEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
-    return () => window.removeEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
+    return events.on("openwork-openwork-models-promo-changed", handlePromoChanged);
   }, []);
 
   // Focus search

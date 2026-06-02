@@ -125,9 +125,9 @@ import { useControlAction, type OpenworkControlAction } from "./control/control-
 import { useReactRenderWatchdog } from "./react-render-watchdog";
 
 import { readDenSettings } from "../../app/lib/den";
-import { denSessionUpdatedEvent } from "../../app/lib/den-session-events";
+import { events } from "@/lib/event-bus";
 
-import { openModelPickerEvent, pendingModelPickerProviderIdsKey } from "./new-providers-toast";
+import { pendingModelPickerProviderIdsKey } from "./new-providers-toast";
 import { getModelBehaviorSummary } from "../../app/lib/model-behavior";
 import { filterProviderList } from "../../app/utils/providers";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
@@ -277,7 +277,7 @@ function describeTaskCreateError(error: unknown) {
 
 function focusPromptSoon() {
   if (typeof window === "undefined") return;
-  const focus = () => window.dispatchEvent(new Event("openwork:focusPrompt"));
+  const focus = () => events.emit("openwork:focusPrompt");
   [0, 80, 240, 600].forEach((delay) => window.setTimeout(focus, delay));
 }
 
@@ -594,8 +594,7 @@ export function SessionRoute() {
   const [denSessionVersion, setDenSessionVersion] = useState(0);
   useEffect(() => {
     const handler = () => setDenSessionVersion((v) => v + 1);
-    window.addEventListener(denSessionUpdatedEvent, handler);
-    return () => window.removeEventListener(denSessionUpdatedEvent, handler);
+    return events.on("openwork-den-session-updated", handler);
   }, []);
   // Provider IDs that were just added — used to highlight them as
   // "Recently added" in the model picker even after they've been
@@ -603,19 +602,17 @@ export function SessionRoute() {
   const [recentProviderIds, setRecentProviderIds] = useState<Set<string>>(new Set());
   // Open model picker when the global toast's "Pick a new default?" is clicked
   useEffect(() => {
-    const handler = (event: Event) => {
+    return events.on("openwork-open-model-picker", (event) => {
       try {
         window.localStorage.removeItem(pendingModelPickerProviderIdsKey);
       } catch {}
-      const detail = (event as CustomEvent<{ newProviderIds?: string[]; initialTab?: "default" | "available" }>).detail;
+      const detail = event.detail;
       const ids = detail?.newProviderIds;
       if (ids && ids.length > 0) {
         setRecentProviderIds(new Set(ids));
       }
       setModelPickerOpen(true);
-    };
-    window.addEventListener(openModelPickerEvent, handler);
-    return () => window.removeEventListener(openModelPickerEvent, handler);
+    });
   }, []);
 
   useEffect(() => {
@@ -1078,7 +1075,7 @@ export function SessionRoute() {
     await refreshProviderListQueries(getReactQueryClient());
     setEngineReloadVersion((v) => v + 1);
     try {
-      window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
+      events.emit("openwork-server-settings-changed");
     } catch {
       // ignore browser event dispatch failures
     }
@@ -1239,7 +1236,7 @@ export function SessionRoute() {
       refreshInFlightRef.current = false;
       void refreshRouteState();
     };
-    window.addEventListener("openwork-server-settings-changed", handleSettingsChange);
+    const stopSettingsUpdates = events.on("openwork-server-settings-changed", handleSettingsChange);
 
     // Also retry on visibility flip independently — even when nobody else
     // dispatches the settings event.
@@ -1259,7 +1256,7 @@ export function SessionRoute() {
         window.clearTimeout(startupRetryTimerRef.current);
         startupRetryTimerRef.current = null;
       }
-      window.removeEventListener("openwork-server-settings-changed", handleSettingsChange);
+      stopSettingsUpdates();
       if (typeof document !== "undefined") {
         document.removeEventListener("visibilitychange", handleVisibility);
       }
@@ -1817,7 +1814,7 @@ export function SessionRoute() {
       setProviders(all);
       setProviderConnectedIds(connected);
       // New-provider detection is handled globally by the provider auth
-      // store's applyProviderListState, which fires dispatchNewProviders.
+      // store's applyProviderListState, which emits openwork-new-providers-available.
     };
 
     void (async () => {
@@ -1922,7 +1919,7 @@ export function SessionRoute() {
         // Flag models from recently-added providers so they appear in
         // the "Recently added" section at the top of the picker.
         // Two sources: (1) providers not yet in the localStorage seen-set,
-        // (2) providers passed via the openModelPickerEvent from the toast.
+        // (2) providers passed via the model picker event from the toast.
         let seenIds: Set<string>;
         try {
           const raw = window.localStorage.getItem("openwork.seenProviderIds");
@@ -2833,7 +2830,7 @@ export function SessionRoute() {
           workspaceId={selectedWorkspaceId}
           onClose={() => {
             try {
-              window.dispatchEvent(new CustomEvent("openwork-close-right-pane"));
+              events.emit("openwork-close-right-pane");
             } catch {
               // ignore
             }
@@ -3076,14 +3073,14 @@ export function SessionRoute() {
       accessibleTargets={paletteAccessibleTargets}
       onOpenAccessibleTarget={(target) => {
         try {
-          window.dispatchEvent(new CustomEvent("openwork-open-accessible-target", { detail: target }));
+          events.emit("openwork-open-accessible-target", target);
         } catch {
           // ignore event dispatch failures
         }
       }}
       onHideAccessibleTarget={(target) => {
         try {
-          window.dispatchEvent(new CustomEvent("openwork-hide-accessible-target", { detail: target }));
+          events.emit("openwork-hide-accessible-target", target);
         } catch {
           // ignore event dispatch failures
         }

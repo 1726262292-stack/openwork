@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/command";
 import { Button } from "@/components/ui/button";
 import { ChevronLeftIcon, FileText, Globe } from "lucide-react";
+import type { OpenTarget } from "../domains/session/artifacts/open-target";
 
 export type PaletteItem = {
   id: string;
@@ -35,13 +36,7 @@ export type PaletteItem = {
   action: () => void;
 };
 
-export type AccessibleTargetOption = {
-  id: string;
-  kind: "url" | "file";
-  value: string;
-  name: string;
-  preview: string;
-};
+export type AccessibleTargetOption = OpenTarget;
 
 type PaletteMode = "root" | "sessions" | "accessible-items";
 
