@@ -172,6 +172,7 @@ export function ManageMembersScreen() {
       ),
     [orgContext?.currentMember.isOwner, orgContext?.currentMember.role],
   );
+  const canStartSeatCheckout = orgContext?.currentMember.isOwner === true;
 
   const tabCounts: Record<MembersTab, number> = {
     members: orgContext?.members.length ?? 0,
@@ -626,11 +627,16 @@ export function ManageMembersScreen() {
         eyebrow="Seat billing"
         title="Subscribe to add more users"
         message="The first 5 users in your organization are free, additional users are charged at $10 per user per month"
+        detail={canStartSeatCheckout ? null : "Only workspace owners can start billing checkout."}
         closeLabel="Cancel"
         actionLabel="Subscribe"
         actionLoading={mutationBusy === "seat-checkout"}
+        actionDisabled={!canStartSeatCheckout}
         onClose={() => setSeatBillingDialogError(null)}
         onAction={() => {
+          if (!canStartSeatCheckout) {
+            return;
+          }
           void startSeatCheckout().catch((error) => {
             setPageError(error instanceof Error ? error.message : "Could not start seat billing checkout.");
           });

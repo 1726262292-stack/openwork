@@ -272,6 +272,7 @@ export async function upsertOrgSubscriptionFromStripe(subscription: Stripe.Subsc
       created_by_org_membership_id: values.created_by_org_membership_id,
       status: values.status,
       stripe_customer_id: values.stripe_customer_id,
+      stripe_subscription_id: values.stripe_subscription_id,
       stripe_price_id: values.stripe_price_id,
       stripe_subscription_item_id: values.stripe_subscription_item_id,
       quantity: values.quantity,

@@ -12,6 +12,7 @@ export function OrgLimitDialog({
   actionLabel = "Contact support",
   closeLabel = "Close",
   actionLoading = false,
+  actionDisabled = false,
   onAction,
   onClose,
 }: {
@@ -24,6 +25,7 @@ export function OrgLimitDialog({
   actionLabel?: string;
   closeLabel?: string;
   actionLoading?: boolean;
+  actionDisabled?: boolean;
   onAction?: () => void;
   onClose: () => void;
 }) {
@@ -48,7 +50,7 @@ export function OrgLimitDialog({
             {closeLabel}
           </DenButton>
           {onAction ? (
-            <DenButton loading={actionLoading} onClick={onAction}>
+            <DenButton loading={actionLoading} disabled={actionDisabled} onClick={onAction}>
               {actionLabel}
             </DenButton>
           ) : feedbackHref ? (

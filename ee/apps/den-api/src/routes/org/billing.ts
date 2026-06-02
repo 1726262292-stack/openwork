@@ -35,8 +35,33 @@ function checkoutSuccessUrl(c: { req: { raw: Request } }) {
   return env.stripe.billingSuccessUrl ?? `${getRequestOrigin(c)}/dashboard/billing/stripe/checking?session_id={CHECKOUT_SESSION_ID}`
 }
 
+function appendSeatCheckoutParams(input: string) {
+  const separator = input.includes("?") ? "&" : "?"
+  const sessionParam = input.includes("session_id=") ? "" : "&session_id={CHECKOUT_SESSION_ID}"
+  return `${input}${separator}stripe_checkout=seat${sessionParam}`
+}
+
+function seatCheckoutReturnUrl(c: { req: { raw: Request } }) {
+  const configured = env.stripe.billingSuccessUrl ?? env.stripe.billingCancelUrl
+  if (!configured) {
+    return billingReturnUrl(c)
+  }
+
+  try {
+    const url = new URL(configured, getRequestOrigin(c))
+    if (url.pathname.includes("/dashboard/billing")) {
+      url.pathname = "/dashboard/billing"
+    }
+    url.search = ""
+    url.hash = ""
+    return url.toString()
+  } catch {
+    return billingReturnUrl(c)
+  }
+}
+
 function seatCheckoutSuccessUrl(c: { req: { raw: Request } }) {
-  return `${billingReturnUrl(c)}?stripe_checkout=seat&session_id={CHECKOUT_SESSION_ID}`
+  return appendSeatCheckoutParams(seatCheckoutReturnUrl(c))
 }
 
 function checkoutCancelUrl(c: { req: { raw: Request } }) {
@@ -181,7 +206,15 @@ export function registerOrgBillingRoutes<T extends { Variables: OrgRouteVariable
       const row = await syncSeatCheckoutSession({
         organizationId: payload.organization.id,
         sessionId: parsed.data.sessionId,
+      }).catch((error) => {
+        if (error instanceof Error && (error.message === "stripe_checkout_session_org_mismatch" || error.message.includes("No such checkout.session"))) {
+          return "org_mismatch"
+        }
+        throw error
       })
+      if (row === "org_mismatch") {
+        return c.json({ error: "stripe_checkout_session_not_found" }, 404)
+      }
       return c.json({ synced: Boolean(row) })
     },
   )
