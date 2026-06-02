@@ -129,12 +129,10 @@ function SessionStatusIndicator(props: { status?: string; isStreaming: boolean; 
 }
 
 function useCanManageSession() {
-  const ctx = useSidebarContext();
-  // Always show actions when session management primitives are available (the
-  // store is always present); also show for rename/delete if wired.
-  return Boolean(
-    ctx.showSessionActions || ctx.onOpenRenameSession || ctx.onOpenDeleteSession || ctx.onArchiveSession,
-  );
+  // Pin and group actions come from the Zustand store (always available).
+  // Rename/delete/archive depend on wired callbacks but the menu should
+  // always render so pin/group remain accessible.
+  return true;
 }
 
 type SessionActionsProps = {
@@ -971,13 +969,24 @@ function WorkspaceSidebarGroup({
                       as="div"
                       axis="y"
                       values={visibleRootIds}
-                      onReorder={(ids) => store.getState().reorderSessions(workspace.id, ids)}
+                      onReorder={(ids) => {
+                        // Append non-visible root IDs so hidden sessions keep their saved order.
+                        const visible = new Set(ids);
+                        const allRootIds = getRootSessions(activeSessions).map((s) => s.id);
+                        const full = [...ids, ...allRootIds.filter((id) => !visible.has(id))];
+                        store.getState().reorderSessions(workspace.id, full);
+                      }}
                       className="flex flex-col"
                     >
                       {sessionRows.map((row, idx) => {
                         const groupId = wsAssignments[row.session.id] ?? null;
-                        const prevGroupId = idx > 0 ? (wsAssignments[sessionRows[idx - 1].session.id] ?? null) : null;
-                        const separator = row.depth === 0 && groupId && groupId !== prevGroupId
+                        // Only compare against the previous *root-level* row to
+                        // avoid spurious separators between a parent and its children.
+                        let prevRootGroupId: string | null = null;
+                        for (let j = idx - 1; j >= 0; j--) {
+                          if (sessionRows[j].depth === 0) { prevRootGroupId = wsAssignments[sessionRows[j].session.id] ?? null; break; }
+                        }
+                        const separator = row.depth === 0 && groupId && groupId !== prevRootGroupId
                           ? wsGroups.find((g) => g.id === groupId)
                           : null;
                         return (

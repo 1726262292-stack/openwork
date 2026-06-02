@@ -18,6 +18,7 @@ import type {
 
 import { createClient, unwrap } from "../../app/lib/opencode";
 import { forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "../../app/lib/opencode-session";
+import { useSessionManagementStore as sessionManagementStore } from "../domains/session/sidebar/session-management-store";
 import {
   buildOpenworkWorkspaceBaseUrl,
   createOpenworkServerClient,
@@ -2322,6 +2323,7 @@ export function SessionRoute() {
         navigate(legacySessionRoute());
       }
       forgetWorkspaceMemory(workspaceId);
+      sessionManagementStore.getState().forgetWorkspace(workspaceId);
       await refreshRouteState();
     },
     [client, navigate, refreshRouteState, selectedWorkspaceId],
