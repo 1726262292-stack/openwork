@@ -445,25 +445,9 @@ export function useControlActions(actions: readonly OpenworkControlAction[]) {
   }, [registerAction, ids]);
 }
 
-const SETTINGS_TABS: ReadonlySet<string> = new Set<string>([
-  "general",
-  "ai",
-  "preferences",
-  "permissions",
-  "shell",
-  "cloud-account",
-  "cloud-marketplaces",
-  "cloud-workers",
-  "cloud-providers",
-  "skills",
-  "extensions",
-  "environment",
-  "advanced",
-  "appearance",
-  "updates",
-  "recovery",
-  "debug",
-]);
+import { SETTINGS_TAB_VALUES } from "../../../app/types";
+
+const SETTINGS_TABS: ReadonlySet<string> = new Set<string>(SETTINGS_TAB_VALUES);
 
 export function OpenworkRouteControlActions() {
   const navigate = useNavigate();

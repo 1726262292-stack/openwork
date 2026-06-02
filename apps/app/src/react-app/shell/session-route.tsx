@@ -2536,6 +2536,9 @@ export function SessionRoute() {
       { name: "providerId", type: "string" as const, required: false, description: "Provider id to pre-select, e.g. 'anthropic', 'openai', 'google'." },
     ],
     execute: async (rawArgs: unknown) => {
+      if (checkDesktopRestriction({ restriction: "allowCustomProviders" })) {
+        return { ok: false, error: "Custom providers are disabled by your organization." };
+      }
       const providerId = typeof rawArgs === "object" && rawArgs !== null
         ? (rawArgs as Record<string, unknown>).providerId
         : undefined;
@@ -2545,7 +2548,7 @@ export function SessionRoute() {
       );
       return { ok: true, opened: "provider_auth_modal", preferredProviderId: preferred ?? null };
     },
-  }), [sessionProviderAuthStore]);
+  }), [checkDesktopRestriction, sessionProviderAuthStore]);
   useControlAction(addProviderControlAction);
 
   const paletteSessionOptions = useMemo<PaletteSessionOption[]>(() => {

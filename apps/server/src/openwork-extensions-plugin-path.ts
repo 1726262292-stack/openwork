@@ -1,14 +1,11 @@
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export function openworkExtensionsPreviewPluginPath(): string {
+function pluginPath(name: string): string {
   const here = dirname(fileURLToPath(import.meta.url));
   const extension = basename(here) === "dist" ? "js" : "ts";
-  return join(here, "opencode-plugins", `openwork-extensions-preview.${extension}`);
+  return join(here, "opencode-plugins", `${name}.${extension}`);
 }
 
-export function openworkCapabilitiesKnowledgePluginPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const extension = basename(here) === "dist" ? "js" : "ts";
-  return join(here, "opencode-plugins", `openwork-capabilities-knowledge.${extension}`);
-}
+export const openworkExtensionsPreviewPluginPath = () => pluginPath("openwork-extensions-preview");
+export const openworkCapabilitiesKnowledgePluginPath = () => pluginPath("openwork-capabilities-knowledge");
