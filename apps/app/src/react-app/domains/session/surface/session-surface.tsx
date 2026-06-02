@@ -1239,7 +1239,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     onRevertToUserMessage={handleRevertToUserMessage}
                     onForkAtMessage={handleForkAtMessage}
                   >
-                    <MessageList messages={renderedMessages} status={status} />
+                    <MessageList
+                      messages={renderedMessages}
+                      status={status}
+                      retryStatus={liveStatus.type === "retry" ? liveStatus : null}
+                    />
                   </MessageListProvider>
                 </OpenTargetProvider>
               </DevProfiler>
