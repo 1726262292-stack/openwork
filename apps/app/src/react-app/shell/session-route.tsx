@@ -2526,6 +2526,28 @@ export function SessionRoute() {
   }), []);
   useControlAction(commandPaletteControlAction);
 
+  const addProviderControlAction = useMemo<OpenworkControlAction>(() => ({
+    id: "settings.provider.add",
+    label: "Add a model provider",
+    description: "Open the provider connection modal, optionally pre-filtered to a specific provider.",
+    sideEffect: "mutation",
+    requiresArgs: false,
+    args: [
+      { name: "providerId", type: "string" as const, required: false, description: "Provider id to pre-select, e.g. 'anthropic', 'openai', 'google'." },
+    ],
+    execute: async (rawArgs: unknown) => {
+      const providerId = typeof rawArgs === "object" && rawArgs !== null
+        ? (rawArgs as Record<string, unknown>).providerId
+        : undefined;
+      const preferred = typeof providerId === "string" ? providerId.trim() : undefined;
+      await sessionProviderAuthStore.openProviderAuthModal(
+        preferred ? { preferredProviderId: preferred } : undefined,
+      );
+      return { ok: true, opened: "provider_auth_modal", preferredProviderId: preferred ?? null };
+    },
+  }), [sessionProviderAuthStore]);
+  useControlAction(addProviderControlAction);
+
   const paletteSessionOptions = useMemo<PaletteSessionOption[]>(() => {
     const out: PaletteSessionOption[] = [];
     for (const workspace of workspaces) {
