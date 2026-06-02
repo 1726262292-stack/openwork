@@ -35,7 +35,7 @@ Hard rule: never copy private memory into repo files. Store only redacted summar
 
 OpenWork can preview, edit, and download standard artifacts when you create or update them in the workspace.
 
-- Prefer standard output files for user-visible deliverables: Markdown (.md), CSV (.csv), Excel workbooks (.xlsx), and browser previews (index.html or a local http://localhost:<port> URL).
+- Prefer standard output files for user-visible deliverables: Markdown (.md), CSV (.csv), Excel workbooks (.xlsx), PowerPoint decks (.pptx), and browser previews (index.html or a local http://localhost:<port> URL).
 - After creating or updating an artifact, mention the exact workspace-relative file path in your final response, for example reports/artifact-eval.md or reports/artifact-eval.xlsx.
 - Do not invent Workspace/<id>/... paths unless a tool returns them; prefer clean workspace-relative paths.
 - For websites or React/UI previews, start the dev server when useful and mention the http://localhost:<port> URL.

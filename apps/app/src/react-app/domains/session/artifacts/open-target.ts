@@ -1,7 +1,7 @@
 import type { UIMessage } from "ai";
 
 type OpenTargetKind = "url" | "file";
-export type OpenTargetPreview = "browser" | "markdown" | "sheet" | "image" | "pdf" | "html" | "text" | "external";
+export type OpenTargetPreview = "browser" | "markdown" | "sheet" | "slides" | "image" | "pdf" | "html" | "text" | "external";
 
 export interface TextData {
   kind: "text";
@@ -34,7 +34,8 @@ const WORKSPACE_ID_PREFIX_PATTERN = /^workspace\/(?:ws_[^/]+|\d+|[0-9a-f-]{6,})\
 const FILE_PATTERN = /(?:^|[\s"'`([{])((?:\.{1,2}[/\\]|~[/\\]|[/\\])?[\w.\-]+(?:[/\\][\w.\-]+)+\.[a-z][a-z0-9]{0,9}|[\w.\-]+\.[a-z][a-z0-9]{0,9})/gi;
 const URL_PATTERN = /https?:\/\/[^\s)\]}>"'`]+/gi;
 const SOCKET_PATTERN = /(?:ws|wss):\/\/[^\s)\]}>"'`]+/gi;
-const ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["markdown", "sheet", "image", "pdf", "html"]);
+const ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["markdown", "sheet", "slides", "image", "pdf", "html"]);
+const ASSISTANT_ARTIFACT_MENTION_PATTERN = /\b(?:artifact|created|deck|deliverable|exported|file|generated|opened|presentation|saved|slides?|updated|wrote)\b/i;
 const DISCOVERY_TOOL_NAMES = new Set(["glob", "grep", "search", "find"]);
 const ARTIFACT_METADATA_TOOL_NAMES = new Set(["openwork_extension_call"]);
 const WRITE_TOOL_NAMES = new Set([
@@ -82,11 +83,16 @@ function classifyOpenTarget(value: string, kind: OpenTargetKind): OpenTargetPrev
   const ext = extname(value);
   if ([".md", ".markdown", ".mdx"].includes(ext)) return "markdown";
   if ([".csv", ".tsv", ".xlsx", ".xls", ".ods"].includes(ext)) return "sheet";
+  if ([".ppt", ".pptx", ".pptm", ".pot", ".potx", ".odp", ".key", ".sxi"].includes(ext)) return "slides";
   if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"].includes(ext)) return "image";
   if (ext === ".pdf") return "pdf";
   if ([".html", ".htm"].includes(ext)) return "html";
   if ([".txt", ".log", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".xml", ".ts", ".tsx", ".js", ".jsx", ".css", ".scss"].includes(ext)) return "text";
   return "external";
+}
+
+function shouldScanAssistantFileMentions(text: string) {
+  return ASSISTANT_ARTIFACT_MENTION_PATTERN.test(text);
 }
 
 function targetFromFile(path: string, confidence: number, reason: string): OpenTarget | null {
@@ -249,7 +255,7 @@ export function deriveOpenTargets(messages: UIMessage[], options: DeriveOpenTarg
     for (const part of message.parts) {
       if (part.type === "text" && typeof part.text === "string") {
         scanText(targets, part.text, message.role === "assistant" ? 65 : 40, "message", {
-          includeFiles: options.includeFileMentions === true,
+          includeFiles: options.includeFileMentions === true || (message.role === "assistant" && shouldScanAssistantFileMentions(part.text)),
         });
         continue;
       }

@@ -5,6 +5,31 @@ import type { OpenTarget } from "../src/react-app/domains/session/artifacts/open
 import { getArtifactsFromMessages } from "../src/lib/artifacts";
 
 describe("getArtifactsFromMessages", () => {
+  it("includes verified slide deck targets mentioned in assistant summaries", () => {
+    const messages: UIMessage[] = [{
+      id: "msg_deck",
+      role: "assistant",
+      parts: [{ type: "text", text: "Updated file: decks/openwork-vertebrae-deck.pptx", state: "done" }],
+    }];
+    const targets: OpenTarget[] = [{
+      id: "file:decks/openwork-vertebrae-deck.pptx",
+      kind: "file",
+      value: "decks/openwork-vertebrae-deck.pptx",
+      name: "openwork-vertebrae-deck.pptx",
+      preview: "slides",
+      confidence: 65,
+      reason: "message",
+      exists: true,
+    }];
+
+    expect(getArtifactsFromMessages(messages, targets)[0]).toMatchObject({
+      name: "openwork-vertebrae-deck.pptx",
+      path: "decks/openwork-vertebrae-deck.pptx",
+      type: "slides",
+      legacy_target: { preview: "slides", exists: true },
+    });
+  });
+
   it("uses verified relative targets for absolute attachment paths", () => {
     const messages: UIMessage[] = [{
       id: "msg_attachment",

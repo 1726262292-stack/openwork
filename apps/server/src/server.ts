@@ -1178,6 +1178,12 @@ function contentTypeForPath(path: string): string {
   if (lowered.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   if (lowered.endsWith(".xls")) return "application/vnd.ms-excel";
   if (lowered.endsWith(".ods")) return "application/vnd.oasis.opendocument.spreadsheet";
+  if (lowered.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  if (lowered.endsWith(".ppt")) return "application/vnd.ms-powerpoint";
+  if (lowered.endsWith(".pptm")) return "application/vnd.ms-powerpoint.presentation.macroEnabled.12";
+  if (lowered.endsWith(".potx")) return "application/vnd.openxmlformats-officedocument.presentationml.template";
+  if (lowered.endsWith(".pot")) return "application/vnd.ms-powerpoint";
+  if (lowered.endsWith(".odp")) return "application/vnd.oasis.opendocument.presentation";
   if (isSupportedWorkspaceTextFilePath(path)) return "text/plain; charset=utf-8";
   return "application/octet-stream";
 }
@@ -1195,6 +1201,7 @@ function artifactPreviewForPath(path: string): string {
   const lowered = path.toLowerCase();
   if (/\.(md|markdown|mdx)$/.test(lowered)) return "markdown";
   if (/\.(csv|tsv|xlsx|xls|ods)$/.test(lowered)) return "sheet";
+  if (/\.(ppt|pptx|pptm|pot|potx|odp|key|sxi)$/.test(lowered)) return "slides";
   if (/\.(png|jpe?g|gif|webp|svg)$/.test(lowered)) return "image";
   if (lowered.endsWith(".pdf")) return "pdf";
   if (/\.(html|htm)$/.test(lowered)) return "html";

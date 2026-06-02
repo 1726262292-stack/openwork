@@ -7,7 +7,7 @@ import {
   isWriteToolPart,
 } from "@/lib/build-in-tools";
 import { useOpenTargets } from "@/lib/target-provider";
-import type { OpenTarget, OpenTargetPreview } from "@/react-app/domains/session/artifacts/open-target";
+import { isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "@/react-app/domains/session/artifacts/open-target";
 
 export type ArtifactType = "website" | "markdown" | "sheet" | "slides" | "document" | "image" | "video" | "audio" | "pdf" | "html" | "text" | "unknown";
 
@@ -142,6 +142,7 @@ function normalizeArtifactPath(path: string) {
 function artifactTypeToPreview(type: ArtifactType): OpenTargetPreview {
   if (type === "markdown") return "markdown";
   if (type === "sheet") return "sheet";
+  if (type === "slides") return "slides";
   if (type === "image") return "image";
   if (type === "pdf") return "pdf";
   if (type === "html") return "html";
@@ -235,21 +236,41 @@ function getArtifactPathsFromMessage(message: UIMessage) {
   return paths.map((path) => path?.trim().toLowerCase()).filter((path) => path) as string[];
 }
 
-function getArtifactsFromMessages(messages: UIMessage[], openTargets: OpenTarget[] = []) {
+function addArtifact(
+  artifacts: Map<string, ArtifactItem>,
+  path: string,
+  messageId: string,
+  verifiedTargets: OpenTarget[],
+  verifiedTarget?: OpenTarget,
+) {
+  const normalized = normalizeArtifactPath(path);
+  const key = normalized.toLowerCase();
+  const name = verifiedTarget?.name ?? getArtifactName(normalized);
+  const type = getArtifactType(normalized);
+
+  artifacts.set(key, {
+    id: key,
+    name,
+    path: normalized,
+    type,
+    messageId,
+    legacy_target: verifiedTarget ?? openTargetFromArtifactPath(normalized, name, type, verifiedTargets),
+  });
+}
+
+export function getArtifactsFromMessages(messages: UIMessage[], openTargets: OpenTarget[] = []) {
   const artifacts = new Map<string, ArtifactItem>();
 
   for (const message of messages) {
     for (const path of getArtifactPathsFromMessage(message)) {
-      const name = getArtifactName(path);
-      const type = getArtifactType(path);
-      artifacts.set(path, {
-        id: path,
-        name,
-        path,
-        type,
-        messageId: message.id,
-        legacy_target: openTargetFromArtifactPath(path, name, type, openTargets),
-      });
+      addArtifact(artifacts, path, message.id, openTargets);
+    }
+  }
+
+  const fallbackMessageId = messages[messages.length - 1]?.id ?? "open-target";
+  for (const target of openTargets) {
+    if (isCollectibleArtifactTarget(target)) {
+      addArtifact(artifacts, target.value, fallbackMessageId, openTargets, target);
     }
   }
 
