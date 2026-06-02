@@ -6,3 +6,9 @@ export function openworkExtensionsPreviewPluginPath(): string {
   const extension = basename(here) === "dist" ? "js" : "ts";
   return join(here, "opencode-plugins", `openwork-extensions-preview.${extension}`);
 }
+
+export function openworkCapabilitiesKnowledgePluginPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const extension = basename(here) === "dist" ? "js" : "ts";
+  return join(here, "opencode-plugins", `openwork-capabilities-knowledge.${extension}`);
+}
