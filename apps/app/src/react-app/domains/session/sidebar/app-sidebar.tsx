@@ -1065,36 +1065,9 @@ function WorkspaceSidebarGroup({
 
 const SESSION_DRAG_TYPE = "application/x-openwork-session-id";
 
-function SessionGroupSeparator({ label, groupId, workspaceId, onRemove }: {
-  label: string;
-  groupId: string | null;
-  workspaceId: string;
-  onRemove?: () => void;
-}) {
-  const [dragOver, setDragOver] = React.useState(false);
-  const store = useSessionManagementStore;
-
+function SessionGroupSeparator({ label, onRemove }: { label: string; onRemove?: () => void }) {
   return (
-    <div
-      className={cn(
-        "group/separator flex items-center gap-1 px-2 pb-1 pt-2.5 first:pt-1 rounded transition-colors",
-        dragOver && "bg-accent/50 ring-1 ring-accent",
-      )}
-      onDragOver={(e) => {
-        if (e.dataTransfer.types.includes(SESSION_DRAG_TYPE)) {
-          e.preventDefault();
-          setDragOver(true);
-        }
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        setDragOver(false);
-        const sessionId = e.dataTransfer.getData(SESSION_DRAG_TYPE);
-        if (sessionId) {
-          store.getState().assignGroup(workspaceId, sessionId, groupId);
-        }
-      }}
-    >
+    <div className="group/separator flex items-center gap-1 px-2 pb-1 pt-2.5 first:pt-1">
       <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
@@ -1108,6 +1081,46 @@ function SessionGroupSeparator({ label, groupId, workspaceId, onRemove }: {
           <Trash2 className="size-3" />
         </button>
       ) : null}
+    </div>
+  );
+}
+
+/** Drop zone wrapping a group's header + sessions. Dropping a session anywhere in the zone assigns it to this group. */
+function GroupDropZone({ groupId, workspaceId, children }: {
+  groupId: string | null;
+  workspaceId: string;
+  children: React.ReactNode;
+}) {
+  const [dragOver, setDragOver] = React.useState(false);
+  const store = useSessionManagementStore;
+
+  return (
+    <div
+      className={cn(
+        "rounded transition-colors",
+        dragOver && "bg-accent/40 ring-1 ring-accent/60",
+      )}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(SESSION_DRAG_TYPE)) {
+          e.preventDefault();
+          setDragOver(true);
+        }
+      }}
+      onDragLeave={(e) => {
+        // Only clear when leaving this container, not when entering a child.
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          setDragOver(false);
+        }
+      }}
+      onDrop={(e) => {
+        setDragOver(false);
+        const sessionId = e.dataTransfer.getData(SESSION_DRAG_TYPE);
+        if (sessionId) {
+          store.getState().assignGroup(workspaceId, sessionId, groupId);
+        }
+      }}
+    >
+      {children}
     </div>
   );
 }
@@ -1184,11 +1197,9 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
       {groups.map((group) => {
         const rows = rootRowsByGroup.get(group.id) ?? [];
         return (
-          <React.Fragment key={group.id}>
+          <GroupDropZone key={group.id} groupId={group.id} workspaceId={workspaceId}>
             <SessionGroupSeparator
               label={group.label}
-              groupId={group.id}
-              workspaceId={workspaceId}
               onRemove={() => store.getState().removeGroup(workspaceId, group.id)}
             />
             {rows.length > 0
@@ -1200,14 +1211,14 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
                   </SidebarMenuSubButton>
                 </SidebarMenuSubItem>
               )}
-          </React.Fragment>
+          </GroupDropZone>
         );
       })}
       {ungroupedRows.length > 0 ? (
-        <>
-          <SessionGroupSeparator label={t("session_management.ungrouped")} groupId={null} workspaceId={workspaceId} />
+        <GroupDropZone groupId={null} workspaceId={workspaceId}>
+          <SessionGroupSeparator label={t("session_management.ungrouped")} />
           {ungroupedRows.map(renderRow)}
-        </>
+        </GroupDropZone>
       ) : null}
     </>
   );
