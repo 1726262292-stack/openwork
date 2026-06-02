@@ -29,7 +29,7 @@ import type {
   WorkspacePreset,
   WorkspaceSessionGroup,
 } from "../../app/types";
-import { getWorkspaceTaskLoadErrorDisplay, isSandboxWorkspace } from "../../app/utils";
+import { getWorkspaceTaskLoadErrorDisplay } from "../../app/utils";
 import { currentLocale, t, setLocale, type Language } from "../../i18n";
 import { createConnectionsStore, useConnectionsStoreSnapshot } from "../domains/connections/store";
 import { createOpenworkServerStore, useOpenworkServerStoreSnapshot } from "../domains/connections/openwork-server-store";

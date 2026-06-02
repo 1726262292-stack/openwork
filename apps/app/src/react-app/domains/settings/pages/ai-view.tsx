@@ -10,7 +10,6 @@ import {
   LayoutSectionDescription,
   LayoutSectionHeader,
   LayoutSectionItem,
-  LayoutSectionItemDescription,
   LayoutSectionItemFootnote,
   LayoutSectionItemHeader,
   LayoutSectionItemHeaderActions,

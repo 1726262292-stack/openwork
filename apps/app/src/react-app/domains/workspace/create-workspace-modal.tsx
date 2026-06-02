@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { t } from "../../../i18n";
-import { readDenSettings } from "../../../app/lib/den";
 import type { WorkspacePreset } from "../../../app/types";
 import { CreateWorkspaceLocalPanel } from "./create-workspace-local-panel";
 import {
@@ -121,7 +120,7 @@ export function CreateWorkspaceModal(props: CreateWorkspaceModalProps) {
   // Reset state when the modal opens.
   useEffect(() => {
     if (!props.open) return;
-    dispatchLocal({ type: "reset", settings: readDenSettings() });
+    dispatchLocal({ type: "reset" });
   }, [props.open]);
 
   // Tick the "elapsed" clock while submitting.
