@@ -25,9 +25,10 @@ describe("mcp remote connect flow", () => {
         url: "https://example.com/mcp",
         enabled: true,
       });
-      expect(item?.source).toBe("config.project");
+      expect(item?.source).toBe("config.remote");
 
-      const configText = await readFile(join(workspaceRoot, "opencode.jsonc"), "utf8");
+      await expect(readFile(join(workspaceRoot, "opencode.jsonc"), "utf8")).rejects.toThrow();
+      const configText = await readFile(join(workspaceRoot, ".opencode", "openwork.json"), "utf8");
       expect(configText).toContain("\"simple-remote\"");
       expect(configText).toContain("\"https://example.com/mcp\"");
 

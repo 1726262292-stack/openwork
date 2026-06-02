@@ -6,6 +6,7 @@
  * than written to disk. Both cli.ts and embedded.ts use this.
  */
 import { openworkExtensionsPreviewPluginPath, openworkCapabilitiesKnowledgePluginPath } from "./openwork-extensions-plugin-path.js";
+import { logicalMcpMap, logicalPluginList, readWorkspaceLogicalOpencodeConfig } from "./openwork-logical-config.js";
 
 const OPENWORK_AGENT_PROMPT = `You are OpenWork.
 
@@ -41,8 +42,10 @@ OpenWork can preview, edit, and download standard artifacts when you create or u
 - For websites or React/UI previews, start the dev server when useful and mention the http://localhost:<port> URL.
 - For spreadsheets, use .csv for simple tabular data and .xlsx when the user asks for Excel/XLS specifically.`;
 
-export function buildOpenworkRuntimeConfig(): string {
+export async function buildOpenworkRuntimeConfig(workspaceRoot?: string): Promise<string> {
+  const logicalConfig = workspaceRoot ? await readWorkspaceLogicalOpencodeConfig(workspaceRoot) : {};
   return JSON.stringify({
+    ...logicalConfig,
     default_agent: "openwork",
     agent: {
       openwork: {
@@ -56,6 +59,8 @@ export function buildOpenworkRuntimeConfig(): string {
       "opencode-chrome-devtools",
       openworkExtensionsPreviewPluginPath(),
       openworkCapabilitiesKnowledgePluginPath(),
+      ...logicalPluginList(logicalConfig),
     ],
+    mcp: logicalMcpMap(logicalConfig),
   });
 }

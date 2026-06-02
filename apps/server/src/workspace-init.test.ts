@@ -16,13 +16,13 @@ async function withWorkspace(fn: (root: string) => Promise<void>) {
 }
 
 describe("ensureWorkspaceFiles", () => {
-  test("creates default agent with artifact guidance for new workspaces", async () => {
+  test("creates OpenWork workspace config without writing opencode config", async () => {
     await withWorkspace(async (root) => {
       const result = await ensureWorkspaceFiles(root, "starter");
-      const agent = await readFile(join(root, ".opencode", "agents", "openwork.md"), "utf8");
-      expect(agent).toContain("OpenWork Artifacts");
-      expect(agent).toContain("reports/artifact-eval.xlsx");
-      expect(result.reloadReasons.sort()).toEqual(["agents", "config"]);
+      const openwork = await readFile(join(root, ".opencode", "openwork.json"), "utf8");
+      await expect(readFile(join(root, "opencode.jsonc"), "utf8")).rejects.toThrow();
+      expect(openwork).toContain('"authorizedRoots"');
+      expect(result.reloadReasons).toEqual([]);
 
       const secondResult = await ensureWorkspaceFiles(root, "starter");
       expect(secondResult).toEqual({ changed: false, reloadReasons: [] });
@@ -64,15 +64,15 @@ describe("ensureWorkspaceFiles", () => {
     });
   });
 
-  test("adds artifact guidance to existing OpenWork agents", async () => {
+  test("does not rewrite existing OpenWork agents", async () => {
     await withWorkspace(async (root) => {
       await mkdir(join(root, ".opencode", "agents"), { recursive: true });
       await writeFile(join(root, ".opencode", "agents", "openwork.md"), "---\ndescription: Old\n---\n\nOld instructions\n", "utf8");
       const result = await ensureWorkspaceFiles(root, "starter");
       const agent = await readFile(join(root, ".opencode", "agents", "openwork.md"), "utf8");
       expect(agent).toContain("Old instructions");
-      expect(agent).toContain("OpenWork Artifacts");
-      expect(result.reloadReasons.sort()).toEqual(["agents", "config"]);
+      expect(agent).not.toContain("OpenWork Artifacts");
+      expect(result.reloadReasons).toEqual([]);
     });
   });
 
@@ -111,7 +111,7 @@ describe("ensureWorkspaceFiles", () => {
     });
   });
 
-  test("repairs desktop-created schema-only opencode config", async () => {
+  test("does not repair or inject into desktop-created schema-only opencode config", async () => {
     await withWorkspace(async (root) => {
       await mkdir(join(root, ".opencode"), { recursive: true });
       await writeFile(join(root, ".opencode", "openwork.json"), "{}\n", "utf8");
@@ -124,9 +124,11 @@ describe("ensureWorkspaceFiles", () => {
       const result = await ensureWorkspaceFiles(root, "starter");
       const config = await readFile(configPath, "utf8");
 
-      expect(config).toContain('"default_agent": "openwork"');
-      expect(config).toContain('"opencode-chrome-devtools"');
-      expect(result.reloadReasons).toContain("config");
+      expect(config).toBe(`{
+  "$schema": "https://opencode.ai/config.json"
+}
+`);
+      expect(result.reloadReasons).not.toContain("config");
     });
   });
 });

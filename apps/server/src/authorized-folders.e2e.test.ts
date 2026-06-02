@@ -153,7 +153,11 @@ describe("authorized folders routes", () => {
     expect(body.hiddenCount).toBe(2);
     expect(typeof body.updatedAt).toBe("number");
 
-    const externalDirectory = readExternalDirectory(await readFile(configPath, "utf8"));
+    expect(readExternalDirectory(await readFile(configPath, "utf8"))["/shared/*"]).toBeUndefined();
+    const openwork = JSON.parse(await readFile(join(root, ".opencode", "openwork.json"), "utf8")) as {
+      opencode?: { permission?: { external_directory?: Record<string, unknown> } };
+    };
+    const externalDirectory = openwork.opencode?.permission?.external_directory ?? {};
     expect(externalDirectory["/hidden"]).toBe("allow");
     expect(externalDirectory["/denied/*"]).toBe("deny");
     expect(externalDirectory["/shared/*"]).toBe("allow");

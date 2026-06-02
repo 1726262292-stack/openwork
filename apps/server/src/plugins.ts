@@ -2,10 +2,11 @@ import { homedir } from "node:os";
 import { join, relative } from "node:path";
 import { readdir } from "node:fs/promises";
 import type { PluginItem } from "./types.js";
-import { readJsoncFile, updateJsoncTopLevel } from "./jsonc.js";
+import { readJsoncFile } from "./jsonc.js";
 import { opencodeConfigPath, projectPluginsDir } from "./workspace-files.js";
 import { exists } from "./utils.js";
 import { validatePluginSpec } from "./validators.js";
+import { logicalPluginList, readWorkspaceLogicalOpencodeConfig, writeWorkspaceLogicalOpencodeConfig } from "./openwork-logical-config.js";
 
 export function normalizePluginSpec(spec: string): string {
   const trimmed = spec.trim();
@@ -52,11 +53,24 @@ async function listPluginFiles(dir: string, scope: "project" | "global", workspa
 export async function listPlugins(workspaceRoot: string, includeGlobal: boolean): Promise<{ items: PluginItem[]; loadOrder: string[] }> {
   const { data: config } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>);
   const pluginSpecs = pluginListFromConfig(config);
+  const logicalSpecs = logicalPluginList(await readWorkspaceLogicalOpencodeConfig(workspaceRoot));
   const items: PluginItem[] = pluginSpecs.map((spec) => ({
     spec,
     source: "config",
     scope: "project",
   }));
+
+  const seen = new Set(pluginSpecs.map((spec) => normalizePluginSpec(spec)));
+  for (const spec of logicalSpecs) {
+    const normalized = normalizePluginSpec(spec);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    items.push({
+      spec,
+      source: "config",
+      scope: "project",
+    });
+  }
 
   const projectDir = projectPluginsDir(workspaceRoot);
   items.push(...(await listPluginFiles(projectDir, "project", workspaceRoot)));
@@ -74,22 +88,22 @@ export async function listPlugins(workspaceRoot: string, includeGlobal: boolean)
 
 export async function addPlugin(workspaceRoot: string, spec: string): Promise<boolean> {
   validatePluginSpec(spec);
-  const { data: config } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>);
-  const pluginSpecs = pluginListFromConfig(config);
+  const logicalConfig = await readWorkspaceLogicalOpencodeConfig(workspaceRoot);
+  const pluginSpecs = logicalPluginList(logicalConfig);
   const normalized = normalizePluginSpec(spec);
   const existing = pluginSpecs.find((item) => normalizePluginSpec(item) === normalized);
   if (existing) return false;
   pluginSpecs.push(spec);
-  await updateJsoncTopLevel(opencodeConfigPath(workspaceRoot), { plugin: pluginSpecs });
+  await writeWorkspaceLogicalOpencodeConfig(workspaceRoot, (current) => ({ ...current, plugin: pluginSpecs }));
   return true;
 }
 
 export async function removePlugin(workspaceRoot: string, name: string): Promise<boolean> {
-  const { data: config } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>);
-  const pluginSpecs = pluginListFromConfig(config);
+  const logicalConfig = await readWorkspaceLogicalOpencodeConfig(workspaceRoot);
+  const pluginSpecs = logicalPluginList(logicalConfig);
   const normalized = normalizePluginSpec(name);
   const filtered = pluginSpecs.filter((item) => normalizePluginSpec(item) !== normalized);
   if (filtered.length === pluginSpecs.length) return false;
-  await updateJsoncTopLevel(opencodeConfigPath(workspaceRoot), { plugin: filtered });
+  await writeWorkspaceLogicalOpencodeConfig(workspaceRoot, (current) => ({ ...current, plugin: filtered }));
   return true;
 }

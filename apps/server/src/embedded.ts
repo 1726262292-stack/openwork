@@ -55,7 +55,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   if (!config.opencodeBaseUrl && options.manageOpencode) {
     const workspace = config.workspaces[0];
     if (workspace?.path) {
-      const openworkRuntimeConfig = buildOpenworkRuntimeConfig();
+      const openworkRuntimeConfig = await buildOpenworkRuntimeConfig(workspace.path);
       const cwd = options.opencodeCwd
         || process.env.OPENWORK_MANAGED_OPENCODE_CWD?.trim()
         || workspace.path;

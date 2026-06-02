@@ -12,7 +12,7 @@ import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
 import { installHubSkill, listHubSkills } from "./skill-hub.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
 import { ApiError, formatError } from "./errors.js";
-import { readJsoncFile, updateJsoncPath, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
+import { readJsoncFile, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
 import { recordAudit, readAuditEntries, readLastAudit } from "./audit.js";
 import { ReloadEventStore } from "./events.js";
 import { computeReloadFingerprint } from "./reload-fingerprint.js";
@@ -66,6 +66,13 @@ import {
   googleWorkspaceTestConnection,
 } from "./extensions/google-workspace.js";
 import { callExperimentalExtensionAction, listExperimentalExtensionActions } from "./extensions/index.js";
+import {
+  mergeOpencodeConfigs,
+  readLogicalOpencodeConfig,
+  readOpenworkConfigFile,
+  readWorkspaceLogicalOpencodeConfig,
+  writeWorkspaceLogicalOpencodeConfig,
+} from "./openwork-logical-config.js";
 import pkg from "../package.json" with { type: "json" };
 import constants from "../../../constants.json" with { type: "json" };
 
@@ -1636,29 +1643,6 @@ function mergeAuthorizedFoldersIntoExternalDirectory(
   return Object.keys(next).length ? next : undefined;
 }
 
-async function writeAuthorizedFoldersToOpencodeConfig(
-  configPath: string,
-  existingOpencode: Record<string, unknown>,
-  nextExternalDirectory: Record<string, unknown> | undefined,
-): Promise<void> {
-  const existingPermission = ensurePlainObject(existingOpencode.permission);
-  const hasExternalDirectory = hasOwnKey(existingPermission, "external_directory");
-  if (typeof nextExternalDirectory === "undefined" && !hasExternalDirectory) return;
-
-  const existingPermissionKeys = Object.keys(existingPermission);
-  const removePermissionParent =
-    typeof nextExternalDirectory === "undefined" &&
-    (existingPermissionKeys.length === 0 ||
-      (existingPermissionKeys.length === 1 && hasExternalDirectory));
-
-  if (removePermissionParent) {
-    await updateJsoncPath(configPath, ["permission"], undefined);
-    return;
-  }
-
-  await updateJsoncPath(configPath, ["permission", "external_directory"], nextExternalDirectory);
-}
-
 function buildAuthorizedFoldersResponse(workspace: WorkspaceInfo, config: AuthorizedFoldersConfig): AuthorizedFoldersResponse {
   return {
     folders: config.folders,
@@ -2373,8 +2357,8 @@ function createRoutes(
 
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const opencode = await readOpencodeConfig(workspace.path);
     const openwork = await readOpenworkConfig(workspace.path);
+    const opencode = mergeOpencodeConfigs(await readOpencodeConfig(workspace.path), readLogicalOpencodeConfig(openwork));
     const lastAudit = await readLastAudit(workspace.path, workspace.id);
     return jsonResponse({ opencode, openwork, updatedAt: lastAudit?.timestamp ?? null });
   });
@@ -2415,7 +2399,10 @@ function createRoutes(
 
   addRoute(routes, "GET", "/workspace/:id/authorized-folders", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const opencode = await readOpencodeConfig(workspace.path);
+    const opencode = mergeOpencodeConfigs(
+      await readOpencodeConfig(workspace.path),
+      await readWorkspaceLogicalOpencodeConfig(workspace.path),
+    );
     const foldersConfig = readAuthorizedFoldersFromOpencodeConfig(opencode, workspace.path);
     return jsonResponse(buildAuthorizedFoldersResponse(workspace, foldersConfig));
   });
@@ -2426,7 +2413,7 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const folders = parseAuthorizedFoldersPayload(body.folders, workspace.path);
-    const configPath = opencodeConfigPath(workspace.path);
+    const configPath = openworkConfigPath(workspace.path);
 
     await requireApproval(ctx, {
       workspaceId: workspace.id,
@@ -2435,15 +2422,22 @@ function createRoutes(
       paths: [configPath],
     });
 
-    const configFingerprintBefore = await computeReloadFingerprint(workspace.path, "config");
-    const existingOpencode = await readOpencodeConfig(workspace.path);
+    const persistedOpencode = await readOpencodeConfig(workspace.path);
+    const logicalOpencode = await readWorkspaceLogicalOpencodeConfig(workspace.path);
+    const existingOpencode = mergeOpencodeConfigs(persistedOpencode, logicalOpencode);
     const existingFoldersConfig = readAuthorizedFoldersFromOpencodeConfig(existingOpencode, workspace.path);
     const nextExternalDirectory = mergeAuthorizedFoldersIntoExternalDirectory(
       folders,
       existingFoldersConfig.hiddenEntries,
     );
 
-    await writeAuthorizedFoldersToOpencodeConfig(configPath, existingOpencode, nextExternalDirectory);
+    await writeWorkspaceLogicalOpencodeConfig(workspace.path, (current) => ({
+      ...current,
+      permission: {
+        ...(ensurePlainObject(current.permission)),
+        external_directory: nextExternalDirectory ?? {},
+      },
+    }));
 
     const updatedAt = Date.now();
     await recordAudit(workspace.path, {
@@ -2456,9 +2450,7 @@ function createRoutes(
       timestamp: updatedAt,
     });
 
-    if (configFingerprintBefore !== await computeReloadFingerprint(workspace.path, "config")) {
-      emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
-    }
+    emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
 
     const updatedFoldersConfig = readAuthorizedFoldersFromOpencodeConfig({
       permission: { external_directory: nextExternalDirectory ?? {} },
@@ -2616,43 +2608,50 @@ function createRoutes(
       workspaceId: workspace.id,
       action: "config.patch",
       summary: "Patch workspace config",
-      paths: [opencode ? opencodeConfigPath(workspace.path) : null, openwork ? openworkConfigPath(workspace.path) : null].filter(Boolean) as string[],
+      paths: [opencode || openwork ? openworkConfigPath(workspace.path) : null].filter(Boolean) as string[],
     });
 
-    const configFingerprintBefore = opencode
-      ? await computeReloadFingerprint(workspace.path, "config")
-      : null;
-
     if (opencode) {
-      const configPath = opencodeConfigPath(workspace.path);
+      const configPath = openworkConfigPath(workspace.path);
       const nextOpencode = ensurePlainObject(opencode);
       const { permission, provider, ...topLevelUpdates } = nextOpencode;
-
-      if (Object.keys(topLevelUpdates).length) {
-        await updateJsoncTopLevel(configPath, topLevelUpdates);
-      }
+      const logicalUpdates: Record<string, unknown> = { ...topLevelUpdates };
 
       const providerUpdate = ensurePlainObject(provider);
-      for (const [providerId, providerConfig] of Object.entries(providerUpdate)) {
-        await updateJsoncPath(configPath, ["provider", providerId], providerConfig);
+      if (Object.keys(providerUpdate).length) {
+        const currentLogical = await readWorkspaceLogicalOpencodeConfig(workspace.path);
+        logicalUpdates.provider = {
+          ...(ensurePlainObject(currentLogical.provider)),
+          ...providerUpdate,
+        };
       }
 
       const permissionUpdate = ensurePlainObject(permission);
       if (Object.prototype.hasOwnProperty.call(permissionUpdate, "external_directory")) {
-        const existingOpencode = await readOpencodeConfig(workspace.path);
-        const existingPermission = ensurePlainObject(existingOpencode.permission);
+        const existingLogical = await readWorkspaceLogicalOpencodeConfig(workspace.path);
+        const existingPermission = ensurePlainObject(existingLogical.permission);
         const nextExternalDirectory = permissionUpdate.external_directory;
         const existingPermissionKeys = Object.keys(existingPermission);
         const removePermissionParent =
           typeof nextExternalDirectory === "undefined" &&
-          (existingPermissionKeys.length === 0 ||
+            (existingPermissionKeys.length === 0 ||
             (existingPermissionKeys.length === 1 && Object.prototype.hasOwnProperty.call(existingPermission, "external_directory")));
 
         if (removePermissionParent) {
-          await updateJsoncPath(configPath, ["permission"], undefined);
+          logicalUpdates.permission = undefined;
         } else {
-          await updateJsoncPath(configPath, ["permission", "external_directory"], nextExternalDirectory);
+          logicalUpdates.permission = {
+            ...existingPermission,
+            external_directory: nextExternalDirectory,
+          };
         }
+      }
+
+      if (Object.keys(logicalUpdates).length || Object.prototype.hasOwnProperty.call(logicalUpdates, "permission")) {
+        await writeWorkspaceLogicalOpencodeConfig(workspace.path, (current) => ({
+          ...current,
+          ...logicalUpdates,
+        }));
       }
     }
     if (openwork) {
@@ -2664,13 +2663,13 @@ function createRoutes(
       workspaceId: workspace.id,
       actor: ctx.actor ?? { type: "remote" },
       action: "config.patch",
-      target: "opencode.json",
+      target: openworkConfigPath(workspace.path),
       summary: "Patched workspace config",
       timestamp: Date.now(),
     });
 
-    if (opencode && configFingerprintBefore !== await computeReloadFingerprint(workspace.path, "config")) {
-      emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(opencodeConfigPath(workspace.path)));
+    if (opencode) {
+      emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(openworkConfigPath(workspace.path)));
     }
 
     return jsonResponse({ updatedAt: Date.now() });
@@ -3407,7 +3406,7 @@ function createRoutes(
       workspaceId: workspace.id,
       action: "plugins.add",
       summary: `Add plugin ${spec}`,
-      paths: [opencodeConfigPath(workspace.path)],
+      paths: [openworkConfigPath(workspace.path)],
     });
     const changed = await addPlugin(workspace.path, spec);
     await recordAudit(workspace.path, {
@@ -3415,7 +3414,7 @@ function createRoutes(
       workspaceId: workspace.id,
       actor: ctx.actor ?? { type: "remote" },
       action: "plugins.add",
-      target: "opencode.json",
+      target: openworkConfigPath(workspace.path),
       summary: `Added ${spec}`,
       timestamp: Date.now(),
     });
@@ -3440,7 +3439,7 @@ function createRoutes(
       workspaceId: workspace.id,
       action: "plugins.remove",
       summary: `Remove plugin ${name}`,
-      paths: [opencodeConfigPath(workspace.path)],
+      paths: [openworkConfigPath(workspace.path)],
     });
     const removed = await removePlugin(workspace.path, name);
     await recordAudit(workspace.path, {
@@ -3448,7 +3447,7 @@ function createRoutes(
       workspaceId: workspace.id,
       actor: ctx.actor ?? { type: "remote" },
       action: "plugins.remove",
-      target: "opencode.json",
+      target: openworkConfigPath(workspace.path),
       summary: `Removed ${name}`,
       timestamp: Date.now(),
     });
@@ -3630,7 +3629,7 @@ function createRoutes(
       workspaceId: workspace.id,
       action: "mcp.add",
       summary: `Add MCP ${name}`,
-      paths: [opencodeConfigPath(workspace.path)],
+      paths: [openworkConfigPath(workspace.path)],
     });
     const result = await addMcp(workspace.path, name, configPayload);
     await recordAudit(workspace.path, {
@@ -3638,7 +3637,7 @@ function createRoutes(
       workspaceId: workspace.id,
       actor: ctx.actor ?? { type: "remote" },
       action: "mcp.add",
-      target: "opencode.json",
+      target: openworkConfigPath(workspace.path),
       summary: `Added MCP ${name}`,
       timestamp: Date.now(),
     });
@@ -3660,7 +3659,7 @@ function createRoutes(
       workspaceId: workspace.id,
       action: "mcp.remove",
       summary: `Remove MCP ${name}`,
-      paths: [opencodeConfigPath(workspace.path)],
+      paths: [openworkConfigPath(workspace.path)],
     });
     const removed = await removeMcp(workspace.path, name);
     await recordAudit(workspace.path, {
@@ -3668,7 +3667,7 @@ function createRoutes(
       workspaceId: workspace.id,
       actor: ctx.actor ?? { type: "remote" },
       action: "mcp.remove",
-      target: "opencode.json",
+      target: openworkConfigPath(workspace.path),
       summary: `Removed MCP ${name}`,
       timestamp: Date.now(),
     });
@@ -3701,7 +3700,7 @@ function createRoutes(
       workspaceId: workspace.id,
       action,
       summary,
-      paths: [opencodeConfigPath(workspace.path)],
+      paths: [openworkConfigPath(workspace.path)],
     });
     const updated = await setMcpEnabled(workspace.path, name, enabled);
     if (!updated) {
@@ -3712,7 +3711,7 @@ function createRoutes(
       workspaceId: workspace.id,
       actor: ctx.actor ?? { type: "remote" },
       action,
-      target: "opencode.json",
+      target: openworkConfigPath(workspace.path),
       summary: `${enabled ? "Enabled" : "Disabled"} MCP ${name}`,
       timestamp: Date.now(),
     });
@@ -4356,11 +4355,8 @@ async function readOpencodeConfig(workspaceRoot: string): Promise<Record<string,
 }
 
 async function readOpenworkConfig(workspaceRoot: string): Promise<Record<string, unknown>> {
-  const path = openworkConfigPath(workspaceRoot);
-  if (!(await exists(path))) return {};
   try {
-    const raw = await readFile(path, "utf8");
-    return JSON.parse(raw) as Record<string, unknown>;
+    return await readOpenworkConfigFile(workspaceRoot);
   } catch {
     throw new ApiError(422, "invalid_json", "Failed to parse openwork.json");
   }

@@ -3,9 +3,10 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { McpItem } from "./types.js";
-import { readJsoncFile, updateJsoncPath, updateJsoncTopLevel } from "./jsonc.js";
+import { readJsoncFile } from "./jsonc.js";
 import { opencodeConfigPath } from "./workspace-files.js";
 import { validateMcpConfig, validateMcpName } from "./validators.js";
+import { logicalMcpMap, readWorkspaceLogicalOpencodeConfig, writeWorkspaceLogicalOpencodeConfig } from "./openwork-logical-config.js";
 
 function globalOpenCodeConfigPath(): string {
   const base = join(homedir(), ".config", "opencode");
@@ -43,6 +44,8 @@ export async function listMcp(workspaceRoot: string): Promise<McpItem[]> {
 
   const projectMcpMap = getMcpConfig(config);
   const globalMcpMap = getMcpConfig(globalConfig);
+  const logicalConfig = await readWorkspaceLogicalOpencodeConfig(workspaceRoot);
+  const logicalMap = logicalMcpMap(logicalConfig);
 
   const items: McpItem[] = [];
 
@@ -60,10 +63,21 @@ export async function listMcp(workspaceRoot: string): Promise<McpItem[]> {
 
   // Project MCPs (highest priority).
   for (const [name, entry] of Object.entries(projectMcpMap)) {
+    if (Object.prototype.hasOwnProperty.call(logicalMap, name)) continue;
     items.push({
       name,
       config: entry,
       source: "config.project",
+      disabledByTools: isMcpDisabledByTools(config, name) || undefined,
+    });
+  }
+
+  // OpenWork-owned MCPs are stored in .opencode/openwork.json and injected at runtime.
+  for (const [name, entry] of Object.entries(logicalMap)) {
+    items.push({
+      name,
+      config: entry,
+      source: "config.remote",
       disabledByTools: isMcpDisabledByTools(config, name) || undefined,
     });
   }
@@ -78,20 +92,20 @@ export async function addMcp(
 ): Promise<{ action: "added" | "updated" }> {
   validateMcpName(name);
   validateMcpConfig(config);
-  const { data } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>);
-  const mcpMap = getMcpConfig(data);
+  const logicalConfig = await readWorkspaceLogicalOpencodeConfig(workspaceRoot);
+  const mcpMap = { ...logicalMcpMap(logicalConfig) };
   const existed = Object.prototype.hasOwnProperty.call(mcpMap, name);
   mcpMap[name] = config;
-  await updateJsoncTopLevel(opencodeConfigPath(workspaceRoot), { mcp: mcpMap });
+  await writeWorkspaceLogicalOpencodeConfig(workspaceRoot, (current) => ({ ...current, mcp: mcpMap }));
   return { action: existed ? "updated" : "added" };
 }
 
 export async function removeMcp(workspaceRoot: string, name: string): Promise<boolean> {
-  const { data } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>);
-  const mcpMap = getMcpConfig(data);
+  const logicalConfig = await readWorkspaceLogicalOpencodeConfig(workspaceRoot);
+  const mcpMap = { ...logicalMcpMap(logicalConfig) };
   if (!Object.prototype.hasOwnProperty.call(mcpMap, name)) return false;
   delete mcpMap[name];
-  await updateJsoncTopLevel(opencodeConfigPath(workspaceRoot), { mcp: mcpMap });
+  await writeWorkspaceLogicalOpencodeConfig(workspaceRoot, (current) => ({ ...current, mcp: mcpMap }));
   return true;
 }
 
@@ -108,8 +122,8 @@ export async function setMcpEnabled(
   enabled: boolean,
 ): Promise<boolean> {
   validateMcpName(name);
-  const { data } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>);
-  const mcpMap = getMcpConfig(data);
+  const logicalConfig = await readWorkspaceLogicalOpencodeConfig(workspaceRoot);
+  const mcpMap = { ...logicalMcpMap(logicalConfig) };
   if (!Object.prototype.hasOwnProperty.call(mcpMap, name)) return false;
   const current = mcpMap[name];
   if (!current || typeof current !== "object" || Array.isArray(current)) return false;
@@ -118,6 +132,7 @@ export async function setMcpEnabled(
   } catch {
     return false;
   }
-  await updateJsoncPath(opencodeConfigPath(workspaceRoot), ["mcp", name, "enabled"], enabled);
+  mcpMap[name] = { ...(current as Record<string, unknown>), enabled };
+  await writeWorkspaceLogicalOpencodeConfig(workspaceRoot, (currentConfig) => ({ ...currentConfig, mcp: mcpMap }));
   return true;
 }

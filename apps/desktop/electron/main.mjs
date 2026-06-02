@@ -43,7 +43,6 @@ const APP_IDENTIFIER = isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER;
 const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/different-ai/openwork/releases/latest/download";
 const RELEASE_PAGE_URL = "https://github.com/different-ai/openwork/releases/latest";
 const DOCS_PAGE_URL = "https://openworklabs.com/docs";
-const BROWSER_PLUGIN = "opencode-chrome-devtools";
 const COMPUTER_USE_HELPER_APP_NAME = "OpenWork Computer Use.app";
 const COMPUTER_USE_HELPER_EXECUTABLE = "ComputerUse";
 
@@ -1442,30 +1441,6 @@ function defaultWorkspaceOpenworkConfig(workspacePath, preset = null) {
   };
 }
 
-async function workspaceOpencodeConfigPath(workspacePath) {
-  const candidates = [
-    path.join(workspacePath, "opencode.jsonc"),
-    path.join(workspacePath, "opencode.json"),
-    path.join(workspacePath, ".opencode", "opencode.jsonc"),
-    path.join(workspacePath, ".opencode", "opencode.json"),
-  ];
-  for (const candidate of candidates) {
-    if (await pathExists(candidate)) return candidate;
-  }
-  return candidates[0];
-}
-
-async function ensureDefaultWorkspaceOpencodeConfig(workspacePath) {
-  const configPath = await workspaceOpencodeConfigPath(workspacePath);
-  if (await pathExists(configPath)) return false;
-  await writeJsonFileAtomic(configPath, {
-    $schema: "https://opencode.ai/config.json",
-    default_agent: "openwork",
-    plugin: [BROWSER_PLUGIN],
-  });
-  return true;
-}
-
 async function normalizeLocalWorkspacePath(rawPath) {
   const trimmed = String(rawPath ?? "").trim();
   if (!trimmed) return "";
@@ -2177,7 +2152,6 @@ async function handleDesktopInvoke(event, command, ...args) {
         workspaceType: "local",
       });
       await mkdir(path.join(folderPath, ".opencode"), { recursive: true });
-      await ensureDefaultWorkspaceOpencodeConfig(folderPath);
       await writeWorkspaceOpenworkConfig(folderPath, defaultWorkspaceOpenworkConfig(folderPath, preset));
 
       return mutateWorkspaceState((state) => {
