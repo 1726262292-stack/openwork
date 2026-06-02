@@ -24,7 +24,6 @@ import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import ProviderAuthModal, { type ProviderAuthModalProps } from "../../connections/provider-auth/provider-auth-modal";
 import { RenameSessionModal } from "../modals/rename-session-modal";
 import { AppSidebar } from "../sidebar/app-sidebar";
-import type { SessionGroupDefinition } from "../../../shell/session-memory";
 import { SessionSurface, type SessionSurfaceProps } from "../surface/session-surface";
 import {
   SidebarInset,
@@ -87,19 +86,11 @@ export type SessionPageSidebarProps = {
   newTaskDisabled: boolean;
   sidebarHydratedFromCache: boolean;
   startupPhase: BootPhase;
-  pinnedSessionIds?: Set<string>;
-  sessionGroupsByWorkspaceId?: Record<string, SessionGroupDefinition[]>;
-  sessionOrderByWorkspaceId?: Record<string, string[]>;
-  sessionGroupAssignmentsByWorkspaceId?: Record<string, Record<string, string>>;
   onSelectWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   onOpenSession: (workspaceId: string, sessionId: string) => void;
   onPrefetchSession?: (workspaceId: string, sessionId: string) => void;
   onCreateTaskInWorkspace: (workspaceId: string) => void;
   onCreateTaskWithPrompt?: (workspaceId: string, prompt: string) => void;
-  onTogglePinSession?: (sessionId: string) => void;
-  onAssignSessionGroup?: (workspaceId: string, sessionId: string, groupId: string | null) => void;
-  onCreateSessionGroup?: (workspaceId: string) => void;
-  onReorderSessions?: (workspaceId: string, sessionIds: string[]) => void;
   onOpenRenameWorkspace: (workspaceId: string) => void;
   onShareWorkspace: (workspaceId: string) => void;
   onRevealWorkspace: (workspaceId: string) => void;
@@ -638,21 +629,11 @@ export function SessionPage(props: SessionPageProps) {
           developerMode={props.sidebar.developerMode}
           selectedSessionId={props.sidebar.selectedSessionId}
           showInitialLoading={sidebarInitialLoading}
-          showSessionActions={Boolean(
-            props.onRenameSession ||
-              props.onDeleteSession ||
-              props.onArchiveSession ||
-              props.sidebar.onTogglePinSession ||
-              props.sidebar.onAssignSessionGroup,
-          )}
+          showSessionActions={Boolean(props.onRenameSession || props.onDeleteSession || props.onArchiveSession)}
           sessionStatusById={props.sidebar.sessionStatusById}
           connectingWorkspaceId={props.sidebar.connectingWorkspaceId}
           workspaceConnectionStateById={props.sidebar.workspaceConnectionStateById}
           newTaskDisabled={props.sidebar.newTaskDisabled}
-          pinnedSessionIds={props.sidebar.pinnedSessionIds}
-          sessionGroupsByWorkspaceId={props.sidebar.sessionGroupsByWorkspaceId}
-          sessionOrderByWorkspaceId={props.sidebar.sessionOrderByWorkspaceId}
-          sessionGroupAssignmentsByWorkspaceId={props.sidebar.sessionGroupAssignmentsByWorkspaceId}
           onSelectWorkspace={props.sidebar.onSelectWorkspace}
           onOpenSession={props.sidebar.onOpenSession}
           onPrefetchSession={props.sidebar.onPrefetchSession}
@@ -662,13 +643,9 @@ export function SessionPage(props: SessionPageProps) {
             setSessionActionId(sessionId);
             setDeleteOpen(true);
           } : undefined}
-          onTogglePinSession={props.sidebar.onTogglePinSession}
           onArchiveSession={props.onArchiveSession ? (sessionId, archived) => {
             void props.onArchiveSession?.(sessionId, archived);
           } : undefined}
-          onAssignSessionGroup={props.sidebar.onAssignSessionGroup}
-          onCreateSessionGroup={props.sidebar.onCreateSessionGroup}
-          onReorderSessions={props.sidebar.onReorderSessions}
           onOpenRenameWorkspace={props.sidebar.onOpenRenameWorkspace}
           onShareWorkspace={props.sidebar.onShareWorkspace}
           onRevealWorkspace={props.sidebar.onRevealWorkspace}

@@ -1,7 +1,6 @@
 /** @jsxImportSource react */
 import * as React from "react";
 import type { WorkspaceConnectionState } from "../../../../app/types";
-import type { SessionGroupDefinition } from "../../../shell/session-memory";
 
 export type SidebarContextValue = {
   selectedWorkspaceId: string;
@@ -12,25 +11,14 @@ export type SidebarContextValue = {
   newTaskDisabled: boolean;
   connectingWorkspaceId: string | null;
   workspaceConnectionStateById: Record<string, WorkspaceConnectionState>;
-  /** Session ids the user pinned (global). */
-  pinnedSessionIds: Set<string>;
-  /** Custom separators per workspace id. */
-  sessionGroupsByWorkspaceId: Record<string, SessionGroupDefinition[]>;
-  /** Manual root-session order per workspace id. */
-  sessionOrderByWorkspaceId: Record<string, string[]>;
-  /** sessionId -> groupId assignments per workspace id. */
-  sessionGroupAssignmentsByWorkspaceId: Record<string, Record<string, string>>;
   onSelectWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   onOpenSession: (workspaceId: string, sessionId: string) => void;
   onPrefetchSession?: (workspaceId: string, sessionId: string) => void;
   onCreateTaskInWorkspace: (workspaceId: string) => void;
   onOpenRenameSession?: (sessionId: string) => void;
   onOpenDeleteSession?: (sessionId: string) => void;
-  onTogglePinSession?: (sessionId: string) => void;
   onArchiveSession?: (sessionId: string, archived: boolean) => void;
-  onAssignSessionGroup?: (workspaceId: string, sessionId: string, groupId: string | null) => void;
-  onCreateSessionGroup?: (workspaceId: string) => void;
-  onReorderSessions?: (workspaceId: string, sessionIds: string[]) => void;
+  onOpenCreateGroupModal?: (workspaceId: string) => void;
   onOpenRenameWorkspace: (workspaceId: string) => void;
   onShareWorkspace: (workspaceId: string) => void;
   onRevealWorkspace: (workspaceId: string) => void;

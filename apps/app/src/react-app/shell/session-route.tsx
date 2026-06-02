@@ -107,22 +107,13 @@ import { CommandPalette, type AccessibleTargetOption, type SessionOption as Pale
 import { getDisplaySessionTitle } from "../../app/lib/session-title";
 import { useBootState } from "./boot-state";
 import {
-  DEFAULT_SESSION_GROUP_LABELS,
   forgetWorkspaceMemory,
   readActiveWorkspaceId,
   readLastSessionFor,
-  readPinnedSessionIds,
-  readSessionOrderIds,
   readWorkspaceOrderIds,
-  readWorkspaceSessionGroups,
   writeActiveWorkspaceId,
   writeLastSessionFor,
-  writePinnedSessionIds,
-  writeSessionOrderIds,
   writeWorkspaceOrderIds,
-  writeWorkspaceSessionGroups,
-  type SessionGroupDefinition,
-  type WorkspaceSessionGroups,
 } from "./session-memory";
 import {
   publishInspectorSlice,
@@ -528,15 +519,6 @@ export function SessionRoute() {
   const [token, setToken] = useState("");
   const [workspaces, setWorkspaces] = useState<RouteWorkspace[]>([]);
   const [workspaceOrderIds, setWorkspaceOrderIds] = useState<string[]>(() => readWorkspaceOrderIds());
-  // Session-management view state (client-side; see session-memory.ts).
-  const [pinnedSessionIds, setPinnedSessionIds] = useState<Set<string>>(
-    () => new Set(readPinnedSessionIds()),
-  );
-  const [sessionOrderByWorkspaceId, setSessionOrderByWorkspaceId] = useState<Record<string, string[]>>({});
-  const [sessionGroupsByWorkspaceId, setSessionGroupsByWorkspaceId] = useState<
-    Record<string, WorkspaceSessionGroups>
-  >({});
-  const sessionGroupsByWorkspaceIdRef = useRef(sessionGroupsByWorkspaceId);
   const [sessionsByWorkspaceId, setSessionsByWorkspaceId] = useState<Record<string, any[]>>({});
   const [errorsByWorkspaceId, setErrorsByWorkspaceId] = useState<Record<string, string | null>>({});
   const [workspaceConnectionOverrides, setWorkspaceConnectionOverrides] = useState<Record<string, WorkspaceConnectionState>>({});
@@ -1197,27 +1179,6 @@ export function SessionRoute() {
   }, [workspaceOrderIds]);
 
   useEffect(() => {
-    sessionGroupsByWorkspaceIdRef.current = sessionGroupsByWorkspaceId;
-  }, [sessionGroupsByWorkspaceId]);
-
-  // Hydrate per-workspace session order + custom groups from localStorage when
-  // the set of workspaces changes (mirrors workspace-order hydration above).
-  useEffect(() => {
-    const order: Record<string, string[]> = {};
-    const groups: Record<string, WorkspaceSessionGroups> = {};
-    for (const workspace of workspaces) {
-      const orderIds = readSessionOrderIds(workspace.id);
-      if (orderIds.length) order[workspace.id] = orderIds;
-      const workspaceGroups = readWorkspaceSessionGroups(workspace.id);
-      if (workspaceGroups.groups.length || Object.keys(workspaceGroups.assignments).length) {
-        groups[workspace.id] = workspaceGroups;
-      }
-    }
-    setSessionOrderByWorkspaceId(order);
-    setSessionGroupsByWorkspaceId(groups);
-  }, [workspaces]);
-
-  useEffect(() => {
     const activeWorkspaceIds = new Set(workspaces.map((workspace) => workspace.id));
     setWorkspaceConnectionOverrides((current) => {
       let changed = false;
@@ -1426,23 +1387,6 @@ export function SessionRoute() {
     () => toSessionGroups(workspaces, sessionsByWorkspaceId, errorsByWorkspaceId, new Set(retryingWorkspaceIds)),
     [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, workspaces],
   );
-
-  // Split the persisted session-groups state into the two shapes the sidebar
-  // consumes: separator definitions and sessionId -> groupId assignments.
-  const sessionGroupDefinitionsByWorkspaceId = useMemo(() => {
-    const result: Record<string, SessionGroupDefinition[]> = {};
-    for (const [workspaceId, value] of Object.entries(sessionGroupsByWorkspaceId)) {
-      result[workspaceId] = value.groups;
-    }
-    return result;
-  }, [sessionGroupsByWorkspaceId]);
-  const sessionGroupAssignmentsByWorkspaceId = useMemo(() => {
-    const result: Record<string, Record<string, string>> = {};
-    for (const [workspaceId, value] of Object.entries(sessionGroupsByWorkspaceId)) {
-      result[workspaceId] = value.assignments;
-    }
-    return result;
-  }, [sessionGroupsByWorkspaceId]);
   const seedWorkspaceActivitySessions = useSessionActivityStore((state) => state.seedWorkspaceSessions);
   const sessionActivityByWorkspaceId = useSessionActivityStore((state) => state.statusesByWorkspaceId);
 
@@ -2644,74 +2588,6 @@ export function SessionRoute() {
     setWorkspaces((current) => orderRouteWorkspaces(current, nextOrderIds));
   }, []);
 
-  const handleTogglePinSession = useCallback((sessionId: string) => {
-    const id = sessionId.trim();
-    if (!id) return;
-    setPinnedSessionIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      writePinnedSessionIds(Array.from(next));
-      return next;
-    });
-  }, []);
-
-  const handleReorderSessions = useCallback((workspaceId: string, sessionIds: string[]) => {
-    const wsId = workspaceId.trim();
-    if (!wsId) return;
-    const seen = new Set<string>();
-    const nextOrder = sessionIds.flatMap((id) => {
-      const trimmed = id.trim();
-      if (!trimmed || seen.has(trimmed)) return [];
-      seen.add(trimmed);
-      return [trimmed];
-    });
-    setSessionOrderByWorkspaceId((current) => ({ ...current, [wsId]: nextOrder }));
-    writeSessionOrderIds(wsId, nextOrder);
-  }, []);
-
-  const persistWorkspaceGroups = useCallback((workspaceId: string, value: WorkspaceSessionGroups) => {
-    setSessionGroupsByWorkspaceId((current) => ({ ...current, [workspaceId]: value }));
-    writeWorkspaceSessionGroups(workspaceId, value);
-  }, []);
-
-  const handleAssignSessionGroup = useCallback(
-    (workspaceId: string, sessionId: string, groupId: string | null) => {
-      const wsId = workspaceId.trim();
-      const sid = sessionId.trim();
-      if (!wsId || !sid) return;
-      const existing = sessionGroupsByWorkspaceIdRef.current[wsId] ?? { groups: [], assignments: {} };
-      const assignments = { ...existing.assignments };
-      if (groupId && existing.groups.some((group) => group.id === groupId)) {
-        assignments[sid] = groupId;
-      } else {
-        delete assignments[sid];
-      }
-      persistWorkspaceGroups(wsId, { groups: existing.groups, assignments });
-    },
-    [persistWorkspaceGroups],
-  );
-
-  const handleCreateSessionGroup = useCallback(
-    (workspaceId: string) => {
-      const wsId = workspaceId.trim();
-      if (!wsId) return;
-      const existing = sessionGroupsByWorkspaceIdRef.current[wsId] ?? { groups: [], assignments: {} };
-      const usedLabels = new Set(existing.groups.map((group) => group.label.toLowerCase()));
-      const defaultLabel =
-        DEFAULT_SESSION_GROUP_LABELS.find((label) => !usedLabels.has(label.toLowerCase())) ??
-        `Group ${existing.groups.length + 1}`;
-      const label = (window.prompt(t("session_management.new_group_prompt"), defaultLabel) ?? "").trim();
-      if (!label) return;
-      const id = `grp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-      persistWorkspaceGroups(wsId, {
-        groups: [...existing.groups, { id, label }],
-        assignments: existing.assignments,
-      });
-    },
-    [persistWorkspaceGroups],
-  );
-
   const handleArchiveSession = useCallback(
     async (sessionId: string, archived: boolean) => {
       if (!opencodeClient) return;
@@ -2948,14 +2824,6 @@ export function SessionRoute() {
         newTaskDisabled: !canCreateTask,
         sidebarHydratedFromCache: Object.values(sessionsByWorkspaceId).some((list) => list.length > 0),
         startupPhase: effectiveLoading ? "nativeInit" : "ready",
-        pinnedSessionIds,
-        sessionGroupsByWorkspaceId: sessionGroupDefinitionsByWorkspaceId,
-        sessionOrderByWorkspaceId,
-        sessionGroupAssignmentsByWorkspaceId,
-        onTogglePinSession: handleTogglePinSession,
-        onAssignSessionGroup: handleAssignSessionGroup,
-        onCreateSessionGroup: handleCreateSessionGroup,
-        onReorderSessions: handleReorderSessions,
         onSelectWorkspace: async (workspaceId) => {
           if (workspaceId === selectedWorkspaceId) return true;
           setLegacySelectedWorkspaceId(workspaceId);

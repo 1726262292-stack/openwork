@@ -1,42 +1,18 @@
 import type { WorkspaceInfo } from "../../../../app/lib/desktop";
 import type { WorkspaceSessionGroup } from "../../../../app/types";
-import type { SessionGroupDefinition } from "../../../shell/session-memory";
 import { isSandboxWorkspace } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 
 export const MAX_SESSIONS_PREVIEW = 6;
 
 export type SessionListItem = WorkspaceSessionGroup["sessions"][number];
-export type FlattenedSessionRow =
-  | { kind: "session"; session: SessionListItem; depth: number }
-  | { kind: "separator"; groupId: string; label: string };
+export type FlattenedSessionRow = { session: SessionListItem; depth: number };
 export type SessionTreeState = {
   childrenByParent: Map<string, SessionListItem[]>;
   ancestorIdsBySessionId: Map<string, string[]>;
   descendantCountBySessionId: Map<string, number>;
   activeIds: Set<string>;
   streamingIds: Set<string>;
-};
-
-/**
- * Client-side view state for the new session-management primitives. Kept in a
- * single object so the sidebar can thread it through `flattenSessionRows`
- * without growing a long positional argument list.
- */
-export type SessionViewState = {
-  pinnedIds: Set<string>;
-  /** Manual order (root session ids), workspace-scoped. */
-  orderIds: string[];
-  groups: SessionGroupDefinition[];
-  /** sessionId -> groupId */
-  assignments: Record<string, string>;
-};
-
-export const EMPTY_SESSION_VIEW_STATE: SessionViewState = {
-  pinnedIds: new Set<string>(),
-  orderIds: [],
-  groups: [],
-  assignments: {},
 };
 
 export const isSessionArchived = (session: SessionListItem): boolean =>
@@ -75,19 +51,18 @@ export const partitionArchivedSessions = (sessions: WorkspaceSessionGroup["sessi
 };
 
 /**
- * Order root sessions: pinned first (in manual/server order), then the rest.
- * Manual order ids win; anything not yet in the manual order keeps its incoming
- * (server recency) order appended at the end.
+ * Order root sessions: pinned first, then manual order, then server recency.
  */
 export const orderRootSessions = (
   roots: SessionListItem[],
-  view: SessionViewState,
+  pinnedIds: Set<string>,
+  orderIds: string[],
 ): SessionListItem[] => {
   const byId = new Map(roots.map((root) => [root.id, root]));
   const ordered: SessionListItem[] = [];
   const used = new Set<string>();
 
-  for (const id of view.orderIds) {
+  for (const id of orderIds) {
     const root = byId.get(id);
     if (!root || used.has(id)) continue;
     ordered.push(root);
@@ -100,8 +75,8 @@ export const orderRootSessions = (
   }
 
   // Stable partition: pinned roots float to the top, preserving relative order.
-  const pinned = ordered.filter((root) => view.pinnedIds.has(root.id));
-  const rest = ordered.filter((root) => !view.pinnedIds.has(root.id));
+  const pinned = ordered.filter((root) => pinnedIds.has(root.id));
+  const rest = ordered.filter((root) => !pinnedIds.has(root.id));
   return [...pinned, ...rest];
 };
 
@@ -167,18 +142,18 @@ export const flattenSessionRows = (
   tree: SessionTreeState,
   expandedSessionIds: Set<string>,
   forcedExpandedSessionIds: Set<string>,
-  view: SessionViewState = EMPTY_SESSION_VIEW_STATE,
+  pinnedIds: Set<string> = EMPTY_SET,
+  orderIds: string[] = EMPTY_ARRAY,
 ) => {
-  // Archived sessions never appear in the main list; they get their own section.
   const { active } = partitionArchivedSessions(sessions);
-  const orderedRoots = orderRootSessions(getRootSessions(active), view).slice(0, rootLimit);
+  const orderedRoots = orderRootSessions(getRootSessions(active), pinnedIds, orderIds).slice(0, rootLimit);
   const rows: FlattenedSessionRow[] = [];
   const visited = new Set<string>();
 
   const walk = (session: SessionListItem, depth: number) => {
     if (visited.has(session.id)) return;
     visited.add(session.id);
-    rows.push({ kind: "session", session, depth });
+    rows.push({ session, depth });
     const children = tree.childrenByParent.get(session.id) ?? [];
     if (!children.length) return;
     const expanded = expandedSessionIds.has(session.id) || forcedExpandedSessionIds.has(session.id);
@@ -186,35 +161,12 @@ export const flattenSessionRows = (
     children.forEach((child) => walk(child, depth + 1));
   };
 
-  if (view.groups.length === 0) {
-    orderedRoots.forEach((root) => walk(root, 0));
-    return rows;
-  }
-
-  // With custom separators, render each group's roots under its header in the
-  // group order the user defined, then any ungrouped roots at the end.
-  const groupOrder = view.groups.map((group) => group.id);
-  const rootsByGroup = new Map<string, SessionListItem[]>();
-  const ungrouped: SessionListItem[] = [];
-  for (const root of orderedRoots) {
-    const groupId = view.assignments[root.id];
-    if (groupId && groupOrder.includes(groupId)) {
-      const bucket = rootsByGroup.get(groupId) ?? [];
-      bucket.push(root);
-      rootsByGroup.set(groupId, bucket);
-    } else {
-      ungrouped.push(root);
-    }
-  }
-
-  for (const group of view.groups) {
-    const groupRoots = rootsByGroup.get(group.id) ?? [];
-    rows.push({ kind: "separator", groupId: group.id, label: group.label });
-    groupRoots.forEach((root) => walk(root, 0));
-  }
-  ungrouped.forEach((root) => walk(root, 0));
+  orderedRoots.forEach((root) => walk(root, 0));
   return rows;
 };
+
+const EMPTY_SET: Set<string> = new Set();
+const EMPTY_ARRAY: string[] = [];
 
 export const workspaceLabel = (workspace: WorkspaceInfo) =>
   workspace.displayName?.trim() ||
