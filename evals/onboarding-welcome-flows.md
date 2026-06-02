@@ -83,10 +83,9 @@ page. It must open the `CreateWorkspaceModal` with the chooser screen
 Steps:
 1. From `/welcome`, click "Get started".
 2. Expect: the `CreateWorkspaceModal` overlay appears.
-3. Expect: the modal shows three option cards:
+3. Expect: the modal shows two option cards:
    - "Local workspace"
    - "Connect custom remote"
-   - "Shared workspaces"
 4. Click the close button (X).
 5. Expect: modal closes, welcome page is still visible.
 
@@ -101,7 +100,7 @@ chrome-devtools_take_snapshot
 
 Pass criteria:
 - Modal opens on "Get started" click.
-- All three workspace type options are visible.
+- Both workspace type options are visible.
 - Closing the modal returns to the welcome page (stays on `/welcome`).
 
 Known regressions this catches:
