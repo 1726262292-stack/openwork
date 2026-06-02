@@ -18,6 +18,19 @@ type ExtensionActionPayload = {
   context: ReturnType<typeof contextPayload>;
 };
 
+type ToolAttachment = {
+  type: "file";
+  mime: string;
+  url: string;
+  filename?: string;
+};
+
+type ToolResultWithAttachments = {
+  output: string;
+  metadata: Record<string, unknown>;
+  attachments: ToolAttachment[];
+};
+
 const listActionsArgsSchema = z.object({
   extensionId: z.string().optional().describe("Optional extension id to filter by, such as google-workspace."),
 });
@@ -147,6 +160,32 @@ function getStringProperty(value: unknown, key: string): string | null {
   return typeof property === "string" ? property : null;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isToolAttachment(value: unknown): value is ToolAttachment {
+  if (!isRecord(value)) return false;
+  return value.type === "file"
+    && typeof value.mime === "string"
+    && typeof value.url === "string"
+    && (value.filename === undefined || typeof value.filename === "string");
+}
+
+function toolAttachments(payload: unknown): ToolAttachment[] {
+  if (!isRecord(payload) || !Array.isArray(payload.attachments)) return [];
+  return payload.attachments.filter(isToolAttachment);
+}
+
+function payloadWithoutToolAttachments(payload: unknown): unknown {
+  if (!isRecord(payload)) return payload;
+  const copy: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (key !== "attachments") copy[key] = value;
+  }
+  return copy;
+}
+
 function addContext(payload: unknown, context: OpenCodeContext): object {
   if (typeof payload === "object" && payload !== null && !Array.isArray(payload)) {
     return Object.assign({}, payload, { context: contextPayload(context) });
@@ -156,6 +195,17 @@ function addContext(payload: unknown, context: OpenCodeContext): object {
 
 function errorMessage(payload: unknown, fallback: string): string {
   return getStringProperty(payload, "message") ?? getStringProperty(payload, "code") ?? fallback;
+}
+
+function extensionCallToolResult(payload: unknown, context: OpenCodeContext): string | ToolResultWithAttachments {
+  const attachments = toolAttachments(payload);
+  const output = JSON.stringify(addContext(payloadWithoutToolAttachments(payload), context), null, 2);
+  if (attachments.length === 0) return output;
+  return {
+    output,
+    metadata: { attachmentCount: attachments.length },
+    attachments,
+  };
 }
 
 async function postJson(path: string, body: ExtensionActionPayload): Promise<unknown> {
@@ -217,7 +267,7 @@ export const OpenWorkExtensionsPreview = async () => ({
           args: args.args ?? {},
           context: contextPayload(context),
         });
-        return JSON.stringify(payload, null, 2);
+        return extensionCallToolResult(payload, context);
       },
     },
     openwork_ui_snapshot: {

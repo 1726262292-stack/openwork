@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Check,
   Copy,
+  Download,
   FileIcon,
   Split,
   Undo2,
@@ -144,36 +145,56 @@ interface FileMessageProps {
   tone: "assistant" | "user"
 }
 
+function downloadFilePart(part: FileUIPart, title: string) {
+  if (!part.url) return
+  const anchor = document.createElement("a")
+  anchor.href = part.url
+  anchor.download = part.filename || title || "download"
+  anchor.rel = "noopener noreferrer"
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+}
+
 function FileMessage({ part, tone }: FileMessageProps) {
   const title = getFileTitle(part)
   const badge = getMediaBadge(part)
   const isImage = part.mediaType.startsWith("image/") && part.url
+  const downloadable = Boolean(part.url)
 
   if (isImage) {
     return (
-      <Image
-        src={part.url}
-        alt={title}
-        loading="lazy"
-        decoding="async"
-        className="size-full object-cover"
-      />
+      <button
+        type="button"
+        className="size-full overflow-hidden text-left"
+        onClick={() => downloadFilePart(part, title)}
+        aria-label={`Download ${title}`}
+      >
+        <Image
+          src={part.url}
+          alt={title}
+          loading="lazy"
+          decoding="async"
+          className="size-full object-cover"
+        />
+      </button>
     )
   }
 
   return (
-    <DescriptiveButton className="px-2 py-1 items-center gap-2">
+    <DescriptiveButton className="px-2 py-1 items-center gap-2" onClick={downloadable ? () => downloadFilePart(part, title) : undefined} aria-label={downloadable ? `Download ${title}` : title}>
       <DescriptiveButtonIcon>
         <FileIcon className="size-6 shrink-0" />
       </DescriptiveButtonIcon>
       <DescriptiveButtonContent className="gap-0">
         <DescriptiveButtonTitle>{title}</DescriptiveButtonTitle>
-        {badge ? (
+        {badge || downloadable ? (
           <DescriptiveButtonDescription className="text-xs">
-            {badge}
+            {[badge, downloadable ? "Download" : null].filter(Boolean).join(" · ")}
           </DescriptiveButtonDescription>
         ) : null}
       </DescriptiveButtonContent>
+      {downloadable ? <Download className="size-4 shrink-0 text-muted-foreground" /> : null}
     </DescriptiveButton>
   )
 }
