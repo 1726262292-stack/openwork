@@ -5,11 +5,15 @@ import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { db } from "../../db.js"
+import { env } from "../../env.js"
 import { jsonValidator, paramValidator, queryValidator, requireUserMiddleware, resolveOrganizationContextMiddleware, resolveUserOrganizationsMiddleware } from "../../middleware/index.js"
 import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { getOrganizationLimitStatus } from "../../organization-limits.js"
 import type { OrganizationContext } from "../../orgs.js"
 import { getRequiredUserEmail } from "../../user.js"
+import { startWorkerBackgroundJob } from "../../workers/background-jobs.js"
+import { buildDaytonaProviderSeedSummary, daytonaProviderSeedConfigPath, daytonaProviderSeedManifestPath } from "../../workers/daytona-provider-seed.js"
+import { loadMemberDaytonaProviderSeed } from "../../workers/daytona-provider-seed-loader.js"
 import type { WorkerRouteVariables } from "./shared.js"
 import {
   continueCloudProvisioning,
@@ -92,6 +96,35 @@ const workerTokensResponseSchema = z.object({
   }).nullable(),
 }).meta({ ref: "WorkerTokensResponse" })
 
+const workerProviderSeedPreviewResponseSchema = z.object({
+  providerCount: z.number().int(),
+  providerIds: z.array(z.string()),
+  envNames: z.array(z.string()),
+  configPath: z.string(),
+  manifestPath: z.string(),
+}).meta({ ref: "WorkerProviderSeedPreviewResponse" })
+
+const workerBackgroundJobCreateSchema = z.object({
+  prompt: z.string().trim().min(1),
+  title: z.string().trim().min(1).max(255).optional(),
+  model: z.object({
+    providerID: z.string().trim().min(1),
+    modelID: z.string().trim().min(1),
+  }).optional(),
+  agent: z.string().trim().min(1).optional(),
+  variant: z.string().trim().min(1).optional(),
+}).meta({ ref: "WorkerBackgroundJobCreateRequest" })
+
+const workerBackgroundJobResponseSchema = z.object({
+  job: z.object({
+    id: z.string(),
+    status: z.literal("accepted"),
+    workerId: denTypeIdSchema("worker"),
+    sessionId: z.string(),
+    openworkUrl: z.string(),
+  }),
+}).meta({ ref: "WorkerBackgroundJobResponse" })
+
 const organizationUnavailableSchema = z.object({
   error: z.literal("organization_unavailable"),
 }).meta({ ref: "OrganizationUnavailableError" })
@@ -124,6 +157,26 @@ const workerRuntimeUnavailableSchema = z.object({
   error: z.literal("worker_runtime_unavailable"),
   message: z.string(),
 })).meta({ ref: "WorkerConnectionError" })
+
+function memberTeamIdsForContext(context: OrganizationContext) {
+  return context.teams
+    .filter((team) => team.memberIds.includes(context.currentMember.id))
+    .map((team) => team.id)
+}
+
+async function buildProviderSeedPreview(context: OrganizationContext) {
+  const seed = await loadMemberDaytonaProviderSeed({
+    organizationId: context.organization.id,
+    memberId: context.currentMember.id,
+    teamIds: memberTeamIdsForContext(context),
+  })
+
+  return buildDaytonaProviderSeedSummary({
+    configPath: daytonaProviderSeedConfigPath(env.daytona.runtimeWorkspacePath),
+    manifestPath: daytonaProviderSeedManifestPath(env.daytona.runtimeWorkspacePath),
+    seed,
+  })
+}
 
 export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVariables }>(app: Hono<T>) {
   app.get(
@@ -275,10 +328,6 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
     ])
 
     if (input.destination === "cloud") {
-      const memberTeamIds = organizationContext.teams
-        .filter((team) => team.memberIds.includes(organizationContext.currentMember.id))
-        .map((team) => team.id)
-
       void continueCloudProvisioning({
         workerId,
         name: input.name,
@@ -287,7 +336,7 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
         activityToken,
         organizationId: organizationContext.organization.id,
         memberId: organizationContext.currentMember.id,
-        memberTeamIds,
+        memberTeamIds: memberTeamIdsForContext(organizationContext),
       })
     }
 
@@ -319,6 +368,106 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
       instance: null,
       launch: input.destination === "cloud" ? { mode: "async", pollAfterMs: 5000 } : { mode: "instant", pollAfterMs: 0 },
     }, input.destination === "cloud" ? 202 : 201)
+    },
+  )
+
+  app.get(
+    "/v1/workers/provider-seed-preview",
+    describeRoute({
+      tags: ["Workers"],
+      summary: "Preview cloud worker provider seed",
+      description: "Returns the non-secret provider IDs and env var names that would be seeded into a newly provisioned Daytona cloud worker for the current organization member. Useful for Cloud UI, MCP, and end-to-end readiness checks.",
+      responses: {
+        200: jsonResponse("Provider seed preview returned successfully.", workerProviderSeedPreviewResponseSchema),
+        401: jsonResponse("The caller must be signed in to preview worker provider seeding.", unauthorizedSchema),
+      },
+    }),
+    requireUserMiddleware,
+    resolveOrganizationContextMiddleware,
+    async (c) => {
+    const organizationContext: OrganizationContext = c.get("organizationContext")
+    return c.json(await buildProviderSeedPreview(organizationContext))
+    },
+  )
+
+  app.post(
+    "/v1/workers/:id/background-jobs",
+    describeRoute({
+      tags: ["Workers"],
+      summary: "Start cloud worker background job",
+      description: "Starts a background OpenCode session on a cloud worker and returns immediately with the worker session id. This route is intentionally MCP-visible so OpenWork Cloud MCP clients can trigger cloud work without opening the desktop UI.",
+      responses: {
+        202: jsonResponse("Background job accepted by the worker.", workerBackgroundJobResponseSchema),
+        400: jsonResponse("The background job request was invalid.", invalidRequestSchema),
+        401: jsonResponse("The caller must be signed in to start worker background jobs.", unauthorizedSchema),
+        404: jsonResponse("The worker could not be found.", notFoundSchema),
+        409: jsonResponse("The worker runtime is not ready for background jobs.", workerRuntimeUnavailableSchema),
+      },
+    }),
+    requireUserMiddleware,
+    resolveUserOrganizationsMiddleware,
+    paramValidator(workerIdParamSchema),
+    jsonValidator(workerBackgroundJobCreateSchema),
+    async (c) => {
+    const orgId = c.get("activeOrganizationId")
+    const params = c.req.valid("param")
+    const input = c.req.valid("json")
+
+    if (!orgId) {
+      return c.json({ error: "worker_not_found" }, 404)
+    }
+
+    let workerId
+    try {
+      workerId = parseWorkerIdParam(params.id)
+    } catch {
+      return c.json({ error: "worker_not_found" }, 404)
+    }
+
+    const worker = await getWorkerByIdForOrg(workerId, orgId)
+    if (!worker || worker.destination !== "cloud") {
+      return c.json({ error: "worker_not_found" }, 404)
+    }
+
+    const access = await getWorkerTokensAndConnect(worker)
+    if ("error" in access && access.error) {
+      return c.json(access.error.body, 409)
+    }
+
+    if (!access.connect?.openworkUrl || !access.connect.workspaceId) {
+      return c.json({
+        error: "worker_runtime_unavailable",
+        message: "Worker runtime access is not ready yet. Wait for provisioning to finish and try again.",
+      }, 409)
+    }
+
+    let job
+    try {
+      job = await startWorkerBackgroundJob({
+        openworkUrl: access.connect.openworkUrl,
+        clientToken: access.tokens.client,
+        prompt: input.prompt,
+        title: input.title,
+        model: input.model,
+        agent: input.agent,
+        variant: input.variant,
+      })
+    } catch (error) {
+      return c.json({
+        error: "worker_runtime_unavailable",
+        message: error instanceof Error ? error.message : "Worker did not accept the background job.",
+      }, 409)
+    }
+
+    return c.json({
+      job: {
+        id: job.jobId,
+        status: job.status,
+        workerId: worker.id,
+        sessionId: job.sessionId,
+        openworkUrl: job.openworkUrl,
+      },
+    }, 202)
     },
   )
 

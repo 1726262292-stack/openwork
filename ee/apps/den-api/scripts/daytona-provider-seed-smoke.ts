@@ -3,6 +3,8 @@ import {
   buildDaytonaProviderSeed,
   buildDaytonaProviderSeedScript,
   buildShellEnvAssignments,
+  daytonaProviderSeedConfigPath,
+  daytonaProviderSeedManifestPath,
   shellQuote,
 } from "../src/workers/daytona-provider-seed.js"
 
@@ -89,18 +91,28 @@ async function main() {
       },
     ])
 
-    const configPath = "/tmp/openwork-daytona-provider-seed/opencode.jsonc"
+    const workspacePath = "/tmp/openwork-daytona-provider-seed"
+    const configPath = daytonaProviderSeedConfigPath(workspacePath)
+    const manifestPath = daytonaProviderSeedManifestPath(workspacePath)
     const validateConfigScript = [
       'const fs = require("node:fs")',
       'const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))',
       'if (!config.provider || !config.provider.openwork) throw new Error("openwork_provider_missing")',
       `if (JSON.stringify(config).includes(${JSON.stringify(smokeKey)})) throw new Error("api_key_written_to_config")`,
     ].join("; ")
+    const validateManifestScript = [
+      'const fs = require("node:fs")',
+      'const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))',
+      'if (!manifest.providerIds.includes("openwork")) throw new Error("openwork_manifest_missing")',
+      'if (!manifest.envNames.includes("OPENWORK_API_KEY")) throw new Error("openwork_manifest_env_missing")',
+      `if (JSON.stringify(manifest).includes(${JSON.stringify(smokeKey)})) throw new Error("api_key_written_to_manifest")`,
+    ].join("; ")
     const validateEnvScript = `if (process.env.OPENWORK_API_KEY !== ${JSON.stringify(smokeKey)}) throw new Error("openwork_api_key_env_missing")`
     const commandScript = [
       "set -eu",
-      buildDaytonaProviderSeedScript({ configPath, seed }),
+      buildDaytonaProviderSeedScript({ configPath, manifestPath, seed }),
       `node -e ${shellQuote(validateConfigScript)} ${shellQuote(configPath)}`,
+      `node -e ${shellQuote(validateManifestScript)} ${shellQuote(manifestPath)}`,
       `${buildShellEnvAssignments(seed?.env ?? {})} node -e ${shellQuote(validateEnvScript)}`,
       "command -v opencode >/dev/null 2>&1 || { echo 'opencode missing; set DAYTONA_SNAPSHOT to the OpenWork runtime snapshot' >&2; exit 2; }",
       "opencode --version",
