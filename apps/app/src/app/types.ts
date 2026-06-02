@@ -24,6 +24,7 @@ export type SidebarSessionItem = {
   time?: {
     updated?: number | null;
     created?: number | null;
+    archived?: number | null;
   };
   directory?: string | null;
 };
