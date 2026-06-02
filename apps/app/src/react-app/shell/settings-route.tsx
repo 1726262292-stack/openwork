@@ -2287,6 +2287,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               }
               return { migrated: result.migrated, keys: result.keys };
             }}
+            getRuntimeConfigStatus={async () => {
+              if (!openworkClient || !selectedWorkspaceId) {
+                throw new Error("Select a workspace to inspect runtime config.");
+              }
+              return openworkClient.getRuntimeConfigStatus(selectedWorkspaceId);
+            }}
           />
         );
       case "appearance":

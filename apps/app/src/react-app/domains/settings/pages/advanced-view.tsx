@@ -1,10 +1,10 @@
 /** @jsxImportSource react */
-import { useReducer } from "react";
+import { useEffect, useReducer, useState } from "react";
 
 import { Separator } from "@/components/ui/separator";
 
 import type { OpencodeConnectStatus } from "@/app/types";
-import type { OpenworkServerStatus } from "@/app/lib/openwork-server";
+import type { OpenworkRuntimeConfigStatus, OpenworkServerStatus } from "@/app/lib/openwork-server";
 import { t } from "@/i18n";
 import { LayoutStack } from "../settings-layout";
 
@@ -26,6 +26,7 @@ export type AdvancedViewProps = {
   openDebugDeepLink: (rawUrl: string) => Promise<{ ok: boolean; message: string }>;
   canMigrateRuntimeConfig: boolean;
   migrateRuntimeConfig: () => Promise<{ migrated: boolean; keys: string[] }>;
+  getRuntimeConfigStatus: () => Promise<OpenworkRuntimeConfigStatus>;
 };
 
 type AdvancedStatusTone = "ready" | "warning" | "error" | "neutral";
@@ -35,6 +36,9 @@ export function AdvancedView(props: AdvancedViewProps) {
     advancedLocalReducer,
     initialAdvancedLocalState,
   );
+  const [configStatus, setConfigStatus] = useState<OpenworkRuntimeConfigStatus | null>(null);
+  const [configStatusBusy, setConfigStatusBusy] = useState(false);
+  const [configStatusError, setConfigStatusError] = useState<string | null>(null);
   const {
     deepLinkOpen: debugDeepLinkOpen,
     deepLinkInput: debugDeepLinkInput,
@@ -101,11 +105,32 @@ export function AdvancedView(props: AdvancedViewProps) {
     }
   };
 
+  const refreshRuntimeConfigStatus = async () => {
+    if (!props.canMigrateRuntimeConfig) {
+      setConfigStatus(null);
+      return;
+    }
+    setConfigStatusBusy(true);
+    setConfigStatusError(null);
+    try {
+      setConfigStatus(await props.getRuntimeConfigStatus());
+    } catch (error) {
+      setConfigStatusError(error instanceof Error ? error.message : "Failed to load runtime config status.");
+    } finally {
+      setConfigStatusBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshRuntimeConfigStatus();
+  }, [props.canMigrateRuntimeConfig]);
+
   const migrateRuntimeConfig = async () => {
     if (props.busy || migrationBusy || !props.canMigrateRuntimeConfig) return;
     dispatchLocal({ type: "migrationStart" });
     try {
       const result = await props.migrateRuntimeConfig();
+      await refreshRuntimeConfigStatus();
       dispatchLocal({
         type: "migrationStatus",
         status: result.migrated
@@ -136,6 +161,10 @@ export function AdvancedView(props: AdvancedViewProps) {
         canMigrate={props.canMigrateRuntimeConfig}
         migrationBusy={migrationBusy}
         migrationStatus={migrationStatus}
+        configStatus={configStatus}
+        configStatusBusy={configStatusBusy}
+        configStatusError={configStatusError}
+        onRefresh={refreshRuntimeConfigStatus}
         onMigrate={migrateRuntimeConfig}
       />
 

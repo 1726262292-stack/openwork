@@ -153,6 +153,16 @@ describe("runtime OpenCode config store", () => {
         expect(openwork.mcp).toBeUndefined();
         expect(openwork.permission).toBeUndefined();
         expect(openwork.provider).toBeUndefined();
+
+        const statusResponse = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/runtime-config`, {
+          headers: { authorization: `Bearer ${config.token}` },
+        });
+        expect(statusResponse.status).toBe(200);
+        expect(await statusResponse.json()).toMatchObject({
+          runtimeKeys: ["plugin", "mcp", "permission", "provider"],
+          legacyOpenwork: { keys: [] },
+          userOpencode: { exists: false, keys: [] },
+        });
       } finally {
         await server.stop(true);
       }

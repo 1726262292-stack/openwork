@@ -105,7 +105,20 @@ interface AdvancedRuntimeMigrationSectionProps {
   canMigrate: boolean;
   migrationBusy: boolean;
   migrationStatus: string | null;
+  configStatus: {
+    runtime: Record<string, unknown>;
+    runtimeKeys: string[];
+    legacyOpenwork: { path: string; keys: string[] };
+    userOpencode: { path: string; exists: boolean; keys: string[] };
+  } | null;
+  configStatusBusy: boolean;
+  configStatusError: string | null;
+  onRefresh: () => Promise<void>;
   onMigrate: () => Promise<void>;
+}
+
+function formatKeys(keys: string[]) {
+  return keys.length ? keys.join(", ") : "none";
 }
 
 export function AdvancedRuntimeMigrationSection(props: AdvancedRuntimeMigrationSectionProps) {
@@ -114,7 +127,7 @@ export function AdvancedRuntimeMigrationSection(props: AdvancedRuntimeMigrationS
       <LayoutSectionHeader>
         <LayoutSectionTitle>Legacy runtime config</LayoutSectionTitle>
         <LayoutSectionDescription>
-          Move OpenWork-managed MCPs, plugins, providers, and permissions from older workspace metadata into the runtime database.
+          Move only older OpenWork-owned runtime config from `.opencode/openwork.json` into the runtime database. User `opencode.jsonc` is shown below but is not migrated by this action.
         </LayoutSectionDescription>
       </LayoutSectionHeader>
 
@@ -129,6 +142,16 @@ export function AdvancedRuntimeMigrationSection(props: AdvancedRuntimeMigrationS
               type="button"
               variant="outline"
               size="sm"
+              onClick={() => void props.onRefresh()}
+              disabled={props.busy || props.configStatusBusy || !props.canMigrate}
+            >
+              <RefreshCcw size={14} className={props.configStatusBusy ? "animate-spin" : ""} />
+              Refresh
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
               onClick={() => void props.onMigrate()}
               disabled={props.busy || props.migrationBusy || !props.canMigrate}
             >
@@ -138,6 +161,32 @@ export function AdvancedRuntimeMigrationSection(props: AdvancedRuntimeMigrationS
           </LayoutSectionItemHeaderActions>
         </LayoutSectionItemHeader>
         {props.migrationStatus ? <SettingsNotice>{props.migrationStatus}</SettingsNotice> : null}
+        {props.configStatusError ? <SettingsNotice>{props.configStatusError}</SettingsNotice> : null}
+        {props.configStatus ? (
+          <div className="space-y-3 rounded-xl border border-gray-6 bg-gray-1/60 p-3 text-xs text-gray-10">
+            <div>
+              <div className="font-medium text-gray-12">Runtime database</div>
+              <div>Stored keys: {formatKeys(props.configStatus.runtimeKeys)}</div>
+            </div>
+            <div>
+              <div className="font-medium text-gray-12">Legacy OpenWork metadata</div>
+              <div className="break-all">{props.configStatus.legacyOpenwork.path}</div>
+              <div>Migratable keys: {formatKeys(props.configStatus.legacyOpenwork.keys)}</div>
+            </div>
+            <div>
+              <div className="font-medium text-gray-12">User opencode.jsonc</div>
+              <div className="break-all">{props.configStatus.userOpencode.path}</div>
+              <div>{props.configStatus.userOpencode.exists ? "Found" : "Not found"}</div>
+              <div>User-owned keys: {formatKeys(props.configStatus.userOpencode.keys)}</div>
+            </div>
+            <div>
+              <div className="font-medium text-gray-12">Runtime DB JSON</div>
+              <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-gray-3 p-2 font-mono text-[11px] text-gray-11">
+                {JSON.stringify(props.configStatus.runtime, null, 2)}
+              </pre>
+            </div>
+          </div>
+        ) : null}
       </LayoutSectionItem>
     </LayoutSection>
   );

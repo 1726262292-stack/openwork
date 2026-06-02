@@ -194,6 +194,20 @@ export type OpenworkRuntimeConfigMigrationResult = {
   updatedAt: number | null;
 };
 
+export type OpenworkRuntimeConfigStatus = {
+  runtime: Record<string, unknown>;
+  runtimeKeys: string[];
+  legacyOpenwork: {
+    path: string;
+    keys: string[];
+  };
+  userOpencode: {
+    path: string;
+    exists: boolean;
+    keys: string[];
+  };
+};
+
 export type OpenworkDesktopCloudSyncChange = {
   id: string;
   kind: "new" | "modified" | "removed";
@@ -1162,6 +1176,12 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
           method: "POST",
           timeoutMs: timeouts.config,
         },
+      ),
+    getRuntimeConfigStatus: (workspaceId: string) =>
+      requestJson<OpenworkRuntimeConfigStatus>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/runtime-config`,
+        { token, hostToken, timeoutMs: timeouts.config },
       ),
     patchConfig: (workspaceId: string, payload: { opencode?: Record<string, unknown>; openwork?: Record<string, unknown> }) =>
       requestJson<{ updatedAt?: number | null }>(baseUrl, `/workspace/${workspaceId}/config`, {

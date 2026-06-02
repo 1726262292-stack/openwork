@@ -172,6 +172,22 @@ function removeLegacyRuntimeConfig(openwork: Record<string, unknown>): Record<st
   return next;
 }
 
+function runtimeConfigKeys(config: RuntimeOpencodeConfig): LegacyRuntimeConfigKey[] {
+  const keys: LegacyRuntimeConfigKey[] = [];
+  if (Array.isArray(config.plugin) && config.plugin.length) keys.push("plugin");
+  if (isRecord(config.mcp) && Object.keys(config.mcp).length) keys.push("mcp");
+  const permission = isRecord(config.permission) ? config.permission : null;
+  if (permission && isRecord(permission.external_directory) && Object.keys(permission.external_directory).length) {
+    keys.push("permission");
+  }
+  if (isRecord(config.provider) && Object.keys(config.provider).length) keys.push("provider");
+  return keys;
+}
+
+function userOpencodeConfigKeys(config: Record<string, unknown>): string[] {
+  return Object.keys(config).filter((key) => key !== "$schema").sort();
+}
+
 function mergeLegacyRuntimeConfig(
   current: RuntimeOpencodeConfig,
   legacy: RuntimeOpencodeConfig,
@@ -2577,6 +2593,29 @@ function createRoutes(
     emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
 
     return jsonResponse({ migrated: true, keys: legacy.keys, updatedAt });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/runtime-config", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const runtime = await readRuntimeOpencodeConfig(config, workspace.id);
+    const openwork = await readOpenworkConfig(workspace.path);
+    const legacy = legacyRuntimeConfigFromOpenworkConfig(openwork);
+    const rawOpencode = await readRawOpencodeConfig(opencodeConfigPath(workspace.path));
+    const persistedOpencode = await readOpencodeConfig(workspace.path);
+
+    return jsonResponse({
+      runtime,
+      runtimeKeys: runtimeConfigKeys(runtime),
+      legacyOpenwork: {
+        path: openworkConfigPath(workspace.path),
+        keys: legacy.keys,
+      },
+      userOpencode: {
+        path: opencodeConfigPath(workspace.path),
+        exists: rawOpencode.exists,
+        keys: userOpencodeConfigKeys(persistedOpencode),
+      },
+    });
   });
 
   addRoute(routes, "GET", "/workspace/:id/opencode-config", "client", async (ctx) => {
