@@ -37,6 +37,26 @@ describe("first-line local file parts", () => {
 
     expect(parts).toEqual([]);
   });
+
+  test("detects Windows absolute paths in the first line", () => {
+    expect(firstLineLocalFileParts("check C:\\Users\\omar\\list.csv", "C:/Users/omar/code/openwork")).toEqual([
+      {
+        type: "file",
+        mime: "text/plain",
+        url: "file:///C:/Users/omar/list.csv",
+        filename: "list.csv",
+      },
+    ]);
+
+    expect(firstLineLocalFileParts("check C:/Users/omar/list.csv", "C:/Users/omar/code/openwork")).toEqual([
+      {
+        type: "file",
+        mime: "text/plain",
+        url: "file:///C:/Users/omar/list.csv",
+        filename: "list.csv",
+      },
+    ]);
+  });
 });
 
 describe("slash-command parsing", () => {
