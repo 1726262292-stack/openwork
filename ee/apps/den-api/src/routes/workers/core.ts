@@ -5,9 +5,10 @@ import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { db } from "../../db.js"
-import { jsonValidator, paramValidator, queryValidator, requireUserMiddleware, resolveUserOrganizationsMiddleware } from "../../middleware/index.js"
+import { jsonValidator, paramValidator, queryValidator, requireUserMiddleware, resolveOrganizationContextMiddleware, resolveUserOrganizationsMiddleware } from "../../middleware/index.js"
 import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { getOrganizationLimitStatus } from "../../organization-limits.js"
+import type { OrganizationContext } from "../../orgs.js"
 import { getRequiredUserEmail } from "../../user.js"
 import type { WorkerRouteVariables } from "./shared.js"
 import {
@@ -186,11 +187,12 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
       },
     }),
     requireUserMiddleware,
-    resolveUserOrganizationsMiddleware,
+    resolveOrganizationContextMiddleware,
     jsonValidator(createWorkerSchema),
     async (c) => {
     const user = c.get("user")
     const orgId = c.get("activeOrganizationId")
+    const organizationContext: OrganizationContext = c.get("organizationContext")
     const input = c.req.valid("json")
 
     if (!orgId) {
@@ -273,12 +275,19 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
     ])
 
     if (input.destination === "cloud") {
+      const memberTeamIds = organizationContext.teams
+        .filter((team) => team.memberIds.includes(organizationContext.currentMember.id))
+        .map((team) => team.id)
+
       void continueCloudProvisioning({
         workerId,
         name: input.name,
         hostToken,
         clientToken,
         activityToken,
+        organizationId: organizationContext.organization.id,
+        memberId: organizationContext.currentMember.id,
+        memberTeamIds,
       })
     }
 

@@ -4,6 +4,7 @@ import {
   deprovisionWorkerOnDaytona,
   provisionWorkerOnDaytona,
 } from "./daytona.js"
+import type { DaytonaProviderSeedMembership } from "./daytona-provider-seed-loader.js"
 import {
   customDomainForWorker,
   ensureVercelDnsRecord,
@@ -17,6 +18,9 @@ export type ProvisionInput = {
   hostToken: string
   clientToken: string
   activityToken: string
+  organizationId?: DaytonaProviderSeedMembership["organizationId"]
+  memberId?: DaytonaProviderSeedMembership["memberId"]
+  memberTeamIds?: DaytonaProviderSeedMembership["teamIds"]
 }
 
 export type ProvisionedInstance = {

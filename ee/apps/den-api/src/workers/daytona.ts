@@ -4,6 +4,8 @@ import { DaytonaSandboxTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { db } from "../db.js"
 import { env } from "../env.js"
+import { buildDaytonaProviderSeedScript, buildShellEnvAssignments, shellQuote, type DaytonaProviderSeed } from "./daytona-provider-seed.js"
+import { loadMemberDaytonaProviderSeed, type DaytonaProviderSeedMembership } from "./daytona-provider-seed-loader.js"
 
 type WorkerId = typeof DaytonaSandboxTable.$inferSelect.worker_id
 
@@ -13,6 +15,9 @@ type ProvisionInput = {
   hostToken: string
   clientToken: string
   activityToken: string
+  organizationId?: DaytonaProviderSeedMembership["organizationId"]
+  memberId?: DaytonaProviderSeedMembership["memberId"]
+  memberTeamIds?: DaytonaProviderSeedMembership["teamIds"]
 }
 
 type ProvisionedInstance = {
@@ -37,10 +42,6 @@ const slug = (value: string) =>
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
-
-function shellQuote(value: string) {
-  return `'${value.replace(/'/g, `'"'"'`)}'`
-}
 
 function createDaytonaClient() {
   return new Daytona({
@@ -192,11 +193,12 @@ function sharedVolumeMounts(workerId: WorkerId, volumeId: string) {
   ]
 }
 
-function buildOpenWorkStartCommand(input: ProvisionInput) {
+function buildOpenWorkStartCommand(input: ProvisionInput, providerSeed: DaytonaProviderSeed | null) {
   const verifyRuntimeStep = [
     "if ! command -v openwork >/dev/null 2>&1; then echo 'openwork binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
     "if ! command -v opencode >/dev/null 2>&1; then echo 'opencode binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
   ].join("; ")
+  const providerEnvAssignments = buildShellEnvAssignments(providerSeed?.env ?? {})
   const openworkServe = [
     "OPENWORK_DATA_DIR=",
     shellQuote(env.daytona.runtimeDataPath),
@@ -216,6 +218,7 @@ function buildOpenWorkStartCommand(input: ProvisionInput) {
     shellQuote(workerActivityHeartbeatUrl(input.workerId)),
     " DEN_ACTIVITY_HEARTBEAT_TOKEN=",
     shellQuote(input.activityToken),
+    providerEnvAssignments,
     " openwork serve",
     ` --workspace ${shellQuote(env.daytona.runtimeWorkspacePath)}`,
     ` --remote-access`,
@@ -237,6 +240,7 @@ set -u
 mkdir -p ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(env.daytona.runtimeWorkspacePath)} ${shellQuote(env.daytona.runtimeDataPath)} ${shellQuote(env.daytona.sidecarDir)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes`)}
 ln -sfn ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/workspace`) }
 ln -sfn ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/data`) }
+${buildDaytonaProviderSeedScript({ configPath: `${env.daytona.runtimeWorkspacePath}/opencode.jsonc`, seed: providerSeed })}
 ${verifyRuntimeStep}
 attempt=0
 while [ "$attempt" -lt 3 ]; do
@@ -444,6 +448,18 @@ async function upsertDaytonaSandbox(input: {
   })
 }
 
+async function resolveProviderSeed(input: ProvisionInput) {
+  if (!input.organizationId || !input.memberId) {
+    return null
+  }
+
+  return loadMemberDaytonaProviderSeed({
+    organizationId: input.organizationId,
+    memberId: input.memberId,
+    teamIds: input.memberTeamIds ?? [],
+  })
+}
+
 export async function getDaytonaSandboxRecord(workerId: WorkerId) {
   const rows = await db
     .select()
@@ -515,6 +531,7 @@ export async function provisionWorkerOnDaytona(
     sharedVolumeNameValue,
     env.daytona.createTimeoutSeconds * 1000,
   )
+  const providerSeed = await resolveProviderSeed(input)
   let sandbox: Awaited<ReturnType<typeof daytona.create>> | null = null
 
   try {
@@ -564,7 +581,7 @@ export async function provisionWorkerOnDaytona(
     const command = await sandbox.process.executeSessionCommand(
       sessionId,
       {
-        command: buildOpenWorkStartCommand(input),
+        command: buildOpenWorkStartCommand(input, providerSeed),
         runAsync: true,
       },
       0,
