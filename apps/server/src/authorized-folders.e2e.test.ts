@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
+import { readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 
 type Served = {
   port: number;
@@ -52,6 +53,7 @@ async function startOpenworkServer(workspaceRoot: string, options?: { readOnly?:
   const config: ServerConfig = {
     host: "127.0.0.1",
     port: 0,
+    configPath: join(workspaceRoot, "server.json"),
     token: CLIENT_TOKEN,
     hostToken: HOST_TOKEN,
     approval: { mode: "auto", timeoutMs: 1000 },
@@ -67,7 +69,7 @@ async function startOpenworkServer(workspaceRoot: string, options?: { readOnly?:
   };
   const server = await startServer(config) as Served;
   stops.push(() => server.stop(true));
-  return { base: `http://127.0.0.1:${server.port}` };
+  return { base: `http://127.0.0.1:${server.port}`, config };
 }
 
 function readExternalDirectory(raw: string): Record<string, unknown> {
@@ -114,7 +116,7 @@ describe("authorized folders routes", () => {
         },
       },
     }, null, 2) + "\n", "utf8");
-    const { base } = await startOpenworkServer(root);
+    const { base, config } = await startOpenworkServer(root);
 
     const response = await fetch(`${base}/workspace/ws_1/authorized-folders`, { headers: clientAuth() });
     expect(response.status).toBe(200);
@@ -140,7 +142,7 @@ describe("authorized folders routes", () => {
         },
       },
     }, null, 2) + "\n", "utf8");
-    const { base } = await startOpenworkServer(root);
+    const { base, config } = await startOpenworkServer(root);
 
     const response = await fetch(`${base}/workspace/ws_1/authorized-folders`, {
       method: "PUT",
@@ -154,10 +156,8 @@ describe("authorized folders routes", () => {
     expect(typeof body.updatedAt).toBe("number");
 
     expect(readExternalDirectory(await readFile(configPath, "utf8"))["/shared/*"]).toBeUndefined();
-    const openwork = JSON.parse(await readFile(join(root, ".opencode", "openwork.json"), "utf8")) as {
-      opencode?: { permission?: { external_directory?: Record<string, unknown> } };
-    };
-    const externalDirectory = openwork.opencode?.permission?.external_directory ?? {};
+    const runtimeConfig = await readRuntimeOpencodeConfig(config, "ws_1");
+    const externalDirectory = runtimeConfig.permission?.external_directory ?? {};
     expect(externalDirectory["/hidden"]).toBe("allow");
     expect(externalDirectory["/denied/*"]).toBe("deny");
     expect(externalDirectory["/shared/*"]).toBe("allow");

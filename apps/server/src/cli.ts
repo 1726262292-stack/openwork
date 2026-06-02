@@ -35,7 +35,7 @@ if (!config.readOnly) {
 if (!config.opencodeBaseUrl && process.env.OPENWORK_MANAGE_OPENCODE === "1") {
   const workspace = config.workspaces[0];
   if (workspace?.path) {
-    const openworkRuntimeConfig = await buildOpenworkRuntimeConfig(workspace.path);
+    const openworkRuntimeConfig = await buildOpenworkRuntimeConfig(config, workspace.id);
     const managedOpencodeCwd = process.env.OPENWORK_MANAGED_OPENCODE_CWD?.trim() || workspace.path;
     await mkdir(managedOpencodeCwd, { recursive: true });
     managedOpencode = await createManagedOpencodeServer({

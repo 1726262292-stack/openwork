@@ -68,11 +68,9 @@ import {
 import { callExperimentalExtensionAction, listExperimentalExtensionActions } from "./extensions/index.js";
 import {
   mergeOpencodeConfigs,
-  readLogicalOpencodeConfig,
-  readOpenworkConfigFile,
-  readWorkspaceLogicalOpencodeConfig,
-  writeWorkspaceLogicalOpencodeConfig,
-} from "./openwork-logical-config.js";
+  readRuntimeOpencodeConfig,
+  writeRuntimeOpencodeConfig,
+} from "./runtime-opencode-config-store.js";
 import pkg from "../package.json" with { type: "json" };
 import constants from "../../../constants.json" with { type: "json" };
 
@@ -2358,7 +2356,10 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const openwork = await readOpenworkConfig(workspace.path);
-    const opencode = mergeOpencodeConfigs(await readOpencodeConfig(workspace.path), readLogicalOpencodeConfig(openwork));
+    const opencode = mergeOpencodeConfigs(
+      await readOpencodeConfig(workspace.path),
+      await readRuntimeOpencodeConfig(config, workspace.id),
+    );
     const lastAudit = await readLastAudit(workspace.path, workspace.id);
     return jsonResponse({ opencode, openwork, updatedAt: lastAudit?.timestamp ?? null });
   });
@@ -2401,7 +2402,7 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const opencode = mergeOpencodeConfigs(
       await readOpencodeConfig(workspace.path),
-      await readWorkspaceLogicalOpencodeConfig(workspace.path),
+      await readRuntimeOpencodeConfig(config, workspace.id),
     );
     const foldersConfig = readAuthorizedFoldersFromOpencodeConfig(opencode, workspace.path);
     return jsonResponse(buildAuthorizedFoldersResponse(workspace, foldersConfig));
@@ -2423,15 +2424,15 @@ function createRoutes(
     });
 
     const persistedOpencode = await readOpencodeConfig(workspace.path);
-    const logicalOpencode = await readWorkspaceLogicalOpencodeConfig(workspace.path);
-    const existingOpencode = mergeOpencodeConfigs(persistedOpencode, logicalOpencode);
+    const runtimeOpencode = await readRuntimeOpencodeConfig(config, workspace.id);
+    const existingOpencode = mergeOpencodeConfigs(persistedOpencode, runtimeOpencode);
     const existingFoldersConfig = readAuthorizedFoldersFromOpencodeConfig(existingOpencode, workspace.path);
     const nextExternalDirectory = mergeAuthorizedFoldersIntoExternalDirectory(
       folders,
       existingFoldersConfig.hiddenEntries,
     );
 
-    await writeWorkspaceLogicalOpencodeConfig(workspace.path, (current) => ({
+    await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ({
       ...current,
       permission: {
         ...(ensurePlainObject(current.permission)),
@@ -2619,17 +2620,17 @@ function createRoutes(
 
       const providerUpdate = ensurePlainObject(provider);
       if (Object.keys(providerUpdate).length) {
-        const currentLogical = await readWorkspaceLogicalOpencodeConfig(workspace.path);
+        const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
         logicalUpdates.provider = {
-          ...(ensurePlainObject(currentLogical.provider)),
+          ...(ensurePlainObject(currentRuntime.provider)),
           ...providerUpdate,
         };
       }
 
       const permissionUpdate = ensurePlainObject(permission);
       if (Object.prototype.hasOwnProperty.call(permissionUpdate, "external_directory")) {
-        const existingLogical = await readWorkspaceLogicalOpencodeConfig(workspace.path);
-        const existingPermission = ensurePlainObject(existingLogical.permission);
+        const existingRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
+        const existingPermission = ensurePlainObject(existingRuntime.permission);
         const nextExternalDirectory = permissionUpdate.external_directory;
         const existingPermissionKeys = Object.keys(existingPermission);
         const removePermissionParent =
@@ -2648,7 +2649,7 @@ function createRoutes(
       }
 
       if (Object.keys(logicalUpdates).length || Object.prototype.hasOwnProperty.call(logicalUpdates, "permission")) {
-        await writeWorkspaceLogicalOpencodeConfig(workspace.path, (current) => ({
+        await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ({
           ...current,
           ...logicalUpdates,
         }));
@@ -3391,7 +3392,7 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/plugins", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
-    const result = await listPlugins(workspace.path, includeGlobal);
+    const result = await listPlugins(config, workspace.id, workspace.path, includeGlobal);
     return jsonResponse(result);
   });
 
@@ -3408,7 +3409,7 @@ function createRoutes(
       summary: `Add plugin ${spec}`,
       paths: [openworkConfigPath(workspace.path)],
     });
-    const changed = await addPlugin(workspace.path, spec);
+    const changed = await addPlugin(config, workspace.id, spec);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -3425,7 +3426,7 @@ function createRoutes(
         action: "added",
       });
     }
-    const result = await listPlugins(workspace.path, false);
+    const result = await listPlugins(config, workspace.id, workspace.path, false);
     return jsonResponse(result);
   });
 
@@ -3441,7 +3442,7 @@ function createRoutes(
       summary: `Remove plugin ${name}`,
       paths: [openworkConfigPath(workspace.path)],
     });
-    const removed = await removePlugin(workspace.path, name);
+    const removed = await removePlugin(config, workspace.id, name);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -3458,7 +3459,7 @@ function createRoutes(
         action: "removed",
       });
     }
-    const result = await listPlugins(workspace.path, false);
+    const result = await listPlugins(config, workspace.id, workspace.path, false);
     return jsonResponse(result);
   });
 
@@ -3611,7 +3612,7 @@ function createRoutes(
 
   addRoute(routes, "GET", "/workspace/:id/mcp", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const items = await listMcp(workspace.path);
+    const items = await listMcp(config, workspace.id, workspace.path);
     return jsonResponse({ items });
   });
 
@@ -3631,7 +3632,7 @@ function createRoutes(
       summary: `Add MCP ${name}`,
       paths: [openworkConfigPath(workspace.path)],
     });
-    const result = await addMcp(workspace.path, name, configPayload);
+    const result = await addMcp(config, workspace.id, name, configPayload);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -3646,7 +3647,7 @@ function createRoutes(
       name,
       action: result.action,
     });
-    const items = await listMcp(workspace.path);
+    const items = await listMcp(config, workspace.id, workspace.path);
     return jsonResponse({ items });
   });
 
@@ -3661,7 +3662,7 @@ function createRoutes(
       summary: `Remove MCP ${name}`,
       paths: [openworkConfigPath(workspace.path)],
     });
-    const removed = await removeMcp(workspace.path, name);
+    const removed = await removeMcp(config, workspace.id, name);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -3678,7 +3679,7 @@ function createRoutes(
         action: "removed",
       });
     }
-    const items = await listMcp(workspace.path);
+    const items = await listMcp(config, workspace.id, workspace.path);
     return jsonResponse({ items });
   });
 
@@ -3702,7 +3703,7 @@ function createRoutes(
       summary,
       paths: [openworkConfigPath(workspace.path)],
     });
-    const updated = await setMcpEnabled(workspace.path, name, enabled);
+    const updated = await setMcpEnabled(config, workspace.id, name, enabled);
     if (!updated) {
       throw new ApiError(404, "mcp_not_found", `MCP ${name} not found in workspace config`);
     }
@@ -3721,7 +3722,7 @@ function createRoutes(
       name,
       action: "updated",
     });
-    const items = await listMcp(workspace.path);
+    const items = await listMcp(config, workspace.id, workspace.path);
     return jsonResponse({ items });
   });
 
@@ -4355,8 +4356,11 @@ async function readOpencodeConfig(workspaceRoot: string): Promise<Record<string,
 }
 
 async function readOpenworkConfig(workspaceRoot: string): Promise<Record<string, unknown>> {
+  const path = openworkConfigPath(workspaceRoot);
+  if (!(await exists(path))) return {};
   try {
-    return await readOpenworkConfigFile(workspaceRoot);
+    const raw = await readFile(path, "utf8");
+    return JSON.parse(raw) as Record<string, unknown>;
   } catch {
     throw new ApiError(422, "invalid_json", "Failed to parse openwork.json");
   }

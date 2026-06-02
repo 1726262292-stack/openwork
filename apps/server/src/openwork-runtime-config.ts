@@ -6,7 +6,8 @@
  * than written to disk. Both cli.ts and embedded.ts use this.
  */
 import { openworkExtensionsPreviewPluginPath, openworkCapabilitiesKnowledgePluginPath } from "./openwork-extensions-plugin-path.js";
-import { logicalMcpMap, logicalPluginList, readWorkspaceLogicalOpencodeConfig } from "./openwork-logical-config.js";
+import type { ServerConfig } from "./types.js";
+import { readRuntimeOpencodeConfig, runtimeMcpMap, runtimePluginList } from "./runtime-opencode-config-store.js";
 
 const OPENWORK_AGENT_PROMPT = `You are OpenWork.
 
@@ -42,10 +43,10 @@ OpenWork can preview, edit, and download standard artifacts when you create or u
 - For websites or React/UI previews, start the dev server when useful and mention the http://localhost:<port> URL.
 - For spreadsheets, use .csv for simple tabular data and .xlsx when the user asks for Excel/XLS specifically.`;
 
-export async function buildOpenworkRuntimeConfig(workspaceRoot?: string): Promise<string> {
-  const logicalConfig = workspaceRoot ? await readWorkspaceLogicalOpencodeConfig(workspaceRoot) : {};
+export async function buildOpenworkRuntimeConfig(config?: ServerConfig, workspaceId?: string): Promise<string> {
+  const runtimeConfig = config && workspaceId ? await readRuntimeOpencodeConfig(config, workspaceId) : {};
   return JSON.stringify({
-    ...logicalConfig,
+    ...runtimeConfig,
     default_agent: "openwork",
     agent: {
       openwork: {
@@ -59,8 +60,8 @@ export async function buildOpenworkRuntimeConfig(workspaceRoot?: string): Promis
       "opencode-chrome-devtools",
       openworkExtensionsPreviewPluginPath(),
       openworkCapabilitiesKnowledgePluginPath(),
-      ...logicalPluginList(logicalConfig),
+      ...runtimePluginList(runtimeConfig),
     ],
-    mcp: logicalMcpMap(logicalConfig),
+    mcp: runtimeMcpMap(runtimeConfig),
   });
 }
