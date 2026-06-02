@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
-import { CalendarDays, CheckCircle2, FileText, Loader2, MailPlus, ShieldCheck, XCircle } from "lucide-react";
+import { CalendarDays, CalendarPlus, CheckCircle2, FileText, Loader2, Mail, MailPlus, ShieldCheck, XCircle } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,10 @@ type BusyAction = "status" | "connect" | "disconnect" | "test" | "smoke-test" | 
 type GoogleWorkspaceCommand = () => Promise<unknown>;
 const DESKTOP_ACTION_TIMEOUT_MS = 6 * 60 * 1000;
 const CONNECT_POLL_INTERVAL_MS = 1_000;
+const EXPERIMENTAL_GOOGLE_WORKSPACE_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/calendar.events",
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -53,15 +57,21 @@ function normalizeGoogleWorkspaceAccounts(value: unknown): GoogleWorkspaceAuthSt
 function normalizeGoogleWorkspaceSmokeTest(value: unknown): GoogleWorkspaceAuthStatus["smokeTest"] {
   if (!isRecord(value)) return null;
   return {
+    calendarEventId: typeof value.calendarEventId === "string" ? value.calendarEventId : null,
+    calendarEventDeleted: value.calendarEventDeleted === true,
     driveFileId: typeof value.driveFileId === "string" ? value.driveFileId : null,
     driveFileName: typeof value.driveFileName === "string" ? value.driveFileName : null,
     gmailDraftId: typeof value.gmailDraftId === "string" ? value.gmailDraftId : null,
+    gmailReadResultSizeEstimate: typeof value.gmailReadResultSizeEstimate === "number" ? value.gmailReadResultSizeEstimate : null,
   };
 }
 
 function normalizeGoogleWorkspaceAuthStatus(value: unknown): GoogleWorkspaceAuthStatus {
   const record = isRecord(value) ? value : {};
   const vault = record.vault === "encrypted" || record.vault === "plaintext-dev" ? record.vault : "unavailable";
+  const scopes = normalizeStringList(record.scopes);
+  const experimentalScopes = normalizeStringList(record.experimentalScopes);
+  const resolvedExperimentalScopes = experimentalScopes.length ? experimentalScopes : EXPERIMENTAL_GOOGLE_WORKSPACE_SCOPES;
   return {
     configured: record.configured === true,
     missing: normalizeStringList(record.missing),
@@ -70,7 +80,9 @@ function normalizeGoogleWorkspaceAuthStatus(value: unknown): GoogleWorkspaceAuth
     account: normalizeGoogleWorkspaceAccount(record.account),
     accounts: normalizeGoogleWorkspaceAccounts(record.accounts),
     activeAccountId: typeof record.activeAccountId === "string" ? record.activeAccountId : null,
-    scopes: normalizeStringList(record.scopes),
+    scopes,
+    experimentalScopes: resolvedExperimentalScopes,
+    experimentalScopesGranted: record.experimentalScopesGranted === true || resolvedExperimentalScopes.every((scope) => scopes.includes(scope)),
     connectedAt: typeof record.connectedAt === "string" ? record.connectedAt : null,
     error: typeof record.error === "string" ? record.error : null,
     testStatus: typeof record.testStatus === "string" ? record.testStatus : null,
@@ -99,6 +111,7 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
   const [status, setStatus] = useState<GoogleWorkspaceAuthStatus | null>(null);
   const [busyAction, setBusyAction] = useState<BusyAction | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const serverAvailable = Boolean(openworkServerClient);
   const hostServerAvailable = Boolean(hostOpenworkServerClient);
@@ -158,16 +171,21 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
       setError("Google OAuth settings can only be saved from the local desktop app.");
       return;
     }
-    const value = clientSecret.trim();
-    if (!value) {
+    const secretValue = clientSecret.trim();
+    const clientIdValue = clientId.trim();
+    if (!secretValue) {
       setError("Enter the client secret from your Google OAuth desktop client.");
       return;
     }
     setBusyAction("save-secret");
     setError(null);
     try {
-      await hostOpenworkServerClient.upsertUserEnv([{ key: "GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET", value }]);
+      await hostOpenworkServerClient.upsertUserEnv([
+        ...(clientIdValue ? [{ key: "OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_ID", value: clientIdValue }] : []),
+        { key: "GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET", value: secretValue },
+      ]);
       await hostOpenworkServerClient.setUserEnvPendingChanges(true);
+      setClientId("");
       setClientSecret("");
       if (restartLocalServer) {
         const restarted = await restartLocalServer();
@@ -184,6 +202,9 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
   };
 
   const connectedAccounts = status?.accounts.length ? status.accounts : status?.account ? [status.account] : [];
+  const experimentalScopesGranted = status?.experimentalScopesGranted === true;
+  const needsExperimentalReconnect = status?.connected === true && !experimentalScopesGranted;
+  const connectLabel = needsExperimentalReconnect ? "Reconnect with Google" : status?.connected ? "Add another Google account" : "Connect with Google";
 
   return (
     <div className="space-y-4">
@@ -218,7 +239,17 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
         <Alert variant="warning">
           <XCircle />
           <AlertTitle>Google OAuth client not configured</AlertTitle>
-          <AlertDescription>Add your Google OAuth desktop client secret to connect Google Workspace.</AlertDescription>
+          <AlertDescription>Add your Google OAuth desktop client credentials to connect Google Workspace.</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {needsExperimentalReconnect ? (
+        <Alert variant="warning">
+          <ShieldCheck />
+          <AlertTitle>Reconnect for experimental scopes</AlertTitle>
+          <AlertDescription>
+            Gmail read and Calendar write are experimental, only work with your own Google OAuth credentials for now, and may be removed. Reconnect this account to request the new scopes.
+          </AlertDescription>
         </Alert>
       ) : null}
 
@@ -227,10 +258,16 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
           <CardHeader>
             <CardTitle>Set up Google OAuth</CardTitle>
             <CardDescription>
-              Use a Google Cloud OAuth desktop client. OpenWork already includes the desktop client ID; paste the matching client secret here.
+              Use your own Google Cloud OAuth desktop client for experimental Gmail read and Calendar write. These scopes may be removed.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            <Input
+              value={clientId}
+              onChange={(event) => setClientId(event.target.value)}
+              placeholder="Google OAuth desktop client ID"
+              autoComplete="off"
+            />
             <Input
               type="password"
               value={clientSecret}
@@ -239,7 +276,7 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
               autoComplete="off"
             />
             <p className="text-xs leading-relaxed text-muted-foreground">
-              The secret is saved locally in OpenWork environment settings and applied after the local server restarts.
+              The client ID and secret are saved locally in OpenWork environment settings and applied after the local server restarts.
             </p>
           </CardContent>
           <CardFooter>
@@ -271,7 +308,7 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
         <Alert>
           <CheckCircle2 />
           <AlertTitle>Scope smoke test complete</AlertTitle>
-          <AlertDescription>Calendar, Drive, and Gmail draft access were verified.</AlertDescription>
+          <AlertDescription>Calendar read/write, Drive, Gmail read, and Gmail draft access were verified.</AlertDescription>
         </Alert>
       ) : null}
 
@@ -279,10 +316,10 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
         <CardHeader>
           <CardTitle>What OpenWork can do</CardTitle>
           <CardDescription>
-            Connect Google Workspace so OpenWork can help with meeting prep, selected files, and draft emails.
+            Connect Google Workspace so OpenWork can help with meeting prep, selected files, draft emails, and experimental email/calendar actions.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-3">
+        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="rounded-2xl border border-border bg-card p-3">
             <CalendarDays className="mb-2 size-4 text-blue-11" />
             <div className="text-sm font-medium text-card-foreground">Calendar read</div>
@@ -292,6 +329,16 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
             <MailPlus className="mb-2 size-4 text-red-11" />
             <div className="text-sm font-medium text-card-foreground">Gmail drafts</div>
             <div className="mt-1 text-xs leading-relaxed text-muted-foreground">Create draft emails only. No send tool in Phase 1.</div>
+          </div>
+          <div className="rounded-2xl border border-amber-6 bg-amber-2/40 p-3">
+            <Mail className="mb-2 size-4 text-amber-11" />
+            <div className="text-sm font-medium text-card-foreground">Gmail read experimental</div>
+            <div className="mt-1 text-xs leading-relaxed text-muted-foreground">Read recent email and expose attachments as chat downloads. Own OAuth credentials required for now; may be removed.</div>
+          </div>
+          <div className="rounded-2xl border border-amber-6 bg-amber-2/40 p-3">
+            <CalendarPlus className="mb-2 size-4 text-amber-11" />
+            <div className="text-sm font-medium text-card-foreground">Calendar write experimental</div>
+            <div className="mt-1 text-xs leading-relaxed text-muted-foreground">Create calendar events when you ask. Own OAuth credentials required for now; may be removed.</div>
           </div>
           <div className="rounded-2xl border border-border bg-card p-3">
             <FileText className="mb-2 size-4 text-green-11" />
@@ -321,7 +368,7 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
           <div className="flex flex-wrap gap-2">
             <Button disabled={Boolean(busyAction) || !canConnect} onClick={() => void runDesktopAction("connect", connectGoogleWorkspace)}>
               {busyAction === "connect" ? <Loader2 className="size-4 animate-spin" /> : null}
-              {status?.connected ? "Add another Google account" : "Connect with Google"}
+              {connectLabel}
             </Button>
             {connectedAccounts.length > 1 ? (
               <Button variant="destructive" disabled={Boolean(busyAction)} onClick={() => void runDesktopAction("disconnect", () => openworkServerClient?.googleWorkspaceDisconnect() ?? Promise.resolve(null))}>

@@ -315,13 +315,18 @@ export type GoogleWorkspaceAuthStatus = {
   accounts: GoogleWorkspaceAccount[];
   activeAccountId: string | null;
   scopes: string[];
+  experimentalScopes: string[];
+  experimentalScopesGranted: boolean;
   connectedAt: string | null;
   error: string | null;
   testStatus: string | null;
   smokeTest: {
+    calendarEventId?: string | null;
+    calendarEventDeleted?: boolean;
     driveFileId: string | null;
     driveFileName: string | null;
     gmailDraftId: string | null;
+    gmailReadResultSizeEstimate?: number | null;
   } | null;
 };
 
@@ -351,6 +356,12 @@ export type OpenworkExtensionActionResult = {
   extensionId: string;
   action: string;
   result: unknown;
+  attachments?: Array<{
+    type: "file";
+    mime: string;
+    url: string;
+    filename?: string;
+  }>;
   context?: Record<string, unknown>;
 };
 

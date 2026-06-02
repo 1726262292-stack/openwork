@@ -23,6 +23,15 @@ https://www.googleapis.com/auth/drive.file
 https://www.googleapis.com/auth/gmail.compose
 ```
 
+## Experimental Scopes
+
+These scopes are experimental, currently intended only for users running OpenWork with their own Google Cloud OAuth desktop client credentials, and may be removed.
+
+```text
+https://www.googleapis.com/auth/gmail.readonly
+https://www.googleapis.com/auth/calendar.events
+```
+
 ## Scope Justifications
 
 ### `openid`, `userinfo.email`, `userinfo.profile`
@@ -41,9 +50,17 @@ OpenWork uses this scope to access only the specific Google Drive files that the
 
 OpenWork uses this scope to create Gmail drafts for the user to review in Gmail. Phase 1 does not expose an automatic send-email tool. Draft creation is used for workflows like drafting a meeting follow-up after the user asks for it. Users remain in control and send messages themselves from Gmail.
 
+### Experimental `gmail.readonly`
+
+OpenWork uses this scope only when the user explicitly asks to read email, such as "get me my last email." The extension can read Gmail message metadata, body text, and attachment metadata, and can expose requested attachments as downloadable chat file cards. This scope is experimental, requires the user to run their own Google OAuth credentials for now, and may be removed.
+
+### Experimental `calendar.events`
+
+OpenWork uses this scope only when the user explicitly asks to create or modify calendar events. This scope is experimental, requires the user to run their own Google OAuth credentials for now, and may be removed.
+
 ## Data Use Statement
 
-OpenWork uses Google Workspace data only to provide user-requested features, such as reading calendar context, reading explicitly selected Drive files, and creating Gmail drafts. OpenWork does not sell Google user data, use Google user data for advertising, or use Google user data to train generalized AI models. Desktop OAuth tokens are stored locally using encrypted OS storage when available.
+OpenWork uses Google Workspace data only to provide user-requested features, such as reading calendar context, reading explicitly selected Drive files, creating Gmail drafts, experimentally reading user-requested Gmail messages, and experimentally creating calendar events. OpenWork does not sell Google user data, use Google user data for advertising, or use Google user data to train generalized AI models. Desktop OAuth tokens are stored locally using encrypted OS storage when available.
 
 ## Deployment Mode
 
@@ -78,14 +95,16 @@ Google's verification video should show the OAuth consent flow and each requeste
 
 6. Approve access with a test account.
 
-7. Return to OpenWork and show the connected account email.
+7. Return to OpenWork and show the connected account email. Point out the experimental Gmail read and Calendar write cards and their note that they require the user's own OAuth credentials for now and may be removed.
 
 8. Click `Test connection` and show profile + Calendar read access verified.
 
-9. Click `Run scope smoke test` and show the success state, including the created Drive file and Gmail draft IDs. This verifies all requested Phase 1 scopes:
-   - Calendar read through the Calendar API.
-   - Drive selected/app-created file access by creating and reading `OpenWork Google Workspace smoke test.txt`.
-   - Gmail compose access by creating `OpenWork Google Workspace smoke test draft` in Gmail drafts.
+9. Click `Run scope smoke test` and show the success state, including the created Drive file, temporary Calendar event, Gmail read check, and Gmail draft IDs. This verifies all requested Phase 1 and experimental scopes:
+    - Calendar read through the Calendar API.
+    - Calendar write by creating and deleting `OpenWork Google Workspace smoke test event`.
+    - Drive selected/app-created file access by creating and reading `OpenWork Google Workspace smoke test.txt`.
+    - Gmail read by listing the latest Gmail message metadata.
+    - Gmail compose access by creating `OpenWork Google Workspace smoke test draft` in Gmail drafts.
 
 10. Open Google Drive and show the created smoke-test file.
 
@@ -113,5 +132,6 @@ bash /opt/openwork-daytona/start-daytona-electron.sh --detach
 
 ## Current Verification Blockers
 
-- `gmail.compose` is a restricted Gmail scope. Google may require restricted-scope verification and possibly additional security review.
+- `gmail.compose` and experimental `gmail.readonly` are restricted Gmail scopes. Google may require restricted-scope verification and possibly additional security review.
+- Experimental Gmail read and Calendar write currently require user-provided Google OAuth credentials and may be removed.
 - The privacy policy source includes Google Workspace data-use language, but it must be deployed publicly before submitting verification.
