@@ -10,6 +10,7 @@ import type { OpenworkServerClient } from "../../../app/lib/openwork-server";
  */
 export type ExtensionConfigContext = {
   openworkServerClient?: OpenworkServerClient | null;
+  hostOpenworkServerClient?: OpenworkServerClient | null;
   extensionConnections?: Record<string, boolean>;
   onExtensionConnectionChange?: (extensionId: string, connected: boolean) => void;
   restartLocalServer?: () => Promise<boolean>;

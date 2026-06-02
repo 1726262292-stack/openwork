@@ -1701,6 +1701,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }, [openworkServerStore, refreshRouteState]);
   const extensionController = useSettingsExtensionController({
     openworkServerClient: selectedWorkspaceEndpoint?.client ?? openworkClient,
+    hostOpenworkServerClient: openworkClient,
     enablementContext,
     mcpServers: connectionsSnapshot.mcpServers,
     mcpConnectingName: connectionsSnapshot.mcpConnectingName,

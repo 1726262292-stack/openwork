@@ -15,6 +15,7 @@ type ProviderLike = {
 
 type SettingsExtensionControllerInput = {
   openworkServerClient: OpenworkServerClient | null;
+  hostOpenworkServerClient: OpenworkServerClient | null;
   enablementContext: EnablementContext;
   mcpServers: McpServerEntry[];
   mcpConnectingName: string | null;
@@ -60,6 +61,7 @@ function hasOpenAiEnv(input: Pick<SettingsExtensionControllerInput, "providers" 
 export function useSettingsExtensionController(input: SettingsExtensionControllerInput) {
   const configContextForEntry = useCallback((entry: McpDirectoryInfo): ExtensionConfigContext => ({
     openworkServerClient: input.openworkServerClient,
+    hostOpenworkServerClient: input.hostOpenworkServerClient,
     restartLocalServer: input.restartLocalServer,
     extensionConnections: {
       "google-workspace": input.googleWorkspaceConnected,

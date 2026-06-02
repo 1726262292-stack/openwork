@@ -94,13 +94,14 @@ async function waitForGoogleWorkspaceConnection(client: OpenworkServerClient, fl
   throw new Error("Google Workspace OAuth timed out.");
 }
 
-function GoogleWorkspaceConfig({ openworkServerClient, onExtensionConnectionChange, restartLocalServer }: ExtensionConfigContext) {
+function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient, onExtensionConnectionChange, restartLocalServer }: ExtensionConfigContext) {
   const platform = usePlatform();
   const [status, setStatus] = useState<GoogleWorkspaceAuthStatus | null>(null);
   const [busyAction, setBusyAction] = useState<BusyAction | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState("");
   const serverAvailable = Boolean(openworkServerClient);
+  const hostServerAvailable = Boolean(hostOpenworkServerClient);
   const canConnect = serverAvailable && status?.configured === true && status.vault !== "unavailable";
   const canTest = serverAvailable && status?.connected === true;
 
@@ -153,7 +154,10 @@ function GoogleWorkspaceConfig({ openworkServerClient, onExtensionConnectionChan
   };
 
   const saveGoogleClientSecret = async () => {
-    if (!openworkServerClient) return;
+    if (!hostOpenworkServerClient) {
+      setError("Google OAuth settings can only be saved from the local desktop app.");
+      return;
+    }
     const value = clientSecret.trim();
     if (!value) {
       setError("Enter the client secret from your Google OAuth desktop client.");
@@ -162,8 +166,8 @@ function GoogleWorkspaceConfig({ openworkServerClient, onExtensionConnectionChan
     setBusyAction("save-secret");
     setError(null);
     try {
-      await openworkServerClient.upsertUserEnv([{ key: "OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET", value }]);
-      await openworkServerClient.setUserEnvPendingChanges(true);
+      await hostOpenworkServerClient.upsertUserEnv([{ key: "OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET", value }]);
+      await hostOpenworkServerClient.setUserEnvPendingChanges(true);
       setClientSecret("");
       if (restartLocalServer) {
         const restarted = await restartLocalServer();
@@ -239,7 +243,7 @@ function GoogleWorkspaceConfig({ openworkServerClient, onExtensionConnectionChan
             </p>
           </CardContent>
           <CardFooter>
-            <Button disabled={busyAction === "save-secret" || !clientSecret.trim()} onClick={() => void saveGoogleClientSecret()}>
+            <Button disabled={busyAction === "save-secret" || !clientSecret.trim() || !hostServerAvailable} onClick={() => void saveGoogleClientSecret()}>
               {busyAction === "save-secret" ? <Loader2 className="size-4 animate-spin" /> : null}
               Save and apply
             </Button>
