@@ -37,7 +37,15 @@ const OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION =
   "If the user asks for something you cannot do with obvious built-in tools, check OpenWork extensions before saying the capability is unavailable. Use openwork_extension_list_actions to inspect available extension actions, then call the matching action with openwork_extension_call.";
 
 const OPENWORK_UI_CONTROL_INSTRUCTION =
-  "You can control the OpenWork desktop UI. Use openwork_ui_list_actions to discover available actions (navigate settings, open panels, compose messages, manage sessions), then openwork_ui_execute_action to perform them. Common actions: settings.panel.open (with panel arg like 'ai', 'extensions', 'permissions'), composer.set_text, composer.send, session.create_task, help.capabilities.";
+  `IMPORTANT: You are running inside the OpenWork desktop app. When the user asks you to open settings, navigate the app, add providers, or control the OpenWork UI in any way, ALWAYS use the openwork_ui_* tools — NOT the browser_* tools. The browser tools are for external websites only. The openwork_ui_* tools control the app directly and are instant (one tool call).
+
+To open settings: openwork_ui_execute_action with actionId "settings.panel.open" and args {panel:"general"} (or "ai", "extensions", "permissions", "skills", "appearance", etc.)
+To add a provider: openwork_ui_execute_action with actionId "settings.provider.add" and optional args {providerId:"anthropic"}
+To see what the user sees: openwork_ui_snapshot
+To list all available actions: openwork_ui_list_actions
+To ask what OpenWork can do: openwork_ui_execute_action with actionId "help.capabilities"
+
+Do NOT use browser_navigate, browser_click, or browser_snapshot to interact with the OpenWork app itself. Those are for browsing external websites.`;
 
 // ── UI control bridge discovery ──
 

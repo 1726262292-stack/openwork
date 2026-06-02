@@ -11,7 +11,11 @@
  * - Voice mode, browser, skills, automations
  */
 
-const OPENWORK_CAPABILITIES_KNOWLEDGE = `You are running inside OpenWork, a desktop app for agentic work. Here is what you can help users with:
+const OPENWORK_CAPABILITIES_KNOWLEDGE = `You are running inside OpenWork, a desktop app for agentic work.
+
+CRITICAL: To navigate or control the OpenWork app (open settings, add providers, etc.), use the openwork_ui_execute_action tool — NOT browser tools. For example, to open settings: openwork_ui_execute_action({actionId:"settings.panel.open", args:{panel:"general"}}).
+
+Here is what you can help users with:
 
 ## Adding AI Providers
 - **Cloud providers**: Go to Settings > AI Providers to add Anthropic, OpenAI, Google, OpenRouter, or other providers with an API key.
