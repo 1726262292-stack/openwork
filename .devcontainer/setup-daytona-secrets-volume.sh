@@ -2,16 +2,22 @@
 set -euo pipefail
 
 # Create the reusable Daytona secrets volume once. If a local env file is
-# provided, copy it into the mounted volume as openai.env without printing it.
+# provided, copy it into the mounted volume without printing it.
 #
 # Usage:
-#   bash .devcontainer/setup-daytona-secrets-volume.sh [.newtoken]
+#   bash .devcontainer/setup-daytona-secrets-volume.sh [.newtoken] [openai.env]
 
 VOLUME_NAME="${DAYTONA_SECRETS_VOLUME:-openwork-eval-secrets}"
 MOUNT_PATH="${DAYTONA_SECRETS_MOUNT:-/daytona-secrets}"
 LOCAL_ENV_FILE="${1:-.newtoken}"
+DEST_ENV_FILE="${2:-openai.env}"
 SANDBOX="openwork-secrets-setup-$(date +%Y%m%d-%H%M%S)"
 SNAPSHOT_NAME="${DAYTONA_EVAL_SNAPSHOT:-openwork-eval-vnc}"
+
+if [[ ! "$DEST_ENV_FILE" =~ ^[A-Za-z0-9._-]+\.env$ ]]; then
+  echo "ERROR: destination env file must be a simple .env filename, for example openai.env" >&2
+  exit 1
+fi
 
 cleanup() {
   yes | daytona delete "$SANDBOX" >/dev/null 2>&1 || true
@@ -61,8 +67,9 @@ if [ "$exec_ready" -ne 1 ]; then
   exit 1
 fi
 
-daytona exec "$SANDBOX" -- "bash -lc 'mkdir -p \"$MOUNT_PATH\" && umask 177 && printf %s \"$SECRET_ENV_B64\" | base64 -d > \"$MOUNT_PATH/openai.env\"'" >/dev/null
-daytona exec "$SANDBOX" -- "bash -lc 'test -s \"$MOUNT_PATH/openai.env\" && chmod 600 \"$MOUNT_PATH/openai.env\"'" >/dev/null
+daytona exec "$SANDBOX" -- "bash -lc 'mkdir -p \"$MOUNT_PATH\" && umask 177 && printf %s \"$SECRET_ENV_B64\" | base64 -d > \"$MOUNT_PATH/$DEST_ENV_FILE\"'" >/dev/null
+daytona exec "$SANDBOX" -- "bash -lc 'test -s \"$MOUNT_PATH/$DEST_ENV_FILE\" && chmod 600 \"$MOUNT_PATH/$DEST_ENV_FILE\"'" >/dev/null
 
 echo "Volume ready: $VOLUME_NAME"
-echo "Secret env installed at ${MOUNT_PATH}/openai.env"
+echo "Secret env installed at ${MOUNT_PATH}/${DEST_ENV_FILE}"
+echo "Electron sources every ${MOUNT_PATH}/*.env file by default."

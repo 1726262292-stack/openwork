@@ -14,21 +14,22 @@ daytona organization use "Different AI"
 bash .devcontainer/test-on-daytona.sh [branch-or-commit]
 ```
 
-Use the helper. It creates from the reusable `openwork-eval-vnc` snapshot when
-available, falls back to the Daytona VNC Dockerfile when needed, mounts secrets,
-mounts the reusable pnpm store volume, checks out the requested ref,
-conditionally installs deps, starts services, waits for CDP, and prints the
-CDP/noVNC URLs.
+Use the helper. It creates from the reusable `openwork-eval-vnc` snapshot,
+mounts secrets, mounts the reusable pnpm store volume, checks out the requested
+ref, conditionally installs deps, starts services, waits for CDP, and prints the
+CDP/noVNC URLs. If the snapshot is missing, create it with
+`bash .devcontainer/create-daytona-openwork-snapshot.sh`.
 
 The reusable `openwork-eval-secrets` volume is mounted at `/daytona-secrets`.
-Create/populate it once with `bash .devcontainer/setup-daytona-secrets-volume.sh
-.newtoken`; future eval sandboxes reuse it and source `/daytona-secrets/openai.env`
-before Electron starts. The Electron starter also applies Daytona-safe Chromium
-flags via `ELECTRON_EXTRA_LAUNCH_ARGS`.
+Create/populate it with `bash .devcontainer/setup-daytona-secrets-volume.sh
+.newtoken`; future eval sandboxes reuse it and source every
+`/daytona-secrets/*.env` file before Electron starts. The Electron starter also
+applies Daytona-safe Chromium flags via `ELECTRON_EXTRA_LAUNCH_ARGS`.
 
 To persist downloadable artifacts, pass `--artifacts-volume`. The helper mounts
 the reusable `openwork-eval-artifacts` volume at `/daytona-artifacts`, starts a
-static download server, and prints its Daytona preview URL.
+static download server, and prints its Daytona preview URL. Capture screenshot
+checkpoints with `daytona exec <sandbox> -- 'bash .devcontainer/capture-daytona-screenshot.sh'`.
 
 To record the Electron display, pass `--record-video`:
 
@@ -41,12 +42,12 @@ bash .devcontainer/test-on-daytona.sh [branch-or-commit] --record-video
 the stop command:
 
 ```bash
-daytona exec <sandbox> -- 'pkill -INT -f "ffmpeg.*x11grab"'
+daytona exec <sandbox> -- 'bash .devcontainer/stop-daytona-recording.sh'
 ```
 
-Use `SIGINT` so ffmpeg finalizes the mp4 cleanly before downloading it. Optional
-recording controls are `--recording-name <name>`, `--recording-fps <fps>`, and
-`--recording-size <WxH>`.
+The stop helper sends `SIGINT` so ffmpeg finalizes the mp4 cleanly before
+downloading it. Optional recording controls are `--recording-name <name>`,
+`--recording-fps <fps>`, and `--recording-size <WxH>`.
 
 ### 2. Get the CDP proxy URL
 

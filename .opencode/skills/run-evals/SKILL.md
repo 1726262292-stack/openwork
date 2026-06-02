@@ -18,10 +18,17 @@ Run the OpenWork UI evaluation flows against a real Electron app. Prefer a fresh
 - `daytona` CLI installed and logged in (`daytona login`)
 - Using the "Different AI" org (`daytona organization use "Different AI"`)
 - The `.devcontainer/` files exist in the repo
-- Optional OpenAI coverage: reusable Daytona volume `openwork-eval-secrets`
-  populated once with `bash .devcontainer/setup-daytona-secrets-volume.sh .newtoken`
+- Optional provider coverage: reusable Daytona volume `openwork-eval-secrets`
+  populated with `.env` files using `bash .devcontainer/setup-daytona-secrets-volume.sh .newtoken`
 
 ## Workflow
+
+Use these Daytona skills when an eval touches a specific area:
+
+- `daytona-electron-test` for the real Electron app, CDP, noVNC, workspace creation, and UI driving.
+- `daytona-cloud-server` for Den server, cloud auth, marketplace, org policy, and worker proxy evals.
+- `daytona-secrets-volume` for adding or checking provider keys and eval secrets.
+- `daytona-recording-artifacts` for screenshots, recordings, before/after videos, and PR evidence.
 
 ### Preferred path: helper script
 
@@ -33,11 +40,11 @@ bash .devcontainer/test-on-daytona.sh <branch-or-commit>
 ```
 
 The helper creates a fresh VNC-capable Daytona sandbox from the reusable
-`openwork-eval-vnc` snapshot when present, falls back to the VNC Dockerfile when
-needed, mounts the reusable `openwork-eval-secrets:/daytona-secrets` volume,
-mounts the reusable `openwork-eval-pnpm-store` pnpm cache volume, starts
-XFCE/noVNC, Vite, and Electron with Daytona-safe graphics flags, waits for CDP,
-then prints the CDP and noVNC URLs.
+`openwork-eval-vnc` snapshot, mounts the reusable
+`openwork-eval-secrets:/daytona-secrets` volume, mounts the reusable
+`openwork-eval-pnpm-store` pnpm cache volume, starts XFCE/noVNC, Vite, and
+Electron with Daytona-safe graphics flags, waits for CDP, then prints the CDP
+and noVNC URLs. If the snapshot is missing, create it before rerunning.
 
 Refresh the snapshot when dependencies or base setup change:
 
@@ -48,14 +55,16 @@ bash .devcontainer/create-daytona-openwork-snapshot.sh
 The snapshot intentionally excludes `node_modules` to stay below Daytona's 20 GB
 snapshot limit. Dependency installs reuse the pnpm store volume.
 
-For OpenAI/provider eval coverage, create/populate the volume once before the
+For provider eval coverage, create/populate the volume once before the
 first run:
 
 ```bash
 bash .devcontainer/setup-daytona-secrets-volume.sh .newtoken
+bash .devcontainer/setup-daytona-secrets-volume.sh .anthropic anthropic.env
 ```
 
-Do not print the key. Future eval sandboxes reuse the same volume.
+Do not print keys. Future eval sandboxes reuse the same volume and source every
+`/daytona-secrets/*.env` file before Electron starts.
 
 ### Verify helper output
 
@@ -119,6 +128,16 @@ browser_evaluate({ browser_url: URL, expression: "document.body.innerText.substr
 browser_screenshot({ browser_url: URL })
 ```
 
+Also capture persistent Daytona screenshots at critical checkpoints when the
+artifacts volume is mounted:
+
+```bash
+daytona exec "$SANDBOX" -- 'bash .devcontainer/capture-daytona-screenshot.sh'
+```
+
+Use browser snapshots/assertions for AI validation, screenshots for visual
+checkpoints, and recordings for human PR evidence.
+
 ### Recording eval runs
 
 Always record eval runs so they can be attached to PRs. Use the built-in
@@ -148,6 +167,9 @@ echo "${ARTIFACTS_URL}/recordings/<name>.mp4"
 Recordings are saved to the persistent `openwork-eval-artifacts` volume and
 survive sandbox deletion. Always use `stop-daytona-recording.sh` (not
 `kill -9`) so ffmpeg finalizes the mp4 properly.
+
+Screenshots are saved to `/daytona-artifacts/screenshots` and are served by the
+same port 8090 artifacts URL.
 
 For before/after comparison recordings, see the "Recording before/after
 comparisons" section in the `daytona-electron-test` skill.
