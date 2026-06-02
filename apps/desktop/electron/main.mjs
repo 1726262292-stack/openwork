@@ -2843,6 +2843,8 @@ async function startUiControlServer() {
     `${JSON.stringify({ version: 1, app: APP_NAME, identifier: APP_IDENTIFIER, platform: process.platform, baseUrl: `http://127.0.0.1:${port}`, token: uiControlToken }, null, 2)}\n`,
     "utf8",
   );
+  // Make the discovery path available to child processes (server → managed OpenCode → plugin).
+  process.env.OPENWORK_UI_CONTROL_DISCOVERY = uiControlDiscoveryPath;
 }
 
 async function stopUiControlServer() {
