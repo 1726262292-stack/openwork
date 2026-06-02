@@ -32,6 +32,7 @@ import {
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { ReactSessionComposer } from "./composer/composer";
 import { decodeComposerMentionValue, encodeComposerMentionValue } from "./composer/mention-encoding";
+import { parseSlashCommandInvocation } from "./composer/slash-command";
 import { DevProfiler } from "../../../shell/dev-profiler";
 import { PaperGrainGradient } from "@openwork/ui/react";
 import { OwDotTicker } from "../../../shell/dot-ticker";
@@ -694,14 +695,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
     for (const value of Object.keys(mentions)) {
       resolved = resolved.replaceAll(`@${encodeComposerMentionValue(value)}`, `@${value}`);
     }
-    const resolvedSlashMatch = resolved.trim().match(/^\/([^\s]+)\s*(.*)$/);
+    const slashCommand = parseSlashCommandInvocation(resolved);
     return {
       mode: "prompt",
       parts,
       attachments: nextAttachments,
       text,
       resolvedText: resolved,
-      command: resolvedSlashMatch ? { name: resolvedSlashMatch[1] ?? "", arguments: resolvedSlashMatch[2] ?? "" } : undefined,
+      command: slashCommand ?? undefined,
     };
   }, [mentions, pasteParts]);
 

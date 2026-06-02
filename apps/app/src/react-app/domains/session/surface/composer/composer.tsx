@@ -12,6 +12,7 @@ import { useDesktopRestriction } from "../../../cloud/desktop-config-provider";
 import { ModelBehaviorSelect } from "../../../../../components/model-behavior-select";
 import { ModelSelect } from "../../../../../components/model-select";
 import { LexicalPromptEditor } from "./editor";
+import { getSlashCommandQuery } from "./slash-command";
 import {
   ReactComposerNotice,
   type ReactComposerNotice as ReactComposerNoticeData,
@@ -371,9 +372,9 @@ export function ReactSessionComposer(props: ComposerProps) {
     void props.onSend();
   }, [props.busy, props.onSend, triggerFollowupShake]);
 
-  const slashMatch = props.draft.match(/^\/(\S*)$/);
-  const slashOpenNext = Boolean(slashMatch);
-  const slashQuery = slashMatch?.[1] ?? "";
+  const slashCommandQuery = getSlashCommandQuery(props.draft);
+  const slashOpenNext = slashCommandQuery !== null;
+  const slashQuery = slashCommandQuery ?? "";
   const mentionMatch = props.draft.match(/@([^\s@]*)$/);
   const mentionOpenNext = Boolean(mentionMatch);
   const mentionQuery = mentionMatch?.[1] ?? "";

@@ -32,6 +32,7 @@ import type {
 } from "../../../../app/types";
 import { addOpencodeCacheHint, safeStringify } from "../../../../app/utils";
 import { clearSessionDraft, saveSessionDraft } from "./draft-store";
+import { firstLineLocalFileParts } from "./prompt-file-parts";
 
 type SessionModelConfig = {
   applyPendingSessionChoice: (sessionId: string) => void;
@@ -201,6 +202,7 @@ export function createSessionActionsStore(options: {
       }
     }
 
+    parts.push(...firstLineLocalFileParts(text, root));
     parts.push(...(await Promise.all(draft.attachments.map(attachmentToFilePart))));
     return parts;
   };
