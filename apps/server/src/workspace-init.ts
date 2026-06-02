@@ -22,6 +22,10 @@ OpenWork can preview, edit, and download standard artifacts when you create or u
 - For spreadsheets, use \`.csv\` for simple tabular data and \`.xlsx\` when the user asks for Excel/XLS specifically.
 <!-- OPENWORK_ARTIFACTS_END -->`;
 
+// The agent template is intentionally minimal. Browser instructions, UI control
+// tool guidance, and capabilities knowledge are injected at runtime via plugins
+// (openwork-extensions-preview.ts and openwork-capabilities-knowledge.ts) through
+// the OPENCODE_CONFIG_CONTENT env var. This avoids duplication and patching.
 const OPENWORK_AGENT = `---
 description: OpenWork default agent
 mode: primary
@@ -36,34 +40,6 @@ Your job:
 - Help the user work on files safely.
 - Automate repeatable work.
 - Keep behavior portable and reproducible.
-
-## OpenWork UI Control
-
-To control the OpenWork app (open settings, add providers, navigate panels, manage sessions), use the \`openwork_ui_*\` tools:
-- \`openwork_ui_execute_action\`: execute an action by id (e.g. \`{actionId: "settings.panel.open", args: {panel: "ai"}}\`)
-- \`openwork_ui_list_actions\`: discover all available UI actions
-- \`openwork_ui_snapshot\`: see the current UI state (route, visible actions, narration)
-
-Common actions:
-- Open settings: \`settings.panel.open\` with \`{panel: "general"}\`, \`"ai"\`, \`"extensions"\`, \`"permissions"\`, \`"skills"\`, \`"appearance"\`
-- Add a provider: \`settings.provider.add\` with optional \`{providerId: "anthropic"}\`
-- Create a session: \`session.create_task\`
-- What can OpenWork do: \`help.capabilities\`
-
-**Do NOT use browser tools to interact with the OpenWork app itself.** Browser tools are for external websites only (see below).
-
-<!-- OPENWORK_BROWSER_START -->
-## Browser
-
-OpenWork has a built-in browser for browsing **external websites**. The user sees what you do in real time.
-Browser tools (\`browser_navigate\`, \`browser_snapshot\`, \`browser_click\`, \`browser_fill\`, \`browser_eval\`, \`browser_list\`, \`browser_screenshot\`) are available via the \`opencode-chrome-devtools\` plugin.
-
-**OpenWork Browser** (external websites only):
-- \`browser_url\`: always use \`"http://127.0.0.1:{{BROWSER_CDP_PORT}}"\`.
-- Always call \`browser_list\` first to discover available targets, then use the appropriate \`target_id\`.
-- Choose the built-in browser target (usually \`about:blank\` or the page URL). **Never** navigate or interact with the OpenWork app target (title \`OpenWork\` or URL containing \`:5173/#/workspace\`) — use \`openwork_ui_*\` tools for that instead.
-- If the user asks for personal browser cookies, sign-ins, or installed extensions, explain that only the built-in OpenWork Browser is currently supported.
-<!-- OPENWORK_BROWSER_END -->
 
 ## Memory
 
@@ -146,24 +122,18 @@ async function ensureOpencodeConfig(workspaceRoot: string): Promise<boolean> {
   return true;
 }
 
-function resolveAgentTemplate(): string {
-  const cdpPort = process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() || "9222";
-  return OPENWORK_AGENT.replace("{{BROWSER_CDP_PORT}}", cdpPort);
-}
-
 async function ensureOpenworkAgent(workspaceRoot: string): Promise<boolean> {
   const agentsDir = join(workspaceRoot, ".opencode", "agents");
   const agentPath = join(agentsDir, "openwork.md");
-  const agentContent = resolveAgentTemplate();
   await ensureDir(agentsDir);
   if (!(await exists(agentPath))) {
-    await writeFile(agentPath, agentContent.endsWith("\n") ? agentContent : `${agentContent}\n`, "utf8");
+    await writeFile(agentPath, OPENWORK_AGENT.endsWith("\n") ? OPENWORK_AGENT : `${OPENWORK_AGENT}\n`, "utf8");
     return true;
   }
   let current = await readFile(agentPath, "utf8");
   let changed = false;
 
-  // Patch artifacts section
+  // Patch artifacts section (the only section still managed in the agent file).
   const artStart = "<!-- OPENWORK_ARTIFACTS_START -->";
   const artEnd = "<!-- OPENWORK_ARTIFACTS_END -->";
   const artStartIdx = current.indexOf(artStart);
@@ -171,26 +141,9 @@ async function ensureOpenworkAgent(workspaceRoot: string): Promise<boolean> {
   if (artStartIdx >= 0 && artEndIdx > artStartIdx) {
     const patched = `${current.slice(0, artStartIdx)}${OPENWORK_ARTIFACT_GUIDANCE}${current.slice(artEndIdx + artEnd.length)}`;
     if (patched !== current) { current = patched; changed = true; }
-  } else {
+  } else if (!current.includes("OPENWORK_ARTIFACTS_START")) {
     current = `${current.trimEnd()}\n\n${OPENWORK_ARTIFACT_GUIDANCE}\n`;
     changed = true;
-  }
-
-  // Patch browser section (replace with resolved CDP port)
-  const browserStart = "<!-- OPENWORK_BROWSER_START -->";
-  const browserEnd = "<!-- OPENWORK_BROWSER_END -->";
-  const bsIdx = current.indexOf(browserStart);
-  const beIdx = current.indexOf(browserEnd);
-  const resolvedBrowser = agentContent.slice(
-    agentContent.indexOf(browserStart),
-    agentContent.indexOf(browserEnd) + browserEnd.length,
-  );
-  if (bsIdx >= 0 && beIdx > bsIdx) {
-    const oldBrowser = current.slice(bsIdx, beIdx + browserEnd.length);
-    if (oldBrowser !== resolvedBrowser) {
-      current = current.slice(0, bsIdx) + resolvedBrowser + current.slice(beIdx + browserEnd.length);
-      changed = true;
-    }
   }
 
   if (changed) {

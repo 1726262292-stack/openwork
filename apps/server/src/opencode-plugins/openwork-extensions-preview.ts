@@ -45,7 +45,11 @@ To see what the user sees: openwork_ui_snapshot
 To list all available actions: openwork_ui_list_actions
 To ask what OpenWork can do: openwork_ui_execute_action with actionId "help.capabilities"
 
-Do NOT use browser_navigate, browser_click, or browser_snapshot to interact with the OpenWork app itself. Those are for browsing external websites.`;
+Do NOT use browser_navigate, browser_click, or browser_snapshot to interact with the OpenWork app itself. Those are for browsing external websites.
+
+## Built-in Browser (external websites)
+For web browsing tasks, use the browser_* tools with browser_url "http://127.0.0.1:${process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() || "9222"}".
+Always call browser_list first, then use the target that is NOT the OpenWork app (avoid targets with title "OpenWork" or URLs containing ":5173/#/").`;
 
 // ── UI control bridge discovery ──
 
