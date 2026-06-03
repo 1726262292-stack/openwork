@@ -18,6 +18,10 @@ import { usePlatform } from "../kernel/platform";
 import { WelcomePage } from "../domains/onboarding/welcome-page";
 import { ProviderSelectionStep } from "../domains/onboarding/provider-selection-step";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
+import {
+  hideOpenWorkModelsPromo,
+  markOpenWorkModelsStartupPromoShown,
+} from "../domains/cloud/openwork-models-promo";
 import { resolveOpenworkConnection } from "./openwork-connection";
 import { buildOpenworkWorkspaceBaseUrl, createOpenworkServerClient } from "../../app/lib/openwork-server";
 import { buildDenAuthUrl, readDenSettings } from "../../app/lib/den";
@@ -311,6 +315,8 @@ export function WelcomeRoute() {
             if (state.pendingSessionId) focusPromptSoon();
           }}
           onBringYourOwn={() => {
+            markOpenWorkModelsStartupPromoShown();
+            hideOpenWorkModelsPromo();
             const route = state.pendingWorkspaceId
               ? workspaceSessionRoute(state.pendingWorkspaceId, state.pendingSessionId)
               : "/session";

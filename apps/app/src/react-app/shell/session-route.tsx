@@ -610,6 +610,7 @@ export function SessionRoute() {
   const [openWorkModelsStartupOpen, setOpenWorkModelsStartupOpen] = useState(false);
   const [openWorkModelsPromoHidden, setOpenWorkModelsPromoHidden] = useState(isOpenWorkModelsPromoHidden);
   const openWorkModelsStartupScheduledRef = useRef(false);
+  const onboardingProviderAuthPendingRef = useRef(false);
   // Bump to re-filter provider list when den session changes (sign-in/out)
   const [denSessionVersion, setDenSessionVersion] = useState(0);
   useEffect(() => {
@@ -1699,15 +1700,15 @@ export function SessionRoute() {
     if (!hash.includes("onboarding=1")) return;
     // Strip the param so it doesn't re-trigger.
     window.location.hash = hash.replace(/[?&]onboarding=1/, "");
-    // Give the provider store a moment to hydrate, then check.
-    const timer = window.setTimeout(() => {
-      if (userProviderConnectedIds.length === 0) {
-        sessionProviderAuthStore.openProviderAuthModal();
-      }
-    }, 1500);
-    return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    onboardingProviderAuthPendingRef.current = true;
   }, []);
+
+  useEffect(() => {
+    if (!onboardingProviderAuthPendingRef.current) return;
+    if (!selectedWorkspaceEndpoint) return;
+    onboardingProviderAuthPendingRef.current = false;
+    sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
+  }, [selectedWorkspaceEndpoint, sessionProviderAuthStore]);
 
   // Session is where forced sign-in lands. Keep org-managed cloud providers in
   // sync here so sign-in applies opencode.json changes before Settings opens.
@@ -2858,7 +2859,7 @@ export function SessionRoute() {
         );
       }}
       onOpenSettings={() => handleOpenSettings("/settings/general")}
-      onOpenProviderAuth={() => sessionProviderAuthStore.openProviderAuthModal()}
+      onOpenProviderAuth={() => sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
       providerAuthModal={sessionProviderAuthSnapshot.providerAuthModalOpen ? {
         open: true,
         loading: false,
@@ -2876,8 +2877,20 @@ export function SessionRoute() {
           ),
         ),
         onSelect: sessionProviderAuthStore.startProviderAuth,
-        onSubmitApiKey: sessionProviderAuthStore.submitProviderApiKey,
-        onConnectCloudProvider: sessionProviderAuthStore.connectCloudProvider,
+        onSubmitApiKey: async (providerId, apiKey) => {
+          const result = await sessionProviderAuthStore.submitProviderApiKey(providerId, apiKey);
+          setRecentProviderIds(new Set([providerId]));
+          setModelPickerQuery("");
+          setModelPickerOpen(true);
+          return result;
+        },
+        onConnectCloudProvider: async (cloudProviderId) => {
+          const result = await sessionProviderAuthStore.connectCloudProvider(cloudProviderId);
+          setRecentProviderIds(new Set([cloudProviderId]));
+          setModelPickerQuery("");
+          setModelPickerOpen(true);
+          return result;
+        },
         onSubmitOAuth: sessionProviderAuthStore.completeProviderAuthOAuth,
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
@@ -3170,6 +3183,7 @@ export function SessionRoute() {
             : null,
         }));
         setModelPickerOpen(false);
+        focusPromptSoon();
       }}
       disabledProviders={disabledProviderIds}
       onBehaviorChange={() => {}}

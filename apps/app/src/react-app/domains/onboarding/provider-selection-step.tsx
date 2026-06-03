@@ -28,9 +28,9 @@ export function ProviderSelectionStep({
 
       <div className="relative z-10 w-full max-w-md px-6">
         <PageHeader className="mb-8 text-center">
-          <PageTitle>Choose your AI models</PageTitle>
+          <PageTitle>Power your first task</PageTitle>
           <PageDescription>
-            Pick how you want to power your workspace.
+            Connect a model, then try a real task in chat so you can see OpenWork work.
           </PageDescription>
         </PageHeader>
 
@@ -43,10 +43,10 @@ export function ProviderSelectionStep({
             <SparklesIcon className="mt-0.5 size-5 shrink-0 text-blue-10" />
             <div>
               <div className="text-sm font-medium text-foreground">
-                Get started with OpenWork Models
+                Use OpenWork Models
               </div>
               <div className="mt-0.5 text-xs text-muted-foreground">
-                Sign up for OpenWork Cloud to access managed AI models.
+                Pay through OpenWork Cloud and skip API key setup.
               </div>
             </div>
           </button>
@@ -62,7 +62,7 @@ export function ProviderSelectionStep({
                 Bring your own API key
               </div>
               <div className="mt-0.5 text-xs text-muted-foreground">
-                Connect an existing provider like Anthropic, OpenAI, or Google.
+                Connect OpenAI, Anthropic, Google, or another provider, then run your first task.
               </div>
             </div>
           </button>
@@ -70,7 +70,7 @@ export function ProviderSelectionStep({
           <div className="pt-1 text-center">
             <Button variant="ghost" size="sm" onClick={onSkip}>
               <SkipForwardIcon className="mr-1.5 size-3.5" />
-              Skip for now
+              Skip and use the free model
             </Button>
           </div>
         </div>
