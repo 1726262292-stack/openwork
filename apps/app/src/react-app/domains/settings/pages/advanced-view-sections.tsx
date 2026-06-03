@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import type { OpenworkServerStatus } from "@/app/lib/openwork-server";
+import type { OpenworkRuntimeConfigStatus, OpenworkServerStatus } from "@/app/lib/openwork-server";
 import { isDesktopRuntime } from "@/app/utils";
 import { t } from "@/i18n";
 import {
@@ -109,19 +109,7 @@ interface AdvancedRuntimeMigrationSectionProps {
   canMigrate: boolean;
   migrationBusy: boolean;
   migrationStatus: string | null;
-  configStatus: {
-    runtime: Record<string, unknown>;
-    runtimeKeys: string[];
-    effectiveRuntime?: Record<string, unknown>;
-    sources?: {
-      projectOpencode: { path: string; exists: boolean; keys: string[]; config: Record<string, unknown> };
-      globalOpencode: { path: string; exists: boolean; keys: string[]; config: Record<string, unknown> };
-      runtimeDatabase: { keys: string[]; config: Record<string, unknown> };
-      injected: { keys: string[]; config: Record<string, unknown> };
-    };
-    legacyOpenwork: { path: string; keys: string[]; error: string | null };
-    userOpencode: { path: string; exists: boolean; keys: string[]; migratableKeys: string[] };
-  } | null;
+  configStatus: OpenworkRuntimeConfigStatus | null;
   configStatusBusy: boolean;
   configStatusError: string | null;
   onRefresh: () => Promise<void>;
