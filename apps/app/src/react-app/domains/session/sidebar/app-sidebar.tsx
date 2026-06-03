@@ -132,7 +132,7 @@ function SessionStatusIndicator({ className, status, isStreaming, isActive }: Se
     return (
       <span
         className={cn(
-          "size-1.5 shrink-0 rounded-full",
+          "size-1.5 shrink-0 rounded-full bg-muted-foreground",
           status === "waiting" && "bg-sky-9",
           status === "error" && "bg-red-9",
           className,
@@ -1393,7 +1393,7 @@ function SessionMenuItem({
               >
                 <PinnedIndicator isPinned={isPinned} />
                 <span
-                  className={cn("min-w-0 flex-1 truncate transition-[padding] duration-75 group-hover/menu-sub-item:pe-12 group-has-data-popup-open/menu-sub-item:pe-12 pe-4", isSessionStreaming || isSessionActive && "pe-12")}
+                  className={cn("min-w-0 flex-1 truncate transition-[padding] duration-75 group-hover/menu-sub-item:pe-12 group-has-data-popup-open/menu-sub-item:pe-12 pe-4", (isSessionStreaming || isSessionActive) && "pe-12")}
                   title={displayTitle}
                 >
                   {displayTitle}
@@ -1412,7 +1412,7 @@ function SessionMenuItem({
           isArchived={isArchived}
           className="absolute right-9 top-1/2 -translate-y-1/2 opacity-0 group-hover/menu-sub-item:opacity-100 data-popup-open:opacity-100"
         />
-        <SessionStatusIndicator className="absolute right-9 top-1/2 -translate-y-1/2 opacity-0 group-hover/menu-sub-item:opacity-0 group-has-data-popup-open/menu-sub-item:opacity-0 pointer-events-none select-none" status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
+        <SessionStatusIndicator className="absolute right-9 top-1/2 -translate-y-1/2 opacity-100 group-hover/menu-sub-item:opacity-0 group-has-data-popup-open/menu-sub-item:opacity-0 pointer-events-none select-none" status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
       </SidebarMenuSubItem>
     </Collapsible>
   ) : (
@@ -1423,7 +1423,7 @@ function SessionMenuItem({
           onClick={openSession}
           onPointerEnter={prefetchSession}
           onFocus={prefetchSession}
-          className={cn("transition-[padding] duration-75 group-hover/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8", depth > 0 && "ps-13", isSessionStreaming || isSessionActive && "pe-8")}
+          className={cn("transition-[padding] duration-75 group-hover/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8", depth > 0 && "ps-13", (isSessionStreaming || isSessionActive) && "pe-8")}
         >
           <PinnedIndicator isPinned={isPinned} />
           <span className="truncate" title={displayTitle}>{displayTitle}</span>
