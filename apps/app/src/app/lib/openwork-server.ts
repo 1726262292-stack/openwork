@@ -2,7 +2,8 @@ import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch } from "./desktop";
 import { isDesktopRuntime } from "../utils";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
-import type { DenResourceSnapshot } from "./den";
+import type { DenOrgMarketplace, DenOrgPluginResolved, DenResourceSnapshot } from "./den";
+import type { CloudImportedMarketplace, CloudImportedPlugin } from "../cloud/import-state";
 
 export type OpenworkServerCapabilities = {
   skills: { read: boolean; write: boolean; source: "openwork" | "opencode" };
@@ -240,6 +241,15 @@ export type OpenworkDesktopCloudSyncState = {
 export type OpenworkDesktopCloudSyncResult = {
   changes: OpenworkDesktopCloudSyncChange[];
   state: OpenworkDesktopCloudSyncState;
+};
+
+export type OpenworkCloudPluginInstallResult = {
+  item: CloudImportedPlugin;
+};
+
+export type OpenworkCloudPluginsResult = {
+  marketplaces: Record<string, CloudImportedMarketplace>;
+  plugins: Record<string, CloudImportedPlugin>;
 };
 
 function arrayBufferToBase64(data: ArrayBuffer): string {
@@ -1214,6 +1224,27 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         hostToken,
         method: "POST",
         body: { snapshot },
+        timeoutMs: timeouts.config,
+      }),
+    listCloudPlugins: (workspaceId: string) =>
+      requestJson<OpenworkCloudPluginsResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins`, {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+    installCloudPlugin: (workspaceId: string, payload: { marketplaceId: string | null; marketplace?: DenOrgMarketplace | null; resolved: DenOrgPluginResolved }) =>
+      requestJson<OpenworkCloudPluginInstallResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: payload,
+        timeoutMs: timeouts.config,
+      }),
+    removeCloudPlugin: (workspaceId: string, pluginId: string) =>
+      requestJson<OpenworkCloudPluginInstallResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins/${encodeURIComponent(pluginId)}`, {
+        token,
+        hostToken,
+        method: "DELETE",
         timeoutMs: timeouts.config,
       }),
     readOpencodeConfigFile: (workspaceId: string, scope: "project" | "global" = "project") => {

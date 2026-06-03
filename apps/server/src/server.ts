@@ -31,6 +31,7 @@ import {
   readDesktopCloudSyncState,
   syncDesktopCloudResources,
 } from "./desktop-cloud-sync.js";
+import { installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
 import {
   applyMaterializedBlueprintSessions,
   normalizeBlueprintSessionTemplates,
@@ -2533,7 +2534,8 @@ function createRoutes(
         await readOpenworkConfig(workspace.path),
         await readOpenworkWorkspaceConfig(config, workspace.id),
       );
-      const next = syncDesktopCloudResources({ openwork, snapshot });
+      const cloudImports = await readInstalledCloudPlugins(config, workspace.id);
+      const next = syncDesktopCloudResources({ openwork: { ...openwork, cloudImports }, snapshot });
       await writeOpenworkWorkspaceConfig(config, workspace.id, () => next.openwork);
       await recordAudit(workspace.path, {
         id: shortId(),
@@ -2547,6 +2549,109 @@ function createRoutes(
       return next;
     });
     return jsonResponse({ changes: result.changes, state: result.state });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/cloud-plugins", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const cloudImports = await readInstalledCloudPlugins(config, workspace.id);
+    return jsonResponse({ marketplaces: cloudImports.marketplaces, plugins: cloudImports.plugins });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/cloud-plugins", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const resolved = readCloudPluginResolved(body.resolved);
+    const marketplace = body.marketplace && typeof body.marketplace === "object" && !Array.isArray(body.marketplace)
+      ? Object.fromEntries(Object.entries(body.marketplace))
+      : null;
+    const marketplaceId = typeof body.marketplaceId === "string" && body.marketplaceId.trim()
+      ? body.marketplaceId.trim()
+      : null;
+
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "cloud_plugins.install",
+      summary: `Install cloud plugin ${resolved.plugin.name}`,
+      paths: [openworkConfigPath(workspace.path), join(workspace.path, ".opencode")],
+    });
+
+    const imported = await installCloudPlugin({
+      serverConfig: config,
+      workspaceId: workspace.id,
+      workspaceRoot: workspace.path,
+      marketplaceId,
+      marketplace: marketplaceId
+        ? {
+            id: marketplaceId,
+            name: typeof marketplace?.name === "string" ? marketplace.name : marketplaceId,
+            updatedAt: typeof marketplace?.updatedAt === "string" ? marketplace.updatedAt : null,
+          }
+        : null,
+      resolved,
+    });
+
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "cloud_plugins.install",
+      target: openworkConfigPath(workspace.path),
+      summary: `Installed cloud plugin ${resolved.plugin.name}`,
+      timestamp: Date.now(),
+    });
+
+    for (const file of imported.files) {
+      emitReloadEvent(ctx.reloadEvents, workspace, file.objectType === "mcp" ? "mcp" : file.objectType === "skill" ? "skills" : file.objectType === "agent" ? "agents" : file.objectType === "command" ? "commands" : "config", {
+        type: file.objectType === "skill" || file.objectType === "agent" || file.objectType === "command" || file.objectType === "mcp" ? file.objectType : "config",
+        name: file.title,
+        action: "added",
+      });
+    }
+
+    return jsonResponse({ item: imported });
+  });
+
+  addRoute(routes, "DELETE", "/workspace/:id/cloud-plugins/:pluginId", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const pluginId = ctx.params.pluginId ?? "";
+
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "cloud_plugins.remove",
+      summary: `Remove cloud plugin ${pluginId}`,
+      paths: [openworkConfigPath(workspace.path), join(workspace.path, ".opencode")],
+    });
+
+    const removed = await removeCloudPlugin({
+      serverConfig: config,
+      workspaceId: workspace.id,
+      workspaceRoot: workspace.path,
+      pluginId,
+    });
+
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "cloud_plugins.remove",
+      target: openworkConfigPath(workspace.path),
+      summary: `Removed cloud plugin ${removed.name}`,
+      timestamp: Date.now(),
+    });
+
+    for (const file of removed.files) {
+      emitReloadEvent(ctx.reloadEvents, workspace, file.objectType === "mcp" ? "mcp" : file.objectType === "skill" ? "skills" : file.objectType === "agent" ? "agents" : file.objectType === "command" ? "commands" : "config", {
+        type: file.objectType === "skill" || file.objectType === "agent" || file.objectType === "command" || file.objectType === "mcp" ? file.objectType : "config",
+        name: file.title,
+        action: "removed",
+      });
+    }
+
+    return jsonResponse({ item: removed });
   });
 
   addRoute(routes, "GET", "/workspace/:id/authorized-folders", "client", async (ctx) => {

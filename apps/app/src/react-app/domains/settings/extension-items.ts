@@ -83,6 +83,8 @@ function childKeysForPlugin(plugin: CloudImportedPlugin) {
     }
     if (file.objectType === "skill") {
       skillPaths.add(file.path);
+      const name = file.path.match(/^\.opencode\/skills\/(?:[^/]+\/)?([^/]+)\/SKILL\.md$/)?.[1];
+      if (name) skillNames.add(name);
       skillNames.add(file.title);
     }
   }
@@ -175,7 +177,7 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
   });
 
   const standaloneSkillItems = input.installedSkills.filter((skill) => {
-    if (groupedSkillPaths.has(skill.path)) return false;
+    if ([...groupedSkillPaths].some((path) => skill.path.endsWith(path))) return false;
     if (groupedSkillNames.has(skill.name)) return false;
     return true;
   }).map((skill): ExtensionItem => ({
