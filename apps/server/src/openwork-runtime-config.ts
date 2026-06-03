@@ -43,10 +43,13 @@ OpenWork can preview, edit, and download standard artifacts when you create or u
 - For websites or React/UI previews, start the dev server when useful and mention the http://localhost:<port> URL.
 - For spreadsheets, use .csv for simple tabular data and .xlsx when the user asks for Excel/XLS specifically.`;
 
-export async function buildOpenworkRuntimeConfig(config?: ServerConfig, workspaceId?: string): Promise<string> {
+export async function buildOpenworkRuntimeConfigObject(
+  config?: ServerConfig,
+  workspaceId?: string,
+): Promise<Record<string, unknown>> {
   const runtimeConfig = config && workspaceId ? await readRuntimeOpencodeConfig(config, workspaceId) : {};
   const disabledProviders = runtimeDisabledProviderList(runtimeConfig);
-  return JSON.stringify({
+  return {
     ...runtimeConfig,
     default_agent: runtimeConfig.default_agent ?? "openwork",
     agent: {
@@ -65,5 +68,9 @@ export async function buildOpenworkRuntimeConfig(config?: ServerConfig, workspac
     ],
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
     mcp: runtimeMcpMap(runtimeConfig),
-  });
+  };
+}
+
+export async function buildOpenworkRuntimeConfig(config?: ServerConfig, workspaceId?: string): Promise<string> {
+  return JSON.stringify(await buildOpenworkRuntimeConfigObject(config, workspaceId));
 }

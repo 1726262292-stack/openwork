@@ -200,6 +200,13 @@ export type OpenworkRuntimeConfigMigrationResult = {
 export type OpenworkRuntimeConfigStatus = {
   runtime: Record<string, unknown>;
   runtimeKeys: string[];
+  effectiveRuntime: Record<string, unknown>;
+  sources?: {
+    projectOpencode: { path: string; exists: boolean; keys: string[]; config: Record<string, unknown> };
+    globalOpencode: { path: string; exists: boolean; keys: string[]; config: Record<string, unknown> };
+    runtimeDatabase: { keys: string[]; config: Record<string, unknown> };
+    injected: { keys: string[]; config: Record<string, unknown> };
+  };
   legacyOpenwork: {
     path: string;
     keys: string[];

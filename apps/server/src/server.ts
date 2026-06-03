@@ -72,6 +72,12 @@ import {
   type RuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
+import {
+  mergeOpenworkWorkspaceConfigs,
+  readOpenworkWorkspaceConfig,
+  writeOpenworkWorkspaceConfig,
+} from "./openwork-workspace-config-store.js";
+import { buildOpenworkRuntimeConfigObject } from "./openwork-runtime-config.js";
 import pkg from "../package.json" with { type: "json" };
 import constants from "../../../constants.json" with { type: "json" };
 
@@ -2491,7 +2497,10 @@ function createRoutes(
 
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const openwork = await readOpenworkConfig(workspace.path);
+    const openwork = mergeOpenworkWorkspaceConfigs(
+      await readOpenworkConfig(workspace.path),
+      await readOpenworkWorkspaceConfig(config, workspace.id),
+    );
     const opencode = mergeOpencodeConfigs(
       await readOpencodeConfig(workspace.path),
       await readRuntimeOpencodeConfig(config, workspace.id),
@@ -2502,7 +2511,10 @@ function createRoutes(
 
   addRoute(routes, "GET", "/workspace/:id/desktop-cloud-sync", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const openwork = await readOpenworkConfig(workspace.path);
+    const openwork = mergeOpenworkWorkspaceConfigs(
+      await readOpenworkConfig(workspace.path),
+      await readOpenworkWorkspaceConfig(config, workspace.id),
+    );
     return jsonResponse(readDesktopCloudSyncState(openwork));
   });
 
@@ -2517,9 +2529,12 @@ function createRoutes(
     }
 
     const result = await enqueueDesktopCloudSync(async () => {
-      const openwork = await readOpenworkConfig(workspace.path);
+      const openwork = mergeOpenworkWorkspaceConfigs(
+        await readOpenworkConfig(workspace.path),
+        await readOpenworkWorkspaceConfig(config, workspace.id),
+      );
       const next = syncDesktopCloudResources({ openwork, snapshot });
-      await writeOpenworkConfig(workspace.path, next.openwork, false);
+      await writeOpenworkWorkspaceConfig(config, workspace.id, () => next.openwork);
       await recordAudit(workspace.path, {
         id: shortId(),
         workspaceId: workspace.id,
@@ -2653,11 +2668,38 @@ function createRoutes(
     const legacy = legacyRuntimeConfigFromOpenworkConfig(openworkConfig);
     const rawOpencode = await readRawOpencodeConfig(opencodeConfigPath(workspace.path));
     const persistedOpencode = await readOpencodeConfig(workspace.path);
+    const globalOpencodePath = resolveOpencodeConfigFilePath("global", workspace.path);
+    const rawGlobalOpencode = await readRawOpencodeConfig(globalOpencodePath);
+    const globalOpencode = (await readJsoncFile(globalOpencodePath, {} as Record<string, unknown>, { allowInvalid: true })).data;
+    const effectiveRuntime = await buildOpenworkRuntimeConfigObject(config, workspace.id);
     const user = userRuntimeConfigFromOpencodeConfig(persistedOpencode);
 
     return jsonResponse({
       runtime,
       runtimeKeys: runtimeConfigKeys(runtime),
+      effectiveRuntime,
+      sources: {
+        projectOpencode: {
+          path: opencodeConfigPath(workspace.path),
+          exists: rawOpencode.exists,
+          keys: userOpencodeConfigKeys(persistedOpencode),
+          config: persistedOpencode,
+        },
+        globalOpencode: {
+          path: globalOpencodePath,
+          exists: rawGlobalOpencode.exists,
+          keys: userOpencodeConfigKeys(globalOpencode),
+          config: globalOpencode,
+        },
+        runtimeDatabase: {
+          keys: runtimeConfigKeys(runtime),
+          config: runtime,
+        },
+        injected: {
+          keys: runtimeConfigKeys(effectiveRuntime),
+          config: effectiveRuntime,
+        },
+      },
       legacyOpenwork: {
         path: openworkConfigPath(workspace.path),
         keys: legacy.keys,
@@ -2863,7 +2905,10 @@ function createRoutes(
       }
     }
     if (openwork) {
-      await writeOpenworkConfig(workspace.path, openwork, true);
+      await writeOpenworkWorkspaceConfig(config, workspace.id, (current) => ({
+        ...current,
+        ...openwork,
+      }));
     }
 
     await recordAudit(workspace.path, {

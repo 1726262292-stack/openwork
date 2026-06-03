@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addMcp, listMcp, setMcpEnabled } from "./mcp.js";
 import { buildOpenworkRuntimeConfig } from "./openwork-runtime-config.js";
+import { readOpenworkWorkspaceConfig } from "./openwork-workspace-config-store.js";
 import { addPlugin, listPlugins, removePlugin } from "./plugins.js";
 import { readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
@@ -115,6 +116,54 @@ describe("runtime OpenCode config store", () => {
     });
   });
 
+  test("stores OpenWork-owned workspace config in the runtime DB without writing legacy files", async () => {
+    await withWorkspace(async ({ root, config }) => {
+      const server = await startServer(config) as Served;
+      try {
+        const response = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/config`, {
+          method: "PATCH",
+          headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+          body: JSON.stringify({
+            openwork: {
+              cloudImports: {
+                plugins: {
+                  plugin_1: { pluginId: "plugin_1", name: "productivity", files: [] },
+                },
+              },
+            },
+          }),
+        });
+        expect(response.status).toBe(200);
+
+        const legacyOpenworkPath = join(root, ".opencode", "openwork.json");
+        const legacyOpenwork = await readFile(legacyOpenworkPath, "utf8").catch(() => "");
+        expect(legacyOpenwork).not.toContain("productivity");
+        expect(legacyOpenwork).not.toContain("cloudImports");
+        expect((await readOpenworkWorkspaceConfig(config, WORKSPACE_ID)).cloudImports).toEqual({
+          plugins: {
+            plugin_1: { pluginId: "plugin_1", name: "productivity", files: [] },
+          },
+        });
+
+        const configResponse = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/config`, {
+          headers: { authorization: `Bearer ${config.token}` },
+        });
+        expect(configResponse.status).toBe(200);
+        expect(await configResponse.json()).toMatchObject({
+          openwork: {
+            cloudImports: {
+              plugins: {
+                plugin_1: { pluginId: "plugin_1", name: "productivity", files: [] },
+              },
+            },
+          },
+        });
+      } finally {
+        await server.stop(true);
+      }
+    });
+  });
+
   test("explicitly migrates legacy OpenWork runtime config into the runtime DB", async () => {
     await withWorkspace(async ({ root, config }) => {
       await mkdir(join(root, ".opencode"), { recursive: true });
@@ -158,11 +207,25 @@ describe("runtime OpenCode config store", () => {
           headers: { authorization: `Bearer ${config.token}` },
         });
         expect(statusResponse.status).toBe(200);
-        expect(await statusResponse.json()).toMatchObject({
+        const status = await statusResponse.json() as {
+          effectiveRuntime: Record<string, unknown>;
+          sources: Record<string, { exists?: boolean; keys: string[]; config?: Record<string, unknown> }>;
+        };
+        expect(status).toMatchObject({
           runtimeKeys: ["plugin", "mcp", "permission", "provider"],
+          sources: {
+            projectOpencode: { exists: false, keys: [] },
+            runtimeDatabase: { keys: ["plugin", "mcp", "permission", "provider"] },
+          },
           legacyOpenwork: { keys: [] },
           userOpencode: { exists: false, keys: [] },
         });
+        expect(status.effectiveRuntime.default_agent).toBe("openwork");
+        expect(status.effectiveRuntime.agent).toMatchObject({ openwork: { mode: "primary" } });
+        expect(status.effectiveRuntime.provider).toMatchObject({ legacy: { npm: "legacy-provider" } });
+        expect(status.sources.injected.config?.agent).toMatchObject({ openwork: { mode: "primary" } });
+        expect(status.sources.injected.keys).toContain("provider");
+        expect(status.sources.globalOpencode).toHaveProperty("path");
       } finally {
         await server.stop(true);
       }

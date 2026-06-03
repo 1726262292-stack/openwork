@@ -90,6 +90,9 @@ takes `browser_url` as the first argument.
 - [`desktop-policy-extension-flows.md`](./desktop-policy-extension-flows.md) —
   admin-to-member extension policy flows for disabling and restoring built-in
   extensions.
+- [`cloud-admin-to-member-assignment-flows.md`](./cloud-admin-to-member-assignment-flows.md)
+  — admin assigns providers/policies to a member, member desktop receives and
+  uses them, then removal restores/cleans up UI state.
 - [`workspace-layout-state-flows.md`](./workspace-layout-state-flows.md) —
   persisted sidebar/browser layout, legacy layout migration, and workspace-safe
   layout state.
