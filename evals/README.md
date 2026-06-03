@@ -93,6 +93,9 @@ takes `browser_url` as the first argument.
 - [`cloud-admin-to-member-assignment-flows.md`](./cloud-admin-to-member-assignment-flows.md)
   — admin assigns providers/policies to a member, member desktop receives and
   uses them, then removal restores/cleans up UI state.
+- [`cloud-signin-client-provisioning-funnel.md`](./cloud-signin-client-provisioning-funnel.md)
+  — founder funnel from website sign-in to provisioning skills/plugins/providers
+  and validating the capability appears and produces value in the desktop client.
 - [`workspace-layout-state-flows.md`](./workspace-layout-state-flows.md) —
   persisted sidebar/browser layout, legacy layout migration, and workspace-safe
   layout state.
