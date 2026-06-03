@@ -232,6 +232,16 @@ function writeHiddenAccessibleTargetIds(workspaceId: string | null | undefined, 
   }
 }
 
+function controlObjectArg(args: unknown) {
+  return args && typeof args === "object" && !Array.isArray(args) ? args : null;
+}
+
+function controlStringArg(args: unknown, key: string) {
+  const object = controlObjectArg(args);
+  const value = object ? Reflect.get(object, key) : null;
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export function SessionPage(props: SessionPageProps) {
   const { config: shellConfig } = useShellConfig();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
@@ -395,6 +405,30 @@ export function SessionPage(props: SessionPageProps) {
     }
     toggleCurrentSidePanel("panel");
   }, [panelRailActive, sessionPanelState.tabs, toggleCurrentSidePanel]);
+  const openBrowserUrlControlAction = useMemo<OpenworkControlAction>(() => ({
+    id: "browser.open_url",
+    label: "Open URL in built-in browser",
+    description: "Create or select an OpenWork built-in browser tab, navigate it to a URL, and return the CDP handle for browser automation.",
+    sideEffect: "navigation",
+    requiresArgs: true,
+    args: [
+      { name: "url", type: "string", required: true, description: "The website URL to open." },
+      { name: "provider", type: "string", description: "Browser provider. Use builtin or auto. External is reserved for future support." },
+    ],
+    previewArgs: { url: "https://example.com", provider: "builtin" },
+    disabled: !isElectronRuntime(),
+    execute: async (args) => {
+      const url = controlStringArg(args, "url");
+      if (!url) return { ok: false, error: "Missing URL." };
+      const provider = controlStringArg(args, "provider") || "builtin";
+      if (provider !== "auto" && provider !== "builtin") {
+        return { ok: false, error: `Browser provider is not available yet: ${provider}` };
+      }
+      setCurrentSidePanel("panel");
+      return window.__OPENWORK_ELECTRON__?.browser?.openUrl?.(url, provider);
+    },
+  }), [setCurrentSidePanel]);
+  useControlAction(openBrowserUrlControlAction);
   const openArtifactRailPane = useCallback(() => {
     if (!hasArtifactTargets || !props.selectedSessionId) return;
     const activeTab = sessionPanelState.tabs.find((tab) => tab.id === sessionPanelState.activeTabId);

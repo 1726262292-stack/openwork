@@ -479,6 +479,8 @@ const BROWSER_DEFAULT_URL = "about:blank";
 // URL a user-initiated new tab (the "+" button / opening the browser panel)
 // lands on. The agent's programmatic path keeps BROWSER_DEFAULT_URL.
 const BROWSER_NEW_TAB_URL = "https://www.google.com";
+const BROWSER_TARGET_RESOLVE_TIMEOUT_MS = 2500;
+const BROWSER_TARGET_RESOLVE_INTERVAL_MS = 80;
 const MENU_OVERLAY_HTML = "overlay.html";
 const MENU_OVERLAY_WIDTH = 196;
 const MENU_OVERLAY_HEIGHT = 176;
@@ -681,6 +683,82 @@ function normalizeBrowserUrl(url, fallback = BROWSER_DEFAULT_URL) {
   const target = typeof url === "string" && url.trim() ? url.trim() : fallback;
   if (!target || target === "about:blank") return "about:blank";
   return /^https?:\/\//i.test(target) ? target : `https://${target}`;
+}
+
+function isMainWindowAllowedNavigation(url) {
+  if (!url) return true;
+  if (url.startsWith("file://") || url.startsWith("data:")) return true;
+  try {
+    const target = new URL(url);
+    if (target.hostname === "127.0.0.1" || target.hostname === "localhost") return true;
+    const currentUrl = mainWindow?.webContents.getURL();
+    if (!currentUrl || currentUrl === "about:blank") return true;
+    const current = new URL(currentUrl);
+    return target.origin === current.origin;
+  } catch {
+    return true;
+  }
+}
+
+function routeBlockedMainWindowNavigation(url) {
+  if (!/^https?:\/\//i.test(String(url ?? ""))) return;
+  void openBrowserUrlForAutomation(url).catch((error) => {
+    console.warn("[browser] failed to route blocked main-window navigation", error);
+  });
+}
+
+function cdpBrowserUrl() {
+  return `http://127.0.0.1:${remoteDebugPort}`;
+}
+
+function browserTargetMarkerUrl(tabId) {
+  const marker = `openwork-browser-tab:${tabId}`;
+  const html = `<!doctype html><title>${marker}</title><meta name="openwork-browser-tab" content="${tabId}"><body>${marker}</body>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+async function listCdpTargets() {
+  if (!remoteDebugPort || remoteDebugPort <= 0) return [];
+  const response = await fetch(`${cdpBrowserUrl()}/json/list`, { signal: AbortSignal.timeout(1000) });
+  if (!response.ok) throw new Error(`CDP target list failed: HTTP ${response.status}`);
+  const targets = await response.json();
+  return Array.isArray(targets) ? targets : [];
+}
+
+async function resolveBrowserCdpTargetId(tabId) {
+  const marker = encodeURIComponent(`openwork-browser-tab:${tabId}`);
+  const deadline = Date.now() + BROWSER_TARGET_RESOLVE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const targets = await listCdpTargets().catch(() => []);
+    const target = targets.find((candidate) => (
+      candidate?.type === "page" &&
+      typeof candidate.id === "string" &&
+      typeof candidate.url === "string" &&
+      candidate.url.includes(marker)
+    ));
+    if (target?.id) return target.id;
+    await new Promise((resolve) => setTimeout(resolve, BROWSER_TARGET_RESOLVE_INTERVAL_MS));
+  }
+  throw new Error("Could not resolve built-in browser CDP target.");
+}
+
+async function openBrowserUrlForAutomation(rawUrl, provider = "auto") {
+  const requestedProvider = String(provider || "auto").trim().toLowerCase();
+  if (requestedProvider && requestedProvider !== "auto" && requestedProvider !== "builtin") {
+    throw new Error(`Browser provider is not available yet: ${requestedProvider}`);
+  }
+  const url = normalizeBrowserUrl(rawUrl);
+  const tab = createBrowserTab("about:blank", { select: true });
+  await tab.view.webContents.loadURL(browserTargetMarkerUrl(tab.tabId));
+  const targetId = await resolveBrowserCdpTargetId(tab.tabId);
+  await tab.view.webContents.loadURL(url);
+  return {
+    provider: "builtin",
+    browser_url: cdpBrowserUrl(),
+    target_id: targetId,
+    tab_id: tab.tabId,
+    url,
+  };
 }
 
 function getBrowserTab(tabId = activeBrowserTabId) {
@@ -2897,6 +2975,12 @@ async function createMainWindow() {
     return { action: "allow" };
   });
 
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (isMainWindowAllowedNavigation(url)) return;
+    event.preventDefault();
+    routeBlockedMainWindowNavigation(url);
+  });
+
   const startUrl = process.env.OPENWORK_ELECTRON_START_URL?.trim() || process.env.ELECTRON_START_URL?.trim();
   if (startUrl) {
     await mainWindow.loadURL(startUrl);
@@ -2935,6 +3019,7 @@ ipcMain.handle("openwork:system:askMicrophoneAccess", async () => {
 // ── Embedded browser IPC ────────────────────────────────────────────────
 ipcMain.handle("openwork:browser:show", (_event, bounds) => attachBrowserView(bounds));
 ipcMain.handle("openwork:browser:hide", () => hideBrowserView());
+ipcMain.handle("openwork:browser:openUrl", (_event, url, provider) => openBrowserUrlForAutomation(url, provider));
 ipcMain.handle("openwork:browser:navigate", (_event, url) => {
   const view = getActiveBrowserView() ?? createBrowserTab("about:blank", { select: true }).view;
   view.webContents.loadURL(normalizeBrowserUrl(url));

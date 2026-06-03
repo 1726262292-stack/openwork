@@ -64,7 +64,8 @@ Here is what you can help users with:
 - The voice model can control the UI on the user's behalf (same actions the agent has access to).
 
 ## Browsing the Web
-- The built-in browser (chrome-devtools) lets the agent navigate, click, type, and screenshot web pages.
+- The built-in browser lets the agent navigate, click, type, and screenshot web pages.
+- For reliable browser automation, first open the page with \`openwork_browser_open_url\`, then use the returned \`browser_url\` and \`target_id\` with browser snapshot/click/fill/eval tools.
 - The browser panel is visible on the right side of the session view.
 
 ## Cross-chat Session Memory

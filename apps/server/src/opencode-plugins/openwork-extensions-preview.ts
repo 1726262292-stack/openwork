@@ -33,6 +33,11 @@ const uiExecuteArgsSchema = z.object({
   args: z.record(z.string(), z.unknown()).optional().describe("JSON arguments for the action, if required."),
 });
 
+const browserOpenUrlArgsSchema = z.object({
+  url: z.string().describe("The website URL to open in the OpenWork built-in browser."),
+  provider: z.enum(["auto", "builtin", "external"]).optional().describe("Browser provider. Use builtin or auto; external is reserved for future support."),
+});
+
 const OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION =
   "If the user asks for something you cannot do with obvious built-in tools, check OpenWork extensions before saying the capability is unavailable. Use openwork_extension_list_actions to inspect available extension actions, then call the matching action with openwork_extension_call.";
 
@@ -54,8 +59,8 @@ Answer only from the returned transcript. If multiple sessions match, ask a shor
 Do NOT use browser_navigate, browser_click, or browser_snapshot to interact with the OpenWork app itself. Those are for browsing external websites.
 
 ## Built-in Browser (external websites)
-For web browsing tasks, use the browser_* tools with browser_url "http://127.0.0.1:${process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() || "9222"}".
-Always call browser_list first, then use the target that is NOT the OpenWork app (avoid targets with title "OpenWork" or URLs containing ":5173/#/").`;
+For web browsing tasks, ALWAYS start with openwork_browser_open_url. It creates/selects a built-in OpenWork browser tab and returns browser_url plus target_id. Use that exact browser_url and target_id for every later browser_snapshot, browser_click, browser_fill, browser_eval, and browser_screenshot call.
+Do not call browser_navigate without a target_id returned by openwork_browser_open_url. Do not use browser_* tools on the OpenWork app target (avoid targets with title "OpenWork" or URLs containing ":5173/#/").`;
 
 // ── UI control bridge discovery ──
 
@@ -250,6 +255,21 @@ export const OpenWorkExtensionsPreview = async () => ({
         const result = await uiBridgeRequest("/execute", {
           method: "POST",
           body: { actionId, args: args ?? {} },
+        });
+        return JSON.stringify(result, null, 2);
+      },
+    },
+    openwork_browser_open_url: {
+      description: "Open a URL in the OpenWork built-in browser and return the exact CDP browser_url and target_id to use for browser_* automation tools. Always use this before browser_snapshot/click/fill/eval for web browsing tasks.",
+      args: browserOpenUrlArgsSchema.shape,
+      async execute(rawArgs: unknown) {
+        const args = browserOpenUrlArgsSchema.parse(rawArgs);
+        const result = await uiBridgeRequest("/execute", {
+          method: "POST",
+          body: {
+            actionId: "browser.open_url",
+            args: { url: args.url, provider: args.provider ?? "builtin" },
+          },
         });
         return JSON.stringify(result, null, 2);
       },
