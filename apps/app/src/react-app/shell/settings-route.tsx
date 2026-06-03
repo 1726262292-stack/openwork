@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "@/components/ui/sonner";
 
-import { isBuiltInOpenWorkExtension, SUGGESTED_PLUGINS } from "@/app/constants";
+import { SUGGESTED_PLUGINS } from "@/app/constants";
 import type { EnablementContext } from "@/app/enablement";
 import { createClient } from "@/app/lib/opencode";
 import {
@@ -1708,10 +1708,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     };
   }, [computerUsePermissions, connectionsSnapshot, extensionStateVersion, providerConnectedIds, userEnvKeys]);
   const builtInExtensionsDisabled = checkDesktopRestriction({ restriction: "allowBuiltInExtensions" });
-  const builtInMarketplaceEntries = useMemo(
-    () => connectionsStore.quickConnect.filter(isBuiltInOpenWorkExtension),
-    [connectionsStore.quickConnect],
-  );
   const restartExtensionLocalServer = useCallback(async () => {
     if (!isDesktopRuntime()) return false;
     try {
@@ -2233,7 +2229,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 extensions={extensionsStore}
                 session={denSession}
                 onOpenAccount={openCloudAccountSettings}
-                builtInEntries={builtInMarketplaceEntries}
                 enablementContext={enablementContext}
                 builtInExtensionsDisabled={builtInExtensionsDisabled}
                 builtInConnectingName={connectionsSnapshot.mcpConnectingName}
@@ -2258,7 +2253,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             extensions={extensionsStore}
             session={denSession}
             onOpenAccount={openCloudAccountSettings}
-            builtInEntries={builtInMarketplaceEntries}
             enablementContext={enablementContext}
             builtInExtensionsDisabled={builtInExtensionsDisabled}
             builtInConnectingName={connectionsSnapshot.mcpConnectingName}

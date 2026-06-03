@@ -339,6 +339,123 @@ type PluginMarketplaceSummary = {
   name: string
 }
 
+const DEFAULT_OPENWORK_MARKETPLACE_NAME = "OpenWork Marketplace"
+const DEFAULT_OPENWORK_MARKETPLACE_DESCRIPTION = "Built-in OpenWork AI capabilities available in the desktop app after sign-in."
+
+const DEFAULT_OPENWORK_EXTENSION_MANIFESTS = [
+  {
+    schemaVersion: 1,
+    id: "openwork-browser",
+    name: "OpenWork Browser",
+    description: "Automate the built-in browser panel that stays visible inside OpenWork.",
+    source: { format: "openwork-builtin", origin: "builtin", trusted: true },
+    icon: { src: "/openwork-mark.svg" },
+    composer: { prompt: "Use the OpenWork Browser extension to " },
+    setup: { instructions: "OpenWork Browser is ready by default in desktop workspaces." },
+    resources: [{ type: "opencode-plugin", id: "opencode-chrome-devtools", packageName: "opencode-chrome-devtools", required: true }],
+    contributions: [
+      { type: "settings-panel", ref: "openwork.browser.settings", location: "settings-detail" },
+      { type: "session-side-panel", ref: "openwork.browser.panel", location: "session-right-pane" },
+      { type: "composer-prompt", prompt: "Use the OpenWork Browser extension to ", location: "composer" },
+    ],
+    enablement: [{ type: "toggle-enabled", ref: "openwork-browser", label: "Enabled" }],
+    lifecycle: { reload: ["plugins", "agents"], detection: ["plugin:opencode-chrome-devtools"] },
+    defaultEnabled: true,
+  },
+  {
+    schemaVersion: 1,
+    id: "computer-use",
+    name: "Computer Use",
+    description: "Mac only: control Mac apps through semantic accessibility refs, screenshots, background-safe clicks, keyboard input, and strict mode.",
+    source: { format: "openwork-builtin", origin: "builtin", trusted: true },
+    icon: { src: "/openwork-mark.svg" },
+    composer: { prompt: "Use Computer Use to " },
+    setup: { instructions: "Computer Use is Mac only. Grant Accessibility and Screen Recording permissions, then connect the local MCP server in this workspace." },
+    resources: [
+      { type: "mcp", id: "computer-use-mcp", label: "Computer Use MCP", mcpServerName: "computer-use", command: ["npx", "-y", "@openwork/handsfree", "mcp"], localCommandRef: "openwork.computerUseMcp", required: true },
+      { type: "native-binary", id: "computer-use-native", label: "macOS accessibility runtime", packageName: "@openwork/handsfree", required: true },
+    ],
+    contributions: [
+      { type: "setup-instructions", ref: "openwork.computerUse.setup", location: "settings-detail" },
+      { type: "composer-prompt", prompt: "Use Computer Use to ", location: "composer" },
+    ],
+    enablement: [
+      { type: "mcp-connected", ref: "computer-use", label: "MCP server connected" },
+      { type: "permission-granted", ref: "accessibility", label: "Accessibility permission" },
+      { type: "permission-granted", ref: "screenRecording", label: "Screen Recording permission" },
+    ],
+    lifecycle: { reload: ["mcp"], detection: ["mcp:computer-use"] },
+    platform: ["darwin"],
+  },
+  {
+    schemaVersion: 1,
+    id: "openai-image-gen",
+    name: "OpenAI Image Gen",
+    description: "Generate image artifacts with gpt-image-2.",
+    source: { format: "openwork-builtin", origin: "builtin", trusted: true },
+    icon: { src: "/ext-openai.svg" },
+    composer: { prompt: "Use the OpenAI Image Gen extension to " },
+    setup: { instructions: "Add an OpenAI API key, then agents can generate image artifacts through OpenWork extension actions." },
+    resources: [
+      { type: "secret", id: "openai-api-key", envKey: "OPENAI_API_KEY", required: true },
+      { type: "local-service", id: "openai-image-generation-service", label: "OpenAI image generation", required: true },
+      { type: "tool", id: "openai-image-generate", label: "Image generation", required: true },
+    ],
+    contributions: [
+      { type: "settings-panel", ref: "openwork.imageGen.settings", location: "settings-detail" },
+      { type: "composer-prompt", prompt: "Use the OpenAI Image Gen extension to ", location: "composer" },
+    ],
+    enablement: [{ type: "env-set", ref: "OPENAI_API_KEY", label: "OpenAI API key" }],
+    lifecycle: { reload: ["config"], detection: ["env:OPENAI_API_KEY"] },
+  },
+  {
+    schemaVersion: 1,
+    id: "google-workspace",
+    name: "Google Workspace",
+    description: "Let OpenWork help with meetings, selected Drive files, and Gmail drafts.",
+    source: { format: "openwork-builtin", origin: "builtin", trusted: true },
+    icon: { simpleIconSlug: "google" },
+    composer: { prompt: "Use Google Workspace to " },
+    setup: { instructions: "Connect your Google account to use Calendar, Drive, and Gmail drafts in OpenWork." },
+    resources: [
+      { type: "provider", id: "google-oauth", label: "Google account", providerId: "google-workspace", required: true },
+      { type: "local-service", id: "google-workspace-connector", label: "Secure local connection", required: true },
+      { type: "tool", id: "google-calendar-read", label: "Calendar", required: true },
+      { type: "tool", id: "google-gmail-drafts", label: "Gmail drafts", required: true },
+      { type: "tool", id: "google-drive-selected-files", label: "Selected Drive files", required: true },
+    ],
+    contributions: [
+      { type: "settings-panel", ref: "openwork.googleWorkspace.settings", location: "settings-detail" },
+      { type: "composer-prompt", prompt: "Use Google Workspace to ", location: "composer" },
+    ],
+    lifecycle: { reload: ["config"], detection: ["provider:google-workspace"] },
+  },
+  {
+    schemaVersion: 1,
+    id: "ollama",
+    name: "Ollama",
+    description: "Local model provider at http://localhost:11434.",
+    source: { format: "openwork-builtin", origin: "builtin", trusted: true },
+    icon: { src: "/ext-ollama.svg" },
+    composer: { prompt: "Use the Ollama extension to " },
+    setup: { instructions: "Run Ollama locally, choose or pull a model, then add it as an OpenCode provider." },
+    resources: [
+      { type: "local-service", id: "ollama-api", label: "Ollama API", description: "http://localhost:11434", required: true },
+      { type: "provider", id: "ollama", providerId: "ollama", packageName: "@ai-sdk/openai-compatible", required: true },
+    ],
+    contributions: [
+      { type: "settings-panel", ref: "openwork.ollama.settings", location: "settings-detail" },
+      { type: "composer-prompt", prompt: "Use the Ollama extension to ", location: "composer" },
+    ],
+    enablement: [{ type: "provider-connected", ref: "ollama", label: "Ollama provider" }],
+    lifecycle: { reload: ["config"], detection: ["provider:ollama"] },
+  },
+] as const
+
+function defaultOpenWorkManifestForPlugin(row: PluginRow) {
+  return DEFAULT_OPENWORK_EXTENSION_MANIFESTS.find((manifest) => manifest.name === row.name) ?? null
+}
+
 function extensionResourceTypeForConfigObject(objectType: string) {
   switch (objectType) {
     case "skill":
@@ -355,6 +472,17 @@ function extensionResourceTypeForConfigObject(objectType: string) {
 }
 
 function serializePluginExtension(row: PluginRow, componentCounts: Record<string, number>) {
+  const builtInManifest = defaultOpenWorkManifestForPlugin(row)
+  if (builtInManifest) {
+    return {
+      description: builtInManifest.description,
+      id: builtInManifest.id,
+      manifest: builtInManifest,
+      name: builtInManifest.name,
+      sourceFormat: "openwork-builtin",
+    }
+  }
+
   const sourceFormat = "claude-plugin"
   const description = row.description?.trim() || `${row.name} extension`
   const resources = Object.entries(componentCounts).flatMap(([objectType, count]) => {
@@ -1491,6 +1619,8 @@ export async function removePluginMembership(input: { configObjectId: ConfigObje
 }
 
 export async function listMarketplaces(input: { context: PluginArchActorContext; cursor?: string; limit?: number; q?: string; status?: MarketplaceRow["status"] }) {
+  await ensureDefaultOpenWorkMarketplace(input.context)
+
   const rows = await db
     .select()
     .from(MarketplaceTable)
@@ -1520,6 +1650,163 @@ export async function listMarketplaces(input: { context: PluginArchActorContext;
   }
 
   return pageItems(visible, input.cursor, input.limit)
+}
+
+async function ensureDefaultOpenWorkMarketplace(context: PluginArchActorContext) {
+  const organizationId = context.organizationContext.organization.id
+  const createdByOrgMembershipId = context.organizationContext.currentMember.id
+  const now = new Date()
+
+  let marketplace = (await db
+    .select()
+    .from(MarketplaceTable)
+    .where(and(
+      eq(MarketplaceTable.organizationId, organizationId),
+      eq(MarketplaceTable.name, DEFAULT_OPENWORK_MARKETPLACE_NAME),
+      isNull(MarketplaceTable.deletedAt),
+    ))
+    .limit(1))[0]
+
+  if (!marketplace) {
+    const marketplaceRow = {
+      createdAt: now,
+      createdByOrgMembershipId,
+      deletedAt: null,
+      description: DEFAULT_OPENWORK_MARKETPLACE_DESCRIPTION,
+      id: createDenTypeId("marketplace"),
+      name: DEFAULT_OPENWORK_MARKETPLACE_NAME,
+      organizationId,
+      status: "active" as const,
+      updatedAt: now,
+    }
+    await db.insert(MarketplaceTable).values(marketplaceRow)
+    marketplace = marketplaceRow
+  }
+
+  await ensureOrgWideMarketplaceAccess({ context, marketplaceId: marketplace.id, role: "viewer" })
+
+  for (const manifest of DEFAULT_OPENWORK_EXTENSION_MANIFESTS) {
+    let plugin = (await db
+      .select()
+      .from(PluginTable)
+      .where(and(
+        eq(PluginTable.organizationId, organizationId),
+        eq(PluginTable.name, manifest.name),
+        isNull(PluginTable.deletedAt),
+      ))
+      .limit(1))[0]
+
+    if (!plugin) {
+      const pluginRow = {
+        createdAt: now,
+        createdByOrgMembershipId,
+        deletedAt: null,
+        description: manifest.description,
+        id: createDenTypeId("plugin"),
+        name: manifest.name,
+        organizationId,
+        status: "active" as const,
+        updatedAt: now,
+      }
+      await db.insert(PluginTable).values(pluginRow)
+      plugin = pluginRow
+    }
+
+    await ensureOrgWidePluginAccess({ context, pluginId: plugin.id, role: "viewer" })
+
+    const existingMembership = (await db
+      .select()
+      .from(MarketplacePluginTable)
+      .where(and(
+        eq(MarketplacePluginTable.marketplaceId, marketplace.id),
+        eq(MarketplacePluginTable.pluginId, plugin.id),
+      ))
+      .limit(1))[0]
+
+    if (existingMembership) {
+      if (existingMembership.removedAt) {
+        await db.update(MarketplacePluginTable).set({ membershipSource: "system", removedAt: null }).where(eq(MarketplacePluginTable.id, existingMembership.id))
+      }
+      continue
+    }
+
+    await db.insert(MarketplacePluginTable).values({
+      createdAt: now,
+      createdByOrgMembershipId,
+      id: createDenTypeId("marketplacePlugin"),
+      marketplaceId: marketplace.id,
+      membershipSource: "system",
+      organizationId,
+      pluginId: plugin.id,
+      removedAt: null,
+    })
+  }
+}
+
+async function ensureOrgWideMarketplaceAccess(input: {
+  context: PluginArchActorContext
+  marketplaceId: MarketplaceId
+  role: PluginArchRole
+}) {
+  const createdAt = new Date()
+  const createdByOrgMembershipId = input.context.organizationContext.currentMember.id
+  const organizationId = input.context.organizationContext.organization.id
+
+  const existing = (await db
+    .select()
+    .from(MarketplaceAccessGrantTable)
+    .where(and(eq(MarketplaceAccessGrantTable.marketplaceId, input.marketplaceId), eq(MarketplaceAccessGrantTable.orgWide, true)))
+    .limit(1))[0]
+  if (existing) {
+    if (existing.removedAt || existing.role !== input.role) {
+      await db.update(MarketplaceAccessGrantTable).set({ createdByOrgMembershipId, removedAt: null, role: input.role }).where(eq(MarketplaceAccessGrantTable.id, existing.id))
+    }
+    return
+  }
+  await db.insert(MarketplaceAccessGrantTable).values({
+    createdAt,
+    createdByOrgMembershipId,
+    id: createDenTypeId("marketplaceAccessGrant"),
+    marketplaceId: input.marketplaceId,
+    organizationId,
+    orgMembershipId: null,
+    orgWide: true,
+    role: input.role,
+    teamId: null,
+  })
+}
+
+async function ensureOrgWidePluginAccess(input: {
+  context: PluginArchActorContext
+  pluginId: PluginId
+  role: PluginArchRole
+}) {
+  const createdAt = new Date()
+  const createdByOrgMembershipId = input.context.organizationContext.currentMember.id
+  const organizationId = input.context.organizationContext.organization.id
+
+  const existing = (await db
+    .select()
+    .from(PluginAccessGrantTable)
+    .where(and(eq(PluginAccessGrantTable.pluginId, input.pluginId), eq(PluginAccessGrantTable.orgWide, true)))
+    .limit(1))[0]
+  if (existing) {
+    if (existing.removedAt || existing.role !== input.role) {
+      await db.update(PluginAccessGrantTable).set({ createdByOrgMembershipId, removedAt: null, role: input.role }).where(eq(PluginAccessGrantTable.id, existing.id))
+    }
+    return
+  }
+  await db.insert(PluginAccessGrantTable).values({
+    createdAt,
+    createdByOrgMembershipId,
+    id: createDenTypeId("pluginAccessGrant"),
+    organizationId,
+    orgMembershipId: null,
+    orgWide: true,
+    pluginId: input.pluginId,
+    role: input.role,
+    teamId: null,
+  })
 }
 
 export async function getMarketplaceDetail(context: PluginArchActorContext, marketplaceId: MarketplaceId) {
