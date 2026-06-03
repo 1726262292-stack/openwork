@@ -236,6 +236,15 @@ function getArtifactPathsFromMessage(message: UIMessage) {
   return paths.map((path) => path?.trim().toLowerCase()).filter((path) => path) as string[];
 }
 
+function getArtifactTextFromMessages(messages: UIMessage[]) {
+  return messages
+    .flatMap((message) => message.parts.flatMap((part) => {
+      if (part.type === "text") return [part.text.toLowerCase()];
+      return [];
+    }))
+    .join("\n");
+}
+
 function addArtifact(
   artifacts: Map<string, ArtifactItem>,
   path: string,
@@ -260,6 +269,7 @@ function addArtifact(
 
 export function getArtifactsFromMessages(messages: UIMessage[], openTargets: OpenTarget[] = []) {
   const artifacts = new Map<string, ArtifactItem>();
+  const artifactText = getArtifactTextFromMessages(messages);
 
   for (const message of messages) {
     for (const path of getArtifactPathsFromMessage(message)) {
@@ -269,9 +279,9 @@ export function getArtifactsFromMessages(messages: UIMessage[], openTargets: Ope
 
   const fallbackMessageId = messages[messages.length - 1]?.id ?? "open-target";
   for (const target of openTargets) {
-    if (isCollectibleArtifactTarget(target)) {
-      addArtifact(artifacts, target.value, fallbackMessageId, openTargets, target);
-    }
+    if (!isCollectibleArtifactTarget(target)) continue;
+    if (!artifactText.includes(normalizeArtifactPath(target.value).toLowerCase())) continue;
+    addArtifact(artifacts, target.value, fallbackMessageId, openTargets, target);
   }
 
   return [...artifacts.values()];

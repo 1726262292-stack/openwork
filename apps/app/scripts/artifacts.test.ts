@@ -58,4 +58,24 @@ describe("getArtifactsFromMessages", () => {
       exists: true,
     });
   });
+
+  it("does not include verified targets unrelated to the local message group", () => {
+    const messages: UIMessage[] = [{
+      id: "msg_later",
+      role: "assistant",
+      parts: [{ type: "text", text: "Done.", state: "done" }],
+    }];
+    const targets: OpenTarget[] = [{
+      id: "file:reports/earlier.csv",
+      kind: "file",
+      value: "reports/earlier.csv",
+      name: "earlier.csv",
+      preview: "sheet",
+      confidence: 95,
+      reason: "write tool metadata",
+      exists: true,
+    }];
+
+    expect(getArtifactsFromMessages(messages, targets)).toEqual([]);
+  });
 });
