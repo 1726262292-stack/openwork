@@ -8,6 +8,14 @@ interface ReadFileToolProps {
 export function ReadFileTool({ part }: ReadFileToolProps) {
   const filename = parseFilename(part.input.filePath);
 
+  if (part.state === "input-streaming") {
+    return (
+      <div>
+        <span className="text-muted-foreground">Reading {filename}</span> 
+      </div>
+    )
+  }
+
   if (part.state === "output-error") {
     return (
       <div>
@@ -49,6 +57,14 @@ interface WriteFileToolProps {
 
 export function WriteFileTool({ part }: WriteFileToolProps) {
   const filename = parseFilename(part.input.filePath);
+
+  if (part.state === "input-streaming") {
+    return (
+      <div>
+        <span className="text-muted-foreground">Writing {filename}</span> 
+      </div>
+    )
+  }
 
   if (part.state === "output-error") {
     return (

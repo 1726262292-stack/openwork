@@ -1,67 +1,100 @@
 "use client"
 
-import { Tool } from "@/components/ui/tool"
 import type { QuestionToolPart } from "@/lib/build-in-tools"
-import { toolDisplayTitle, truncateText } from "@/components/tools/path"
+import { truncateText } from "@/components/tools/path"
+import {
+  CollapsibleTool,
+  CollapsibleToolContent,
+  CollapsibleToolStep,
+  CollapsibleToolTrigger,
+} from "@/components/tools/collapsible-tool"
 
 interface QuestionToolProps {
   part: QuestionToolPart
 }
 
-function getFirstQuestionLabel(part: QuestionToolPart) {
-  const first = part.input.questions[0]
-  if (!first) {
-    return undefined
-  }
-
-  const header = first.header.trim()
-  const question = first.question.trim()
-  const label = header || question
-  return label ? truncateText(label, 56) : undefined
+interface ParsedQuestionAnswer {
+  question: string
+  answer: string
 }
 
-function getQuestionToolTitle(part: QuestionToolPart): string | null {
-  const label = getFirstQuestionLabel(part)
-  const count = part.input.questions.length
+const QUESTION_ANSWER_PATTERN = /"([^"]*)"="([^"]*)"/g
+
+function parseQuestionOutput(output: string): ParsedQuestionAnswer[] {
+  const answers: ParsedQuestionAnswer[] = []
+
+  for (const match of output.matchAll(QUESTION_ANSWER_PATTERN)) {
+    const question = match[1]
+    const answer = match[2]
+    if (question && answer) {
+      answers.push({ question, answer })
+    }
+  }
+
+  return answers
+}
+
+export function QuestionTool({ part }: QuestionToolProps) {
+  if (part.state === "input-streaming") {
+    return (
+      <div>
+        <span className="text-muted-foreground">
+          Asking question...
+        </span>
+      </div>
+    )
+  }
 
   if (part.state === "output-error") {
-    return label ?? "Asked a question"
+    return (
+      <div>
+        <span className="text-muted-foreground">
+          Question attempted
+        </span>
+      </div>
+    )
   }
 
   if (part.state !== "output-available") {
     return null
   }
 
-  if (label) {
-    return label
-  }
+  const answers = parseQuestionOutput(part.output)
 
-  return count > 1 ? `Asked ${count} questions` : "Asked a question"
-}
-
-function getQuestionToolDetail(part: QuestionToolPart): string | undefined {
-  const count = part.input.questions.length
-
-  if (part.state === "output-available") {
-    return "Answered"
-  }
-
-  if (count > 1) {
-    return `${count} questions`
-  }
-
-  return undefined
-}
-
-export function QuestionTool({ part }: QuestionToolProps) {
   return (
-    <Tool
-      toolPart={part}
-      title={toolDisplayTitle(
-        getQuestionToolTitle(part),
-        "question",
-        getQuestionToolDetail(part)
-      )}
-    />
+    <CollapsibleTool>
+      <CollapsibleToolStep className="flex flex-col gap-2">
+        <CollapsibleToolTrigger disabled={answers.length === 0}>
+          <span className="flex min-w-0 gap-2">
+            <span className="shrink-0">
+              {answers.length > 1
+                ? `Answered ${answers.length} questions`
+                : `Answered ${
+                  part.input.questions[0]?.header || part.input.questions[0]?.question
+                    ? truncateText(part.input.questions[0]?.header || part.input.questions[0]?.question || "", 56)
+                    : part.input.questions.length > 1
+                      ? `${part.input.questions.length} questions`
+                      : "a question"
+                }`}
+            </span>
+            {answers.length === 1 ? (
+              <span className="grow truncate opacity-80">{answers[0].answer}</span>
+            ) : null}
+          </span>
+        </CollapsibleToolTrigger>
+        {answers.length > 0 ? (
+          <CollapsibleToolContent className="bg-muted rounded-lg p-2">
+            <div className="flex flex-col gap-2 text-xs">
+              {answers.map((item) => (
+                <div key={item.question} className="space-y-1">
+                  <div className="font-medium">{item.question}</div>
+                  <div className="opacity-80">{item.answer}</div>
+                </div>
+              ))}
+            </div>
+          </CollapsibleToolContent>
+        ) : null}
+      </CollapsibleToolStep>
+    </CollapsibleTool>
   )
 }

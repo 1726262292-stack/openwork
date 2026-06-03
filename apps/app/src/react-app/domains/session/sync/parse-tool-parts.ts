@@ -5,7 +5,7 @@ import { safeStringify } from "@/app/utils";
 
 export const STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
 
-function shouldDeferInProgressTool(part: ToolPart) {
+export function shouldDeferInProgressTool(part: ToolPart) {
   if (part.state.status === "completed" || part.state.status === "error") {
     return false;
   }

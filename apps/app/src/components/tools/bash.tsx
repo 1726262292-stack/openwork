@@ -22,9 +22,9 @@ export function BashTool({ part }: BashToolProps) {
             <span className="shrink-0">
               {part.input.description}
             </span>
-            <span className="opacity-80 truncate grow">
+            {/* <span className="opacity-80 truncate grow">
               {part.input.command}
-            </span>
+            </span> */}
           </span>
         </CollapsibleToolTrigger>
         <CollapsibleToolContent className="bg-muted rounded-lg p-2">
