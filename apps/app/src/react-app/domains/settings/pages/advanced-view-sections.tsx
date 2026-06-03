@@ -186,6 +186,7 @@ function RuntimeConfigSourceBlock(props: {
   exists?: boolean;
   keys: string[];
   config: Record<string, unknown>;
+  details?: ReactNode;
 }) {
   return (
     <div className="space-y-2 rounded-xl border border-gray-6 bg-gray-1/70 p-3">
@@ -195,6 +196,7 @@ function RuntimeConfigSourceBlock(props: {
         {props.path ? <div className="mt-1 break-all font-mono text-[11px] text-gray-8">{props.path}</div> : null}
         {props.exists !== undefined ? <div className="text-[11px] text-gray-9">{props.exists ? "Found" : "Not found"}</div> : null}
         <div className="text-[11px] text-gray-9">Keys: {formatKeys(props.keys)}</div>
+        {props.details}
       </div>
       <RuntimeConfigSummary config={props.config} />
       <details className="rounded-lg bg-gray-3 p-2">
@@ -292,6 +294,22 @@ export function AdvancedRuntimeMigrationSection(props: AdvancedRuntimeMigrationS
                   description="OpenWork-managed runtime values stored outside workspace files."
                   keys={props.configStatus.sources.runtimeDatabase.keys}
                   config={props.configStatus.sources.runtimeDatabase.config}
+                  details={props.configStatus.sources.runtimeDatabase.database ? (
+                    <div className="mt-2 space-y-1 text-[11px] text-gray-9">
+                      <div className="break-all font-mono">{props.configStatus.sources.runtimeDatabase.database.path}</div>
+                      <div>Schema version: {props.configStatus.sources.runtimeDatabase.database.schemaVersion}</div>
+                      <div>
+                        Tables: {Object.entries(props.configStatus.sources.runtimeDatabase.database.tables)
+                          .map(([name, count]) => `${name}: ${count}`)
+                          .join(", ")}
+                      </div>
+                      <div>
+                        Migrations: {props.configStatus.sources.runtimeDatabase.database.migrations
+                          .map((migration) => `${migration.version} ${migration.name}`)
+                          .join(", ") || "none"}
+                      </div>
+                    </div>
+                  ) : null}
                 />
                 <RuntimeConfigSourceBlock
                   title="OpenWork injected config"

@@ -204,7 +204,16 @@ export type OpenworkRuntimeConfigStatus = {
   sources?: {
     projectOpencode: { path: string; exists: boolean; keys: string[]; config: Record<string, unknown> };
     globalOpencode: { path: string; exists: boolean; keys: string[]; config: Record<string, unknown> };
-    runtimeDatabase: { keys: string[]; config: Record<string, unknown> };
+    runtimeDatabase: {
+      keys: string[];
+      config: Record<string, unknown>;
+      database?: {
+        path: string;
+        schemaVersion: number;
+        migrations: { version: number; name: string; appliedAt: number }[];
+        tables: Record<string, number>;
+      };
+    };
     injected: { keys: string[]; config: Record<string, unknown> };
   };
   legacyOpenwork: {

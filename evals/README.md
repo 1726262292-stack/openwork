@@ -99,3 +99,6 @@ takes `browser_url` as the first argument.
 - [`environment-variable-flows.md`](./environment-variable-flows.md) — local
   environment variable CRUD, masking, validation, apply/restart behavior, and
   remote-workspace secret boundaries.
+- [`runtime-db-flows.md`](./runtime-db-flows.md) — runtime SQLite DB behavior for
+  MCP/plugin/provider injection, OpenWork workspace metadata, diagnostics, and
+  upgrade safety.

@@ -72,6 +72,7 @@ import {
   type RuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
+import { getRuntimeDbDiagnostics } from "./runtime-db.js";
 import {
   mergeOpenworkWorkspaceConfigs,
   readOpenworkWorkspaceConfig,
@@ -2673,6 +2674,7 @@ function createRoutes(
     const globalOpencode = (await readJsoncFile(globalOpencodePath, {} as Record<string, unknown>, { allowInvalid: true })).data;
     const effectiveRuntime = await buildOpenworkRuntimeConfigObject(config, workspace.id);
     const user = userRuntimeConfigFromOpencodeConfig(persistedOpencode);
+    const runtimeDb = await getRuntimeDbDiagnostics(config);
 
     return jsonResponse({
       runtime,
@@ -2694,6 +2696,7 @@ function createRoutes(
         runtimeDatabase: {
           keys: runtimeConfigKeys(runtime),
           config: runtime,
+          database: runtimeDb,
         },
         injected: {
           keys: runtimeConfigKeys(effectiveRuntime),
