@@ -107,6 +107,28 @@ Expected outcome:
 - The first value moment is tied to a task or extension action, not only a list
   item changing status.
 
+## Scenario D: provision a custom model provider to clients
+
+1. In Den Web or through Den API, create a custom `@ai-sdk/openai-compatible`
+   provider with an organization-managed API key and at least one known-working
+   model.
+2. In Electron, open Settings -> Cloud Providers.
+3. Confirm the custom provider appears with `Cloud` provenance and `Credential
+   ready`.
+4. Import the provider, reload if prompted, and select its model in the session
+   composer.
+5. Send a short prompt that requires a real model response, for example `Reply
+   exactly: Cloud custom provider value OK`.
+
+Expected outcome:
+
+- The model response completes successfully with the requested text or an
+  equivalent useful answer.
+- The session metadata shows the imported `lpr_*` provider id and selected model.
+- No provider key is written to visible config or screenshots.
+- The run does not fail with provider `401`, missing `Authorization`, or missing
+  API key errors after the provider showed `Credential ready`.
+
 ## Works criteria
 
 The flow works if all of these are true:
@@ -116,6 +138,8 @@ The flow works if all of these are true:
 - At least one org-provisioned skill, provider, extension, or plugin appears in
   the desktop client.
 - The client can start a task using the provisioned capability.
+- If the provisioned capability is a custom cloud provider, the task must reach
+  a real model response, not only show the provider as connected.
 
 ## Good criteria
 
