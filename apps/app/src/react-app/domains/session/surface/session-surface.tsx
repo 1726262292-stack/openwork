@@ -71,6 +71,15 @@ const EMPTY_TRANSCRIPT: UIMessage[] = [];
 const IDLE_STATUS: SessionStatus = { type: "idle" };
 const DEFAULT_COMPOSER_CONTROL_TEXT = "Help me outline the next OpenWork task.";
 
+function messageArtifactRefreshFingerprint(messages: UIMessage[]) {
+  return messages
+    .map((message) => {
+      const textLength = message.parts.reduce((total, part) => part.type === "text" ? total + part.text.length : total, 0);
+      return `${message.id}:${message.parts.length}:${textLength}`;
+    })
+    .join("|");
+}
+
 type SessionError = {
   message: string;
   kind?: "model-not-found" | "generic";
@@ -556,9 +565,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
     [snapshot, transcriptState],
   );
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
+  const artifactRefreshFingerprint = useMemo(() => messageArtifactRefreshFingerprint(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
-    () => openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|"),
-    [openTargets],
+    () => `${artifactRefreshFingerprint}::${openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|")}`,
+    [artifactRefreshFingerprint, openTargets],
   );
   const autoOpenTarget = selectAutoOpenTarget(verifiedOpenTargets);
   const pendingSessionLoad = !snapshot && snapshotQuery.isLoading && renderedMessages.length === 0;
