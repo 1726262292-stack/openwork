@@ -78,6 +78,7 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
   );
 }
 
+
 function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -86,7 +87,7 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
   const externalPath = useMemo(() => target.kind === "file" ? absoluteWorkspacePath(workspaceRoot, target.value) : target.value, [target.kind, target.value, workspaceRoot]);
 
   const { data, error, isError, isLoading } = useQuery<ArtifactQueryState>({
-    queryKey: ["artifact-panel", workspaceId, target.id] as const,
+    queryKey: ["artifact-panel", workspaceId, target.id, target.updatedAt ?? null] as const,
     queryFn: async () => {
       if (target.kind === "url") {
         throw new Error("URLs open in browser tabs.");
@@ -369,4 +370,3 @@ function SheetEditor({ className, ...props }: SheetEditorProps) {
     </Suspense>
   );
 }
-
