@@ -159,3 +159,52 @@ Expected outcome:
 - At least one representative screenshot must be visually inspected before publishing links.
 - If a sandbox stops, artifact proxy URLs become stale. Restart the sandbox, restart the artifact server on `8090`, and publish fresh URLs.
 - Do not claim a full pass from a recording that uses an auth bridge. Separate the verdict into Den handoff, desktop Marketplace sync, live plugin import, and chat/runtime.
+
+## 8-star experience target
+
+The current flow proves the cloud-provisioned Marketplace concept, but an
+8-star founder/designer demo should feel like one continuous product journey:
+
+1. Den sign-in loads without proxy/auth ambiguity and uses the same visual language as desktop.
+2. Den explains in plain language: Marketplaces contain plugins; OpenWork Marketplace is included; org marketplaces appear after desktop sign-in.
+3. The handoff page has one obvious primary action: `Open desktop app`, with a secondary `Copy sign-in code` fallback.
+4. Desktop opens directly into a connected state or a clear auth-completion state, not a generic settings page.
+5. Desktop shows a short success moment: `Connected to Acme Robotics` and `Marketplace synced`.
+6. Marketplace is pre-populated without manual refresh, with `OpenWork Marketplace` grouped separately from org marketplaces.
+7. Built-ins look first-party and ready, with `Built-in` status, no install/remove actions, and clear setup expectations.
+8. A live org plugin can be added with one click, then immediately appears in My Extensions and the composer/tooling surface.
+9. The user can send a task that uses the imported skill/plugin and gets a visible response.
+10. The whole flow can be recorded without native pickers, hidden browser state, manual token injection, or terminal-only proof.
+
+Pass/fail for the 8-star demo should be based on the human journey, not just API
+state. If the user cannot understand what happened and why it matters from the
+recording alone, the experience is not 8-star yet.
+
+## Future: full server-owned extensions
+
+This PR intentionally makes Den the source of discovery and assignment for
+built-ins, but it does not move all built-in implementation code to Den. Den
+stores and returns OpenWork extension manifests; the desktop still owns local
+execution for first-party built-ins such as Browser, Computer Use, image
+generation, Google Workspace, and Ollama.
+
+To move the entire extension concept server-side in the future, we would need:
+
+- A versioned extension package model, not just manifest projection: resources, UI contributions, tools, commands, MCP definitions, permissions, setup steps, and compatibility metadata.
+- A trusted distribution and signing story so desktop can safely install or update extension code/resources from Den.
+- A runtime boundary for extension execution: local-only, remote worker, or hybrid, with explicit capability grants and audit logs.
+- A migration path for existing desktop built-ins so first-party code can be represented as Den-managed packages without breaking offline/local-first use.
+- A desktop extension host that can render server-defined contribution points while preserving native/local affordances.
+- Policy controls for admins: allow/deny extensions, pin versions, stage rollouts, require approval, and revoke compromised versions.
+- Update and rollback semantics: how a workspace moves from extension version N to N+1, and how materialized `.opencode` files are reconciled.
+- Observability: install status, resource materialization status, runtime health, and failure reasons visible in both Den and desktop.
+- Offline behavior: built-ins and already-installed org extensions should keep working when Den is unreachable, while clearly showing sync state.
+- Security review for remote code, secrets, OAuth providers, MCP endpoints, file writes, and cross-workspace data access.
+
+The likely phased path is:
+
+1. Keep this PR's model: Den owns Marketplace membership and manifests; desktop owns built-in execution.
+2. Add explicit extension package/version records in Den for org plugins and first-party built-ins.
+3. Teach desktop to install versioned Den packages into an extension host with signed resource manifests.
+4. Move selected first-party built-ins from hardcoded desktop catalogs into signed first-party packages while keeping local fallback bundles.
+5. Add admin rollout, policy, audit, and rollback controls before allowing arbitrary executable extension code.
