@@ -1401,11 +1401,16 @@ function normalizeDesktopBootstrapConfig(input) {
     typeof input?.apiBaseUrl === "string" && input.apiBaseUrl.trim().length > 0
       ? input.apiBaseUrl.trim()
       : null;
+  const workspaceFolderOverride =
+    typeof input?.workspaceFolderOverride === "string" && input.workspaceFolderOverride.trim().length > 0
+      ? input.workspaceFolderOverride.trim()
+      : null;
 
   return {
     baseUrl,
     apiBaseUrl,
     requireSignin: FORCE_DESKTOP_REQUIRE_SIGNIN || input?.requireSignin === true,
+    workspaceFolderOverride,
   };
 }
 
@@ -1423,6 +1428,7 @@ async function getDesktopBootstrapConfig() {
       baseUrl: DEFAULT_DEN_BASE_URL,
       apiBaseUrl: null,
       requireSignin: DEFAULT_DESKTOP_REQUIRE_SIGNIN,
+      workspaceFolderOverride: null,
     };
   }
 }
