@@ -179,7 +179,7 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
 
     return token;
   });
-  const [sessionHydrated, setSessionHydrated] = useState(false);
+  const [sessionHydrated, setSessionHydrated] = useState(true);
   const [desktopAuthRequested, setDesktopAuthRequested] = useState(false);
   const [desktopAuthScheme, setDesktopAuthScheme] = useState("openwork");
   const [desktopRedirectBusy, setDesktopRedirectBusy] = useState(false);
@@ -1684,9 +1684,12 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
 
     const hydrateSession = async () => {
-      await refreshSession(true);
-      if (!cancelled) {
-        setSessionHydrated(true);
+      try {
+        await refreshSession(true);
+      } finally {
+        if (!cancelled) {
+          setSessionHydrated(true);
+        }
       }
     };
 
