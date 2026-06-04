@@ -149,10 +149,10 @@ export function OrganizationScreen() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-400">OpenWork Cloud</p>
                   <h1 className="mt-2 text-[2rem] font-semibold leading-none tracking-[-0.04em] text-gray-950 sm:text-3xl">
-                    Create your first organization.
+                    Name your team.
                   </h1>
                   <p className="mt-3 max-w-xl text-[13px] leading-6 text-gray-500 sm:text-sm">
-                    Name the workspace you want to set up. Billing only appears when you need team features or cloud hosting.
+                    You can rename it later. No credit card required.
                   </p>
                 </div>
               </div>
@@ -187,7 +187,7 @@ export function OrganizationScreen() {
                   >
                     {createBusy ? "Creating..." : "Continue"}
                   </button>
-                  <p className="text-sm text-gray-500">Signed in as {user?.email ?? "your account"}</p>
+
                 </div>
               </form>
             </section>
