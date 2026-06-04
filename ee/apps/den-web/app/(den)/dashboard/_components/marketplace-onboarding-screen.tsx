@@ -41,7 +41,7 @@ export function MarketplaceOnboardingScreen() {
             </div>
           </div>
 
-          <div className="rounded-[20px] border border-white/10 bg-white/[0.06] p-4 sm:rounded-[22px] sm:p-5">
+          <div className="hidden rounded-[20px] border border-white/10 bg-white/[0.06] p-4 sm:block sm:rounded-[22px] sm:p-5">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-300 text-[#07192C]">
                 <Monitor className="h-5 w-5" />
@@ -56,29 +56,29 @@ export function MarketplaceOnboardingScreen() {
       </section>
 
       {/* ── OpenWork Models pitch ────────────────────────────────── */}
-      <section className="mt-4 overflow-hidden rounded-[24px] border border-[#d7e2f5] bg-gradient-to-br from-[#F4F8FF] to-[#EEF3FF] p-5 shadow-sm sm:mt-6 sm:rounded-[28px] sm:p-6 md:p-8">
-        <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-center md:gap-8">
+      <section className="mt-3 overflow-hidden rounded-[20px] border border-[#d7e2f5] bg-gradient-to-br from-[#F4F8FF] to-[#EEF3FF] p-4 shadow-sm sm:mt-6 sm:rounded-[28px] sm:p-6 md:p-8">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-center md:gap-8">
           <div>
             <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#07192C] text-amber-300">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#07192C] text-amber-300 sm:h-9 sm:w-9 sm:rounded-xl">
                 <Sparkles className="h-4 w-4" />
               </div>
-              <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#41618F]">OpenWork Models</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#41618F] sm:text-[12px]">OpenWork Models</p>
             </div>
-            <h2 className="mt-3 text-[20px] font-semibold tracking-[-0.03em] text-[#07192C] sm:text-[24px]">
+            <h2 className="mt-2 text-[18px] font-semibold tracking-[-0.03em] text-[#07192C] sm:mt-3 sm:text-[24px]">
               Below-market-rate AI models, ready to go.
             </h2>
-            <p className="mt-2 text-[13px] leading-6 text-[#526582] sm:text-[14px]">
+            <p className="mt-1.5 text-[13px] leading-5 text-[#526582] sm:mt-2 sm:leading-6 sm:text-[14px]">
               The best open-source and frontier models to get work done. No API keys needed to start.
               Prefer your own provider? Bring your own keys instead.
             </p>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row md:flex-col">
-            <Link href={`/dashboard/inference`} className="inline-flex items-center justify-center gap-2 rounded-full bg-[#07192C] px-5 py-2.5 text-[13px] font-semibold text-white shadow-[0_14px_32px_-20px_rgba(1,22,39,0.45)] transition hover:bg-black">
-              <Zap className="h-4 w-4" /> Enable OpenWork Models
+          <div className="flex gap-2 sm:flex-row md:flex-col">
+            <Link href={`/dashboard/inference`} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[#07192C] px-4 py-2 text-[13px] font-semibold text-white shadow-[0_14px_32px_-20px_rgba(1,22,39,0.45)] transition hover:bg-black sm:px-5 sm:py-2.5 md:flex-none">
+              <Zap className="h-4 w-4" /> Enable models
             </Link>
-            <Link href={`/dashboard/custom-llm-providers`} className="inline-flex items-center justify-center gap-2 rounded-full border border-[#d8e0ec] px-5 py-2.5 text-[13px] font-semibold text-[#07192C] transition hover:bg-white">
-              Use your own keys
+            <Link href={`/dashboard/custom-llm-providers`} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-[#d8e0ec] px-4 py-2 text-[13px] font-semibold text-[#07192C] transition hover:bg-white sm:px-5 sm:py-2.5 md:flex-none">
+              Own keys
             </Link>
           </div>
         </div>
@@ -144,8 +144,8 @@ export function MarketplaceOnboardingScreen() {
         />
       </section>
 
-      {/* ── Starter repo + MCP (compact) ─────────────────────────── */}
-      <section className="mt-4 grid gap-3 sm:mt-6 sm:gap-4 lg:grid-cols-2">
+      {/* ── Starter repo + MCP (compact, hidden on mobile) ────────── */}
+      <section className="mt-4 hidden gap-3 sm:mt-6 sm:grid sm:gap-4 lg:grid-cols-2">
         <div className="rounded-[20px] border border-[#e2e7f0] bg-white p-5 shadow-sm sm:rounded-[22px] sm:p-6">
           <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#6C7890]">Starter repo</p>
           <h2 className="mt-2 text-[18px] font-semibold tracking-[-0.03em] text-[#07192C]">Try Knowledge Work Plugins</h2>
