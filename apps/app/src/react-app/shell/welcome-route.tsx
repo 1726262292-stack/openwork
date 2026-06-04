@@ -27,6 +27,7 @@ import { buildOpenworkWorkspaceBaseUrl, createOpenworkServerClient } from "../..
 import { buildDenAuthUrl, readDenSettings } from "../../app/lib/den";
 import { writeActiveWorkspaceId, writeLastSessionFor } from "./session-memory";
 import { workspaceSessionRoute } from "./workspace-routes";
+import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
 
 function folderNameFromPath(path: string) {
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -165,6 +166,13 @@ export function WelcomeRoute() {
           await workspaceSetSelected(createdId).catch(() => undefined);
           await workspaceSetRuntimeActive(createdId).catch(() => undefined);
           writeActiveWorkspaceId(createdId);
+        }
+        if (targetWorkspace) {
+          await ensureDesktopLocalOpenworkConnection({
+            route: "session",
+            workspace: targetWorkspace,
+            allWorkspaces: list.workspaces,
+          }).catch(() => undefined);
         }
         if (targetWorkspaceId && serverBaseUrl && serverToken) {
           try {
