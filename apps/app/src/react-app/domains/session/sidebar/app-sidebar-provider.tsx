@@ -5,6 +5,7 @@ import type { WorkspaceConnectionState } from "../../../../app/types";
 export type SidebarContextValue = {
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
+  splitSessionId: string | null;
   developerMode: boolean;
   showSessionActions?: boolean;
   sessionStatusById?: Record<string, string>;
@@ -19,6 +20,8 @@ export type SidebarContextValue = {
   onOpenDeleteSession?: (sessionId: string) => void;
   onArchiveSession?: (sessionId: string, archived: boolean) => void;
   onOpenCreateGroupModal?: (workspaceId: string) => void;
+  onSplitSession?: (workspaceId: string, sessionId: string) => void;
+  onCloseSplit?: (workspaceId: string) => void;
   onOpenRenameWorkspace: (workspaceId: string) => void;
   onShareWorkspace: (workspaceId: string) => void;
   onRevealWorkspace: (workspaceId: string) => void;

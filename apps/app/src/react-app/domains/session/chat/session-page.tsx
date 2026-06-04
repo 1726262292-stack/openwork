@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { Columns2, FileText, Globe, Mic2, Settings2, X, Zap } from "lucide-react";
+import { FileText, Globe, Mic2, Settings2, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { OPENWORK_EXTENSION_CATALOG } from "../../../../app/constants";
@@ -33,7 +33,7 @@ import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import ProviderAuthModal, { type ProviderAuthModalProps } from "../../connections/provider-auth/provider-auth-modal";
 import { RenameSessionModal } from "../modals/rename-session-modal";
 import { AppSidebar } from "../sidebar/app-sidebar";
-import { useSessionManagementStore } from "../sidebar/session-management-store";
+import { useSessionManagementStore, useSplitSessionId } from "../sidebar/session-management-store";
 import { SessionSurface, type SessionSurfaceProps } from "../surface/session-surface";
 import {
   SidebarInset,
@@ -70,10 +70,8 @@ const STARTUP_SKELETON_ROWS = [
 const GLOBAL_VOICE_SIDE_PANEL_KEY = "__openwork_voice__";
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
 
-type OpenSessionTab = {
-  workspaceId: string;
-  sessionId: string;
-};
+/** Drag data type for dragging sessions from the sidebar to the split drop zone. */
+const SESSION_SPLIT_DRAG_TYPE = "application/x-openwork-session-id";
 
 type StatusBarOverrides = Pick<
   StatusBarProps,
@@ -311,8 +309,8 @@ export function SessionPage(props: SessionPageProps) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [sessionActionId, setSessionActionId] = useState<string | null>(null);
-  const [sessionTabs, setSessionTabs] = useState<OpenSessionTab[]>([]);
-  const [splitSessionId, setSplitSessionId] = useState<string | null>(null);
+  const splitSessionId = useSplitSessionId(props.selectedWorkspaceId);
+  const setSplitSession = useSessionManagementStore((s) => s.setSplitSession);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [createGroupLabel, setCreateGroupLabel] = useState("");
   const [createGroupWorkspaceId, setCreateGroupWorkspaceId] = useState<string | null>(null);
@@ -561,28 +559,17 @@ export function SessionPage(props: SessionPageProps) {
     () => sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
     [props.selectedSessionId, props.sidebar.workspaceSessionGroups],
   );
-  useEffect(() => {
-    setSessionTabs((current) => {
-      const currentWorkspaceTabs = current.filter((tab) => tab.workspaceId === props.selectedWorkspaceId);
-      const next = props.selectedSessionId && !currentWorkspaceTabs.some((tab) => tab.sessionId === props.selectedSessionId)
-        ? [...currentWorkspaceTabs, { workspaceId: props.selectedWorkspaceId, sessionId: props.selectedSessionId }]
-        : currentWorkspaceTabs;
-      return next.filter((tab) => (
-        tab.sessionId === props.selectedSessionId ||
-        sessionExistsInWorkspace(props.sidebar.workspaceSessionGroups, tab.workspaceId, tab.sessionId)
-      ));
-    });
-  }, [props.selectedSessionId, props.selectedWorkspaceId, props.sidebar.workspaceSessionGroups]);
+  // Auto-clear stale split when the split session no longer exists or equals the active session.
   useEffect(() => {
     if (!splitSessionId) return;
     if (splitSessionId === props.selectedSessionId) {
-      setSplitSessionId(null);
+      setSplitSession(props.selectedWorkspaceId, null);
       return;
     }
     if (!sessionExistsInWorkspace(props.sidebar.workspaceSessionGroups, props.selectedWorkspaceId, splitSessionId)) {
-      setSplitSessionId(null);
+      setSplitSession(props.selectedWorkspaceId, null);
     }
-  }, [props.selectedSessionId, props.selectedWorkspaceId, props.sidebar.workspaceSessionGroups, splitSessionId]);
+  }, [props.selectedSessionId, props.selectedWorkspaceId, props.sidebar.workspaceSessionGroups, splitSessionId, setSplitSession]);
   const sessionActionTitle = useMemo(
     () => sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionActionId),
     [props.sidebar.workspaceSessionGroups, sessionActionId],
@@ -645,27 +632,16 @@ export function SessionPage(props: SessionPageProps) {
   );
   const canRenderSplitSurface = Boolean(canRenderReactSurface && splitSessionId && splitSessionId !== props.selectedSessionId);
 
-  const openSessionTab = useCallback((workspaceId: string, sessionId: string) => {
-    setSessionTabs((current) => {
-      const next = current.filter((tab) => tab.workspaceId === workspaceId);
-      if (next.some((tab) => tab.sessionId === sessionId)) return next;
-      return [...next, { workspaceId, sessionId }];
-    });
-    props.sidebar.onOpenSession(workspaceId, sessionId);
-  }, [props.sidebar]);
+  const handleSplitSession = useCallback((workspaceId: string, sessionId: string) => {
+    setSplitSession(workspaceId, sessionId);
+  }, [setSplitSession]);
 
-  const closeSessionTab = useCallback((sessionId: string) => {
-    setSessionTabs((current) => current.filter((tab) => tab.sessionId !== sessionId));
-    setSplitSessionId((current) => current === sessionId ? null : current);
-    if (sessionId !== props.selectedSessionId) return;
+  const handleCloseSplit = useCallback((workspaceId: string) => {
+    setSplitSession(workspaceId, null);
+  }, [setSplitSession]);
 
-    const nextTab = sessionTabs.find((tab) => tab.sessionId !== sessionId && tab.workspaceId === props.selectedWorkspaceId);
-    if (nextTab) {
-      props.sidebar.onOpenSession(nextTab.workspaceId, nextTab.sessionId);
-      return;
-    }
-    props.sidebar.onSelectWorkspace(props.selectedWorkspaceId);
-  }, [props.selectedSessionId, props.selectedWorkspaceId, props.sidebar, sessionTabs]);
+  // Drop zone state for drag-to-split
+  const [splitDropActive, setSplitDropActive] = useState(false);
 
   useEffect(() => {
     if (!showSessionLoadingState) {
@@ -736,6 +712,7 @@ export function SessionPage(props: SessionPageProps) {
           selectedWorkspaceId={props.sidebar.selectedWorkspaceId}
           developerMode={props.sidebar.developerMode}
           selectedSessionId={props.sidebar.selectedSessionId}
+          splitSessionId={splitSessionId}
           showInitialLoading={sidebarInitialLoading}
           showSessionActions={Boolean(props.onRenameSession || props.onDeleteSession || props.onArchiveSession)}
           sessionStatusById={props.sidebar.sessionStatusById}
@@ -743,7 +720,7 @@ export function SessionPage(props: SessionPageProps) {
           workspaceConnectionStateById={props.sidebar.workspaceConnectionStateById}
           newTaskDisabled={props.sidebar.newTaskDisabled}
           onSelectWorkspace={props.sidebar.onSelectWorkspace}
-          onOpenSession={openSessionTab}
+          onOpenSession={props.sidebar.onOpenSession}
           onPrefetchSession={props.sidebar.onPrefetchSession}
           onCreateTaskInWorkspace={props.sidebar.onCreateTaskInWorkspace}
           onOpenRenameSession={props.onRenameSession ? openRenameModal : undefined}
@@ -759,6 +736,8 @@ export function SessionPage(props: SessionPageProps) {
             setCreateGroupLabel("");
             setCreateGroupOpen(true);
           }}
+          onSplitSession={handleSplitSession}
+          onCloseSplit={handleCloseSplit}
           onOpenRenameWorkspace={props.sidebar.onOpenRenameWorkspace}
           onShareWorkspace={props.sidebar.onShareWorkspace}
           onRevealWorkspace={props.sidebar.onRevealWorkspace}
@@ -823,7 +802,21 @@ export function SessionPage(props: SessionPageProps) {
           </header>
 
           <div className="flex min-h-0 flex-1 overflow-hidden">
-            <div className="relative min-w-0 flex-1 overflow-hidden bg-dls-surface mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
+            <div
+              className="relative min-w-0 flex-1 overflow-hidden bg-dls-surface mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150"
+              onDragOver={(e) => {
+                if (!canRenderSplitSurface && e.dataTransfer.types.includes(SESSION_SPLIT_DRAG_TYPE)) {
+                  e.preventDefault();
+                  setSplitDropActive(true);
+                }
+              }}
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                  setSplitDropActive(false);
+                }
+              }}
+              onDrop={() => setSplitDropActive(false)}
+            >
               {showStartupSkeleton ? (
                 <div className="px-6 py-14" role="status" aria-live="polite">
                   <div className="mx-auto max-w-2xl space-y-6">
@@ -869,64 +862,9 @@ export function SessionPage(props: SessionPageProps) {
 
               {!showDelayedSessionLoadingState && canRenderReactSurface ? (
                 <div className="flex h-full min-h-0 flex-col">
-                  {sessionTabs.length > 0 ? (
-                    <div className="flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-background/80 px-2 mac:backdrop-blur-xl">
-                      {sessionTabs.map((tab) => {
-                        const title = sessionTitleForId(props.sidebar.workspaceSessionGroups, tab.sessionId) || t("session.default_title");
-                        const active = tab.sessionId === props.selectedSessionId;
-                        const split = tab.sessionId === splitSessionId;
-                        return (
-                          <div
-                            key={tab.sessionId}
-                            className={cn(
-                              "group flex max-w-56 shrink-0 items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors",
-                              active
-                                ? "border-border bg-dls-surface text-dls-text shadow-sm"
-                                : "border-transparent text-dls-secondary hover:bg-dls-hover hover:text-dls-text",
-                              split && "border-primary/30 bg-primary/10 text-primary",
-                            )}
-                          >
-                            <button
-                              type="button"
-                              className="min-w-0 flex-1 truncate text-left"
-                              onClick={() => props.sidebar.onOpenSession(tab.workspaceId, tab.sessionId)}
-                              title={title}
-                            >
-                              {title}
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded p-0.5 text-dls-secondary hover:bg-dls-hover hover:text-dls-text disabled:pointer-events-none disabled:opacity-40"
-                              onClick={() => setSplitSessionId(split ? null : tab.sessionId)}
-                              disabled={active}
-                              title={split ? "Close split" : "Open in split view"}
-                              aria-label={split ? "Close split" : "Open in split view"}
-                            >
-                              <Columns2 size={13} />
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded p-0.5 text-dls-secondary opacity-80 hover:bg-dls-hover hover:text-dls-text group-hover:opacity-100"
-                              onClick={() => closeSessionTab(tab.sessionId)}
-                              title="Close tab"
-                              aria-label="Close tab"
-                            >
-                              <X size={13} />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
                   <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
                     <div className={cn("min-h-0 min-w-0 flex-1", canRenderSplitSurface && "lg:border-r lg:border-border")}>
                       <SessionSurface
-                        // Spread `surface` first so the explicit per-workspace
-                        // routing props below CAN'T be silently overridden by
-                        // anything that leaks into `surface`. SessionSurface's
-                        // server target (client/workspaceId/sessionId/opencodeBaseUrl/openworkToken)
-                        // must come from the resolved workspace endpoint passed by
-                        // SessionRoute, not from anything in `surface`.
                         {...props.surface!}
                         client={props.openworkServerClient!}
                         workspaceId={props.runtimeWorkspaceId!}
@@ -956,6 +894,47 @@ export function SessionPage(props: SessionPageProps) {
                           todos={[]}
                           onOpenTarget={openTarget}
                         />
+                      </div>
+                    ) : !canRenderSplitSurface ? (
+                      /* Drag-to-split drop zone: drag a session from the sidebar here to split */
+                      <div
+                        className={cn(
+                          "hidden lg:flex min-h-0 min-w-0 items-center justify-center transition-all duration-200",
+                          splitDropActive
+                            ? "flex-1 border-2 border-dashed border-primary/40 bg-primary/5 rounded-lg m-1"
+                            : "w-0 overflow-hidden",
+                        )}
+                        onDragOver={(e) => {
+                          if (e.dataTransfer.types.includes(SESSION_SPLIT_DRAG_TYPE)) {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "copy";
+                            setSplitDropActive(true);
+                          }
+                        }}
+                        onDragEnter={(e) => {
+                          if (e.dataTransfer.types.includes(SESSION_SPLIT_DRAG_TYPE)) {
+                            setSplitDropActive(true);
+                          }
+                        }}
+                        onDragLeave={(e) => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                            setSplitDropActive(false);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          setSplitDropActive(false);
+                          const sessionId = e.dataTransfer.getData(SESSION_SPLIT_DRAG_TYPE);
+                          if (sessionId && sessionId !== props.selectedSessionId) {
+                            setSplitSession(props.selectedWorkspaceId, sessionId);
+                          }
+                        }}
+                        aria-label="Drop a session here to open side-by-side"
+                      >
+                        {splitDropActive ? (
+                          <span className="text-sm text-primary/60 pointer-events-none select-none">
+                            Drop to split
+                          </span>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>

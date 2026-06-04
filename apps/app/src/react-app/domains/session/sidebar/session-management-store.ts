@@ -24,6 +24,8 @@ type SessionManagementState = {
   pinnedIds: string[];
   orderByWorkspace: Record<string, string[]>;
   groupsByWorkspace: Record<string, WorkspaceGroupState>;
+  /** Per-workspace split session id. When set, this session is shown side-by-side with the active session. */
+  splitByWorkspace: Record<string, string>;
 };
 
 type SessionManagementActions = {
@@ -36,6 +38,8 @@ type SessionManagementActions = {
   /** Remove a group definition. Sessions assigned to it become ungrouped. */
   removeGroup: (workspaceId: string, groupId: string) => void;
   forgetWorkspace: (workspaceId: string) => void;
+  /** Set or toggle a split session for a workspace. Pass null to clear. */
+  setSplitSession: (workspaceId: string, sessionId: string | null) => void;
 };
 
 type SessionManagementStore = SessionManagementState & SessionManagementActions;
@@ -48,6 +52,7 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
       pinnedIds: [],
       orderByWorkspace: {},
       groupsByWorkspace: {},
+      splitByWorkspace: {},
 
       togglePin: (sessionId) =>
         set((state) => {
@@ -152,11 +157,21 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
           };
         }),
 
+      setSplitSession: (workspaceId, sessionId) =>
+        set((state) => {
+          if (!sessionId) {
+            const { [workspaceId]: _, ...rest } = state.splitByWorkspace;
+            return { splitByWorkspace: rest };
+          }
+          return { splitByWorkspace: { ...state.splitByWorkspace, [workspaceId]: sessionId } };
+        }),
+
       forgetWorkspace: (workspaceId) =>
         set((state) => {
           const { [workspaceId]: _o, ...orderRest } = state.orderByWorkspace;
           const { [workspaceId]: _g, ...groupsRest } = state.groupsByWorkspace;
-          return { orderByWorkspace: orderRest, groupsByWorkspace: groupsRest };
+          const { [workspaceId]: _s, ...splitRest } = state.splitByWorkspace;
+          return { orderByWorkspace: orderRest, groupsByWorkspace: groupsRest, splitByWorkspace: splitRest };
         }),
     }),
     {
@@ -186,4 +201,8 @@ export function useSessionOrder(workspaceId: string): string[] {
 
 export function useWorkspaceGroups(workspaceId: string): WorkspaceGroupState {
   return useSessionManagementStore((s) => s.groupsByWorkspace[workspaceId] ?? EMPTY_GROUP_STATE);
+}
+
+export function useSplitSessionId(workspaceId: string): string | null {
+  return useSessionManagementStore((s) => s.splitByWorkspace[workspaceId] ?? null);
 }

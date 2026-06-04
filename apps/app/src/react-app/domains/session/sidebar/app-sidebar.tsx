@@ -5,6 +5,7 @@ import {
   Archive,
   ArchiveRestore,
   ChevronRight,
+  Columns2,
   FolderPlus,
   Loader2,
   MoreHorizontal,
@@ -19,6 +20,7 @@ import {
   Settings,
   FolderOpen,
   Tag,
+  X,
 } from "lucide-react";
 import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
 
@@ -202,6 +204,8 @@ function SessionGroupSubmenu({ workspaceId, sessionId }: { workspaceId: string; 
 function SessionActions({ className, sessionId, workspaceId, isPinned, isArchived }: SessionActionsProps) {
   const ctx = useSidebarContext();
   const store = useSessionManagementStore;
+  const isSplit = ctx.splitSessionId === sessionId;
+  const isActive = ctx.selectedSessionId === sessionId;
   if (!useCanManageSession()) return null;
 
   return (
@@ -214,6 +218,12 @@ function SessionActions({ className, sessionId, workspaceId, isPinned, isArchive
         }
       />
       <DropdownMenuContent align="end" side="bottom" sideOffset={4} alignOffset={-4} className="w-56">
+        {ctx.onSplitSession && !isActive ? (
+          <DropdownMenuItem onClick={() => isSplit ? ctx.onCloseSplit?.(workspaceId) : ctx.onSplitSession?.(workspaceId, sessionId)}>
+            {isSplit ? <X className="size-4" /> : <Columns2 className="size-4" />}
+            {isSplit ? "Close split" : "Open in split view"}
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem onClick={() => store.getState().togglePin(sessionId)}>
           {isPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
           {isPinned ? t("session_management.unpin_session") : t("session_management.pin_session")}
@@ -258,12 +268,20 @@ type SessionContextMenuProps = {
 function SessionContextMenu({ children, sessionId, workspaceId, isPinned, isArchived }: SessionContextMenuProps) {
   const ctx = useSidebarContext();
   const store = useSessionManagementStore;
+  const isSplit = ctx.splitSessionId === sessionId;
+  const isActive = ctx.selectedSessionId === sessionId;
   if (!useCanManageSession()) return children;
 
   return (
     <ContextMenu>
       <ContextMenuTrigger render={children} />
       <ContextMenuContent className="w-56">
+        {ctx.onSplitSession && !isActive ? (
+          <ContextMenuItem onClick={() => isSplit ? ctx.onCloseSplit?.(workspaceId) : ctx.onSplitSession?.(workspaceId, sessionId)}>
+            {isSplit ? <X className="size-4" /> : <Columns2 className="size-4" />}
+            {isSplit ? "Close split" : "Open in split view"}
+          </ContextMenuItem>
+        ) : null}
         <ContextMenuItem onClick={() => store.getState().togglePin(sessionId)}>
           {isPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
           {isPinned ? t("session_management.unpin_session") : t("session_management.pin_session")}
@@ -473,6 +491,7 @@ export type AppSidebarProps = {
   selectedWorkspaceId: string;
   developerMode: boolean;
   selectedSessionId: string | null;
+  splitSessionId: string | null;
   showSessionActions?: boolean;
   sessionStatusById?: Record<string, string>;
   connectingWorkspaceId: string | null;
@@ -486,6 +505,8 @@ export type AppSidebarProps = {
   onOpenDeleteSession?: (sessionId: string) => void;
   onArchiveSession?: (sessionId: string, archived: boolean) => void;
   onOpenCreateGroupModal?: (workspaceId: string) => void;
+  onSplitSession?: (workspaceId: string, sessionId: string) => void;
+  onCloseSplit?: (workspaceId: string) => void;
   onOpenRenameWorkspace: (workspaceId: string) => void;
   onShareWorkspace: (workspaceId: string) => void;
   onRevealWorkspace: (workspaceId: string) => void;
@@ -608,6 +629,7 @@ export function AppSidebar(props: AppSidebarProps) {
   const contextValue: SidebarContextValue = {
     selectedWorkspaceId: props.selectedWorkspaceId,
     selectedSessionId: props.selectedSessionId,
+    splitSessionId: props.splitSessionId,
     developerMode: props.developerMode,
     showSessionActions: props.showSessionActions,
     sessionStatusById: props.sessionStatusById,
@@ -622,6 +644,8 @@ export function AppSidebar(props: AppSidebarProps) {
     onOpenDeleteSession: props.onOpenDeleteSession,
     onArchiveSession: props.onArchiveSession,
     onOpenCreateGroupModal: props.onOpenCreateGroupModal,
+    onSplitSession: props.onSplitSession,
+    onCloseSplit: props.onCloseSplit,
     onOpenRenameWorkspace: props.onOpenRenameWorkspace,
     onShareWorkspace: props.onShareWorkspace,
     onRevealWorkspace: props.onRevealWorkspace,
@@ -1325,6 +1349,16 @@ function PinnedIndicator({ isPinned }: { isPinned: boolean }) {
   );
 }
 
+function SplitIndicator({ isSplit }: { isSplit: boolean }) {
+  if (!isSplit) return null;
+  return (
+    <Columns2
+      className="size-3 shrink-0 text-primary/70"
+      aria-label="Split view"
+    />
+  );
+}
+
 type SessionMenuItemProps = {
   session: SessionListItem;
   depth: number;
@@ -1346,6 +1380,7 @@ function SessionMenuItem({
 }: SessionMenuItemProps) {
   const ctx = useSidebarContext();
   const isSelected = ctx.selectedSessionId === session.id;
+  const isSplit = ctx.splitSessionId === session.id;
   const displayTitle = getDisplaySessionTitle(session.title);
   const hasChildren = (tree.descendantCountBySessionId.get(session.id) ?? 0) > 0;
   const isExpanded = ctx.expandedSessionIds.has(session.id) || forcedExpandedSessionIds.has(session.id);
@@ -1385,13 +1420,14 @@ function SessionMenuItem({
           <CollapsibleTrigger
             render={
               <SidebarMenuSubButton
-                className={cn("relative", depth > 0 && "ps-13")}
+                className={cn("relative", depth > 0 && "ps-13", isSplit && "border-l-2 border-l-primary/50")}
                 isActive={isSelected}
                 onClick={openSession}
                 onPointerEnter={prefetchSession}
                 onFocus={prefetchSession}
               >
                 <PinnedIndicator isPinned={isPinned} />
+                <SplitIndicator isSplit={isSplit} />
                 <span
                   className={cn("min-w-0 flex-1 truncate transition-[padding] duration-75 group-hover/menu-sub-item:pe-12 group-has-data-popup-open/menu-sub-item:pe-12 pe-4", isSessionStreaming || isSessionActive && "pe-12")}
                   title={displayTitle}
@@ -1423,9 +1459,10 @@ function SessionMenuItem({
           onClick={openSession}
           onPointerEnter={prefetchSession}
           onFocus={prefetchSession}
-          className={cn("transition-[padding] duration-75 group-hover/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8", depth > 0 && "ps-13", isSessionStreaming || isSessionActive && "pe-8")}
+          className={cn("transition-[padding] duration-75 group-hover/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8", depth > 0 && "ps-13", isSessionStreaming || isSessionActive && "pe-8", isSplit && "border-l-2 border-l-primary/50")}
         >
           <PinnedIndicator isPinned={isPinned} />
+          <SplitIndicator isSplit={isSplit} />
           <span className="truncate" title={displayTitle}>{displayTitle}</span>
         </SidebarMenuSubButton>
       </SessionContextMenu>
