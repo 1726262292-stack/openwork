@@ -341,6 +341,8 @@ type PluginMarketplaceSummary = {
 
 const DEFAULT_OPENWORK_MARKETPLACE_NAME = "OpenWork Marketplace"
 const DEFAULT_OPENWORK_MARKETPLACE_DESCRIPTION = "Built-in OpenWork AI capabilities available in the desktop app after sign-in."
+const DEFAULT_ANTHROPIC_MARKETPLACE_NAME = "Anthropic-Compatible Plugins"
+const DEFAULT_ANTHROPIC_MARKETPLACE_DESCRIPTION = "Starter marketplace for Claude/Anthropic-compatible plugin repos. Example source: https://github.com/anthropics/knowledge-work-plugins."
 
 const DEFAULT_OPENWORK_EXTENSION_MANIFESTS = [
   {
@@ -1656,34 +1658,19 @@ async function ensureDefaultOpenWorkMarketplace(context: PluginArchActorContext)
   const organizationId = context.organizationContext.organization.id
   const createdByOrgMembershipId = context.organizationContext.currentMember.id
   const now = new Date()
+  await ensureDefaultMarketplace({
+    context,
+    createdAt: now,
+    description: DEFAULT_ANTHROPIC_MARKETPLACE_DESCRIPTION,
+    name: DEFAULT_ANTHROPIC_MARKETPLACE_NAME,
+  })
 
-  let marketplace = (await db
-    .select()
-    .from(MarketplaceTable)
-    .where(and(
-      eq(MarketplaceTable.organizationId, organizationId),
-      eq(MarketplaceTable.name, DEFAULT_OPENWORK_MARKETPLACE_NAME),
-      isNull(MarketplaceTable.deletedAt),
-    ))
-    .limit(1))[0]
-
-  if (!marketplace) {
-    const marketplaceRow = {
-      createdAt: now,
-      createdByOrgMembershipId,
-      deletedAt: null,
-      description: DEFAULT_OPENWORK_MARKETPLACE_DESCRIPTION,
-      id: createDenTypeId("marketplace"),
-      name: DEFAULT_OPENWORK_MARKETPLACE_NAME,
-      organizationId,
-      status: "active" as const,
-      updatedAt: now,
-    }
-    await db.insert(MarketplaceTable).values(marketplaceRow)
-    marketplace = marketplaceRow
-  }
-
-  await ensureOrgWideMarketplaceAccess({ context, marketplaceId: marketplace.id, role: "viewer" })
+  const marketplace = await ensureDefaultMarketplace({
+    context,
+    createdAt: now,
+    description: DEFAULT_OPENWORK_MARKETPLACE_DESCRIPTION,
+    name: DEFAULT_OPENWORK_MARKETPLACE_NAME,
+  })
 
   for (const manifest of DEFAULT_OPENWORK_EXTENSION_MANIFESTS) {
     let plugin = (await db
@@ -1741,6 +1728,45 @@ async function ensureDefaultOpenWorkMarketplace(context: PluginArchActorContext)
       removedAt: null,
     })
   }
+}
+
+async function ensureDefaultMarketplace(input: {
+  context: PluginArchActorContext
+  createdAt: Date
+  description: string
+  name: string
+}) {
+  const organizationId = input.context.organizationContext.organization.id
+  const createdByOrgMembershipId = input.context.organizationContext.currentMember.id
+
+  let marketplace = (await db
+    .select()
+    .from(MarketplaceTable)
+    .where(and(
+      eq(MarketplaceTable.organizationId, organizationId),
+      eq(MarketplaceTable.name, input.name),
+      isNull(MarketplaceTable.deletedAt),
+    ))
+    .limit(1))[0]
+
+  if (!marketplace) {
+    const marketplaceRow = {
+      createdAt: input.createdAt,
+      createdByOrgMembershipId,
+      deletedAt: null,
+      description: input.description,
+      id: createDenTypeId("marketplace"),
+      name: input.name,
+      organizationId,
+      status: "active" as const,
+      updatedAt: input.createdAt,
+    }
+    await db.insert(MarketplaceTable).values(marketplaceRow)
+    marketplace = marketplaceRow
+  }
+
+  await ensureOrgWideMarketplaceAccess({ context: input.context, marketplaceId: marketplace.id, role: "viewer" })
+  return marketplace
 }
 
 async function ensureOrgWideMarketplaceAccess(input: {

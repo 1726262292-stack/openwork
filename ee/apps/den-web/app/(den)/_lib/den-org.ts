@@ -307,6 +307,10 @@ export function getOrgDashboardRoute(_orgSlug?: string | null): string {
   return "/dashboard";
 }
 
+export function getMarketplaceOnboardingRoute(_orgSlug?: string | null): string {
+  return `${getOrgDashboardRoute(_orgSlug)}/onboarding`;
+}
+
 export function getJoinOrgRoute(invitationId: string): string {
   return `/join-org?invite=${encodeURIComponent(invitationId)}`;
 }
