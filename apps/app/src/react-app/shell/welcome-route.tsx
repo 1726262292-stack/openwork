@@ -1,10 +1,9 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { t } from "../../i18n";
 import {
-  getDesktopBootstrapConfig,
   pickDirectory,
   resolveWorkspaceListSelectedId,
   workspaceSetRuntimeActive,
@@ -110,6 +109,7 @@ export function WelcomeRoute() {
   const local = useLocal();
   const platform = usePlatform();
   const [state, dispatch] = useReducer(welcomeReducer, initialWelcomeState);
+  const [manualFolder, setManualFolder] = useState("");
 
   // If user already completed onboarding, redirect away immediately.
   useEffect(() => {
@@ -269,15 +269,17 @@ export function WelcomeRoute() {
       dispatch({ type: "open" });
       return;
     }
-    const bootstrap = await getDesktopBootstrapConfig().catch(() => null);
-    const override = bootstrap && typeof bootstrap === "object" && "workspaceFolderOverride" in bootstrap && typeof bootstrap.workspaceFolderOverride === "string"
-      ? bootstrap.workspaceFolderOverride.trim()
-      : "";
-    const picked = override ? null : await pickDirectory({ title: t("onboarding.authorize_folder") });
-    const folder = override || (typeof picked === "string" ? picked : null);
+    const picked = await pickDirectory({ title: t("onboarding.authorize_folder") });
+    const folder = typeof picked === "string" ? picked : null;
     if (!folder) return;
     await handleCreateWorkspace("starter", folder);
   }, [handleCreateWorkspace]);
+
+  const handleUseManualFolder = useCallback(async () => {
+    const folder = manualFolder.trim();
+    if (!folder) return;
+    await handleCreateWorkspace("starter", folder);
+  }, [handleCreateWorkspace, manualFolder]);
 
   return (
     <>
@@ -286,6 +288,10 @@ export function WelcomeRoute() {
         getStartedLabel={t("welcome.pick_folder")}
         busy={state.createBusy}
         error={state.createError}
+        manualFolder={manualFolder}
+        onManualFolderChange={setManualFolder}
+        onUseManualFolder={handleUseManualFolder}
+        showManualFolder={import.meta.env.DEV && isDesktopRuntime()}
       />
       <CreateWorkspaceModal
         open={state.modalOpen}

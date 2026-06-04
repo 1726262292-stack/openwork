@@ -123,6 +123,10 @@ type WelcomePageProps = {
   getStartedLabel?: string;
   busy?: boolean;
   error?: string | null;
+  manualFolder?: string;
+  onManualFolderChange?: (value: string) => void;
+  onUseManualFolder?: () => void;
+  showManualFolder?: boolean;
 };
 
 type OnboardingStepProps = {
@@ -145,7 +149,16 @@ function OnboardingStep({ number, title, children }: OnboardingStepProps) {
   );
 }
 
-export function WelcomePage({ onGetStarted, getStartedLabel, busy, error }: WelcomePageProps) {
+export function WelcomePage({
+  onGetStarted,
+  getStartedLabel,
+  busy,
+  error,
+  manualFolder,
+  onManualFolderChange,
+  onUseManualFolder,
+  showManualFolder,
+}: WelcomePageProps) {
   return (
     <Page className="min-h-screen">
       <PageBackground />
@@ -193,6 +206,27 @@ export function WelcomePage({ onGetStarted, getStartedLabel, busy, error }: Welc
                   </Button>
                   {error ? (
                     <p className="text-center text-xs text-destructive">{error}</p>
+                  ) : null}
+                  {showManualFolder ? (
+                    <div className="rounded-xl border border-dashed border-border p-3">
+                      <label className="grid gap-2 text-xs font-medium text-muted-foreground">
+                        Daytona folder path
+                        <input
+                          className="h-9 rounded-md border border-input bg-background px-3 text-sm font-normal text-foreground outline-none focus:border-ring"
+                          value={manualFolder ?? ""}
+                          onChange={(event) => onManualFolderChange?.(event.target.value)}
+                          placeholder="/workspace/my-project"
+                        />
+                      </label>
+                      <Button
+                        className="mt-2 w-full"
+                        variant="outline"
+                        onClick={onUseManualFolder}
+                        disabled={busy || !manualFolder?.trim()}
+                      >
+                        Use this folder
+                      </Button>
+                    </div>
                   ) : null}
                 </div>
               </div>
