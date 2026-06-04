@@ -108,6 +108,12 @@ Rules for native desktop automation:
 - After native automation, reassert app state with CDP and inspect a fresh
   screenshot. Native dialogs commonly remain on top and invalidate evidence.
 
+Close stale native dialogs before recording or screenshots:
+
+```bash
+daytona exec "$SANDBOX" -- 'bash -lc '\''DISPLAY=:99 xdotool search --name "Authorize folder" windowclose %@ 2>/dev/null || true; sleep 1; DISPLAY=:99 wmctrl -l'\'''
+```
+
 ## Screenshots
 
 Use browser screenshots for renderer state:
@@ -144,6 +150,18 @@ new screenshot, inspect the new image, and only then share it. If bad evidence
 was already posted, post a superseding correction that clearly says the earlier
 screenshot was invalid.
 
+Before every Daytona display screenshot, run a native-window check and fail fast
+if a picker is present:
+
+```bash
+daytona exec "$SANDBOX" -- 'bash -lc '\''DISPLAY=:99 wmctrl -l | tee /tmp/windows-before-shot.txt; ! grep -q "Authorize folder" /tmp/windows-before-shot.txt; DISPLAY=:99 .devcontainer/capture-daytona-screenshot.sh --output /daytona-artifacts/screenshots/<flow>/<step>.png'\'''
+```
+
+If a Chromium or Electron window is intentionally part of the shot, activate the
+right window first with `wmctrl -a "OpenWork - Dev"` or
+`wmctrl -a "OpenWork Cloud - Chromium"` so the screenshot shows the intended
+journey step.
+
 ## Failure Handling
 
 When a step fails:
@@ -160,6 +178,18 @@ daytona exec "$SANDBOX" -- 'tail -120 /tmp/electron.log'
 daytona exec "$SANDBOX" -- 'tail -120 /tmp/vite.log'
 daytona exec "$SERVER_SANDBOX" -- 'tail -120 /tmp/den-api.log'
 ```
+
+For Den Web flows specifically:
+
+- If the page remains on `Checking account`, `Loading your workspace`, or
+  `Checking workspace access`, verify whether the client hydrated by trying a
+  real `browser_click`/`browser_fill`, not only `browser_eval`.
+- If Next dev is behind a Daytona proxy, switch Den Web to `next build` +
+  `next start` before declaring the app broken.
+- Validate direct Den API auth independently. A direct API pass plus Den Web
+  proxy failure is an incomplete handoff, not a full pass.
+- If you bridge auth by writing localStorage in Electron, state that explicitly
+  in the final report and limit the pass claim to the downstream desktop flow.
 
 ## Final Verdict
 

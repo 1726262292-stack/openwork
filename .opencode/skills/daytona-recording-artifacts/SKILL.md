@@ -95,6 +95,21 @@ echo "${ARTIFACTS_URL}/recordings/<name>.mp4"
 echo "${ARTIFACTS_URL}/screenshots/<name>.png"
 ```
 
+Artifact proxy URLs are not permanent. If the sandbox stops, the old
+`daytonaproxy` URL will fail even when files still exist in
+`/daytona-artifacts`. Restart the sandbox and artifact server, then generate a
+fresh URL:
+
+```bash
+daytona sandbox start "$SANDBOX"
+daytona exec "$SANDBOX" -- 'bash -lc '\''cd /daytona-artifacts && nohup python3 -m http.server 8090 --bind 0.0.0.0 > /tmp/daytona-artifacts-http.log 2>&1 &'\'''
+daytona exec "$SANDBOX" -- 'curl -s -I http://127.0.0.1:8090/recordings/<name>.mp4 | sed -n "1,8p"'
+daytona preview-url "$SANDBOX" -p 8090
+```
+
+Only share the refreshed URL after the local `curl -I` returns `200 OK` with a
+non-zero `Content-Length`.
+
 ## Before And After Flow
 
 Use before/after recordings for UI regressions or design changes:
@@ -121,3 +136,7 @@ the flow passed.
 
 When a recording is required, start it before the first user-visible action in
 the flow and stop it only after the final asserted state is visible.
+
+If you discover an invalid recording after the fact, do not reuse the same URL
+as if it were valid. Record a new run with a new recording name and explain in
+the PR/comment that the earlier artifact was superseded.

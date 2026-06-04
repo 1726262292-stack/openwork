@@ -22,6 +22,10 @@ Marketplace containing built-in OpenWork extension capabilities.
 2. Start a Daytona Electron sandbox from the same branch, pointed at the Den server.
 3. Validate Den Web/API health.
 4. Validate Electron bootstrap uses the Daytona Den URLs.
+5. If recording, verify `wmctrl` and `xdotool` are installed in the Electron sandbox.
+6. Close stale native dialogs such as `Authorize folder` before recording.
+7. Prefer Den Web production mode (`next build` + `next start`) for the founder journey recording; Next dev can fail to hydrate through Daytona proxy/HMR.
+8. Validate dev auth before UI recording: direct Den API sign-in with the seeded user should return `200` when `OPENWORK_DEV_MODE=1`.
 
 ## Flow 1: Den download handoff copy
 
@@ -79,6 +83,11 @@ Expected outcome:
 - The card shows `Built-in` or an equivalent built-in/ready status.
 - The detail modal shows OpenWork Browser setup/resource details from the Den extension manifest.
 - The detail modal does not offer `Add` or `Remove` for built-in OpenWork entries.
+
+Daytona caveat:
+
+- If the Den Web browser form or custom-protocol handoff fails only because of Daytona proxy origin behavior, record that as incomplete for the Den handoff step.
+- You may bridge the desktop session with a direct Den API token to validate downstream desktop Marketplace sync, but the report must say the bridge was used.
 
 ## Flow 4: default Marketplace API proof
 
@@ -143,3 +152,10 @@ Expected outcome:
 - The prompt appears in the composer.
 - `Run task` / composer send becomes available when opencode runtime is connected.
 - The task is submitted without losing the imported plugin state.
+
+## Artifact evidence rules
+
+- Every screenshot must be preceded by a native-window check that fails if `Authorize folder` is present.
+- At least one representative screenshot must be visually inspected before publishing links.
+- If a sandbox stops, artifact proxy URLs become stale. Restart the sandbox, restart the artifact server on `8090`, and publish fresh URLs.
+- Do not claim a full pass from a recording that uses an auth bridge. Separate the verdict into Den handoff, desktop Marketplace sync, live plugin import, and chat/runtime.
