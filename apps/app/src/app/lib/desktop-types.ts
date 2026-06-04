@@ -135,6 +135,7 @@ export type DesktopBootstrapConfig = {
   baseUrl: string;
   apiBaseUrl?: string | null;
   requireSignin: boolean;
+  workspaceFolderOverride?: string | null;
 };
 
 export type OrchestratorDetachedHost = {

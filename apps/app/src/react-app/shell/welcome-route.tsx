@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 import { t } from "../../i18n";
 import {
+  getDesktopBootstrapConfig,
   pickDirectory,
   resolveWorkspaceListSelectedId,
   workspaceSetRuntimeActive,
@@ -268,7 +269,12 @@ export function WelcomeRoute() {
       dispatch({ type: "open" });
       return;
     }
-    const folder = await pickDirectory({ title: t("onboarding.authorize_folder") }) as string | null;
+    const bootstrap = await getDesktopBootstrapConfig().catch(() => null);
+    const override = bootstrap && typeof bootstrap === "object" && "workspaceFolderOverride" in bootstrap && typeof bootstrap.workspaceFolderOverride === "string"
+      ? bootstrap.workspaceFolderOverride.trim()
+      : "";
+    const picked = override ? null : await pickDirectory({ title: t("onboarding.authorize_folder") });
+    const folder = override || (typeof picked === "string" ? picked : null);
     if (!folder) return;
     await handleCreateWorkspace("starter", folder);
   }, [handleCreateWorkspace]);
