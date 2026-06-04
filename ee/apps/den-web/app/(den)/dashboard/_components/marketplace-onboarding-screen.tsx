@@ -19,29 +19,29 @@ export function MarketplaceOnboardingScreen() {
   const { data: marketplaces = [], isLoading } = useMarketplaces();
 
   return (
-    <div className="mx-auto max-w-[1120px] px-4 pb-10 pt-4 sm:px-6 md:px-8">
-      <section className="overflow-hidden rounded-[28px] border border-[#dfe5f0] bg-[#07192C] text-white shadow-sm">
-        <div className="grid gap-8 p-6 md:grid-cols-[1.25fr_0.75fr] md:p-10">
+    <div className="mx-auto max-w-[1120px] px-3 pb-8 pt-3 sm:px-6 sm:pb-10 sm:pt-4 md:px-8">
+      <section className="overflow-hidden rounded-[24px] border border-[#dfe5f0] bg-[#07192C] text-white shadow-sm sm:rounded-[28px]">
+        <div className="grid gap-5 p-5 sm:gap-8 sm:p-6 md:grid-cols-[1.25fr_0.75fr] md:p-10">
           <div>
             <p className="text-[12px] font-semibold uppercase tracking-[0.26em] text-cyan-200">OpenWork Cloud</p>
-            <h1 className="mt-4 max-w-2xl text-[34px] font-semibold leading-[1.05] tracking-[-0.045em] md:text-[46px]">
+            <h1 className="mt-3 max-w-2xl text-[31px] font-semibold leading-[1.02] tracking-[-0.045em] sm:mt-4 sm:text-[36px] md:text-[46px]">
               Your team extension hub is ready.
             </h1>
-            <p className="mt-4 max-w-2xl text-[15px] leading-7 text-white/65">
+            <p className="mt-3 max-w-2xl text-[14px] leading-6 text-white/65 sm:mt-4 sm:text-[15px] sm:leading-7">
               We created default marketplaces for {activeOrg?.name ?? "your organization"}. Marketplaces let you share
               extensions with your team: skills, agents, MCP servers, commands, hooks, and Anthropic-compatible plugins.
             </p>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link href={getMarketplacesRoute(orgSlug)} className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-[13px] font-semibold text-[#07192C] transition hover:bg-white/90">
+            <div className="mt-5 grid gap-3 sm:mt-6 sm:flex sm:flex-wrap">
+              <Link href={getMarketplacesRoute(orgSlug)} className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 text-[13px] font-semibold text-[#07192C] transition hover:bg-white/90">
                 View marketplaces <ArrowRight className="h-4 w-4" />
               </Link>
-              <Link href={getOrgDashboardRoute(orgSlug)} className="inline-flex items-center gap-2 rounded-full border border-white/15 px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-white/10">
+              <Link href={getOrgDashboardRoute(orgSlug)} className="inline-flex items-center justify-center gap-2 rounded-full border border-white/15 px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-white/10">
                 Go to dashboard
               </Link>
             </div>
           </div>
 
-          <div className="rounded-[22px] border border-white/10 bg-white/[0.06] p-5">
+          <div className="rounded-[20px] border border-white/10 bg-white/[0.06] p-4 sm:rounded-[22px] sm:p-5">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-300 text-[#07192C]">
                 <Monitor className="h-5 w-5" />
@@ -51,7 +51,7 @@ export function MarketplaceOnboardingScreen() {
                 <p className="mt-1 text-[12px] leading-5 text-white/55">Download OpenWork, then sign in with this same account.</p>
               </div>
             </div>
-            <ol className="mt-5 grid gap-3 text-[13px] leading-6 text-white/70">
+            <ol className="mt-4 grid gap-2.5 text-[13px] leading-6 text-white/70 sm:mt-5 sm:gap-3">
               <li className="flex gap-3"><CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-cyan-200" />Install OpenWork Desktop.</li>
               <li className="flex gap-3"><CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-cyan-200" />Sign in to OpenWork Cloud from Settings.</li>
               <li className="flex gap-3"><CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-cyan-200" />Open Marketplace to see built-ins and assigned team marketplaces.</li>
@@ -60,12 +60,12 @@ export function MarketplaceOnboardingScreen() {
         </div>
       </section>
 
-      <section className="mt-6 grid gap-4 md:grid-cols-2">
+      <section className="mt-4 grid gap-3 sm:mt-6 sm:gap-4 md:grid-cols-2">
         {(isLoading ? [] : marketplaces).map((marketplace) => (
           <Link
             key={marketplace.id}
             href={`${getMarketplacesRoute(orgSlug)}/${encodeURIComponent(marketplace.id)}`}
-            className="rounded-[22px] border border-[#e2e7f0] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#cfd8e8] hover:shadow-md"
+            className="rounded-[20px] border border-[#e2e7f0] bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-[#cfd8e8] hover:shadow-md sm:rounded-[22px] sm:p-5"
           >
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-3">
@@ -73,13 +73,13 @@ export function MarketplaceOnboardingScreen() {
                   <Store className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-[16px] font-semibold tracking-[-0.02em] text-[#07192C]">{marketplace.name}</h2>
+                  <h2 className="text-[15px] font-semibold tracking-[-0.02em] text-[#07192C] sm:text-[16px]">{marketplace.name}</h2>
                   <p className="mt-1 text-[12px] font-medium text-[#667695]">{marketplace.pluginCount} plugin{marketplace.pluginCount === 1 ? "" : "s"}</p>
                 </div>
               </div>
               <ArrowRight className="mt-2 h-4 w-4 text-[#95A2BA]" />
             </div>
-            {marketplace.description ? <p className="mt-4 text-[13px] leading-6 text-[#5C6B86]">{marketplace.description}</p> : null}
+            {marketplace.description ? <p className="mt-3 text-[13px] leading-6 text-[#5C6B86] sm:mt-4">{marketplace.description}</p> : null}
           </Link>
         ))}
         {isLoading ? (
@@ -87,7 +87,7 @@ export function MarketplaceOnboardingScreen() {
         ) : null}
       </section>
 
-      <section className="mt-6 grid gap-4 lg:grid-cols-[1fr_1fr_1fr]">
+      <section className="mt-4 grid gap-3 sm:mt-6 sm:gap-4 lg:grid-cols-[1fr_1fr_1fr]">
         <ActionCard
           icon={<Download className="h-5 w-5" />}
           title="Download, then sign in"
@@ -111,25 +111,25 @@ export function MarketplaceOnboardingScreen() {
         />
       </section>
 
-      <section className="mt-6 grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
-        <div className="rounded-[22px] border border-[#e2e7f0] bg-white p-6 shadow-sm">
+      <section className="mt-4 grid gap-3 sm:mt-6 sm:gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+        <div className="rounded-[20px] border border-[#e2e7f0] bg-white p-5 shadow-sm sm:rounded-[22px] sm:p-6">
           <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#6C7890]">Anthropic-compatible starter</p>
           <h2 className="mt-2 text-[20px] font-semibold tracking-[-0.03em] text-[#07192C]">Use the Knowledge Work Plugins repo</h2>
           <p className="mt-3 text-[13px] leading-6 text-[#5C6B86]">
             The default Anthropic-compatible marketplace points to the same example repo used by OpenWork demo seeding. Import it from GitHub, review the discovered plugins, then add them to a marketplace for your team.
           </p>
-          <a href={ANTHROPIC_KNOWLEDGE_WORK_REPO} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#d8e0ec] px-4 py-2.5 text-[13px] font-semibold text-[#07192C] transition hover:bg-[#f6f8fb]">
+          <a href={ANTHROPIC_KNOWLEDGE_WORK_REPO} target="_blank" rel="noreferrer" className="mt-4 inline-flex max-w-full items-center gap-2 rounded-full border border-[#d8e0ec] px-4 py-2.5 text-[13px] font-semibold text-[#07192C] transition hover:bg-[#f6f8fb]">
             Open anthropics/knowledge-work-plugins <ArrowRight className="h-4 w-4" />
           </a>
         </div>
 
-        <div className="rounded-[22px] border border-[#d7e2f5] bg-[#F4F8FF] p-6 shadow-sm">
+        <div className="rounded-[20px] border border-[#d7e2f5] bg-[#F4F8FF] p-5 shadow-sm sm:rounded-[22px] sm:p-6">
           <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#41618F]">Alternative: OpenWork MCP</p>
           <h2 className="mt-2 text-[20px] font-semibold tracking-[-0.03em] text-[#07192C]">Do it from your favorite AI app</h2>
           <p className="mt-3 text-[13px] leading-6 text-[#526582]">
             Install the OpenWork MCP, then ask your assistant to package and distribute extensions through OpenWork Cloud.
           </p>
-          <pre className="mt-4 overflow-x-auto rounded-2xl bg-[#07192C] p-4 text-[12px] leading-6 text-cyan-100"><code>{`{
+          <pre className="mt-4 max-h-[190px] overflow-x-auto rounded-2xl bg-[#07192C] p-4 text-[12px] leading-6 text-cyan-100 sm:max-h-none"><code>{`{
   "mcpServers": {
     "openwork-ui": {
       "command": "npx",
@@ -160,9 +160,9 @@ function ActionCard({ icon, title, body, href, label }: {
   label: string;
 }) {
   return (
-    <Link href={href} className="rounded-[22px] border border-[#e2e7f0] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#cfd8e8] hover:shadow-md">
+    <Link href={href} className="rounded-[20px] border border-[#e2e7f0] bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-[#cfd8e8] hover:shadow-md sm:rounded-[22px] sm:p-5">
       <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#07192C] text-white">{icon}</div>
-      <h2 className="mt-4 text-[16px] font-semibold tracking-[-0.02em] text-[#07192C]">{title}</h2>
+      <h2 className="mt-3 text-[16px] font-semibold tracking-[-0.02em] text-[#07192C] sm:mt-4">{title}</h2>
       <p className="mt-2 text-[13px] leading-6 text-[#5C6B86]">{body}</p>
       <div className="mt-4 inline-flex items-center gap-2 text-[13px] font-semibold text-[#164B8F]">
         {label} <ArrowRight className="h-4 w-4" />
