@@ -14,7 +14,7 @@ Marketplace containing built-in OpenWork extension capabilities.
 - Signed-out desktop users can still use OpenWork, but Marketplace nudges sign-in for built-in extensions and organization marketplaces.
 - A non-built-in assigned Marketplace plugin can be imported into an active desktop workspace.
 - Imported plugin resources appear in `My Extensions` and materialize into `.opencode` workspace files.
-- The chat composer can accept a prompt referencing the imported plugin/skill once the workspace runtime is ready.
+- The chat composer can run a prompt that uses the imported plugin/skill once the workspace runtime is ready.
 
 ## Preflight
 
@@ -26,6 +26,15 @@ Marketplace containing built-in OpenWork extension capabilities.
 6. Close stale native dialogs such as `Authorize folder` before recording.
 7. Prefer Den Web production mode (`next build` + `next start`) for the founder journey recording; Next dev can fail to hydrate through Daytona proxy/HMR.
 8. Validate dev auth before UI recording: direct Den API sign-in with the seeded user should return `200` when `OPENWORK_DEV_MODE=1`.
+
+## Demo Standard
+
+- The primary demo should be a full click-by-click recording through Chrome and Electron, not a recording of the final state after hidden setup.
+- Use `browser_snapshot` UIDs with `browser_click` and `browser_fill` for normal user actions.
+- Use `browser_eval`, direct APIs, localStorage writes, direct URLs, or filesystem checks only when the UI cannot perform the step yet.
+- When a shortcut is used, label it as setup or a product gap and return to a visible UI state before continuing the recording.
+- The recording should show the user-visible value: onboarding copy, Marketplace sync, install action, My Extensions/materialization status if visible, and chat response.
+- Terminal logs, API responses, and file checks are supporting evidence. They do not replace a visible product demo.
 
 ## Flow 1: Den download handoff copy
 
@@ -138,20 +147,28 @@ Expected outcome:
 
 ## Flow 6: chat handoff after provisioning
 
-**Goal:** The user can move from provisioning into chat.
+**Goal:** The user can move from provisioning into chat and actually use the
+imported skill/plugin.
 
 Steps:
 
 1. Open the active workspace session view.
 2. Confirm the composer is visible.
-3. Type or set a prompt that references the imported skill/plugin.
+3. Type or set a prompt that asks the imported skill/plugin for a deterministic response.
 4. Send it when the runtime is ready.
 
 Expected outcome:
 
-- The prompt appears in the composer.
 - `Run task` / composer send becomes available when opencode runtime is connected.
 - The task is submitted without losing the imported plugin state.
+- The response contains the deterministic output from the imported skill/plugin.
+
+Latest Daytona proof:
+
+- Created live plugin `Marketplace Runtime Probe` in the assigned `Anthropic-Compatible Plugins` marketplace.
+- Imported it into workspace `Marketplace Use Test` and confirmed `.opencode/skills/marketplace-runtime-probe-plugin/marketplace-runtime-probe-skill/SKILL.md` materialized.
+- Direct OpenCode runtime proof returned `MARKETPLACE_RUNTIME_PROBE_OK`.
+- Desktop chat in workspace `Marketplace Runtime Chat` also returned `MARKETPLACE_RUNTIME_PROBE_OK`.
 
 ## Artifact evidence rules
 
@@ -159,6 +176,7 @@ Expected outcome:
 - At least one representative screenshot must be visually inspected before publishing links.
 - If a sandbox stops, artifact proxy URLs become stale. Restart the sandbox, restart the artifact server on `8090`, and publish fresh URLs.
 - Do not claim a full pass from a recording that uses an auth bridge. Separate the verdict into Den handoff, desktop Marketplace sync, live plugin import, and chat/runtime.
+- Do not claim a founder-ready demo from a run that mostly used invisible automation. Mark it as technical validation and record a separate click-by-click user journey.
 
 ## 8-star experience target
 

@@ -18,6 +18,15 @@ marketplaces from the app.
   `DEN_WEB_ALLOWED_DEV_ORIGINS` to the preview host before starting Den Web.
 - Use a fresh browser profile so no previous Den session or org state is reused.
 
+## Demo Standard
+
+- The primary eval artifact must be a full human-visible recording, not a final-state clip.
+- Drive Den Web through Chrome CDP and desktop through Electron CDP using `browser_snapshot`, `browser_click`, and `browser_fill` wherever possible.
+- Show the journey click by click: sign-up, org creation, onboarding, marketplace explanation, desktop handoff, desktop sign-in, Marketplace sync, plugin install, and chat response.
+- Use API calls only for setup that the product UI cannot perform yet, such as creating a deterministic test plugin. Immediately show the resulting plugin in the desktop UI.
+- Use filesystem checks and direct OpenCode CLI runs only as supporting proof; they cannot replace a visible desktop install/chat demo.
+- If an auth bridge, direct navigation, localStorage write, or API shortcut is used, label that segment as a gap and do not claim the whole recording is a founder-ready demo.
+
 ## Server Expectations
 
 After a signed-in user can list active marketplaces with
@@ -50,6 +59,10 @@ After a signed-in user can list active marketplaces with
    - Example prompt: `Package this skill as a plugin, put it on a marketplace, and assign it to my team.`
 7. Open `View marketplaces` and confirm both default marketplaces are listed.
 
+Recording requirement: capture this through visible Chrome clicks and fills. Do
+not skip directly to `/dashboard/onboarding` unless the report marks the skipped
+steps as setup or a product gap.
+
 ## Desktop Flow
 
 1. Start OpenWork Desktop in dev mode pointed at the fresh Den Web/API URLs.
@@ -61,6 +74,15 @@ After a signed-in user can list active marketplaces with
    - `OpenWork Marketplace` appears as a marketplace source/filter.
    - Built-ins render as `Built-in` with no install/remove action.
    - `Anthropic-Compatible Plugins` appears as an assigned org marketplace, even if empty.
+7. Create a small test plugin in `Anthropic-Compatible Plugins` with one skill resource.
+8. Add the plugin from desktop Marketplace into an active workspace.
+9. Confirm the skill materializes under `.opencode/skills/.../SKILL.md`.
+10. Send a desktop chat prompt that asks the imported skill for a deterministic answer.
+11. Confirm the chat response uses the imported skill output.
+
+Recording requirement: capture this through visible Electron clicks and fills.
+The final demo should show the Marketplace list, the install action, and the chat
+response, not only a filesystem or CLI proof.
 
 ## Pass Criteria
 
@@ -68,7 +90,24 @@ After a signed-in user can list active marketplaces with
 - The onboarding page explains the Marketplace model without requiring docs.
 - The two default marketplaces exist server-side for the org.
 - The desktop Marketplace requires no manual server setup beyond sign-in to see assigned marketplaces.
+- A live org plugin can be installed from Marketplace, materialized into the workspace, and used from desktop chat.
 - Evidence clearly separates any Daytona-specific proxy/auth bridge from product behavior.
+- The recording is understandable as a user journey without relying on terminal-only context.
+
+## Latest Daytona Validation
+
+- Den sandbox: `openwork-server-onboarding-20260603-2108`.
+- Electron sandbox: `openwork-test-20260603-211949`.
+- New Den user created an org and landed on `/dashboard/onboarding`.
+- Den API returned both default marketplaces for the fresh org.
+- Desktop Cloud sign-in completed through the Den handoff flow.
+- Desktop Marketplace showed `OpenWork Marketplace` and `Anthropic-Compatible Plugins`.
+- Built-in Marketplace rows rendered as `Built-in` with no install/remove action.
+- Live plugin `Marketplace Runtime Probe` was added to `Anthropic-Compatible Plugins`.
+- Desktop imported the plugin and materialized `marketplace-runtime-probe-skill/SKILL.md` into the workspace.
+- Direct OpenCode runtime proof returned `MARKETPLACE_RUNTIME_PROBE_OK`.
+- Desktop chat proof also returned `MARKETPLACE_RUNTIME_PROBE_OK` in workspace `Marketplace Runtime Chat`.
+- Recording: `https://8090-7xhivksbzfwmpqc9.daytonaproxy01.net/recordings/marketplace-guided-onboarding-desktop.mp4`.
 
 ## Failure Modes To Watch
 

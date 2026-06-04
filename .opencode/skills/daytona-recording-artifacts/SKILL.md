@@ -9,6 +9,19 @@ Use this skill to collect proof that a Daytona UI flow works. Recordings are for
 humans. CDP assertions and screenshots are for AI validation and fast review.
 Use `daytona-flow-validator` before declaring the flow passed.
 
+## Recording Standard
+
+A useful Daytona recording should look like a person using the product, even
+though CDP is driving the browser or Electron window.
+
+- Record the entire relevant journey, not only the final state.
+- Start before the first visible click and stop after the final visible success state.
+- Drive Chrome/Electron through visible controls with `browser_snapshot`, `browser_click`, and `browser_fill` wherever possible.
+- Keep API calls, localStorage writes, direct navigation, and filesystem checks out of the recorded path unless they are unavoidable setup.
+- If invisible setup is unavoidable, label it in the PR/eval and resume the recording at the next visible user step.
+- Prefer slower, understandable click-by-click recordings over faster scripts that jump between states.
+- The recording should be understandable without terminal output; logs and API checks are supporting evidence only.
+
 ## The Volume
 
 The reusable Daytona volume is:
@@ -136,6 +149,10 @@ the flow passed.
 
 When a recording is required, start it before the first user-visible action in
 the flow and stop it only after the final asserted state is visible.
+
+Do not use a recording as the primary demo if most of the flow happened through
+hidden automation. In that case, mark the run as technical validation only and
+record a new click-by-click run for human review.
 
 If you discover an invalid recording after the fact, do not reuse the same URL
 as if it were valid. Record a new run with a new recording name and explain in

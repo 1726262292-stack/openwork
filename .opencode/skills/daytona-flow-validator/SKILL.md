@@ -11,15 +11,36 @@ works. Launching the sandbox is separate. This skill owns the feedback loop.
 ## Core Rule
 
 Never report success from a click, script return value, or recording alone.
-Every meaningful action must follow this loop:
+Validate the same path a human would take, using CDP to drive Chrome or Electron
+instead of replacing the journey with hidden state changes. Every meaningful
+action must follow this loop:
 
-1. Observe with `browser_snapshot` or `browser_eval`.
-2. Act with `browser_click`, `browser_fill`, or `browser_eval`.
-3. Observe again with `browser_snapshot` or `browser_eval`.
+1. Observe with `browser_snapshot` first.
+2. Act with `browser_click` or `browser_fill` against snapshot UIDs whenever possible.
+3. Observe again with `browser_snapshot`.
 4. Assert the expected URL, text, state, process, network, or file result.
 5. Capture a screenshot checkpoint when the visible state matters.
 
 If any assertion is missing, the flow is not validated yet.
+
+Use `browser_eval`, direct API calls, localStorage writes, filesystem edits, or
+database changes only when a human-visible path is impossible, unavailable in the
+current product, or needed as setup for data that the UI cannot create yet. When
+you use one of these shortcuts, say so in the report and do not let it replace the
+visible click-by-click demo claim.
+
+## Human-Visible Demo Standard
+
+For founder, designer, PR, or eval evidence, record the journey as a reviewer
+would experience it:
+
+- Start recording before the first user-visible action.
+- Use Chrome CDP for Den Web and Electron CDP for desktop.
+- Prefer accessible snapshot items and visible clicks/fills over synthetic DOM mutation.
+- Keep every major transition visible: sign-up, org creation, onboarding, handoff, desktop sign-in, Marketplace, install, and chat response.
+- Do not skip screens by setting tokens, editing localStorage, calling APIs, or navigating directly unless the report labels that segment as setup or a known product gap.
+- If test data must be created through an API, show the result in the UI immediately after and state that the data creation was invisible setup.
+- A recording that cannot be understood without terminal logs, API responses, or explanation is not a full demo pass.
 
 ## Minimum Pass Evidence
 
@@ -48,12 +69,17 @@ Evidence: <screenshot path or artifact URL if captured>
 ## Prefer Accessible Snapshots
 
 Start with `browser_snapshot` for normal UI controls because it gives stable
-UIDs for `browser_click` and `browser_fill`. Use `browser_eval` when:
+UIDs for `browser_click` and `browser_fill`. Treat `browser_eval` as an escape
+hatch, not the default interaction mechanism. Use `browser_eval` when:
 
 - React dynamic UI makes snapshot UIDs stale.
 - Native file pickers must be bypassed.
 - Lexical editor input needs a synthetic paste event.
 - You need to inspect app state, localStorage, URL, or text quickly.
+
+Even when `browser_eval` is necessary, keep the user-visible state coherent:
+observe before, perform the minimal hidden action, then observe the visible result
+with `browser_snapshot` or a screenshot.
 
 ## Lexical Composer
 
