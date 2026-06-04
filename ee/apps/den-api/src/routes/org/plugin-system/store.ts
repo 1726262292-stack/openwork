@@ -455,7 +455,7 @@ const DEFAULT_OPENWORK_EXTENSION_MANIFESTS = [
 ] as const
 
 function defaultOpenWorkManifestForPlugin(row: PluginRow) {
-  return DEFAULT_OPENWORK_EXTENSION_MANIFESTS.find((manifest) => manifest.name === row.name) ?? null
+  return DEFAULT_OPENWORK_EXTENSION_MANIFESTS.find((manifest) => manifest.name === row.name && manifest.description === row.description) ?? null
 }
 
 function extensionResourceTypeForConfigObject(objectType: string) {
@@ -1679,6 +1679,7 @@ async function ensureDefaultOpenWorkMarketplace(context: PluginArchActorContext)
       .where(and(
         eq(PluginTable.organizationId, organizationId),
         eq(PluginTable.name, manifest.name),
+        eq(PluginTable.description, manifest.description),
         isNull(PluginTable.deletedAt),
       ))
       .limit(1))[0]
