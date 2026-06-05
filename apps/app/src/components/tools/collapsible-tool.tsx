@@ -33,11 +33,14 @@ export const CollapsibleToolTrigger = ({
   className,
   leftIcon,
   swapIconOnHover = true,
+  disabled,
   ...props
 }: CollapsibleToolTriggerProps) => (
   <CollapsibleTrigger
+    disabled={disabled}
     className={cn(
-      "group text-muted-foreground hover:text-foreground flex w-full min-w-0 cursor-pointer items-center justify-start gap-1 overflow-hidden text-start text-sm transition-colors",
+      "group text-muted-foreground flex w-full min-w-0 items-center justify-start gap-1 overflow-hidden text-start text-sm transition-colors",
+      disabled ? "cursor-default" : "cursor-pointer hover:text-foreground",
       className
     )}
     {...props}
@@ -48,12 +51,12 @@ export const CollapsibleToolTrigger = ({
           <span
             className={cn(
               "transition-opacity",
-              swapIconOnHover && "group-hover:opacity-0"
+              swapIconOnHover && !disabled && "group-hover:opacity-0"
             )}
           >
             {leftIcon}
           </span>
-          {swapIconOnHover && (
+          {swapIconOnHover && !disabled && (
             <ChevronDown className="absolute size-4 opacity-0 transition-opacity group-hover:opacity-100 group-data-panel-open:rotate-180" />
           )}
         </span>
@@ -64,7 +67,7 @@ export const CollapsibleToolTrigger = ({
       )}
       <span className="min-w-0">{children}</span>
     </div>
-    {!leftIcon && (
+    {!leftIcon && !disabled && (
       <ChevronDown className="size-4 transition-transform group-data-panel-open:rotate-180" />
     )}
   </CollapsibleTrigger>

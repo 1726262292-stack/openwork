@@ -1,17 +1,45 @@
 import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type FileUIPart, type ToolUIPart, type UIMessage } from "ai"
+import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types"
 import type { ThreadStatus } from "@/lib/messages"
 
-interface MessageGroup {
+export interface MessageGroup {
   messages: UIMessageWithIndex[]
 }
 
-export type UIMessageWithIndex = { index: number, message: UIMessage }
-type MessageListItem = MessageGroup | UIMessageWithIndex
+export interface UIMessageWithIndex {
+  index: number
+  message: UIMessage
+}
+
+export type MessageListItem = MessageGroup | UIMessageWithIndex
+
+export function isEmptyMessage(message: UIMessage): boolean {
+  return message.parts.every((part) => {
+    if (part.type === "text") {
+      return part.text.trim().length === 0
+    }
+
+    if (isReasoningUIPart(part)) {
+      return part.text.trim().length === 0
+    }
+
+    return false
+  })
+}
+
+export function isSessionErrorMessage(message: UIMessage) {
+  return message.id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX)
+}
 
 function getMessageText(message: UIMessage): string {
   return message.parts
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
+    .flatMap((part) => {
+      if (part.type === "text") {
+        return [part.text]
+      }
+
+      return []
+    })
     .join("")
     .trim()
 }
@@ -85,7 +113,7 @@ type AssistantRenderGroup =
   | { kind: "file"; part: FileUIPart }
   | { kind: "tool"; part: ToolUIPart | DynamicToolUIPart }
 
-export function getAssistantRenderGroups(
+export function  getAssistantRenderGroups(
   parts: UIMessage["parts"],
   showThinking: boolean
 ): AssistantRenderGroup[] {
@@ -93,7 +121,7 @@ export function getAssistantRenderGroups(
   const groups: AssistantRenderGroup[] = []
 
   const appendText = (text: string) => {
-    if (!text) {
+    if (!text.trim()) {
       return
     }
 
@@ -111,14 +139,14 @@ export function getAssistantRenderGroups(
       return
     }
 
+    if (!part.text.trim()) {
+      return
+    }
+
     const previous = groups.at(-1)
     if (previous?.kind === "reasoning") {
       previous.text += part.text
       previous.isStreaming = previous.isStreaming || part.state === "streaming"
-      return
-    }
-
-    if (!part.text.trim()) {
       return
     }
 

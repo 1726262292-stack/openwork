@@ -15,7 +15,19 @@ interface WebfetchToolProps {
 
 export function WebfetchTool({ part }: WebfetchToolProps) {
   if (part.state === "output-error") {
-    return <Tool toolPart={part} />
+    return (
+      <div className="flex gap-2">
+        <WebfetchTrigger leftIcon={<Globe className="size-4" />}>
+          Fetching
+        </WebfetchTrigger>
+        <Source href={part.input.url}>
+          <SourceTrigger showFavicon />
+          <SourceContent
+            title={part.input.url}
+          />
+        </Source>
+      </div>
+    )
   }
 
   if (part.state !== "output-available") {

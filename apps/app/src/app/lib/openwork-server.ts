@@ -1,4 +1,4 @@
-import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
+import type { Message, Part, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch } from "./desktop";
 import { isDesktopRuntime } from "../utils";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
@@ -117,10 +117,7 @@ export type OpenworkSessionSnapshot = {
   session: Session;
   messages: OpenworkSessionMessage[];
   todos: Todo[];
-  status:
-    | { type: "idle" }
-    | { type: "busy" }
-    | { type: "retry"; attempt: number; message: string; next: number };
+  status: SessionStatus;
 };
 
 export type OpenworkPluginItem = {

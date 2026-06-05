@@ -528,18 +528,23 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const chatStreaming = sending || liveStatus.type === "busy" || liveStatus.type === "retry";
   const status = useMemo((): ThreadStatus => {
     if (sending) {
-      return "submitted";
+      return { type: "submitted" };
     }
 
     if (liveStatus.type === "busy") {
-      return "streaming";
+      return { type: "streaming" };
     }
 
     if (liveStatus.type === "retry") {
-      return "retrying";
+      return {
+        type: "retrying",
+        attempt: liveStatus.attempt,
+        message: liveStatus.message,
+        action: liveStatus.action,
+      };
     }
 
-    return "ready";
+    return { type: "ready" };
   }, [liveStatus, sending]);
   const renderedMessages = useMemo(
     () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
@@ -1206,7 +1211,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     <MessageList
                       messages={renderedMessages}
                       status={status}
-                      retryStatus={liveStatus.type === "retry" ? liveStatus : null}
                     />
                   </MessageListProvider>
                 </OpenTargetProvider>

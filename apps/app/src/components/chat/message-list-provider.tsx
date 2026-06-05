@@ -96,7 +96,7 @@ export function useMessageList() {
 }
 
 export function useSessionErrorMessage() {
-  const { workspaceId, sessionId } = useMessageList();
+  const { workspaceId, sessionId } = useMessageList()
 
-  return useSessionActivityStore(state => state.getSessionError(workspaceId, sessionId));
+  return useSessionActivityStore((state) => state.getSessionError(workspaceId, sessionId))
 }

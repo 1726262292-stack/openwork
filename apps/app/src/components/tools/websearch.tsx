@@ -21,12 +21,23 @@ interface WebsearchToolProps {
 }
 
 export function WebsearchTool({ part }: WebsearchToolProps) {
+
+  if (part.state === "input-streaming") {
+    return (
+      <div>
+        <span className="text-muted-foreground">
+          Searching for "{part.input.query}"
+        </span>
+      </div>
+    )
+  }
+
   if (part.state === "output-error") {
     return <Tool toolPart={part} />
   }
 
   if (part.state !== "output-available") {
-    return <Tool toolPart={part} />
+    return null
   }
 
   const results = parseWebSearchResults(part.output)

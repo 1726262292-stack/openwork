@@ -464,6 +464,21 @@ select:disabled {
   --sidebar-ring: var(--slate-8);
 }
 
+/* Shiki dual-theme: keep the code background transparent in both themes so the
+   container's styling shows through, and swap token colors to the github-dark
+   palette (via --shiki-dark) when the app is in dark mode. Scoped to markdown
+   code blocks so it only touches Shiki-rendered output. */
+[data-openwork-shiki] .shiki {
+  background-color: transparent !important;
+}
+
+.dark [data-openwork-shiki] .shiki,
+.dark [data-openwork-shiki] .shiki span,
+[data-theme="dark"] [data-openwork-shiki] .shiki,
+[data-theme="dark"] [data-openwork-shiki] .shiki span {
+  color: var(--shiki-dark) !important;
+}
+
 @theme inline {
   --font-sans: 'Geist Variable', sans-serif;
   --font-heading: 'IBM Plex Sans Variable', sans-serif;
