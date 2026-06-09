@@ -24,7 +24,7 @@
     "prepare:sidecar": "node ./scripts/prepare-sidecar.mjs"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "^1.15.12",
+    "@opencode-ai/sdk": "^1.16.2",
     "better-sqlite3": "^11.10.0",
     "drizzle-orm": "^0.45.1",
     "electron-updater": "^6.3.9",
