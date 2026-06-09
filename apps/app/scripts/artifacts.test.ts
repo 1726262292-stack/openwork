@@ -63,11 +63,12 @@ describe("getArtifactsFromMessages", () => {
     const messages: UIMessage[] = [{
       id: "msg_text",
       role: "assistant",
-      parts: [{ type: "text", text: "Created reports/artifact-eval.md and src/widget.tsx", state: "done" }],
+      parts: [{ type: "text", text: "Created reports/artifact-eval.md, decks/update.pptx, and src/widget.tsx", state: "done" }],
     }];
 
     expect(getArtifactsFromMessages(messages, [], { includeTargetFallbacks: false }).map((artifact) => artifact.path)).toEqual([
       "src/widget.tsx",
+      "decks/update.pptx",
       "reports/artifact-eval.md",
     ]);
   });

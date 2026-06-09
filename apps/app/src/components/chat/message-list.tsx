@@ -563,11 +563,7 @@ function getRenderableMessage(message: UIMessage) {
   return parts.length > 0 ? { ...message, parts } : null;
 }
 
-function MessageArtifacts(props: { message: UIMessage; isLastMessage: boolean }) {
-  if (props.isLastMessage) {
-    return null;
-  }
-
+function MessageArtifacts(props: { message: UIMessage }) {
   return <ArtifactList messages={[props.message]} includeTargetFallbacks={false} />;
 }
 
@@ -637,7 +633,7 @@ function MessageGroup({
                   isStreaming={isLastMessage && isStreaming}
                   isLastStep={isLastStep}
                 />
-                <MessageArtifacts message={item.message} isLastMessage={isLastMessage} />
+                <MessageArtifacts message={item.message} />
               </motion.div>
             )
           })}
@@ -664,7 +660,7 @@ function MessageGroup({
                   isLastStep={index === items.length}
                 />
               ) : null}
-              <MessageArtifacts message={message} isLastMessage={isLastMessage} />
+              <MessageArtifacts message={message} />
             </motion.div>
           )
         }) : null}
@@ -741,7 +737,7 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
               isStreaming={isLastMessage && isStreaming}
               isLastStep={isLastStep}
             />
-            <MessageArtifacts message={item.message} isLastMessage={isLastMessage} />
+            <MessageArtifacts message={item.message} />
           </div>
         )
       })}

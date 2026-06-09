@@ -225,7 +225,7 @@ function getArtifactPathsFromText(text: string) {
 
   FILE_PATTERN.lastIndex = 0;
   for (const match of text.matchAll(FILE_PATTERN)) {
-    if (match[1] && isPreviewSupported(getFileExtension(match[1]) ?? "")) {
+    if (match[1] && getArtifactType(match[1]) !== "unknown") {
       paths.push(match[1]);
     }
   }
