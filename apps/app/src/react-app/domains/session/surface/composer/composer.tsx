@@ -1030,7 +1030,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   return (
     <div
       ref={rootRef}
-      className={`sticky bottom-0 ${toolMenuOpen ? "z-50" : "z-20"} bg-gradient-to-t from-dls-surface via-dls-surface/95 to-transparent px-4 md:px-8 pb-5 ${props.compactTopSpacing ? "pt-0" : "pt-3"}`}
+      className={`sticky bottom-0 ${toolMenuOpen ? "z-50" : "z-20"} bg-gradient-to-t from-dls-surface via-dls-surface/95 to-transparent px-4 pb-2 md:px-8 ${props.compactTopSpacing ? "pt-0" : "pt-1"}`}
       style={{ contain: "layout style" }}
       onKeyDownCapture={handleKeyDownCapture}
       onCompositionStart={() => {
@@ -1184,9 +1184,9 @@ export function ReactSessionComposer(props: ComposerProps) {
               }}
             />
 
-            {/* Action row — attach/inbox/tools on the left, send on the right */}
-            <div className="mt-2 flex items-end justify-between gap-2">
-              <div className="flex items-center gap-1.5">
+            {/* Action row — attachments, quick actions, model controls, and send */}
+            <div className="mt-2 flex flex-wrap items-end justify-between gap-2">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                 <input
                   ref={(element) => {
                     fileInput = element ?? undefined;
@@ -1413,6 +1413,25 @@ export function ReactSessionComposer(props: ComposerProps) {
                     </div>
                   ) : null}
                 </div>
+
+                <ModelSelect
+                  open={props.modelPickerOpen}
+                  value={props.selectedModel}
+                  onOpenChange={props.onModelPickerOpenChange}
+                  onChange={props.onModelChange}
+                  disabled={props.busy}
+                />
+                {props.modelUnavailable ? (
+                  <span className="text-xs font-medium text-red-10">Model no longer available</span>
+                ) : null}
+
+                <ModelBehaviorSelect
+                  value={props.modelVariant}
+                  label={props.modelVariantLabel}
+                  options={props.modelBehaviorOptions}
+                  onChange={props.onModelVariantChange}
+                  disabled={props.busy}
+                />
               </div>
 
               {/*
@@ -1498,98 +1517,6 @@ export function ReactSessionComposer(props: ComposerProps) {
           </div>
         </div>
 
-        {/* Below-panel control strip: agent + model + behavior variant */}
-        <div className="mt-1 flex items-center justify-between px-1">
-          <div className="flex flex-wrap items-center gap-1.5 text-gray-10 sm:gap-2.5">
-            {/* TODO: Decide what to do with agent selection before showing this control again.
-            <div ref={agentMenuRef} className="relative">
-              <button
-                type="button"
-                className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-medium text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12"
-                onClick={() => setAgentMenuOpen((value) => !value)}
-                disabled={props.busy}
-                aria-expanded={agentMenuOpen}
-                title={t("composer.agent_label")}
-              >
-                <span className="max-w-[140px] truncate">{props.agentLabel}</span>
-                <ChevronDown size={13} />
-              </button>
-              {agentMenuOpen ? (
-                <div className="absolute left-0 bottom-full z-40 mb-2 w-64 overflow-hidden rounded-[18px] border border-dls-border bg-dls-surface shadow-[var(--dls-shell-shadow)]">
-                  <div className="border-b border-dls-border px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-10">
-                    {t("composer.agent_label")}
-                  </div>
-                  <div
-                    role="presentation"
-                    className="space-y-1 p-2 max-h-64 overflow-y-auto"
-                    onMouseDown={(event) => event.preventDefault()}
-                  >
-                    <button
-                      ref={(element) => {
-                        agentItemRefs.current[0] = element;
-                      }}
-                      type="button"
-                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors ${!props.selectedAgent ? "bg-gray-2 text-gray-12" : "text-gray-11 hover:bg-gray-2/70"}`}
-                      onMouseEnter={() => setAgentMenuIndex(0)}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        props.onSelectAgent(null);
-                        setAgentMenuOpen(false);
-                      }}
-                    >
-                      <span>{t("composer.default_agent")}</span>
-                      {!props.selectedAgent ? <Check size={14} className="text-gray-10" /> : null}
-                    </button>
-                    {agents.map((agent, index) => {
-                      const active = props.selectedAgent === agent.name;
-                      return (
-                        <button
-                          key={agent.name}
-                          ref={(element) => {
-                            agentItemRefs.current[index + 1] = element;
-                          }}
-                          type="button"
-                          className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors ${active ? "bg-gray-2 text-gray-12" : "text-gray-11 hover:bg-gray-2/70"}`}
-                          onMouseEnter={() => setAgentMenuIndex(index + 1)}
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            props.onSelectAgent(agent.name);
-                            setAgentMenuOpen(false);
-                          }}
-                        >
-                          <span className="truncate">{agent.name.charAt(0).toUpperCase() + agent.name.slice(1)}</span>
-                          {active ? <Check size={14} className="text-gray-10" /> : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-            */}
-
-            <ModelSelect
-              open={props.modelPickerOpen}
-              value={props.selectedModel}
-              onOpenChange={props.onModelPickerOpenChange}
-              onChange={props.onModelChange}
-              disabled={props.busy}
-            />
-            {props.modelUnavailable ? (
-              <span className="text-xs font-medium text-red-10">Model no longer available</span>
-            ) : null}
-
-            <ModelBehaviorSelect
-              value={props.modelVariant}
-              label={props.modelVariantLabel}
-              options={props.modelBehaviorOptions}
-              onChange={props.onModelVariantChange}
-              disabled={props.busy}
-            />
-          </div>
-
-          {/* Status label removed — redundant with the footer bar */}
-        </div>
       </div>
     </div>
   );
