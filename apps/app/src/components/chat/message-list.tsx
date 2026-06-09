@@ -41,6 +41,7 @@ import { WebsearchTool } from "@/components/tools/websearch"
 import { useMessageList, useSessionErrorMessage } from "@/components/chat/message-list-provider"
 import { ArtifactList } from "@/components/chat/artifact"
 import { TaskSuggestions } from "@/components/chat/task-suggestions"
+import { selectStepGroupOpen, useSessionStepDisclosureStore } from "@/react-app/domains/session/surface/step-disclosure-store"
 import {
   DescriptiveButtonContent,
   DescriptiveButtonDescription,
@@ -170,7 +171,6 @@ function FileMessage({ part }: FileMessageProps) {
         alt={title}
         loading="lazy"
         decoding="async"
-        className="size-full object-cover"
       />
     )
   }
@@ -568,8 +568,11 @@ function MessageGroup({
   messages,
   isStreaming,
 }: AssistantMessageGroupProps) {
-  const { onRevertToUserMessage, onForkAtMessage } = useMessageList()
-  const [open, setOpen] = React.useState(false)
+  const { workspaceId, sessionId, onRevertToUserMessage, onForkAtMessage } = useMessageList()
+  const firstItem = items[0]
+  const stepGroupId = firstItem?.message.id ?? "empty-assistant-group"
+  const open = useSessionStepDisclosureStore((state) => selectStepGroupOpen(state.stepGroupsByWorkspace, workspaceId, sessionId, stepGroupId))
+  const setStepGroupOpen = useSessionStepDisclosureStore((state) => state.setStepGroupOpen)
   // Only run layout animations while the collapsible is expanding/collapsing.
   // Otherwise (e.g. while streaming) layout changes apply instantly.
   const [isAnimating, setIsAnimating] = React.useState(false)
@@ -598,7 +601,7 @@ function MessageGroup({
         open={open}
         onOpenChange={(next) => {
           setIsAnimating(true)
-          setOpen(next)
+          setStepGroupOpen(workspaceId, sessionId, stepGroupId, next)
         }}
       >
         <StepsTrigger className="px-2 md:px-10">
