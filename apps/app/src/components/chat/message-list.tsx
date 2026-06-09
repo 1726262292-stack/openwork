@@ -552,10 +552,24 @@ const isMessageEmptyGroup = (messages: UIMessageWithIndex[]) =>
 
 const getRenderableMessages = (messages: UIMessageWithIndex[]) =>
   messages.flatMap((item) => {
-    const parts = item.message.parts.filter((part) => part.type === "text" || part.type === "file");
+    const renderableMessage = getRenderableMessage(item.message);
 
-    return parts.length > 0 ? [{ ...item, message: { ...item.message, parts } }] : []
+    return renderableMessage ? [{ ...item, message: renderableMessage }] : []
   })
+
+function getRenderableMessage(message: UIMessage) {
+  const parts = message.parts.filter((part) => part.type === "text" || part.type === "file");
+
+  return parts.length > 0 ? { ...message, parts } : null;
+}
+
+function MessageArtifacts(props: { message: UIMessage; isLastMessage: boolean }) {
+  if (props.isLastMessage) {
+    return null;
+  }
+
+  return <ArtifactList messages={[props.message]} includeTargetFallbacks={false} />;
+}
 
 interface AssistantMessageGroupProps {
   items: UIMessageWithIndex[]
@@ -623,30 +637,38 @@ function MessageGroup({
                   isStreaming={isLastMessage && isStreaming}
                   isLastStep={isLastStep}
                 />
+                <MessageArtifacts message={item.message} isLastMessage={isLastMessage} />
               </motion.div>
             )
           })}
         </StepsContent>
       </Steps>
       <AnimatePresence initial={false}>
-        {!open ? renderableItems.map(({ index, message }) => (
-          <motion.div
-            key={message.id}
-            layoutId={`msg-${message.id}`}
-            layout
-            transition={layoutTransition}
-            onLayoutAnimationComplete={() => setIsAnimating(false)}
-          >
-            <MessageComponent
-              message={message}
-              isStreaming={index === messages.length - 1 && isStreaming}
-              isLastMessage={index === messages.length - 1}
-              isLastStep={index === items.length}
-            />
-          </motion.div>
-        )) : null}
+        {!open ? items.map(({ index, message }) => {
+          const renderableMessage = getRenderableMessage(message)
+          const isLastMessage = index === messages.length - 1
+
+          return (
+            <motion.div
+              key={message.id}
+              layoutId={`msg-${message.id}`}
+              layout
+              transition={layoutTransition}
+              onLayoutAnimationComplete={() => setIsAnimating(false)}
+            >
+              {renderableMessage ? (
+                <MessageComponent
+                  message={renderableMessage}
+                  isStreaming={isLastMessage && isStreaming}
+                  isLastMessage={isLastMessage}
+                  isLastStep={index === items.length}
+                />
+              ) : null}
+              <MessageArtifacts message={message} isLastMessage={isLastMessage} />
+            </motion.div>
+          )
+        }) : null}
       </AnimatePresence>
-      <ArtifactList messages={items.map((item) => item.message)} />
       {lastTextMessage && !isStreaming && (
         <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 px-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 md:px-8">
           <MessageActions className="flex gap-0">
@@ -719,6 +741,7 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
               isStreaming={isLastMessage && isStreaming}
               isLastStep={isLastStep}
             />
+            <MessageArtifacts message={item.message} isLastMessage={isLastMessage} />
           </div>
         )
       })}
