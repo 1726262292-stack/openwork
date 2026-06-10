@@ -2234,6 +2234,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}
                 removeCloudPlugin={(pluginId) => { void extensionsStore.removeCloudOrgPlugin(pluginId); }}
                 readSkill={(name) => extensionsStore.readSkill(name)}
+                onSharedToMarketplace={() => { void extensionsStore.refreshCloudOrgMarketplaces({ force: true }); }}
                 showHeader={false}
               />
             }

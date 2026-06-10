@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useReducer, useRef, useState, type SetStateAction } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type SetStateAction } from "react";
 import {
   BookOpen,
   CheckCircle2,
@@ -19,8 +19,22 @@ import {
   Search,
   Settings2,
   Unplug,
+  Users,
   Zap,
 } from "lucide-react";
+import { toast } from "@/components/ui/sonner";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { SelectMenu, type SelectMenuOption } from "../../../design-system/select-menu";
+import { createDenClient, readDenSettings, type DenOrgMarketplace } from "../../../../app/lib/den";
+import { shareMcpServerToOrg } from "../../../../app/lib/den-share";
 
 import { isBuiltInOpenWorkExtension, getMcpServerName, type McpDirectoryInfo } from "../../../../app/constants";
 import { evaluateEnablement } from "../../../../app/enablement";
@@ -112,6 +126,8 @@ export type McpViewProps = {
   enablementContext?: import("../../../../app/enablement").EnablementContext;
   /** Organization policy restriction for OpenWork-provided built-in extensions. */
   builtInExtensionsDisabled?: boolean;
+  /** Called after an MCP server was shared to an org marketplace. */
+  onSharedToMarketplace?: () => void;
 };
 
 const builtInExtensionDisabledReason = "Disabled by organization";
@@ -236,6 +252,20 @@ export function McpView(props: McpViewProps) {
   const [filter, setFilter] = useState<ExtensionFilter>("all");
   const [showHidden, setShowHidden] = useState(false);
   const [, setExtensionStateVersion] = useState(0);
+  const [shareTarget, setShareTarget] = useState<McpServerEntry | null>(null);
+  const [denSessionTick, setDenSessionTick] = useState(0);
+
+  useEffect(() => {
+    const onDenSession = () => setDenSessionTick((value) => value + 1);
+    window.addEventListener("openwork-den-session-updated", onDenSession);
+    return () => window.removeEventListener("openwork-den-session-updated", onDenSession);
+  }, []);
+
+  const cloudShareReady = useMemo(() => {
+    denSessionTick;
+    const settings = readDenSettings();
+    return Boolean(settings.authToken?.trim() && settings.activeOrgId?.trim());
+  }, [denSessionTick]);
 
   const [localState, dispatchLocal] = useReducer(
     mcpViewLocalReducer,
@@ -622,6 +652,14 @@ export function McpView(props: McpViewProps) {
         }}
         onToggleEnabled={props.setMcpEnabled}
         onToggleBusy={setTogglingMcp}
+        onShare={cloudShareReady ? setShareTarget : undefined}
+      />
+
+      <ShareMcpServerDialog
+        entry={shareTarget}
+        displayName={displayName}
+        onClose={() => setShareTarget(null)}
+        onShared={props.onSharedToMarketplace}
       />
 
       <ConfirmModal
@@ -947,6 +985,7 @@ function McpConfiguredServersSection(props: {
   onRemove: (name: string) => void;
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   onToggleBusy: (value: SetStateAction<string | null>) => void;
+  onShare?: (entry: McpServerEntry) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -982,6 +1021,7 @@ function McpConfiguredServersSection(props: {
               onRemove={props.onRemove}
               onToggleEnabled={props.onToggleEnabled}
               onToggleBusy={props.onToggleBusy}
+              onShare={props.onShare}
             />
           ))}
         </div>
@@ -1018,6 +1058,7 @@ function McpConfiguredServerRow(props: {
   onRemove: (name: string) => void;
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   onToggleBusy: (value: SetStateAction<string | null>) => void;
+  onShare?: (entry: McpServerEntry) => void;
 }) {
   const Icon = serviceIcon(props.entry.name);
   return (
@@ -1075,6 +1116,20 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
       </details>
       <McpConfiguredServerAuthActions {...props} />
       <div className="flex justify-end gap-2 pt-1">
+        {props.onShare ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={props.busy}
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onShare?.(props.entry);
+            }}
+          >
+            <Users size={13} />
+            Share with team
+          </Button>
+        ) : null}
         {props.onToggleEnabled && props.entry.source !== "config.global" ? (
           <Button
             variant="outline"
@@ -1224,6 +1279,181 @@ function McpConfigScopeButton(props: {
     >
       {props.scope === "project" ? t("mcp.scope_project") : t("mcp.scope_global")}
     </button>
+  );
+}
+
+function ShareMcpServerDialog(props: {
+  entry: McpServerEntry | null;
+  displayName: (name: string) => string;
+  onClose: () => void;
+  onShared?: () => void;
+}) {
+  const entry = props.entry;
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [marketplaceId, setMarketplaceId] = useState("");
+  const [marketplaces, setMarketplaces] = useState<DenOrgMarketplace[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const displayNameRef = useRef(props.displayName);
+  displayNameRef.current = props.displayName;
+
+  useEffect(() => {
+    if (!entry) return;
+    setName(displayNameRef.current(entry.name));
+    setDescription("");
+    setMarketplaceId("");
+    setMarketplaces(null);
+    setLoadError(null);
+    setBusy(false);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const settings = readDenSettings();
+        const token = settings.authToken?.trim() ?? "";
+        const orgId = settings.activeOrgId?.trim() ?? "";
+        if (!token || !orgId) {
+          throw new Error("Sign in to OpenWork Cloud with an active organization to share.");
+        }
+        const client = createDenClient({ baseUrl: settings.baseUrl, apiBaseUrl: settings.apiBaseUrl, token });
+        const items = await client.listOrgMarketplaces(orgId);
+        if (cancelled) return;
+        setMarketplaces(items);
+        setMarketplaceId(items[0]?.id ?? "");
+      } catch (error) {
+        if (cancelled) return;
+        setMarketplaces([]);
+        setLoadError(error instanceof Error ? error.message : "Failed to load marketplaces.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [entry]);
+
+  const marketplaceOptions: SelectMenuOption[] = (marketplaces ?? []).map((marketplace) => ({
+    value: marketplace.id,
+    label: marketplace.name,
+  }));
+  const loadingMarketplaces = Boolean(entry) && marketplaces === null;
+  const noMarketplaces = marketplaces !== null && marketplaces.length === 0 && !loadError;
+  const hasSecretEnvValues = Boolean(
+    entry?.config.environment && Object.values(entry.config.environment).some((value) => value.trim()),
+  );
+
+  const submit = async () => {
+    if (!entry || busy || !marketplaceId) return;
+    setBusy(true);
+    try {
+      const { orgName } = await shareMcpServerToOrg({
+        name,
+        description: description.trim() || null,
+        mcpName: entry.name,
+        mcpConfig: entry.config,
+        marketplaceId,
+      });
+      toast.success(`Shared "${name.trim() || entry.name}" with ${orgName}.`);
+      props.onShared?.();
+      props.onClose();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("common.something_went_wrong"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={Boolean(entry)}
+      onOpenChange={(open) => {
+        if (!open && !busy) props.onClose();
+      }}
+    >
+      <DialogContent className="w-full max-w-md sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Share with team</DialogTitle>
+          <DialogDescription>
+            Publish this app to your organization's marketplace so teammates can install it.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <label className="block space-y-1.5">
+            <span className="text-[13px] font-medium text-dls-text">Name</span>
+            <input
+              type="text"
+              value={name}
+              onChange={(event) => setName(event.currentTarget.value)}
+              disabled={busy}
+              className="w-full rounded-lg border border-dls-border bg-dls-surface px-3 py-2 text-xs text-dls-text placeholder:text-dls-secondary focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)]"
+            />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-[13px] font-medium text-dls-text">Description (optional)</span>
+            <input
+              type="text"
+              value={description}
+              onChange={(event) => setDescription(event.currentTarget.value)}
+              disabled={busy}
+              placeholder="What does this app do?"
+              className="w-full rounded-lg border border-dls-border bg-dls-surface px-3 py-2 text-xs text-dls-text placeholder:text-dls-secondary focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)]"
+            />
+          </label>
+          <div className="space-y-1.5">
+            <span id="mcp-share-marketplace-label" className="block text-[13px] font-medium text-dls-text">
+              Marketplace
+            </span>
+            {loadingMarketplaces ? (
+              <div className="flex items-center gap-2 text-xs text-dls-secondary">
+                <Loader2 size={14} className="animate-spin" />
+                Loading marketplaces...
+              </div>
+            ) : noMarketplaces ? (
+              <div className="rounded-lg border border-dls-border bg-dls-hover px-3 py-2 text-xs text-dls-secondary">
+                Your organization has no marketplace yet. Create one in the OpenWork Cloud dashboard first.
+              </div>
+            ) : (
+              <SelectMenu
+                ariaLabelledBy="mcp-share-marketplace-label"
+                options={marketplaceOptions}
+                value={marketplaceId}
+                onChange={setMarketplaceId}
+                disabled={busy}
+              />
+            )}
+          </div>
+          {hasSecretEnvValues ? (
+            <div className="rounded-lg border border-amber-6 bg-amber-2 px-3 py-2 text-xs text-amber-11">
+              Secret values are not shared: environment variable names are published without their values.
+            </div>
+          ) : null}
+          {loadError ? (
+            <div className="rounded-lg border border-red-6 bg-red-2 px-3 py-2 text-xs text-red-11">{loadError}</div>
+          ) : null}
+        </div>
+
+        <DialogFooter>
+          <DialogClose disabled={busy} render={<Button variant="outline" disabled={busy} />}>
+            {t("common.cancel")}
+          </DialogClose>
+          <Button
+            disabled={busy || !marketplaceId || !name.trim() || loadingMarketplaces}
+            onClick={() => {
+              void submit();
+            }}
+          >
+            {busy ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Sharing...
+              </>
+            ) : (
+              "Share with team"
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
