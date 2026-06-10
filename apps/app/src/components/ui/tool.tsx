@@ -7,8 +7,45 @@ import {
 } from "@/components/ui/collapsible"
 import { getToolActivityLabel, isToolPartInFlight } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
-import { ChevronDown, CircleAlert, LoaderCircle, Wrench } from "lucide-react"
+import {
+  Bot,
+  ChevronDown,
+  CircleAlert,
+  FilePen,
+  ListTodo,
+  LoaderCircle,
+  MessageCircleQuestion,
+  Search,
+  Sparkles,
+  SquareCode,
+  Wrench,
+} from "lucide-react"
 import type { DynamicToolUIPart, ToolUIPart } from "ai"
+
+function toolIcon(part: ToolPart) {
+  const name = part.type === "dynamic-tool" ? part.toolName : part.type
+  switch (name) {
+    case "edit":
+    case "write":
+    case "apply_patch":
+      return FilePen
+    case "grep":
+    case "glob":
+      return Search
+    case "lsp":
+      return SquareCode
+    case "skill":
+      return Sparkles
+    case "todowrite":
+      return ListTodo
+    case "question":
+      return MessageCircleQuestion
+    case "task":
+      return Bot
+    default:
+      return Wrench
+  }
+}
 
 export type ToolPart = ToolUIPart | DynamicToolUIPart
 
@@ -36,6 +73,7 @@ const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) =>
   const label = title ?? getToolActivityLabel(toolPart)
   const hasInput = input !== null && input !== undefined
   const hasOutput = "output" in toolPart && toolPart.output !== undefined
+  const Icon = toolIcon(toolPart)
 
   return (
     <Collapsible className={className} defaultOpen={defaultOpen}>
@@ -49,7 +87,7 @@ const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) =>
             ) : isError ? (
               <CircleAlert className="text-destructive size-4" />
             ) : (
-              <Wrench className="size-3.5" />
+              <Icon className="size-3.5" />
             )}
           </span>
           <ChevronDown className="absolute size-4 opacity-0 transition-opacity group-hover:opacity-100 group-data-panel-open:rotate-180" />

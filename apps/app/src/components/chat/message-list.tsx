@@ -10,11 +10,6 @@ import {
   Split,
   Undo2,
 } from "lucide-react"
-import {
-  AnimatePresence,
-  LayoutGroup,
-  motion,
-} from "motion/react"
 import { PaperGrainGradient } from "@openwork/ui/react"
 import {
   DynamicToolUIPart,
@@ -41,7 +36,6 @@ import { WebsearchTool } from "@/components/tools/websearch"
 import { useMessageList, useSessionErrorMessage } from "@/components/chat/message-list-provider"
 import { ArtifactList } from "@/components/chat/artifact"
 import { TaskSuggestions } from "@/components/chat/task-suggestions"
-import { selectStepGroupOpen, useSessionStepDisclosureStore } from "@/react-app/domains/session/surface/step-disclosure-store"
 import {
   DescriptiveButtonContent,
   DescriptiveButtonDescription,
@@ -56,11 +50,6 @@ import {
   MessageActions,
   MessageContent,
 } from "@/components/ui/message"
-import {
-  Steps,
-  StepsContent,
-  StepsTrigger,
-} from "@/components/ui/steps"
 import { Tool } from "@/components/ui/tool"
 import {
   isApplyPatchToolPart,
@@ -81,7 +70,6 @@ import type { ThreadStatus } from "@/lib/messages"
 import {
   collectToolParts,
   getActiveToolLabel,
-  summarizeToolParts,
 } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
 import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
@@ -497,7 +485,7 @@ const MessageComponent = React.memo(
 
 MessageComponent.displayName = "MessageComponent"
 
-const LoadingMessage = React.memo(() => (
+const LoadingMessage = React.memo(({ label }: { label?: string }) => (
   <Message className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10">
     <div className="group flex w-full flex-col gap-0">
       <div className="flex items-center gap-1.5 px-1 py-1 text-sm text-muted-foreground">
@@ -513,7 +501,7 @@ const LoadingMessage = React.memo(() => (
             style={{ backgroundColor: "#818cf8", width: "100%", height: "100%", borderRadius: "50%" }}
           />
         </div>
-        <span>Thinking…</span>
+        <span>{label ?? "Thinking…"}</span>
       </div>
     </div>
   </Message>
@@ -629,19 +617,18 @@ function MessageGroup({
   messages,
   isStreaming,
 }: AssistantMessageGroupProps) {
-  const { workspaceId, sessionId, onRevertToUserMessage, onForkAtMessage } = useMessageList()
-  const firstItem = items[0]
-  const stepGroupId = firstItem?.message.id ?? "empty-assistant-group"
-  const open = useSessionStepDisclosureStore((state) => selectStepGroupOpen(state.stepGroupsByWorkspace, workspaceId, sessionId, stepGroupId))
-  const setStepGroupOpen = useSessionStepDisclosureStore((state) => state.setStepGroupOpen)
-  // Only run layout animations while the collapsible is expanding/collapsing.
-  // Otherwise (e.g. while streaming) layout changes apply instantly.
-  const [isAnimating, setIsAnimating] = React.useState(false)
-  const layoutTransition = isAnimating
-  ? { type: "spring" as const, bounce: 0.1, duration: 0.1 }
-  : { duration: 0 }
-
+  const { onRevertToUserMessage, onForkAtMessage } = useMessageList()
   const lastItem = items[items.length - 1]
+  const isLiveGroup = isStreaming && lastItem !== undefined && lastItem.index === messages.length - 1
+  const stepsRef = React.useRef<HTMLDivElement>(null)
+
+  // Keep the capped step run pinned to the latest step while streaming.
+  React.useEffect(() => {
+    const node = stepsRef.current
+    if (node && isLiveGroup) {
+      node.scrollTop = node.scrollHeight
+    }
+  })
 
   if (!lastItem || isMessageEmptyGroup(items)) {
     if (isStreaming) {
@@ -653,86 +640,41 @@ function MessageGroup({
 
   const renderableItems = getRenderableMessages(items)
   const lastTextMessage = getLastTextPart(lastItem.message)
-  const isLiveGroup = isStreaming && lastItem.index === messages.length - 1
-  const toolParts = collectToolParts(items.map((item) => item.message))
-  const liveLabel = isLiveGroup ? getActiveToolLabel(toolParts) : null
-  const headerLabel =
-    liveLabel ??
-    summarizeToolParts(toolParts) ??
-    `${items.length} ${items.length === 1 ? "step" : "steps"}`
+
+  // Leading messages without prose (tool/reasoning steps) render inside a
+  // height-capped scroll area so long runs stay compact; messages with text
+  // or files render inline below it.
+  let stepCount = 0
+  while (stepCount < items.length && !getRenderableMessage(items[stepCount].message)) {
+    stepCount += 1
+  }
+  const stepItems = items.slice(0, stepCount)
+  const proseItems = items.slice(stepCount)
+
+  const renderItem = (item: UIMessageWithIndex, groupIndex: number) => {
+    const isLastMessage = item.index === messages.length - 1
+
+    return (
+      <div key={item.message.id}>
+        <MessageComponent
+          message={item.message}
+          isLastMessage={isLastMessage}
+          isStreaming={isLastMessage && isStreaming}
+          isLastStep={groupIndex === items.length - 1}
+        />
+        <MessageArtifacts message={item.message} />
+      </div>
+    )
+  }
 
   return (
-    <LayoutGroup>
       <div className="flex flex-col gap-2 group/message-group">
-      <Steps
-        className="mx-auto w-full max-w-3xl"
-        open={open}
-        onOpenChange={(next) => {
-          setIsAnimating(true)
-          setStepGroupOpen(workspaceId, sessionId, stepGroupId, next)
-        }}
-      >
-        <StepsTrigger
-          className="px-2 md:px-10"
-          leftIcon={
-            isLiveGroup ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : undefined
-          }
-        >
-          {headerLabel}
-        </StepsTrigger>
-        <StepsContent>
-          {items.map((item, groupIndex) => {
-            const isLastMessage = item.index === messages.length - 1
-            const isLastStep = groupIndex === items.length - 1
-
-            return (
-              <motion.div
-                key={`${groupIndex}-${item.message.id}`}
-                layoutId={`msg-${item.message.id}`}
-                layout
-                transition={layoutTransition}
-                onLayoutAnimationComplete={() => setIsAnimating(false)}
-              >
-                <MessageComponent
-                  message={item.message}
-                  isLastMessage={isLastMessage}
-                  isStreaming={isLastMessage && isStreaming}
-                  isLastStep={isLastStep}
-                />
-                <MessageArtifacts message={item.message} />
-              </motion.div>
-            )
-          })}
-        </StepsContent>
-      </Steps>
-      <AnimatePresence initial={false}>
-        {!open ? items.map(({ index, message }) => {
-          const renderableMessage = getRenderableMessage(message)
-          const isLastMessage = index === messages.length - 1
-
-          return (
-            <motion.div
-              key={message.id}
-              layoutId={`msg-${message.id}`}
-              layout
-              transition={layoutTransition}
-              onLayoutAnimationComplete={() => setIsAnimating(false)}
-            >
-              {renderableMessage ? (
-                <MessageComponent
-                  message={renderableMessage}
-                  isStreaming={isLastMessage && isStreaming}
-                  isLastMessage={isLastMessage}
-                  isLastStep={index === items.length}
-                />
-              ) : null}
-              <MessageArtifacts message={message} />
-            </motion.div>
-          )
-        }) : null}
-      </AnimatePresence>
+      {stepItems.length > 0 ? (
+        <div ref={stepsRef} className="max-h-[520px] overflow-y-auto">
+          {stepItems.map((item, groupIndex) => renderItem(item, groupIndex))}
+        </div>
+      ) : null}
+      {proseItems.map((item, groupIndex) => renderItem(item, stepItems.length + groupIndex))}
       {lastTextMessage && !isStreaming && (
         <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 px-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 md:px-8">
           <MessageActions className="flex gap-0">
@@ -762,7 +704,6 @@ function MessageGroup({
       )}
       {renderableItems.length === 0 && !isStreaming ? <EmptyMessage /> : null}
       </div>
-    </LayoutGroup>
   )
 }
 
@@ -777,6 +718,9 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();
   const hasSessionErrorMessage = React.useMemo(() => messages.some(isSessionErrorMessage), [messages])
+  const liveActionLabel = isStreaming
+    ? getActiveToolLabel(collectToolParts(messages))
+    : null
 
   return (
     <div className={cn("flex flex-col gap-2 @container/message-list")}>
@@ -811,7 +755,7 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
         )
       })}
 
-      {status === "streaming" && <LoadingMessage />}
+      {status === "streaming" && <LoadingMessage label={liveActionLabel ?? undefined} />}
       {retryStatus ? <RetryMessage status={retryStatus} /> : null}
       {error && !hasSessionErrorMessage ? <ErrorMessage error={error} /> : null}
     </div>
