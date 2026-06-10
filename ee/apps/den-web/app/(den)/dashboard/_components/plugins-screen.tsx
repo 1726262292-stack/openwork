@@ -19,12 +19,18 @@ import { UnderlineTabs } from "../../_components/ui/tabs";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
 import { DenInput } from "../../_components/ui/input";
 import { buttonVariants } from "../../_components/ui/button";
-import { getIntegrationsRoute, getNewPluginRoute, getPluginRoute } from "../../_lib/den-org";
+import {
+  getMarketplaceSourcesRoute,
+  getMarketplacesRoute,
+  getNewPluginRoute,
+  getPluginRoute,
+} from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { useHasAnyIntegration } from "./integration-data";
 import {
   getPluginCategoryLabel,
   getPluginPartsSummary,
+  getPluginSourceLabel,
   usePlugins,
 } from "./plugin-data";
 
@@ -171,9 +177,18 @@ export function PluginsScreen() {
       icon={Puzzle}
       badgeLabel="Preview"
       title="Plugins"
-      description="Discover and manage plugins — bundles of skills, hooks, MCP servers, agents, and commands that extend your workers."
+      description="Plugins are bundles of skills, agents, and MCP servers. Add them to a marketplace so your team can install them."
       colors={["#EDE9FE", "#4C1D95", "#7C3AED", "#C4B5FD"]}
     >
+      <p className="-mt-3 mb-6 text-[13px] text-gray-500">
+        <Link
+          href={getMarketplacesRoute(orgSlug)}
+          className="inline-flex items-center gap-1 font-medium text-gray-700 underline underline-offset-2 transition hover:text-gray-900"
+        >
+          Go to Marketplaces
+        </Link>
+      </p>
+
       <div className="mb-8 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex flex-col gap-4">
           <UnderlineTabs tabs={PLUGIN_TABS} activeTab={activeView} onChange={setActiveView} />
@@ -204,7 +219,7 @@ export function PluginsScreen() {
           Loading plugin catalog...
         </div>
       ) : !hasAnyIntegration && plugins.length === 0 ? (
-        <ConnectIntegrationEmptyState integrationsHref={getIntegrationsRoute(orgSlug)} />
+        <ConnectIntegrationEmptyState sourcesHref={getMarketplaceSourcesRoute(orgSlug)} />
       ) : activeView === "plugins" ? (
         filteredPlugins.length === 0 ? (
           <EmptyState
@@ -217,7 +232,9 @@ export function PluginsScreen() {
           />
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
-            {filteredPlugins.map((plugin) => (
+            {filteredPlugins.map((plugin) => {
+              const sourceLabel = getPluginSourceLabel(plugin.sourceFormat);
+              return (
               <Link
                 key={plugin.id}
                 href={getPluginRoute(orgSlug, plugin.id)}
@@ -240,6 +257,18 @@ export function PluginsScreen() {
                       <h2 className="truncate text-[14px] font-semibold tracking-[-0.01em] text-gray-900">
                         {plugin.name}
                       </h2>
+                      <span className="flex shrink-0 items-center gap-1">
+                        {sourceLabel ? (
+                          <span className="rounded-full bg-gray-50 px-2 py-0.5 text-[10.5px] font-medium text-gray-500">
+                            {sourceLabel}
+                          </span>
+                        ) : null}
+                        {plugin.sourceTrusted === false ? (
+                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10.5px] font-medium text-amber-700">
+                            Unreviewed
+                          </span>
+                        ) : null}
+                      </span>
                     </div>
                     {plugin.description ? (
                       <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-[1.55] text-gray-500">
@@ -267,7 +296,8 @@ export function PluginsScreen() {
                   </div>
                 </div>
               </Link>
-            ))}
+              );
+            })}
           </div>
         )
       ) : activeView === "skills" ? (
@@ -363,26 +393,26 @@ function EmptyState({ title, description }: { title: string; description: string
   );
 }
 
-function ConnectIntegrationEmptyState({ integrationsHref }: { integrationsHref: string }) {
+function ConnectIntegrationEmptyState({ sourcesHref }: { sourcesHref: string }) {
   return (
     <div className="rounded-[32px] border border-dashed border-gray-200 bg-white px-6 py-12 text-center">
       <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-[14px] bg-gray-100 text-gray-500">
         <Cable className="h-6 w-6" />
       </div>
       <p className="text-[16px] font-medium tracking-[-0.03em] text-gray-900">
-        Connect an integration to discover plugins
+        Connect a source to discover plugins
       </p>
       <p className="mx-auto mt-3 max-w-[520px] text-[15px] leading-8 text-gray-500">
-        Plugins, skills, hooks, and MCP servers are sourced from the repositories you connect on the
-        Integrations page. Connect GitHub or Bitbucket to see your catalog populate.
+        Plugins, skills, hooks, and MCP servers come from the repositories you connect under
+        Marketplace Sources. Connect GitHub or Bitbucket to see your catalog populate.
       </p>
       <div className="mt-6 flex justify-center">
         <Link
-          href={integrationsHref}
+          href={sourcesHref}
           className={buttonVariants({ variant: "primary" })}
         >
           <Cable className="h-4 w-4" aria-hidden="true" />
-          Open Integrations
+          Open Sources
         </Link>
       </div>
     </div>

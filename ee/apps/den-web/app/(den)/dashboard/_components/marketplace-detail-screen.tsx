@@ -18,6 +18,7 @@ import {
   useMarketplaceAccess,
   useRevokeMarketplaceAccess,
 } from "./marketplace-data";
+import { getPluginSourceLabel } from "./plugin-data";
 
 const COMPONENT_TYPE_LABELS: Record<string, { singular: string; plural: string }> = {
   skill: { singular: "skill", plural: "skills" },
@@ -517,6 +518,7 @@ function MarketplacePluginCard({
   const orderedCountEntries = Object.entries(plugin.componentCounts)
     .filter(([, count]) => count > 0)
     .sort((a, b) => b[1] - a[1]);
+  const sourceLabel = getPluginSourceLabel(plugin.sourceFormat);
 
   return (
     <Link
@@ -535,9 +537,23 @@ function MarketplacePluginCard({
           </div>
         </div>
         <div className="min-w-0 flex-1 px-4 py-3">
-          <p className="truncate text-[14px] font-semibold tracking-[-0.01em] text-gray-900">
-            {plugin.name}
-          </p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="truncate text-[14px] font-semibold tracking-[-0.01em] text-gray-900">
+              {plugin.name}
+            </p>
+            <span className="flex shrink-0 items-center gap-1">
+              {sourceLabel ? (
+                <span className="rounded-full bg-gray-50 px-2 py-0.5 text-[10.5px] font-medium text-gray-500">
+                  {sourceLabel}
+                </span>
+              ) : null}
+              {plugin.sourceTrusted === false ? (
+                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10.5px] font-medium text-amber-700">
+                  Unreviewed
+                </span>
+              ) : null}
+            </span>
+          </div>
           {plugin.description ? (
             <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-[1.55] text-gray-500">
               {plugin.description}

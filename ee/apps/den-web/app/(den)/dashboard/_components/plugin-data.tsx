@@ -91,6 +91,25 @@ export type PluginMarketplaceRef = {
   name: string;
 };
 
+/**
+ * Provenance — derived from the `extension` projection returned with plugin
+ * responses (`sourceFormat` + `manifest.source.trusted`). The response does
+ * not say which connector account produced a plugin, so Claude/OpenCode-format
+ * plugins are labeled "GitHub" (today they are imported from connected repos).
+ */
+export type PluginSourceFormat =
+  | "openwork-builtin"
+  | "openwork-extension-manifest"
+  | "claude-plugin"
+  | "opencode-plugin"
+  | "mcp-directory"
+  | "manual";
+
+export type PluginProvenance = {
+  sourceFormat: PluginSourceFormat | null;
+  sourceTrusted: boolean | null;
+};
+
 export type DenPlugin = {
   id: string;
   name: string;
@@ -102,6 +121,8 @@ export type DenPlugin = {
   installed: boolean;
   source: PluginSource;
   marketplaces?: PluginMarketplaceRef[];
+  sourceFormat?: PluginSourceFormat | null;
+  sourceTrusted?: boolean | null;
   skills: PluginSkill[];
   hooks: PluginHook[];
   mcps: PluginMcp[];
@@ -118,6 +139,48 @@ export type DenPlugin = {
 };
 
 // ── Display helpers ────────────────────────────────────────────────────────
+
+function parsePluginSourceFormat(value: unknown): PluginSourceFormat | null {
+  switch (value) {
+    case "openwork-builtin":
+    case "openwork-extension-manifest":
+    case "claude-plugin":
+    case "opencode-plugin":
+    case "mcp-directory":
+    case "manual":
+      return value;
+    default:
+      return null;
+  }
+}
+
+export function parsePluginProvenance(extension: unknown): PluginProvenance {
+  if (!isRecord(extension)) {
+    return { sourceFormat: null, sourceTrusted: null };
+  }
+  const sourceFormat = parsePluginSourceFormat(extension.sourceFormat);
+  const manifest = isRecord(extension.manifest) ? extension.manifest : null;
+  const source = manifest && isRecord(manifest.source) ? manifest.source : null;
+  const sourceTrusted = source && typeof source.trusted === "boolean" ? source.trusted : null;
+  return { sourceFormat, sourceTrusted };
+}
+
+export function getPluginSourceLabel(sourceFormat: PluginSourceFormat | null | undefined): string | null {
+  switch (sourceFormat) {
+    case "openwork-builtin":
+      return "Built-in";
+    case "claude-plugin":
+    case "opencode-plugin":
+      return "GitHub";
+    case "manual":
+      return "Manual";
+    case "openwork-extension-manifest":
+    case "mcp-directory":
+      return "Cloud";
+    default:
+      return null;
+  }
+}
 
 export function getPluginCategoryLabel(category: PluginCategory): string {
   switch (category) {
@@ -560,6 +623,8 @@ async function fetchResolvedPlugin(id: string): Promise<DenPlugin | null> {
       transport: (asString(item.normalizedPayload?.transport) as PluginMcpTransport | null) ?? "stdio",
     } satisfies PluginMcp));
 
+  const provenance = parsePluginProvenance(pluginItem.extension);
+
   const marketplaces = Array.isArray(pluginItem.marketplaces)
     ? pluginItem.marketplaces.flatMap((entry) => {
         if (!isRecord(entry)) return [];
@@ -588,6 +653,8 @@ async function fetchResolvedPlugin(id: string): Promise<DenPlugin | null> {
     source: marketplaces[0]
       ? { type: "marketplace", marketplace: marketplaces[0].name }
       : { type: "github", repo: "Connected repository" },
+    sourceFormat: provenance.sourceFormat,
+    sourceTrusted: provenance.sourceTrusted,
     updatedAt: asString(pluginItem.updatedAt) ?? new Date().toISOString(),
     version: null,
   } satisfies DenPlugin;

@@ -23,7 +23,7 @@ import {
   getGithubIntegrationAccountRoute,
   getGithubIntegrationRoute,
   getGithubIntegrationSetupRoute,
-  getIntegrationsRoute,
+  getMarketplaceSourcesRoute,
 } from "../../_lib/den-org";
 import { buttonVariants, DenButton } from "../../_components/ui/button";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
@@ -63,7 +63,7 @@ export function GithubIntegrationScreen() {
       <GithubConnectorInstanceRouter
         connectorInstanceId={connectorInstanceId}
         mode={mode}
-        onBack={() => router.push(getIntegrationsRoute(orgSlug))}
+        onBack={() => router.push(getMarketplaceSourcesRoute(orgSlug))}
       />
     );
   }
@@ -664,7 +664,7 @@ function GithubConnectedAccountSelectionPhase({ connectorAccountId }: { connecto
     >
       <div className="mb-6 flex items-center justify-between gap-3">
         <Link
-          href={getIntegrationsRoute(orgSlug)}
+          href={getMarketplaceSourcesRoute(orgSlug)}
           className="inline-flex items-center gap-1.5 text-[13px] text-gray-400 transition hover:text-gray-700"
         >
           <ArrowLeft className="h-4 w-4" />

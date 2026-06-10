@@ -7,6 +7,7 @@ import { getGithubIntegrationAccountRoute, getGithubIntegrationRoute, getGithubI
 import { DenButton } from "../../_components/ui/button";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
 import { IntegrationConnectDialog } from "./integration-connect-dialog";
+import { MarketplaceAreaTabs } from "./marketplace-area-tabs";
 import {
   type ConnectedIntegration,
   type IntegrationProvider,
@@ -56,10 +57,12 @@ export function IntegrationsScreen() {
     <DashboardPageTemplate
       icon={Cable}
       badgeLabel="Preview"
-      title="Integrations"
-      description="Connect to GitHub or Bitbucket. Once an account is linked, plugins and skills from those repositories show up on the Plugins page."
+      title="Sources"
+      description="Sources are where your marketplace content comes from. Connect GitHub or Bitbucket, and plugins and skills from those repositories show up here for your team."
       colors={["#E0F2FE", "#0C4A6E", "#0284C7", "#7DD3FC"]}
     >
+      <MarketplaceAreaTabs active="sources" />
+
       {error || startGithubInstall.error ? (
         <div className="mb-6 rounded-[24px] border border-red-200 bg-red-50 px-5 py-4 text-[14px] text-red-700">
           {error instanceof Error

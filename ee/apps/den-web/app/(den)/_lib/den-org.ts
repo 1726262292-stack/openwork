@@ -431,6 +431,10 @@ export function getMarketplaceRoute(orgSlug: string | null | undefined, marketpl
   return `${getMarketplacesRoute(orgSlug)}/${encodeURIComponent(marketplaceId)}`;
 }
 
+export function getMarketplaceSourcesRoute(orgSlug?: string | null): string {
+  return `${getMarketplacesRoute(orgSlug)}/sources`;
+}
+
 export function getIntegrationsRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/integrations`;
 }
