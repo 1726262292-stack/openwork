@@ -771,6 +771,14 @@ export function createConnectionsStore(options: {
     }
   }
 
+  // Guards the unhealthy-status self-heal in syncCloudControlMcp: each
+  // re-mint writes a new token to config, which marks an engine reload as
+  // required. Until that reload happens the status stays needs_auth, so
+  // retrying on every sync tick produced an endless "MCP 'openwork-cloud'
+  // was updated. Reload to connect." nag. One attempt per unhealthy episode;
+  // reset when the entry reports connected again.
+  let cloudMcpUnhealthyRemintAttempted = false;
+
   /**
    * Background reconciliation for the Den cloud MCP: when the desktop is
    * signed in to OpenWork Cloud with an active org, keep the
@@ -792,11 +800,19 @@ export function createConnectionsStore(options: {
       marker.orgId === orgId &&
       new Date(marker.expiresAt).getTime() - Date.now() > CLOUD_MCP_REFRESH_MARGIN_MS;
     // A revoked/expired token surfaces as needs_auth or failed from opencode;
-    // while signed in, that means re-mint instead of standing pat.
+    // while signed in, that means re-mint instead of standing pat — but only
+    // once per unhealthy episode (see cloudMcpUnhealthyRemintAttempted).
     const entryStatus = snapshot.mcpStatuses[slug]?.status;
+    if (entryStatus === "connected") {
+      cloudMcpUnhealthyRemintAttempted = false;
+    }
     const entryUnhealthy = entryStatus === "needs_auth" || entryStatus === "failed";
-    if (markerFresh && !entryUnhealthy && snapshot.mcpServers.some((server) => server.name === slug)) {
+    const shouldRemintForHealth = entryUnhealthy && !cloudMcpUnhealthyRemintAttempted;
+    if (markerFresh && !shouldRemintForHealth && snapshot.mcpServers.some((server) => server.name === slug)) {
       return "unchanged";
+    }
+    if (shouldRemintForHealth) {
+      cloudMcpUnhealthyRemintAttempted = true;
     }
 
     // Validate the session up front so a failed mint never reaches

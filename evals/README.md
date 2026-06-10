@@ -130,6 +130,10 @@ plugin (configured in `.opencode/opencode.json`). Every tool takes
 - [`cloud-auth-flows.md`](./cloud-auth-flows.md) — desktop cloud sign-in
   (browser handoff + paste-code), expired grants, sign-out cleanup, and org
   switching.
+- [`cloud-mcp-agent-flows.md`](./cloud-mcp-agent-flows.md) — agent-driven org
+  management through the openwork-cloud MCP: org identity, invitations, team
+  assignment, and skill sharing via plugins + marketplaces, with server-side
+  ground-truth assertions.
 - [`cloud-provider-sync-flows.md`](./cloud-provider-sync-flows.md) — org LLM
   provider import, update, delete, refresh timing, and permission boundaries.
 - [`cloud-marketplace-sync-flows.md`](./cloud-marketplace-sync-flows.md) —
