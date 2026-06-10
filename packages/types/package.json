@@ -22,6 +22,16 @@
       "types": "./src/den/inference.ts",
       "development": "./src/den/inference.ts",
       "default": "./src/den/inference.ts"
+    },
+    "./extension-manifest": {
+      "types": "./src/extension-manifest.ts",
+      "development": "./src/extension-manifest.ts",
+      "default": "./src/extension-manifest.ts"
+    },
+    "./extension-manifest-builtins": {
+      "types": "./src/extension-manifest-builtins.ts",
+      "development": "./src/extension-manifest-builtins.ts",
+      "default": "./src/extension-manifest-builtins.ts"
     }
   },
   "files": [

@@ -15,6 +15,7 @@ import {
   membershipSourceValues,
   pluginStatusValues,
 } from "@openwork-ee/den-db/schema"
+import { openWorkExtensionManifestSchema } from "@openwork/types/extension-manifest"
 import { z } from "zod"
 import { denTypeIdSchema } from "../../../openapi.js"
 import { idParamSchema } from "../shared.js"
@@ -210,13 +211,15 @@ export const resourceAccessGrantWriteSchema = z.object({
 export const pluginCreateSchema = z.object({
   name: z.string().trim().min(1).max(255),
   description: nullableStringSchema.optional(),
+  manifest: openWorkExtensionManifestSchema.nullable().optional(),
 })
 
 export const pluginUpdateSchema = z.object({
   name: z.string().trim().min(1).max(255).optional(),
   description: nullableStringSchema.optional(),
+  manifest: openWorkExtensionManifestSchema.nullable().optional(),
 }).superRefine((value, ctx) => {
-  if (value.name === undefined && value.description === undefined) {
+  if (value.name === undefined && value.description === undefined && value.manifest === undefined) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "Provide at least one field to update.",
@@ -444,22 +447,7 @@ export const pluginMembershipSchema = z.object({
   configObject: configObjectSchema.optional(),
 }).meta({ ref: "PluginArchPluginMembership" })
 
-export const extensionManifestSchema = z.object({
-  schemaVersion: z.literal(1),
-  id: z.string().trim().min(1).max(255),
-  name: z.string().trim().min(1).max(255),
-  description: z.string().trim().min(1).max(2048),
-  source: z.object({
-    format: extensionSourceFormatSchema,
-    trusted: z.boolean(),
-    origin: z.enum(["builtin", "den", "workspace", "local"]).optional(),
-    reference: z.string().trim().min(1).max(512).optional(),
-  }),
-  resources: z.array(jsonObjectSchema),
-  contributions: z.array(jsonObjectSchema).optional(),
-  setup: jsonObjectSchema.optional(),
-  lifecycle: jsonObjectSchema.optional(),
-}).passthrough().meta({ ref: "OpenWorkExtensionManifest" })
+export const extensionManifestSchema = openWorkExtensionManifestSchema.meta({ ref: "OpenWorkExtensionManifest" })
 
 export const pluginExtensionSchema = z.object({
   id: pluginIdSchema,

@@ -6,6 +6,8 @@ export default defineConfig({
     "den/desktop-app-restrictions": "src/den/desktop-app-restrictions.ts",
     "den/desktop-policies": "src/den/desktop-policies.ts",
     "den/inference": "src/den/inference.ts",
+    "extension-manifest": "src/extension-manifest.ts",
+    "extension-manifest-builtins": "src/extension-manifest-builtins.ts",
   },
   tsconfig: "./tsconfig.json",
   format: ["esm"],

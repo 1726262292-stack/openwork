@@ -21,6 +21,8 @@ import {
   PluginTable,
   TeamTable,
 } from "@openwork-ee/den-db/schema"
+import { parseExtensionManifest, type OpenWorkExtensionManifest } from "@openwork/types/extension-manifest"
+import { BUILT_IN_OPENWORK_EXTENSION_MANIFESTS } from "@openwork/types/extension-manifest-builtins"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import type { PluginArchActorContext, PluginArchResourceKind, PluginArchRole } from "./access.js"
 import { requirePluginArchResourceRole, resolvePluginArchResourceRole } from "./access.js"
@@ -346,118 +348,8 @@ const DEFAULT_OPENWORK_MARKETPLACE_DESCRIPTION = "Built-in OpenWork AI capabilit
 const DEFAULT_ANTHROPIC_MARKETPLACE_NAME = "Anthropic-Compatible Plugins"
 const DEFAULT_ANTHROPIC_MARKETPLACE_DESCRIPTION = "Starter marketplace for Claude/Anthropic-compatible plugin repos. Example source: https://github.com/anthropics/knowledge-work-plugins."
 
-const DEFAULT_OPENWORK_EXTENSION_MANIFESTS = [
-  {
-    schemaVersion: 1,
-    id: "openwork-browser",
-    name: "OpenWork Browser",
-    description: "Automate the built-in browser panel that stays visible inside OpenWork.",
-    source: { format: "openwork-builtin", origin: "builtin", trusted: true },
-    icon: { src: "/openwork-mark.svg" },
-    composer: { prompt: "Use the OpenWork Browser extension to " },
-    setup: { instructions: "OpenWork Browser is ready by default in desktop workspaces." },
-    resources: [{ type: "opencode-plugin", id: "opencode-chrome-devtools", packageName: "opencode-chrome-devtools", required: true }],
-    contributions: [
-      { type: "settings-panel", ref: "openwork.browser.settings", location: "settings-detail" },
-      { type: "session-side-panel", ref: "openwork.browser.panel", location: "session-right-pane" },
-      { type: "composer-prompt", prompt: "Use the OpenWork Browser extension to ", location: "composer" },
-    ],
-    enablement: [{ type: "toggle-enabled", ref: "openwork-browser", label: "Enabled" }],
-    lifecycle: { reload: ["plugins", "agents"], detection: ["plugin:opencode-chrome-devtools"] },
-    defaultEnabled: true,
-  },
-  {
-    schemaVersion: 1,
-    id: "computer-use",
-    name: "Computer Use",
-    description: "Mac only: control Mac apps through semantic accessibility refs, screenshots, background-safe clicks, keyboard input, and strict mode.",
-    source: { format: "openwork-builtin", origin: "builtin", trusted: true },
-    icon: { src: "/openwork-mark.svg" },
-    composer: { prompt: "Use Computer Use to " },
-    setup: { instructions: "Computer Use is Mac only. Grant Accessibility and Screen Recording permissions, then connect the local MCP server in this workspace." },
-    resources: [
-      { type: "mcp", id: "computer-use-mcp", label: "Computer Use MCP", mcpServerName: "computer-use", command: ["npx", "-y", "@openwork/handsfree", "mcp"], localCommandRef: "openwork.computerUseMcp", required: true },
-      { type: "native-binary", id: "computer-use-native", label: "macOS accessibility runtime", packageName: "@openwork/handsfree", required: true },
-    ],
-    contributions: [
-      { type: "setup-instructions", ref: "openwork.computerUse.setup", location: "settings-detail" },
-      { type: "composer-prompt", prompt: "Use Computer Use to ", location: "composer" },
-    ],
-    enablement: [
-      { type: "mcp-connected", ref: "computer-use", label: "MCP server connected" },
-      { type: "permission-granted", ref: "accessibility", label: "Accessibility permission" },
-      { type: "permission-granted", ref: "screenRecording", label: "Screen Recording permission" },
-    ],
-    lifecycle: { reload: ["mcp"], detection: ["mcp:computer-use"] },
-    platform: ["darwin"],
-  },
-  {
-    schemaVersion: 1,
-    id: "openai-image-gen",
-    name: "OpenAI Image Gen",
-    description: "Generate image artifacts with gpt-image-2.",
-    source: { format: "openwork-builtin", origin: "builtin", trusted: true },
-    icon: { src: "/ext-openai.svg" },
-    composer: { prompt: "Use the OpenAI Image Gen extension to " },
-    setup: { instructions: "Add an OpenAI API key, then agents can generate image artifacts through OpenWork extension actions." },
-    resources: [
-      { type: "secret", id: "openai-api-key", envKey: "OPENAI_API_KEY", required: true },
-      { type: "local-service", id: "openai-image-generation-service", label: "OpenAI image generation", required: true },
-      { type: "tool", id: "openai-image-generate", label: "Image generation", required: true },
-    ],
-    contributions: [
-      { type: "settings-panel", ref: "openwork.imageGen.settings", location: "settings-detail" },
-      { type: "composer-prompt", prompt: "Use the OpenAI Image Gen extension to ", location: "composer" },
-    ],
-    enablement: [{ type: "env-set", ref: "OPENAI_API_KEY", label: "OpenAI API key" }],
-    lifecycle: { reload: ["config"], detection: ["env:OPENAI_API_KEY"] },
-  },
-  {
-    schemaVersion: 1,
-    id: "google-workspace",
-    name: "Google Workspace",
-    description: "Let OpenWork help with meetings, selected Drive files, and Gmail drafts.",
-    source: { format: "openwork-builtin", origin: "builtin", trusted: true },
-    icon: { simpleIconSlug: "google" },
-    composer: { prompt: "Use Google Workspace to " },
-    setup: { instructions: "Connect your Google account to use Calendar, Drive, and Gmail drafts in OpenWork." },
-    resources: [
-      { type: "provider", id: "google-oauth", label: "Google account", providerId: "google-workspace", required: true },
-      { type: "local-service", id: "google-workspace-connector", label: "Secure local connection", required: true },
-      { type: "tool", id: "google-calendar-read", label: "Calendar", required: true },
-      { type: "tool", id: "google-gmail-drafts", label: "Gmail drafts", required: true },
-      { type: "tool", id: "google-drive-selected-files", label: "Selected Drive files", required: true },
-    ],
-    contributions: [
-      { type: "settings-panel", ref: "openwork.googleWorkspace.settings", location: "settings-detail" },
-      { type: "composer-prompt", prompt: "Use Google Workspace to ", location: "composer" },
-    ],
-    lifecycle: { reload: ["config"], detection: ["provider:google-workspace"] },
-  },
-  {
-    schemaVersion: 1,
-    id: "ollama",
-    name: "Ollama",
-    description: "Local model provider at http://localhost:11434.",
-    source: { format: "openwork-builtin", origin: "builtin", trusted: true },
-    icon: { src: "/ext-ollama.svg" },
-    composer: { prompt: "Use the Ollama extension to " },
-    setup: { instructions: "Run Ollama locally, choose or pull a model, then add it as an OpenCode provider." },
-    resources: [
-      { type: "local-service", id: "ollama-api", label: "Ollama API", description: "http://localhost:11434", required: true },
-      { type: "provider", id: "ollama", providerId: "ollama", packageName: "@ai-sdk/openai-compatible", required: true },
-    ],
-    contributions: [
-      { type: "settings-panel", ref: "openwork.ollama.settings", location: "settings-detail" },
-      { type: "composer-prompt", prompt: "Use the Ollama extension to ", location: "composer" },
-    ],
-    enablement: [{ type: "provider-connected", ref: "ollama", label: "Ollama provider" }],
-    lifecycle: { reload: ["config"], detection: ["provider:ollama"] },
-  },
-] as const
-
 function defaultOpenWorkManifestForPlugin(row: PluginRow) {
-  return DEFAULT_OPENWORK_EXTENSION_MANIFESTS.find((manifest) => manifest.name === row.name && manifest.description === row.description) ?? null
+  return BUILT_IN_OPENWORK_EXTENSION_MANIFESTS.find((manifest) => manifest.name === row.name && manifest.description === row.description) ?? null
 }
 
 function extensionResourceTypeForConfigObject(objectType: string) {
@@ -484,6 +376,27 @@ function serializePluginExtension(row: PluginRow, componentCounts: Record<string
       manifest: builtInManifest,
       name: builtInManifest.name,
       sourceFormat: "openwork-builtin",
+    }
+  }
+
+  const storedManifest = row.manifestJson ? parseExtensionManifest(row.manifestJson) : null
+  if (storedManifest) {
+    const manifest: OpenWorkExtensionManifest = {
+      ...storedManifest,
+      source: {
+        ...storedManifest.source,
+        format: "openwork-extension-manifest",
+        origin: "den",
+        reference: row.id,
+        trusted: false,
+      },
+    }
+    return {
+      description: manifest.description,
+      id: row.id,
+      manifest,
+      name: manifest.name,
+      sourceFormat: "openwork-extension-manifest",
     }
   }
 
@@ -1541,7 +1454,7 @@ export async function getPluginDetail(context: PluginArchActorContext, pluginId:
   return serializePlugin(row, memberships.length, marketplaceMembers.get(row.id) ?? [])
 }
 
-export async function createPlugin(input: { context: PluginArchActorContext; description?: string | null; name: string }) {
+export async function createPlugin(input: { context: PluginArchActorContext; description?: string | null; manifest?: OpenWorkExtensionManifest | null; name: string }) {
   const now = new Date()
   const row = {
     createdAt: now,
@@ -1549,6 +1462,7 @@ export async function createPlugin(input: { context: PluginArchActorContext; des
     deletedAt: null,
     description: normalizeOptionalString(input.description ?? undefined),
     id: createDenTypeId("plugin"),
+    manifestJson: input.manifest ?? null,
     name: input.name.trim(),
     organizationId: input.context.organizationContext.organization.id,
     status: "active" as const,
@@ -1573,11 +1487,12 @@ export async function createPlugin(input: { context: PluginArchActorContext; des
   return serializePlugin(row, 0)
 }
 
-export async function updatePlugin(input: { context: PluginArchActorContext; description?: string | null; name?: string; pluginId: PluginId }) {
+export async function updatePlugin(input: { context: PluginArchActorContext; description?: string | null; manifest?: OpenWorkExtensionManifest | null; name?: string; pluginId: PluginId }) {
   const row = await ensureEditablePlugin(input.context, input.pluginId)
   const updatedAt = new Date()
   await db.update(PluginTable).set({
     description: input.description === undefined ? row.description : normalizeOptionalString(input.description ?? undefined),
+    manifestJson: input.manifest === undefined ? row.manifestJson : input.manifest,
     name: input.name?.trim() || row.name,
     updatedAt,
   }).where(eq(PluginTable.id, row.id))
@@ -1674,7 +1589,7 @@ async function ensureDefaultOpenWorkMarketplace(context: PluginArchActorContext)
     name: DEFAULT_OPENWORK_MARKETPLACE_NAME,
   })
 
-  for (const manifest of DEFAULT_OPENWORK_EXTENSION_MANIFESTS) {
+  for (const manifest of BUILT_IN_OPENWORK_EXTENSION_MANIFESTS) {
     let plugin = (await db
       .select()
       .from(PluginTable)
@@ -1693,6 +1608,7 @@ async function ensureDefaultOpenWorkMarketplace(context: PluginArchActorContext)
         deletedAt: null,
         description: manifest.description,
         id: createDenTypeId("plugin"),
+        manifestJson: null,
         name: manifest.name,
         organizationId,
         status: "active" as const,

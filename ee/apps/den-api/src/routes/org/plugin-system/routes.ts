@@ -660,7 +660,7 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
         const context = actorContext(c)
         await requirePluginArchCapability(context, "plugin.create")
         const body = validJson<any>(c)
-        return c.json({ ok: true, item: await createPlugin({ context, description: body.description, name: body.name }) }, 201)
+        return c.json({ ok: true, item: await createPlugin({ context, description: body.description, manifest: body.manifest, name: body.name }) }, 201)
       } catch (error) {
         return routeErrorResponse(c, error)
       }
@@ -707,7 +707,7 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
       try {
         const params = validParam<any>(c)
         const body = validJson<any>(c)
-        return c.json({ ok: true, item: await updatePlugin({ context: actorContext(c), description: body.description, name: body.name, pluginId: params.pluginId }) })
+        return c.json({ ok: true, item: await updatePlugin({ context: actorContext(c), description: body.description, manifest: body.manifest, name: body.name, pluginId: params.pluginId }) })
       } catch (error) {
         return routeErrorResponse(c, error)
       }
