@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getErrorMessage, requestJson } from "../../_lib/den-flow";
+import { parsePluginProvenance, type PluginSourceFormat } from "./plugin-data";
 
 export type DenMarketplace = {
   id: string;
@@ -46,6 +47,8 @@ export type MarketplacePluginSummary = {
   description: string | null;
   memberCount: number;
   componentCounts: Record<string, number>;
+  sourceFormat: PluginSourceFormat | null;
+  sourceTrusted: boolean | null;
 };
 
 export type MarketplaceResolved = {
@@ -113,12 +116,15 @@ export function useMarketplace(marketplaceId: string | null) {
                 }
               }
             }
+            const provenance = parsePluginProvenance(entry.extension);
             return [{
               id,
               name,
               description: asString(entry.description),
               memberCount: typeof entry.memberCount === "number" ? entry.memberCount : 0,
               componentCounts,
+              sourceFormat: provenance.sourceFormat,
+              sourceTrusted: provenance.sourceTrusted,
             } satisfies MarketplacePluginSummary];
           })
         : [];

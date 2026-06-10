@@ -5,7 +5,7 @@ import { useState } from "react";
 import { ArrowRight, Download, Github, Monitor, Puzzle, Sparkles, Store, Zap } from "lucide-react";
 import {
   getGithubIntegrationRoute,
-  getIntegrationsRoute,
+  getMarketplaceSourcesRoute,
   getMarketplacesRoute,
   getOrgDashboardRoute,
 } from "../../_lib/den-org";
@@ -333,10 +333,10 @@ export function MarketplaceOnboardingScreen() {
           />
           <ActionCard
             icon={<Puzzle className="h-5 w-5" />}
-            title="Add integrations"
+            title="Add sources"
             body="Package skills, agents, or MCPs as plugins."
-            href={getIntegrationsRoute(orgSlug)}
-            label="Browse integrations"
+            href={getMarketplaceSourcesRoute(orgSlug)}
+            label="Browse sources"
           />
         </section>
 

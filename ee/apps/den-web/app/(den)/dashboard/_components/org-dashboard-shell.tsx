@@ -6,7 +6,6 @@ import { useMemo, useState } from "react";
 import {
   BookOpen,
   Bot,
-  Cable,
   CreditCard,
   Cpu,
   FileText,
@@ -216,12 +215,6 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
           //   label: "Skill Hubs",
           //   icon: BookOpen,
           // },
-          {
-            href: activeOrg ? getIntegrationsRoute(activeOrg.slug) : "#",
-            label: "Integrations",
-            icon: Cable,
-            badge: "New",
-          },
           {
             href: activeOrg ? getMarketplacesRoute(activeOrg.slug) : "#",
             label: "Marketplaces",
