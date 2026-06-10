@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
+  BarChart3,
   Bot,
   Cable,
   CreditCard,
@@ -26,6 +27,7 @@ import {
 import { useDenFlow } from "../../_providers/den-flow-provider";
 import {
   formatRoleLabel,
+  getAnalyticsRoute,
   getBackgroundAgentsRoute,
   getApiKeysRoute,
   getBillingRoute,
@@ -107,6 +109,9 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
   if (pathname === dashboardRoot) {
     return "Home";
   }
+  if (pathname.startsWith(getAnalyticsRoute(orgSlug))) {
+    return "Analytics";
+  }
   if (pathname.startsWith(getMembersRoute(orgSlug))) {
     return "Members";
   }
@@ -182,6 +187,12 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
     },
     ...(access.isAdmin
       ? [
+          {
+            href: activeOrg ? getAnalyticsRoute(activeOrg.slug) : "#",
+            label: "Analytics",
+            icon: BarChart3,
+            badge: "New",
+          },
           // NOTE: Shared Workspace soft-disabled — uncomment to re-enable
           // {
           //   href: activeOrg ? getBackgroundAgentsRoute(activeOrg.slug) : "#",
