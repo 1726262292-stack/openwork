@@ -66,6 +66,38 @@ const formatValue = (value: unknown): string => {
   return String(value)
 }
 
+function isDiffText(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    (value.includes("@@") || value.includes("+++ ") || value.includes("--- "))
+  )
+}
+
+function diffLineClass(line: string) {
+  if (line.startsWith("+")) return "text-green-11 bg-green-1/40"
+  if (line.startsWith("-")) return "text-red-11 bg-red-1/40"
+  if (line.startsWith("@@")) return "text-blue-11 bg-blue-1/30"
+  return ""
+}
+
+function DiffLines({ diff }: { diff: string }) {
+  return (
+    <div className="max-h-60 overflow-auto rounded-md font-mono leading-relaxed">
+      {diff.split("\n").map((line, index) => (
+        <div
+          key={`${index}:${line}`}
+          className={cn(
+            "whitespace-pre-wrap wrap-break-word px-1",
+            diffLineClass(line)
+          )}
+        >
+          {line || " "}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) => {
   const { state, input } = toolPart
   const inFlight = isToolPartInFlight(toolPart)
@@ -105,9 +137,13 @@ const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) =>
             </pre>
           ) : null}
           {hasOutput ? (
-            <pre className="max-h-60 overflow-auto whitespace-pre-wrap wrap-break-word opacity-80">
-              {formatValue(toolPart.output)}
-            </pre>
+            isDiffText(toolPart.output) ? (
+              <DiffLines diff={toolPart.output} />
+            ) : (
+              <pre className="max-h-60 overflow-auto whitespace-pre-wrap wrap-break-word opacity-80">
+                {formatValue(toolPart.output)}
+              </pre>
+            )
           ) : null}
           {isError && toolPart.errorText ? (
             <pre className="text-destructive whitespace-pre-wrap wrap-break-word">
