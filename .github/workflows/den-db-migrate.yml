@@ -1,0 +1,104 @@
+name: Den DB Migrate
+
+# Applies Drizzle migrations to the production PlanetScale database.
+#
+# Required GitHub Actions secrets (Settings -> Secrets and variables -> Actions):
+#   DATABASE_HOST       PlanetScale host (e.g. aws.connect.psdb.cloud)
+#   DATABASE_USERNAME   PlanetScale branch password username
+#   DATABASE_PASSWORD   PlanetScale branch password
+#
+# Runs automatically when migration files land on dev, and manually via
+# workflow_dispatch. For a database previously managed with db:push (no
+# __drizzle_migrations table yet), run once manually with baseline=true
+# to record existing migrations as applied without executing them.
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - "ee/packages/den-db/drizzle/**"
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: "One-time: mark existing migrations as applied without executing them (for a db previously managed via db:push)"
+        type: boolean
+        default: false
+      baseline_through:
+        description: "Baseline through this migration tag (default: latest, e.g. 0020_breezy_siren)"
+        type: string
+        required: false
+      dry_run:
+        description: "Print what would happen without applying migrations"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: den-db-migrate
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Apply migrations
+    if: github.repository == 'different-ai/openwork'
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+
+    env:
+      DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
+      DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+      DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+
+    steps:
+      - name: Verify database secrets are configured
+        run: |
+          set -euo pipefail
+          missing=""
+          [ -z "$DATABASE_HOST" ] && missing="$missing DATABASE_HOST"
+          [ -z "$DATABASE_USERNAME" ] && missing="$missing DATABASE_USERNAME"
+          [ -z "$DATABASE_PASSWORD" ] && missing="$missing DATABASE_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing GitHub Actions secrets:$missing. Add them under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          echo "Database secrets present."
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      - name: Install dependencies
+        run: pnpm install --filter "@openwork-ee/den-db..."
+
+      - name: Baseline existing migrations (one-time)
+        if: github.event_name == 'workflow_dispatch' && inputs.baseline
+        run: |
+          set -euo pipefail
+          extra=""
+          if [ -n "${{ inputs.baseline_through }}" ]; then
+            extra="--through ${{ inputs.baseline_through }}"
+          fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            pnpm --filter @openwork-ee/den-db db:baseline -- $extra
+          else
+            pnpm --filter @openwork-ee/den-db db:baseline -- --yes $extra
+          fi
+
+      - name: Apply migrations
+        if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
+        run: pnpm --filter @openwork-ee/den-db db:migrate
+
+      - name: Dry run note
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: echo "Dry run requested -- skipped 'db:migrate'. Baseline output above (if enabled) shows the plan."
