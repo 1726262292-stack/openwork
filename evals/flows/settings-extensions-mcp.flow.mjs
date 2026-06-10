@@ -1,11 +1,8 @@
 /**
  * The MCP settings view renders: connected built-in apps, the custom-app
- * entry point, and the My Extensions / Marketplace tabs.
- *
- * Note: as of #2008 the quick-connect *directory* (Notion, Linear, OpenWork
- * Cloud Control, ...) only lists configured entries here; discovery moved to
- * the Marketplace tab. Cloud MCP discoverability assertions will be added to
- * this flow when the cloud MCP becomes first-class.
+ * entry point, the My Extensions / Marketplace tabs, and — regression guard
+ * for #2008 — the unconfigured quick-connect directory (Notion, OpenWork
+ * Cloud Control, ...) so MCP discovery works without a cloud sign-in.
  */
 export default {
   id: "settings-extensions-mcp",
@@ -44,6 +41,14 @@ export default {
           "document.body.innerText.toLowerCase().includes('available apps')",
           { timeoutMs: 15_000, label: "available apps section" },
         );
+      },
+    },
+    {
+      name: "Unconfigured directory entries are discoverable",
+      run: async (ctx) => {
+        await ctx.waitForText("OpenWork Cloud Control", { timeoutMs: 15_000 });
+        const hasDirectoryEntry = (await ctx.hasText("Notion")) || (await ctx.hasText("Linear"));
+        ctx.assert(hasDirectoryEntry, "Expected at least one MCP directory entry (Notion/Linear) in quick connect.");
         await ctx.screenshot("mcp-view");
       },
     },

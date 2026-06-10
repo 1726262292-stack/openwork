@@ -2207,7 +2207,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 mcpConnectingName={connectionsSnapshot.mcpConnectingName}
                 selectedMcp={connectionsSnapshot.selectedMcp}
                 setSelectedMcp={(name) => connectionsStore.setSelectedMcp(name)}
-                quickConnect={extensionItems.installedMcpEntries}
+                quickConnect={extensionItems.quickConnectEntries}
                 enablementContext={enablementContext}
                 builtInExtensionsDisabled={builtInExtensionsDisabled}
                 connectMcp={(entry) => {
