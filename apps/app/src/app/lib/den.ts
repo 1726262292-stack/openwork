@@ -207,6 +207,17 @@ export type DenOrgPluginResolved = {
   extension?: DenOrgExtensionProjection | null;
 };
 
+export type DenCreateOrgConfigObjectInput = {
+  type: DenPluginConfigObjectType;
+  sourceMode: "cloud" | "import" | "connector";
+  pluginIds?: string[];
+  input: {
+    rawSourceText?: string;
+    normalizedPayloadJson?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
+  };
+};
+
 export type DenBillingPrice = {
   amount: number | null;
   currency: string | null;
@@ -1364,6 +1375,11 @@ function getCreatedOrgSkillId(payload: unknown): string | null {
   return typeof payload.skill.id === "string" ? payload.skill.id : null;
 }
 
+function getMutationItemId(payload: unknown): string | null {
+  if (!isRecord(payload) || !isRecord(payload.item)) return null;
+  return typeof payload.item.id === "string" ? payload.item.id : null;
+}
+
 function getBillingSummary(payload: unknown): DenBillingSummary | null {
   if (!isRecord(payload) || !isRecord(payload.billing)) {
     return null;
@@ -1777,6 +1793,63 @@ export function createDenClient(options: { baseUrl: string; apiBaseUrl?: string 
         throw new DenApiError(500, "invalid_marketplace_payload", "Marketplace response was missing plugin details.");
       }
       return resolved;
+    },
+
+    async createOrgConfigObject(orgId: string, input: DenCreateOrgConfigObjectInput): Promise<{ id: string }> {
+      const payload = await requestJson<unknown>(baseUrls, "/v1/config-objects", {
+        method: "POST",
+        token,
+        organizationId: orgId,
+        body: input,
+      });
+      const id = getMutationItemId(payload);
+      if (!id) {
+        throw new DenApiError(500, "invalid_config_object_payload", "Config object response was missing id.");
+      }
+      return { id };
+    },
+
+    async createOrgPlugin(orgId: string, input: { name: string; description?: string | null }): Promise<{ id: string }> {
+      const payload = await requestJson<unknown>(baseUrls, "/v1/plugins", {
+        method: "POST",
+        token,
+        organizationId: orgId,
+        body: {
+          name: input.name,
+          description: input.description?.trim() ? input.description.trim() : undefined,
+        },
+      });
+      const id = getMutationItemId(payload);
+      if (!id) {
+        throw new DenApiError(500, "invalid_plugin_payload", "Plugin response was missing id.");
+      }
+      return { id };
+    },
+
+    async addConfigObjectToPlugin(orgId: string, pluginId: string, configObjectId: string): Promise<void> {
+      await requestJson<unknown>(
+        baseUrls,
+        `/v1/plugins/${encodeURIComponent(pluginId)}/config-objects`,
+        {
+          method: "POST",
+          token,
+          organizationId: orgId,
+          body: { configObjectId },
+        },
+      );
+    },
+
+    async addPluginToMarketplace(orgId: string, marketplaceId: string, pluginId: string): Promise<void> {
+      await requestJson<unknown>(
+        baseUrls,
+        `/v1/marketplaces/${encodeURIComponent(marketplaceId)}/plugins`,
+        {
+          method: "POST",
+          token,
+          organizationId: orgId,
+          body: { pluginId },
+        },
+      );
     },
 
     async getOrgPluginResolved(orgId: string, plugin: DenOrgPlugin): Promise<DenOrgPluginResolved> {
