@@ -208,7 +208,7 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
     }
     await saveOauthEnv(
       [
-        { key: "OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_ID", value: id },
+        { key: "GOOGLE_WORKSPACE_OAUTH_CLIENT_ID", value: id },
         { key: "GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET", value: secret },
       ],
       () => {
