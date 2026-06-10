@@ -1332,6 +1332,22 @@ function desktopBootstrapPath() {
   if (process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH?.trim()) {
     return process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH.trim();
   }
+  // Dev mode swaps process.env.HOME to the sandboxed dev-data home midway
+  // through startup (runtime.mjs buildChildEnv → Object.assign(process.env)),
+  // which changes what os.homedir() returns. Resolve the dev-data home
+  // deterministically so early and late IPC reads target the same file —
+  // otherwise the renderer can bootstrap against the wrong control plane
+  // until a manual reload.
+  if (process.env.OPENWORK_DEV_MODE === "1") {
+    return path.join(
+      app.getPath("userData"),
+      "openwork-dev-data",
+      "home",
+      ".config",
+      "openwork",
+      "desktop-bootstrap.json",
+    );
+  }
   return path.join(os.homedir(), ".config", "openwork", "desktop-bootstrap.json");
 }
 

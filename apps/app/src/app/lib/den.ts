@@ -626,17 +626,50 @@ export async function initializeDenBootstrapConfig(): Promise<DenBootstrapConfig
     return desktopBootstrapConfig;
   }
 
-  try {
-    const bootstrap = await getDesktopBootstrapConfigFromShell() as ShellDesktopBootstrapConfig;
-    applyDesktopBootstrapConfig(resolveDenBootstrapConfig(bootstrap));
-  } catch {
-    desktopBootstrapConfig = resolveDenBootstrapConfig({
-      baseUrl: BUILD_DEN_BASE_URL,
-      apiBaseUrl: BUILD_DEN_API_BASE_URL,
-      requireSignin: BUILD_DEN_REQUIRE_SIGNIN,
-    });
-    syncBootstrapSettingsToLocalStorage(desktopBootstrapConfig);
+  // The shell IPC bridge can be momentarily unavailable at first paint;
+  // retry briefly before giving up so a boot race does not poison the
+  // session with build defaults.
+  const SHELL_BOOTSTRAP_ATTEMPTS = 3;
+  const SHELL_BOOTSTRAP_RETRY_DELAY_MS = 350;
+  for (let attempt = 1; attempt <= SHELL_BOOTSTRAP_ATTEMPTS; attempt += 1) {
+    try {
+      const bootstrap = await getDesktopBootstrapConfigFromShell() as ShellDesktopBootstrapConfig;
+      applyDesktopBootstrapConfig(resolveDenBootstrapConfig(bootstrap));
+      return desktopBootstrapConfig;
+    } catch (error) {
+      console.error("[den-bootstrap] shell read failed", attempt, error);
+      if (attempt < SHELL_BOOTSTRAP_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, SHELL_BOOTSTRAP_RETRY_DELAY_MS));
+      }
+    }
   }
+
+  // All quick attempts failed. Keep build defaults in memory only — do NOT
+  // sync them to localStorage: previously synced values from a successful
+  // boot are more trustworthy than build defaults, and clobbering them
+  // silently reverted custom/self-hosted control planes to the production
+  // URL until a manual reload.
+  desktopBootstrapConfig = resolveDenBootstrapConfig({
+    baseUrl: BUILD_DEN_BASE_URL,
+    apiBaseUrl: BUILD_DEN_API_BASE_URL,
+    requireSignin: BUILD_DEN_REQUIRE_SIGNIN,
+  });
+
+  // Heal in the background without blocking boot: once the bridge comes up,
+  // apply the real shell config and notify listeners.
+  void (async () => {
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      try {
+        const bootstrap = await getDesktopBootstrapConfigFromShell() as ShellDesktopBootstrapConfig;
+        applyDesktopBootstrapConfig(resolveDenBootstrapConfig(bootstrap));
+        dispatchDenSettingsChanged({ settings: readDenSettings() });
+        return;
+      } catch {
+        // Bridge still unavailable — keep trying.
+      }
+    }
+  })();
 
   return desktopBootstrapConfig;
 }
