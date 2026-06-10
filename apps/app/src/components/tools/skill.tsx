@@ -22,5 +22,5 @@ function getSkillToolTitle(part: SkillToolPart): string | null {
 }
 
 export function SkillTool({ part }: SkillToolProps) {
-  return <Tool toolPart={part} title={getSkillToolTitle(part) ?? "skill"} />
+  return <Tool toolPart={part} title={getSkillToolTitle(part) ?? undefined} />
 }

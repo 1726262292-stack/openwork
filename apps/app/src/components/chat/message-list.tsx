@@ -78,6 +78,11 @@ import {
   isWriteToolPart,
 } from "@/lib/build-in-tools"
 import type { ThreadStatus } from "@/lib/messages"
+import {
+  collectToolParts,
+  getActiveToolLabel,
+  summarizeToolParts,
+} from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
 import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
 
@@ -648,6 +653,13 @@ function MessageGroup({
 
   const renderableItems = getRenderableMessages(items)
   const lastTextMessage = getLastTextPart(lastItem.message)
+  const isLiveGroup = isStreaming && lastItem.index === messages.length - 1
+  const toolParts = collectToolParts(items.map((item) => item.message))
+  const liveLabel = isLiveGroup ? getActiveToolLabel(toolParts) : null
+  const headerLabel =
+    liveLabel ??
+    summarizeToolParts(toolParts) ??
+    `${items.length} ${items.length === 1 ? "step" : "steps"}`
 
   return (
     <LayoutGroup>
@@ -660,8 +672,15 @@ function MessageGroup({
           setStepGroupOpen(workspaceId, sessionId, stepGroupId, next)
         }}
       >
-        <StepsTrigger className="px-2 md:px-10">
-          {items.length} steps
+        <StepsTrigger
+          className="px-2 md:px-10"
+          leftIcon={
+            isLiveGroup ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : undefined
+          }
+        >
+          {headerLabel}
         </StepsTrigger>
         <StepsContent>
           {items.map((item, groupIndex) => {

@@ -25,6 +25,6 @@ function getTodoWriteToolTitle(part: TodoWriteToolPart): string | null {
 
 export function TodoWriteTool({ part }: TodoWriteToolProps) {
   return (
-    <Tool toolPart={part} title={getTodoWriteToolTitle(part) ?? "todowrite"} />
+    <Tool toolPart={part} title={getTodoWriteToolTitle(part) ?? undefined} />
   )
 }

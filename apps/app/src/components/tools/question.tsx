@@ -59,7 +59,6 @@ export function QuestionTool({ part }: QuestionToolProps) {
       toolPart={part}
       title={toolDisplayTitle(
         getQuestionToolTitle(part),
-        "question",
         getQuestionToolDetail(part)
       )}
     />

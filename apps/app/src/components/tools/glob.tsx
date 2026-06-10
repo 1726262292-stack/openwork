@@ -37,11 +37,7 @@ export function GlobTool({ part }: GlobToolProps) {
   return (
     <Tool
       toolPart={part}
-      title={toolDisplayTitle(
-        getGlobToolTitle(part),
-        "glob",
-        getGlobToolDetail(part)
-      )}
+      title={toolDisplayTitle(getGlobToolTitle(part), getGlobToolDetail(part))}
     />
   )
 }

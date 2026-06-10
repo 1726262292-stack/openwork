@@ -37,11 +37,7 @@ export function GrepTool({ part }: GrepToolProps) {
   return (
     <Tool
       toolPart={part}
-      title={toolDisplayTitle(
-        getGrepToolTitle(part),
-        "grep",
-        getGrepToolDetail(part)
-      )}
+      title={toolDisplayTitle(getGrepToolTitle(part), getGrepToolDetail(part))}
     />
   )
 }
