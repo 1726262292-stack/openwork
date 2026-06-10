@@ -73,6 +73,20 @@ function isDiffText(value: unknown): value is string {
   )
 }
 
+/** Tools like apply_patch carry the diff in their input (patchText). */
+function getInputDiff(input: unknown): string | null {
+  if (isDiffText(input)) {
+    return input
+  }
+  if (typeof input === "object" && input !== null && "patchText" in input) {
+    const value = input.patchText
+    if (isDiffText(value)) {
+      return value
+    }
+  }
+  return null
+}
+
 function diffLineClass(line: string) {
   if (line.startsWith("+")) return "text-green-11 bg-green-1/40"
   if (line.startsWith("-")) return "text-red-11 bg-red-1/40"
@@ -105,6 +119,7 @@ const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) =>
   const label = title ?? getToolActivityLabel(toolPart)
   const hasInput = input !== null && input !== undefined
   const hasOutput = "output" in toolPart && toolPart.output !== undefined
+  const inputDiff = getInputDiff(input)
   const Icon = toolIcon(toolPart)
 
   return (
@@ -132,9 +147,13 @@ const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) =>
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden text-sm transition-[height] duration-150 ease-out data-starting-style:h-0 data-ending-style:h-0 [&[hidden]:not([hidden='until-found'])]:hidden">
         <div className="bg-muted mt-2 flex flex-col gap-2 rounded-lg p-2 text-xs">
           {hasInput ? (
-            <pre className="whitespace-pre-wrap wrap-break-word">
-              {formatValue(input)}
-            </pre>
+            inputDiff !== null ? (
+              <DiffLines diff={inputDiff} />
+            ) : (
+              <pre className="whitespace-pre-wrap wrap-break-word">
+                {formatValue(input)}
+              </pre>
+            )
           ) : null}
           {hasOutput ? (
             isDiffText(toolPart.output) ? (
