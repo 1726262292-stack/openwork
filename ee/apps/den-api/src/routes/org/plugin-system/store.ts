@@ -27,6 +27,7 @@ import { requirePluginArchResourceRole, resolvePluginArchResourceRole } from "./
 import {
   buildGithubAppInstallUrl,
   createGithubInstallStateToken,
+  fetchGithubImportFilesWithRevisionGuard,
   GithubConnectorConfigError,
   GithubConnectorRequestError,
   getGithubAppSummary,
@@ -107,6 +108,7 @@ type GithubConnectorDiscoveryTreeSummary = {
 }
 
 type GithubDiscoveryImportPlan = {
+  fileShaByPath?: Record<string, string>
   objectType: ConnectorMappingRow["objectType"]
   paths: string[]
   selector: string
@@ -2806,11 +2808,21 @@ function buildGithubConnectorDiscoverySteps(input: {
 function buildGithubDiscoveryImportPlans(input: { discoveredPlugins: GithubDiscoveredPlugin[]; treeEntries: GithubDiscoveryTreeEntry[] }) {
   return Object.fromEntries(input.discoveredPlugins.map((plugin) => [
     plugin.key,
-    discoveryMappingsForPlugin(plugin).map((mapping) => ({
-      objectType: mapping.objectType,
-      paths: importableGithubPathsForMapping({ mapping, treeEntries: input.treeEntries }).map((entry) => entry.path),
-      selector: mapping.selector,
-    } satisfies GithubDiscoveryImportPlan)),
+    discoveryMappingsForPlugin(plugin).map((mapping) => {
+      const entries = importableGithubPathsForMapping({ mapping, treeEntries: input.treeEntries })
+      const fileShaByPath: Record<string, string> = {}
+      for (const entry of entries) {
+        if (entry.sha) {
+          fileShaByPath[entry.path] = entry.sha
+        }
+      }
+      return {
+        fileShaByPath,
+        objectType: mapping.objectType,
+        paths: entries.map((entry) => entry.path),
+        selector: mapping.selector,
+      } satisfies GithubDiscoveryImportPlan
+    }),
   ])) satisfies Record<string, GithubDiscoveryImportPlan[]>
 }
 
@@ -3340,6 +3352,24 @@ function importedObjectMetadata(input: { objectType: ConnectorMappingRow["object
   }
 }
 
+async function findActiveConnectorSourceBinding(input: {
+  connectorMappingId: ConnectorMappingId
+  externalLocator: string
+  organizationId: OrganizationId
+}) {
+  const rows = await db
+    .select()
+    .from(ConnectorSourceBindingTable)
+    .where(and(
+      eq(ConnectorSourceBindingTable.organizationId, input.organizationId),
+      eq(ConnectorSourceBindingTable.connectorMappingId, input.connectorMappingId),
+      eq(ConnectorSourceBindingTable.externalLocator, input.externalLocator),
+      isNull(ConnectorSourceBindingTable.deletedAt),
+    ))
+    .limit(1)
+  return rows[0] ?? null
+}
+
 async function materializeGithubImportedObject(input: {
   connectorInstance: ReturnType<typeof serializeConnectorInstance>
   connectorMapping: ReturnType<typeof serializeConnectorMapping>
@@ -3348,6 +3378,7 @@ async function materializeGithubImportedObject(input: {
   context: PluginArchActorContext
   externalLocator: string
   rawSourceText: string
+  sourceFileRevisionRef?: string | null
   sourceRevisionRef: string
 }) {
   const organizationId = input.context.organizationContext.organization.id
@@ -3376,18 +3407,16 @@ async function materializeGithubImportedObject(input: {
   const fileName = input.externalLocator.split("/").filter(Boolean).at(-1) ?? input.externalLocator
   const fileExtension = fileName.includes(".") ? fileName.split(".").at(-1) ?? null : null
 
-  const existingBinding = await db
-    .select()
-    .from(ConnectorSourceBindingTable)
-    .where(and(
-      eq(ConnectorSourceBindingTable.organizationId, organizationId),
-      eq(ConnectorSourceBindingTable.connectorMappingId, input.connectorMapping.id),
-      eq(ConnectorSourceBindingTable.externalLocator, input.externalLocator),
-      isNull(ConnectorSourceBindingTable.deletedAt),
-    ))
-    .limit(1)
+  // Prefer the per-file blob sha when the tree snapshot provides one so an unchanged file can be
+  // skipped even when the head commit moved; fall back to the head revision otherwise.
+  const bindingRevisionRef = input.sourceFileRevisionRef ?? input.sourceRevisionRef
+  const existingBinding = await findActiveConnectorSourceBinding({
+    connectorMappingId: input.connectorMapping.id,
+    externalLocator: input.externalLocator,
+    organizationId,
+  })
 
-  if (!existingBinding[0]) {
+  if (!existingBinding) {
     const configObjectId = createDenTypeId("configObject")
     const versionId = createDenTypeId("configObjectVersion")
     await db.transaction(async (tx) => {
@@ -3462,7 +3491,7 @@ async function materializeGithubImportedObject(input: {
         externalLocator: input.externalLocator,
         externalStableRef: input.externalLocator,
         id: createDenTypeId("connectorSourceBinding"),
-        lastSeenSourceRevisionRef: input.sourceRevisionRef,
+        lastSeenSourceRevisionRef: bindingRevisionRef,
         organizationId,
         remoteId: input.connectorTarget.remoteId,
         status: "active",
@@ -3473,8 +3502,8 @@ async function materializeGithubImportedObject(input: {
     return getConfigObjectDetail(input.context, configObjectId)
   }
 
-  const binding = existingBinding[0]
-  if (binding.lastSeenSourceRevisionRef !== input.sourceRevisionRef) {
+  const binding = existingBinding
+  if (binding.lastSeenSourceRevisionRef !== bindingRevisionRef && binding.lastSeenSourceRevisionRef !== input.sourceRevisionRef) {
     const versionId = createDenTypeId("configObjectVersion")
     await db.transaction(async (tx) => {
       await tx.update(ConfigObjectTable).set({
@@ -3535,7 +3564,7 @@ async function materializeGithubImportedObject(input: {
 
       await tx.update(ConnectorSourceBindingTable).set({
         deletedAt: null,
-        lastSeenSourceRevisionRef: input.sourceRevisionRef,
+        lastSeenSourceRevisionRef: bindingRevisionRef,
         status: "active",
         updatedAt: now,
       }).where(eq(ConnectorSourceBindingTable.id, binding.id))
@@ -3550,7 +3579,7 @@ async function materializeGithubImportPlans(input: {
   connectorSyncEventId?: ConnectorSyncEventId
   connectorTarget: ReturnType<typeof serializeConnectorTarget>
   context: PluginArchActorContext
-  importPlans: Array<{ mapping: ReturnType<typeof serializeConnectorMapping>; paths: string[] }>
+  importPlans: Array<{ fileShaByPath?: Record<string, string>; mapping: ReturnType<typeof serializeConnectorMapping>; paths: string[] }>
   sourceRevisionRef: string
 }) {
   const config = githubConnectorAppConfig()
@@ -3570,36 +3599,68 @@ async function materializeGithubImportPlans(input: {
     config,
     installationId,
   })
+  const organizationId = input.context.organizationContext.organization.id
+  const plannedFiles = input.importPlans.flatMap((plan) => plan.paths.map((path) => ({
+    mapping: plan.mapping,
+    path,
+    sourceFileRevisionRef: plan.fileShaByPath?.[path] ?? null,
+  })))
+  const existingBindings = await Promise.all(plannedFiles.map((file) => findActiveConnectorSourceBinding({
+    connectorMappingId: file.mapping.id,
+    externalLocator: file.path,
+    organizationId,
+  })))
+  const fetchResults = await fetchGithubImportFilesWithRevisionGuard({
+    fetchFile: (path) => getGithubRepositoryTextFile({
+      config,
+      installationId,
+      path,
+      ref: branch,
+      repositoryFullName,
+      token,
+    }),
+    files: plannedFiles.map((file, index) => ({
+      lastSeenSourceRevisionRef: existingBindings[index]?.lastSeenSourceRevisionRef ?? null,
+      path: file.path,
+      sourceFileRevisionRef: file.sourceFileRevisionRef,
+      sourceRevisionRef: input.sourceRevisionRef,
+    })),
+  })
+
   const materializedConfigObjects: ReturnType<typeof serializeConfigObject>[] = []
-  for (const plan of input.importPlans) {
-    for (const path of plan.paths) {
-      let rawSourceText: string | null
-      try {
-        rawSourceText = await getGithubRepositoryTextFile({
-          config,
-          installationId,
-          path,
-          ref: branch,
-          repositoryFullName,
-          token,
-        })
-      } catch (error) {
-        wrapGithubConnectorError(error)
-      }
-      if (!rawSourceText) {
-        continue
-      }
-      materializedConfigObjects.push(await materializeGithubImportedObject({
-        connectorInstance: input.connectorInstance,
-        connectorMapping: plan.mapping,
-        connectorSyncEventId: input.connectorSyncEventId,
-        connectorTarget: input.connectorTarget,
-        context: input.context,
-        externalLocator: path,
-        rawSourceText,
-        sourceRevisionRef: input.sourceRevisionRef,
-      }))
+  let firstFetchFailure: { error: unknown } | null = null
+  for (const [index, file] of plannedFiles.entries()) {
+    const result = fetchResults[index]
+    if (result.status === "failed") {
+      firstFetchFailure = firstFetchFailure ?? { error: result.error }
+      continue
     }
+    if (result.status === "skipped_unchanged") {
+      // The file content is already materialized at this revision: no fetch, no new version.
+      const binding = existingBindings[index]
+      if (binding) {
+        materializedConfigObjects.push(await getConfigObjectDetail(input.context, binding.configObjectId))
+      }
+      continue
+    }
+    if (!result.rawSourceText) {
+      continue
+    }
+    materializedConfigObjects.push(await materializeGithubImportedObject({
+      connectorInstance: input.connectorInstance,
+      connectorMapping: file.mapping,
+      connectorSyncEventId: input.connectorSyncEventId,
+      connectorTarget: input.connectorTarget,
+      context: input.context,
+      externalLocator: file.path,
+      rawSourceText: result.rawSourceText,
+      sourceFileRevisionRef: file.sourceFileRevisionRef,
+      sourceRevisionRef: input.sourceRevisionRef,
+    }))
+  }
+
+  if (firstFetchFailure) {
+    wrapGithubConnectorError(firstFetchFailure.error)
   }
 
   return materializedConfigObjects
@@ -3861,7 +3922,7 @@ export async function applyGithubConnectorDiscovery(input: { autoImportNewPlugin
 
   const plugins = [] as Array<ReturnType<typeof serializePlugin>>
   const mappings = [] as Array<ReturnType<typeof serializeConnectorMapping>>
-  const importPlans = [] as Array<{ mapping: ReturnType<typeof serializeConnectorMapping>; paths: string[] }>
+  const importPlans = [] as Array<{ fileShaByPath?: Record<string, string>; mapping: ReturnType<typeof serializeConnectorMapping>; paths: string[] }>
   for (const discoveredPlugin of selectedPlugins) {
     const plugin = await ensureDiscoveryPlugin({
       context: input.context,
@@ -3888,7 +3949,7 @@ export async function applyGithubConnectorDiscovery(input: { autoImportNewPlugin
         selector: plan.selector,
       })
       mappings.push(mapping)
-      importPlans.push({ mapping, paths: plan.paths })
+      importPlans.push({ fileShaByPath: plan.fileShaByPath, mapping, paths: plan.paths })
     }
   }
 

@@ -486,6 +486,49 @@ export async function getGithubRepositoryTextFile(input: {
   return Buffer.from(response.body.content.replace(/\n/g, ""), "base64").toString("utf8")
 }
 
+export type GithubImportFilePlan = {
+  lastSeenSourceRevisionRef: string | null
+  path: string
+  sourceFileRevisionRef: string | null
+  sourceRevisionRef: string
+}
+
+export type GithubImportFileFetchResult =
+  | { error: unknown; status: "failed" }
+  | { rawSourceText: string | null; status: "fetched" }
+  | { status: "skipped_unchanged" }
+
+export async function fetchGithubImportFilesWithRevisionGuard(input: {
+  concurrencyLimit?: number
+  fetchFile: (path: string) => Promise<string | null>
+  files: GithubImportFilePlan[]
+}): Promise<GithubImportFileFetchResult[]> {
+  const results = new Array<GithubImportFileFetchResult>(input.files.length)
+  let nextIndex = 0
+  const workerCount = Math.max(1, Math.min(input.concurrencyLimit ?? 6, input.files.length))
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < input.files.length) {
+      const index = nextIndex
+      nextIndex += 1
+      const file = input.files[index]
+      if (file.lastSeenSourceRevisionRef !== null
+        && (file.lastSeenSourceRevisionRef === file.sourceFileRevisionRef || file.lastSeenSourceRevisionRef === file.sourceRevisionRef)) {
+        // The bound source file already matches this revision: skip the contents API call entirely.
+        results[index] = { status: "skipped_unchanged" }
+        continue
+      }
+      try {
+        results[index] = { rawSourceText: await input.fetchFile(file.path), status: "fetched" }
+      } catch (error) {
+        // One file failing must not abort the others; the caller decides how to surface it.
+        results[index] = { error, status: "failed" }
+      }
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
+
 export async function getGithubRepositoryTree(input: {
   branch: string
   config: GithubConnectorAppConfig
