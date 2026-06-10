@@ -33,6 +33,21 @@ The runner probes `http://127.0.0.1:9825` (Daytona) then `:9823` (local
 `OPENWORK_EVAL_DEN_TOKEN`. Reports land in `evals/results/<run-id>/`
 (gitignored). A non-zero exit code means at least one flow failed.
 
+### One-command cloud stack
+
+```bash
+pnpm evals --all --stack den     # MySQL + schema + den-api + demo seed +
+                                 # desktop bootstrap + dev app, then runs flows
+pnpm evals --stack-down          # stop what --stack den started
+```
+
+`--stack den` is idempotent: each layer (MySQL, schema, den-api, seed, app)
+is skipped when already up. It signs in as the seeded demo owner
+(`alex@acme.test`) and exports `OPENWORK_EVAL_DEN_API_URL` /
+`OPENWORK_EVAL_DEN_TOKEN`, so the env-gated cloud flows run with zero manual
+setup. Requires Docker. The MySQL volume survives `--stack-down`, so
+subsequent runs skip schema push and seeding.
+
 The markdown specs below remain the source narrative; when codifying a flow,
 link the spec via the flow's `spec` field.
 

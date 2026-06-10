@@ -10,6 +10,9 @@
  *   node evals/runner/run.mjs --flow app-smoke [--flow another]
  *   node evals/runner/run.mjs --all
  *   node evals/runner/run.mjs --all --cdp-url http://127.0.0.1:9825
+ *   node evals/runner/run.mjs --all --stack den   # bring up MySQL + den-api +
+ *                                                 # seed + app, mint demo creds
+ *   node evals/runner/run.mjs --stack-down        # stop what --stack started
  *
  * The CDP endpoint defaults to probing http://127.0.0.1:9825 (Daytona) then
  * http://127.0.0.1:9823 (local pnpm dev). Override with --cdp-url or
@@ -20,6 +23,7 @@ import { join, dirname } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { connect, debuggerUrlFor, pickAppTarget, resolveCdpBaseUrl } from "./cdp.mjs";
 import { EvalContext } from "./context.mjs";
+import { denStackDown, ensureDenStack } from "./den-stack.mjs";
 
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
 const FLOWS_DIR = join(RUNNER_DIR, "..", "flows");
@@ -27,7 +31,7 @@ const DEFAULT_RESULTS_DIR = join(RUNNER_DIR, "..", "results");
 const DEFAULT_CDP_CANDIDATES = ["http://127.0.0.1:9825", "http://127.0.0.1:9823"];
 
 function parseArgs(argv) {
-  const args = { flows: [], all: false, list: false, cdpUrl: null, out: null };
+  const args = { flows: [], all: false, list: false, cdpUrl: null, out: null, stack: null, stackDown: false };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--flow") args.flows.push(argv[++index]);
@@ -35,6 +39,8 @@ function parseArgs(argv) {
     else if (value === "--list") args.list = true;
     else if (value === "--cdp-url") args.cdpUrl = argv[++index];
     else if (value === "--out") args.out = argv[++index];
+    else if (value === "--stack") args.stack = argv[++index];
+    else if (value === "--stack-down") args.stackDown = true;
     else if (value === "--help" || value === "-h") args.help = true;
     else throw new Error(`Unknown argument: ${value}`);
   }
@@ -139,8 +145,22 @@ function renderMarkdown(report) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
-    console.log("Usage: node evals/runner/run.mjs [--list | --all | --flow <id> ...] [--cdp-url <url>] [--out <dir>]");
+    console.log("Usage: node evals/runner/run.mjs [--list | --all | --flow <id> ...] [--cdp-url <url>] [--out <dir>] [--stack den | --stack-down]");
     return;
+  }
+
+  if (args.stackDown) {
+    await denStackDown({ log: (msg) => console.log(`▸ ${msg}`) });
+    return;
+  }
+
+  if (args.stack === "den") {
+    await ensureDenStack({
+      log: (msg) => console.log(`▸ ${msg}`),
+      cdpCandidates: args.cdpUrl ? [args.cdpUrl] : DEFAULT_CDP_CANDIDATES,
+    });
+  } else if (args.stack) {
+    throw new Error(`Unknown stack: ${args.stack}. Supported: den`);
   }
 
   const flows = await loadFlows();

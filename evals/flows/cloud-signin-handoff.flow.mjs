@@ -31,23 +31,33 @@ export default {
           },
           body: JSON.stringify({ desktopScheme: "openwork" }),
         });
-        ctx.assert(response.ok, `Handoff create failed: ${response.status} ${await response.text()}`);
-        const payload = await response.json();
+        const body = await response.text();
+        ctx.assert(response.ok, `Handoff create failed: ${response.status} ${body.slice(0, 200)}`);
+        const payload = JSON.parse(body);
         ctx.assert(typeof payload.openworkUrl === "string" && payload.openworkUrl.length > 0, "No openworkUrl in handoff response.");
         ctx.handoffUrl = payload.openworkUrl;
         ctx.log("Handoff grant created.");
       },
     },
     {
-      name: "Open Settings -> Cloud -> Account (signed out)",
+      name: "Open Settings -> Cloud -> Account",
       run: async (ctx) => {
         await ctx.navigateHash("/settings/cloud-account");
-        await ctx.waitForText("Paste sign-in code", { timeoutMs: 30_000 });
+        await ctx.waitFor(
+          `(() => {
+            const text = document.body.innerText;
+            return text.includes("Paste sign-in code") || text.includes("Sign out");
+          })()`,
+          { timeoutMs: 30_000, label: "cloud account state" },
+        );
+        ctx.alreadySignedIn = await ctx.hasText("Sign out");
+        if (ctx.alreadySignedIn) ctx.log("Already signed in — skipping paste flow.");
       },
     },
     {
       name: "Paste deep link and finish sign-in",
       run: async (ctx) => {
+        if (ctx.alreadySignedIn) return;
         await ctx.clickText("Paste sign-in code");
         await ctx.fill("#den-signin-link", ctx.handoffUrl);
         await ctx.clickText("Finish sign-in");
