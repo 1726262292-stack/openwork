@@ -1,9 +1,14 @@
 "use client";
 
-import { Activity, CheckCircle2, ChevronRight, Clock, Users, Zap } from "lucide-react";
+import { Activity, CheckCircle2, ChevronRight, Clock, Lock, Users, Zap } from "lucide-react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { requestJson } from "../../_lib/den-flow";
+import { getBillingRoute, getMembersRoute } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
+
+/** Analytics is included for workspaces with at least this many seats. */
+const ANALYTICS_MIN_SEATS = 10;
 
 /* ── Types ── */
 
@@ -199,7 +204,7 @@ function TrendChart({ title, subtitle, weeks, series }: {
 /* ── Main screen ── */
 
 export function AnalyticsScreen() {
-  const { activeOrg } = useOrgDashboard();
+  const { activeOrg, orgContext } = useOrgDashboard();
 
   const { data, isLoading } = useQuery({
     queryKey: ["telemetry", "analytics"],
@@ -208,6 +213,8 @@ export function AnalyticsScreen() {
 
   const weekly = data?.weekly ?? [];
   const tasks7d = (data?.tasksCompleted7d ?? 0) + (data?.tasksFailed7d ?? 0);
+  const seats = orgContext?.members.length ?? data?.members ?? 0;
+  const locked = Boolean(orgContext) && seats < ANALYTICS_MIN_SEATS;
 
   return (
     <div className="mx-auto max-w-[1100px] px-4 pb-8 pt-4 sm:px-6 md:px-8">
@@ -220,11 +227,48 @@ export function AnalyticsScreen() {
       </div>
 
       {/* Header */}
-      <h1 className="mt-4 text-[22px] font-semibold tracking-[-0.03em] text-[#07192C]">Is anyone actually using AI?</h1>
+      <div className="mt-4 flex flex-wrap items-center gap-2.5">
+        <h1 className="text-[22px] font-semibold tracking-[-0.03em] text-[#07192C]">Usage &amp; adoption</h1>
+        <span className="rounded-full border border-[#d8e0ec] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6F3DFF]">
+          Included with {ANALYTICS_MIN_SEATS}+ seats
+        </span>
+      </div>
       <p className="mt-1 text-[14px] leading-6 text-[#5A6886]">
-        Adoption and usage across your workspace. Only event metadata is collected — never prompts, code, or file contents.
+        See how your team is adopting OpenWork — active members, sessions, and task activity over time.
+        Only event metadata is collected — never prompts, code, or file contents.
       </p>
 
+      {locked ? (
+        <section className="mt-5 rounded-[18px] border border-[#d7e2f5] bg-gradient-to-br from-[#F4F8FF] to-[#EEF3FF] p-6">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-[#EDE4FF]">
+              <Lock className="h-5 w-5 text-[#6F3DFF]" />
+            </div>
+            <h2 className="text-[16px] font-semibold tracking-[-0.02em] text-[#07192C]">
+              Analytics is available for workspaces with {ANALYTICS_MIN_SEATS} or more seats
+            </h2>
+          </div>
+          <p className="mt-2.5 max-w-[560px] text-[13px] leading-6 text-[#526582]">
+            Your workspace currently has {seats} {seats === 1 ? "seat" : "seats"}. Add seats to unlock
+            adoption and usage insights — active members, session frequency, and task activity across your whole team.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link
+              href={getMembersRoute(activeOrg?.slug)}
+              className="inline-flex items-center gap-1.5 rounded-full bg-[#07192C] px-3.5 py-1.5 text-[13px] font-semibold text-white transition hover:bg-[#13283f]"
+            >
+              Invite members
+            </Link>
+            <Link
+              href={getBillingRoute(activeOrg?.slug)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[#d8e0ec] bg-white px-3.5 py-1.5 text-[13px] font-semibold text-[#07192C] transition hover:bg-gray-50"
+            >
+              Manage seats &amp; billing
+            </Link>
+          </div>
+        </section>
+      ) : (
+      <>
       {/* Summary cards */}
       <div className="mt-5 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -315,6 +359,8 @@ export function AnalyticsScreen() {
         Telemetry never includes prompt contents, code, file contents, diffs, secrets, or terminal output.
         Usage data appears here once members sign in to the OpenWork app and start running tasks.
       </p>
+      </>
+      )}
     </div>
   );
 }
