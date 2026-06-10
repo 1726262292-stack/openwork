@@ -24,6 +24,8 @@ type BusyAction = "status" | "connect" | "disconnect" | "set-active" | "test" | 
 type GoogleWorkspaceCommand = () => Promise<unknown>;
 const DESKTOP_ACTION_TIMEOUT_MS = 6 * 60 * 1000;
 const CONNECT_POLL_INTERVAL_MS = 1_000;
+// Must match GOOGLE_WORKSPACE_DESKTOP_CLIENT_ID in apps/server/src/extensions/google-workspace.ts.
+const OPENWORK_BUILTIN_GOOGLE_CLIENT_ID = "929071212606-pmkqimjhm2tnp68kbklnout0irllj99h.apps.googleusercontent.com";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -198,6 +200,10 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
     const secret = customClientSecret.trim();
     if (!id || !secret) {
       setError("Enter both the client ID and client secret from your own Google OAuth desktop client.");
+      return;
+    }
+    if (id === OPENWORK_BUILTIN_GOOGLE_CLIENT_ID) {
+      setError("That is the built-in OpenWork client ID, which cannot unlock Gmail read access. Create your own OAuth client in Google Cloud Console (APIs & Services > Credentials > Create OAuth client ID > Desktop app) and paste its client ID here.");
       return;
     }
     await saveOauthEnv(
