@@ -1741,7 +1741,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     googleWorkspaceConnected,
     setGoogleWorkspaceConnected,
     restartLocalServer: restartExtensionLocalServer,
-    connectMcp: (entry) => connectionsStore.connectMcp(entry),
+    connectMcp: async (entry) => {
+      await connectionsStore.connectMcp(entry);
+    },
     refreshMcpServers: () => connectionsStore.refreshMcpServers(),
     providers,
     providerConnectedIds,

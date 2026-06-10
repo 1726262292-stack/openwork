@@ -515,7 +515,7 @@ export function createConnectionsStore(options: {
     }
   }
 
-  async function connectMcp(entry: McpDirectoryInfo) {
+  async function connectMcp(entry: McpDirectoryInfo): Promise<boolean> {
     const startedAt = perfNow();
     const openworkSnapshot = getOpenworkSnapshot();
     const isRemoteWorkspace =
@@ -539,7 +539,7 @@ export function createConnectionsStore(options: {
       finishPerf(options.developerMode(), "mcp.connect", "blocked", startedAt, {
         reason: "openwork-server-unavailable",
       });
-      return;
+      return false;
     }
 
     if (hasOpenworkTarget && !canUseOpenworkServer) {
@@ -547,7 +547,7 @@ export function createConnectionsStore(options: {
       finishPerf(options.developerMode(), "mcp.connect", "blocked", startedAt, {
         reason: "openwork-server-read-only",
       });
-      return;
+      return false;
     }
 
     if (!canUseOpenworkServer && !isDesktopRuntime()) {
@@ -555,7 +555,7 @@ export function createConnectionsStore(options: {
       finishPerf(options.developerMode(), "mcp.connect", "blocked", startedAt, {
         reason: "desktop-required",
       });
-      return;
+      return false;
     }
 
     if (!isRemoteWorkspace && !projectDir && !canUseOpenworkServer) {
@@ -563,7 +563,7 @@ export function createConnectionsStore(options: {
       finishPerf(options.developerMode(), "mcp.connect", "blocked", startedAt, {
         reason: "missing-workspace",
       });
-      return;
+      return false;
     }
 
     const activeClient = canUseOpenworkServer ? options.client() ?? await ensureActiveClient().catch(() => null) : await ensureActiveClient();
@@ -572,7 +572,7 @@ export function createConnectionsStore(options: {
       finishPerf(options.developerMode(), "mcp.connect", "blocked", startedAt, {
         reason: "no-active-client",
       });
-      return;
+      return false;
     }
 
     const resolvedProjectDir = activeClient ? await resolveProjectDir(activeClient, projectDir) : projectDir;
@@ -581,7 +581,7 @@ export function createConnectionsStore(options: {
       finishPerf(options.developerMode(), "mcp.connect", "blocked", startedAt, {
         reason: "missing-workspace-after-discovery",
       });
-      return;
+      return false;
     }
 
     const slug = entry.id ?? getMcpServerName(entry);
@@ -755,6 +755,7 @@ export function createConnectionsStore(options: {
         type: entryType,
         slug,
       });
+      return true;
     } catch (error) {
       console.error("[mcp.connect] failed", entry.name, error);
       setStateField(
@@ -766,6 +767,7 @@ export function createConnectionsStore(options: {
         type: entryType,
         error: error instanceof Error ? error.message : safeStringify(error),
       });
+      return false;
     } finally {
       setStateField("mcpConnectingName", null);
     }
@@ -799,6 +801,7 @@ export function createConnectionsStore(options: {
       marker !== null &&
       marker.orgId === orgId &&
       new Date(marker.expiresAt).getTime() - Date.now() > CLOUD_MCP_REFRESH_MARGIN_MS;
+
     // A revoked/expired token surfaces as needs_auth or failed from opencode;
     // while signed in, that means re-mint instead of standing pat — but only
     // once per unhealthy episode (see cloudMcpUnhealthyRemintAttempted).
@@ -808,7 +811,15 @@ export function createConnectionsStore(options: {
     }
     const entryUnhealthy = entryStatus === "needs_auth" || entryStatus === "failed";
     const shouldRemintForHealth = entryUnhealthy && !cloudMcpUnhealthyRemintAttempted;
-    if (markerFresh && !shouldRemintForHealth && snapshot.mcpServers.some((server) => server.name === slug)) {
+
+    // The marker is the source of truth for "configured recently". Do NOT
+    // gate this on snapshot.mcpServers: the store is recreated on every
+    // settings mount with an empty (or refresh-errored) server list, and
+    // treating that as "not configured" re-minted a token and rewrote config
+    // on every visit — endless "Reload to connect" toasts. If a user
+    // manually removed the entry, we respect that until the marker expires
+    // instead of silently re-adding it.
+    if (markerFresh && !shouldRemintForHealth) {
       return "unchanged";
     }
     if (shouldRemintForHealth) {
@@ -820,8 +831,11 @@ export function createConnectionsStore(options: {
     const minted = await mintCloudControlMcpToken().catch(() => null);
     if (!minted) return "skipped";
 
-    await connectMcp(entry);
-    if (!snapshot.mcpServers.some((server) => server.name === slug)) {
+    // Trust connectMcp's own result. Judging success via snapshot.mcpServers
+    // broke whenever the post-connect refresh errored: the marker was never
+    // written, so every subsequent tick re-minted and re-wrote config.
+    const connected = await connectMcp(entry);
+    if (!connected) {
       return "skipped";
     }
     writeCloudMcpSyncMarker({ orgId, expiresAt: minted.expiresAt });
