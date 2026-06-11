@@ -61,7 +61,8 @@ const PLUGIN_FILES: Record<string, string> = {
   "README.md": "# Slack plugin",
 };
 
-function startMockGithub() {
+function startMockGithub(options?: { branch?: string }) {
+  const branch = options?.branch ?? "main";
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -69,16 +70,19 @@ function startMockGithub() {
       const url = new URL(request.url);
       // API: repo info
       if (url.pathname === "/repos/slackapi/slack-mcp-plugin") {
-        return Response.json({ default_branch: "main" });
+        return Response.json({ default_branch: branch });
       }
-      // API: recursive tree
-      if (url.pathname === "/repos/slackapi/slack-mcp-plugin/git/trees/main") {
+      // API: recursive tree (ref may arrive %2F-encoded for slash branches)
+      const treePrefix = "/repos/slackapi/slack-mcp-plugin/git/trees/";
+      if (url.pathname.startsWith(treePrefix)) {
+        const ref = decodeURIComponent(url.pathname.slice(treePrefix.length));
+        if (ref !== branch) return Response.json({ message: "not found" }, { status: 404 });
         return Response.json({
           tree: Object.keys(PLUGIN_FILES).map((path) => ({ path, type: "blob", sha: `sha-${path}` })),
         });
       }
-      // Raw files
-      const rawPrefix = "/slackapi/slack-mcp-plugin/main/";
+      // Raw files (slash-branch refs appear as literal path segments)
+      const rawPrefix = `/slackapi/slack-mcp-plugin/${branch}/`;
       if (url.pathname.startsWith(rawPrefix)) {
         const path = decodeURIComponent(url.pathname.slice(rawPrefix.length));
         const content = PLUGIN_FILES[path];
@@ -106,12 +110,12 @@ function startMockOpencode() {
   return { server, requests };
 }
 
-async function startOpenwork() {
+async function startOpenwork(options?: { branch?: string }) {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "openwork-claude-plugin-"));
   roots.push(workspaceRoot);
   setEnv("OPENWORK_RUNTIME_DB", join(workspaceRoot, "runtime.sqlite"));
 
-  const github = startMockGithub();
+  const github = startMockGithub(options);
   setEnv("OPENWORK_GITHUB_API_BASE", `http://127.0.0.1:${github.port}`);
   setEnv("OPENWORK_GITHUB_RAW_BASE", `http://127.0.0.1:${github.port}`);
 
@@ -158,30 +162,36 @@ describe("parseClaudePluginSource", () => {
       repo: "slack-mcp-plugin",
       ref: null,
       dir: null,
+      treeSegments: null,
     });
     expect(parseClaudePluginSource("github.com/slackapi/slack-mcp-plugin.git")).toEqual({
       owner: "slackapi",
       repo: "slack-mcp-plugin",
       ref: null,
       dir: null,
+      treeSegments: null,
     });
     expect(parseClaudePluginSource("https://github.com/a/b/tree/dev/plugins/x")).toEqual({
       owner: "a",
       repo: "b",
       ref: "dev",
       dir: "plugins/x",
+      treeSegments: ["dev", "plugins", "x"],
     });
-    expect(parseClaudePluginSource("https://github.com/a/b?tab=readme-ov-file#install")).toEqual({
+    // Query strings and hash fragments are ignored.
+    expect(parseClaudePluginSource("https://github.com/a/b?tab=readme-ov-file#readme")).toEqual({
       owner: "a",
       repo: "b",
       ref: null,
       dir: null,
+      treeSegments: null,
     });
     expect(parseClaudePluginSource("https://github.com/a/b/tree/dev/plugins/x?x=1")).toEqual({
       owner: "a",
       repo: "b",
       ref: "dev",
       dir: "plugins/x",
+      treeSegments: ["dev", "plugins", "x"],
     });
     expect(() => parseClaudePluginSource("https://gitlab.com/a/b")).toThrow();
     expect(() => parseClaudePluginSource("not a url")).toThrow();
@@ -210,6 +220,25 @@ describe("claude plugin bundles", () => {
     expect(body.preview.warnings.some((warning) => warning.includes("local-helper"))).toBe(true);
     // Nothing installed on dryRun.
     expect(existsSync(join(openwork.workspaceRoot, ".opencode/skills/slack-plugin"))).toBe(false);
+  });
+
+  test("resolves branch names containing slashes in /tree/ URLs", async () => {
+    const openwork = await startOpenwork({ branch: "release/v1" });
+
+    const response = await fetch(`${openwork.base}/workspace/ws_1/claude-plugins`, {
+      method: "POST",
+      headers: openwork.headers,
+      body: JSON.stringify({
+        url: "https://github.com/slackapi/slack-mcp-plugin/tree/release/v1",
+        dryRun: true,
+      }),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json() as { preview: { name: string; source: { ref: string; dir: string | null } } };
+    // "release" fails as a ref, so the resolver falls through to "release/v1".
+    expect(body.preview.source.ref).toBe("release/v1");
+    expect(body.preview.source.dir).toBeNull();
+    expect(body.preview.name).toBe("Slack");
   });
 
   test("installs skills, commands, and MCP servers; uninstall cleans up", async () => {

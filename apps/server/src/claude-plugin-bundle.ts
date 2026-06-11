@@ -19,6 +19,12 @@ export type ClaudePluginSource = {
   repo: string;
   ref: string | null;
   dir: string | null;
+  /**
+   * Raw path segments after `/tree/` when present. Branch names may contain
+   * slashes (e.g. `release/v1`), so the ref/dir split is ambiguous from the
+   * URL alone — the resolver tries candidates against the trees API.
+   */
+  treeSegments: string[] | null;
 };
 
 export type ClaudePluginComponent = {
@@ -60,16 +66,11 @@ const GITHUB_REPO_RE = /^[A-Za-z0-9._-]+$/;
 
 /**
  * Accepts `https://github.com/owner/repo`, `github.com/owner/repo`,
- * `owner/repo`, with optional `.git` suffix, query/hash, and
- * `/tree/<ref>(/<subdir>)`.
- *
- * Known limitation: in `/tree/...` URLs the first path segment is taken as
- * the ref, so branch/tag names containing `/` (e.g. `release/v1.0`) are
- * misread as ref + subdir. Disambiguating requires listing the repo's refs
- * via the GitHub API; not worth it until someone actually hits this.
+ * `owner/repo`, with optional `.git` suffix and `/tree/<ref>(/<subdir>)`.
  */
 export function parseClaudePluginSource(input: string): ClaudePluginSource {
-  const trimmed = input.trim().replace(/[?#].*$/, "");
+  // Drop query strings and hash fragments (e.g. ?tab=readme-ov-file).
+  const trimmed = (input.split(/[?#]/)[0] ?? "").trim();
   if (!trimmed) throw new ApiError(400, "invalid_plugin_url", "GitHub URL is required");
   const withoutProtocol = trimmed.replace(/^https?:\/\//, "");
   const hadHost = /^[A-Za-z0-9.-]+\.[A-Za-z]{2,}\//.test(withoutProtocol);
@@ -85,12 +86,14 @@ export function parseClaudePluginSource(input: string): ClaudePluginSource {
   }
   let ref: string | null = null;
   let dir: string | null = null;
+  let treeSegments: string[] | null = null;
   if (parts[2] === "tree" && parts[3]) {
-    ref = parts[3];
+    treeSegments = parts.slice(3);
+    ref = parts[3] ?? null;
     const rest = parts.slice(4);
     if (rest.length > 0) dir = rest.join("/");
   }
-  return { owner, repo, ref, dir };
+  return { owner, repo, ref, dir, treeSegments };
 }
 
 async function fetchGithubJson(url: string): Promise<unknown> {
@@ -145,7 +148,52 @@ async function resolveDefaultBranch(source: ClaudePluginSource): Promise<string>
 
 function rawFileUrl(source: ClaudePluginSource, ref: string, path: string): string {
   const segments = path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
-  return `${githubRawBase()}/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/${encodeURIComponent(ref)}/${segments}`;
+  // Branch names may contain slashes; raw URLs expect them as path segments.
+  const refSegments = ref.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  return `${githubRawBase()}/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/${refSegments}/${segments}`;
+}
+
+// Branch names may contain slashes (release/v1), so a /tree/<...> URL is
+// ambiguous between ref and subdirectory. Try progressively longer refs
+// against the trees API and use the first that resolves.
+async function resolveRefAndTree(
+  source: ClaudePluginSource,
+  explicitRef: string | undefined,
+): Promise<{ ref: string; dir: string | null; tree: TreeEntry[] }> {
+  const candidates: Array<{ ref: string; dir: string | null }> = [];
+  if (explicitRef) {
+    let dir = source.dir;
+    if (source.treeSegments) {
+      const joined = source.treeSegments.join("/");
+      dir = joined === explicitRef
+        ? null
+        : joined.startsWith(`${explicitRef}/`)
+          ? joined.slice(explicitRef.length + 1)
+          : source.dir;
+    }
+    candidates.push({ ref: explicitRef, dir });
+  } else if (source.treeSegments && source.treeSegments.length > 0) {
+    for (let index = 1; index <= source.treeSegments.length; index += 1) {
+      candidates.push({
+        ref: source.treeSegments.slice(0, index).join("/"),
+        dir: index < source.treeSegments.length ? source.treeSegments.slice(index).join("/") : null,
+      });
+    }
+  } else {
+    candidates.push({ ref: await resolveDefaultBranch(source), dir: null });
+  }
+
+  let lastError: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      const tree = await fetchRepoTree(source, candidate.ref);
+      return { ref: candidate.ref, dir: candidate.dir, tree };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (lastError instanceof Error) throw lastError;
+  throw new ApiError(404, "plugin_ref_not_found", "Could not resolve the requested branch or tag");
 }
 
 // Find the plugin root: the given subdir, the repo root, or the shallowest
@@ -218,9 +266,8 @@ function mcpConfigReferencesPluginRoot(config: unknown): boolean {
 
 export async function resolveClaudePluginBundle(input: { url: string; ref?: string }): Promise<ClaudePluginBundle> {
   const source = parseClaudePluginSource(input.url);
-  const ref = input.ref?.trim() || source.ref || (await resolveDefaultBranch(source));
-  const tree = await fetchRepoTree(source, ref);
-  const root = locatePluginRoot(tree, source.dir);
+  const { ref, dir, tree } = await resolveRefAndTree(source, input.ref?.trim() || undefined);
+  const root = locatePluginRoot(tree, dir);
   const treeByPath = new Map(tree.map((entry) => [entry.path, entry]));
   const warnings: string[] = [];
 
@@ -358,7 +405,7 @@ export async function resolveClaudePluginBundle(input: { url: string; ref?: stri
   });
 
   // --- Assemble CloudPluginResolved -------------------------------------------
-  const dirSuffix = source.dir ? `#${source.dir}` : "";
+  const dirSuffix = dir ? `#${dir}` : "";
   const pluginId = `github:${source.owner}/${source.repo}${dirSuffix}`;
   const memberships: CloudPluginResolved["memberships"] = fetched.map((component) => ({
     configObjectId: component.path,
@@ -424,7 +471,7 @@ export async function resolveClaudePluginBundle(input: { url: string; ref?: stri
       name: pluginName,
       description,
       version,
-      source: { owner: source.owner, repo: source.repo, ref, dir: source.dir },
+      source: { owner: source.owner, repo: source.repo, ref, dir },
       components,
       warnings,
     },
