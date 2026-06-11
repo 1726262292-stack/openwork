@@ -145,18 +145,23 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
         const sameControlPlane =
           denOriginComparisonKey(settings.baseUrl) === targetKey ||
           denOriginComparisonKey(settings.apiBaseUrl ?? null) === targetKey;
-        void createDenClient({
+        const client = createDenClient({
           baseUrl: parsed.denBaseUrl,
           apiBaseUrl: sameControlPlane ? settings.apiBaseUrl ?? null : null,
-        })
+        });
+        void client
           .exchangeDesktopHandoff(parsed.grant)
           .then((result) => {
             if (!result.token) {
               throw new Error("Failed to sign in to OpenWork Cloud.");
             }
 
+            // Persist the API base URL the exchange actually succeeded
+            // against; re-deriving it from the web URL on relaunch breaks
+            // deployments where den-web only proxies under /api/den (#1808).
             writeDenSettings({
               baseUrl: parsed.denBaseUrl,
+              apiBaseUrl: client.baseUrls.apiBaseUrl,
               authToken: result.token,
               activeOrgId: null,
               activeOrgSlug: null,

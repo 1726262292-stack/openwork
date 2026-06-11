@@ -504,7 +504,14 @@ function isWebAppHost(hostname: string): boolean {
     }
   }
 
-  return normalized === "app.openworklabs.com" || normalized === "app.openwork.software" || normalized.startsWith("app.");
+  return (
+    normalized === "app.openworklabs.com" ||
+    normalized === "app.openwork.software" ||
+    normalized.startsWith("app.") ||
+    // Cloud Run hostnames serve the den-web frontend, which only exposes the
+    // Den API behind its `/api/den` proxy path (see #1807/#1808).
+    normalized.endsWith(".run.app")
+  );
 }
 
 function stripDenApiBasePath(input: string | null | undefined): string | null {
@@ -1767,6 +1774,14 @@ export function createDenClient(options: { baseUrl: string; apiBaseUrl?: string 
   const token = options.token?.trim() ?? null;
 
   return {
+    /**
+     * The resolved URLs this client actually talks to. Call sites that
+     * persist Den settings after a successful auth flow should store
+     * `baseUrls.apiBaseUrl` so relaunches reuse the exact endpoint that
+     * worked instead of re-deriving it from the web URL (see #1808).
+     */
+    baseUrls,
+
     async setActiveOrganization(input: { organizationId?: string | null; organizationSlug?: string | null }): Promise<void> {
       await ensureActiveOrganization(baseUrls, token, input);
     },

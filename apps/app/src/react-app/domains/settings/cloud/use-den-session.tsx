@@ -396,7 +396,8 @@ export function useDenSession({
         denOriginComparisonKey(settings.apiBaseUrl ?? null) === targetKey
           ? settings.apiBaseUrl ?? null
           : null;
-      const result = await createDenClient({ baseUrl: nextBaseUrl, apiBaseUrl: configuredApiBaseUrl }).exchangeDesktopHandoff(parsed.grant);
+      const exchangeClient = createDenClient({ baseUrl: nextBaseUrl, apiBaseUrl: configuredApiBaseUrl });
+      const result = await exchangeClient.exchangeDesktopHandoff(parsed.grant);
       if (!result.token) {
         throw new Error(t("den.error_no_token"));
       }
@@ -406,8 +407,11 @@ export function useDenSession({
         setBaseUrlDraft(nextBaseUrl);
       }
 
+      // Persist the API base URL the exchange actually succeeded against so
+      // relaunches reuse the same working endpoint (#1808).
       writeDenSettings({
         baseUrl: nextBaseUrl,
+        apiBaseUrl: exchangeClient.baseUrls.apiBaseUrl,
         authToken: result.token,
         activeOrgId: null,
         activeOrgSlug: null,
