@@ -1,0 +1,78 @@
+name: engine-bump
+
+# Follows the OpenWork engine fork's release cadence: when the fork
+# (constants.json `opencodeRepo`) publishes a newer engine release, open a PR
+# bumping `opencodeVersion`. CI on that PR installs the engine from the new
+# release and runs the full test suite — that is the "known works" gate.
+# Nothing auto-merges; the pin only moves when the PR is reviewed and merged.
+#
+# Note: use a PAT (secrets.ENGINE_BUMP_TOKEN) so the bump PR triggers CI;
+# PRs created with the default GITHUB_TOKEN do not start workflow runs.
+
+on:
+  schedule:
+    - cron: "47 7 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for a newer engine release
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.ENGINE_BUMP_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          repo="$(node -e "const fs=require('fs'); const parsed=JSON.parse(fs.readFileSync('constants.json','utf8')); process.stdout.write(String(parsed.opencodeRepo||'').trim());")"
+          current="$(node -e "const fs=require('fs'); const parsed=JSON.parse(fs.readFileSync('constants.json','utf8')); process.stdout.write(String(parsed.opencodeVersion||'').trim());")"
+          if [ -z "$repo" ]; then
+            echo "constants.json has no opencodeRepo; nothing to track"
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          latest="$(gh release list --repo "$repo" --limit 30 --json tagName -q '[.[].tagName | select(test("-openwork\\."))][0] // ""')"
+          echo "repo=$repo current=$current latest=$latest"
+          if [ -z "$latest" ] || [ "$latest" = "$current" ]; then
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "bump=true" >> "$GITHUB_OUTPUT"
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+
+      - name: Open bump PR
+        if: steps.check.outputs.bump == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ENGINE_BUMP_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          latest="${{ steps.check.outputs.latest }}"
+          branch="engine-bump/${latest}"
+          if gh pr list --head "$branch" --state open --json number -q '.[0].number' | grep -q .; then
+            echo "Bump PR for $latest already open"
+            exit 0
+          fi
+          git config user.name "openwork-engine-bot"
+          git config user.email "engineering@different.ai"
+          git checkout -b "$branch"
+          node -e "
+            const fs = require('fs');
+            const parsed = JSON.parse(fs.readFileSync('constants.json', 'utf8'));
+            parsed.opencodeVersion = process.argv[1];
+            fs.writeFileSync('constants.json', JSON.stringify(parsed, null, 2) + '\n');
+          " "$latest"
+          git commit -am "chore: bump opencode engine to ${latest}"
+          git push -u origin "$branch"
+          gh pr create \
+            --title "chore: bump opencode engine to ${latest}" \
+            --body "Automated engine bump: \`${{ steps.check.outputs.current }}\` → \`${latest}\` from [\`${{ steps.check.outputs.repo }}\`](https://github.com/${{ steps.check.outputs.repo }}/releases/tag/${latest}).
+
+          CI installs the engine from this release and runs the full suite — green CI is the validation gate. Release notes on the fork list the upstream ref and applied patches."

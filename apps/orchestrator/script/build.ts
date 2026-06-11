@@ -109,7 +109,7 @@ async function buildOnce(entrypoint: string, outdir: string, filename: string, t
   try {
     const constants = JSON.parse(
       readFileSync(resolve("..", "..", "constants.json"), "utf8"),
-    ) as { opencodeVersion?: string };
+    ) as { opencodeVersion?: string; opencodeRepo?: string };
     if (
       typeof constants.opencodeVersion === "string" &&
       constants.opencodeVersion.trim()
@@ -117,6 +117,9 @@ async function buildOnce(entrypoint: string, outdir: string, filename: string, t
       define.__OPENWORK_PINNED_OPENCODE_VERSION__ = `\"${constants.opencodeVersion
         .trim()
         .replace(/^v/, "")}\"`;
+    }
+    if (typeof constants.opencodeRepo === "string" && constants.opencodeRepo.trim()) {
+      define.__OPENWORK_PINNED_OPENCODE_REPO__ = `\"${constants.opencodeRepo.trim()}\"`;
     }
   } catch {
     // ignore

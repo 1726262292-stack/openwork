@@ -128,6 +128,21 @@ const FALLBACK_VERSION = "0.1.0";
 
 declare const __OPENWORK_ORCHESTRATOR_VERSION__: string | undefined;
 declare const __OPENWORK_PINNED_OPENCODE_VERSION__: string | undefined;
+declare const __OPENWORK_PINNED_OPENCODE_REPO__: string | undefined;
+
+function pinnedOpencodeRepo(): string {
+  const fromEnv =
+    process.env.OPENWORK_OPENCODE_GITHUB_REPO?.trim() ||
+    process.env.OPENCODE_GITHUB_REPO?.trim();
+  if (fromEnv) return fromEnv;
+  if (
+    typeof __OPENWORK_PINNED_OPENCODE_REPO__ === "string" &&
+    __OPENWORK_PINNED_OPENCODE_REPO__.trim()
+  ) {
+    return __OPENWORK_PINNED_OPENCODE_REPO__.trim();
+  }
+  return "anomalyco/opencode";
+}
 const DEFAULT_OPENWORK_PORT = 8787;
 const DEFAULT_APPROVAL_TIMEOUT = 30000;
 const MANAGED_OPENCODE_CREDENTIAL_LENGTH = 512;
@@ -2119,7 +2134,7 @@ async function resolveOpencodeDownload(
   const version = expectedVersion.startsWith("v")
     ? expectedVersion.slice(1)
     : expectedVersion;
-  const url = `https://github.com/anomalyco/opencode/releases/download/v${version}/${asset}`;
+  const url = `https://github.com/${pinnedOpencodeRepo()}/releases/download/v${version}/${asset}`;
   const targetDir = join(sidecar.dir, "opencode", version, sidecar.target);
   const targetPath = join(
     targetDir,

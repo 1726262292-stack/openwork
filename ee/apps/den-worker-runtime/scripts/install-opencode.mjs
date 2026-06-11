@@ -62,7 +62,8 @@ function resolveOpencodeVersion() {
   if (!version) {
     throw new Error(`Pinned OpenCode version is missing from ${versionPath}`);
   }
-  return version;
+  const repo = String(parsed.opencodeRepo ?? "").trim() || "anomalyco/opencode";
+  return { version, repo };
 }
 
 function resolveAssetName() {
@@ -153,7 +154,7 @@ function findBinary(searchRoot) {
   throw new Error(`Unable to find ${outputName} inside extracted archive`);
 }
 
-const version = resolveOpencodeVersion();
+const { version, repo: opencodeRepo } = resolveOpencodeVersion();
 const versionLabel = version;
 
 if (
@@ -168,7 +169,7 @@ if (
 const assetName = resolveAssetName();
 const downloadUrl = process.env.OPENWORK_OPENCODE_DOWNLOAD_URL?.trim()
   || (version
-    ? `https://github.com/anomalyco/opencode/releases/download/v${version}/${assetName}`
+    ? `https://github.com/${opencodeRepo}/releases/download/v${version}/${assetName}`
     : null);
 if (!downloadUrl) {
   throw new Error("Pinned OpenCode version is required to bundle the worker runtime");

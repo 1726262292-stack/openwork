@@ -36,7 +36,14 @@ jobs:
       - name: Install opencode
         run: |
           version="$(node -e "const fs=require('fs'); const parsed=JSON.parse(fs.readFileSync('constants.json','utf8')); process.stdout.write(String(parsed.opencodeVersion||'').trim().replace(/^v/,''));")"
-          curl -fsSL https://opencode.ai/install | bash -s -- --version "$version" --no-modify-path
+          repo="$(node -e "const fs=require('fs'); const parsed=JSON.parse(fs.readFileSync('constants.json','utf8')); process.stdout.write(String(parsed.opencodeRepo||'anomalyco/opencode').trim());")"
+          tmp_dir="$(mktemp -d)"
+          curl -fsSL --retry 5 --retry-delay 2 -o "$tmp_dir/opencode.tar.gz" \
+            "https://github.com/${repo}/releases/download/v${version}/opencode-linux-x64-baseline.tar.gz"
+          tar -xzf "$tmp_dir/opencode.tar.gz" -C "$tmp_dir"
+          mkdir -p "$HOME/.opencode/bin"
+          install -m 0755 "$tmp_dir/opencode" "$HOME/.opencode/bin/opencode"
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
 
       - name: Triage issue
         env:
@@ -72,7 +79,14 @@ jobs:
       - name: Install opencode
         run: |
           version="$(node -e "const fs=require('fs'); const parsed=JSON.parse(fs.readFileSync('constants.json','utf8')); process.stdout.write(String(parsed.opencodeVersion||'').trim().replace(/^v/,''));")"
-          curl -fsSL https://opencode.ai/install | bash -s -- --version "$version" --no-modify-path
+          repo="$(node -e "const fs=require('fs'); const parsed=JSON.parse(fs.readFileSync('constants.json','utf8')); process.stdout.write(String(parsed.opencodeRepo||'anomalyco/opencode').trim());")"
+          tmp_dir="$(mktemp -d)"
+          curl -fsSL --retry 5 --retry-delay 2 -o "$tmp_dir/opencode.tar.gz" \
+            "https://github.com/${repo}/releases/download/v${version}/opencode-linux-x64-baseline.tar.gz"
+          tar -xzf "$tmp_dir/opencode.tar.gz" -C "$tmp_dir"
+          mkdir -p "$HOME/.opencode/bin"
+          install -m 0755 "$tmp_dir/opencode" "$HOME/.opencode/bin/opencode"
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
 
       - name: Build prompt
         env:

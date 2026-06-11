@@ -920,6 +920,28 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     if (!version) {
       throw new Error("constants.json is missing opencodeVersion");
     }
+    const repo = String(payload?.opencodeRepo ?? "").trim();
+    // OpenWork engine builds (vX.Y.Z-openwork.N) only exist as GitHub release
+    // assets on the pinned repo; the opencode.ai installer cannot resolve them.
+    if (repo && version.includes("-openwork.")) {
+      const assets = {
+        "darwin-arm64": "opencode-darwin-arm64.zip",
+        "darwin-x64": "opencode-darwin-x64-baseline.zip",
+        "linux-arm64": "opencode-linux-arm64.tar.gz",
+        "linux-x64": "opencode-linux-x64-baseline.tar.gz",
+        "win32-x64": "opencode-windows-x64-baseline.zip",
+        "win32-arm64": "opencode-windows-arm64.zip",
+      };
+      const asset = assets[`${process.platform}-${process.arch}`];
+      if (asset) {
+        const url = `https://github.com/${repo}/releases/download/v${version}/${asset}`;
+        const extract = asset.endsWith(".tar.gz")
+          ? `tar -xzf /tmp/${asset} -C "$HOME/.opencode/bin"`
+          : `unzip -o /tmp/${asset} -d "$HOME/.opencode/bin"`;
+        return `mkdir -p "$HOME/.opencode/bin" && curl -fsSL ${url} -o /tmp/${asset} && ${extract}`;
+      }
+      return `Download opencode v${version} from https://github.com/${repo}/releases/tag/v${version}`;
+    }
     return `curl -fsSL https://opencode.ai/install | bash -s -- --version ${version} --no-modify-path`;
   }
 

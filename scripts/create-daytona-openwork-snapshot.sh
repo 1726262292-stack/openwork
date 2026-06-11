@@ -36,6 +36,7 @@ LOCAL_IMAGE_TAG="${DAYTONA_LOCAL_IMAGE_TAG:-openwork-daytona-snapshot:${SNAPSHOT
 
 OPENWORK_ORCHESTRATOR_VERSION="${OPENWORK_ORCHESTRATOR_VERSION:-$(node -e 'const fs=require("fs"); const pkg=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(String(pkg.version));' "$ROOT_DIR/apps/orchestrator/package.json")}"
 OPENCODE_VERSION="$(node -e 'const fs=require("fs"); const parsed=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(String(parsed.opencodeVersion || "").trim().replace(/^v/, ""));' "$ROOT_DIR/constants.json")"
+OPENCODE_GITHUB_REPO="${OPENCODE_GITHUB_REPO:-$(node -e 'const fs=require("fs"); const parsed=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(String(parsed.opencodeRepo || "anomalyco/opencode").trim());' "$ROOT_DIR/constants.json")}"
 
 echo "Building local image $LOCAL_IMAGE_TAG" >&2
 echo "- openwork-orchestrator@$OPENWORK_ORCHESTRATOR_VERSION" >&2
@@ -47,6 +48,7 @@ docker buildx build \
   -f "$DOCKERFILE" \
   --build-arg "OPENWORK_ORCHESTRATOR_VERSION=$OPENWORK_ORCHESTRATOR_VERSION" \
   --build-arg "OPENCODE_VERSION=$OPENCODE_VERSION" \
+  --build-arg "OPENCODE_GITHUB_REPO=$OPENCODE_GITHUB_REPO" \
   --load \
   "$ROOT_DIR"
 

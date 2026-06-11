@@ -34,17 +34,27 @@ const sidecarOverride = process.env.OPENWORK_SIDECAR_DIR?.trim() || readArg("--o
 const sidecarDir = sidecarOverride ? resolve(sidecarOverride) : join(__dirname, "..", "src-tauri", "sidecars");
 const constantsPath = resolve(__dirname, "..", "..", "..", "constants.json");
 
+const pinnedOpencodeRepo = (() => {
+  try {
+    const parsed = JSON.parse(readFileSync(constantsPath, "utf8"));
+    return typeof parsed.opencodeRepo === "string" ? parsed.opencodeRepo.trim() || null : null;
+  } catch {
+    return null;
+  }
+})();
+
 const opencodeGithubRepo = (() => {
+  const fallback = pinnedOpencodeRepo || "anomalyco/opencode";
   const raw =
     process.env.OPENCODE_GITHUB_REPO?.trim() ||
     process.env.OPENWORK_OPENCODE_GITHUB_REPO?.trim() ||
-    "anomalyco/opencode";
+    fallback;
   const normalized = raw
     .replace(/^https:\/\/github\.com\//i, "")
     .replace(/\.git$/i, "")
     .trim();
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(normalized)) {
-    return "anomalyco/opencode";
+    return fallback;
   }
   return normalized;
 })();
