@@ -68,6 +68,7 @@ import { MessagingView } from "@/react-app/domains/settings/pages/messaging-view
 import { SkillsView } from "@/react-app/domains/settings/pages/skills-view";
 import { WorkflowsView } from "@/react-app/domains/workflows/workflows-view";
 import { saveSessionDraft } from "@/react-app/domains/session/sync/draft-store";
+import { useComposerStateStore } from "@/react-app/domains/session/surface/composer-state-store";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
 import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view-model";
 import { useMessagingViewProps } from "@/react-app/domains/settings/state/messaging-view-state";
@@ -2192,6 +2193,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 const session = unwrap(
                   await opencodeClient.session.create({ directory: selectedWorkspaceRoot || undefined }),
                 );
+                // Hydrate the composer for the new session: the live composer
+                // reads from the in-memory store; the localStorage draft is a
+                // reload-safe fallback.
+                useComposerStateStore.getState().setDraft(session.id, prompt);
                 saveSessionDraft(selectedWorkspaceId, session.id, { text: prompt, mode: "prompt" });
                 writeActiveWorkspaceId(selectedWorkspaceId);
                 writeLastSessionFor(selectedWorkspaceId, session.id);
