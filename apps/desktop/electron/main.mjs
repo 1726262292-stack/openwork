@@ -939,6 +939,37 @@ function isHttpUrl(url) {
   }
 }
 
+// Renderer-supplied geometry is in the page's CSS pixels. WebContentsView
+// bounds are in window DIPs: at zoom factor Z, DIP = cssPx * Z. The renderer
+// cannot reliably know Z (the native View menu zoom roles change it without
+// notifying the page, which is how stale-zoom distortion bugs crept in), so
+// the main process owns this conversion and reads the factor at apply time.
+function browserZoomFactor() {
+  const zoom = mainWindow?.webContents?.getZoomFactor?.();
+  return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+}
+
+function scaleBoundsForZoom(bounds) {
+  const zoom = browserZoomFactor();
+  if (zoom === 1) return bounds;
+  // Scale each edge, then derive width/height from the rounded edges so the
+  // far edge has no sub-pixel seam at any zoom level.
+  const x = Math.round(bounds.x * zoom);
+  const y = Math.round(bounds.y * zoom);
+  return {
+    x,
+    y,
+    width: Math.round((bounds.x + bounds.width) * zoom) - x,
+    height: Math.round((bounds.y + bounds.height) * zoom) - y,
+  };
+}
+
+function scalePointForZoom(point) {
+  const zoom = browserZoomFactor();
+  if (zoom === 1 || !point || typeof point !== "object") return point;
+  return { x: Number(point.x) * zoom, y: Number(point.y) * zoom };
+}
+
 function normalizeMenuOverlayPoint(point) {
   if (!point || typeof point !== "object") {
     return { x: 0, y: 0 };
@@ -1051,7 +1082,7 @@ function tabMenuRequest(tab, point) {
     source: "tab",
     tabId: tab.tabId,
     url,
-    bounds: menuOverlayBounds(normalizeMenuOverlayPoint(point)),
+    bounds: menuOverlayBounds(normalizeMenuOverlayPoint(scalePointForZoom(point))),
     items: [
       { id: "copy-url", label: "Copy URL", iconName: "copy", disabled: !url },
       { id: "open-external", label: "Open in Browser", iconName: "external", disabled: !(url && isHttpUrl(url)) },
@@ -1198,7 +1229,7 @@ function attachActiveBrowserView() {
     mainWindow.contentView.addChildView(view);
   }
   if (lastBrowserBounds && lastBrowserBounds.width > 0 && lastBrowserBounds.height > 0) {
-    view.setBounds(lastBrowserBounds);
+    view.setBounds(scaleBoundsForZoom(lastBrowserBounds));
   }
 }
 
@@ -1297,7 +1328,7 @@ function attachBrowserView(bounds, { preloadDefault = false, ensureTab = false }
   const view = getActiveBrowserView();
   attachActiveBrowserView();
   if (bounds.width > 0 && bounds.height > 0) {
-    view?.setBounds(bounds);
+    view?.setBounds(scaleBoundsForZoom(bounds));
   }
   const url = view?.webContents.getURL();
   if (preloadDefault && (!url || url === "about:blank")) {
@@ -3241,7 +3272,7 @@ ipcMain.handle("openwork:browser:bounds", (_event, bounds) => {
   lastBrowserBounds = bounds;
   const view = getActiveBrowserView();
   if (view && browserViewVisible && bounds.width > 0 && bounds.height > 0) {
-    view.setBounds(bounds);
+    view.setBounds(scaleBoundsForZoom(bounds));
   }
 });
 ipcMain.handle("openwork:browser:state", () => browserStatePayload());
