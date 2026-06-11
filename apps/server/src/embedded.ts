@@ -8,7 +8,7 @@
 import { mkdir } from "node:fs/promises";
 import { resolveServerConfig, type CliArgs } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
-import { startServer } from "./server.js";
+import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { buildOpenworkRuntimeConfig } from "./openwork-runtime-config.js";
 import type { ServeResult } from "./serve-node.js";
@@ -95,6 +95,13 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   }
 
   const server = await startServer(config);
+
+  // OPENCODE_CONFIG_CONTENT above only covers workspaces[0] with the state
+  // frozen before spawn. Push every workspace's runtime-DB MCPs into the
+  // engine so they aren't invisible until a manual reload. Best-effort.
+  if (managedOpencode) {
+    void syncAllWorkspacesRuntimeMcpToEngine(config);
+  }
 
   return {
     port: server.port,

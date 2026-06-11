@@ -3,7 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { startServer } from "./server.js";
+import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
+import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
 type Served = { port: number; stop: (closeActiveConnections?: boolean) => void | Promise<void> };
@@ -29,7 +30,7 @@ async function createWorkspaceRoot() {
   return root;
 }
 
-function startMockOpencode() {
+function startMockOpencode(options?: { failMcpNames?: string[] }) {
   const requests: EngineRequest[] = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -40,7 +41,13 @@ function startMockOpencode() {
       requests.push({ method: request.method, pathname: url.pathname, search: url.search, body });
 
       if (url.pathname === "/instance/dispose") return Response.json({ disposed: true });
-      if (url.pathname === "/mcp" && request.method === "POST") return Response.json({});
+      if (url.pathname === "/mcp" && request.method === "POST") {
+        const name = (body as { name?: string } | null)?.name;
+        if (name && options?.failMcpNames?.includes(name)) {
+          return Response.json({ code: "mcp_invalid", message: "Invalid MCP config" }, { status: 500 });
+        }
+        return Response.json({});
+      }
       if (url.pathname.match(/^\/mcp\/[^/]+\/disconnect$/) && request.method === "POST") return Response.json({});
       return Response.json({ code: "not_found", message: "Not found" }, { status: 404 });
     },
@@ -209,6 +216,85 @@ describe("runtime MCP engine sync", () => {
       );
       expect(disconnectRequest).toBeDefined();
       expect(disconnectRequest?.search).toContain(`directory=${encodeURIComponent(workspaceRoot)}`);
+    } finally {
+      if (previousDb === undefined) delete process.env.OPENWORK_RUNTIME_DB;
+      else process.env.OPENWORK_RUNTIME_DB = previousDb;
+    }
+  });
+
+  test("reload keeps registering remaining MCPs when one entry fails", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const previousDb = process.env.OPENWORK_RUNTIME_DB;
+    process.env.OPENWORK_RUNTIME_DB = join(workspaceRoot, "runtime.sqlite");
+    try {
+      const mock = startMockOpencode({ failMcpNames: ["bad"] });
+      const openwork = await startOpenworkServer(workspaceRoot, `http://127.0.0.1:${mock.server.port}`);
+
+      for (const [name, config] of [["bad", POSTHOG_CONFIG], ["posthog", POSTHOG_CONFIG]] as const) {
+        const response = await fetch(`${openwork.base}/workspace/ws_1/mcp`, {
+          method: "POST",
+          headers: auth(openwork.token),
+          body: JSON.stringify({ name, config }),
+        });
+        expect(response.status).toBe(200);
+      }
+      mock.requests.length = 0;
+
+      const reloadResponse = await fetch(`${openwork.base}/workspace/ws_1/engine/reload`, {
+        method: "POST",
+        headers: auth(openwork.token),
+      });
+      expect(reloadResponse.status).toBe(200);
+
+      const syncedNames = mock.requests
+        .filter((entry) => entry.method === "POST" && entry.pathname === "/mcp")
+        .map((entry) => (entry.body as { name?: string } | null)?.name);
+      // "bad" fails with a 500 but must not block the entries after it.
+      expect(syncedNames).toContain("bad");
+      expect(syncedNames).toContain("posthog");
+    } finally {
+      if (previousDb === undefined) delete process.env.OPENWORK_RUNTIME_DB;
+      else process.env.OPENWORK_RUNTIME_DB = previousDb;
+    }
+  });
+
+  test("startup sync pushes runtime MCPs for every workspace", async () => {
+    const rootA = await createWorkspaceRoot();
+    const rootB = await createWorkspaceRoot();
+    const previousDb = process.env.OPENWORK_RUNTIME_DB;
+    process.env.OPENWORK_RUNTIME_DB = join(rootA, "runtime.sqlite");
+    try {
+      const mock = startMockOpencode();
+      const baseUrl = `http://127.0.0.1:${mock.server.port}`;
+      const config: ServerConfig = {
+        host: "127.0.0.1",
+        port: 0,
+        token: "owt_test_token",
+        hostToken: "owt_host_token",
+        approval: { mode: "auto", timeoutMs: 1000 },
+        corsOrigins: ["*"],
+        workspaces: [
+          { id: "ws_1", name: "A", path: rootA, preset: "starter", workspaceType: "local", baseUrl },
+          { id: "ws_2", name: "B", path: rootB, preset: "starter", workspaceType: "local", baseUrl },
+        ],
+        authorizedRoots: [rootA, rootB],
+        readOnly: false,
+        startedAt: Date.now(),
+        tokenSource: "cli",
+        hostTokenSource: "cli",
+        logFormat: "pretty",
+        logRequests: false,
+      };
+
+      await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({ ...current, mcp: { posthog: POSTHOG_CONFIG } }));
+      await writeRuntimeOpencodeConfig(config, "ws_2", (current) => ({ ...current, mcp: { stripe: POSTHOG_CONFIG } }));
+
+      await syncAllWorkspacesRuntimeMcpToEngine(config);
+
+      const syncs = mock.requests.filter((entry) => entry.method === "POST" && entry.pathname === "/mcp");
+      const byName = new Map(syncs.map((entry) => [(entry.body as { name?: string } | null)?.name, entry.search]));
+      expect(byName.get("posthog")).toContain(`directory=${encodeURIComponent(rootA)}`);
+      expect(byName.get("stripe")).toContain(`directory=${encodeURIComponent(rootB)}`);
     } finally {
       if (previousDb === undefined) delete process.env.OPENWORK_RUNTIME_DB;
       else process.env.OPENWORK_RUNTIME_DB = previousDb;

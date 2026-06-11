@@ -1168,10 +1168,34 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (!c) return null;
 
     if (optionsArg?.dispose) {
+      // Prefer the OpenWork server engine reload: it disposes the engine AND
+      // re-registers runtime-DB MCPs. A direct dispose makes the engine
+      // rebuild from the OPENCODE_CONFIG_CONTENT snapshot frozen at spawn,
+      // silently dropping any MCPs enabled since (toggles "turn off").
+      let reloaded = false;
       try {
-        unwrap(await c.instance.dispose());
+        const openworkSnapshot = options.openworkServer.getSnapshot();
+        const openworkClient = openworkSnapshot.openworkServerClient;
+        if (openworkSnapshot.openworkServerStatus === "connected" && openworkClient) {
+          const workspaceId =
+            options.runtimeWorkspaceId()?.trim() ||
+            (await options.ensureRuntimeWorkspaceId?.())?.trim() ||
+            "";
+          if (workspaceId) {
+            await openworkClient.reloadEngine(workspaceId);
+            reloaded = true;
+          }
+        }
       } catch {
-        // ignore dispose failures and try reading current state anyway
+        // fall back to a direct engine dispose below
+      }
+
+      if (!reloaded) {
+        try {
+          unwrap(await c.instance.dispose());
+        } catch {
+          // ignore dispose failures and try reading current state anyway
+        }
       }
 
       try {

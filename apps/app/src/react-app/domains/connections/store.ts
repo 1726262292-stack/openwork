@@ -464,10 +464,19 @@ export function createConnectionsStore(options: {
         ? parseMcpServersFromContent(projectConfig.content)
         : [];
       const projectNames = new Set(projectServers.map((entry) => entry.name));
-      const next = [
+      const fileServers = [
         ...globalServers.filter((entry) => !projectNames.has(entry.name)),
         ...projectServers,
       ];
+      // Runtime-DB MCPs (source "config.remote") only exist on the OpenWork
+      // server. Keep the last-known entries instead of silently dropping them
+      // while the server is briefly unreachable (startup race) — otherwise
+      // enabled MCPs like openwork-ui render as "off".
+      const fileNames = new Set(fileServers.map((entry) => entry.name));
+      const runtimeServers = state.mcpServers.filter(
+        (entry) => entry.source === "config.remote" && !fileNames.has(entry.name),
+      );
+      const next = [...fileServers, ...runtimeServers];
 
       recordPerfLog(options.developerMode(), "mcp.refresh", "desktop-project-fallback-result", {
         globalConfigPath: globalConfig.path,
@@ -477,7 +486,7 @@ export function createConnectionsStore(options: {
         sources: next.map((entry) => entry.source ?? "unknown"),
       });
 
-      if (!globalConfig.exists && !projectConfig.exists) {
+      if (!globalConfig.exists && !projectConfig.exists && runtimeServers.length === 0) {
         mutateState((current) => ({
           ...current,
           mcpServers: [],

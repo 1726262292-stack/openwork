@@ -4856,20 +4856,40 @@ async function syncRuntimeMcpToOpencodeEngine(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (connection.authHeader) headers.Authorization = connection.authHeader;
 
+  // Keep going past per-entry failures: one dead or invalid MCP must not
+  // block re-registration of every entry after it (e.g. openwork-ui) on
+  // each engine reload.
+  const failures: Array<{ name: string; status?: number; body?: unknown; message?: string }> = [];
   for (const [name, mcpConfig] of entries) {
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ name, config: mcpConfig }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!response.ok) {
-      const body = parseOpencodeErrorBody(await response.text());
-      throw new ApiError(502, "opencode_mcp_sync_failed", `Failed to register MCP ${name} with the engine`, {
-        status: response.status,
-        body,
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name, config: mcpConfig }),
+        signal: AbortSignal.timeout(15_000),
       });
+      if (!response.ok) {
+        failures.push({ name, status: response.status, body: parseOpencodeErrorBody(await response.text()) });
+      }
+    } catch (error) {
+      failures.push({ name, message: error instanceof Error ? error.message : String(error) });
     }
+  }
+  if (failures.length > 0) {
+    const names = failures.map((failure) => failure.name).join(", ");
+    throw new ApiError(502, "opencode_mcp_sync_failed", `Failed to register MCPs with the engine: ${names}`, {
+      failures,
+    });
+  }
+}
+
+// Re-push every workspace's runtime-DB MCPs into the engine. Used at startup:
+// OPENCODE_CONFIG_CONTENT is built from workspaces[0] only and frozen at
+// spawn, so other workspaces' runtime MCPs (and writes that raced the spawn)
+// are invisible to the engine until something re-syncs them. Best-effort.
+export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig): Promise<void> {
+  for (const workspace of config.workspaces) {
+    await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
   }
 }
 
