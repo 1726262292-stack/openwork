@@ -39,6 +39,7 @@ import {
   type OpencodeConfigFile,
 } from "../../../../app/lib/desktop";
 import type {
+  OpenworkClaudePluginPreview,
   OpenworkHubRepo,
   OpenworkServerCapabilities,
   OpenworkServerClient,
@@ -1712,6 +1713,39 @@ export function createExtensionsStore(options: {
     }
   }
 
+  async function previewClaudePlugin(url: string): Promise<OpenworkClaudePluginPreview> {
+    const target = await resolveWorkspaceServerTarget();
+    if (!target.openworkClient || !target.openworkWorkspaceId) {
+      throw new Error("OpenWork server unavailable. Connect to install plugins from GitHub.");
+    }
+    const result = await target.openworkClient.previewClaudePlugin(target.openworkWorkspaceId, { url });
+    return result.preview;
+  }
+
+  async function installClaudePlugin(url: string): Promise<{ ok: boolean; message: string }> {
+    options.setBusy(true);
+    options.setError(null);
+    try {
+      const target = await resolveWorkspaceServerTarget();
+      if (!target.openworkClient || !target.openworkWorkspaceId) {
+        throw new Error("OpenWork server unavailable. Connect to install plugins from GitHub.");
+      }
+      const result = await target.openworkClient.installClaudePlugin(target.openworkWorkspaceId, { url });
+      await refreshSkills({ force: true });
+      await refreshImportedCloudPlugins();
+      return {
+        ok: true,
+        message: `Installed ${result.item.name} with ${result.item.files.length} component${result.item.files.length === 1 ? "" : "s"}.`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("skills.unknown_error");
+      options.setError(addOpencodeCacheHint(message));
+      return { ok: false, message };
+    } finally {
+      options.setBusy(false);
+    }
+  }
+
   async function removeCloudOrgPlugin(pluginId: string): Promise<{ ok: boolean; message: string }> {
     options.setBusy(true);
     options.setError(null);
@@ -3097,6 +3131,8 @@ export function createExtensionsStore(options: {
     removeCloudOrgSkillHub,
     importCloudOrgPlugin,
     removeCloudOrgPlugin,
+    previewClaudePlugin,
+    installClaudePlugin,
     revealSkillsFolder,
     uninstallSkill,
     readSkill,

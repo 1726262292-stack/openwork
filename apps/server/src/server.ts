@@ -32,6 +32,7 @@ import {
   syncDesktopCloudResources,
 } from "./desktop-cloud-sync.js";
 import { installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
+import { resolveClaudePluginBundle } from "./claude-plugin-bundle.js";
 import {
   applyMaterializedBlueprintSessions,
   normalizeBlueprintSessionTemplates,
@@ -2627,6 +2628,64 @@ function createRoutes(
     }
 
     return jsonResponse({ item: imported });
+  });
+
+  // Claude Code plugin bundles (MCP + skills + commands + agents) installed
+  // straight from a GitHub repo. `dryRun: true` returns the "Will install"
+  // preview without writing anything; install reuses the cloud-plugin
+  // machinery, so uninstall goes through DELETE /cloud-plugins/:pluginId.
+  addRoute(routes, "POST", "/workspace/:id/claude-plugins", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const url = typeof body.url === "string" ? body.url.trim() : "";
+    if (!url) throw new ApiError(400, "invalid_payload", "GitHub URL is required");
+    const ref = typeof body.ref === "string" && body.ref.trim() ? body.ref.trim() : undefined;
+    const dryRun = body.dryRun === true;
+
+    const bundle = await resolveClaudePluginBundle({ url, ref });
+    if (dryRun) {
+      return jsonResponse({ preview: bundle.preview });
+    }
+
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "cloud_plugins.install",
+      summary: `Install Claude plugin ${bundle.resolved.plugin.name} from ${bundle.preview.source.owner}/${bundle.preview.source.repo}`,
+      paths: [openworkConfigPath(workspace.path), join(workspace.path, ".opencode")],
+    });
+
+    const imported = await installCloudPlugin({
+      serverConfig: config,
+      workspaceId: workspace.id,
+      workspaceRoot: workspace.path,
+      marketplaceId: null,
+      resolved: bundle.resolved,
+    });
+
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "cloud_plugins.install",
+      target: openworkConfigPath(workspace.path),
+      summary: `Installed Claude plugin ${bundle.resolved.plugin.name} from ${url}`,
+      timestamp: Date.now(),
+    });
+
+    for (const file of imported.files) {
+      emitReloadEvent(ctx.reloadEvents, workspace, file.objectType === "mcp" ? "mcp" : file.objectType === "skill" ? "skills" : file.objectType === "agent" ? "agents" : file.objectType === "command" ? "commands" : "config", {
+        type: file.objectType === "skill" || file.objectType === "agent" || file.objectType === "command" || file.objectType === "mcp" ? file.objectType : "config",
+        name: file.title,
+        action: "added",
+      });
+    }
+
+    // Hot-register any bundled MCP servers with the running engine.
+    await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
+
+    return jsonResponse({ item: imported, preview: bundle.preview });
   });
 
   addRoute(routes, "DELETE", "/workspace/:id/cloud-plugins/:pluginId", "client", async (ctx) => {

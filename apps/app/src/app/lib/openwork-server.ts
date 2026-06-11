@@ -258,6 +258,22 @@ export type OpenworkCloudPluginsResult = {
   plugins: Record<string, CloudImportedPlugin>;
 };
 
+export type OpenworkClaudePluginComponent = {
+  type: "mcp" | "skill" | "command" | "agent";
+  name: string;
+  description: string | null;
+};
+
+export type OpenworkClaudePluginPreview = {
+  pluginId: string;
+  name: string;
+  description: string | null;
+  version: string | null;
+  source: { owner: string; repo: string; ref: string; dir: string | null };
+  components: OpenworkClaudePluginComponent[];
+  warnings: string[];
+};
+
 function arrayBufferToBase64(data: ArrayBuffer): string {
   const bytes = new Uint8Array(data);
   let binary = "";
@@ -1259,6 +1275,22 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         token,
         hostToken,
         method: "DELETE",
+        timeoutMs: timeouts.config,
+      }),
+    previewClaudePlugin: (workspaceId: string, payload: { url: string; ref?: string }) =>
+      requestJson<{ preview: OpenworkClaudePluginPreview }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/claude-plugins`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: { ...payload, dryRun: true },
+        timeoutMs: timeouts.config,
+      }),
+    installClaudePlugin: (workspaceId: string, payload: { url: string; ref?: string }) =>
+      requestJson<OpenworkCloudPluginInstallResult & { preview: OpenworkClaudePluginPreview }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/claude-plugins`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: payload,
         timeoutMs: timeouts.config,
       }),
     readOpencodeConfigFile: (workspaceId: string, scope: "project" | "global" = "project") => {
