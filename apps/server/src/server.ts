@@ -4258,6 +4258,12 @@ function createRoutes(
     return jsonResponse({ items });
   });
 
+  addRoute(routes, "GET", "/workspace/:id/workflow-runs", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const items = await listWorkflowRuns(workspace.path);
+    return jsonResponse({ items });
+  });
+
   addRoute(routes, "GET", "/workspace/:id/workflows/:slug", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const item = await readWorkflow(workspace.path, String(ctx.params.slug ?? "").trim());
@@ -4283,6 +4289,7 @@ function createRoutes(
       description: body.description ? String(body.description) : undefined,
       inputs: Array.isArray(body.inputs) ? body.inputs : undefined,
       steps: body.steps,
+      baseUpdatedAt: typeof body.baseUpdatedAt === "number" ? body.baseUpdatedAt : undefined,
     });
     await recordAudit(workspace.path, {
       id: shortId(),

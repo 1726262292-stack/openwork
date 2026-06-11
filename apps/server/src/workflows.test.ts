@@ -76,6 +76,48 @@ describe("workflows", () => {
     ).rejects.toThrow(ApiError);
   });
 
+  test("upsertWorkflow rejects stale co-edit writes with workflow_conflict", async () => {
+    const workspace = await makeWorkspace();
+    const first = await upsertWorkflow(workspace, {
+      name: "Shared Doc",
+      steps: [{ prompt: "v1" }],
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    // Collaborator B saves after A opened the editor.
+    await upsertWorkflow(workspace, {
+      name: "Shared Doc",
+      steps: [{ prompt: "v2 from collaborator" }],
+      baseUpdatedAt: first.updatedAt,
+    });
+
+    // Collaborator A still holds the original updatedAt: write must be rejected.
+    let conflict: ApiError | null = null;
+    try {
+      await upsertWorkflow(workspace, {
+        name: "Shared Doc",
+        steps: [{ prompt: "v2 from stale editor" }],
+        baseUpdatedAt: first.updatedAt,
+      });
+    } catch (error) {
+      conflict = error instanceof ApiError ? error : null;
+    }
+    expect(conflict?.status).toBe(409);
+    expect(conflict?.code).toBe("workflow_conflict");
+
+    // The collaborator's version is preserved.
+    const current = await readWorkflow(workspace, "shared-doc");
+    expect(current.steps[0]?.prompt).toBe("v2 from collaborator");
+
+    // Saving without a base token (or with the fresh one) still works.
+    const fresh = await upsertWorkflow(workspace, {
+      name: "Shared Doc",
+      steps: [{ prompt: "v3 merged" }],
+      baseUpdatedAt: current.updatedAt,
+    });
+    expect(fresh.steps[0]?.prompt).toBe("v3 merged");
+  });
+
   test("slugifyWorkflowName produces kebab-case", () => {
     expect(slugifyWorkflowName("Weekly Research Digest!")).toBe("weekly-research-digest");
     expect(slugifyWorkflowName("  --Already--Kebab--  ")).toBe("already-kebab");

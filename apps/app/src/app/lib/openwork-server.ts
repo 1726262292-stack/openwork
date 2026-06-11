@@ -482,6 +482,8 @@ export type OpenworkWorkflowUpsertPayload = {
   description?: string;
   inputs?: string[];
   steps: Array<{ name?: string; prompt: string; agent?: string; model?: string }>;
+  /** Co-editing guard: server rejects with 409 when the workflow changed since this timestamp. */
+  baseUpdatedAt?: number | null;
 };
 
 export type OpenworkUserEnvItem = {
@@ -1494,6 +1496,12 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/workflows/${encodeURIComponent(slug)}`,
         { token, hostToken, method: "DELETE" },
+      ),
+    listAllWorkflowRuns: (workspaceId: string) =>
+      requestJson<{ items: OpenworkWorkflowRun[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/workflow-runs`,
+        { token, hostToken },
       ),
     listWorkflowRuns: (workspaceId: string, slug: string) =>
       requestJson<{ items: OpenworkWorkflowRun[] }>(

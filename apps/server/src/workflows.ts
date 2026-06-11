@@ -60,6 +60,13 @@ export type UpsertWorkflowPayload = {
   description?: string;
   inputs?: unknown[];
   steps: unknown;
+  /**
+   * Optimistic-concurrency token for co-editing: the `updatedAt` the editor
+   * was opened with. When provided and the stored workflow has changed since,
+   * the write is rejected with 409 `workflow_conflict` so a collaborator's
+   * edits are never silently overwritten.
+   */
+  baseUpdatedAt?: number | null;
 };
 
 export function slugifyWorkflowName(name: string): string {
@@ -215,6 +222,18 @@ export async function upsertWorkflow(
     : undefined;
 
   const existing = readWorkflowRecord(await readJsonFile<unknown>(workflowPath(workspaceRoot, slug)));
+  if (
+    existing &&
+    typeof payload.baseUpdatedAt === "number" &&
+    existing.updatedAt > payload.baseUpdatedAt
+  ) {
+    throw new ApiError(
+      409,
+      "workflow_conflict",
+      "This workflow was updated by someone else since you opened it",
+      { slug, updatedAt: existing.updatedAt },
+    );
+  }
   const now = Date.now();
   const item: WorkflowItem = {
     slug,
