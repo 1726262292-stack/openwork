@@ -108,6 +108,7 @@ export interface Capabilities {
   plugins: { read: boolean; write: boolean };
   mcp: { read: boolean; write: boolean };
   commands: { read: boolean; write: boolean };
+  workflows: { read: boolean; write: boolean };
   config: { read: boolean; write: boolean };
 
   approvals: { mode: ApprovalMode; timeoutMs: number };

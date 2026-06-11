@@ -11,6 +11,16 @@ import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
 import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
 import { installHubSkill, listHubSkills } from "./skill-hub.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
+import {
+  createWorkflowRun,
+  deleteWorkflow,
+  listWorkflowRuns,
+  listWorkflows,
+  readWorkflow,
+  updateWorkflowRun,
+  upsertWorkflow,
+  validateWorkflowSlug,
+} from "./workflows.js";
 import { ApiError, formatError } from "./errors.js";
 import { readJsoncFile, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
 import { recordAudit, readAuditEntries, readLastAudit } from "./audit.js";
@@ -1130,6 +1140,7 @@ function buildCapabilities(config: ServerConfig): Capabilities {
     plugins: { read: true, write: writeEnabled },
     mcp: { read: true, write: writeEnabled },
     commands: { read: true, write: writeEnabled },
+    workflows: { read: true, write: writeEnabled },
     config: { read: true, write: writeEnabled },
 
     approvals: { mode: config.approval.mode, timeoutMs: config.approval.timeoutMs },
@@ -4239,6 +4250,120 @@ function createRoutes(
       path: join(workspace.path, ".opencode", "commands", `${sanitizeCommandName(name)}.md`),
     });
     return jsonResponse({ ok: true });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/workflows", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const items = await listWorkflows(workspace.path);
+    return jsonResponse({ items });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/workflows/:slug", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const item = await readWorkflow(workspace.path, String(ctx.params.slug ?? "").trim());
+    return jsonResponse({ item });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/workflows", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const name = String(body.name ?? "");
+    const slug = body.slug ? String(body.slug) : undefined;
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "workflows.upsert",
+      summary: `Upsert workflow ${name || slug || "(unnamed)"}`,
+      paths: [join(workspace.path, ".opencode", "openwork", "workflows")],
+    });
+    const item = await upsertWorkflow(workspace.path, {
+      name,
+      slug,
+      description: body.description ? String(body.description) : undefined,
+      inputs: Array.isArray(body.inputs) ? body.inputs : undefined,
+      steps: body.steps,
+    });
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "workflows.upsert",
+      target: join(workspace.path, ".opencode", "openwork", "workflows", `${item.slug}.json`),
+      summary: `Upserted workflow ${item.name}`,
+      timestamp: Date.now(),
+    });
+    const items = await listWorkflows(workspace.path);
+    return jsonResponse({ item, items });
+  });
+
+  addRoute(routes, "DELETE", "/workspace/:id/workflows/:slug", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const slug = String(ctx.params.slug ?? "").trim();
+    validateWorkflowSlug(slug);
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "workflows.delete",
+      summary: `Delete workflow ${slug}`,
+      paths: [join(workspace.path, ".opencode", "openwork", "workflows", `${slug}.json`)],
+    });
+    const path = await deleteWorkflow(workspace.path, slug);
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "workflows.delete",
+      target: path,
+      summary: `Deleted workflow ${slug}`,
+      timestamp: Date.now(),
+    });
+    return jsonResponse({ ok: true });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/workflows/:slug/runs", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const items = await listWorkflowRuns(workspace.path, String(ctx.params.slug ?? "").trim());
+    return jsonResponse({ items });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/workflows/:slug/runs", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const slug = String(ctx.params.slug ?? "").trim();
+    const result = await createWorkflowRun(workspace.path, slug);
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "workflows.run",
+      target: result.run.outputDir,
+      summary: `Started workflow run ${result.run.id} for ${slug}`,
+      timestamp: Date.now(),
+    });
+    return jsonResponse(result);
+  });
+
+  addRoute(routes, "PATCH", "/workspace/:id/workflows/:slug/runs/:runId", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const statusRaw = typeof body.status === "string" ? body.status : undefined;
+    const status =
+      statusRaw === "pending" || statusRaw === "running" || statusRaw === "completed" || statusRaw === "failed"
+        ? statusRaw
+        : undefined;
+    if (statusRaw !== undefined && status === undefined) {
+      throw new ApiError(400, "invalid_workflow_run", "Invalid workflow run status");
+    }
+    const run = await updateWorkflowRun(workspace.path, String(ctx.params.runId ?? ""), {
+      status,
+      sessionId: body.sessionId ? String(body.sessionId) : undefined,
+    });
+    return jsonResponse({ run });
   });
 
   addRoute(routes, "GET", "/workspace/:id/export", "client", async (ctx) => {

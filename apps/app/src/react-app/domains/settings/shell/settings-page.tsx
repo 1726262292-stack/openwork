@@ -18,6 +18,7 @@ import {
   Store,
   Terminal,
   UserCircle,
+  Workflow,
   Wrench,
   Zap,
 } from "lucide-react";
@@ -75,6 +76,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return CloudCog;
     case "skills":
       return Sparkles;
+    case "workflows":
+      return Workflow;
     case "extensions":
       return Puzzle;
     case "environment":
@@ -114,6 +117,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return t("settings.tab_cloud_providers");
     case "skills":
       return t("settings.tab_skills");
+    case "workflows":
+      return "Workflows";
     case "extensions":
       return t("settings.tab_extensions");
     case "environment":
@@ -155,6 +160,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return t("settings.tab_description_cloud_providers");
     case "skills":
       return t("settings.tab_description_skills");
+    case "workflows":
+      return "Repeatable multi-step agent runs with saved prompts and outputs";
     case "extensions":
       return t("settings.tab_description_extensions");
     case "environment":
@@ -177,7 +184,7 @@ export function getSettingsTabDescription(tab: SettingsTab) {
 }
 
 export function getWorkspaceSettingsTabs(): SettingsTab[] {
-  return ["preferences", "permissions", "extensions", "advanced"];
+  return ["preferences", "permissions", "workflows", "extensions", "advanced"];
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {

@@ -17,6 +17,7 @@ export type OpenworkServerCapabilities = {
   plugins: { read: boolean; write: boolean };
   mcp: { read: boolean; write: boolean };
   commands: { read: boolean; write: boolean };
+  workflows?: { read: boolean; write: boolean };
   config: { read: boolean; write: boolean };
   sandbox?: { enabled: boolean; backend: "none" | "docker" | "container" };
   proxy?: { opencode: boolean };
@@ -442,6 +443,45 @@ export type OpenworkInboxUploadResult = {
   ok: boolean;
   path: string;
   bytes: number;
+};
+
+export type OpenworkWorkflowStep = {
+  name: string;
+  prompt: string;
+  agent?: string;
+  model?: string;
+};
+
+export type OpenworkWorkflowItem = {
+  slug: string;
+  name: string;
+  description?: string;
+  inputs: string[];
+  steps: OpenworkWorkflowStep[];
+  outputDir: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type OpenworkWorkflowRunStatus = "pending" | "running" | "completed" | "failed";
+
+export type OpenworkWorkflowRun = {
+  id: string;
+  workflowSlug: string;
+  workflowName: string;
+  status: OpenworkWorkflowRunStatus;
+  sessionId?: string;
+  outputDir: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type OpenworkWorkflowUpsertPayload = {
+  name: string;
+  slug?: string;
+  description?: string;
+  inputs?: string[];
+  steps: Array<{ name?: string; prompt: string; agent?: string; model?: string }>;
 };
 
 export type OpenworkUserEnvItem = {
@@ -1430,6 +1470,54 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         hostToken,
         method: "DELETE",
       }),
+
+    listWorkflows: (workspaceId: string) =>
+      requestJson<{ items: OpenworkWorkflowItem[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/workflows`,
+        { token, hostToken },
+      ),
+    getWorkflow: (workspaceId: string, slug: string) =>
+      requestJson<{ item: OpenworkWorkflowItem }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/workflows/${encodeURIComponent(slug)}`,
+        { token, hostToken },
+      ),
+    upsertWorkflow: (workspaceId: string, payload: OpenworkWorkflowUpsertPayload) =>
+      requestJson<{ item: OpenworkWorkflowItem; items: OpenworkWorkflowItem[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/workflows`,
+        { token, hostToken, method: "POST", body: payload },
+      ),
+    deleteWorkflow: (workspaceId: string, slug: string) =>
+      requestJson<{ ok: boolean }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/workflows/${encodeURIComponent(slug)}`,
+        { token, hostToken, method: "DELETE" },
+      ),
+    listWorkflowRuns: (workspaceId: string, slug: string) =>
+      requestJson<{ items: OpenworkWorkflowRun[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/workflows/${encodeURIComponent(slug)}/runs`,
+        { token, hostToken },
+      ),
+    createWorkflowRun: (workspaceId: string, slug: string) =>
+      requestJson<{ run: OpenworkWorkflowRun; prompt: string }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/workflows/${encodeURIComponent(slug)}/runs`,
+        { token, hostToken, method: "POST", body: {} },
+      ),
+    updateWorkflowRun: (
+      workspaceId: string,
+      slug: string,
+      runId: string,
+      payload: { status?: OpenworkWorkflowRunStatus; sessionId?: string },
+    ) =>
+      requestJson<{ run: OpenworkWorkflowRun }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/workflows/${encodeURIComponent(slug)}/runs/${encodeURIComponent(runId)}`,
+        { token, hostToken, method: "PATCH", body: payload },
+      ),
     uploadInbox: async (workspaceId: string, file: File, options?: { path?: string }) => {
       const id = workspaceId.trim();
       if (!id) throw new Error("workspaceId is required");

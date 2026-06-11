@@ -5,7 +5,7 @@ import { toast } from "@/components/ui/sonner";
 
 import { SUGGESTED_PLUGINS } from "@/app/constants";
 import type { EnablementContext } from "@/app/enablement";
-import { createClient } from "@/app/lib/opencode";
+import { createClient, unwrap } from "@/app/lib/opencode";
 import {
   createOpenworkServerClient,
   isLoopbackOpenworkServerUrl,
@@ -66,6 +66,8 @@ import { McpView } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { MessagingView } from "@/react-app/domains/settings/pages/messaging-view";
 import { SkillsView } from "@/react-app/domains/settings/pages/skills-view";
+import { WorkflowsView } from "@/react-app/domains/workflows/workflows-view";
+import { saveSessionDraft } from "@/react-app/domains/session/sync/draft-store";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
 import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view-model";
 import { useMessagingViewProps } from "@/react-app/domains/settings/state/messaging-view-state";
@@ -132,7 +134,7 @@ import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { useReloadCoordinator } from "./reload-coordinator";
 import { buildFeedbackUrl } from "@/app/lib/feedback";
 import { getDenInferenceUrl } from "@/app/lib/den";
-import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
+import { readActiveWorkspaceId, writeActiveWorkspaceId, writeLastSessionFor } from "./session-memory";
 import { workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { ensureProviderListQuery, getConnectedProviderItems, refreshProviderListQueries } from "@/react-app/domains/connections/provider-list-query";
@@ -362,6 +364,7 @@ function parseSettingsPath(pathname: string): {
     case "preferences":
     case "permissions":
     case "shell":
+    case "workflows":
     case "advanced":
     case "appearance":
     case "environment":
@@ -2173,6 +2176,37 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               props.onClose?.();
               navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session");
               return undefined;
+            }}
+          />
+        );
+      case "workflows":
+        return (
+          <WorkflowsView
+            client={selectedWorkspaceEndpoint?.client ?? openworkClient}
+            workspaceId={runtimeWorkspaceId}
+            busy={busy}
+            canWrite={routeOpenworkCapabilities?.workflows?.write ?? true}
+            onLaunchRun={async ({ prompt }) => {
+              if (!opencodeClient || !selectedWorkspaceId) return null;
+              try {
+                const session = unwrap(
+                  await opencodeClient.session.create({ directory: selectedWorkspaceRoot || undefined }),
+                );
+                saveSessionDraft(selectedWorkspaceId, session.id, { text: prompt, mode: "prompt" });
+                writeActiveWorkspaceId(selectedWorkspaceId);
+                writeLastSessionFor(selectedWorkspaceId, session.id);
+                return session.id;
+              } catch {
+                return null;
+              }
+            }}
+            onOpenSession={(sessionId) => {
+              props.onClose?.();
+              navigate(
+                selectedWorkspaceId
+                  ? workspaceSessionRoute(selectedWorkspaceId, sessionId)
+                  : "/session",
+              );
             }}
           />
         );
