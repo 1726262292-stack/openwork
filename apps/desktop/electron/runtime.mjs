@@ -446,7 +446,7 @@ async function fetchJson(url, options = {}, timeoutMs = 3000) {
 
 // Resolves ~/.config/openwork/env.json (or %APPDATA%\openwork\env.json on
 // Windows) — must agree byte-for-byte with apps/server/src/env-file.ts and
-// apps/desktop/src-tauri/src/env_file.rs. Honor OPENWORK_ENV_STORE override.
+// apps/orchestrator/src/cli.ts. Honor OPENWORK_ENV_STORE override.
 function resolveUserEnvFilePath() {
   const override = String(process.env.OPENWORK_ENV_STORE ?? "").trim();
   if (override) return path.resolve(override);
@@ -681,8 +681,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   async function buildChildEnv(extra = {}) {
     /** @type {NodeJS.ProcessEnv} */
     // User env is layered first so process.env + any caller overrides always
-    // win. See apps/server/src/env-file.ts and src-tauri/src/env_file.rs —
-    // all three loaders must agree on path + reserved-keys policy.
+    // win. See apps/server/src/env-file.ts and apps/orchestrator/src/cli.ts —
+    // all loaders must agree on path + reserved-keys policy.
     const env = {
       ...loadUserEnvFile(),
       ...process.env,

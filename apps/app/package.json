@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "OPENWORK_DEV_MODE=1 vite",
-    "dev:windows": "vite",
     "prebuild": "pnpm --dir ../../packages/ui build",
     "build": "vite build",
     "dev:web": "OPENWORK_DEV_MODE=1 vite",
@@ -51,7 +50,7 @@
     "@fontsource-variable/ibm-plex-sans": "^5.2.8",
     "@heroicons/react": "^2.2.0",
     "@lexical/react": "^0.35.0",
-    "@opencode-ai/sdk": "^1.16.2",
+    "@opencode-ai/sdk": "^1.17.3",
     "@openwork/types": "workspace:*",
     "@openwork/ui": "workspace:*",
     "@paper-design/shaders-react": "0.0.72",

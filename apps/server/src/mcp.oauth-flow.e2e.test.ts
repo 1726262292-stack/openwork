@@ -28,13 +28,14 @@ const sidecarDir = join(repoRoot, "apps/desktop/resources/sidecars");
 
 function findSidecar(): string | null {
   const arch = process.arch === "arm64" ? "aarch64" : "x86_64";
-  const candidates =
+  const names =
     process.platform === "darwin"
-      ? [join(sidecarDir, `opencode-${arch}-apple-darwin`)]
+      ? [`opencode-${arch}-apple-darwin`]
       : process.platform === "linux"
-        ? [join(sidecarDir, `opencode-${arch}-unknown-linux-gnu`), join(sidecarDir, `opencode-${arch}-unknown-linux-musl`)]
+        ? [`opencode-${arch}-unknown-linux-gnu`, `opencode-${arch}-unknown-linux-musl`]
         : [];
-  for (const candidate of candidates) {
+  for (const name of names) {
+    const candidate = join(sidecarDir, name);
     if (existsSync(candidate)) return candidate;
   }
   return null;
