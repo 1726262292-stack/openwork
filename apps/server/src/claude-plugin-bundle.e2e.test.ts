@@ -171,6 +171,18 @@ describe("parseClaudePluginSource", () => {
       ref: "dev",
       dir: "plugins/x",
     });
+    expect(parseClaudePluginSource("https://github.com/a/b?tab=readme-ov-file#install")).toEqual({
+      owner: "a",
+      repo: "b",
+      ref: null,
+      dir: null,
+    });
+    expect(parseClaudePluginSource("https://github.com/a/b/tree/dev/plugins/x?x=1")).toEqual({
+      owner: "a",
+      repo: "b",
+      ref: "dev",
+      dir: "plugins/x",
+    });
     expect(() => parseClaudePluginSource("https://gitlab.com/a/b")).toThrow();
     expect(() => parseClaudePluginSource("not a url")).toThrow();
   });

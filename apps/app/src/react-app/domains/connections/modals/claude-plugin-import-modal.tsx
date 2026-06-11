@@ -27,6 +27,8 @@ export type ClaudePluginImportModalProps = {
 type ModalState = {
   url: string;
   preview: OpenworkClaudePluginPreview | null;
+  /** URL the current preview was generated from; install always targets this. */
+  previewedUrl: string | null;
   previewing: boolean;
   installing: boolean;
   error: string | null;
@@ -35,14 +37,25 @@ type ModalState = {
 const initialState: ModalState = {
   url: "",
   preview: null,
+  previewedUrl: null,
   previewing: false,
   installing: false,
   error: null,
 };
 
-function reducer(state: ModalState, patch: Partial<ModalState> | "reset"): ModalState {
-  if (patch === "reset") return initialState;
-  return { ...state, ...patch };
+type ModalAction =
+  | Partial<ModalState>
+  | "reset"
+  | { kind: "preview-success"; url: string; preview: OpenworkClaudePluginPreview };
+
+function reducer(state: ModalState, action: ModalAction): ModalState {
+  if (action === "reset") return initialState;
+  if ("kind" in action) {
+    // Ignore preview responses for a URL the user has since edited away from.
+    if (state.url.trim() !== action.url) return { ...state, previewing: false };
+    return { ...state, previewing: false, preview: action.preview, previewedUrl: action.url };
+  }
+  return { ...state, ...action };
 }
 
 const COMPONENT_LABELS: Record<string, { singular: string; plural: string }> = {
@@ -67,10 +80,10 @@ export function ClaudePluginImportModal(props: ClaudePluginImportModalProps) {
       dispatch({ error: "Enter a GitHub repository URL." });
       return;
     }
-    dispatch({ previewing: true, error: null, preview: null });
+    dispatch({ previewing: true, error: null, preview: null, previewedUrl: null });
     try {
       const preview = await props.onPreview(url);
-      dispatch({ preview, previewing: false });
+      dispatch({ kind: "preview-success", url, preview });
     } catch (error) {
       dispatch({
         previewing: false,
@@ -80,12 +93,21 @@ export function ClaudePluginImportModal(props: ClaudePluginImportModalProps) {
   };
 
   const handleInstall = async () => {
-    const url = state.url.trim();
+    // Install exactly what was previewed — never a URL edited after preview.
+    const url = state.previewedUrl;
     if (!url || state.installing) return;
     dispatch({ installing: true, error: null });
-    const result = await props.onInstall(url);
-    if (!result.ok) {
-      dispatch({ installing: false, error: result.message });
+    try {
+      const result = await props.onInstall(url);
+      if (!result.ok) {
+        dispatch({ installing: false, error: result.message });
+        return;
+      }
+    } catch (error) {
+      dispatch({
+        installing: false,
+        error: error instanceof Error ? error.message : "Failed to install plugin",
+      });
       return;
     }
     dispatch("reset");
@@ -126,7 +148,9 @@ export function ClaudePluginImportModal(props: ClaudePluginImportModalProps) {
                 label="GitHub repository"
                 placeholder="https://github.com/slackapi/slack-mcp-plugin"
                 value={state.url}
-                onChange={(event) => dispatch({ url: event.currentTarget.value, preview: null })}
+                onChange={(event) =>
+                  dispatch({ url: event.currentTarget.value, preview: null, previewedUrl: null })
+                }
               />
             </div>
             <Button

@@ -60,10 +60,16 @@ const GITHUB_REPO_RE = /^[A-Za-z0-9._-]+$/;
 
 /**
  * Accepts `https://github.com/owner/repo`, `github.com/owner/repo`,
- * `owner/repo`, with optional `.git` suffix and `/tree/<ref>(/<subdir>)`.
+ * `owner/repo`, with optional `.git` suffix, query/hash, and
+ * `/tree/<ref>(/<subdir>)`.
+ *
+ * Known limitation: in `/tree/...` URLs the first path segment is taken as
+ * the ref, so branch/tag names containing `/` (e.g. `release/v1.0`) are
+ * misread as ref + subdir. Disambiguating requires listing the repo's refs
+ * via the GitHub API; not worth it until someone actually hits this.
  */
 export function parseClaudePluginSource(input: string): ClaudePluginSource {
-  const trimmed = input.trim();
+  const trimmed = input.trim().replace(/[?#].*$/, "");
   if (!trimmed) throw new ApiError(400, "invalid_plugin_url", "GitHub URL is required");
   const withoutProtocol = trimmed.replace(/^https?:\/\//, "");
   const hadHost = /^[A-Za-z0-9.-]+\.[A-Za-z]{2,}\//.test(withoutProtocol);
