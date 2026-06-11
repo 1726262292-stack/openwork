@@ -12,6 +12,7 @@ const EnvSchema = z.object({
   BETTER_AUTH_URL: z.string().min(1),
   DEN_MCP_RESOURCE_URL: z.string().optional(),
   DEN_BETTER_AUTH_TRUSTED_ORIGINS: z.string().optional(),
+  DEN_WEB_APP_HOSTS: z.string().optional(),
   GITHUB_CLIENT_ID: z.string().optional(),
   GITHUB_CLIENT_SECRET: z.string().optional(),
   GITHUB_CONNECTOR_APP_ID: z.string().optional(),
@@ -185,6 +186,10 @@ export const env = {
       ? `http://127.0.0.1:${port}/mcp`
       : undefined,
   betterAuthTrustedOrigins: betterAuthTrustedOrigins.length > 0 ? betterAuthTrustedOrigins : corsOrigins,
+  // Extra hostnames that serve the den-web frontend (and therefore expose
+  // the Den API behind the /api/den proxy path). Entries starting with "."
+  // are treated as suffix matches, e.g. ".example.com".
+  webAppHosts: splitCsv(parsed.DEN_WEB_APP_HOSTS).map((host) => host.toLowerCase()),
   devMode,
   requireEmailVerification,
   github: {
