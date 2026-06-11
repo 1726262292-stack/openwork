@@ -3986,7 +3986,7 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/mcp", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const items = await listMcp(config, workspace.id, workspace.path);
-    return jsonResponse({ items });
+    return jsonResponse({ items, engineSync: engineMcpSyncState(workspace.id) });
   });
 
   addRoute(routes, "POST", "/workspace/:id/mcp", "client", async (ctx) => {
@@ -4006,8 +4006,8 @@ function createRoutes(
       paths: [openworkConfigPath(workspace.path)],
     });
     const result = await addMcp(config, workspace.id, name, configPayload);
-    // Hot-add into the running engine so connect/auth works without a full
-    // engine restart (the spawn-time injected config cannot pick it up).
+    // Hot-add into the running engine so connect/auth works immediately,
+    // without waiting for an engine instance rebuild.
     await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]).catch(() => undefined);
     await recordAudit(workspace.path, {
       id: shortId(),
@@ -4822,17 +4822,18 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
     });
   }
 
-  // Re-register runtime-DB MCPs: dispose re-reads disk configs plus the
-  // OPENCODE_CONFIG_CONTENT env frozen at spawn, so MCPs added since spawn
-  // would otherwise vanish from the engine after a reload.
+  // Re-register runtime-DB MCPs: dispose rebuilds engine state from disk
+  // configs (including the server-managed runtime config file for the
+  // primary workspace), but other workspaces' runtime MCPs only reach the
+  // engine through this dynamic push.
   await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
 }
 
 // Push runtime-DB MCP entries into the running OpenCode engine via its dynamic
-// add endpoint. The engine only reads OPENCODE_CONFIG_CONTENT once at spawn, so
-// MCPs written to the runtime DB afterwards are invisible to it — auth then
-// fails with McpServerNotFoundError even though the config write succeeded.
-// Best-effort: callers treat engine sync as advisory and swallow failures.
+// add endpoint, so adds/toggles take effect without waiting for an engine
+// instance rebuild. Best-effort: callers treat engine sync as advisory and
+// swallow failures; outcomes are recorded per workspace (engineMcpSyncState)
+// and logged so failures aren't silent.
 async function syncRuntimeMcpToOpencodeEngine(
   config: ServerConfig,
   workspace: WorkspaceInfo,
@@ -4859,8 +4860,44 @@ async function syncRuntimeMcpToOpencodeEngine(
   // Keep going past per-entry failures: one dead or invalid MCP must not
   // block re-registration of every entry after it (e.g. openwork-ui) on
   // each engine reload.
-  const failures: Array<{ name: string; status?: number; body?: unknown; message?: string }> = [];
+  const failures: EngineMcpSyncFailure[] = [];
   for (const [name, mcpConfig] of entries) {
+    const failure = await postMcpEntryWithRetry(url, headers, name, mcpConfig);
+    if (failure) failures.push(failure);
+  }
+
+  recordEngineMcpSyncResult(workspace.id, {
+    syncedNames: entries.map(([name]) => name),
+    failures,
+    // A full sync covered every runtime entry, so its result replaces any
+    // previously recorded failures (e.g. for since-removed MCPs).
+    replace: !onlyNames,
+  });
+
+  if (failures.length > 0) {
+    const names = failures.map((failure) => failure.name).join(", ");
+    createServerLogger(config).log("warn", `Engine MCP sync failed for workspace ${workspace.id}: ${names}`, {
+      "workspace.id": workspace.id,
+      "mcp.failed": names,
+    });
+    throw new ApiError(502, "opencode_mcp_sync_failed", `Failed to register MCPs with the engine: ${names}`, {
+      failures,
+    });
+  }
+}
+
+// POST one MCP entry to the engine, retrying once on 5xx/network errors
+// (the engine is often mid-rebuild right after a dispose). 4xx responses
+// are not retried — they won't change.
+async function postMcpEntryWithRetry(
+  url: URL,
+  headers: Record<string, string>,
+  name: string,
+  mcpConfig: Record<string, unknown>,
+): Promise<EngineMcpSyncFailure | null> {
+  let failure: EngineMcpSyncFailure | null = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, engineMcpSyncRetryDelayMs()));
     try {
       const response = await fetch(url, {
         method: "POST",
@@ -4868,25 +4905,56 @@ async function syncRuntimeMcpToOpencodeEngine(
         body: JSON.stringify({ name, config: mcpConfig }),
         signal: AbortSignal.timeout(15_000),
       });
-      if (!response.ok) {
-        failures.push({ name, status: response.status, body: parseOpencodeErrorBody(await response.text()) });
-      }
+      if (response.ok) return null;
+      failure = { name, status: response.status, body: parseOpencodeErrorBody(await response.text()) };
+      if (response.status < 500) return failure;
     } catch (error) {
-      failures.push({ name, message: error instanceof Error ? error.message : String(error) });
+      failure = { name, message: error instanceof Error ? error.message : String(error) };
     }
   }
-  if (failures.length > 0) {
-    const names = failures.map((failure) => failure.name).join(", ");
-    throw new ApiError(502, "opencode_mcp_sync_failed", `Failed to register MCPs with the engine: ${names}`, {
-      failures,
-    });
-  }
+  return failure;
+}
+
+// Read lazily so tests can shrink the delay at runtime.
+function engineMcpSyncRetryDelayMs(): number {
+  const parsed = Number(process.env.OPENWORK_MCP_SYNC_RETRY_DELAY_MS ?? "750");
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 750;
+}
+
+export type EngineMcpSyncFailure = { name: string; status?: number; body?: unknown; message?: string };
+export type EngineMcpSyncState = { status: "ok" | "failed"; at: number; failures: EngineMcpSyncFailure[] };
+
+// Last engine sync outcome per workspace, surfaced on GET /workspace/:id/mcp
+// so the UI can explain why an enabled MCP shows as disconnected instead of
+// failing silently.
+const engineMcpSyncStateByWorkspace = new Map<string, EngineMcpSyncState>();
+
+function recordEngineMcpSyncResult(
+  workspaceId: string,
+  result: { syncedNames: string[]; failures: EngineMcpSyncFailure[]; replace: boolean },
+): void {
+  const previous = engineMcpSyncStateByWorkspace.get(workspaceId);
+  // Partial syncs (onlyNames) shouldn't clear recorded failures for entries
+  // they didn't touch; merge by name instead.
+  const remaining = result.replace
+    ? []
+    : (previous?.failures ?? []).filter((failure) => !result.syncedNames.includes(failure.name));
+  const merged = [...remaining, ...result.failures];
+  engineMcpSyncStateByWorkspace.set(workspaceId, {
+    status: merged.length > 0 ? "failed" : "ok",
+    at: Date.now(),
+    failures: merged,
+  });
+}
+
+export function engineMcpSyncState(workspaceId: string): EngineMcpSyncState | null {
+  return engineMcpSyncStateByWorkspace.get(workspaceId) ?? null;
 }
 
 // Re-push every workspace's runtime-DB MCPs into the engine. Used at startup:
-// OPENCODE_CONFIG_CONTENT is built from workspaces[0] only and frozen at
-// spawn, so other workspaces' runtime MCPs (and writes that raced the spawn)
-// are invisible to the engine until something re-syncs them. Best-effort.
+// the runtime config file injected via OPENCODE_CONFIG covers workspaces[0]
+// only, so other workspaces' runtime MCPs are invisible to the engine until
+// something re-syncs them. Best-effort.
 export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig): Promise<void> {
   for (const workspace of config.workspaces) {
     await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);

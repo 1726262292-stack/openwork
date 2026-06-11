@@ -6,7 +6,7 @@ import { parseCliArgs, printHelp, resolveServerConfig } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
 import { createServerLogger, startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
-import { buildOpenworkRuntimeConfig } from "./openwork-runtime-config.js";
+import { keepOpenworkRuntimeConfigFileFresh, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
 import pkg from "../package.json" with { type: "json" };
 
 const args = parseCliArgs(process.argv.slice(2));
@@ -35,7 +35,11 @@ if (!config.readOnly) {
 if (!config.opencodeBaseUrl && process.env.OPENWORK_MANAGE_OPENCODE === "1") {
   const workspace = config.workspaces[0];
   if (workspace?.path) {
-    const openworkRuntimeConfig = await buildOpenworkRuntimeConfig(config, workspace.id);
+    // Server-managed config file: the engine re-reads it from disk on every
+    // instance rebuild, and keepOpenworkRuntimeConfigFileFresh rewrites it
+    // on every runtime-DB write — so disposes always pick up current state.
+    const runtimeConfigPath = await writeOpenworkRuntimeConfigFile(config, workspace.id);
+    keepOpenworkRuntimeConfigFileFresh(config, workspace.id);
     const managedOpencodeCwd = process.env.OPENWORK_MANAGED_OPENCODE_CWD?.trim() || workspace.path;
     await mkdir(managedOpencodeCwd, { recursive: true });
     managedOpencode = await createManagedOpencodeServer({
@@ -47,7 +51,7 @@ if (!config.opencodeBaseUrl && process.env.OPENWORK_MANAGE_OPENCODE === "1") {
         ...(process.env.OPENWORK_UI_CONTROL_DISCOVERY ? { OPENWORK_UI_CONTROL_DISCOVERY: process.env.OPENWORK_UI_CONTROL_DISCOVERY } : {}),
         OPENWORK_SERVER_URL: serverUrl,
         OPENWORK_SERVER_TOKEN: config.token,
-        OPENCODE_CONFIG_CONTENT: openworkRuntimeConfig,
+        OPENCODE_CONFIG: runtimeConfigPath,
       },
     });
     config.opencodeBaseUrl = managedOpencode.url;
@@ -65,9 +69,9 @@ if (!config.opencodeBaseUrl && process.env.OPENWORK_MANAGE_OPENCODE === "1") {
 
 const server = await startServer(config);
 
-// OPENCODE_CONFIG_CONTENT above only covers workspaces[0] with the state
-// frozen before spawn. Push every workspace's runtime-DB MCPs into the
-// engine so they aren't invisible until a manual reload. Best-effort.
+// The runtime config file above only covers workspaces[0]. Push every
+// workspace's runtime-DB MCPs into the engine so they aren't invisible
+// until a manual reload. Best-effort.
 if (managedOpencode) {
   void syncAllWorkspacesRuntimeMcpToEngine(config);
 }

@@ -285,6 +285,12 @@ export type OpenworkMcpItem = {
   disabledByTools?: boolean;
 };
 
+export type OpenworkMcpEngineSync = {
+  status: "ok" | "failed";
+  at: number;
+  failures: Array<{ name: string; status?: number; message?: string }>;
+};
+
 export type OpenworkWorkspaceExport = {
   workspaceId: string;
   exportedAt: number;
@@ -1369,7 +1375,11 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         },
       ),
     listMcp: (workspaceId: string) =>
-      requestJson<{ items: OpenworkMcpItem[] }>(baseUrl, `/workspace/${workspaceId}/mcp`, { token, hostToken }),
+      requestJson<{ items: OpenworkMcpItem[]; engineSync?: OpenworkMcpEngineSync | null }>(
+        baseUrl,
+        `/workspace/${workspaceId}/mcp`,
+        { token, hostToken },
+      ),
     addMcp: (workspaceId: string, payload: { name: string; config: Record<string, unknown> }) =>
       requestJson<{ items: OpenworkMcpItem[] }>(baseUrl, `/workspace/${workspaceId}/mcp`, {
         token,

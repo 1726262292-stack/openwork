@@ -1169,9 +1169,9 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
     if (optionsArg?.dispose) {
       // Prefer the OpenWork server engine reload: it disposes the engine AND
-      // re-registers runtime-DB MCPs. A direct dispose makes the engine
-      // rebuild from the OPENCODE_CONFIG_CONTENT snapshot frozen at spawn,
-      // silently dropping any MCPs enabled since (toggles "turn off").
+      // re-registers runtime-DB MCPs, so non-primary workspaces and pending
+      // changes are picked up instead of silently dropping (toggles "turn
+      // off").
       let reloaded = false;
       try {
         const openworkSnapshot = options.openworkServer.getSnapshot();

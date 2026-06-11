@@ -16,6 +16,9 @@ type EngineRequest = {
   body: unknown;
 };
 
+// Keep the engine sync retry backoff tiny so failure-path tests stay fast.
+process.env.OPENWORK_MCP_SYNC_RETRY_DELAY_MS = "10";
+
 const stops: Array<() => void | Promise<void>> = [];
 const roots: string[] = [];
 
@@ -252,6 +255,21 @@ describe("runtime MCP engine sync", () => {
       // "bad" fails with a 500 but must not block the entries after it.
       expect(syncedNames).toContain("bad");
       expect(syncedNames).toContain("posthog");
+      // 5xx entries are retried once.
+      expect(syncedNames.filter((name) => name === "bad").length).toBe(2);
+
+      // The failure is surfaced on the MCP list endpoint instead of being
+      // swallowed silently.
+      const listResponse = await fetch(`${openwork.base}/workspace/ws_1/mcp`, {
+        headers: auth(openwork.token),
+      });
+      expect(listResponse.status).toBe(200);
+      const listBody = await listResponse.json() as {
+        engineSync?: { status: string; failures: Array<{ name: string }> } | null;
+      };
+      expect(listBody.engineSync?.status).toBe("failed");
+      expect(listBody.engineSync?.failures.map((failure) => failure.name)).toContain("bad");
+      expect(listBody.engineSync?.failures.map((failure) => failure.name)).not.toContain("posthog");
     } finally {
       if (previousDb === undefined) delete process.env.OPENWORK_RUNTIME_DB;
       else process.env.OPENWORK_RUNTIME_DB = previousDb;

@@ -312,6 +312,7 @@ export function createConnectionsStore(options: {
       config: entry.config as McpServerEntry["config"],
       source: entry.source,
     }));
+    const engineSync = response.engineSync ?? null;
 
     let nextStatuses: McpStatusMap = {};
     const activeClient = options.client();
@@ -328,9 +329,10 @@ export function createConnectionsStore(options: {
       count: next.length,
       names: next.map((entry) => entry.name),
       sources: next.map((entry) => entry.source ?? "unknown"),
+      engineSyncStatus: engineSync?.status ?? null,
     });
 
-    return { next, nextStatuses };
+    return { next, nextStatuses, engineSync };
   };
 
   const resolveDesktopCommand = async (commandName: string, fallbackOnError = true) => {
@@ -390,12 +392,19 @@ export function createConnectionsStore(options: {
       setStateField("mcpStatus", null);
       const serverResult = await listMcpFromOpenworkServer(projectDir);
       if (serverResult) {
+        // Surface engine registration failures instead of leaving users
+        // staring at an MCP that silently shows as disconnected.
+        const failedNames = serverResult.engineSync?.status === "failed"
+          ? serverResult.engineSync.failures.map((failure) => failure.name).join(", ")
+          : "";
         mutateState((current) => ({
           ...current,
           mcpServers: serverResult.next,
           mcpLastUpdatedAt: Date.now(),
           mcpStatuses: serverResult.nextStatuses,
-          mcpStatus: serverResult.next.length ? null : "No MCP servers configured yet.",
+          mcpStatus: failedNames
+            ? `Some MCPs could not be registered with the engine: ${failedNames}. They may appear disconnected — try reloading the engine.`
+            : serverResult.next.length ? null : "No MCP servers configured yet.",
         }));
         return;
       }
