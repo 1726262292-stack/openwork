@@ -113,16 +113,8 @@ import { useRemoteWorkspaceConnectionEditor } from "@/react-app/domains/workspac
 import { useCloudProviderAutoSync } from "@/react-app/domains/cloud/use-cloud-provider-auto-sync";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
 import { OpenWorkModelsStartupDialog } from "@/react-app/domains/cloud/openwork-models-startup-dialog";
-import {
-  getOpenWorkModelsActionUrl,
-  hasOpenWorkModelsProvider,
-  hideOpenWorkModelsPromo,
-  isOpenWorkModelsPromoHidden,
-  markOpenWorkModelsStartupPromoShown,
-  OPENWORK_MODEL_PREVIEWS,
-  openWorkModelsPromoChangedEvent,
-  wasOpenWorkModelsStartupPromoShown,
-} from "@/react-app/domains/cloud/openwork-models-promo";
+import { OPENWORK_MODEL_PREVIEWS } from "@/react-app/domains/cloud/openwork-models-promo";
+import { useOpenWorkModelsStartupPromo } from "@/react-app/domains/cloud/use-openwork-models-startup-promo";
 import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
   getRemoteWorkspaceConnectionKey,
@@ -441,9 +433,6 @@ export function SessionRoute() {
     [providerConnectedIds],
   );
   const [disabledProviderIds, setDisabledProviderIds] = useState<string[]>([]);
-  const [openWorkModelsStartupOpen, setOpenWorkModelsStartupOpen] = useState(false);
-  const [openWorkModelsPromoHidden, setOpenWorkModelsPromoHidden] = useState(isOpenWorkModelsPromoHidden);
-  const openWorkModelsStartupScheduledRef = useRef(false);
   const onboardingProviderAuthPendingRef = useRef(false);
   // Bump to re-filter provider list when den session changes (sign-in/out)
   const [denSessionVersion, setDenSessionVersion] = useState(0);
@@ -453,34 +442,6 @@ export function SessionRoute() {
     return () => window.removeEventListener(denSessionUpdatedEvent, handler);
   }, []);
 
-  useEffect(() => {
-    const handlePromoChanged = () => setOpenWorkModelsPromoHidden(isOpenWorkModelsPromoHidden());
-    window.addEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
-    return () => window.removeEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
-  }, []);
-
-  const hasOpenWorkModels = useMemo(
-    () => hasOpenWorkModelsProvider(providerConnectedIds),
-    [providerConnectedIds],
-  );
-
-  const subscribeToOpenWorkModels = useCallback(() => {
-    setOpenWorkModelsStartupOpen(false);
-    markOpenWorkModelsStartupPromoShown();
-    if (!denAuth.isSignedIn) {
-      navigate(selectedWorkspaceId ? workspaceSettingsRoute(selectedWorkspaceId, "cloud-account") : "/settings/cloud-account");
-    }
-    window.setTimeout(() => {
-      platform.openLink(getOpenWorkModelsActionUrl(denAuth.isSignedIn));
-    }, 0);
-  }, [denAuth.isSignedIn, navigate, platform, selectedWorkspaceId]);
-
-  const continueWithoutOpenWorkModels = useCallback(() => {
-    setOpenWorkModelsStartupOpen(false);
-    markOpenWorkModelsStartupPromoShown();
-    hideOpenWorkModelsPromo();
-    setOpenWorkModelsPromoHidden(true);
-  }, []);
   // Provider IDs that were just added — used to highlight them as
   // "Recently added" in the model picker even after they've been
   // marked as seen in localStorage.
@@ -1415,18 +1376,11 @@ export function SessionRoute() {
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
 
-  useEffect(() => {
-    if (!shellConfig.cloudSignin || openWorkModelsPromoHidden || hasOpenWorkModels) return;
-    if (denAuth.status === "checking" || !opencodeClient || !selectedWorkspaceId) return;
-    if (wasOpenWorkModelsStartupPromoShown() || openWorkModelsStartupScheduledRef.current) return;
-
-    openWorkModelsStartupScheduledRef.current = true;
-    const timeout = window.setTimeout(() => {
-      markOpenWorkModelsStartupPromoShown();
-      setOpenWorkModelsStartupOpen(true);
-    }, 900);
-    return () => window.clearTimeout(timeout);
-  }, [denAuth.status, hasOpenWorkModels, opencodeClient, openWorkModelsPromoHidden, selectedWorkspaceId, shellConfig.cloudSignin]);
+  const openWorkModelsPromo = useOpenWorkModelsStartupPromo({
+    clientReady: Boolean(opencodeClient),
+    workspaceId: selectedWorkspaceId,
+    providerConnectedIds,
+  });
 
   const sessionProviderAuthStateRef = useRef({
     opencodeClient: opencodeClient as Client | null,
@@ -2893,11 +2847,11 @@ export function SessionRoute() {
       onAccessibleTargetsChange={setPaletteAccessibleTargets}
     />
     <OpenWorkModelsStartupDialog
-      open={openWorkModelsStartupOpen}
+      open={openWorkModelsPromo.open}
       isSignedIn={denAuth.isSignedIn}
       models={OPENWORK_MODEL_PREVIEWS}
-      onSubscribe={subscribeToOpenWorkModels}
-      onContinueWithout={continueWithoutOpenWorkModels}
+      onSubscribe={openWorkModelsPromo.subscribe}
+      onContinueWithout={openWorkModelsPromo.continueWithout}
     />
     <CreateWorkspaceModal
       open={createWorkspaceOpen}
