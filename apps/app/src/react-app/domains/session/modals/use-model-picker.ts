@@ -22,10 +22,12 @@ export type UseModelPickerInput = {
   client: Client | null;
   baseUrl: string;
   workspaceRoot: string;
+  /** Optional: surface option-load failures (settings shows a toast; the session route stays silent). */
+  onLoadError?: (error: unknown) => void;
 };
 
 export function useModelPicker(input: UseModelPickerInput) {
-  const { client, baseUrl, workspaceRoot } = input;
+  const { client, baseUrl, workspaceRoot, onLoadError } = input;
   const checkDesktopRestriction = useCheckDesktopRestriction();
 
   const [open, setOpen] = useState(false);
@@ -117,8 +119,10 @@ export function useModelPicker(input: UseModelPickerInput) {
           }
         }
         setModelOptions(options);
-      } catch {
-        // Silent: the picker surfaces an empty list rather than blocking the UI.
+      } catch (error) {
+        // Default: silent — the picker surfaces an empty list rather than
+        // blocking the UI. Callers can opt into surfacing the failure.
+        onLoadError?.(error);
       }
     })();
     return () => {
