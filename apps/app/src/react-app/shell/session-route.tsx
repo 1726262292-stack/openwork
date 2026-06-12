@@ -2,7 +2,6 @@
 import {
   useCallback,
   useEffect,
-  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -154,6 +153,7 @@ import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
 import { resolveOpenworkConnection } from "./openwork-connection";
 import { useReloadCoordinator } from "./reload-coordinator";
 import { useShellConfig } from "./shell-config";
+import { useShellShortcuts } from "./use-shell-shortcuts";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
 import { legacySessionRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
@@ -409,9 +409,6 @@ export function SessionRoute() {
   const [renameWorkspaceId, setRenameWorkspaceId] = useState<string | null>(null);
   const [renameWorkspaceTitle, setRenameWorkspaceTitle] = useState("");
   const [renameWorkspaceBusy, setRenameWorkspaceBusy] = useState(false);
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
-  const [terminalOpen, setTerminalOpen] = useState(false);
   const [paletteAccessibleTargets, setPaletteAccessibleTargets] = useState<OpenTarget[]>([]);
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
   const [providerDefaults, setProviderDefaults] = useState<Record<string, string>>({});
@@ -1308,15 +1305,6 @@ export function SessionRoute() {
     baseUrl: opencodeBaseUrl,
     workspaceRoot: selectedWorkspaceRoot,
   });
-  useReactRenderWatchdog("SessionRoute", {
-    selectedSessionId,
-    selectedWorkspaceId,
-    loading,
-    workspaceCount: workspaces.length,
-    sessionGroupCount: Object.keys(sessionsByWorkspaceId).length,
-    commandPaletteOpen,
-    modelPickerOpen: modelPicker.open,
-  });
   const selectedModelUnavailable = Boolean(
     local.prefs.defaultModel &&
       (
@@ -2052,53 +2040,27 @@ export function SessionRoute() {
     }
   }, [baseUrl, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces]);
 
-  // Global shortcuts:
-  //   Cmd/Ctrl+N        -> new task in selected workspace
-  //   Cmd/Ctrl+K        -> toggle command palette
-  //   Cmd/Ctrl+J        -> toggle terminal panel (matches VS Code)
-  //   Cmd/Ctrl+Shift+F  -> search every session (titles + messages)
-  const handleGlobalShortcut = useEffectEvent((event: KeyboardEvent) => {
-    const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
-    const mod = isMac ? event.metaKey : event.ctrlKey;
-    if (!mod) return;
-    if (event.shiftKey && !event.altKey && event.key?.toLowerCase() === "f") {
-      event.preventDefault();
-      setSessionSearchOpen((value) => !value);
-      return;
-    }
-    if (event.shiftKey || event.altKey) return;
-
-    const target = event.target as HTMLElement | null;
-    const inEditable =
-      !!target &&
-      (target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable);
-
-    const key = event.key?.toLowerCase();
-    if (key === "n" && !inEditable) {
-      event.preventDefault();
-      if (canCreateTask && selectedWorkspaceId) {
-        void handleCreateTaskInWorkspace(selectedWorkspaceId);
-      }
-      return;
-    }
-    if (key === "k") {
-      event.preventDefault();
-      setCommandPaletteOpen((value) => !value);
-      return;
-    }
-    if (key === "j") {
-      event.preventDefault();
-      setTerminalOpen((value) => !value);
-    }
+  const {
+    commandPaletteOpen,
+    setCommandPaletteOpen,
+    sessionSearchOpen,
+    setSessionSearchOpen,
+    terminalOpen,
+    setTerminalOpen,
+  } = useShellShortcuts({
+    canCreateTask,
+    workspaceId: selectedWorkspaceId,
+    onCreateTask: handleCreateTaskInWorkspace,
   });
-
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => handleGlobalShortcut(event);
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
+  useReactRenderWatchdog("SessionRoute", {
+    selectedSessionId,
+    selectedWorkspaceId,
+    loading,
+    workspaceCount: workspaces.length,
+    sessionGroupCount: Object.keys(sessionsByWorkspaceId).length,
+    commandPaletteOpen,
+    modelPickerOpen: modelPicker.open,
+  });
 
   const navigateToSessionForControl = useCallback((sessionId: string) => {
     const owner = Object.entries(sessionsByWorkspaceId).find(([, sessions]) =>
