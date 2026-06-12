@@ -72,6 +72,7 @@ import {
 import { t } from "@/i18n";
 import {
   type RouteWorkspace,
+  type RouteSession,
   describeRouteError,
   describeWorkspaceCreateError,
   downloadWorkspaceJson,
@@ -348,7 +349,7 @@ export function SessionRoute() {
   const [token, setToken] = useState("");
   const [workspaces, setWorkspaces] = useState<RouteWorkspace[]>([]);
   const [workspaceOrderIds, setWorkspaceOrderIds] = useState<string[]>(() => readWorkspaceOrderIds());
-  const [sessionsByWorkspaceId, setSessionsByWorkspaceId] = useState<Record<string, any[]>>({});
+  const [sessionsByWorkspaceId, setSessionsByWorkspaceId] = useState<Record<string, RouteSession[]>>({});
   const [errorsByWorkspaceId, setErrorsByWorkspaceId] = useState<Record<string, string | null>>({});
   const [workspaceConnectionOverrides, setWorkspaceConnectionOverrides] = useState<Record<string, WorkspaceConnectionState>>({});
   const [routeError, setRouteError] = useState<string | null>(null);
@@ -392,7 +393,7 @@ export function SessionRoute() {
   const workspaceOrderIdsRef = useRef(workspaceOrderIds);
   const remoteWorkspaceCheckRunRef = useRef<Record<string, string>>({});
   const remoteWorkspaceCheckRunCounterRef = useRef(0);
-  const sessionsByWorkspaceIdRef = useRef<Record<string, any[]>>({});
+  const sessionsByWorkspaceIdRef = useRef<Record<string, RouteSession[]>>({});
   const pendingCreatedSessionIdsRef = useRef<Record<string, Record<string, number>>>({});
   const startupRetryTimerRef = useRef<number | null>(null);
   const [retryingWorkspaceIds, setRetryingWorkspaceIds] = useState<string[]>([]);
@@ -446,7 +447,7 @@ export function SessionRoute() {
     () =>
       Object.values(sessionsByWorkspaceId)
         .flat()
-        .flatMap((session: any) => {
+        .flatMap((session) => {
           if (!isActiveSessionStatus(getSessionStatus(session))) return [];
           const id = String(session?.id ?? "");
           if (!id) return [];
@@ -461,7 +462,7 @@ export function SessionRoute() {
   );
   const activeSelectedWorkspaceSessionIds = useMemo(
     () =>
-      (sessionsByWorkspaceId[selectedWorkspaceId] ?? []).flatMap((session: any) => {
+      (sessionsByWorkspaceId[selectedWorkspaceId] ?? []).flatMap((session) => {
         if (!isActiveSessionStatus(getSessionStatus(session))) return [];
         const id = String(session?.id ?? "").trim();
         return id ? [id] : [];
@@ -477,12 +478,12 @@ export function SessionRoute() {
       [id]: Date.now(),
     };
   }, []);
-  const mergeFetchedSessionsWithPending = useCallback((workspaceId: string, fetched: any[], current: any[]) => {
+  const mergeFetchedSessionsWithPending = useCallback((workspaceId: string, fetched: RouteSession[], current: RouteSession[]) => {
     const pending = pendingCreatedSessionIdsRef.current[workspaceId];
     if (!pending) return fetched;
 
     const now = Date.now();
-    const fetchedIds = new Set(fetched.flatMap((session: any) => session?.id ? [String(session.id)] : []));
+    const fetchedIds = new Set(fetched.flatMap((session) => session?.id ? [String(session.id)] : []));
     const pendingIds = Object.keys(pending);
 
     for (const id of pendingIds) {
@@ -491,7 +492,7 @@ export function SessionRoute() {
       }
     }
 
-    const preserved = current.filter((session: any) => {
+    const preserved = current.filter((session) => {
       const id = String(session?.id ?? "");
       if (!id || fetchedIds.has(id)) return false;
       const createdAt = pending[id];
@@ -554,7 +555,7 @@ export function SessionRoute() {
           const fetchedItems = response.items ?? [];
           const workspaceRoot = normalizeDirectoryPath(workspace.path ?? "");
           const items = workspaceRoot && !isRemoteOpenworkWorkspace
-            ? fetchedItems.filter((session: any) =>
+            ? fetchedItems.filter((session) =>
                 normalizeDirectoryPath(session?.directory ?? "") === workspaceRoot,
               )
             : fetchedItems;
@@ -736,7 +737,7 @@ export function SessionRoute() {
         "";
       if (selectedSessionId) {
         const match = cachedEntries.find((entry) =>
-          entry.sessions.some((session: any) => session?.id === selectedSessionId),
+          entry.sessions.some((session) => session?.id === selectedSessionId),
         );
         if (match?.workspaceId) nextWorkspaceId = match.workspaceId;
       }
@@ -856,7 +857,7 @@ export function SessionRoute() {
     if (!selectedWorkspaceId) return;
     setSessionsByWorkspaceId((current) => {
       const list = current[selectedWorkspaceId] ?? [];
-      const index = list.findIndex((session: any) => session?.id === update.sessionId);
+      const index = list.findIndex((session) => session?.id === update.sessionId);
       if (index < 0) return current;
       const nextSession = { ...list[index], ...update.info, id: update.sessionId };
       if (JSON.stringify(nextSession) === JSON.stringify(list[index])) return current;
@@ -990,7 +991,7 @@ export function SessionRoute() {
       sessionsByWorkspaceId: Object.fromEntries(
         Object.entries(sessionsByWorkspaceId).map(([wsId, items]) => [
           wsId,
-          (items ?? []).map((session: any) => ({
+          (items ?? []).map((session) => ({
             id: session?.id ?? null,
             title: session?.title ?? null,
             directory: session?.directory ?? null,
@@ -1035,7 +1036,7 @@ export function SessionRoute() {
     const remembered = readLastSessionFor(selectedWorkspaceId);
     if (!remembered) return;
     const sessions = sessionsByWorkspaceId[selectedWorkspaceId] ?? [];
-    if (!sessions.some((session: any) => session?.id === remembered)) return;
+    if (!sessions.some((session) => session?.id === remembered)) return;
     navigateToWorkspaceSession(selectedWorkspaceId, remembered, { replace: true });
   }, [
     loading,
@@ -1103,7 +1104,7 @@ export function SessionRoute() {
     const sessionId = selectedSessionId?.trim() ?? "";
     if (sessionId) {
       const owner = workspaceSessionGroups.find((group) =>
-        group.sessions.some((session: any) => session?.id === sessionId),
+        group.sessions.some((session) => session?.id === sessionId),
       );
       if (owner?.workspace.id) return owner.workspace.id;
     }
@@ -1161,7 +1162,7 @@ export function SessionRoute() {
   const selectedWorkspaceError = errorsByWorkspaceId[selectedWorkspaceId] ?? null;
   const selectedSessionKnown = Boolean(
     selectedSessionId &&
-      (sessionsByWorkspaceId[selectedWorkspaceId] ?? []).some((session: any) => session?.id === selectedSessionId),
+      (sessionsByWorkspaceId[selectedWorkspaceId] ?? []).some((session) => session?.id === selectedSessionId),
   );
   const routeNotFoundMessage = (() => {
     if (loading) return null;
@@ -1483,7 +1484,7 @@ export function SessionRoute() {
     let sessionOwnedByOtherWorkspace = false;
     for (const [workspaceId, sessions] of Object.entries(sessionsByWorkspaceId)) {
       if (workspaceId === selectedWorkspaceId) continue;
-      if ((sessions ?? []).some((session: any) => session?.id === selectedSessionId)) {
+      if ((sessions ?? []).some((session) => session?.id === selectedSessionId)) {
         sessionOwnedByOtherWorkspace = true;
         break;
       }
@@ -1645,7 +1646,7 @@ export function SessionRoute() {
             rememberPendingCreatedSession(selectedWorkspaceId, forked.id);
             setSessionsByWorkspaceId((current) => ({
               ...current,
-              [selectedWorkspaceId]: [forked as any, ...(current[selectedWorkspaceId] ?? [])],
+              [selectedWorkspaceId]: [forked, ...(current[selectedWorkspaceId] ?? [])],
             }));
             navigateToWorkspaceSession(selectedWorkspaceId, forked.id);
             void refreshRouteState();
@@ -1906,7 +1907,7 @@ export function SessionRoute() {
       setSessionsByWorkspaceId((current) => {
         const next = {
           ...current,
-          [workspaceId]: [session as any, ...(current[workspaceId] ?? [])],
+          [workspaceId]: [session, ...(current[workspaceId] ?? [])],
         };
         sessionsByWorkspaceIdRef.current = next;
         return next;
@@ -1963,7 +1964,7 @@ export function SessionRoute() {
 
   const navigateToSessionForControl = useCallback((sessionId: string) => {
     const owner = Object.entries(sessionsByWorkspaceId).find(([, sessions]) =>
-      (sessions ?? []).some((session: any) => session?.id === sessionId),
+      (sessions ?? []).some((session) => session?.id === sessionId),
     )?.[0];
     navigateToWorkspaceSession(owner || selectedWorkspaceId, sessionId);
   }, [navigateToWorkspaceSession, selectedWorkspaceId, sessionsByWorkspaceId]);
@@ -2197,7 +2198,7 @@ export function SessionRoute() {
           setSessionsByWorkspaceId((current) => {
             const next = {
               ...current,
-              [targetWorkspaceId]: [session as any, ...(current[targetWorkspaceId] ?? [])],
+              [targetWorkspaceId]: [session, ...(current[targetWorkspaceId] ?? [])],
             };
             sessionsByWorkspaceIdRef.current = next;
             return next;
@@ -2408,7 +2409,7 @@ export function SessionRoute() {
           const remembered = readLastSessionFor(workspaceId);
           if (remembered && remembered !== selectedSessionId) {
             const known = sessionsByWorkspaceId[workspaceId];
-            if (known?.some((session: any) => session?.id === remembered)) {
+            if (known?.some((session) => session?.id === remembered)) {
               navigateToWorkspaceSession(workspaceId, remembered);
             } else {
               navigateToWorkspaceSession(workspaceId);
@@ -2449,7 +2450,7 @@ export function SessionRoute() {
               rememberPendingCreatedSession(workspaceId, session.id);
               setSessionsByWorkspaceId((current) => ({
                 ...current,
-                [workspaceId]: [session as any, ...(current[workspaceId] ?? [])],
+                [workspaceId]: [session, ...(current[workspaceId] ?? [])],
               }));
               navigateToWorkspaceSession(workspaceId, session.id);
               focusPromptSoon();

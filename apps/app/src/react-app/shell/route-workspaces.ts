@@ -3,6 +3,8 @@
 // settings-route was missing the remote-workspace clobber fix in
 // mergeRouteWorkspaces and used older session-status logic. One copy now.
 
+import type { Session } from "@opencode-ai/sdk/v2/client";
+
 import type { OpenworkWorkspaceInfo } from "@/app/lib/openwork-server";
 import type { WorkspaceInfo } from "@/app/lib/desktop-types";
 import type { WorkspaceSessionGroup } from "@/app/types";
@@ -15,6 +17,18 @@ import { t } from "@/i18n";
 
 export type RouteWorkspace = OpenworkWorkspaceInfo & {
   displayNameResolved: string;
+};
+
+/**
+ * Sessions as the routes handle them: SDK sessions from
+ * openwork-server's listSessions, optionally enriched with run-status
+ * fields that the sidebar probes defensively via getSessionStatus.
+ */
+export type RouteSession = Session & {
+  status?: unknown;
+  state?: unknown;
+  runStatus?: unknown;
+  slug?: string | null;
 };
 
 export function mapDesktopWorkspace(workspace: WorkspaceInfo): RouteWorkspace {
@@ -170,13 +184,13 @@ export function orderRouteWorkspaces(workspaces: RouteWorkspace[], orderIds: str
 
 export function toSessionGroups(
   workspaces: RouteWorkspace[],
-  sessionsByWorkspaceId: Record<string, any[]>,
+  sessionsByWorkspaceId: Record<string, RouteSession[]>,
   errorsByWorkspaceId: Record<string, string | null>,
   loadingWorkspaceIds: Set<string>,
 ): WorkspaceSessionGroup[] {
   return workspaces.map((workspace) => ({
     workspace,
-    sessions: (sessionsByWorkspaceId[workspace.id] ?? []) as WorkspaceSessionGroup["sessions"],
+    sessions: sessionsByWorkspaceId[workspace.id] ?? [],
     status: loadingWorkspaceIds.has(workspace.id)
       ? "loading"
       : errorsByWorkspaceId[workspace.id]
@@ -190,7 +204,7 @@ export function isActiveSessionStatus(status: unknown) {
   return status === "running" || status === "retry" || status === "busy" || status === "streaming";
 }
 
-export function getSessionStatus(session: any) {
+export function getSessionStatus(session: RouteSession | null | undefined) {
   const status = session?.status ?? session?.state ?? session?.runStatus ?? null;
   return typeof status === "string" ? status : normalizeSessionStatus(status);
 }

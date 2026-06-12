@@ -34,6 +34,7 @@ import { getWorkspaceTaskLoadErrorDisplay } from "@/app/utils";
 import { currentLocale, t, setLocale, type Language } from "@/i18n";
 import {
   type RouteWorkspace,
+  type RouteSession,
   describeRouteError,
   describeWorkspaceCreateError,
   downloadWorkspaceJson,
@@ -299,7 +300,7 @@ function findSessionWorkspaceId(
 ) {
   const id = sessionId?.trim();
   if (!id) return null;
-  return entries.find((entry) => entry.sessions.some((session: any) => session?.id === id))?.workspaceId ?? null;
+  return entries.find((entry) => entry.sessions.some((session) => session?.id === id))?.workspaceId ?? null;
 }
 
 function settingsPathForRoute(route: ReturnType<typeof parseSettingsPath>) {
@@ -334,7 +335,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
 
   const [loading, setLoading] = useState(true);
   const [workspaces, setWorkspaces] = useState<RouteWorkspace[]>([]);
-  const [sessionsByWorkspaceId, setSessionsByWorkspaceId] = useState<Record<string, any[]>>({});
+  const [sessionsByWorkspaceId, setSessionsByWorkspaceId] = useState<Record<string, RouteSession[]>>({});
   const [errorsByWorkspaceId, setErrorsByWorkspaceId] = useState<Record<string, string | null>>({});
   const [workspaceConnectionOverrides, setWorkspaceConnectionOverrides] = useState<Record<string, WorkspaceConnectionState>>({});
   const [legacySelectedWorkspaceId, setLegacySelectedWorkspaceId] = useState(() => navigationWorkspaceId ?? readActiveWorkspaceId() ?? "");
@@ -501,7 +502,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     () =>
       Object.values(sessionsByWorkspaceId)
         .flat()
-        .flatMap((session: any) => {
+        .flatMap((session) => {
           if (!isActiveSessionStatus(getSessionStatus(session))) return [];
           const id = String(session?.id ?? "");
           if (!id) return [];
@@ -1214,7 +1215,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             const response = await client.listSessions(workspace.id, { limit: 200 });
             const workspaceRoot = normalizeDirectoryPath(workspace.path ?? "");
             const items = workspaceRoot
-              ? (response.items ?? []).filter((session: any) =>
+              ? (response.items ?? []).filter((session) =>
                   normalizeDirectoryPath(session?.directory ?? "") === workspaceRoot,
                 )
               : (response.items ?? []);
