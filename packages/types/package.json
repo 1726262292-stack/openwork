@@ -22,6 +22,11 @@
       "types": "./src/den/inference.ts",
       "development": "./src/den/inference.ts",
       "default": "./src/den/inference.ts"
+    },
+    "./workspace": {
+      "types": "./src/workspace.ts",
+      "development": "./src/workspace.ts",
+      "default": "./src/workspace.ts"
     }
   },
   "files": [

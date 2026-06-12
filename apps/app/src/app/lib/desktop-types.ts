@@ -2,6 +2,8 @@
 // These types were previously colocated with the Tauri bridge implementation.
 // They are runtime-agnostic and shared by the Electron bridge.
 
+import type { WorkspaceWire } from "@openwork/types/workspace";
+
 export type EngineInfo = {
   running: boolean;
   runtime: "direct";
@@ -65,26 +67,9 @@ export type EngineDoctorResult = {
   serveHelpStderr: string | null;
 };
 
-export type WorkspaceInfo = {
-  id: string;
-  name: string;
-  path: string;
-  preset: string;
-  workspaceType: "local" | "remote";
-  remoteType?: "openwork" | "opencode" | null;
-  baseUrl?: string | null;
-  directory?: string | null;
-  displayName?: string | null;
-  openworkHostUrl?: string | null;
-  openworkToken?: string | null;
-  openworkClientToken?: string | null;
-  openworkHostToken?: string | null;
-  openworkWorkspaceId?: string | null;
-  openworkWorkspaceName?: string | null;
-  sandboxBackend?: "docker" | "microsandbox" | null;
-  sandboxRunId?: string | null;
-  sandboxContainerName?: string | null;
-};
+// Canonical wire shape shared with openwork-server and the desktop bridge.
+// Single source of truth: packages/types/src/workspace.ts.
+export type WorkspaceInfo = WorkspaceWire;
 
 export type WorkspaceList = {
   selectedId?: string;

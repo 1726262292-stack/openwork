@@ -94,14 +94,9 @@ export type OpenworkServerSettings = {
   remoteAccessEnabled?: boolean;
 };
 
-export type OpenworkWorkspaceInfo = WorkspaceInfo & {
-  opencode?: {
-    baseUrl?: string;
-    directory?: string;
-    username?: string;
-    password?: string;
-  };
-};
+// The shared WorkspaceWire contract now carries the opencode block; keep the
+// historical name as an alias for the many existing imports.
+export type OpenworkWorkspaceInfo = WorkspaceInfo;
 
 export type OpenworkWorkspaceList = {
   items: OpenworkWorkspaceInfo[];
