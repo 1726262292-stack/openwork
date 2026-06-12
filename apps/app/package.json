@@ -4,6 +4,7 @@
   "version": "0.16.2",
   "type": "module",
   "scripts": {
+    "test": "bun test tests/",
     "dev": "OPENWORK_DEV_MODE=1 vite",
     "prebuild": "pnpm --dir ../../packages/ui build",
     "build": "vite build",
