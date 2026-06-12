@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "@/components/ui/sonner";
@@ -55,10 +54,7 @@ import type {
   ComposerPart,
   ModelOption,
   ModelRef,
-  PendingPermission,
-  PendingQuestion,
   SlashCommandOption,
-  TodoItem,
   WorkspacePreset,
   WorkspaceConnectionState,
   Client,
@@ -103,13 +99,9 @@ import { useSessionActivityStore } from "@/react-app/domains/session/status/sess
 import { buildOpenworkEnvSystemContext } from "@/react-app/domains/session/sync/env-context";
 import {
   applySessionRevert,
-  permissionKey as reactPermissionKey,
-  questionKey as reactQuestionKey,
-  seedPermissionState,
-  seedQuestionState,
-  todoKey as reactTodoKey,
 } from "@/react-app/domains/session/sync/session-sync";
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
+import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { CreateRemoteWorkspaceModal } from "@/react-app/domains/workspace/create-remote-workspace-modal";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
@@ -247,19 +239,7 @@ function focusPromptSoon() {
   [0, 80, 240, 600].forEach((delay) => window.setTimeout(focus, delay));
 }
 
-const emptyPendingPermissions: PendingPermission[] = [];
-const emptyPendingQuestions: PendingQuestion[] = [];
-const emptyTodos: TodoItem[] = [];
 const emptyModelBehaviorOptions: { value: string | null; label: string }[] = [];
-
-function useQueryCacheState<T>(queryKey: readonly unknown[] | null, fallback: T): T {
-  const queryClient = getReactQueryClient();
-  return useSyncExternalStore(
-    (callback) => (queryKey ? queryClient.getQueryCache().subscribe(callback) : () => {}),
-    () => (queryKey ? queryClient.getQueryData<T>(queryKey) ?? fallback : fallback),
-    () => fallback,
-  );
-}
 
 // All workspace-scoped server URLs/clients/tokens come from
 // `resolveWorkspaceEndpoint` in apps/app/src/app/lib/workspace-endpoint.ts.
@@ -541,10 +521,6 @@ export function SessionRoute() {
     setPaletteAccessibleTargets([]);
   }, [selectedSessionId, selectedWorkspaceId]);
 
-  const [permissionReplyBusy, setPermissionReplyBusy] = useState(false);
-  const permissionReplyBusyRef = useRef(false);
-  const [questionReplyBusy, setQuestionReplyBusy] = useState(false);
-  const questionReplyBusyRef = useRef(false);
   // Provider catalog cache. Used to compute the reasoning/thinking variant
   // options for whichever model is currently selected so the composer's
   // behavior pill actually shows its options (bug: was empty before).
@@ -1569,138 +1545,20 @@ export function SessionRoute() {
   // sync here so sign-in applies opencode.json changes before Settings opens.
   useCloudProviderAutoSync(sessionProviderAuthStore.runCloudProviderSync);
   const sessionProviderAuthSnapshot = useProviderAuthStoreSnapshot(sessionProviderAuthStore);
-  const permissionQueryKey = useMemo(
-    () =>
-      selectedWorkspaceId && selectedSessionId
-        ? reactPermissionKey(selectedWorkspaceId, selectedSessionId)
-        : null,
-    [selectedSessionId, selectedWorkspaceId],
-  );
-  const pendingPermissions = useQueryCacheState<PendingPermission[]>(
-    permissionQueryKey,
-    emptyPendingPermissions,
-  );
-  const questionQueryKey = useMemo(
-    () =>
-      selectedWorkspaceId && selectedSessionId
-        ? reactQuestionKey(selectedWorkspaceId, selectedSessionId)
-        : null,
-    [selectedSessionId, selectedWorkspaceId],
-  );
-  const pendingQuestions = useQueryCacheState<PendingQuestion[]>(
-    questionQueryKey,
-    emptyPendingQuestions,
-  );
-  const todoQueryKey = useMemo(
-    () =>
-      selectedWorkspaceId && selectedSessionId
-        ? reactTodoKey(selectedWorkspaceId, selectedSessionId)
-        : null,
-    [selectedSessionId, selectedWorkspaceId],
-  );
-  const todos = useQueryCacheState<TodoItem[]>(todoQueryKey, emptyTodos);
-  useEffect(() => {
-    if (!opencodeClient || !selectedWorkspaceId || !selectedSessionId) return;
-    let cancelled = false;
-    const directory = selectedWorkspaceRoot || undefined;
-    void (async () => {
-      const snapshotStartedAt = Date.now();
-      try {
-        const list = unwrap(await opencodeClient.permission.list({ directory }));
-        if (!cancelled) {
-          seedPermissionState(selectedWorkspaceId, selectedSessionId, list, { snapshotStartedAt });
-        }
-      } catch {
-        // Keep event-synced permission state if the snapshot read fails.
-        // Hiding a pending approval can block the running task.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [opencodeClient, selectedSessionId, selectedWorkspaceId, selectedWorkspaceRoot]);
-
-  useEffect(() => {
-    if (!opencodeClient || !selectedWorkspaceId || !selectedSessionId) return;
-    let cancelled = false;
-    const directory = selectedWorkspaceRoot || undefined;
-    void (async () => {
-      const snapshotStartedAt = Date.now();
-      try {
-        const list = unwrap(await opencodeClient.question.list({ directory }));
-        if (!cancelled) {
-          seedQuestionState(selectedWorkspaceId, selectedSessionId, list, { snapshotStartedAt });
-        }
-      } catch {
-        // Keep event-synced question state if the snapshot read fails.
-        // Hiding a pending question can block the running task.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [opencodeClient, selectedSessionId, selectedWorkspaceId, selectedWorkspaceRoot]);
-
-  const activePermission = pendingPermissions[0] ?? null;
-  const respondPermission = useCallback(
-    async (requestID: string, reply: "once" | "always" | "reject") => {
-      if (!opencodeClient || !selectedWorkspaceId || !selectedSessionId) return;
-      if (permissionReplyBusyRef.current) return;
-      permissionReplyBusyRef.current = true;
-      setPermissionReplyBusy(true);
-      try {
-        unwrap(
-          await opencodeClient.permission.reply({
-            requestID,
-            reply,
-            directory: selectedWorkspaceRoot || undefined,
-          }),
-        );
-        getReactQueryClient().setQueryData<PendingPermission[]>(
-          reactPermissionKey(selectedWorkspaceId, selectedSessionId),
-          (current = []) => current.filter((permission) => permission.id !== requestID),
-        );
-      } catch (error) {
-        toast.error(t("app.error_request_failed"), {
-          description: describeRouteError(error),
-        });
-      } finally {
-        permissionReplyBusyRef.current = false;
-        setPermissionReplyBusy(false);
-      }
-    },
-    [opencodeClient, selectedSessionId, selectedWorkspaceId, selectedWorkspaceRoot],
-  );
-  const activeQuestion = pendingQuestions[0] ?? null;
-  const respondQuestion = useCallback(
-    async (requestID: string, answers: string[][]) => {
-      if (!opencodeClient || !selectedWorkspaceId || !selectedSessionId) return;
-      if (questionReplyBusyRef.current) return;
-      questionReplyBusyRef.current = true;
-      setQuestionReplyBusy(true);
-      try {
-        unwrap(
-          await opencodeClient.question.reply({
-            requestID,
-            answers,
-            directory: selectedWorkspaceRoot || undefined,
-          }),
-        );
-        getReactQueryClient().setQueryData<PendingQuestion[]>(
-          reactQuestionKey(selectedWorkspaceId, selectedSessionId),
-          (current = []) => current.filter((question) => question.id !== requestID),
-        );
-      } catch (error) {
-        toast.error(t("app.error_request_failed"), {
-          description: describeRouteError(error),
-        });
-      } finally {
-        questionReplyBusyRef.current = false;
-        setQuestionReplyBusy(false);
-      }
-    },
-    [opencodeClient, selectedSessionId, selectedWorkspaceId, selectedWorkspaceRoot],
-  );
+  const {
+    activePermission,
+    permissionReplyBusy,
+    respondPermission,
+    activeQuestion,
+    questionReplyBusy,
+    respondQuestion,
+    todos,
+  } = useSessionInteractions({
+    client: opencodeClient,
+    workspaceId: selectedWorkspaceId,
+    sessionId: selectedSessionId,
+    workspaceRoot: selectedWorkspaceRoot,
+  });
   const showPreparingStatus =
     effectiveLoading ||
     (!canCreateTask && !routeError && !selectedWorkspaceError);
