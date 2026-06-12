@@ -1,8 +1,8 @@
 {
-  "id": "c4cc8d63-0c0c-44e2-89f5-a02c8a0908d0",
-  "prevId": "d306e107-0d3e-4ff6-a2bc-6c0415265f6d",
   "version": "5",
   "dialect": "mysql",
+  "id": "f5e1fab5-f335-4e73-b0a3-cb4f22eaef3f",
+  "prevId": "d306e107-0d3e-4ff6-a2bc-6c0415265f6d",
   "tables": {
     "account": {
       "name": "account",
@@ -5402,6 +5402,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "logo_url": {
+          "name": "logo_url",
+          "type": "varchar(1024)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "status": {
           "name": "status",
           "type": "enum('active','inactive','deleted','archived')",
@@ -7288,9 +7295,9 @@
   },
   "views": {},
   "_meta": {
-    "columns": {},
     "schemas": {},
-    "tables": {}
+    "tables": {},
+    "columns": {}
   },
   "internal": {
     "tables": {},

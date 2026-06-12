@@ -30,7 +30,7 @@ import {
   OPENWORK_MODELS_PROVIDER_NAME,
   openWorkModelsPromoChangedEvent,
 } from "@/react-app/domains/cloud/openwork-models-promo";
-import { getConnectedProviderItems, useProviderListQuery } from "@/react-app/domains/connections/provider-list-query";
+import { getConnectedProviderItems, useProviderListQuery } from "@/react-app/infra/provider-list-query";
 import {
   Command,
   CommandCollection,

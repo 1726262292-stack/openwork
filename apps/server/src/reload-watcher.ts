@@ -134,7 +134,11 @@ function startWorkspaceReloadWatcher(input: {
       pendingChecks.delete(reason);
       void checkReason(reason, pending?.trigger ?? trigger);
     }, debounceMs);
-    pendingChecks.set(reason, { timer, trigger });
+    // Coalescing must not lose a named trigger: a triggerless directory-level
+    // event arriving inside the debounce window previously overwrote the
+    // pending file trigger with undefined (platform-dependent event order —
+    // surfaced as a macOS-only CI flake in reload-events.e2e.test.ts).
+    pendingChecks.set(reason, { timer, trigger: trigger ?? existing?.trigger });
   };
 
   const ensureOpencodeRootWatcher = () => {
@@ -206,8 +210,21 @@ function startWorkspaceReloadWatcher(input: {
           const raw = filename ? filename.toString() : "";
           const name = raw.trim();
           if (!name) {
-            scheduleReasonCheck("config");
-            scheduleReasonCheck("agents");
+            // macOS fs.watch may omit the filename for directory events.
+            // Infer the trigger like ensureOpencodeRootWatcher does so config
+            // reload events keep their trigger {name, path} on macOS.
+            const inferredConfigPath = existsSync(join(root, "opencode.jsonc"))
+              ? join(root, "opencode.jsonc")
+              : existsSync(join(root, "opencode.json"))
+                ? join(root, "opencode.json")
+                : null;
+            scheduleReasonCheck("config", inferredConfigPath
+              ? { type: "config", name: basename(inferredConfigPath), action: "updated", path: inferredConfigPath }
+              : undefined);
+            const agentsPath = join(root, "AGENTS.md");
+            scheduleReasonCheck("agents", existsSync(agentsPath)
+              ? { type: "agent", action: "updated", path: agentsPath }
+              : undefined);
             for (const tree of trees) tree.scheduleRescan();
             return;
           }

@@ -359,6 +359,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@openwork/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
@@ -669,6 +672,18 @@ importers:
         specifier: 5.4.5
         version: 5.4.5
 
+  ee/packages/den-admin-mcp:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@3.25.76)
+      mysql2:
+        specifier: ^3.11.3
+        version: 3.17.4
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+
   ee/packages/den-db:
     dependencies:
       '@openwork-ee/utils':
@@ -806,9 +821,6 @@ importers:
       react:
         specifier: ^18 || ^19
         version: 19.2.4
-      solid-js:
-        specifier: ^1.9.0
-        version: 1.9.9
     devDependencies:
       '@types/react':
         specifier: ^19.2.14

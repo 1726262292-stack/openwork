@@ -25,7 +25,7 @@ export type {
 } from "./desktop-types";
 
 import type { WorkspaceList } from "./desktop-types";
-import type { BrowserPanelTab } from "../../react-app/domains/session/panel/panel-tab-store";
+import type { BrowserPanelTab } from "./desktop-types";
 
 export type BrowserStatePayload = {
   activeTabId?: string | null;

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
-  BookOpen,
   Bot,
   Cable,
   CreditCard,
@@ -42,7 +41,6 @@ import {
   getPluginsRoute,
   getSsoRoute,
   getScimRoute,
-  getSkillHubsRoute,
 } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { buildDenFeedbackUrl } from "../../_lib/feedback";
@@ -133,9 +131,6 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
   if (pathname.startsWith(getInferenceRoute(orgSlug))) {
     return "OpenWork Models";
   }
-  if (pathname.startsWith(getSkillHubsRoute(orgSlug))) {
-    return "Skill Hubs";
-  }
   if (pathname.startsWith(getPluginsRoute(orgSlug))) {
     return "Plugins";
   }
@@ -210,12 +205,6 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
             label: "Desktop Policies",
             icon: Laptop,
           },
-          // NOTE: Skill Hubs soft-disabled — uncomment to re-enable
-          // {
-          //   href: activeOrg ? getSkillHubsRoute(activeOrg.slug) : "#",
-          //   label: "Skill Hubs",
-          //   icon: BookOpen,
-          // },
           {
             href: activeOrg ? getIntegrationsRoute(activeOrg.slug) : "#",
             label: "Integrations",
