@@ -103,6 +103,7 @@ import {
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
+import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { CreateRemoteWorkspaceModal } from "@/react-app/domains/workspace/create-remote-workspace-modal";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
@@ -148,7 +149,6 @@ import { useReactRenderWatchdog } from "./react-render-watchdog";
 import { readDenSettings } from "@/app/lib/den";
 import { denSessionUpdatedEvent } from "@/app/lib/den-session-events";
 
-import { openModelPickerEvent, pendingModelPickerProviderIdsKey } from "./new-providers-toast";
 import { filterProviderList } from "@/app/utils/providers";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
 import { resolveOpenworkConnection } from "./openwork-connection";
@@ -413,14 +413,6 @@ export function SessionRoute() {
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [paletteAccessibleTargets, setPaletteAccessibleTargets] = useState<OpenTarget[]>([]);
-  // Model picker modal state (ported from settings-route; previously the
-  // session "Pick a model" button navigated to /settings/general, which is a
-  // dead-end). Loads providers lazily when the modal opens.
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  // initialTab removed — model picker no longer has tabs
-  const [compactModelPickerOpen, setCompactModelPickerOpen] = useState(false);
-  const [modelPickerQuery, setModelPickerQuery] = useState("");
-  const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
   const [providerDefaults, setProviderDefaults] = useState<Record<string, string>>({});
   const [providerConnectedIds, setProviderConnectedIds] = useState<string[]>([]);
@@ -441,41 +433,6 @@ export function SessionRoute() {
   }, []);
 
   // Provider IDs that were just added — used to highlight them as
-  // "Recently added" in the model picker even after they've been
-  // marked as seen in localStorage.
-  const [recentProviderIds, setRecentProviderIds] = useState<Set<string>>(new Set());
-  // Open model picker when the global toast's "Pick a new default?" is clicked
-  useEffect(() => {
-    const handler = (event: Event) => {
-      try {
-        window.localStorage.removeItem(pendingModelPickerProviderIdsKey);
-      } catch {}
-      const detail = (event as CustomEvent<{ newProviderIds?: string[]; initialTab?: "default" | "available" }>).detail;
-      const ids = detail?.newProviderIds;
-      if (ids && ids.length > 0) {
-        setRecentProviderIds(new Set(ids));
-      }
-      setModelPickerOpen(true);
-    };
-    window.addEventListener(openModelPickerEvent, handler);
-    return () => window.removeEventListener(openModelPickerEvent, handler);
-  }, []);
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(pendingModelPickerProviderIdsKey);
-      if (!raw) return;
-      window.localStorage.removeItem(pendingModelPickerProviderIdsKey);
-      const parsed = JSON.parse(raw);
-      const ids = Array.isArray(parsed) ? parsed : parsed?.newProviderIds;
-      if (Array.isArray(ids) && ids.every((id) => typeof id === "string")) {
-        setRecentProviderIds(new Set(ids));
-      }
-      setModelPickerOpen(true);
-    } catch {
-      window.localStorage.removeItem(pendingModelPickerProviderIdsKey);
-    }
-  }, []);
   useEffect(() => {
     setPaletteAccessibleTargets([]);
   }, [selectedSessionId, selectedWorkspaceId]);
@@ -484,15 +441,6 @@ export function SessionRoute() {
   // options for whichever model is currently selected so the composer's
   // behavior pill actually shows its options (bug: was empty before).
   const [openworkServerHostInfoState, setOpenworkServerHostInfoState] = useState<OpenworkServerInfo | null>(null);
-  useReactRenderWatchdog("SessionRoute", {
-    selectedSessionId,
-    selectedWorkspaceId,
-    loading,
-    workspaceCount: workspaces.length,
-    sessionGroupCount: Object.keys(sessionsByWorkspaceId).length,
-    commandPaletteOpen,
-    modelPickerOpen,
-  });
   const [openworkServerSettingsVersion, setOpenworkServerSettingsVersion] = useState(0);
   const [engineReloadVersion, setEngineReloadVersion] = useState(0);
   const [routeEngineInfo, setRouteEngineInfo] = useState<EngineInfo | null>(null);
@@ -1355,6 +1303,20 @@ export function SessionRoute() {
       defaultModel: local.prefs.defaultModel,
       modelVariant: local.prefs.modelVariant ?? null,
     });
+  const modelPicker = useModelPicker({
+    client: opencodeClient,
+    baseUrl: opencodeBaseUrl,
+    workspaceRoot: selectedWorkspaceRoot,
+  });
+  useReactRenderWatchdog("SessionRoute", {
+    selectedSessionId,
+    selectedWorkspaceId,
+    loading,
+    workspaceCount: workspaces.length,
+    sessionGroupCount: Object.keys(sessionsByWorkspaceId).length,
+    commandPaletteOpen,
+    modelPickerOpen: modelPicker.open,
+  });
   const selectedModelUnavailable = Boolean(
     local.prefs.defaultModel &&
       (
@@ -1594,87 +1556,6 @@ export function SessionRoute() {
     ? resolveModelDisplayName(local.prefs.defaultModel.modelID)
     : t("session.default_model");
 
-  // Load the picker list lazily the first time the modal opens. Uses the
-  // cached catalog when available, otherwise re-fetches.
-  useEffect(() => {
-    if (!modelPickerOpen || !opencodeClient) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const data = await ensureProviderListQuery(getReactQueryClient(), {
-          client: opencodeClient,
-          baseUrl: opencodeBaseUrl,
-          directory: selectedWorkspaceRoot || undefined,
-        });
-        if (cancelled || !data?.all) return;
-        // Flag models from recently-added providers so they appear in
-        // the "Recently added" section at the top of the picker.
-        // Two sources: (1) providers not yet in the localStorage seen-set,
-        // (2) providers passed via the openModelPickerEvent from the toast.
-        let seenIds: Set<string>;
-        try {
-          const raw = window.localStorage.getItem("openwork.seenProviderIds");
-          seenIds = new Set(raw ? JSON.parse(raw) : []);
-        } catch {
-          seenIds = new Set();
-        }
-        const options: ModelOption[] = [];
-        for (const provider of getConnectedProviderItems(data)) {
-          const modelIds = Object.keys(provider.models);
-          const isNew = !seenIds.has(provider.id) || recentProviderIds.has(provider.id);
-          for (const id of modelIds) {
-            const model = provider.models[id];
-            options.push({
-              providerID: provider.id,
-              modelID: id,
-              title: model.name || id,
-              description: provider.name,
-              behaviorTitle: "Reasoning",
-              behaviorLabel: "Default",
-              behaviorDescription: "",
-              behaviorValue: null,
-              isFree: false,
-              isConnected: true,
-              isRecommended: isNew,
-              source: /^lpr_/i.test(provider.id) ? "cloud" as const : undefined,
-            });
-          }
-        }
-        setModelOptions(options);
-      } catch {
-        // Silent: the picker surfaces an empty list rather than blocking the UI.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [modelPickerOpen, opencodeBaseUrl, opencodeClient, recentProviderIds, selectedWorkspaceRoot]);
-
-  // Apply org-level restrictions (dev #1505) on top of the raw model list
-  // so the picker never surfaces blocked options:
-  //   - `allowZenModel` hides the built-in OpenCode provider entries when false
-  //   - `allowCustomProviders` hides providers that OpenCode does not report
-  //     as connected through the provider list endpoint.
-  const allowedModelOptions = useMemo(() => {
-    const restrictToCloud = checkDesktopRestriction({
-      restriction: "allowCustomProviders",
-    });
-    return modelOptions.filter((option) => {
-      if (
-        isDesktopProviderBlocked({
-          providerId: option.providerID,
-          checkRestriction: checkDesktopRestriction,
-        })
-      ) {
-        return false;
-      }
-      if (restrictToCloud && !option.isConnected) {
-        return false;
-      }
-      return true;
-    });
-  }, [checkDesktopRestriction, modelOptions]);
-
   const listSlashCommands = useCallback(async (): Promise<SlashCommandOption[]> => {
     // engineReloadVersion is included so the callback identity changes after
     // an engine reload, which invalidates the composer's command list cache
@@ -1736,13 +1617,13 @@ export function SessionRoute() {
       developerMode: false,
       modelLabel,
       onModelClick: () => {
-        setModelPickerQuery("");
-        setModelPickerOpen(true);
+        modelPicker.setQuery("");
+        modelPicker.setOpen(true);
       },
-      modelPickerOpen: compactModelPickerOpen,
+      modelPickerOpen: modelPicker.compactOpen,
       modelUnavailable: selectedModelUnavailable,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
-      onModelPickerOpenChange: setCompactModelPickerOpen,
+      onModelPickerOpenChange: modelPicker.setCompactOpen,
       onModelChange: (model: ModelRef) => {
         local.setPrefs((previous) => ({
           ...previous,
@@ -1751,7 +1632,7 @@ export function SessionRoute() {
             ? previous.modelVariant
             : null,
         }));
-        setCompactModelPickerOpen(false);
+        modelPicker.setCompactOpen(false);
       },
       providerConnectedCount: hasUsableModel ? 1 : providerConnectedIds.length,
       onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
@@ -1899,7 +1780,7 @@ export function SessionRoute() {
     };
   }, [
     client,
-    compactModelPickerOpen,
+    modelPicker.compactOpen,
     handleOpenSettings,
     hasUsableModel,
     local,
@@ -2231,7 +2112,7 @@ export function SessionRoute() {
   }, [navigateToWorkspaceSession, selectedWorkspaceId]);
 
   const openModelPickerForControl = useCallback(() => {
-    setModelPickerOpen(true);
+    modelPicker.setOpen(true);
   }, []);
 
   useSessionControlActions({
@@ -2590,16 +2471,16 @@ export function SessionRoute() {
         onSelect: sessionProviderAuthStore.startProviderAuth,
         onSubmitApiKey: async (providerId, apiKey) => {
           const result = await sessionProviderAuthStore.submitProviderApiKey(providerId, apiKey);
-          setRecentProviderIds(new Set([providerId]));
-          setModelPickerQuery("");
-          setModelPickerOpen(true);
+          modelPicker.setRecentProviderIds(new Set([providerId]));
+          modelPicker.setQuery("");
+          modelPicker.setOpen(true);
           return result;
         },
         onConnectCloudProvider: async (cloudProviderId) => {
           const result = await sessionProviderAuthStore.connectCloudProvider(cloudProviderId);
-          setRecentProviderIds(new Set([cloudProviderId]));
-          setModelPickerQuery("");
-          setModelPickerOpen(true);
+          modelPicker.setRecentProviderIds(new Set([cloudProviderId]));
+          modelPicker.setQuery("");
+          modelPicker.setOpen(true);
           return result;
         },
         onSubmitOAuth: sessionProviderAuthStore.completeProviderAuthOAuth,
@@ -2891,11 +2772,11 @@ export function SessionRoute() {
       onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)}
     />
     <ModelPickerModal
-      open={modelPickerOpen}
-      options={allowedModelOptions}
+      open={modelPicker.open}
+      options={modelPicker.options}
 
-      query={modelPickerQuery}
-      setQuery={setModelPickerQuery}
+      query={modelPicker.query}
+      setQuery={modelPicker.setQuery}
       target="default"
       current={local.prefs.defaultModel ?? ({ providerID: "", modelID: "" } satisfies ModelRef)}
       onSelect={(next: ModelRef) => {
@@ -2906,7 +2787,7 @@ export function SessionRoute() {
             ? previous.modelVariant
             : null,
         }));
-        setModelPickerOpen(false);
+        modelPicker.setOpen(false);
         focusPromptSoon();
       }}
       disabledProviders={disabledProviderIds}
@@ -2924,10 +2805,10 @@ export function SessionRoute() {
         } catch {}
       }}
       onOpenSettings={() => {
-        setModelPickerOpen(false);
+        modelPicker.setOpen(false);
         handleOpenSettings("/settings/general");
       }}
-      onClose={() => { setModelPickerOpen(false); setRecentProviderIds(new Set()); }}
+      onClose={() => { modelPicker.setOpen(false); modelPicker.setRecentProviderIds(new Set()); }}
     />
     </WorkspaceProvider>
   );
