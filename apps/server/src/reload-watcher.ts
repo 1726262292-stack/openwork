@@ -134,7 +134,11 @@ function startWorkspaceReloadWatcher(input: {
       pendingChecks.delete(reason);
       void checkReason(reason, pending?.trigger ?? trigger);
     }, debounceMs);
-    pendingChecks.set(reason, { timer, trigger });
+    // Coalescing must not lose a named trigger: a triggerless directory-level
+    // event arriving inside the debounce window previously overwrote the
+    // pending file trigger with undefined (platform-dependent event order —
+    // surfaced as a macOS-only CI flake in reload-events.e2e.test.ts).
+    pendingChecks.set(reason, { timer, trigger: trigger ?? existing?.trigger });
   };
 
   const ensureOpencodeRootWatcher = () => {
