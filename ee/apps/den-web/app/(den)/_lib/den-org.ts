@@ -177,6 +177,13 @@ export type DenOrgContext = {
   roles: DenOrgRole[];
   teams: DenOrgTeam[];
   currentMemberTeams: DenCurrentMemberTeam[];
+  entitlements: DenOrgEntitlements;
+};
+
+export type DenOrgEntitlements = {
+  sso: boolean;
+  desktopPolicies: boolean;
+  orgControls: boolean;
 };
 
 export type DenOrganizationMetadata = {
@@ -687,6 +694,21 @@ export function parseOrgContextPayload(payload: unknown): DenOrgContext | null {
     roles,
     teams,
     currentMemberTeams,
+    entitlements: parseOrgEntitlements(payload.entitlements),
+  };
+}
+
+function parseOrgEntitlements(value: unknown): DenOrgEntitlements {
+  // Older servers do not return entitlements; treat everything as available
+  // so gating only applies when the API explicitly reports it.
+  if (!isRecord(value)) {
+    return { sso: true, desktopPolicies: true, orgControls: true };
+  }
+
+  return {
+    sso: value.sso !== false,
+    desktopPolicies: value.desktopPolicies !== false,
+    orgControls: value.orgControls !== false,
   };
 }
 

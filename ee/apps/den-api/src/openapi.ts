@@ -65,6 +65,12 @@ export const forbiddenSchema = z.object({
   message: z.string().optional(),
 }).meta({ ref: "ForbiddenError" })
 
+export const enterprisePlanRequiredSchema = z.object({
+  error: z.literal("enterprise_plan_required"),
+  feature: z.string(),
+  message: z.string(),
+}).meta({ ref: "EnterprisePlanRequiredError" })
+
 export const notFoundSchema = z.object({
   error: z.string(),
   message: z.string().optional(),

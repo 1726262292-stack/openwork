@@ -2,7 +2,9 @@ import type { Hono } from "hono"
 import { describeRoute, resolver } from "hono-openapi"
 import { z } from "zod"
 import { auth } from "../../auth.js"
+import { checkEntitlement } from "../../entitlements.js"
 import { env } from "../../env.js"
+import { enterprisePlanRequiredSchema } from "../../openapi.js"
 import {
   deleteOrganizationSsoConnection,
   getOrganizationSsoConnection,
@@ -268,6 +270,7 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
         201: { description: "Organization SSO connection created", content: { "application/json": { schema: resolver(ssoConnectionResponseSchema) } } },
         400: { description: "Invalid request", content: { "application/json": { schema: resolver(invalidRequestSchema) } } },
         401: { description: "Unauthorized", content: { "application/json": { schema: resolver(unauthorizedSchema) } } },
+        402: { description: "SSO management requires an Enterprise plan.", content: { "application/json": { schema: resolver(enterprisePlanRequiredSchema) } } },
         403: { description: "Only workspace owners and admins can manage SSO.", content: { "application/json": { schema: resolver(forbiddenSchema) } } },
         404: { description: "Organization not found", content: { "application/json": { schema: resolver(organizationNotFoundSchema) } } },
       },
@@ -278,6 +281,11 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
       const access = ensureSsoManager(c)
       if (!access.ok) {
         return c.json(access.response, access.response.error === "forbidden" ? 403 : 404)
+      }
+
+      const entitlement = checkEntitlement(c.get("organizationContext").organization.metadata, "sso")
+      if (!entitlement.ok) {
+        return c.json(entitlement.response, entitlement.status)
       }
 
       const parsed = samlRegistrationSchema.safeParse(await c.req.json())
@@ -313,6 +321,7 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
         201: { description: "Organization SSO connection created", content: { "application/json": { schema: resolver(ssoConnectionResponseSchema) } } },
         400: { description: "Invalid request", content: { "application/json": { schema: resolver(invalidRequestSchema) } } },
         401: { description: "Unauthorized", content: { "application/json": { schema: resolver(unauthorizedSchema) } } },
+        402: { description: "SSO management requires an Enterprise plan.", content: { "application/json": { schema: resolver(enterprisePlanRequiredSchema) } } },
         403: { description: "Only workspace owners and admins can manage SSO.", content: { "application/json": { schema: resolver(forbiddenSchema) } } },
         404: { description: "Organization not found", content: { "application/json": { schema: resolver(organizationNotFoundSchema) } } },
       },
@@ -323,6 +332,11 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
       const access = ensureSsoManager(c)
       if (!access.ok) {
         return c.json(access.response, access.response.error === "forbidden" ? 403 : 404)
+      }
+
+      const entitlement = checkEntitlement(c.get("organizationContext").organization.metadata, "sso")
+      if (!entitlement.ok) {
+        return c.json(entitlement.response, entitlement.status)
       }
 
       const parsed = oidcRegistrationSchema.safeParse(await c.req.json())
@@ -435,6 +449,7 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
         201: { description: "Domain verification token returned", content: { "application/json": { schema: resolver(domainVerificationResponseSchema) } } },
         400: { description: "Invalid request", content: { "application/json": { schema: resolver(invalidRequestSchema) } } },
         401: { description: "Unauthorized", content: { "application/json": { schema: resolver(unauthorizedSchema) } } },
+        402: { description: "SSO management requires an Enterprise plan.", content: { "application/json": { schema: resolver(enterprisePlanRequiredSchema) } } },
         403: { description: "Only workspace owners and admins can manage SSO.", content: { "application/json": { schema: resolver(forbiddenSchema) } } },
         404: { description: "Organization not found", content: { "application/json": { schema: resolver(organizationNotFoundSchema) } } },
       },
@@ -448,6 +463,11 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
       }
 
       const payload = c.get("organizationContext")
+      const entitlement = checkEntitlement(payload.organization.metadata, "sso")
+      if (!entitlement.ok) {
+        return c.json(entitlement.response, entitlement.status)
+      }
+
       const connection = await getOrganizationSsoConnection(payload.organization.id)
       if (!connection) {
         return c.json({ error: "organization_not_found" }, 404)
@@ -488,6 +508,7 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
         204: { description: "Organization SSO domain verified" },
         400: { description: "Invalid request", content: { "application/json": { schema: resolver(invalidRequestSchema) } } },
         401: { description: "Unauthorized", content: { "application/json": { schema: resolver(unauthorizedSchema) } } },
+        402: { description: "SSO management requires an Enterprise plan.", content: { "application/json": { schema: resolver(enterprisePlanRequiredSchema) } } },
         403: { description: "Only workspace owners and admins can manage SSO.", content: { "application/json": { schema: resolver(forbiddenSchema) } } },
         404: { description: "Organization not found", content: { "application/json": { schema: resolver(organizationNotFoundSchema) } } },
       },
@@ -501,6 +522,11 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
       }
 
       const payload = c.get("organizationContext")
+      const entitlement = checkEntitlement(payload.organization.metadata, "sso")
+      if (!entitlement.ok) {
+        return c.json(entitlement.response, entitlement.status)
+      }
+
       const connection = await getOrganizationSsoConnection(payload.organization.id)
       if (!connection) {
         return c.json({ error: "organization_not_found" }, 404)
