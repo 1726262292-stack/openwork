@@ -3,10 +3,17 @@ name: Den DB Migrate
 # Applies Drizzle migrations to the production PlanetScale database.
 #
 # Required GitHub Actions secrets (Settings -> Secrets and variables -> Actions):
-#   DATABASE_HOST       PlanetScale host (e.g. aws.connect.psdb.cloud)
-#   DATABASE_USERNAME   PlanetScale branch password username
-#   DATABASE_PASSWORD   PlanetScale branch password
-#   DATABASE_NAME       PlanetScale database name (drizzle-kit migrate connects over the MySQL protocol and needs it)
+#   DATABASE_HOST                  PlanetScale host (e.g. aws.connect.psdb.cloud)
+#   DATABASE_USERNAME              PlanetScale branch password username
+#   DATABASE_PASSWORD              PlanetScale branch password
+#   DATABASE_NAME                  PlanetScale database name (drizzle-kit migrate connects over the MySQL protocol and needs it)
+#   PLANETSCALE_SERVICE_TOKEN_ID   PlanetScale service token id (used to toggle safe migrations)
+#   PLANETSCALE_SERVICE_TOKEN      PlanetScale service token secret
+#
+# Safe migrations stays enabled on the production branch at all times. This
+# workflow briefly disables it (direct DDL) while applying reviewed migration
+# files, then re-enables it in an always() step — so ad-hoc manual DDL stays
+# blocked outside CI runs.
 #
 # Runs automatically when migration files land on dev, and manually via
 # workflow_dispatch. For a database previously managed with db:push (no
@@ -52,6 +59,10 @@ jobs:
       DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
       DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
       DATABASE_NAME: ${{ secrets.DATABASE_NAME }}
+      PLANETSCALE_SERVICE_TOKEN_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID }}
+      PLANETSCALE_SERVICE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN }}
+      PLANETSCALE_ORG: ben-prologe
+      PLANETSCALE_BRANCH: main
 
     steps:
       - name: Verify database secrets are configured
@@ -62,6 +73,8 @@ jobs:
           [ -z "$DATABASE_USERNAME" ] && missing="$missing DATABASE_USERNAME"
           [ -z "$DATABASE_PASSWORD" ] && missing="$missing DATABASE_PASSWORD"
           [ -z "$DATABASE_NAME" ] && missing="$missing DATABASE_NAME"
+          [ -z "$PLANETSCALE_SERVICE_TOKEN_ID" ] && missing="$missing PLANETSCALE_SERVICE_TOKEN_ID"
+          [ -z "$PLANETSCALE_SERVICE_TOKEN" ] && missing="$missing PLANETSCALE_SERVICE_TOKEN"
           if [ -n "$missing" ]; then
             echo "::error::Missing GitHub Actions secrets:$missing. Add them under Settings -> Secrets and variables -> Actions."
             exit 1
@@ -84,6 +97,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --filter "@openwork-ee/den-db..."
 
+      - name: Setup pscale CLI
+        id: setup-pscale
+        uses: planetscale/setup-pscale-action@v1
+
+      - name: Disable safe migrations (allow DDL for this run only)
+        run: |
+          set -euo pipefail
+          state="$(pscale branch show "$DATABASE_NAME" "$PLANETSCALE_BRANCH" --org "$PLANETSCALE_ORG" --format json | jq -r '.safe_migrations')"
+          echo "safe_migrations before run: $state"
+          if [ "$state" = "true" ]; then
+            pscale branch safe-migrations disable "$DATABASE_NAME" "$PLANETSCALE_BRANCH" --org "$PLANETSCALE_ORG"
+            echo "Safe migrations disabled for the duration of this run."
+          elif [ "$state" = "false" ]; then
+            echo "Safe migrations already disabled; will re-enable at the end of this run."
+          else
+            echo "::error::Could not read safe_migrations state for $DATABASE_NAME/$PLANETSCALE_BRANCH."
+            exit 1
+          fi
+
       - name: Baseline existing migrations (one-time)
         if: github.event_name == 'workflow_dispatch' && inputs.baseline
         run: |
@@ -101,6 +133,18 @@ jobs:
       - name: Apply migrations
         if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
         run: pnpm --filter @openwork-ee/den-db db:migrate
+
+      - name: Re-enable safe migrations
+        if: always() && steps.setup-pscale.conclusion == 'success'
+        run: |
+          set -euo pipefail
+          pscale branch safe-migrations enable "$DATABASE_NAME" "$PLANETSCALE_BRANCH" --org "$PLANETSCALE_ORG"
+          state="$(pscale branch show "$DATABASE_NAME" "$PLANETSCALE_BRANCH" --org "$PLANETSCALE_ORG" --format json | jq -r '.safe_migrations')"
+          echo "safe_migrations after run: $state"
+          if [ "$state" != "true" ]; then
+            echo "::error::Safe migrations is NOT re-enabled on $DATABASE_NAME/$PLANETSCALE_BRANCH. Re-enable it manually: pscale branch safe-migrations enable $DATABASE_NAME $PLANETSCALE_BRANCH --org $PLANETSCALE_ORG"
+            exit 1
+          fi
 
       - name: Dry run note
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run
