@@ -76,6 +76,16 @@ export function folderNameFromPath(path: string) {
   return parts[parts.length - 1] ?? "workspace";
 }
 
+export function isTransientStartupError(message: string | null | undefined) {
+  const value = (message ?? "").toLowerCase();
+  return (
+    value.includes("timed out") ||
+    value.includes("failed to fetch") ||
+    value.includes("connection") ||
+    value.includes("not ready")
+  );
+}
+
 export function describeRouteError(error: unknown) {
   if (error instanceof Error) {
     return error.message;
