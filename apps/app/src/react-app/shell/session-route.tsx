@@ -34,7 +34,6 @@ import {
 } from "@/app/lib/workspace-endpoint";
 import { buildOpenworkEnvRuntimeKey } from "@/app/lib/openwork-env-runtime";
 import {
-  engineInfo,
   revealDesktopItemInDir,
   pickDirectory,
   resolveWorkspaceListSelectedId,
@@ -42,7 +41,6 @@ import {
   workspaceForget,
   workspaceSetRuntimeActive,
   workspaceSetSelected,
-  type EngineInfo,
   type OpenworkServerInfo,
   type WorkspaceInfo,
   type WorkspaceList,
@@ -154,6 +152,7 @@ import { resolveOpenworkConnection } from "./openwork-connection";
 import { useReloadCoordinator } from "./reload-coordinator";
 import { useShellConfig } from "./shell-config";
 import { useShellShortcuts } from "./use-shell-shortcuts";
+import { useEngineReload } from "./use-engine-reload";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
 import { legacySessionRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
@@ -205,8 +204,6 @@ const emptyWorkspaceDisplay: WorkspaceDisplay = {
   preset: "default",
   workspaceType: "local",
 };
-
-const reloadAfterOrgOnboardingKey = "openwork.reloadAfterOrgOnboarding";
 
 function describeTaskCreateError(error: unknown) {
   const message = describeRouteError(error);
@@ -391,7 +388,6 @@ export function SessionRoute() {
   // One-way latch for "a refreshRouteState is currently running"; prevents
   // overlapping route refreshes from queueing up when the user clicks fast.
   const refreshInFlightRef = useRef(false);
-  const reloadEventCursorByWorkspaceRef = useRef<Record<string, number | null>>({});
   const workspacesRef = useRef<RouteWorkspace[]>([]);
   const workspaceOrderIdsRef = useRef(workspaceOrderIds);
   const remoteWorkspaceCheckRunRef = useRef<Record<string, string>>({});
@@ -439,24 +435,12 @@ export function SessionRoute() {
   // behavior pill actually shows its options (bug: was empty before).
   const [openworkServerHostInfoState, setOpenworkServerHostInfoState] = useState<OpenworkServerInfo | null>(null);
   const [openworkServerSettingsVersion, setOpenworkServerSettingsVersion] = useState(0);
-  const [engineReloadVersion, setEngineReloadVersion] = useState(0);
-  const [routeEngineInfo, setRouteEngineInfo] = useState<EngineInfo | null>(null);
   const reconnectAttemptedWorkspaceIdRef = useRef("");
 
   const openworkServerSettings = useMemo(
     () => readOpenworkServerSettings(),
     [openworkServerSettingsVersion],
   );
-
-  const shareWorkspaceState = useShareWorkspaceState({
-    workspaces,
-    openworkServerHostInfo: openworkServerHostInfoState,
-    openworkServerSettings,
-    engineInfo: routeEngineInfo,
-    exportWorkspaceBusy: false,
-    openLink: (url) => platform.openLink(url),
-    workspaceLabel,
-  });
 
   const activeReloadBlockingSessions = useMemo(
     () =>
@@ -847,96 +831,26 @@ export function SessionRoute() {
     onSettingsChanged: () => setOpenworkServerSettingsVersion((value) => value + 1),
   });
 
-  const reloadWorkspaceEngineFromUi = useCallback(async () => {
-    if (!client || !selectedWorkspaceId) {
-      setRouteError(t("app.error_connect_first"));
-      return false;
-    }
-    const endpoint = endpointForWorkspace(selectedWorkspace);
-    if (!endpoint) {
-      setRouteError(t("app.error_connect_first"));
-      return false;
-    }
-    await endpoint.client.reloadEngine(endpoint.workspaceId);
-    await refreshProviderListQueries(getReactQueryClient());
-    setEngineReloadVersion((v) => v + 1);
-    try {
-      window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
-    } catch {
-      // ignore browser event dispatch failures
-    }
-    await refreshRouteState();
-    return true;
-  }, [client, endpointForWorkspace, refreshRouteState, selectedWorkspace, selectedWorkspaceId]);
+  const { engineReloadVersion, routeEngineInfo } = useEngineReload({
+    client,
+    workspaceId: selectedWorkspaceId,
+    workspace: selectedWorkspace,
+    endpointForWorkspace,
+    activeReloadBlockingSessions,
+    onError: setRouteError,
+    refreshRouteState,
+  });
 
-  useEffect(() => {
-    return reloadCoordinator.registerWorkspaceReloadControls({
-      canReloadWorkspaceEngine: () => Boolean(client && selectedWorkspaceId),
-      reloadWorkspaceEngine: reloadWorkspaceEngineFromUi,
-      activeSessions: () => activeReloadBlockingSessions,
-    });
-  }, [activeReloadBlockingSessions, client, reloadCoordinator, reloadWorkspaceEngineFromUi, selectedWorkspaceId]);
+  const shareWorkspaceState = useShareWorkspaceState({
+    workspaces,
+    openworkServerHostInfo: openworkServerHostInfoState,
+    openworkServerSettings,
+    engineInfo: routeEngineInfo,
+    exportWorkspaceBusy: false,
+    openLink: (url) => platform.openLink(url),
+    workspaceLabel,
+  });
 
-  useEffect(() => {
-    if (!reloadCoordinator.canReloadWorkspaceEngine) return;
-    try {
-      if (window.localStorage.getItem(reloadAfterOrgOnboardingKey) !== "1") return;
-    } catch {
-      return;
-    }
-    if (!reloadCoordinator.reloadPending) {
-      reloadCoordinator.markReloadRequired("config", {
-        type: "config",
-        name: "opencode.json",
-        action: "updated",
-      });
-      return;
-    }
-    try {
-      window.localStorage.removeItem(reloadAfterOrgOnboardingKey);
-    } catch {}
-    void reloadCoordinator.reloadWorkspaceEngine();
-  }, [reloadCoordinator, reloadCoordinator.canReloadWorkspaceEngine, reloadCoordinator.reloadPending]);
-
-  useEffect(() => {
-    if (!client || !selectedWorkspaceId) return;
-    const endpoint = endpointForWorkspace(selectedWorkspace);
-    if (!endpoint) return;
-    let cancelled = false;
-
-    const pollReloadEvents = async () => {
-      const currentCursor = reloadEventCursorByWorkspaceRef.current[selectedWorkspaceId];
-      try {
-        const response = await endpoint.client.listReloadEvents(
-          endpoint.workspaceId,
-          typeof currentCursor === "number" ? { since: currentCursor } : undefined,
-        );
-        if (cancelled) return;
-        reloadEventCursorByWorkspaceRef.current[selectedWorkspaceId] =
-          typeof response.cursor === "number"
-            ? response.cursor
-            : Math.max(currentCursor ?? 0, ...((response.items ?? []).map((item: any) => Number(item.seq) || 0)));
-        // The first poll establishes the server cursor so historical reload
-        // events don't show a stale toast on route entry. Subsequent polls mark
-        // new filesystem/server-side mutations, including skills created by an
-        // agent while the session page is open.
-        if (currentCursor === undefined || currentCursor === null) return;
-        for (const event of response.items ?? []) {
-          reloadCoordinator.markReloadRequired(event.reason, event.trigger);
-        }
-      } catch {
-        // Reload-event polling is best-effort; normal route health checks still
-        // surface connection failures.
-      }
-    };
-
-    void pollReloadEvents();
-    const interval = window.setInterval(() => void pollReloadEvents(), 3000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [client, endpointForWorkspace, reloadCoordinator, selectedWorkspace, selectedWorkspaceId]);
 
   const handleRuntimeSessionUpdated = useCallback((update: { sessionId: string; info: Record<string, unknown> }) => {
     if (!selectedWorkspaceId) return;
@@ -1048,21 +962,6 @@ export function SessionRoute() {
       }
     };
   }, [refreshRouteState]);
-
-  useEffect(() => {
-    if (!isDesktopRuntime()) return;
-    let cancelled = false;
-    void engineInfo()
-      .then((info) => {
-        if (!cancelled) setRouteEngineInfo(info as EngineInfo | null);
-      })
-      .catch(() => {
-        if (!cancelled) setRouteEngineInfo(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // Inspector wiring: publish the route's current state so an external
   // operator (or an AI driver using browser tools) can call
