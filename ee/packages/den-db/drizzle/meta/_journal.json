@@ -155,6 +155,13 @@
       "when": 1781288457546,
       "tag": "0022_marketplace_logo_url",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1781298097472,
+      "tag": "0023_grandfather_enterprise_plans",
+      "breakpoints": true
     }
   ]
 }

@@ -101,7 +101,7 @@ Reuse the existing 402 pattern from seat gating
 ## Grandfathering (no-breakage migration, CI-applied)
 
 Drizzle data migration
-`ee/packages/den-db/drizzle/0022_grandfather_enterprise_plans.sql`, applied
+`ee/packages/den-db/drizzle/0023_grandfather_enterprise_plans.sql`, applied
 automatically by the existing `den-db-migrate.yml` workflow when it lands on
 `dev` — no manual step. It runs exactly once (tracked in
 `__drizzle_migrations`) and is idempotent by construction. An org is
