@@ -123,5 +123,11 @@ jobs:
       - name: Run server unit tests
         run: pnpm --filter openwork-server test
 
+      - name: Run desktop unit tests
+        run: pnpm --filter @openwork/desktop test
+
+      - name: Typecheck Electron main against the IPC contract
+        run: pnpm --filter @openwork/desktop typecheck:electron
+
       - name: Run e2e tests
         run: pnpm --filter @openwork/app test:e2e
