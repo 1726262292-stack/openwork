@@ -184,6 +184,7 @@ export type DenOrgEntitlements = {
   sso: boolean;
   desktopPolicies: boolean;
   orgControls: boolean;
+  analytics: boolean;
 };
 
 export type DenOrganizationMetadata = {
@@ -678,13 +679,14 @@ function parseOrgEntitlements(value: unknown): DenOrgEntitlements {
   // Older servers do not return entitlements; treat everything as available
   // so gating only applies when the API explicitly reports it.
   if (!isRecord(value)) {
-    return { sso: true, desktopPolicies: true, orgControls: true };
+    return { sso: true, desktopPolicies: true, orgControls: true, analytics: true };
   }
 
   return {
     sso: value.sso !== false,
     desktopPolicies: value.desktopPolicies !== false,
     orgControls: value.orgControls !== false,
+    analytics: value.analytics !== false,
   };
 }
 
