@@ -52,12 +52,6 @@ jobs:
           fi
           echo "Render secrets present."
 
-      - name: DEBUG list services
-        run: |
-          set -euo pipefail
-          curl -sf "https://api.render.com/v1/services?limit=50" -H "Authorization: Bearer $RENDER_API_KEY" \
-            | jq -r '.[].service | [.id, .name, .type, (.suspended // "unknown")] | @tsv'
-
       - name: Update environment variable
         run: |
           set -euo pipefail
