@@ -437,7 +437,13 @@ export type DesktopCommandMap = {
     args: [scope: string, projectDir: string, content: string];
     result: ExecResult;
   };
-  resetOpenworkState: { args: []; result: unknown };
+  /**
+   * The renderer passes its reset-modal mode, but the main process currently
+   * IGNORES it and always removes workspace state + bootstrap config; only
+   * the renderer's localStorage cleanup is mode-scoped. Follow-up: decide
+   * whether "onboarding" should preserve desktop workspace state.
+   */
+  resetOpenworkState: { args: [mode?: "onboarding" | "all"]; result: unknown };
   resetOpencodeCache: { args: []; result: CacheResetResult };
   opencodeMcpAuth: { args: [action: string, name: string]; result: ExecResult };
   setWindowDecorations: { args: [decorated: boolean]; result: unknown };
@@ -448,7 +454,7 @@ export type DesktopCommandMap = {
   __fetch: { args: [url: string, init?: DesktopFetchInit]; result: DesktopFetchResult };
   __homeDir: { args: []; result: string };
   __joinPath: { args: [...segments: string[]]; result: string };
-  __setZoomFactor: { args: [factor: number]; result: unknown };
+  __setZoomFactor: { args: [factor: number]; result: boolean };
   __setNativeTheme: { args: [theme: string]; result: unknown };
   __setApplicationMenuVisible: { args: [visible: boolean]; result: unknown };
 };
