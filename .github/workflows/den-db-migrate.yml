@@ -116,6 +116,28 @@ jobs:
             exit 1
           fi
 
+          # The toggle propagates to the connection gateway asynchronously, so
+          # probe with a real DDL statement until the window is actually open.
+          ddl_open=0
+          for attempt in $(seq 1 18); do
+            if (cd ee/packages/den-db && node --input-type=module -e "
+              const { Client } = await import('@planetscale/database');
+              const client = new Client({ host: process.env.DATABASE_HOST, username: process.env.DATABASE_USERNAME, password: process.env.DATABASE_PASSWORD });
+              await client.execute('CREATE TABLE IF NOT EXISTS __ddl_probe (id int)');
+              await client.execute('DROP TABLE IF EXISTS __ddl_probe');
+            " 2>/tmp/ddl-probe-err); then
+              ddl_open=1
+              echo "DDL window open (attempt $attempt)."
+              break
+            fi
+            echo "DDL still blocked (attempt $attempt): $(tail -1 /tmp/ddl-probe-err 2>/dev/null || true)"
+            sleep 10
+          done
+          if [ "$ddl_open" -ne 1 ]; then
+            echo "::error::DDL window did not open within 3 minutes after disabling safe migrations."
+            exit 1
+          fi
+
       - name: Baseline existing migrations (one-time)
         if: github.event_name == 'workflow_dispatch' && inputs.baseline
         run: |
