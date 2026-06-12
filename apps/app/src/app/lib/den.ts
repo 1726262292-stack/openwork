@@ -20,7 +20,7 @@ import {
   setDesktopBootstrapConfig as setDesktopBootstrapConfigInShell,
   type DesktopBootstrapConfig as ShellDesktopBootstrapConfig,
 } from "./desktop";
-import { isDesktopRuntime } from "../utils";
+import { isDesktopRuntime } from "./runtime-env";
 import type { DenOrgSkillCard, ReloadReason } from "../types";
 import type {
   OpenWorkExtensionContribution,

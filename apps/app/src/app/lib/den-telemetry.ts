@@ -10,7 +10,7 @@
  * The client never sends prompt contents, code, or file paths.
  */
 
-import { isDesktopRuntime } from "../utils";
+import { isDesktopRuntime } from "./runtime-env";
 import { type DenSettings, readDenSettings, resolveDenBaseUrls } from "./den";
 
 const INGEST_PATH = "/v1/telemetry/ingest";
