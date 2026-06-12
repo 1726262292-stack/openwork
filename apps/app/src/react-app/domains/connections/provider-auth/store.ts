@@ -33,7 +33,21 @@ import {
 } from "../../../../app/utils/providers";
 import { getReactQueryClient } from "../../../infra/query-client";
 import { ensureProviderListQuery } from "../../../infra/provider-list-query";
-import type { OpenworkServerStore } from "../openwork-server-store";
+import type { OpenworkServerStoreSnapshot } from "../openwork-server-store";
+
+/**
+ * The slice of the openwork-server store this store actually consumes.
+ * The settings route passes the full store; the session route passes a
+ * lightweight endpoint-backed adapter (previously forced through `as never`).
+ */
+export type ProviderAuthOpenworkServer = {
+  getSnapshot: () => Pick<
+    OpenworkServerStoreSnapshot,
+    "openworkServerStatus" | "openworkServerClient"
+  > & {
+    openworkServerCapabilities: { config?: { read?: boolean; write?: boolean } } | null;
+  };
+};
 import {
   denSessionUpdatedEvent,
   type DenSessionUpdatedDetail,
@@ -97,7 +111,7 @@ type CreateProviderAuthStoreOptions = {
   selectedWorkspaceRoot: () => string;
   runtimeWorkspaceId: () => string | null;
   ensureRuntimeWorkspaceId?: () => Promise<string | null | undefined>;
-  openworkServer: OpenworkServerStore;
+  openworkServer: ProviderAuthOpenworkServer;
   setProviders: (value: ProviderListItem[]) => void;
   setProviderDefaults: (value: Record<string, string>) => void;
   setProviderConnectedIds: (value: string[]) => void;

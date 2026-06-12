@@ -1284,7 +1284,7 @@ export function SessionRoute() {
                 }
               : null,
           }),
-        } as never,
+        },
         setProviders,
         setProviderDefaults,
         setProviderConnectedIds,
