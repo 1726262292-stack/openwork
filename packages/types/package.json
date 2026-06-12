@@ -27,6 +27,11 @@
       "types": "./src/workspace.ts",
       "development": "./src/workspace.ts",
       "default": "./src/workspace.ts"
+    },
+    "./desktop-ipc": {
+      "types": "./src/desktop-ipc.ts",
+      "development": "./src/desktop-ipc.ts",
+      "default": "./src/desktop-ipc.ts"
     }
   },
   "files": [

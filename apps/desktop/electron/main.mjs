@@ -2462,8 +2462,11 @@ function applyNativeTheme(mode) {
 // Desktop IPC command registry. Every command invokable from the renderer's
 // desktopBridge Proxy (apps/app/src/app/lib/desktop.ts) has exactly one
 // entry here; handlers receive the ipcMain event followed by the renderer
-// arguments. Converted from a 570-line switch so the surface can be typed
-// against the shared DesktopCommandMap contract and split into modules.
+// arguments. The @type below asserts this registry against the shared
+// DesktopCommandMap contract (packages/types/src/desktop-ipc.ts): a missing,
+// extra, or renamed command fails `pnpm --filter @openwork/desktop
+// typecheck:electron`.
+/** @type {import("@openwork/types/desktop-ipc").DesktopCommandHandlers<import("electron").IpcMainInvokeEvent>} */
 const desktopCommandHandlers = {
   "workspaceBootstrap": async (event, ...args) => {
       return readWorkspaceState();
