@@ -126,7 +126,7 @@ export function PricingGrid(props: PricingGridProps) {
     {
       id: "solo",
       title: "Solo",
-      price: "$0",
+      price: "Free",
       priceSub: "open source",
       ctaLabel: "Get Started for free",
       href: CLOUD_SIGNUP_URL,
@@ -144,14 +144,14 @@ export function PricingGrid(props: PricingGridProps) {
     {
       id: "cloud-workers",
       title: "Team starter",
-      price: "$50",
-      priceSub: "per month",
+      price: "$10",
+      priceSub: "per seat / month",
       ctaLabel: "Start team plan",
       href: "https://app.openworklabs.com/dashboard/billing",
       external: true,
       badge: "Recommended",
       features: [
-        { text: "5 seats included", icon: Users },
+        { text: "Starts at 5 seats — $50/month", icon: Users },
         { text: "API access", icon: Plug },
         { text: "Skill Hub Manager", icon: Library },
         { text: "Bring your own LLM keys, distributed to your team", icon: KeyRound },
@@ -171,8 +171,9 @@ export function PricingGrid(props: PricingGridProps) {
       href: props.callUrl,
       external: /^https?:\/\//.test(props.callUrl),
       features: [
-        { text: "Enterprise rollout support", icon: Shield },
-        { text: "Deployment guidance", icon: Server },
+        { text: "SSO / SAML and SCIM provisioning", icon: Shield },
+        { text: "Bring your own inference — self-hosted or private models", icon: Server },
+        { text: "Enterprise rollout support", icon: Users },
         { text: "Custom commercial terms", icon: FileText },
       ],
       footer: "For org-wide rollout and custom terms",

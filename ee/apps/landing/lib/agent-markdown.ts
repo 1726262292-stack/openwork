@@ -13,7 +13,7 @@ const home = `# OpenWork
 ## Primary calls-to-action
 
 - **Try it free** — [Get Started for free](https://app.openworklabs.com?mode=sign-up)
-- **Hosted cloud workers** — [Pricing](https://openworklabs.com/pricing) (\\$50/mo per worker)
+- **Team plans** — [Pricing](https://openworklabs.com/pricing) (\\$10 per seat/mo, 5 seat minimum)
 - **Sign in to the hosted workspace** — [Cloud](https://app.openworklabs.com)
 - **SSO / audit / procurement** — [Enterprise](https://openworklabs.com/enterprise)
 - **Docs** — [openworklabs.com/docs](https://openworklabs.com/docs)
@@ -30,7 +30,7 @@ const home = `# OpenWork
 A free, open-source desktop app (macOS, Windows, Linux) for doing work with AI agents on your own files. Built on OpenCode; an open-source alternative to Claude Cowork and Codex.
 
 ### Is OpenWork free?
-Yes — the desktop app is free and open source with bring-your-own keys. Team Starter is \\$50/mo (5 seats); Enterprise is custom.
+Yes — the desktop app is free and open source with bring-your-own keys. Team Starter is \\$10 per seat/mo (5 seat minimum, \\$50/mo); Enterprise is custom.
 
 ### Which models does it support?
 Any model OpenCode supports: OpenAI, Anthropic, Google, local models — 50+ providers.
@@ -50,9 +50,9 @@ Backed by Y Combinator.
 
 const pricing = `# OpenWork pricing — free, team, and enterprise
 
-> OpenWork has three tiers: free open-source desktop, \\$50/mo Team Starter, and custom Enterprise.
+> OpenWork has three tiers: free open-source desktop, \\$10 per seat/mo Team Starter (5 seat minimum), and custom Enterprise.
 
-## Solo — \\$0
+## Solo — Free
 
 - Open-source desktop app
 - macOS, Windows, Linux downloads
@@ -60,9 +60,9 @@ const pricing = `# OpenWork pricing — free, team, and enterprise
 - Free forever
 - CTA: [Get Started for free](https://app.openworklabs.com?mode=sign-up)
 
-## Team Starter — \\$50 / month
+## Team Starter — \\$10 / seat / month
 
-- 5 seats included
+- Starts at 5 seats (\\$50/month)
 - API access
 - Skill Hub Manager
 - Bring your own LLM keys, distributed to your team
@@ -70,8 +70,9 @@ const pricing = `# OpenWork pricing — free, team, and enterprise
 
 ## Enterprise — Custom pricing
 
+- SSO / SAML and SCIM provisioning
+- Bring your own inference — self-hosted or private models
 - Enterprise rollout support
-- Deployment guidance
 - Custom commercial terms
 - For org-wide rollout and custom terms
 - CTA: [Talk to us](https://openworklabs.com/enterprise#book)

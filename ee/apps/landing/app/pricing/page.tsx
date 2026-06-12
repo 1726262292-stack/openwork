@@ -26,32 +26,33 @@ const pricingSchema = {
     {
       "@type": "Offer",
       name: "Team Starter",
-      price: "50",
+      price: "10",
       priceCurrency: "USD",
       url: "https://app.openworklabs.com/dashboard/billing",
       availability: "https://schema.org/InStock",
       priceSpecification: {
         "@type": "UnitPriceSpecification",
-        price: "50",
+        price: "10",
         priceCurrency: "USD",
-        unitText: "MONTH"
+        unitText: "seat per month"
       },
-      description: "5 seats, API access, Skill Hub Manager, distributed keys."
+      description:
+        "$10 per seat per month, starting at 5 seats ($50/month). API access, Skill Hub Manager, distributed keys."
     },
     {
       "@type": "Offer",
       name: "Enterprise",
       url: "https://openworklabs.com/enterprise",
       description:
-        "Custom pricing. Enterprise rollout support, deployment guidance, and custom commercial terms."
+        "Custom pricing. SSO/SAML and SCIM, bring your own inference, enterprise rollout support, and custom commercial terms."
     }
   ]
 };
 
 export const metadata = {
-  title: "OpenWork Pricing — Free desktop, $50/mo cloud, enterprise",
+  title: "OpenWork Pricing — Free desktop, $10/seat teams, enterprise",
   description:
-    "OpenWork is free forever for solo use with bring-your-own-keys. Cloud workers from $50/month per seat, plus custom enterprise licensing with self-hosted deployment.",
+    "OpenWork is free forever for solo use with bring-your-own-keys. Teams pay $10 per seat per month (5 seat minimum), plus custom enterprise plans with SSO and bring-your-own inference.",
   alternates: {
     canonical: "/pricing"
   },

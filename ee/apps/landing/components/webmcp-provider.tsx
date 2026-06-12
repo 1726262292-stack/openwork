@@ -29,7 +29,7 @@ const pricingSummary = {
     {
       id: "solo",
       name: "Solo",
-      price: "$0",
+      price: "Free",
       cadence: "free forever",
       highlights: [
         "Open-source desktop app",
@@ -41,10 +41,10 @@ const pricingSummary = {
     {
       id: "team-starter",
       name: "Team Starter",
-      price: "$50",
-      cadence: "per month",
+      price: "$10",
+      cadence: "per seat / month",
       highlights: [
-        "5 seats included",
+        "Starts at 5 seats — $50/month",
         "API access",
         "Skill Hub Manager",
         "Bring your own LLM keys, distributed to your team",
@@ -57,8 +57,9 @@ const pricingSummary = {
       price: "custom",
       cadence: "contact us",
       highlights: [
+        "SSO / SAML and SCIM provisioning",
+        "Bring your own inference — self-hosted or private models",
         "Enterprise rollout support",
-        "Deployment guidance",
         "Custom commercial terms",
       ],
       cta: { label: "Talk to us", href: "/enterprise#book" },

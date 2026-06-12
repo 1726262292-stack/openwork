@@ -12,7 +12,7 @@ export const homeFaq: FaqEntry[] = [
   {
     question: "Is OpenWork free?",
     answer:
-      "Yes. The desktop app is free and open source — you bring your own LLM provider keys. The Team Starter plan is $50/month and adds 5 seats, API access, and the Skill Hub Manager. Enterprise plans have custom pricing."
+      "Yes. The desktop app is free and open source — you bring your own LLM provider keys. The Team Starter plan is $10 per seat per month (starting at 5 seats, $50/month) and adds API access and the Skill Hub Manager. Enterprise plans have custom pricing with SSO and bring-your-own inference."
   },
   {
     question: "How is OpenWork different from Claude Cowork?",
