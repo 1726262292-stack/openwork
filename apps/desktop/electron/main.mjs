@@ -2459,23 +2459,30 @@ function applyNativeTheme(mode) {
   return true;
 }
 
-async function handleDesktopInvoke(event, command, ...args) {
-  switch (command) {
-    case "workspaceBootstrap":
+// Desktop IPC command registry. Every command invokable from the renderer's
+// desktopBridge Proxy (apps/app/src/app/lib/desktop.ts) has exactly one
+// entry here; handlers receive the ipcMain event followed by the renderer
+// arguments. Converted from a 570-line switch so the surface can be typed
+// against the shared DesktopCommandMap contract and split into modules.
+const desktopCommandHandlers = {
+  "workspaceBootstrap": async (event, ...args) => {
       return readWorkspaceState();
-    case "workspaceSetSelected":
+  },
+  "workspaceSetSelected": async (event, ...args) => {
       return mutateWorkspaceState((state) => {
         const workspaceId = typeof args[0] === "string" ? args[0] : "";
         state.selectedId = workspaceId;
         state.activeId = workspaceId || null;
         return state;
       });
-    case "workspaceSetRuntimeActive":
+  },
+  "workspaceSetRuntimeActive": async (event, ...args) => {
       return mutateWorkspaceState((state) => {
         state.watchedId = typeof args[0] === "string" && args[0].trim() ? args[0] : null;
         return state;
       });
-    case "workspaceCreate": {
+  },
+  "workspaceCreate": async (event, ...args) => {
       const input = args[0] ?? {};
       const rawFolderPath = String(input.folderPath ?? "").trim();
       if (!rawFolderPath) throw new Error("folderPath is required");
@@ -2504,8 +2511,8 @@ async function handleDesktopInvoke(event, command, ...args) {
         state.watchedId = workspace.id;
         return state;
       });
-    }
-    case "workspaceCreateRemote": {
+  },
+  "workspaceCreateRemote": async (event, ...args) => {
       const input = args[0] ?? {};
       const baseUrl = String(input.baseUrl ?? "").trim();
       if (!baseUrl) throw new Error("baseUrl is required");
@@ -2574,8 +2581,8 @@ async function handleDesktopInvoke(event, command, ...args) {
         state.activeId = workspace.id;
         return state;
       });
-    }
-    case "workspaceUpdateRemote": {
+  },
+  "workspaceUpdateRemote": async (event, ...args) => {
       const input = args[0] ?? {};
       const workspaceId = String(input.workspaceId ?? "").trim();
       if (!workspaceId) throw new Error("workspaceId is required");
@@ -2642,8 +2649,8 @@ async function handleDesktopInvoke(event, command, ...args) {
         );
         return state;
       });
-    }
-    case "workspaceUpdateDisplayName": {
+  },
+  "workspaceUpdateDisplayName": async (event, ...args) => {
       const input = args[0] ?? {};
       const workspaceId = String(input.workspaceId ?? "").trim();
       if (!workspaceId) throw new Error("workspaceId is required");
@@ -2653,8 +2660,8 @@ async function handleDesktopInvoke(event, command, ...args) {
         );
         return state;
       });
-    }
-    case "workspaceForget": {
+  },
+  "workspaceForget": async (event, ...args) => {
       const workspaceId = String(args[0] ?? "").trim();
       if (!workspaceId) throw new Error("workspaceId is required");
       return mutateWorkspaceState((state) => {
@@ -2664,8 +2671,8 @@ async function handleDesktopInvoke(event, command, ...args) {
         if (state.watchedId === workspaceId) state.watchedId = null;
         return state;
       });
-    }
-    case "workspaceAddAuthorizedRoot": {
+  },
+  "workspaceAddAuthorizedRoot": async (event, ...args) => {
       const input = args[0] ?? {};
       const workspacePath = String(input.workspacePath ?? "").trim();
       const authorizedRoot = String(input.folderPath ?? input.authorizedRoot ?? "").trim();
@@ -2680,15 +2687,17 @@ async function handleDesktopInvoke(event, command, ...args) {
         config.authorizedRoots.push(authorizedRoot);
       }
       return writeWorkspaceOpenworkConfig(workspacePath, config);
-    }
-    case "workspaceOpenworkRead":
+  },
+  "workspaceOpenworkRead": async (event, ...args) => {
       return readWorkspaceOpenworkConfig(String(args[0]?.workspacePath ?? "").trim());
-    case "workspaceOpenworkWrite":
+  },
+  "workspaceOpenworkWrite": async (event, ...args) => {
       return writeWorkspaceOpenworkConfig(
         String(args[0]?.workspacePath ?? "").trim(),
         args[0]?.config ?? defaultWorkspaceOpenworkConfig(""),
       );
-    case "workspaceExportConfig": {
+  },
+  "workspaceExportConfig": async (event, ...args) => {
       const input = args[0] ?? {};
       const workspaceId = String(input.workspaceId ?? "").trim();
       const outputPath = String(input.outputPath ?? "").trim();
@@ -2698,8 +2707,8 @@ async function handleDesktopInvoke(event, command, ...args) {
       const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
       if (!workspace) throw new Error("Unknown workspaceId");
       return exportWorkspaceConfig({ workspace, outputPath });
-    }
-    case "workspaceImportConfig": {
+  },
+  "workspaceImportConfig": async (event, ...args) => {
       const input = args[0] ?? {};
       const archivePath = String(input.archivePath ?? "").trim();
       const targetDirRaw = String(input.targetDir ?? "").trim();
@@ -2730,124 +2739,147 @@ async function handleDesktopInvoke(event, command, ...args) {
         state.watchedId = workspace.id;
         return state;
       });
-    }
-    case "opencodeCommandList":
+  },
+  "opencodeCommandList": async (event, ...args) => {
       return listCommandNames(String(args[0]?.scope ?? "").trim(), String(args[0]?.projectDir ?? "").trim());
-    case "opencodeCommandWrite":
+  },
+  "opencodeCommandWrite": async (event, ...args) => {
       return writeCommandFile(
         String(args[0]?.scope ?? "").trim(),
         String(args[0]?.projectDir ?? "").trim(),
         args[0]?.command ?? {},
       );
-    case "opencodeCommandDelete":
+  },
+  "opencodeCommandDelete": async (event, ...args) => {
       return deleteCommandFile(
         String(args[0]?.scope ?? "").trim(),
         String(args[0]?.projectDir ?? "").trim(),
         String(args[0]?.name ?? "").trim(),
       );
-    case "engineStart": {
+  },
+  "engineStart": async (event, ...args) => {
       const projectDir = String(args[0] ?? "").trim();
       const options = args[1] ?? {};
       return runtimeManager.engineStart(projectDir, options);
-    }
-    case "prepareFreshRuntime":
+  },
+  "prepareFreshRuntime": async (event, ...args) => {
       return runtimeManager.prepareFreshRuntime();
-    case "runtimeBootstrap":
+  },
+  "runtimeBootstrap": async (event, ...args) => {
       return ensureRuntimeBootstrap();
-    case "runtimeStatus":
+  },
+  "runtimeStatus": async (event, ...args) => {
       return runtimeManager.runtimeStatus();
-    case "engineStop":
+  },
+  "engineStop": async (event, ...args) => {
       return runtimeManager.engineStop();
-    case "engineRestart":
+  },
+  "engineRestart": async (event, ...args) => {
       return runtimeManager.engineRestart(args[0] ?? {});
-    case "engineInfo":
+  },
+  "engineInfo": async (event, ...args) => {
       return runtimeManager.engineInfo();
-    case "engineDoctor":
+  },
+  "engineDoctor": async (event, ...args) => {
       return engineDoctor(args[0]);
-    case "engineInstall":
+  },
+  "engineInstall": async (event, ...args) => {
       return runtimeManager.engineInstall();
-    case "orchestratorStatus": {
+  },
+  "orchestratorStatus": async (event, ...args) => {
       return runtimeManager.orchestratorStatus();
-    }
-    case "orchestratorWorkspaceActivate": {
+  },
+  "orchestratorWorkspaceActivate": async (event, ...args) => {
       return runtimeManager.orchestratorWorkspaceActivate(args[0] ?? {});
-    }
-    case "orchestratorInstanceDispose":
+  },
+  "orchestratorInstanceDispose": async (event, ...args) => {
       return runtimeManager.orchestratorInstanceDispose(String(args[0] ?? "").trim());
-    case "appBuildInfo":
+  },
+  "appBuildInfo": async (event, ...args) => {
       return {
         version: app.getVersion(),
         gitSha: process.env.OPENWORK_GIT_SHA ?? null,
         buildEpoch: process.env.OPENWORK_BUILD_EPOCH ?? null,
         openworkDevMode: process.env.OPENWORK_DEV_MODE === "1",
       };
-    case "getUiControlBridgeInfo":
+  },
+  "getUiControlBridgeInfo": async (event, ...args) => {
       try {
         const raw = await readFile(path.join(app.getPath("userData"), "openwork-ui-control.json"), "utf8");
         return JSON.parse(raw);
       } catch {
         return null;
       }
-    case "getOpenworkUiMcpCommand": {
+  },
+  "getOpenworkUiMcpCommand": async (event, ...args) => {
       if (process.env.OPENWORK_DEV_MODE === "1") {
         return ["node", path.resolve(__dirname, "../../..", "packages/openwork-ui-mcp/index.mjs")];
       }
       return ["npx", "-y", "openwork-ui-mcp"];
-    }
-    case "getComputerUseMcpCommand": {
+  },
+  "getComputerUseMcpCommand": async (event, ...args) => {
       return getComputerUseMcpCommand();
-    }
-    case "checkComputerUsePermissions": {
+  },
+  "checkComputerUsePermissions": async (event, ...args) => {
       // Spawn --check → fresh TCC read → always accurate.
       return checkComputerUsePermissions();
-    }
-    case "listRunningApps": {
+  },
+  "listRunningApps": async (event, ...args) => {
       // Running regular macOS apps for composer @App mentions.
       return listRunningApps();
-    }
-    case "openComputerUsePermissionSetup": {
+  },
+  "openComputerUsePermissionSetup": async (event, ...args) => {
       // Open the GUI app. Returns immediately — React shows "verify" CTA.
       await openComputerUseSetupApp();
       // Return a fresh check so the UI shows the current state.
       return checkComputerUsePermissions();
-    }
-    case "openComputerUsePermissionSettings": {
+  },
+  "openComputerUsePermissionSettings": async (event, ...args) => {
       // Legacy: open the setup app (same as above).
       await openComputerUseSetupApp();
       return checkComputerUsePermissions();
-    }
-    case "getOpenworkUiMcpEnvironment": {
+  },
+  "getOpenworkUiMcpEnvironment": async (event, ...args) => {
       return {
         OPENWORK_UI_CONTROL_DISCOVERY: path.join(app.getPath("userData"), "openwork-ui-control.json"),
       };
-    }
-    case "getDesktopBootstrapConfig":
+  },
+  "getDesktopBootstrapConfig": async (event, ...args) => {
       return getDesktopBootstrapConfig();
-    case "debugDesktopBootstrapConfig":
+  },
+  "debugDesktopBootstrapConfig": async (event, ...args) => {
       return debugDesktopBootstrapConfig();
-    case "setDesktopBootstrapConfig":
+  },
+  "setDesktopBootstrapConfig": async (event, ...args) => {
       return setDesktopBootstrapConfig(args[0] ?? {});
-    case "nukeOpenworkAndOpencodeConfigAndExit": {
+  },
+  "nukeOpenworkAndOpencodeConfigAndExit": async (event, ...args) => {
       await rm(app.getPath("userData"), { recursive: true, force: true });
       app.exit(0);
       return undefined;
-    }
-    case "orchestratorStartDetached": {
+  },
+  "orchestratorStartDetached": async (event, ...args) => {
       return runtimeManager.orchestratorStartDetached(args[0] ?? {});
-    }
-    case "sandboxDoctor":
+  },
+  "sandboxDoctor": async (event, ...args) => {
       return runtimeManager.sandboxDoctor();
-    case "sandboxStop":
+  },
+  "sandboxStop": async (event, ...args) => {
       return runtimeManager.sandboxStop(String(args[0] ?? "").trim());
-    case "sandboxCleanupOpenworkContainers":
+  },
+  "sandboxCleanupOpenworkContainers": async (event, ...args) => {
       return runtimeManager.sandboxCleanupOpenworkContainers();
-    case "sandboxDebugProbe":
+  },
+  "sandboxDebugProbe": async (event, ...args) => {
       return runtimeManager.sandboxDebugProbe();
-    case "openworkServerInfo":
+  },
+  "openworkServerInfo": async (event, ...args) => {
       return runtimeManager.openworkServerInfo();
-    case "openworkServerRestart":
+  },
+  "openworkServerRestart": async (event, ...args) => {
       return runtimeManager.openworkServerRestart(args[0] ?? {});
-    case "pickDirectory": {
+  },
+  "pickDirectory": async (event, ...args) => {
       const options = args[0] ?? {};
       /** @type {import("electron").OpenDialogOptions["properties"]} */
       const properties = options.multiple
@@ -2860,8 +2892,8 @@ async function handleDesktopInvoke(event, command, ...args) {
       });
       if (result.canceled) return null;
       return options.multiple ? result.filePaths : (result.filePaths[0] ?? null);
-    }
-    case "pickFile": {
+  },
+  "pickFile": async (event, ...args) => {
       const options = args[0] ?? {};
       /** @type {import("electron").OpenDialogOptions["properties"]} */
       const properties = options.multiple ? ["openFile", "multiSelections"] : ["openFile"];
@@ -2873,8 +2905,8 @@ async function handleDesktopInvoke(event, command, ...args) {
       });
       if (result.canceled) return null;
       return options.multiple ? result.filePaths : (result.filePaths[0] ?? null);
-    }
-    case "saveFile": {
+  },
+  "saveFile": async (event, ...args) => {
       const options = args[0] ?? {};
       const result = await dialog.showSaveDialog(activeWindowFromEvent(event), {
         title: options.title,
@@ -2882,8 +2914,8 @@ async function handleDesktopInvoke(event, command, ...args) {
         filters: options.filters,
       });
       return result.canceled ? null : (result.filePath ?? null);
-    }
-    case "importSkill": {
+  },
+  "importSkill": async (event, ...args) => {
       const projectDir = String(args[0] ?? "").trim();
       const sourceDir = String(args[1] ?? "").trim();
       const overwrite = args[2]?.overwrite === true;
@@ -2901,8 +2933,8 @@ async function handleDesktopInvoke(event, command, ...args) {
       }
       await cp(sourceDir, destination, { recursive: true });
       return execResult(true, `Imported skill to ${destination}`);
-    }
-    case "installSkillTemplate": {
+  },
+  "installSkillTemplate": async (event, ...args) => {
       const projectDir = String(args[0] ?? "").trim();
       const name = validateSkillName(args[1]);
       const content = String(args[2] ?? "");
@@ -2918,18 +2950,19 @@ async function handleDesktopInvoke(event, command, ...args) {
       await mkdir(destination, { recursive: true });
       await writeFile(path.join(destination, "SKILL.md"), content, "utf8");
       return execResult(true, `Installed skill to ${destination}`);
-    }
-    case "listLocalSkills":
+  },
+  "listLocalSkills": async (event, ...args) => {
       return listLocalSkills(String(args[0] ?? "").trim());
-    case "readLocalSkill": {
+  },
+  "readLocalSkill": async (event, ...args) => {
       const projectDir = String(args[0] ?? "").trim();
       const skillPath = await findSkillFile(projectDir, args[1]);
       if (!skillPath) {
         throw new Error("Skill not found");
       }
       return { path: skillPath, content: await readFile(skillPath, "utf8") };
-    }
-    case "writeLocalSkill": {
+  },
+  "writeLocalSkill": async (event, ...args) => {
       const projectDir = String(args[0] ?? "").trim();
       const skillPath = await findSkillFile(projectDir, args[1]);
       if (!skillPath) {
@@ -2939,8 +2972,8 @@ async function handleDesktopInvoke(event, command, ...args) {
       const next = content.endsWith("\n") ? content : `${content}\n`;
       await writeFile(skillPath, next, "utf8");
       return execResult(true, `Saved skill ${path.basename(path.dirname(skillPath))}`);
-    }
-    case "uninstallSkill": {
+  },
+  "uninstallSkill": async (event, ...args) => {
       const projectDir = String(args[0] ?? "").trim();
       const skillPath = await findSkillFile(projectDir, args[1]);
       if (!skillPath) {
@@ -2948,8 +2981,8 @@ async function handleDesktopInvoke(event, command, ...args) {
       }
       await rm(path.dirname(skillPath), { recursive: true, force: true });
       return execResult(true, `Removed skill ${args[1]}`);
-    }
-    case "updaterEnvironment": {
+  },
+  "updaterEnvironment": async (event, ...args) => {
       const executablePath = app.isPackaged ? app.getPath("exe") : process.execPath;
       return {
         supported: true,
@@ -2960,38 +2993,43 @@ async function handleDesktopInvoke(event, command, ...args) {
             ? path.resolve(executablePath, "../../..")
             : path.dirname(executablePath),
       };
-    }
-    case "readOpencodeConfig":
+  },
+  "readOpencodeConfig": async (event, ...args) => {
       return readOpencodeConfig(String(args[0] ?? "").trim(), String(args[1] ?? "").trim());
-    case "writeOpencodeConfig":
+  },
+  "writeOpencodeConfig": async (event, ...args) => {
       return writeOpencodeConfig(
         String(args[0] ?? "").trim(),
         String(args[1] ?? "").trim(),
         String(args[2] ?? ""),
       );
-    case "resetOpenworkState": {
+  },
+  "resetOpenworkState": async (event, ...args) => {
       await rm(workspaceStatePath(), { force: true });
       await rm(desktopBootstrapPath(), { force: true });
       return undefined;
-    }
-    case "resetOpencodeCache":
+  },
+  "resetOpencodeCache": async (event, ...args) => {
       return { removed: [], missing: [], errors: [] };
-    case "opencodeMcpAuth":
+  },
+  "opencodeMcpAuth": async (event, ...args) => {
       return runtimeManager.opencodeMcpAuth(String(args[0] ?? "").trim(), String(args[1] ?? "").trim());
-    case "setWindowDecorations":
+  },
+  "setWindowDecorations": async (event, ...args) => {
       return undefined;
-    case "__openPath": {
+  },
+  "__openPath": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
       if (!target) return "Path is required.";
       return shell.openPath(target);
-    }
-    case "__revealItemInDir": {
+  },
+  "__revealItemInDir": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
       if (!target) return undefined;
       shell.showItemInFolder(target);
       return undefined;
-    }
-    case "__fetch": {
+  },
+  "__fetch": async (event, ...args) => {
       const url = String(args[0] ?? "").trim();
       const init = args[1] ?? {};
       if (!url) throw new Error("URL is required.");
@@ -3008,12 +3046,14 @@ async function handleDesktopInvoke(event, command, ...args) {
         headers: Array.from(response.headers.entries()),
         body: await response.text(),
       };
-    }
-    case "__homeDir":
+  },
+  "__homeDir": async (event, ...args) => {
       return os.homedir();
-    case "__joinPath":
+  },
+  "__joinPath": async (event, ...args) => {
       return path.join(...args.map((value) => String(value ?? "")));
-    case "__setZoomFactor": {
+  },
+  "__setZoomFactor": async (event, ...args) => {
       const factor = Number(args[0]);
       const window = activeWindowFromEvent(event);
       if (!window || !Number.isFinite(factor) || factor <= 0) {
@@ -3021,14 +3061,21 @@ async function handleDesktopInvoke(event, command, ...args) {
       }
       window.webContents.setZoomFactor(factor);
       return true;
-    }
-    case "__setNativeTheme":
+  },
+  "__setNativeTheme": async (event, ...args) => {
       return applyNativeTheme(String(args[0]));
-    case "__setApplicationMenuVisible":
+  },
+  "__setApplicationMenuVisible": async (event, ...args) => {
       return setApplicationMenuVisible(args[0]);
-    default:
-      throw new Error(`Electron desktop bridge method is not implemented yet: ${command}`);
+  },
+};
+
+async function handleDesktopInvoke(event, command, ...args) {
+  const handler = desktopCommandHandlers[command];
+  if (!handler) {
+    throw new Error(`Electron desktop bridge method is not implemented yet: ${command}`);
   }
+  return handler(event, ...args);
 }
 
 function sendJsonResponse(response, statusCode, payload) {
