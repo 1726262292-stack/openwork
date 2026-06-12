@@ -68,7 +68,7 @@ export default async function PricingPage() {
   return (
     <div className="relative min-h-screen overflow-hidden text-[#011627]">
       <StructuredData data={pricingSchema} />
-      <LandingBackground />
+      <LandingBackground fadeOnScroll={false} />
 
       <div className="relative z-10 flex min-h-screen flex-col items-center pb-3 pt-1 md:pb-4 md:pt-2">
         <div className="w-full">

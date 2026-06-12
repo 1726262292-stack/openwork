@@ -1,6 +1,17 @@
 "use client";
 
-import { ArrowUpRight, Cloud, Download, Shield } from "lucide-react";
+import {
+  ArrowUpRight,
+  Code2,
+  Download,
+  FileText,
+  KeyRound,
+  Library,
+  Plug,
+  Server,
+  Shield,
+  Users,
+} from "lucide-react";
 import { ResponsiveGrain } from "./responsive-grain";
 
 type PricingGridProps = {
@@ -22,6 +33,7 @@ type PricingCard = {
   gradientBack: string;
   gradientShape: "corners" | "wave" | "dots" | "truchet" | "ripple" | "blob" | "sphere";
   isCustomPricing?: boolean;
+  badge?: string;
 };
 
 const CLOUD_SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
@@ -49,6 +61,11 @@ function PricingCardView({ card }: { card: PricingCard }) {
           <div>
             <div className="flex justify-between items-start mb-6">
               <h2 className="text-[17px] font-medium tracking-tight">{card.title}</h2>
+              {card.badge ? (
+                <span className="rounded-full bg-gray-900 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-white group-hover:bg-white/15 transition-colors duration-300">
+                  {card.badge}
+                </span>
+              ) : null}
             </div>
 
             {card.isCustomPricing ? (
@@ -115,9 +132,9 @@ export function PricingGrid(props: PricingGridProps) {
       href: CLOUD_SIGNUP_URL,
       external: true,
       features: [
-        { text: "Open source desktop app", icon: Download },
+        { text: "Open source desktop app", icon: Code2 },
         { text: "macOS and Linux downloads", icon: Download },
-        { text: "Bring your own keys", icon: Download },
+        { text: "Bring your own keys", icon: KeyRound },
       ],
       footer: "Free forever",
       gradientColors: ["#7C3AED", "#A855F7", "#6D28D9", "#4338CA"],
@@ -132,12 +149,14 @@ export function PricingGrid(props: PricingGridProps) {
       ctaLabel: "Start team plan",
       href: "https://app.openworklabs.com/dashboard/billing",
       external: true,
+      badge: "Recommended",
       features: [
-        { text: "5 seats included", icon: Cloud },
-        { text: "API access", icon: Cloud },
-        { text: "Skill Hub Manager", icon: Cloud },
-        { text: "Bring your own LLM keys, distributed to your team", icon: Cloud },
+        { text: "5 seats included", icon: Users },
+        { text: "API access", icon: Plug },
+        { text: "Skill Hub Manager", icon: Library },
+        { text: "Bring your own LLM keys, distributed to your team", icon: KeyRound },
       ],
+      footer: "Billed monthly. Cancel anytime.",
       gradientColors: ["#2563EB", "#0284C7", "#0EA5E9", "#0F172A"],
       gradientBack: "#0C1220",
       gradientShape: "ripple",
@@ -153,8 +172,8 @@ export function PricingGrid(props: PricingGridProps) {
       external: /^https?:\/\//.test(props.callUrl),
       features: [
         { text: "Enterprise rollout support", icon: Shield },
-        { text: "Deployment guidance", icon: Shield },
-        { text: "Custom commercial terms", icon: Shield },
+        { text: "Deployment guidance", icon: Server },
+        { text: "Custom commercial terms", icon: FileText },
       ],
       footer: "For org-wide rollout and custom terms",
       gradientColors: ["#F97316", "#E11D48", "#9333EA", "#4338CA"],
@@ -173,7 +192,7 @@ export function PricingGrid(props: PricingGridProps) {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 relative border-l border-t border-dotted border-gray-400/50">
+      <div className="grid grid-cols-1 md:grid-cols-3 relative border-l border-t border-dotted border-gray-400/50 bg-[#f6f9fc]/75 backdrop-blur-sm">
         {cards.map((card) => (
           <div key={card.id} className="p-6 border-r border-b border-dotted border-gray-400/50 flex flex-col h-full">
             <PricingCardView card={card} />
