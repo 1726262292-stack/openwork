@@ -55,7 +55,7 @@ const pricing = `# OpenWork pricing — free, team, and enterprise
 ## Solo — \\$0
 
 - Open-source desktop app
-- macOS, Windows, Linux downloads
+- macOS and Linux downloads
 - Bring your own provider keys
 - Free forever
 - CTA: [Get Started for free](https://app.openworklabs.com?mode=sign-up)
@@ -70,10 +70,13 @@ const pricing = `# OpenWork pricing — free, team, and enterprise
 
 ## Enterprise — Custom pricing
 
-- Enterprise rollout support
-- Deployment guidance
-- Custom commercial terms
-- For org-wide rollout and custom terms
+- Everything in Team Starter
+- SSO / SAML and SCIM provisioning
+- Desktop policies and version controls — admins decide which providers, models, extensions, and app versions employees can use; the desktop app enforces it automatically
+- Managed deployment — self-hosted in your environment or hosted by OpenWork
+- Custom skill development and MCP consulting
+- Enterprise rollout support and custom commercial terms
+- Existing organizations already using SSO or desktop policies keep full access (grandfathered)
 - CTA: [Talk to us](https://openworklabs.com/enterprise#book)
 
 Prices exclude taxes.
@@ -85,10 +88,12 @@ const enterprise = `# A privacy-first alternative to Claude Cowork for your orga
 
 ## What Enterprise includes
 
-- Enterprise rollout support and deployment guidance
-- Custom commercial terms
-- SSO / SAML integration
-- Audit logs and policy controls
+- SSO / SAML integration and SCIM provisioning
+- Desktop policies and version controls — guardrails for providers, models, extensions, and app versions, enforced by the desktop app
+- Managed deployment — self-hosted in your environment or hosted by OpenWork
+- Custom skill development for your team's workflows
+- MCP consulting — connect internal data sources and tools as MCP servers
+- Enterprise rollout support and custom commercial terms
 - Named security contact and incident response
 
 ## Deployment models

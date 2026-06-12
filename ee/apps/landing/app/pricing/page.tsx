@@ -43,7 +43,7 @@ const pricingSchema = {
       name: "Enterprise",
       url: "https://openworklabs.com/enterprise",
       description:
-        "Custom pricing. Enterprise rollout support, deployment guidance, and custom commercial terms."
+        "Custom pricing. SSO/SAML and SCIM, desktop policies and version controls, managed deployment, custom skill development, MCP consulting, and custom commercial terms."
     }
   ]
 };
