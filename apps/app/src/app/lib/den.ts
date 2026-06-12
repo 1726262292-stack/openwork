@@ -60,14 +60,25 @@ const BUILD_DEN_REQUIRE_SIGNIN =
 export const DEFAULT_DEN_BASE_URL = BUILD_DEN_BASE_URL;
 export const DEN_INFERENCE_PATH = "/dashboard/inference";
 
-export type DenSettings = {
-  baseUrl: string;
-  apiBaseUrl?: string;
-  authToken?: string | null;
-  activeOrgId?: string | null;
-  activeOrgSlug?: string | null;
-  activeOrgName?: string | null;
-};
+// Den wire types moved to den-types.ts (leaf module); re-exported here so
+// the many existing den.ts importers keep working.
+export type * from "./den-types";
+import type {
+  DenOrgExtensionProjection,
+  DenOrgMarketplace,
+  DenOrgPlugin,
+  DenOrgPluginResolved,
+  DenPluginConfigObject,
+  DenPluginConfigObjectType,
+  DenPluginConfigObjectVersion,
+  DenPluginMembership,
+  DenResourceSnapshot,
+  DenResourceSnapshotConfigItem,
+  DenResourceSnapshotMarketplace,
+  DenResourceSnapshotPlugin,
+  DenSettings,
+  DenUser,
+} from "./den-types";
 
 type DenBaseUrls = {
   baseUrl: string;
@@ -79,12 +90,6 @@ export type DenBootstrapConfig = DenBaseUrls & {
 };
 
 export type DenDesktopConfig = SharedDesktopConfig;
-
-export type DenUser = {
-  id: string;
-  email: string;
-  name: string | null;
-};
 
 export type DenOrgSummary = {
   id: string;
@@ -142,75 +147,9 @@ export type DenOrgLlmProviderConnection = DenOrgLlmProvider & {
   apiKey: string | null;
 };
 
-export type DenPluginConfigObjectType = "skill" | "agent" | "command" | "tool" | "mcp" | "hook" | "context" | "custom";
-
-export type DenPluginConfigObjectVersion = {
-  id: string;
-  rawSourceText: string | null;
-  normalizedPayloadJson: Record<string, unknown> | null;
-  sourceRevisionRef: string | null;
-  createdAt: string | null;
-};
-
-export type DenPluginConfigObject = {
-  id: string;
-  objectType: DenPluginConfigObjectType;
-  title: string;
-  description: string | null;
-  currentFileName: string | null;
-  currentFileExtension: string | null;
-  currentRelativePath: string | null;
-  status: string;
-  updatedAt: string | null;
-  latestVersion: DenPluginConfigObjectVersion | null;
-};
-
-export type DenPluginMembership = {
-  id: string;
-  pluginId: string;
-  configObjectId: string;
-  configObject?: DenPluginConfigObject;
-};
-
-export type DenOrgExtensionProjection = {
-  id: string;
-  name: string;
-  description: string | null;
-  sourceFormat: OpenWorkExtensionSourceFormat;
-  manifest: OpenWorkExtensionManifest | null;
-};
-
-export type DenOrgPlugin = {
-  id: string;
-  name: string;
-  description: string | null;
-  status: string;
-  memberCount: number;
-  updatedAt: string | null;
-  componentCounts: Record<string, number>;
-  /** Preferred Den surface: plugins are normalized into OpenWork extensions. */
-  extension?: DenOrgExtensionProjection | null;
-};
-
-export type DenOrgMarketplace = {
-  id: string;
-  name: string;
-  description: string | null;
-  status: string;
-  pluginCount: number;
-  updatedAt: string | null;
-};
-
 export type DenOrgMarketplaceResolved = {
   marketplace: DenOrgMarketplace;
   plugins: DenOrgPlugin[];
-};
-
-export type DenOrgPluginResolved = {
-  plugin: DenOrgPlugin;
-  memberships: DenPluginMembership[];
-  /** Future Den extension manifest; absent while Claude plugin imports are resource-only. */
-  extension?: DenOrgExtensionProjection | null;
 };
 
 export type DenBillingPrice = {
@@ -255,32 +194,6 @@ export type DenBillingSummary = {
   invoices: DenBillingInvoice[];
   productId: string | null;
   benefitId: string | null;
-};
-
-export type DenResourceSnapshotConfigItem = {
-  configItemId: string;
-  lastUpdatedAt: string;
-};
-
-export type DenResourceSnapshotPlugin = {
-  pluginId: string;
-  lastUpdatedAt: string;
-  configItems: DenResourceSnapshotConfigItem[];
-};
-
-export type DenResourceSnapshotMarketplace = {
-  lastUpdatedAt: string;
-  plugins: DenResourceSnapshotPlugin[];
-};
-
-export type DenResourceSnapshot = {
-  organizationId: string;
-  orgMemberId: string;
-  teamIds: string[];
-  resources: {
-    llmProviders: Record<string, string>;
-    marketplaces: Record<string, DenResourceSnapshotMarketplace>;
-  };
 };
 
 type DenAuthResult = {

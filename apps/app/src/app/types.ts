@@ -7,7 +7,7 @@ import type {
   Session,
 } from "@opencode-ai/sdk/v2/client";
 import type { createClient } from "./lib/opencode";
-import type { OpencodeConfigFile, WorkspaceInfo } from "./lib/desktop";
+import type { OpencodeConfigFile, WorkspaceInfo } from "./lib/desktop-types";
 
 export type Client = ReturnType<typeof createClient>;
 
@@ -358,7 +358,7 @@ export type McpStatus =
 
 export type McpStatusMap = Record<string, McpStatus>;
 
-export type ReloadReason = "plugins" | "skills" | "mcp" | "config" | "agents" | "commands";
+export type { ReloadReason } from "./extensions";
 
 export type OpencodeConnectStatus = {
   at: number;

@@ -1,4 +1,6 @@
-import type { ReloadReason } from "./types";
+// Owned here: reload vocabulary is part of the extension manifest contract.
+// types.ts re-exports it for the rest of the app.
+export type ReloadReason = "plugins" | "skills" | "mcp" | "config" | "agents" | "commands";
 
 export type OpenWorkExtensionSourceFormat =
   | "openwork-builtin"

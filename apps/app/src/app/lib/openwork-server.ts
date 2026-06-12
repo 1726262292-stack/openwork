@@ -2,7 +2,7 @@ import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
-import type { DenOrgMarketplace, DenOrgPluginResolved, DenResourceSnapshot } from "./den";
+import type { DenOrgMarketplace, DenOrgPluginResolved, DenResourceSnapshot } from "./den-types";
 import type { CloudImportedMarketplace, CloudImportedPlugin } from "../cloud/import-state";
 
 export type OpenworkServerCapabilities = {
