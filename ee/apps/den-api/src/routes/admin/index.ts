@@ -1,5 +1,14 @@
-import { asc, desc, eq, isNotNull, sql } from "@openwork-ee/den-db/drizzle"
-import { AuthAccountTable, AuthSessionTable, AuthUserTable, WorkerTable, AdminAllowlistTable } from "@openwork-ee/den-db/schema"
+import { asc, desc, eq, gte, isNotNull, sql } from "@openwork-ee/den-db/drizzle"
+import {
+  AuthAccountTable,
+  AuthSessionTable,
+  AuthUserTable,
+  InvitationTable,
+  MemberTable,
+  TelemetryEventTable,
+  WorkerTable,
+  AdminAllowlistTable,
+} from "@openwork-ee/den-db/schema"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
@@ -67,6 +76,39 @@ function normalizeProvider(providerId: string) {
   return normalized
 }
 
+function toDayKey(value: Date | string | null): string | null {
+  if (!value) {
+    return null
+  }
+
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  return date.toISOString().slice(0, 10)
+}
+
+function toTimestamp(value: Date | string | null): number | null {
+  if (!value) {
+    return null
+  }
+
+  const date = value instanceof Date ? value : new Date(value)
+  const time = date.getTime()
+  return Number.isNaN(time) ? null : time
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) {
+    return null
+  }
+
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}
+
 function parseBooleanQuery(value: string | undefined): boolean {
   if (!value) {
     return false
@@ -117,7 +159,14 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
     const query = c.req.valid("query")
     const includeBilling = parseBooleanQuery(query.includeBilling)
 
-    const [admins, users, workerStatsRows, sessionStatsRows, accountRows] = await Promise.all([
+    const activityWindowDays = 90
+    const seriesWindowDays = 30
+    const activityWindowStart = new Date(Date.now() - activityWindowDays * 24 * 60 * 60 * 1000)
+
+    const sessionDayExpr = sql<string>`date_format(${AuthSessionTable.createdAt}, '%Y-%m-%d')`
+    const telemetryDayExpr = sql<string>`date_format(${TelemetryEventTable.event_timestamp}, '%Y-%m-%d')`
+
+    const [admins, users, workerStatsRows, sessionStatsRows, accountRows, sessionDayRows, telemetryDayRows, inviteStatsRows] = await Promise.all([
       db
         .select({
           email: AdminAllowlistTable.email,
@@ -152,6 +201,31 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
           providerId: AuthAccountTable.providerId,
         })
         .from(AuthAccountTable),
+      db
+        .select({
+          userId: AuthSessionTable.userId,
+          day: sessionDayExpr,
+        })
+        .from(AuthSessionTable)
+        .groupBy(AuthSessionTable.userId, sessionDayExpr),
+      db
+        .select({
+          userId: MemberTable.userId,
+          day: telemetryDayExpr,
+          lastEventAt: sql<Date | null>`max(${TelemetryEventTable.event_timestamp})`,
+        })
+        .from(TelemetryEventTable)
+        .innerJoin(MemberTable, eq(TelemetryEventTable.member_id, MemberTable.id))
+        .where(gte(TelemetryEventTable.event_timestamp, activityWindowStart))
+        .groupBy(MemberTable.userId, telemetryDayExpr),
+      db
+        .select({
+          inviterId: InvitationTable.inviterId,
+          invitesSent: sql<number>`count(*)`,
+          firstInviteAt: sql<Date | null>`min(${InvitationTable.createdAt})`,
+        })
+        .from(InvitationTable)
+        .groupBy(InvitationTable.inviterId),
     ])
 
     const workerStatsByUser = new Map<UserId, {
@@ -194,6 +268,98 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
       providersByUser.set(row.userId, existing)
     }
 
+    type ActivityStats = {
+      days: Set<string>
+      lastTelemetryAt: number | null
+    }
+
+    const activityByUser = new Map<UserId, ActivityStats>()
+    const getActivity = (userId: UserId): ActivityStats => {
+      let stats = activityByUser.get(userId)
+      if (!stats) {
+        stats = { days: new Set(), lastTelemetryAt: null }
+        activityByUser.set(userId, stats)
+      }
+      return stats
+    }
+
+    const seriesStartKey = toDayKey(new Date(Date.now() - (seriesWindowDays - 1) * 24 * 60 * 60 * 1000)) ?? ""
+    const activeUsersByDay = new Map<string, Set<UserId>>()
+    const markActiveDay = (day: string, userId: UserId) => {
+      if (day < seriesStartKey) {
+        return
+      }
+
+      const set = activeUsersByDay.get(day) ?? new Set<UserId>()
+      set.add(userId)
+      activeUsersByDay.set(day, set)
+    }
+
+    for (const row of sessionDayRows) {
+      if (!row.day) {
+        continue
+      }
+
+      getActivity(row.userId).days.add(row.day)
+      markActiveDay(row.day, row.userId)
+    }
+
+    for (const row of telemetryDayRows) {
+      if (!row.userId) {
+        continue
+      }
+
+      const stats = getActivity(row.userId)
+      if (row.day) {
+        stats.days.add(row.day)
+        markActiveDay(row.day, row.userId)
+      }
+
+      const eventTime = toTimestamp(row.lastEventAt)
+      if (eventTime !== null && (stats.lastTelemetryAt === null || eventTime > stats.lastTelemetryAt)) {
+        stats.lastTelemetryAt = eventTime
+      }
+    }
+
+    const inviteStatsByUser = new Map<UserId, { invitesSent: number; firstInviteAt: Date | string | null }>()
+    for (const row of inviteStatsRows) {
+      inviteStatsByUser.set(row.inviterId, {
+        invitesSent: toNumber(row.invitesSent),
+        firstInviteAt: row.firstInviteAt,
+      })
+    }
+
+    const signupsByDay = new Map<string, number>()
+    for (const entry of users) {
+      const day = toDayKey(entry.createdAt)
+      if (day) {
+        signupsByDay.set(day, (signupsByDay.get(day) ?? 0) + 1)
+      }
+    }
+
+    const todayKey = toDayKey(new Date())
+    const activitySeries: Array<{ day: string; activeUsers: number; signups: number }> = []
+    const active7d = new Set<UserId>()
+    const active30d = new Set<UserId>()
+    for (let offset = seriesWindowDays - 1; offset >= 0; offset -= 1) {
+      const day = toDayKey(new Date(Date.now() - offset * 24 * 60 * 60 * 1000))
+      if (!day) {
+        continue
+      }
+
+      const activeSet = activeUsersByDay.get(day)
+      activitySeries.push({ day, activeUsers: activeSet?.size ?? 0, signups: signupsByDay.get(day) ?? 0 })
+      if (activeSet) {
+        for (const id of activeSet) {
+          active30d.add(id)
+          if (offset <= 6) {
+            active7d.add(id)
+          }
+        }
+      }
+    }
+    const activeUsers1d = todayKey ? (activeUsersByDay.get(todayKey)?.size ?? 0) : 0
+
     const defaultBilling = {
       status: "unavailable" as const,
       featureGateEnabled: false,
@@ -230,6 +396,24 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
       }
       const authProviders = Array.from(providersByUser.get(entry.id) ?? []).sort()
 
+      const activity = activityByUser.get(entry.id)
+      const activeDayCount = activity ? activity.days.size : 0
+
+      const lastSeenTime = toTimestamp(sessionStats.lastSeenAt)
+      const lastTelemetryAt = activity ? activity.lastTelemetryAt : null
+      const lastActiveTime = lastTelemetryAt === null
+        ? lastSeenTime
+        : lastSeenTime === null
+          ? lastTelemetryAt
+          : Math.max(lastSeenTime, lastTelemetryAt)
+
+      const inviteStats = inviteStatsByUser.get(entry.id)
+      const signupTime = toTimestamp(entry.createdAt)
+      const firstInviteTime = toTimestamp(inviteStats ? inviteStats.firstInviteAt : null)
+      const hoursToFirstInvite = signupTime !== null && firstInviteTime !== null
+        ? Math.max(0, Math.round(((firstInviteTime - signupTime) / (60 * 60 * 1000)) * 10) / 10)
+        : null
+
       return {
         id: entry.id,
         name: entry.name,
@@ -239,6 +423,12 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         updatedAt: entry.updatedAt,
         lastSeenAt: sessionStats.lastSeenAt,
         sessionCount: sessionStats.sessionCount,
+        activeDayCount,
+        isRecurring: activeDayCount >= 2,
+        lastActiveAt: lastActiveTime === null ? null : new Date(lastActiveTime),
+        invitesSent: inviteStats ? inviteStats.invitesSent : 0,
+        firstInviteAt: inviteStats ? inviteStats.firstInviteAt : null,
+        hoursToFirstInvite,
         authProviders,
         workerCount: workerStats.workerCount,
         cloudWorkerCount: workerStats.cloudWorkerCount,
@@ -281,6 +471,14 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
           accumulator.recentUsers30d += 1
         }
 
+        if (entry.isRecurring) {
+          accumulator.recurringUsers += 1
+        }
+
+        if (entry.invitesSent > 0) {
+          accumulator.inviters += 1
+        }
+
         return accumulator
       },
       {
@@ -295,8 +493,17 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         paidUsers: 0,
         unpaidUsers: 0,
         billingUnavailableUsers: 0,
+        recurringUsers: 0,
+        inviters: 0,
       },
     )
+
+    const inviteHours: number[] = []
+    for (const row of userRows) {
+      if (row.hoursToFirstInvite !== null) {
+        inviteHours.push(row.hoursToFirstInvite)
+      }
+    }
 
     return c.json({
       viewer: {
@@ -313,6 +520,11 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         unpaidUsers: includeBilling ? summary.unpaidUsers : null,
         billingUnavailableUsers: includeBilling ? summary.billingUnavailableUsers : null,
         usersWithoutWorkers: summary.totalUsers - summary.usersWithWorkers,
+        activeUsers1d,
+        activeUsers7d: active7d.size,
+        activeUsers30d: active30d.size,
+        medianHoursToFirstInvite: median(inviteHours),
+        activitySeries,
       },
       users: userRows,
       generatedAt: new Date().toISOString(),
