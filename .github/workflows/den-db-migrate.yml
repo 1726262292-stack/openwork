@@ -6,6 +6,7 @@ name: Den DB Migrate
 #   DATABASE_HOST       PlanetScale host (e.g. aws.connect.psdb.cloud)
 #   DATABASE_USERNAME   PlanetScale branch password username
 #   DATABASE_PASSWORD   PlanetScale branch password
+#   DATABASE_NAME       PlanetScale database name (drizzle-kit migrate connects over the MySQL protocol and needs it)
 #
 # Runs automatically when migration files land on dev, and manually via
 # workflow_dispatch. For a database previously managed with db:push (no
@@ -50,6 +51,7 @@ jobs:
       DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
       DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
       DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+      DATABASE_NAME: ${{ secrets.DATABASE_NAME }}
 
     steps:
       - name: Verify database secrets are configured
@@ -59,6 +61,7 @@ jobs:
           [ -z "$DATABASE_HOST" ] && missing="$missing DATABASE_HOST"
           [ -z "$DATABASE_USERNAME" ] && missing="$missing DATABASE_USERNAME"
           [ -z "$DATABASE_PASSWORD" ] && missing="$missing DATABASE_PASSWORD"
+          [ -z "$DATABASE_NAME" ] && missing="$missing DATABASE_NAME"
           if [ -n "$missing" ]; then
             echo "::error::Missing GitHub Actions secrets:$missing. Add them under Settings -> Secrets and variables -> Actions."
             exit 1
