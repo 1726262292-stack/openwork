@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 type AccessState = "loading" | "ready" | "signed-out" | "forbidden" | "error";
 type WorkerFilter = "all" | "with-workers" | "without-workers";
 type BillingFilter = "all" | "paid" | "unpaid" | "unavailable";
+type ViewMode = "users" | "companies";
 
 type AdminBillingStatus = {
   status: "paid" | "unpaid" | "unavailable";
@@ -315,6 +316,108 @@ function formatProvider(provider: string): string {
     .join(" ");
 }
 
+const PERSONAL_EMAIL_DOMAINS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "outlook.com",
+  "hotmail.com",
+  "live.com",
+  "msn.com",
+  "yahoo.com",
+  "ymail.com",
+  "icloud.com",
+  "me.com",
+  "mac.com",
+  "proton.me",
+  "protonmail.com",
+  "pm.me",
+  "gmx.com",
+  "gmx.de",
+  "gmx.net",
+  "aol.com",
+  "qq.com",
+  "163.com",
+  "126.com",
+  "mail.ru",
+  "yandex.ru",
+  "yandex.com",
+  "hey.com",
+  "fastmail.com",
+  "zoho.com",
+  "duck.com",
+  "mail.com"
+]);
+
+function getEmailDomain(email: string): string {
+  const at = email.lastIndexOf("@");
+  if (at === -1 || at === email.length - 1) {
+    return "unknown";
+  }
+
+  return email.slice(at + 1).trim().toLowerCase();
+}
+
+type DomainGroup = {
+  domain: string;
+  users: AdminUser[];
+  verifiedCount: number;
+  workerCount: number;
+  latestSignupAt: string | null;
+  isPersonal: boolean;
+};
+
+function buildDomainGroups(users: AdminUser[]): DomainGroup[] {
+  const groups = new Map<string, DomainGroup>();
+
+  for (const user of users) {
+    const domain = getEmailDomain(user.email);
+    const group = groups.get(domain) ?? {
+      domain,
+      users: [],
+      verifiedCount: 0,
+      workerCount: 0,
+      latestSignupAt: null,
+      isPersonal: PERSONAL_EMAIL_DOMAINS.has(domain)
+    };
+
+    group.users.push(user);
+    if (user.emailVerified) {
+      group.verifiedCount += 1;
+    }
+    group.workerCount += user.workerCount;
+    if (user.createdAt && (!group.latestSignupAt || user.createdAt > group.latestSignupAt)) {
+      group.latestSignupAt = user.createdAt;
+    }
+    groups.set(domain, group);
+  }
+
+  return Array.from(groups.values()).sort((a, b) => {
+    const aTime = a.latestSignupAt ?? "";
+    const bTime = b.latestSignupAt ?? "";
+    if (aTime !== bTime) {
+      return aTime > bTime ? -1 : 1;
+    }
+    if (a.users.length !== b.users.length) {
+      return b.users.length - a.users.length;
+    }
+    return a.domain.localeCompare(b.domain);
+  });
+}
+
+function csvEscape(value: string): string {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, `""`)}"` : value;
+}
+
+function downloadCsv(filename: string, rows: string[][]) {
+  const content = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+  const url = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function formatBillingStatus(value: AdminBillingStatus | null): string {
   if (!value) {
     return "Not loaded";
@@ -391,6 +494,8 @@ export function DenAdminPanel() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState("");
+  const [viewMode, setViewMode] = useState<ViewMode>("users");
+  const [hidePersonalDomains, setHidePersonalDomains] = useState(true);
   const [workerFilter, setWorkerFilter] = useState<WorkerFilter>("all");
   const [billingFilter, setBillingFilter] = useState<BillingFilter>("all");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -476,6 +581,68 @@ export function DenAdminPanel() {
       return haystack.includes(normalizedQuery);
     });
   }, [billingFilter, payload, query, workerFilter]);
+
+  const domainGroups = useMemo(() => {
+    return payload ? buildDomainGroups(payload.users) : [];
+  }, [payload]);
+
+  const companyDomainCount = useMemo(() => {
+    return domainGroups.filter((group) => !group.isPersonal).length;
+  }, [domainGroups]);
+
+  const filteredDomains = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return domainGroups.filter((group) => {
+      if (hidePersonalDomains && group.isPersonal) {
+        return false;
+      }
+
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      if (group.domain.includes(normalizedQuery)) {
+        return true;
+      }
+
+      return group.users.some((user) => `${user.name ?? ""} ${user.email}`.toLowerCase().includes(normalizedQuery));
+    });
+  }, [domainGroups, hidePersonalDomains, query]);
+
+  const exportCsv = useCallback(() => {
+    const date = new Date().toISOString().slice(0, 10);
+
+    if (viewMode === "companies") {
+      downloadCsv(`den-companies-${date}.csv`, [
+        ["domain", "users", "verified", "workers", "latest_signup", "personal", "emails"],
+        ...filteredDomains.map((group) => [
+          group.domain,
+          String(group.users.length),
+          String(group.verifiedCount),
+          String(group.workerCount),
+          group.latestSignupAt ?? "",
+          group.isPersonal ? "yes" : "no",
+          group.users.map((user) => user.email).join("; ")
+        ])
+      ]);
+      return;
+    }
+
+    downloadCsv(`den-users-${date}.csv`, [
+      ["email", "name", "domain", "verified", "signed_up", "last_seen", "sessions", "workers", "providers"],
+      ...filteredUsers.map((user) => [
+        user.email,
+        user.name ?? "",
+        getEmailDomain(user.email),
+        user.emailVerified ? "yes" : "no",
+        user.createdAt ?? "",
+        user.lastSeenAt ?? "",
+        String(user.sessionCount),
+        String(user.workerCount),
+        user.authProviders.join("; ")
+      ])
+    ]);
+  }, [filteredDomains, filteredUsers, viewMode]);
 
   useEffect(() => {
     if (!payload) {
@@ -598,7 +765,58 @@ export function DenAdminPanel() {
       </div>
 
       <div className="px-6 py-6 sm:px-8">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 p-1">
+            <button
+              type="button"
+              onClick={() => setViewMode("users")}
+              className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${viewMode === "users" ? "bg-slate-950 text-white" : "text-slate-600 hover:text-slate-900"}`}
+            >
+              Users ({payload.summary.totalUsers})
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("companies")}
+              className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${viewMode === "companies" ? "bg-slate-950 text-white" : "text-slate-600 hover:text-slate-900"}`}
+            >
+              Companies ({companyDomainCount})
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={exportCsv}
+            disabled={viewMode === "companies" ? filteredDomains.length === 0 : filteredUsers.length === 0}
+            className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Export CSV
+          </button>
+        </div>
+
+        {viewMode === "companies" ? (
+          <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <label className="grid w-full max-w-xl gap-2">
+              <span className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-500">Search companies</span>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Domain, email, or name - try okta"
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-400"
+              />
+            </label>
+
+            <label className="flex items-center gap-2 pb-1 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={hidePersonalDomains}
+                onChange={(event) => setHidePersonalDomains(event.target.checked)}
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              Hide personal email domains
+            </label>
+          </div>
+        ) : (
+        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_13rem_13rem]">
             <label className="grid gap-2">
               <span className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-500">Search users</span>
@@ -654,9 +872,58 @@ export function DenAdminPanel() {
             <p className="text-sm text-slate-500">Billing loaded for {payload.summary.totalUsers} users.</p>
           )}
         </div>
+        )}
 
         <div className="mt-6 grid gap-3">
-          {filteredUsers.length > 0 ? filteredUsers.map((user) => {
+          {viewMode === "companies" ? (
+            filteredDomains.length > 0 ? filteredDomains.map((group) => (
+              <div key={group.domain} className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate text-base font-semibold text-slate-950">{group.domain}</p>
+                      {group.isPersonal ? (
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[0.66rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Personal
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 truncate text-sm text-slate-500">
+                      {group.users.slice(0, 3).map((user) => user.email).join(", ")}
+                      {group.users.length > 3 ? ` +${group.users.length - 3} more` : ""}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-600">
+                      {group.users.length} {group.users.length === 1 ? "user" : "users"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQuery(`@${group.domain}`);
+                        setViewMode("users");
+                      }}
+                      className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300"
+                    >
+                      View users
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                  <MetaCell label="Latest signup" value={group.latestSignupAt ? `${formatRelativeTime(group.latestSignupAt)} · ${formatDateTime(group.latestSignupAt)}` : "-"} />
+                  <MetaCell label="Verified" value={`${group.verifiedCount} of ${group.users.length}`} />
+                  <MetaCell label="Workers" value={String(group.workerCount)} />
+                </div>
+              </div>
+            )) : (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-10 text-center">
+                <p className="text-base font-semibold text-slate-950">No company domains match</p>
+                <p className="mt-2 text-sm leading-7 text-slate-500">Try a different search, or include personal email domains.</p>
+              </div>
+            )
+          ) : filteredUsers.length > 0 ? filteredUsers.map((user) => {
             const isSelected = user.id === selectedUser?.id;
 
             return (
