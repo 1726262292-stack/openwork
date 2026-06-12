@@ -102,6 +102,7 @@ import {
 } from "@/react-app/domains/session/sync/session-sync";
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
+import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { CreateRemoteWorkspaceModal } from "@/react-app/domains/workspace/create-remote-workspace-modal";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
@@ -148,7 +149,6 @@ import { readDenSettings } from "@/app/lib/den";
 import { denSessionUpdatedEvent } from "@/app/lib/den-session-events";
 
 import { openModelPickerEvent, pendingModelPickerProviderIdsKey } from "./new-providers-toast";
-import { getModelBehaviorSummary } from "@/app/lib/model-behavior";
 import { filterProviderList } from "@/app/utils/providers";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
 import { resolveOpenworkConnection } from "./openwork-connection";
@@ -230,8 +230,6 @@ function focusPromptSoon() {
   const focus = () => window.dispatchEvent(new Event("openwork:focusPrompt"));
   [0, 80, 240, 600].forEach((delay) => window.setTimeout(focus, delay));
 }
-
-const emptyModelBehaviorOptions: { value: string | null; label: string }[] = [];
 
 // All workspace-scoped server URLs/clients/tokens come from
 // `resolveWorkspaceEndpoint` in apps/app/src/app/lib/workspace-endpoint.ts.
@@ -485,7 +483,6 @@ export function SessionRoute() {
   // Provider catalog cache. Used to compute the reasoning/thinking variant
   // options for whichever model is currently selected so the composer's
   // behavior pill actually shows its options (bug: was empty before).
-  const [providerCatalog, setProviderCatalog] = useState<Record<string, Record<string, any>>>({});
   const [openworkServerHostInfoState, setOpenworkServerHostInfoState] = useState<OpenworkServerInfo | null>(null);
   useReactRenderWatchdog("SessionRoute", {
     selectedSessionId,
@@ -1352,6 +1349,12 @@ export function SessionRoute() {
     baseUrl: opencodeBaseUrl,
     directory: selectedWorkspaceRoot || undefined,
   });
+  const { providerCatalog, modelVariantLabel, modelBehaviorOptions, modelVariantValue } =
+    useModelBehavior({
+      providerList: providerListQuery.data,
+      defaultModel: local.prefs.defaultModel,
+      modelVariant: local.prefs.modelVariant ?? null,
+    });
   const selectedModelUnavailable = Boolean(
     local.prefs.defaultModel &&
       (
@@ -1590,48 +1593,6 @@ export function SessionRoute() {
   const modelLabel = local.prefs.defaultModel
     ? resolveModelDisplayName(local.prefs.defaultModel.modelID)
     : t("session.default_model");
-
-  // Prefetch the full provider catalog once so `getModelBehaviorSummary` has
-  // everything it needs to expose the reasoning/thinking variants the active
-  // model supports — without waiting for the model picker to open. Cached
-  // as providerID → modelID → ProviderModel.
-  useEffect(() => {
-    const data = providerListQuery.data;
-    if (!data?.all) return;
-    const next: Record<string, Record<string, any>> = {};
-    for (const provider of data.all) {
-      next[provider.id] = { ...(provider.models ?? {}) };
-    }
-    setProviderCatalog(next);
-  }, [providerListQuery.data]);
-
-  // Compute behavior (reasoning/thinking variant) options for the current
-  // default model. This is what the composer renders as its variant pill.
-  const { modelVariantLabel, modelBehaviorOptions, modelVariantValue } = useMemo(() => {
-    const ref = local.prefs.defaultModel;
-    const variant = local.prefs.modelVariant ?? null;
-    if (!ref) {
-      return {
-        modelVariantLabel: t("settings.default_label"),
-        modelBehaviorOptions: emptyModelBehaviorOptions,
-        modelVariantValue: null,
-      };
-    }
-    const model = providerCatalog[ref.providerID]?.[ref.modelID];
-    if (!model) {
-      return {
-        modelVariantLabel: variant ?? t("settings.default_label"),
-        modelBehaviorOptions: emptyModelBehaviorOptions,
-        modelVariantValue: variant,
-      };
-    }
-    const summary = getModelBehaviorSummary(ref.providerID, model, variant);
-    return {
-      modelVariantLabel: summary.label,
-      modelBehaviorOptions: summary.options,
-      modelVariantValue: summary.value,
-    };
-  }, [local.prefs.defaultModel, local.prefs.modelVariant, providerCatalog]);
 
   // Load the picker list lazily the first time the modal opens. Uses the
   // cached catalog when available, otherwise re-fetches.
