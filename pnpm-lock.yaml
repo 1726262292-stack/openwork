@@ -669,6 +669,18 @@ importers:
         specifier: 5.4.5
         version: 5.4.5
 
+  ee/packages/den-admin-mcp:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@3.25.76)
+      mysql2:
+        specifier: ^3.11.3
+        version: 3.17.4
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+
   ee/packages/den-db:
     dependencies:
       '@openwork-ee/utils':
