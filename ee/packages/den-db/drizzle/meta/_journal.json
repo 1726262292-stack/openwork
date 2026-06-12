@@ -148,6 +148,13 @@
       "when": 1781286597056,
       "tag": "0021_telemetry_event",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "5",
+      "when": 1781292060846,
+      "tag": "0022_grandfather_enterprise_plans",
+      "breakpoints": true
     }
   ]
 }

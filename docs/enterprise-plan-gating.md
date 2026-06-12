@@ -98,17 +98,23 @@ Reuse the existing 402 pattern from seat gating
   open-source/ejectable story is unchanged. (The code already lives under
   `/ee` (FSL-1.1-MIT), which is the licensing boundary for these features.)
 
-## Grandfathering (no-breakage migration)
+## Grandfathering (no-breakage migration, CI-applied)
 
-One-time backfill script `ee/apps/den-api/scripts/backfill-enterprise-plans.ts`
-(same shape as `scripts/backfill-desktop-policies.ts`). An org is grandfathered
-to `plan: { tier: "enterprise", source: "grandfathered", grandfatheredAt }` if
-any of:
+Drizzle data migration
+`ee/packages/den-db/drizzle/0022_grandfather_enterprise_plans.sql`, applied
+automatically by the existing `den-db-migrate.yml` workflow when it lands on
+`dev` — no manual step. It runs exactly once (tracked in
+`__drizzle_migrations`) and is idempotent by construction. An org is
+grandfathered to `plan: { tier: "enterprise", source: "grandfathered",
+grandfatheredAt }` if any of:
 
 1. A row exists in `sso_connection` for the org (any status), or
 2. It has any non-default desktop policy, or a default policy whose values
    differ from the catalog defaults, or any `desktop_policy_member` rows, or
 3. Org metadata has `requireSso === true` or non-empty `allowedDesktopVersions`.
+
+Orgs already on the enterprise tier (e.g. `source: "manual"`) are left
+untouched.
 
 Grandfathered orgs get **full** enterprise entitlements indefinitely — they can
 keep editing, not just keep running. They are flagged (`source:
@@ -117,11 +123,14 @@ at renewal time; we never auto-expire them.
 
 Rollout order (each step independently safe):
 
-1. Ship entitlement code dark (`DEN_PLAN_GATING_ENABLED` unset).
-2. Run backfill; verify counts in admin backoffice.
-3. Update landing/pricing pages (this PR).
-4. Enable the flag on hosted Den.
-5. Manual plan assignment for new enterprise customers via existing instance
+1. Merge: entitlement code ships dark (`DEN_PLAN_GATING_ENABLED` unset) and CI
+   applies the grandfathering migration in the same deploy.
+2. Update landing/pricing pages (separate PR).
+3. Enable the flag on hosted Den. Do this soon after the merge: orgs that
+   first adopt SSO/policies *between* the migration and the flag flip are not
+   grandfathered (acceptable — gating only blocks edits, never breaks what
+   they configured; ship a follow-up data migration if the gap grows long).
+4. Manual plan assignment for new enterprise customers via existing instance
    admin surface (`routes/admin/index.ts`) until Stripe enterprise products
    exist; later, optionally a third `OrgSubscriptionTable.type = "enterprise"`.
 
