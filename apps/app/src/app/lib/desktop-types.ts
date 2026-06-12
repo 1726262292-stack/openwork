@@ -247,3 +247,16 @@ export type CacheResetResult = {
   missing: string[];
   errors: string[];
 };
+
+// Browser tab state mirrored across the desktop IPC bridge. Owned here (the
+// framework-agnostic layer); the session panel store re-exports it.
+export type BrowserPanelTab = {
+  id: string;
+  type: "browser";
+  label: string;
+  url: string;
+  favicon: string | null;
+  status: "loading" | "ready";
+  canGoBack: boolean;
+  canGoForward: boolean;
+};

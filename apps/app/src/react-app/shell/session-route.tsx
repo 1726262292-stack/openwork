@@ -140,7 +140,7 @@ import {
 import {
   publishInspectorSlice,
   recordInspectorEvent,
-} from "./app-inspector";
+} from "../../app/lib/app-inspector";
 import { saveSessionDraft } from "@/react-app/domains/session/sync/draft-store";
 import { useControlAction, type OpenworkControlAction } from "./control/control-provider";
 import { useReactRenderWatchdog } from "./react-render-watchdog";
@@ -167,7 +167,7 @@ import {
   isModelAvailableInConnectedProviders,
   refreshProviderListQueries,
   useProviderListQuery,
-} from "@/react-app/domains/connections/provider-list-query";
+} from "@/react-app/infra/provider-list-query";
 
 type RouteWorkspace = OpenworkWorkspaceInfo & {
   displayNameResolved: string;

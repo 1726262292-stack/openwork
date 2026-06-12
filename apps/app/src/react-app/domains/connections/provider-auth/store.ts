@@ -32,7 +32,7 @@ import {
   filterProviderList,
 } from "../../../../app/utils/providers";
 import { getReactQueryClient } from "../../../infra/query-client";
-import { ensureProviderListQuery } from "../provider-list-query";
+import { ensureProviderListQuery } from "../../../infra/provider-list-query";
 import type { OpenworkServerStore } from "../openwork-server-store";
 import {
   denSessionUpdatedEvent,
