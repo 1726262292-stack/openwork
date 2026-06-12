@@ -1110,15 +1110,39 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
 function McpConfiguredServerAuthActions(props: Parameters<typeof McpConfiguredServerRow>[0]) {
   if (!props.supportsOauth(props.entry)) return null;
   if (props.status !== "connected") {
+    // Broken auth states: stale tokens or a poisoned OAuth client
+    // registration can make "Sign in" fail forever. Offer a recovery
+    // action that clears the stored sign-in data so a retry starts fresh.
+    const showClearAuth =
+      props.status === "failed" ||
+      props.status === "needs_auth" ||
+      props.status === "needs_client_registration";
+    const clearingThis = props.logoutBusy && props.logoutTarget === props.entry.name;
     return (
       <>
         <div className="flex items-center justify-between gap-3 pt-1">
           <div className="text-xs text-dls-secondary">{t("mcp.logout_label")}</div>
-          <Button size="sm" disabled={props.busy} onClick={() => props.onAuthorize(props.entry)}>
-            {t("mcp.login_action")}
-          </Button>
+          <div className="flex items-center gap-2">
+            {showClearAuth ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={props.busy || props.logoutBusy}
+                onClick={() => props.onRequestLogout(props.entry.name)}
+              >
+                {clearingThis ? t("mcp.logout_working") : "Clear sign-in data"}
+              </Button>
+            ) : null}
+            <Button size="sm" disabled={props.busy} onClick={() => props.onAuthorize(props.entry)}>
+              {t("mcp.login_action")}
+            </Button>
+          </div>
         </div>
-        <div className="text-[11px] text-dls-secondary/70">{t("mcp.login_hint")}</div>
+        <div className="text-[11px] text-dls-secondary/70">
+          {showClearAuth
+            ? "Stuck signing in? Clear sign-in data to reset the saved OAuth tokens and app registration, then sign in again."
+            : t("mcp.login_hint")}
+        </div>
       </>
     );
   }

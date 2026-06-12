@@ -32,6 +32,7 @@ import {
   syncDesktopCloudResources,
 } from "./desktop-cloud-sync.js";
 import { installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
+import { removeMcpAuthEntryFromStore, resolveMcpAuthStorePath } from "./mcp-auth-store.js";
 import {
   applyMaterializedBlueprintSessions,
   normalizeBlueprintSessionTemplates,
@@ -4111,7 +4112,7 @@ function createRoutes(
     const name = String(ctx.params.name ?? "").trim();
     validateMcpName(name);
 
-    const authStorePath = join(homedir(), ".config", "opencode", "mcp-auth.json");
+    const authStorePath = resolveMcpAuthStorePath();
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "mcp.auth.remove",
@@ -4142,7 +4143,12 @@ function createRoutes(
       ) {
         // ok
       } else {
-        throw error;
+        // Recovery fallback: when the engine is unreachable or refuses
+        // (stale entries can break auth badly enough that even the engine
+        // route fails), edit the auth store file directly so stuck users
+        // can always clear sign-in data from the UI.
+        const cleared = await removeMcpAuthEntryFromStore(name).catch(() => false);
+        if (!cleared) throw error;
       }
     }
 
