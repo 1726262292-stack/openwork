@@ -298,13 +298,12 @@ export type HubSkillCard = {
   };
 };
 
-/** OpenWork Cloud (Den) org skill surfaced in the Skills catalog (team hub + shared). */
+/** OpenWork Cloud (Den) org skill surfaced in the Skills catalog. */
 export type DenOrgSkillCard = {
   id: string;
   title: string;
   description: string | null;
   skillText: string;
-  hubName: string | null;
   shared: "org" | "public" | null;
   updatedAt: string | null;
 };

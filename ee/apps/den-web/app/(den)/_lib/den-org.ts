@@ -383,34 +383,6 @@ export function getSsoRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/sso`;
 }
 
-export function getSkillHubsRoute(orgSlug?: string | null): string {
-  return `${getOrgDashboardRoute(orgSlug)}/skill-hubs`;
-}
-
-export function getSkillHubRoute(orgSlug: string | null | undefined, skillHubId: string): string {
-  return `${getSkillHubsRoute(orgSlug)}/${encodeURIComponent(skillHubId)}`;
-}
-
-export function getEditSkillHubRoute(orgSlug: string | null | undefined, skillHubId: string): string {
-  return `${getSkillHubRoute(orgSlug, skillHubId)}/edit`;
-}
-
-export function getNewSkillHubRoute(orgSlug?: string | null): string {
-  return `${getSkillHubsRoute(orgSlug)}/new`;
-}
-
-export function getSkillDetailRoute(orgSlug: string | null | undefined, skillId: string): string {
-  return `${getSkillHubsRoute(orgSlug)}/skills/${encodeURIComponent(skillId)}`;
-}
-
-export function getEditSkillRoute(orgSlug: string | null | undefined, skillId: string): string {
-  return `${getSkillDetailRoute(orgSlug, skillId)}/edit`;
-}
-
-export function getNewSkillRoute(orgSlug?: string | null): string {
-  return `${getSkillHubsRoute(orgSlug)}/skills/new`;
-}
-
 export function getPluginsRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/plugins`;
 }

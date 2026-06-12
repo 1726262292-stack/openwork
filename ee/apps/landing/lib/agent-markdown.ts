@@ -13,7 +13,7 @@ const home = `# OpenWork
 ## Primary calls-to-action
 
 - **Try it free** — [Get Started for free](https://app.openworklabs.com?mode=sign-up)
-- **Team plans** — [Pricing](https://openworklabs.com/pricing) (\\$10 per seat/mo, 5 seat minimum)
+- **Team plans** — [Pricing](https://openworklabs.com/pricing) (first 5 seats free, then \\$10 per seat/mo)
 - **Sign in to the hosted workspace** — [Cloud](https://app.openworklabs.com)
 - **SSO / audit / procurement** — [Enterprise](https://openworklabs.com/enterprise)
 - **Docs** — [openworklabs.com/docs](https://openworklabs.com/docs)
@@ -30,7 +30,7 @@ const home = `# OpenWork
 A free, open-source desktop app (macOS, Windows, Linux) for doing work with AI agents on your own files. Built on OpenCode; an open-source alternative to Claude Cowork and Codex.
 
 ### Is OpenWork free?
-Yes — the desktop app is free and open source with bring-your-own keys. Team Starter is \\$10 per seat/mo (5 seat minimum, \\$50/mo); Enterprise is custom.
+Yes — the desktop app is free and open source with bring-your-own keys. Team Starter includes your first 5 seats free, then \\$10 per seat/mo; Enterprise is custom.
 
 ### Which models does it support?
 Any model OpenCode supports: OpenAI, Anthropic, Google, local models — 50+ providers.
@@ -50,31 +50,34 @@ Backed by Y Combinator.
 
 const pricing = `# OpenWork pricing — free, team, and enterprise
 
-> OpenWork has three tiers: free open-source desktop, \\$10 per seat/mo Team Starter (5 seat minimum), and custom Enterprise.
+> OpenWork has three tiers: free open-source desktop, Team Starter with the first 5 seats free then \\$10 per seat/mo, and custom Enterprise.
 
 ## Solo — Free
 
 - Open-source desktop app
-- macOS, Windows, Linux downloads
+- macOS and Linux downloads
 - Bring your own provider keys
 - Free forever
 - CTA: [Get Started for free](https://app.openworklabs.com?mode=sign-up)
 
 ## Team Starter — \\$10 / seat / month
 
-- Starts at 5 seats (\\$50/month)
+- First 5 seats free
 - API access
-- Skill Hub Manager
+- Extension Marketplace
 - Bring your own LLM keys, distributed to your team
 - CTA: [Start team plan](https://app.openworklabs.com/dashboard/billing)
 
 ## Enterprise — Custom pricing
 
+- Everything in Team Starter
 - SSO / SAML and SCIM provisioning
 - Bring your own inference — self-hosted or private models
-- Enterprise rollout support
-- Custom commercial terms
-- For org-wide rollout and custom terms
+- Desktop policies and version controls — admins decide which providers, models, extensions, and app versions employees can use; the desktop app enforces it automatically
+- Managed deployment — self-hosted in your environment or hosted by OpenWork
+- Custom skill development and MCP consulting
+- Enterprise rollout support and custom commercial terms
+- Existing organizations already using SSO or desktop policies keep full access (grandfathered)
 - CTA: [Talk to us](https://openworklabs.com/enterprise#book)
 
 Prices exclude taxes.
@@ -86,10 +89,12 @@ const enterprise = `# A privacy-first alternative to Claude Cowork for your orga
 
 ## What Enterprise includes
 
-- Enterprise rollout support and deployment guidance
-- Custom commercial terms
-- SSO / SAML integration
-- Audit logs and policy controls
+- SSO / SAML integration and SCIM provisioning
+- Desktop policies and version controls — guardrails for providers, models, extensions, and app versions, enforced by the desktop app
+- Managed deployment — self-hosted in your environment or hosted by OpenWork
+- Custom skill development for your team's workflows
+- MCP consulting — connect internal data sources and tools as MCP servers
+- Enterprise rollout support and custom commercial terms
 - Named security contact and incident response
 
 ## Deployment models

@@ -37,14 +37,14 @@ const pricingSchema = {
         unitText: "seat per month"
       },
       description:
-        "$10 per seat per month, starting at 5 seats ($50/month). API access, Skill Hub Manager, distributed keys."
+        "First 5 seats free, then $10 per seat per month. API access, Extension Marketplace, distributed keys."
     },
     {
       "@type": "Offer",
       name: "Enterprise",
       url: "https://openworklabs.com/enterprise",
       description:
-        "Custom pricing. SSO/SAML and SCIM, bring your own inference, enterprise rollout support, and custom commercial terms."
+        "Custom pricing. SSO/SAML and SCIM, bring your own inference, desktop policies and version controls, managed deployment, custom skill development, MCP consulting, and custom commercial terms."
     }
   ]
 };
@@ -52,7 +52,7 @@ const pricingSchema = {
 export const metadata = {
   title: "OpenWork Pricing — Free desktop, $10/seat teams, enterprise",
   description:
-    "OpenWork is free forever for solo use with bring-your-own-keys. Teams pay $10 per seat per month (5 seat minimum), plus custom enterprise plans with SSO and bring-your-own inference.",
+    "OpenWork is free forever for solo use with bring-your-own-keys. Teams get their first 5 seats free, then $10 per seat per month, plus custom enterprise plans with SSO and bring-your-own inference.",
   alternates: {
     canonical: "/pricing"
   },

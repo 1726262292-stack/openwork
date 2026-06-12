@@ -10,6 +10,7 @@ import {
   Plug,
   Server,
   Shield,
+  SlidersHorizontal,
   Users,
 } from "lucide-react";
 import { ResponsiveGrain } from "./responsive-grain";
@@ -151,9 +152,9 @@ export function PricingGrid(props: PricingGridProps) {
       external: true,
       badge: "Recommended",
       features: [
-        { text: "Starts at 5 seats — $50/month", icon: Users },
+        { text: "First 5 seats free", icon: Users },
         { text: "API access", icon: Plug },
-        { text: "Skill Hub Manager", icon: Library },
+        { text: "Extension Marketplace", icon: Library },
         { text: "Bring your own LLM keys, distributed to your team", icon: KeyRound },
       ],
       footer: "Billed monthly. Cancel anytime.",
@@ -171,10 +172,13 @@ export function PricingGrid(props: PricingGridProps) {
       href: props.callUrl,
       external: /^https?:\/\//.test(props.callUrl),
       features: [
+        { text: "Everything in Team starter", icon: Users },
         { text: "SSO / SAML and SCIM provisioning", icon: Shield },
         { text: "Bring your own inference — self-hosted or private models", icon: Server },
-        { text: "Enterprise rollout support", icon: Users },
-        { text: "Custom commercial terms", icon: FileText },
+        { text: "Desktop policies and version controls", icon: SlidersHorizontal },
+        { text: "Managed deployment, self-hosted or hosted", icon: Server },
+        { text: "Custom skill development and MCP consulting", icon: Code2 },
+        { text: "Enterprise rollout support and custom commercial terms", icon: FileText },
       ],
       footer: "For org-wide rollout and custom terms",
       gradientColors: ["#F97316", "#E11D48", "#9333EA", "#4338CA"],
