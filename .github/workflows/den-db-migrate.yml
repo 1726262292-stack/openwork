@@ -116,25 +116,31 @@ jobs:
             exit 1
           fi
 
-          # The toggle propagates to the connection gateway asynchronously, so
-          # probe with a real DDL statement until the window is actually open.
-          ddl_open=0
-          for attempt in $(seq 1 18); do
+          # The toggle propagates to the connection gateways asynchronously and
+          # per edge node, so require several consecutive successful DDL probes
+          # before proceeding (a single success can still hit a stale node).
+          consecutive=0
+          for attempt in $(seq 1 36); do
             if (cd ee/packages/den-db && node --input-type=module -e "
               const { Client } = await import('@planetscale/database');
               const client = new Client({ host: process.env.DATABASE_HOST, username: process.env.DATABASE_USERNAME, password: process.env.DATABASE_PASSWORD });
               await client.execute('CREATE TABLE IF NOT EXISTS __ddl_probe (id int)');
               await client.execute('DROP TABLE IF EXISTS __ddl_probe');
             " 2>/tmp/ddl-probe-err); then
-              ddl_open=1
-              echo "DDL window open (attempt $attempt)."
-              break
+              consecutive=$((consecutive + 1))
+              echo "DDL probe ok (attempt $attempt, consecutive $consecutive)."
+              if [ "$consecutive" -ge 3 ]; then
+                break
+              fi
+              sleep 5
+            else
+              consecutive=0
+              echo "DDL still blocked (attempt $attempt): $(tail -1 /tmp/ddl-probe-err 2>/dev/null || true)"
+              sleep 10
             fi
-            echo "DDL still blocked (attempt $attempt): $(tail -1 /tmp/ddl-probe-err 2>/dev/null || true)"
-            sleep 10
           done
-          if [ "$ddl_open" -ne 1 ]; then
-            echo "::error::DDL window did not open within 3 minutes after disabling safe migrations."
+          if [ "$consecutive" -lt 3 ]; then
+            echo "::error::DDL window did not open within the probe budget after disabling safe migrations."
             exit 1
           fi
 
@@ -142,19 +148,54 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.baseline
         run: |
           set -euo pipefail
+          # Retry only when a stale gateway node still reports DDL as disabled.
+          run_with_ddl_retry() {
+            local attempt output
+            for attempt in $(seq 1 8); do
+              if output="$("$@" 2>&1)"; then
+                printf '%s\n' "$output"
+                return 0
+              fi
+              printf '%s\n' "$output"
+              if ! printf '%s' "$output" | grep -q "direct DDL is disabled"; then
+                return 1
+              fi
+              echo "DDL window not propagated everywhere yet; retrying (attempt $attempt)..."
+              sleep 15
+            done
+            return 1
+          }
           extra=""
           if [ -n "${{ inputs.baseline_through }}" ]; then
             extra="--through ${{ inputs.baseline_through }}"
           fi
           if [ "${{ inputs.dry_run }}" = "true" ]; then
-            pnpm --filter @openwork-ee/den-db db:baseline -- $extra
+            run_with_ddl_retry pnpm --filter @openwork-ee/den-db db:baseline -- $extra
           else
-            pnpm --filter @openwork-ee/den-db db:baseline -- --yes $extra
+            run_with_ddl_retry pnpm --filter @openwork-ee/den-db db:baseline -- --yes $extra
           fi
 
       - name: Apply migrations
         if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
-        run: pnpm --filter @openwork-ee/den-db db:migrate
+        run: |
+          set -euo pipefail
+          run_with_ddl_retry() {
+            local attempt output
+            for attempt in $(seq 1 8); do
+              if output="$("$@" 2>&1)"; then
+                printf '%s\n' "$output"
+                return 0
+              fi
+              printf '%s\n' "$output"
+              if ! printf '%s' "$output" | grep -q "direct DDL is disabled"; then
+                return 1
+              fi
+              echo "DDL window not propagated everywhere yet; retrying (attempt $attempt)..."
+              sleep 15
+            done
+            return 1
+          }
+          run_with_ddl_retry pnpm --filter @openwork-ee/den-db db:migrate
 
       - name: Re-enable safe migrations
         if: always() && steps.setup-pscale.conclusion == 'success'
