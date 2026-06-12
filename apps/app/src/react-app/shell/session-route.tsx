@@ -105,12 +105,11 @@ import { useModelPicker } from "@/react-app/domains/session/modals/use-model-pic
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { CreateRemoteWorkspaceModal } from "@/react-app/domains/workspace/create-remote-workspace-modal";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
-import { createProviderAuthStore, useProviderAuthStoreSnapshot } from "@/react-app/domains/connections/provider-auth/store";
+import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { useRemoteAccessRestart } from "@/react-app/domains/workspace/remote-access-restart";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { useRemoteWorkspaceConnectionEditor } from "@/react-app/domains/workspace/use-remote-workspace-connection-editor";
-import { useCloudProviderAutoSync } from "@/react-app/domains/cloud/use-cloud-provider-auto-sync";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
 import { OpenWorkModelsStartupDialog } from "@/react-app/domains/cloud/openwork-models-startup-dialog";
 import { OPENWORK_MODEL_PREVIEWS } from "@/react-app/domains/cloud/openwork-models-promo";
@@ -197,14 +196,6 @@ function isTransientStartupError(message: string | null | undefined) {
     value.includes("not ready")
   );
 }
-
-const emptyWorkspaceDisplay: WorkspaceDisplay = {
-  id: "",
-  name: "",
-  path: "",
-  preset: "default",
-  workspaceType: "local",
-};
 
 function describeTaskCreateError(error: unknown) {
   const message = describeRouteError(error);
@@ -417,7 +408,6 @@ export function SessionRoute() {
     [providerConnectedIds],
   );
   const [disabledProviderIds, setDisabledProviderIds] = useState<string[]>([]);
-  const onboardingProviderAuthPendingRef = useRef(false);
   // Bump to re-filter provider list when den session changes (sign-in/out)
   const [denSessionVersion, setDenSessionVersion] = useState(0);
   useEffect(() => {
@@ -1235,123 +1225,22 @@ export function SessionRoute() {
     providerConnectedIds,
   });
 
-  const sessionProviderAuthStateRef = useRef({
-    opencodeClient: opencodeClient as Client | null,
-    providers,
-    providerDefaults,
-    providerConnectedIds,
-    disabledProviderIds,
-    selectedWorkspace,
-    selectedWorkspaceEndpoint,
-    selectedWorkspaceRoot,
-  });
-  sessionProviderAuthStateRef.current = {
-    opencodeClient,
-    providers,
-    providerDefaults,
-    providerConnectedIds,
-    disabledProviderIds,
-    selectedWorkspace,
-    selectedWorkspaceEndpoint,
-    selectedWorkspaceRoot,
-  };
-
-  const sessionProviderAuthStore = useMemo(
-    () =>
-      createProviderAuthStore({
-        client: () => sessionProviderAuthStateRef.current.opencodeClient,
-        providers: () => sessionProviderAuthStateRef.current.providers,
-        providerDefaults: () => sessionProviderAuthStateRef.current.providerDefaults,
-        providerConnectedIds: () => sessionProviderAuthStateRef.current.providerConnectedIds,
-        disabledProviders: () => sessionProviderAuthStateRef.current.disabledProviderIds,
-        checkDesktopAppRestriction: checkDesktopRestriction,
-        selectedWorkspaceDisplay: () =>
-          sessionProviderAuthStateRef.current.selectedWorkspace
-            ? ({
-                ...sessionProviderAuthStateRef.current.selectedWorkspace,
-                name: workspaceLabel(sessionProviderAuthStateRef.current.selectedWorkspace),
-              } as WorkspaceDisplay)
-            : emptyWorkspaceDisplay,
-        selectedWorkspaceRoot: () => sessionProviderAuthStateRef.current.selectedWorkspaceRoot,
-        runtimeWorkspaceId: () => sessionProviderAuthStateRef.current.selectedWorkspaceEndpoint?.workspaceId ?? null,
-        openworkServer: {
-          getSnapshot: () => ({
-            openworkServerStatus: sessionProviderAuthStateRef.current.selectedWorkspaceEndpoint ? "connected" : "disconnected",
-            openworkServerClient: sessionProviderAuthStateRef.current.selectedWorkspaceEndpoint?.client ?? null,
-            openworkServerCapabilities: sessionProviderAuthStateRef.current.selectedWorkspaceEndpoint
-              ? {
-                  config: { read: true, write: true },
-                }
-              : null,
-          }),
-        },
-        setProviders,
-        setProviderDefaults,
-        setProviderConnectedIds,
-        setDisabledProviders: setDisabledProviderIds,
-        markOpencodeConfigReloadRequired: () => {
-          reloadCoordinator.markReloadRequired("config", {
-            type: "config",
-            name: "opencode.json",
-            action: "updated",
-          });
-        },
-      }),
-    [checkDesktopRestriction, reloadCoordinator],
-  );
-
-  useEffect(() => {
-    sessionProviderAuthStore.start();
-    return () => {
-      sessionProviderAuthStore.dispose();
-    };
-  }, [sessionProviderAuthStore]);
-
-  useEffect(() => {
-    if (!opencodeClient || !selectedWorkspaceId) return;
-
-    void sessionProviderAuthStore
-      .ensureProjectProviderDisabledState(
-        "opencode",
-        checkDesktopRestriction({ restriction: "allowZenModel" }),
-      )
-      .catch((error) => {
-        console.warn("[desktop-app-restrictions] failed to sync Zen restriction", error);
-      });
-  }, [checkDesktopRestriction, disabledProviderIds, opencodeClient, selectedWorkspaceId, selectedWorkspaceRoot, sessionProviderAuthStore]);
-
-  useEffect(() => {
-    sessionProviderAuthStore.syncFromOptions();
-  }, [
-    opencodeClient,
-    selectedWorkspace?.id,
-    selectedWorkspace?.workspaceType,
-    selectedWorkspaceEndpoint?.workspaceId,
-    selectedWorkspaceRoot,
-    sessionProviderAuthStore,
-  ]);
-
-  // After onboarding, auto-open the provider modal if no providers are connected.
-  // The welcome route appends ?onboarding=1 to the session URL after workspace creation.
-  useEffect(() => {
-    const hash = window.location.hash;
-    if (!hash.includes("onboarding=1")) return;
-    // Strip the param so it doesn't re-trigger.
-    window.location.hash = hash.replace(/[?&]onboarding=1/, "");
-    onboardingProviderAuthPendingRef.current = true;
-  }, []);
-
-  useEffect(() => {
-    if (!onboardingProviderAuthPendingRef.current) return;
-    if (!selectedWorkspaceEndpoint) return;
-    onboardingProviderAuthPendingRef.current = false;
-    sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
-  }, [selectedWorkspaceEndpoint, sessionProviderAuthStore]);
-
-  // Session is where forced sign-in lands. Keep org-managed cloud providers in
-  // sync here so sign-in applies opencode.json changes before Settings opens.
-  useCloudProviderAutoSync(sessionProviderAuthStore.runCloudProviderSync);
-  const sessionProviderAuthSnapshot = useProviderAuthStoreSnapshot(sessionProviderAuthStore);
+  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot } =
+    useSessionProviderAuth({
+      opencodeClient,
+      providers,
+      providerDefaults,
+      providerConnectedIds,
+      disabledProviderIds,
+      selectedWorkspace,
+      selectedWorkspaceEndpoint,
+      selectedWorkspaceRoot,
+      selectedWorkspaceId,
+      setProviders,
+      setProviderDefaults,
+      setProviderConnectedIds,
+      setDisabledProviderIds,
+    });
   const {
     activePermission,
     permissionReplyBusy,
