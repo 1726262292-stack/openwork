@@ -208,6 +208,8 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         })
         .from(AuthSessionTable)
         .groupBy(AuthSessionTable.userId, sessionDayExpr),
+      // Non-fatal: telemetry_event may be missing in environments that never
+      // ran its migration; activity then degrades to sign-in days only.
       db
         .select({
           userId: MemberTable.userId,
@@ -217,7 +219,8 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         .from(TelemetryEventTable)
         .innerJoin(MemberTable, eq(TelemetryEventTable.member_id, MemberTable.id))
         .where(gte(TelemetryEventTable.event_timestamp, activityWindowStart))
-        .groupBy(MemberTable.userId, telemetryDayExpr),
+        .groupBy(MemberTable.userId, telemetryDayExpr)
+        .catch(() => []),
       db
         .select({
           inviterId: InvitationTable.inviterId,
