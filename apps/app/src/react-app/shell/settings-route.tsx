@@ -32,6 +32,21 @@ import type {
 } from "@/app/types";
 import { getWorkspaceTaskLoadErrorDisplay } from "@/app/utils";
 import { currentLocale, t, setLocale, type Language } from "@/i18n";
+import {
+  type RouteWorkspace,
+  describeRouteError,
+  describeWorkspaceCreateError,
+  downloadWorkspaceJson,
+  folderNameFromPath,
+  getSessionStatus,
+  isActiveSessionStatus,
+  mapDesktopWorkspace,
+  mergeRouteWorkspaces,
+  orderRouteWorkspaces,
+  toSessionGroups,
+  workspaceExportFilename,
+  workspaceLabel,
+} from "@/react-app/shell/route-workspaces";
 import { createConnectionsStore, useConnectionsStoreSnapshot } from "@/react-app/domains/connections/store";
 import { createOpenworkServerStore, useOpenworkServerStoreSnapshot } from "@/react-app/domains/connections/openwork-server-store";
 import { createProviderAuthStore, useProviderAuthStoreSnapshot } from "@/react-app/domains/connections/provider-auth/store";
@@ -143,10 +158,6 @@ import {
 } from "@/react-app/domains/settings/openai-image-extension";
 import { OLLAMA_PROVIDER_CONFIG, type LocalProviderInstallInput } from "@/react-app/domains/settings/openai-image-extension";
 
-type RouteWorkspace = OpenworkWorkspaceInfo & {
-  displayNameResolved: string;
-};
-
 const ROUTE_OPENWORK_CAPABILITIES: OpenworkServerCapabilities = {
   skills: { read: true, write: true, source: "openwork" },
   plugins: { read: true, write: true },
@@ -154,17 +165,6 @@ const ROUTE_OPENWORK_CAPABILITIES: OpenworkServerCapabilities = {
   commands: { read: true, write: true },
   config: { read: true, write: true },
 };
-
-function mapDesktopWorkspace(workspace: WorkspaceInfo): RouteWorkspace {
-  return {
-    ...workspace,
-    displayNameResolved:
-      workspace.displayName?.trim() ||
-      workspace.name?.trim() ||
-      workspace.path?.trim() ||
-      t("session.workspace_fallback"),
-  };
-}
 
 function isOpenWorkCloudProvider(provider: {
   providerId?: string | null;
@@ -176,82 +176,12 @@ function isOpenWorkCloudProvider(provider: {
   );
 }
 
-function describeRouteError(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  const serialized = safeStringify(error);
-  return serialized && serialized !== "{}" ? serialized : t("app.unknown_error");
-}
-
-function describeWorkspaceCreateError(error: unknown) {
-  const message = describeRouteError(error);
-  const lower = message.toLowerCase();
-  if (
-    lower.includes("operation timed out") ||
-    lower.includes("os error 60") ||
-    lower.includes("etimedout")
-  ) {
-    return `${message}\n\nOpenWork could not read the workspace config before the filesystem timed out. This often happens when the folder is still syncing from iCloud Drive or another remote folder. Wait for the folder to finish downloading, move the workspace to a local folder, or try again.`;
-  }
-  return message;
-}
-
 function normalizeComputerUsePermissions(value: unknown) {
   if (typeof value !== "object" || value === null) return null;
   return {
     accessibility: "accessibility" in value && value.accessibility === true,
     screenRecording: "screenRecording" in value && value.screenRecording === true,
   };
-}
-
-function mergeRouteWorkspaces(
-  serverWorkspaces: OpenworkWorkspaceInfo[],
-  desktopWorkspaces: RouteWorkspace[],
-): RouteWorkspace[] {
-  const desktopById = new Map(desktopWorkspaces.map((workspace) => [workspace.id, workspace]));
-  const desktopByPath = new Map(
-    desktopWorkspaces.flatMap((workspace) => {
-      const path = normalizeDirectoryPath(workspace.path ?? "");
-      return path ? [[path, workspace] as const] : [];
-    }),
-  );
-
-  const mergedServer = serverWorkspaces.map((workspace) => {
-    const match =
-      desktopById.get(workspace.id) ??
-      desktopByPath.get(normalizeDirectoryPath(workspace.path ?? ""));
-    const merged = match
-      ? {
-          ...workspace,
-          displayName: workspace.displayName?.trim()
-            ? workspace.displayName
-            : match.displayName,
-          name: match.name?.trim() ? match.name : workspace.name,
-        }
-      : workspace;
-    return {
-      ...merged,
-      displayNameResolved: workspaceLabel(merged),
-    };
-  });
-
-  const mergedIds = new Set(mergedServer.map((workspace) => workspace.id));
-  const mergedPaths = new Set(
-    mergedServer.flatMap((workspace) => {
-      const path = normalizeDirectoryPath(workspace.path ?? "");
-      return path ? [path] : [];
-    }),
-  );
-
-  const missingDesktop = desktopWorkspaces.filter((workspace) => {
-    if (mergedIds.has(workspace.id)) return false;
-    const normalizedPath = normalizeDirectoryPath(workspace.path ?? "");
-    if (normalizedPath && mergedPaths.has(normalizedPath)) return false;
-    return true;
-  });
-
-  return [...mergedServer, ...missingDesktop];
 }
 
 function reconcileSelectedWorkspaceId(
@@ -283,64 +213,9 @@ function reconcileSelectedWorkspaceId(
   return serverList.activeId?.trim() || desktopSelectedId || workspaces[0]?.id || "";
 }
 
-function folderNameFromPath(path: string) {
-  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
-  const parts = normalized.split("/").filter(Boolean);
-  return parts[parts.length - 1] ?? "workspace";
-}
-
 const SETTINGS_HIDE_TITLEBAR_KEY = "openwork.react.settings.hide-titlebar";
 const SETTINGS_UPDATE_AUTO_CHECK_KEY = "openwork.react.settings.update-auto-check";
 const SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY = "openwork.react.settings.update-auto-download";
-
-function workspaceLabel(workspace: OpenworkWorkspaceInfo) {
-  return (
-    workspace.displayName?.trim() ||
-    workspace.openworkWorkspaceName?.trim() ||
-    workspace.name?.trim() ||
-    workspace.path?.trim() ||
-    t("session.workspace_fallback")
-  );
-}
-
-function workspaceExportFilename(workspace: OpenworkWorkspaceInfo) {
-  const slug = workspaceLabel(workspace).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  return `${slug || "workspace"}-openwork-export.json`;
-}
-
-function downloadWorkspaceJson(filename: string, payload: unknown) {
-  if (typeof document === "undefined") return;
-  const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-}
-
-function toSessionGroups(
-  workspaces: RouteWorkspace[],
-  sessionsByWorkspaceId: Record<string, any[]>,
-  errorsByWorkspaceId: Record<string, string | null>,
-): WorkspaceSessionGroup[] {
-  return workspaces.map((workspace) => ({
-    workspace,
-    sessions: (sessionsByWorkspaceId[workspace.id] ?? []) as WorkspaceSessionGroup["sessions"],
-    status: errorsByWorkspaceId[workspace.id] ? "error" : "ready",
-    error: errorsByWorkspaceId[workspace.id],
-  }));
-}
-
-function isActiveSessionStatus(status: unknown) {
-  return status === "running" || status === "retry" || status === "busy";
-}
-
-function getSessionStatus(session: any) {
-  return session?.status ?? session?.state ?? session?.runStatus ?? null;
-}
 
 function parseSettingsPath(pathname: string): {
   tab: SettingsTab;
@@ -927,7 +802,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   });
 
   const workspaceSessionGroups = useMemo(
-    () => toSessionGroups(workspaces, sessionsByWorkspaceId, errorsByWorkspaceId),
+    // Settings has no per-workspace loading state; the empty set keeps the
+    // previous behavior (error -> "error", otherwise "ready").
+    () => toSessionGroups(workspaces, sessionsByWorkspaceId, errorsByWorkspaceId, new Set()),
     [errorsByWorkspaceId, sessionsByWorkspaceId, workspaces],
   );
 
