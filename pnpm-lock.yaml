@@ -809,9 +809,6 @@ importers:
       react:
         specifier: ^18 || ^19
         version: 19.2.4
-      solid-js:
-        specifier: ^1.9.0
-        version: 1.9.9
     devDependencies:
       '@types/react':
         specifier: ^19.2.14
