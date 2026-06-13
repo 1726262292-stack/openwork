@@ -78,6 +78,7 @@
             ]
           },
           "cloud/members-and-rbac",
+          "cloud/security-and-operations",
           "cloud/enterprise"
         ]
       },
