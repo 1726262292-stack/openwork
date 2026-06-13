@@ -49,7 +49,6 @@ import {
   type WorkspaceImportPlan,
   workspaceImportPreviewApprovalPaths,
 } from "./workspace-import-preview.js";
-import { buildSession, buildSessionList, buildSessionMessages, buildSessionSnapshot, buildSessionStatuses, buildSessionTodos } from "./session-read-model.js";
 import {
   collectWorkspaceExportWarnings,
   stripSensitiveWorkspaceExportData,
@@ -60,6 +59,7 @@ import { Readable } from "node:stream";
 import { serve, type ServeResult } from "./serve-node.js";
 import { registerCoreRoutes } from "./routes/core.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
+import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import {
   mergeOpencodeConfigs,
@@ -1719,6 +1719,20 @@ function createRoutes(
     reloadOpencodeEngine,
   });
 
+  registerSessionRoutes({
+    routes,
+    config,
+    jsonResponse,
+    parseOptionalBoolean,
+    parseOptionalPositiveInteger,
+    parseOptionalNonNegativeInteger,
+    ensureWritable,
+    requireClientScope,
+    resolveWorkspace,
+    createWorkspaceOpencodeClient,
+    unwrapOpencodeResult,
+  });
+
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const openwork = mergeOpenworkWorkspaceConfigs(
@@ -2164,68 +2178,6 @@ function createRoutes(
     const limit = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 200) : 50;
     const items = await readAuditEntries(workspace.path, workspace.id, limit);
     return jsonResponse({ items });
-  });
-
-  addRoute(routes, "GET", "/workspace/:id/sessions", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const items = await listWorkspaceSessions(config, workspace, {
-      roots: parseOptionalBoolean(ctx.url.searchParams.get("roots"), "roots"),
-      start: parseOptionalNonNegativeInteger(ctx.url.searchParams.get("start"), "start"),
-      search: ctx.url.searchParams.get("search")?.trim() || undefined,
-      limit: parseOptionalPositiveInteger(ctx.url.searchParams.get("limit"), "limit"),
-    });
-    return jsonResponse({ items });
-  });
-
-  addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const sessionId = (ctx.params.sessionId ?? "").trim();
-    if (!sessionId) {
-      throw new ApiError(400, "invalid_payload", "sessionId is required");
-    }
-    const item = await readWorkspaceSession(config, workspace, sessionId);
-    return jsonResponse({ item });
-  });
-
-  addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/messages", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const sessionId = (ctx.params.sessionId ?? "").trim();
-    if (!sessionId) {
-      throw new ApiError(400, "invalid_payload", "sessionId is required");
-    }
-    const items = await readWorkspaceSessionMessages(config, workspace, sessionId, {
-      limit: parseOptionalPositiveInteger(ctx.url.searchParams.get("limit"), "limit"),
-    });
-    return jsonResponse({ items });
-  });
-
-  addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/snapshot", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const sessionId = (ctx.params.sessionId ?? "").trim();
-    if (!sessionId) {
-      throw new ApiError(400, "invalid_payload", "sessionId is required");
-    }
-    const item = await readWorkspaceSessionSnapshot(config, workspace, sessionId, {
-      limit: parseOptionalPositiveInteger(ctx.url.searchParams.get("limit"), "limit"),
-    });
-    return jsonResponse({ item });
-  });
-
-  addRoute(routes, "DELETE", "/workspace/:id/sessions/:sessionId", "client", async (ctx) => {
-    ensureWritable(config);
-    requireClientScope(ctx, "collaborator");
-
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const sessionId = (ctx.params.sessionId ?? "").trim();
-    if (!sessionId) {
-      throw new ApiError(400, "invalid_payload", "sessionId is required");
-    }
-
-    // OpenCode session deletion via the upstream API.
-    const opencode = createWorkspaceOpencodeClient(config, workspace);
-    unwrapOpencodeResult(await opencode.session.delete({ sessionID: sessionId }), `/session/${encodeURIComponent(sessionId)}`);
-
-    return jsonResponse({ ok: true });
   });
 
   addRoute(routes, "PATCH", "/workspace/:id/config", "client", async (ctx) => {
@@ -3623,128 +3575,6 @@ function createRoutes(
   });
 
   return routes;
-}
-
-function remapSessionReadError(error: unknown): never {
-  if (error instanceof ApiError && error.code === "opencode_request_failed") {
-    const details = error.details;
-    const upstreamStatus =
-      details && typeof details === "object" && "status" in details ? Number((details as { status?: unknown }).status) : NaN;
-    if (upstreamStatus === 400) {
-      throw new ApiError(400, "invalid_query", "OpenCode rejected the session read request", details);
-    }
-    if (upstreamStatus === 404) {
-      throw new ApiError(404, "session_not_found", "Session not found", details);
-    }
-  }
-  throw error;
-}
-
-async function listWorkspaceSessions(
-  config: ServerConfig,
-  workspace: WorkspaceInfo,
-  input: { roots?: boolean; start?: number; search?: string; limit?: number },
-) {
-  try {
-    const opencode = createWorkspaceOpencodeClient(config, workspace);
-    return buildSessionList(
-      unwrapOpencodeResult(
-        await opencode.session.list({
-          roots: input.roots,
-          start: input.start,
-          search: input.search,
-          limit: input.limit,
-        }),
-        "/session",
-      ),
-    );
-  } catch (error) {
-    remapSessionReadError(error);
-  }
-}
-
-async function readWorkspaceSession(config: ServerConfig, workspace: WorkspaceInfo, sessionId: string) {
-  try {
-    const opencode = createWorkspaceOpencodeClient(config, workspace);
-    return buildSession(
-      unwrapOpencodeResult(
-        await opencode.session.get({ sessionID: sessionId }),
-        `/session/${encodeURIComponent(sessionId)}`,
-      ),
-    );
-  } catch (error) {
-    remapSessionReadError(error);
-  }
-}
-
-async function readWorkspaceSessionMessages(
-  config: ServerConfig,
-  workspace: WorkspaceInfo,
-  sessionId: string,
-  input: { limit?: number },
-) {
-  try {
-    const opencode = createWorkspaceOpencodeClient(config, workspace);
-    return buildSessionMessages(
-      unwrapOpencodeResult(
-        await opencode.session.messages({ sessionID: sessionId, limit: input.limit }),
-        `/session/${encodeURIComponent(sessionId)}/message`,
-      ),
-    );
-  } catch (error) {
-    remapSessionReadError(error);
-  }
-}
-
-async function readWorkspaceSessionTodos(config: ServerConfig, workspace: WorkspaceInfo, sessionId: string) {
-  try {
-    const opencode = createWorkspaceOpencodeClient(config, workspace);
-    return buildSessionTodos(
-      unwrapOpencodeResult(
-        await opencode.session.todo({ sessionID: sessionId }),
-        `/session/${encodeURIComponent(sessionId)}/todo`,
-      ),
-    );
-  } catch (error) {
-    remapSessionReadError(error);
-  }
-}
-
-async function readWorkspaceSessionStatuses(config: ServerConfig, workspace: WorkspaceInfo) {
-  try {
-    const opencode = createWorkspaceOpencodeClient(config, workspace);
-    return buildSessionStatuses(
-      unwrapOpencodeResult(await opencode.session.status(), "/session/status"),
-    );
-  } catch (error) {
-    remapSessionReadError(error);
-  }
-}
-
-async function readWorkspaceSessionSnapshot(
-  config: ServerConfig,
-  workspace: WorkspaceInfo,
-  sessionId: string,
-  input: { limit?: number },
-) {
-  try {
-    const opencode = createWorkspaceOpencodeClient(config, workspace);
-    const [session, messages, todos, statuses] = await Promise.all([
-      opencode.session
-        .get({ sessionID: sessionId })
-        .then((result) => unwrapOpencodeResult(result, `/session/${encodeURIComponent(sessionId)}`)),
-      opencode.session
-        .messages({ sessionID: sessionId, limit: input.limit })
-        .then((result) => unwrapOpencodeResult(result, `/session/${encodeURIComponent(sessionId)}/message`)),
-      opencode.session
-        .todo({ sessionID: sessionId })
-        .then((result) => unwrapOpencodeResult(result, `/session/${encodeURIComponent(sessionId)}/todo`)),
-      opencode.session.status().then((result) => unwrapOpencodeResult(result, "/session/status")),
-    ]);
-    return buildSessionSnapshot({ session, messages, todos, statuses });
-  } catch (error) {
-    remapSessionReadError(error);
-  }
 }
 
 async function resolveWorkspace(config: ServerConfig, id: string): Promise<WorkspaceInfo> {
