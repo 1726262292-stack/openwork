@@ -58,6 +58,7 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { serve, type ServeResult } from "./serve-node.js";
 import { registerCoreRoutes } from "./routes/core.js";
+import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
@@ -2266,31 +2267,14 @@ function createRoutes(
     return jsonResponse({ updatedAt: Date.now() });
   });
 
-  addRoute(routes, "GET", "/workspace/:id/events", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const sinceRaw = ctx.url.searchParams.get("since");
-    const since = sinceRaw ? Number(sinceRaw) : undefined;
-    const items = ctx.reloadEvents.list(workspace.id, since);
-    return jsonResponse({ items, cursor: ctx.reloadEvents.cursor(), workspaceId: workspace.id, disabled: false });
-  });
-
-  addRoute(routes, "POST", "/workspace/:id/engine/reload", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    requireClientScope(ctx, "collaborator");
-
-      await reloadOpencodeEngine(config, workspace);
-
-    await recordAudit(workspace.path, {
-      id: shortId(),
-      workspaceId: workspace.id,
-      actor: ctx.actor ?? { type: "remote" },
-      action: "engine.reload",
-      target: workspace.baseUrl ?? "opencode",
-      summary: "Reloaded workspace engine",
-      timestamp: Date.now(),
-    });
-
-    return jsonResponse({ ok: true, reloadedAt: Date.now() });
+  registerOperationRoutes({
+    routes,
+    config,
+    jsonResponse,
+    readJsonBody,
+    requireClientScope,
+    resolveWorkspace,
+    reloadOpencodeEngine,
   });
 
   addRoute(routes, "GET", "/workspace/:id/inbox", "client", async (ctx) => {
@@ -3558,20 +3542,6 @@ function createRoutes(
       timestamp: Date.now(),
     });
     return jsonResponse(result);
-  });
-
-  addRoute(routes, "GET", "/approvals", "host", async (ctx) => {
-    return jsonResponse({ items: ctx.approvals.list() });
-  });
-
-  addRoute(routes, "POST", "/approvals/:id", "host", async (ctx) => {
-    const body = await readJsonBody(ctx.request);
-    const reply = body.reply === "allow" ? "allow" : "deny";
-    const result = ctx.approvals.respond(ctx.params.id, reply);
-    if (!result) {
-      throw new ApiError(404, "approval_not_found", "Approval request not found");
-    }
-    return jsonResponse({ ok: true, allowed: result.allowed });
   });
 
   return routes;
