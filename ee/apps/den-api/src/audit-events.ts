@@ -5,6 +5,8 @@ import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 export const ORGANIZATION_AUDIT_ACTIONS = {
   apiKeyCreated: "organization.api_key.created",
   apiKeyDeleted: "organization.api_key.deleted",
+  memberRoleUpdated: "organization.member.role_updated",
+  memberRemoved: "organization.member.removed",
 }
 
 type OrganizationAuditAction = typeof ORGANIZATION_AUDIT_ACTIONS[keyof typeof ORGANIZATION_AUDIT_ACTIONS]

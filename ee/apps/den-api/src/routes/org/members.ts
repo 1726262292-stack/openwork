@@ -5,6 +5,7 @@ import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { revokeOrganizationApiKeysForMember } from "../../api-keys.js"
+import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
 import { db } from "../../db.js"
 import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
@@ -80,6 +81,17 @@ export function registerOrgMemberRoutes<T extends { Variables: OrgRouteVariables
         orgMembershipId: validation.member.id,
         userId: validation.member.userId,
       })
+      await recordOrganizationAuditEvent({
+        organizationId: payload.organization.id,
+        actorUserId: payload.currentMember.userId,
+        action: ORGANIZATION_AUDIT_ACTIONS.memberRoleUpdated,
+        payload: {
+          targetOrgMembershipId: validation.member.id,
+          targetUserId: validation.member.userId,
+          previousRole: validation.member.role,
+          nextRole: role,
+        },
+      })
     }
 
     return c.json({ success: true })
@@ -129,6 +141,17 @@ export function registerOrgMemberRoutes<T extends { Variables: OrgRouteVariables
       }
       return c.json({ error: removed.error, message: removed.message }, 400)
     }
+
+    await recordOrganizationAuditEvent({
+      organizationId: payload.organization.id,
+      actorUserId: payload.currentMember.userId,
+      action: ORGANIZATION_AUDIT_ACTIONS.memberRemoved,
+      payload: {
+        targetOrgMembershipId: removed.member.id,
+        targetUserId: removed.member.userId,
+        previousRole: removed.member.role,
+      },
+    })
 
     return c.body(null, 204)
     },

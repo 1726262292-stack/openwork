@@ -41,3 +41,28 @@ test("organization audit events allow empty payloads", () => {
   expect(event.action).toBe("organization.api_key.deleted")
   expect(event.payload).toBe(null)
 })
+
+test("organization audit events support member lifecycle actions", () => {
+  const targetOrgMembershipId = createDenTypeId("member")
+  const targetUserId = createDenTypeId("user")
+
+  const event = buildOrganizationAuditEvent({
+    organizationId: createDenTypeId("organization"),
+    actorUserId: createDenTypeId("user"),
+    action: ORGANIZATION_AUDIT_ACTIONS.memberRoleUpdated,
+    payload: {
+      targetOrgMembershipId,
+      targetUserId,
+      previousRole: "member",
+      nextRole: "admin",
+    },
+  })
+
+  expect(event.action).toBe("organization.member.role_updated")
+  expect(event.payload).toEqual({
+    targetOrgMembershipId,
+    targetUserId,
+    previousRole: "member",
+    nextRole: "admin",
+  })
+})
