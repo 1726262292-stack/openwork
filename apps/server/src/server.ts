@@ -2072,7 +2072,8 @@ function createRoutes(
   addRoute(routes, "POST", "/experimental/google-workspace/connect/start", "client", async (ctx) => {
     if (ctx.actor?.scope === "viewer") throw new ApiError(403, "forbidden", "Viewer tokens cannot connect Google Workspace");
     const body = await readOptionalJsonBody(ctx.request);
-    return jsonResponse(await googleWorkspaceConnectFlows.start({ gmailRead: body.gmailRead === true }), 201);
+    const features = Array.isArray(body.features) ? body.features.filter((item): item is string => typeof item === "string") : [];
+    return jsonResponse(await googleWorkspaceConnectFlows.start({ gmailRead: body.gmailRead === true, features }), 201);
   });
 
   addRoute(routes, "GET", "/experimental/google-workspace/connect/status/:flowId", "client", async (ctx) => {
