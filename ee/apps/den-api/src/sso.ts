@@ -5,6 +5,7 @@ import { z } from "zod"
 import { auth } from "./auth.js"
 import { db } from "./db.js"
 import { env } from "./env.js"
+import { SSO_IDENTITY_EXTRA_FIELDS } from "./sso-jit.js"
 
 type SsoConnection = typeof SsoConnectionTable.$inferSelect
 type OrganizationId = SsoConnection["organizationId"]
@@ -151,11 +152,7 @@ async function registerBetterAuthSsoProvider(input: OrganizationSsoRegistrationI
             id: "nameID",
             email: "email",
             name: "displayName",
-            extraFields: {
-              department: "department",
-              role: "role",
-              groups: "groups",
-            },
+            extraFields: SSO_IDENTITY_EXTRA_FIELDS,
           },
         },
       },
@@ -179,11 +176,7 @@ async function registerBetterAuthSsoProvider(input: OrganizationSsoRegistrationI
           emailVerified: "email_verified",
           name: "name",
           image: "picture",
-          extraFields: {
-            department: "department",
-            role: "role",
-            groups: "groups",
-          },
+          extraFields: SSO_IDENTITY_EXTRA_FIELDS,
         },
       },
     },

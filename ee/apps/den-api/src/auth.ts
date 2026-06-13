@@ -15,6 +15,10 @@ import {
   denOrganizationAccess,
   denOrganizationStaticRoles,
 } from "./organization-access.js";
+import {
+  getOrganizationSsoJitRole,
+  ORGANIZATION_SSO_JIT_ROLE,
+} from "./sso-jit.js";
 import { seedDefaultOrganizationRoles } from "./orgs.js";
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid";
 import * as schema from "@openwork-ee/den-db/schema";
@@ -411,7 +415,8 @@ export const auth = betterAuth({
       },
       organizationProvisioning: {
         disabled: false,
-        defaultRole: "member",
+        defaultRole: ORGANIZATION_SSO_JIT_ROLE,
+        getRole: getOrganizationSsoJitRole,
       },
       saml: {
         enableInResponseToValidation: true,
