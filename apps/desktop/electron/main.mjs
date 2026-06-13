@@ -32,6 +32,7 @@ import {
   openComputerUseSetupApp,
 } from "./computer-use.mjs";
 import { createUiControlServer } from "./ui-control-server.mjs";
+import { createApplicationMenu } from "./app-menu.mjs";
 import {
   openworkWorkspaceDisplayName,
   selectOpenworkWorkspaceForConnection,
@@ -41,10 +42,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const pty = require(["node", "pty"].join("-"));
 const NATIVE_DEEP_LINK_EVENT = "openwork:deep-link-native";
-const NATIVE_MENU_OPEN_SETTINGS_EVENT = "openwork:native-menu:open-settings";
-const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "openwork:native-menu:toggle-sidebar";
-const NATIVE_MENU_CHECK_UPDATES_EVENT = "openwork:native-menu:check-updates";
-const NATIVE_MENU_ZOOM_EVENT = "openwork:native-menu:zoom";
 const TAURI_APP_IDENTIFIER = "com.differentai.openwork";
 const DEV_APP_IDENTIFIER = "com.differentai.openwork.dev";
 const DESKTOP_PROTOCOL_SCHEME = "openwork";
@@ -54,6 +51,12 @@ const APP_IDENTIFIER = isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER;
 const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/different-ai/openwork/releases/latest/download";
 const RELEASE_PAGE_URL = "https://github.com/different-ai/openwork/releases/latest";
 const DOCS_PAGE_URL = "https://openworklabs.com/docs";
+const applicationMenu = createApplicationMenu({
+  appName: APP_NAME,
+  docsUrl: DOCS_PAGE_URL,
+  getWindow: () => createMainWindow(),
+});
+
 const uiControlServer = createUiControlServer({
   appName: APP_NAME,
   appIdentifier: APP_IDENTIFIER,
@@ -333,7 +336,6 @@ const DEFAULT_DEN_BASE_URL = "https://app.openworklabs.com";
 const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:4096";
 const FORCE_DESKTOP_REQUIRE_SIGNIN = envFlagEnabled("OPENWORK_FORCE_SIGNIN");
 const DEFAULT_DESKTOP_REQUIRE_SIGNIN = FORCE_DESKTOP_REQUIRE_SIGNIN;
-let applicationMenuVisible = process.platform === "darwin";
 
 function envFlagEnabled(name) {
   const value = process.env[name]?.trim().toLowerCase();
@@ -460,223 +462,6 @@ function sendToRenderer(channel, payload) {
   try { mainWindow.webContents.send(channel, payload); } catch { /* window closing */ }
 }
 
-async function openSettingsFromNativeMenu() {
-  const win = await createMainWindow();
-  if (win.isMinimized()) win.restore();
-  win.show();
-  win.focus();
-  win.webContents.send(NATIVE_MENU_OPEN_SETTINGS_EVENT);
-}
-
-async function checkForUpdatesFromNativeMenu() {
-  const win = await createMainWindow();
-  if (win.isMinimized()) win.restore();
-  win.show();
-  win.focus();
-  win.webContents.send(NATIVE_MENU_CHECK_UPDATES_EVENT);
-}
-
-async function toggleSidebarFromNativeMenu() {
-  const win = await createMainWindow();
-  win.webContents.send(NATIVE_MENU_TOGGLE_SIDEBAR_EVENT);
-}
-
-// Zoom must flow through the renderer's font-zoom pathway so the persisted
-// preference and the applied webContents zoom factor never drift apart. The
-// built-in resetZoom/zoomIn/zoomOut roles bypass that pathway (and zoom
-// whichever webContents is focused, including the embedded browser view).
-async function zoomFromNativeMenu(action) {
-  const win = await createMainWindow();
-  win.webContents.send(NATIVE_MENU_ZOOM_EVENT, action);
-}
-
-function installApplicationMenu() {
-  const isMac = process.platform === "darwin";
-  const template = /** @type {import("electron").MenuItemConstructorOptions[]} */ ([
-    ...(isMac
-      ? [
-          {
-            label: APP_NAME,
-            submenu: [
-              { role: "about" },
-              {
-                label: "Check for Updates...",
-                click: () => {
-                  void checkForUpdatesFromNativeMenu();
-                },
-              },
-              { type: "separator" },
-              {
-                label: "Settings...",
-                accelerator: "Command+,",
-                click: () => {
-                  void openSettingsFromNativeMenu();
-                },
-              },
-              { type: "separator" },
-              { role: "services" },
-              { type: "separator" },
-              { role: "hide" },
-              { role: "hideOthers" },
-              { role: "unhide" },
-              { type: "separator" },
-              { role: "quit" },
-            ],
-          },
-        ]
-      : []),
-    {
-      label: "File",
-      submenu: [
-        ...(isMac
-          ? []
-          : [
-              {
-                label: "Settings",
-                accelerator: "Control+,",
-                click: () => {
-                  void openSettingsFromNativeMenu();
-                },
-              },
-              { type: "separator" },
-            ]),
-        { role: "close" },
-      ],
-    },
-    {
-      label: "Edit",
-      submenu: [
-        { role: "undo" },
-        { role: "redo" },
-        { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        ...(isMac
-          ? [
-              { role: "pasteAndMatchStyle" },
-              { role: "delete" },
-              { role: "selectAll" },
-              { type: "separator" },
-              {
-                label: "Speech",
-                submenu: [
-                  { role: "startSpeaking" },
-                  { role: "stopSpeaking" },
-                ],
-              },
-              { type: "separator" },
-              {
-                label: "Settings...",
-                click: () => {
-                  void openSettingsFromNativeMenu();
-                },
-              },
-            ]
-          : [
-              { role: "delete" },
-              { type: "separator" },
-              { role: "selectAll" },
-            ]),
-      ],
-    },
-    {
-      label: "View",
-      submenu: [
-        {
-          label: "Toggle Sidebar",
-          accelerator: "CommandOrControl+B",
-          click: () => {
-            void toggleSidebarFromNativeMenu();
-          },
-        },
-        { type: "separator" },
-        { role: "reload" },
-        { role: "forceReload" },
-        { role: "toggleDevTools" },
-        { type: "separator" },
-        {
-          label: "Actual Size",
-          accelerator: "CommandOrControl+0",
-          click: () => {
-            void zoomFromNativeMenu("reset");
-          },
-        },
-        {
-          label: "Zoom In",
-          accelerator: "CommandOrControl+Plus",
-          click: () => {
-            void zoomFromNativeMenu("in");
-          },
-        },
-        {
-          label: "Zoom Out",
-          accelerator: "CommandOrControl+-",
-          click: () => {
-            void zoomFromNativeMenu("out");
-          },
-        },
-        { type: "separator" },
-        { role: "togglefullscreen" },
-      ],
-    },
-    {
-      label: "Window",
-      submenu: [
-        { role: "minimize" },
-        { role: "zoom" },
-        ...(isMac
-          ? [
-              { type: "separator" },
-              { role: "front" },
-              { type: "separator" },
-              { role: "window" },
-            ]
-          : [
-              { role: "close" },
-            ]),
-      ],
-    },
-    {
-      role: "help",
-      submenu: [
-        ...(isMac
-          ? []
-          : [
-              {
-                label: "Check for Updates...",
-                click: () => {
-                  void checkForUpdatesFromNativeMenu();
-                },
-              },
-              { type: "separator" },
-            ]),
-        {
-          label: "Docs",
-          click: async () => {
-            await shell.openExternal(DOCS_PAGE_URL);
-          },
-        },
-      ],
-    },
-  ]);
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
-
-function applyApplicationMenuVisibility(window) {
-  if (process.platform === "darwin") return;
-  window.setAutoHideMenuBar(false);
-  window.setMenuBarVisibility(applicationMenuVisible);
-}
-
-function setApplicationMenuVisible(visible) {
-  applicationMenuVisible = visible === true;
-  for (const window of BrowserWindow.getAllWindows()) {
-    applyApplicationMenuVisibility(window);
-  }
-  return applicationMenuVisible;
-}
 
 function createBrowserTabId() {
   browserTabCounter += 1;
@@ -2935,7 +2720,7 @@ const desktopCommandHandlers = {
       return applyNativeTheme(String(args[0]));
   },
   "__setApplicationMenuVisible": async (event, ...args) => {
-      return setApplicationMenuVisible(args[0]);
+      return applicationMenu.setVisible(args[0]);
   },
 };
 
@@ -2979,7 +2764,7 @@ async function createMainWindow() {
       sandbox: false,
     },
   });
-  applyApplicationMenuVisibility(mainWindow);
+  applicationMenu.applyVisibility(mainWindow);
 
   if (isDevMode) {
     mainWindow.on("page-title-updated", (event) => {
@@ -3211,7 +2996,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     installMediaPermissionHandlers(session, () => mainWindow);
-    installApplicationMenu();
+    applicationMenu.install();
     await runtimeManager.prepareFreshRuntime().catch(() => undefined);
 
     // Use Tauri's existing workspace state file as canonical so rollback and
