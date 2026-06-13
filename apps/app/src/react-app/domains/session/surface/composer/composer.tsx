@@ -407,6 +407,10 @@ export function ReactSessionComposer(props: ComposerProps) {
   }, [agentMenuOpen, toolMenuOpen, toolMenuSection, props.listAgents]);
 
   useEffect(() => {
+    if (!showAgentPicker) setAgentMenuOpen(false);
+  }, [showAgentPicker]);
+
+  useEffect(() => {
     let cancelled = false;
     void props.listAgents().then((next) => {
       if (!cancelled) setAgents(next);
