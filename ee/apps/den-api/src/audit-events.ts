@@ -5,6 +5,9 @@ import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 export const ORGANIZATION_AUDIT_ACTIONS = {
   apiKeyCreated: "organization.api_key.created",
   apiKeyDeleted: "organization.api_key.deleted",
+  invitationCreated: "organization.invitation.created",
+  invitationRefreshed: "organization.invitation.refreshed",
+  invitationCanceled: "organization.invitation.canceled",
   memberRoleUpdated: "organization.member.role_updated",
   memberRemoved: "organization.member.removed",
   scimTokenRotated: "organization.scim.token_rotated",

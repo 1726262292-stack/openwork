@@ -67,6 +67,36 @@ test("organization audit events support member lifecycle actions", () => {
   })
 })
 
+test("organization audit events support invitation lifecycle actions", () => {
+  const invitationId = createDenTypeId("invitation")
+  const targetOrgMembershipId = createDenTypeId("member")
+
+  expect(ORGANIZATION_AUDIT_ACTIONS.invitationRefreshed).toBe("organization.invitation.refreshed")
+  expect(ORGANIZATION_AUDIT_ACTIONS.invitationCanceled).toBe("organization.invitation.canceled")
+
+  const event = buildOrganizationAuditEvent({
+    organizationId: createDenTypeId("organization"),
+    actorUserId: createDenTypeId("user"),
+    action: ORGANIZATION_AUDIT_ACTIONS.invitationCreated,
+    payload: {
+      invitationId,
+      targetOrgMembershipId,
+      targetEmail: "new-member@example.com",
+      role: "member",
+      expiresAt: "2026-06-20T00:00:00.000Z",
+    },
+  })
+
+  expect(event.action).toBe("organization.invitation.created")
+  expect(event.payload).toEqual({
+    invitationId,
+    targetOrgMembershipId,
+    targetEmail: "new-member@example.com",
+    role: "member",
+    expiresAt: "2026-06-20T00:00:00.000Z",
+  })
+})
+
 test("organization audit events support SCIM management actions", () => {
   const scimProviderId = createDenTypeId("scimProvider")
 
