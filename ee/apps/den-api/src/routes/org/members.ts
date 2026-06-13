@@ -4,6 +4,7 @@ import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
+import { revokeOrganizationApiKeysForMember } from "../../api-keys.js"
 import { db } from "../../db.js"
 import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
@@ -72,7 +73,15 @@ export function registerOrgMemberRoutes<T extends { Variables: OrgRouteVariables
       return c.json({ error: validation.error, message: validation.message }, 400)
     }
 
-    await db.update(MemberTable).set({ role }).where(eq(MemberTable.id, validation.member.id))
+    if (validation.member.role !== role) {
+      await db.update(MemberTable).set({ role }).where(eq(MemberTable.id, validation.member.id))
+      await revokeOrganizationApiKeysForMember({
+        organizationId: payload.organization.id,
+        orgMembershipId: validation.member.id,
+        userId: validation.member.userId,
+      })
+    }
+
     return c.json({ success: true })
     },
   )

@@ -6,6 +6,8 @@ import { syncDenSignupContact } from "./loops.js";
 import { sendEmail } from "./utils/email/send-email.js";
 import {
   DEN_API_KEY_DEFAULT_PREFIX,
+  DEN_API_KEY_EXPIRES_IN_DAYS,
+  DEN_API_KEY_EXPIRES_IN_SECONDS,
   DEN_API_KEY_RATE_LIMIT_MAX,
   DEN_API_KEY_RATE_LIMIT_TIME_WINDOW_MS,
 } from "./api-keys.js";
@@ -468,7 +470,14 @@ export const auth = betterAuth({
       enableSessionForAPIKeys: true,
       maximumNameLength: 64,
       requireName: true,
+      disableKeyHashing: false,
       storage: "database",
+      keyExpiration: {
+        defaultExpiresIn: DEN_API_KEY_EXPIRES_IN_SECONDS,
+        disableCustomExpiresTime: true,
+        minExpiresIn: 1,
+        maxExpiresIn: DEN_API_KEY_EXPIRES_IN_DAYS,
+      },
       rateLimit: {
         enabled: true,
         maxRequests: DEN_API_KEY_RATE_LIMIT_MAX,

@@ -83,6 +83,7 @@ const createdOrganizationApiKeySchema = z.object({
   rateLimitEnabled: z.boolean(),
   rateLimitMax: z.number().int().nullable(),
   rateLimitTimeWindow: z.number().int().nullable(),
+  expiresAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 }).meta({ ref: "CreatedOrganizationApiKey" })
@@ -248,6 +249,7 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
           rateLimitEnabled: created.rateLimitEnabled,
           rateLimitMax: created.rateLimitMax,
           rateLimitTimeWindow: created.rateLimitTimeWindow,
+          expiresAt: created.expiresAt,
           createdAt: created.createdAt,
           updatedAt: created.updatedAt,
         },
