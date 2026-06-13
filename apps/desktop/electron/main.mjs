@@ -1,4 +1,3 @@
-import { createHash, randomBytes } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import net from "node:net";
@@ -8,7 +7,6 @@ import {
   mkdir,
   readFile,
   readdir,
-  realpath,
   rename,
   rm,
   stat,
@@ -24,7 +22,6 @@ import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./me
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
-import { exportWorkspaceConfig, importWorkspaceConfig } from "./workspace-archive.mjs";
 import {
   checkComputerUsePermissions,
   getComputerUseMcpCommand,
@@ -34,10 +31,7 @@ import {
 import { createUiControlServer } from "./ui-control-server.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
-import {
-  openworkWorkspaceDisplayName,
-  selectOpenworkWorkspaceForConnection,
-} from "./remote-workspace.mjs";
+import { createWorkspaceStore } from "./workspace-store.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -343,13 +337,6 @@ function envFlagEnabled(name) {
   return value === "1" || value === "true" || value === "yes" || value === "on";
 }
 
-const EMPTY_WORKSPACE_LIST = Object.freeze({
-  selectedId: "",
-  watchedId: null,
-  activeId: null,
-  workspaces: [],
-});
-
 const IDLE_ENGINE_INFO = Object.freeze({
   running: false,
   runtime: "direct",
@@ -404,6 +391,13 @@ const browserPanel = createBrowserPanel({
   getWindow: () => mainWindow,
 });
 
+const workspaceStore = createWorkspaceStore({
+  app,
+  defaultDenBaseUrl: DEFAULT_DEN_BASE_URL,
+  defaultRequireSignin: DEFAULT_DESKTOP_REQUIRE_SIGNIN,
+  forceRequireSignin: FORCE_DESKTOP_REQUIRE_SIGNIN,
+});
+
 function normalizePlatform(value) {
   if (value === "darwin" || value === "linux") return value;
   if (value === "win32") return "windows";
@@ -436,60 +430,6 @@ function flushPendingDeepLinks() {
   if (!mainWindow?.webContents || pendingDeepLinks.length === 0) return;
   const urls = pendingDeepLinks.splice(0, pendingDeepLinks.length);
   mainWindow.webContents.send(NATIVE_DEEP_LINK_EVENT, urls);
-}
-
-function desktopBootstrapPath() {
-  if (process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH?.trim()) {
-    return process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH.trim();
-  }
-  // Dev mode swaps process.env.HOME to the sandboxed dev-data home midway
-  // through startup (runtime.mjs buildChildEnv → Object.assign(process.env)),
-  // which changes what os.homedir() returns. Resolve the dev-data home
-  // deterministically so early and late IPC reads target the same file —
-  // otherwise the renderer can bootstrap against the wrong control plane
-  // until a manual reload.
-  if (process.env.OPENWORK_DEV_MODE === "1") {
-    return path.join(
-      app.getPath("userData"),
-      "openwork-dev-data",
-      "home",
-      ".config",
-      "openwork",
-      "desktop-bootstrap.json",
-    );
-  }
-  return path.join(os.homedir(), ".config", "openwork", "desktop-bootstrap.json");
-}
-
-function workspaceStatePath() {
-  return path.join(app.getPath("userData"), "openwork-workspaces.json");
-}
-
-// Earlier Electron alpha builds copied Tauri's openwork-workspaces.json into an
-// Electron-only workspace-state.json. Keep importing that file when the shared
-// canonical file is missing, but write openwork-workspaces.json going forward so
-// Tauri rollback and Electron both read the same desktop workspace state.
-function legacyElectronWorkspaceStatePath() {
-  return path.join(app.getPath("userData"), "workspace-state.json");
-}
-
-async function migrateLegacyElectronWorkspaceStateIfNeeded() {
-  const current = workspaceStatePath();
-  const legacy = legacyElectronWorkspaceStatePath();
-  try {
-    if (existsSync(current)) return false;
-    if (!existsSync(legacy)) return false;
-    await mkdir(path.dirname(current), { recursive: true });
-    const raw = await readFile(legacy, "utf8");
-    await writeFile(current, raw, "utf8");
-    console.info(
-      "[migration] copied workspace-state.json → openwork-workspaces.json",
-    );
-    return true;
-  } catch (error) {
-    console.warn("[migration] legacy Electron workspace-state copy failed", error);
-    return false;
-  }
 }
 
 function configHomePath() {
@@ -525,145 +465,6 @@ async function isDirectory(targetPath) {
   } catch {
     return false;
   }
-}
-
-async function readJsonFile(targetPath, fallback) {
-  try {
-    const raw = await readFile(targetPath, "utf8");
-    try {
-      return JSON.parse(raw);
-    } catch (error) {
-      const recovered = parseFirstJsonObject(raw);
-      if (recovered.ok) {
-        console.warn(`[json] recovered ${targetPath} from trailing invalid data`, error);
-        await writeJsonFileAtomic(targetPath, recovered.value);
-        return recovered.value;
-      }
-      throw error;
-    }
-  } catch {
-    return fallback;
-  }
-}
-
-function parseFirstJsonObject(raw) {
-  let inString = false;
-  let escaped = false;
-  let depth = 0;
-  let start = -1;
-
-  for (let index = 0; index < raw.length; index += 1) {
-    const char = raw[index];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === "\\") {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-    if (char === "{") {
-      if (depth === 0) start = index;
-      depth += 1;
-      continue;
-    }
-    if (char === "}") {
-      depth -= 1;
-      if (depth === 0 && start >= 0) {
-        try {
-          return { ok: true, value: JSON.parse(raw.slice(start, index + 1)) };
-        } catch {
-          return { ok: false, value: null };
-        }
-      }
-    }
-  }
-
-  return { ok: false, value: null };
-}
-
-async function writeJsonFileAtomic(outputPath, value) {
-  const content = `${JSON.stringify(value, null, 2)}\n`;
-  JSON.parse(content);
-  await mkdir(path.dirname(outputPath), { recursive: true });
-  const tempPath = `${outputPath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
-  await writeFile(tempPath, content, "utf8");
-  await rename(tempPath, outputPath);
-}
-
-function normalizeDesktopBootstrapConfig(input) {
-  const baseUrl = typeof input?.baseUrl === "string" ? input.baseUrl.trim() : "";
-  if (!baseUrl) {
-    throw new Error("baseUrl is required");
-  }
-
-  const apiBaseUrl =
-    typeof input?.apiBaseUrl === "string" && input.apiBaseUrl.trim().length > 0
-      ? input.apiBaseUrl.trim()
-      : null;
-  return {
-    baseUrl,
-    apiBaseUrl,
-    requireSignin: FORCE_DESKTOP_REQUIRE_SIGNIN || input?.requireSignin === true,
-  };
-}
-
-async function getDesktopBootstrapConfig() {
-  const configPath = desktopBootstrapPath();
-  try {
-    const raw = await readFile(configPath, "utf8");
-    return normalizeDesktopBootstrapConfig(JSON.parse(raw));
-  } catch (error) {
-    console.warn("[desktop-bootstrap] falling back to defaults", {
-      path: configPath,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return {
-      baseUrl: DEFAULT_DEN_BASE_URL,
-      apiBaseUrl: null,
-      requireSignin: DEFAULT_DESKTOP_REQUIRE_SIGNIN,
-    };
-  }
-}
-
-async function debugDesktopBootstrapConfig() {
-  const configPath = desktopBootstrapPath();
-  const result = {
-    path: configPath,
-    home: os.homedir(),
-    envHome: process.env.HOME ?? null,
-    envOverride: process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH ?? null,
-    exists: existsSync(configPath),
-    raw: null,
-    parsed: null,
-    normalized: null,
-    error: null,
-  };
-
-  try {
-    result.raw = await readFile(configPath, "utf8");
-    result.parsed = JSON.parse(result.raw);
-    result.normalized = normalizeDesktopBootstrapConfig(result.parsed);
-  } catch (error) {
-    result.error = error instanceof Error ? error.message : String(error);
-  }
-
-  return result;
-}
-
-async function setDesktopBootstrapConfig(config) {
-  const normalized = normalizeDesktopBootstrapConfig(config);
-  const outputPath = desktopBootstrapPath();
-  await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
-  return normalized;
 }
 
 function sanitizeCommandName(raw) {
@@ -710,257 +511,10 @@ function validateSkillName(raw) {
   return trimmed;
 }
 
-function defaultWorkspaceOpenworkConfig(workspacePath, preset = null) {
-  return {
-    version: 1,
-    workspace: workspacePath
-      ? {
-          name: path.basename(workspacePath) || "Workspace",
-          createdAt: Date.now(),
-          preset: preset || null,
-        }
-      : null,
-    authorizedRoots: workspacePath ? [workspacePath] : [],
-    reload: null,
-  };
-}
-
-async function normalizeLocalWorkspacePath(rawPath) {
-  const trimmed = String(rawPath ?? "").trim();
-  if (!trimmed) return "";
-  const expanded = trimmed === "~"
-    ? os.homedir()
-    : trimmed.startsWith("~/") || trimmed.startsWith("~\\")
-      ? path.join(os.homedir(), trimmed.slice(2))
-      : trimmed;
-  const resolved = path.resolve(expanded);
-  return realpath(resolved).catch(() => resolved);
-}
-
-function normalizeWorkspacePathKey(value) {
-  const trimmed = String(value ?? "").trim();
-  return trimmed ? path.resolve(trimmed).replace(/\\/g, "/").toLowerCase() : "";
-}
-
-function stableWorkspaceId(value) {
-  return `ws_${createHash("sha256").update(String(value)).digest("hex").slice(0, 12)}`;
-}
-
-function localWorkspaceId(workspacePath) {
-  return stableWorkspaceId(workspacePath);
-}
-
-function remoteWorkspaceId(baseUrl, directory) {
-  const key = String(directory ?? "").trim()
-    ? `remote::${baseUrl}::${String(directory).trim()}`
-    : `remote::${baseUrl}`;
-  return stableWorkspaceId(key);
-}
-
-function parseOpenworkWorkspaceIdFromUrl(input) {
-  const raw = String(input ?? "").trim();
-  if (!raw) return null;
-  try {
-    const url = new URL(raw);
-    const segments = url.pathname.split("/").filter(Boolean);
-    const workspaceIndex = segments.indexOf("workspace");
-    const legacyIndex = segments.indexOf("w");
-    const mountIndex = workspaceIndex >= 0 ? workspaceIndex : legacyIndex;
-    return mountIndex >= 0 && segments[mountIndex + 1]
-      ? decodeURIComponent(segments[mountIndex + 1])
-      : null;
-  } catch {
-    const match = raw.match(/\/(?:workspace|w)\/([^/?#]+)/);
-    if (!match?.[1]) return null;
-    try {
-      return decodeURIComponent(match[1]);
-    } catch {
-      return match[1];
-    }
-  }
-}
-
-function stripOpenworkWorkspaceMount(input) {
-  const raw = String(input ?? "").trim();
-  if (!raw) return null;
-  try {
-    const url = new URL(raw);
-    const segments = url.pathname.split("/").filter(Boolean);
-    const workspaceIndex = segments.indexOf("workspace");
-    const legacyIndex = segments.indexOf("w");
-    const mountIndex = workspaceIndex >= 0 ? workspaceIndex : legacyIndex;
-    if (mountIndex >= 0 && segments[mountIndex + 1]) {
-      const prefix = segments.slice(0, mountIndex).join("/");
-      url.pathname = prefix ? `/${prefix}` : "/";
-    }
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return raw.replace(/\/(?:workspace|w)\/[^/?#]+.*$/, "").replace(/\/+$/, "") || raw;
-  }
-}
-
-function openworkRemoteWorkspaceId(hostUrl, workspaceId) {
-  const remoteWorkspaceId = String(workspaceId ?? "").trim() || parseOpenworkWorkspaceIdFromUrl(hostUrl);
-  if (remoteWorkspaceId) return `rem_${remoteWorkspaceId}`;
-  return `rem_${createHash("sha256").update(`openwork::${hostUrl}`).digest("hex").slice(0, 12)}`;
-}
-
-async function fetchOpenworkWorkspaceList(hostUrl, token, hostToken) {
-  const url = `${String(hostUrl ?? "").replace(/\/+$/, "")}/workspaces`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
-  const headers = new Headers();
-  const bearerToken = String(token ?? "").trim();
-  const hostAuthToken = String(hostToken ?? "").trim();
-  if (bearerToken) headers.set("Authorization", `Bearer ${bearerToken}`);
-  if (hostAuthToken) headers.set("X-OpenWork-Host-Token", hostAuthToken);
-
-  try {
-    const response = await fetch(url, { headers, signal: controller.signal });
-    if (!response.ok) {
-      throw new Error(`OpenWork workspace discovery failed (${response.status} ${response.statusText || "HTTP error"})`);
-    }
-    return await response.json();
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function discoverOpenworkWorkspace({ hostUrl, token, hostToken, directory }) {
-  const list = await fetchOpenworkWorkspaceList(hostUrl, token, hostToken);
-  return selectOpenworkWorkspaceForConnection(list, directory);
-}
-
-async function readWorkspaceOpenworkConfig(workspacePath) {
-  const openworkPath = path.join(workspacePath, ".opencode", "openwork.json");
-  if (!(await pathExists(openworkPath))) {
-    return defaultWorkspaceOpenworkConfig(workspacePath);
-  }
-  const raw = await readFile(openworkPath, "utf8");
-  return JSON.parse(raw);
-}
-
-async function writeWorkspaceOpenworkConfig(workspacePath, config) {
-  const openworkPath = path.join(workspacePath, ".opencode", "openwork.json");
-  await mkdir(path.dirname(openworkPath), { recursive: true });
-  await writeFile(openworkPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-  return execResult(true, `Wrote ${openworkPath}`);
-}
-
-async function readWorkspaceState() {
-  const state = await readJsonFile(workspaceStatePath(), EMPTY_WORKSPACE_LIST);
-  const selectedId =
-    typeof state?.selectedId === "string"
-      ? state.selectedId
-      : typeof state?.selectedWorkspaceId === "string"
-        ? state.selectedWorkspaceId
-        : typeof state?.activeId === "string"
-          ? state.activeId
-          : "";
-  const watchedId =
-    typeof state?.watchedId === "string"
-      ? state.watchedId
-      : typeof state?.watchedWorkspaceId === "string"
-        ? state.watchedWorkspaceId
-        : null;
-  const activeId = typeof state?.activeId === "string" ? state.activeId : null;
-  const workspaces = Array.isArray(state?.workspaces) ? state.workspaces : [];
-  let changed = false;
-  const idMap = new Map();
-  const migratedWorkspaces = workspaces.map((entry) => {
-    const workspace = entry && typeof entry === "object" ? entry : normalizeWorkspaceEntry(entry ?? {});
-    if (workspace.workspaceType !== "remote" || workspace.remoteType !== "openwork") return workspace;
-
-    const remoteWorkspaceId = String(workspace.openworkWorkspaceId ?? "").trim()
-      || parseOpenworkWorkspaceIdFromUrl(workspace.openworkHostUrl)
-      || parseOpenworkWorkspaceIdFromUrl(workspace.baseUrl);
-    if (!remoteWorkspaceId) return workspace;
-
-    const hostUrl = stripOpenworkWorkspaceMount(workspace.openworkHostUrl) || stripOpenworkWorkspaceMount(workspace.baseUrl);
-    const nextId = openworkRemoteWorkspaceId(hostUrl ?? workspace.baseUrl, remoteWorkspaceId);
-    idMap.set(workspace.id, nextId);
-    const nextWorkspace = {
-      ...workspace,
-      id: nextId,
-      baseUrl: hostUrl,
-      openworkWorkspaceId: remoteWorkspaceId,
-      openworkHostUrl: hostUrl,
-    };
-    if (workspace.id !== nextWorkspace.id || workspace.baseUrl !== nextWorkspace.baseUrl || workspace.openworkWorkspaceId !== nextWorkspace.openworkWorkspaceId || workspace.openworkHostUrl !== nextWorkspace.openworkHostUrl) {
-      changed = true;
-    }
-    return nextWorkspace;
-  });
-  // Older desktop state can contain multiple OpenWork remote entries that
-  // normalize to the same `rem_<workspaceId>` after stripping worker mounts.
-  // Collapse them here so React never receives duplicate workspace keys.
-  const workspaceIndexById = new Map();
-  const dedupedWorkspaces = [];
-  for (const workspace of migratedWorkspaces) {
-    const workspaceId = String(workspace?.id ?? "").trim();
-    if (!workspaceId) {
-      dedupedWorkspaces.push(workspace);
-      continue;
-    }
-    const existingIndex = workspaceIndexById.get(workspaceId);
-    if (existingIndex === undefined) {
-      workspaceIndexById.set(workspaceId, dedupedWorkspaces.length);
-      dedupedWorkspaces.push(workspace);
-      continue;
-    }
-    // Keep the later entry: normal mutations replace-then-push refreshed
-    // remote workspaces, and there is no persisted updatedAt to compare.
-    dedupedWorkspaces[existingIndex] = workspace;
-    changed = true;
-  }
-
-  const migratedSelectedId = idMap.get(selectedId) ?? selectedId;
-  const migratedWatchedId = watchedId ? idMap.get(watchedId) ?? watchedId : null;
-  const migratedActiveId = activeId ? idMap.get(activeId) ?? activeId : null;
-  if (migratedSelectedId !== selectedId || migratedWatchedId !== watchedId || migratedActiveId !== activeId) changed = true;
-
-  const nextState = {
-    selectedId:
-      migratedSelectedId,
-    watchedId: migratedWatchedId,
-    activeId: migratedActiveId,
-    workspaces: dedupedWorkspaces,
-  };
-
-  if (changed) {
-    return writeWorkspaceState(nextState);
-  }
-  return nextState;
-}
-
-async function writeWorkspaceState(nextState) {
-  const outputPath = workspaceStatePath();
-  const selectedId = String(nextState?.selectedId ?? nextState?.activeId ?? "");
-  const watchedId = typeof nextState?.watchedId === "string" ? nextState.watchedId : "";
-  const output = {
-    ...nextState,
-    // Tauri's Rust state uses selectedWorkspaceId/watchedWorkspaceId on disk
-    // (with activeId as a legacy alias). Keep Electron's selectedId/watchedId
-    // too so older Electron builds can still read the same file.
-    selectedId,
-    selectedWorkspaceId: selectedId,
-    watchedId: watchedId || null,
-    watchedWorkspaceId: watchedId,
-    activeId: selectedId || null,
-  };
-  await writeJsonFileAtomic(outputPath, output);
-  return output;
-}
-
 const runtimeManager = createRuntimeManager({
   app,
   desktopRoot: path.resolve(__dirname, ".."),
-  listLocalWorkspacePaths: async () =>
-    (await readWorkspaceState())
-      .workspaces
-      .filter((entry) => entry?.workspaceType !== "remote")
-      .map((entry) => String(entry?.path ?? "").trim())
-      .filter(Boolean),
+  listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
 });
 
 let runtimeDisposedForQuit = false;
@@ -1024,7 +578,7 @@ function assertOpenworkServerReady(info) {
 }
 
 async function bootRuntimeForSelectedWorkspace() {
-  const list = await readWorkspaceState();
+  const list = await workspaceStore.readWorkspaceState();
   const selectedId = list.selectedId || list.activeId || list.workspaces[0]?.id || "";
   const workspace = selectedId
     ? list.workspaces.find((entry) => entry?.id === selectedId)
@@ -1072,7 +626,7 @@ async function bootRuntimeForSelectedWorkspace() {
     });
     bootWorkspace = fallback;
     bootWorkspaceRoot = fallbackRoot;
-    await writeWorkspaceState({
+    await workspaceStore.writeWorkspaceState({
       ...list,
       selectedId: String(fallback.id ?? ""),
       watchedId: String(fallback.id ?? ""),
@@ -1094,35 +648,6 @@ function ensureRuntimeBootstrap() {
     }));
   }
   return runtimeBootstrapPromise;
-}
-
-function normalizeWorkspaceEntry(input) {
-  return {
-    id: String(input.id),
-    name: String(input.name ?? "Workspace"),
-    path: String(input.path ?? ""),
-    preset: String(input.preset ?? "starter"),
-    workspaceType: input.workspaceType === "remote" ? "remote" : "local",
-    remoteType: input.remoteType ?? null,
-    baseUrl: input.baseUrl ?? null,
-    directory: input.directory ?? null,
-    displayName: input.displayName ?? null,
-    openworkHostUrl: input.openworkHostUrl ?? null,
-    openworkToken: input.openworkToken ?? null,
-    openworkClientToken: input.openworkClientToken ?? null,
-    openworkHostToken: input.openworkHostToken ?? null,
-    openworkWorkspaceId: input.openworkWorkspaceId ?? null,
-    openworkWorkspaceName: input.openworkWorkspaceName ?? null,
-    sandboxBackend: input.sandboxBackend ?? null,
-    sandboxRunId: input.sandboxRunId ?? null,
-    sandboxContainerName: input.sandboxContainerName ?? null,
-  };
-}
-
-async function mutateWorkspaceState(mutator) {
-  const current = await readWorkspaceState();
-  const next = await mutator({ ...current, workspaces: [...current.workspaces] });
-  return writeWorkspaceState(next);
 }
 
 function resolveOpencodeConfigPath(scope, projectDir) {
@@ -1414,279 +939,46 @@ function applyNativeTheme(mode) {
 /** @type {import("@openwork/types/desktop-ipc").DesktopCommandHandlers<import("electron").IpcMainInvokeEvent>} */
 const desktopCommandHandlers = {
   "workspaceBootstrap": async (event, ...args) => {
-      return readWorkspaceState();
+      return workspaceStore.readWorkspaceState();
   },
   "workspaceSetSelected": async (event, ...args) => {
-      return mutateWorkspaceState((state) => {
-        const workspaceId = typeof args[0] === "string" ? args[0] : "";
-        state.selectedId = workspaceId;
-        state.activeId = workspaceId || null;
-        return state;
-      });
+      return workspaceStore.setSelectedWorkspace(typeof args[0] === "string" ? args[0] : "");
   },
   "workspaceSetRuntimeActive": async (event, ...args) => {
-      return mutateWorkspaceState((state) => {
-        state.watchedId = typeof args[0] === "string" && args[0].trim() ? args[0] : null;
-        return state;
-      });
+      return workspaceStore.setRuntimeActiveWorkspace(typeof args[0] === "string" && args[0].trim() ? args[0] : null);
   },
   "workspaceCreate": async (event, ...args) => {
-      const input = args[0] ?? {};
-      const rawFolderPath = String(input.folderPath ?? "").trim();
-      if (!rawFolderPath) throw new Error("folderPath is required");
-      const folderPath = await normalizeLocalWorkspacePath(rawFolderPath);
-      await mkdir(folderPath, { recursive: true });
-      const preset = String(input.preset ?? "starter");
-      const workspace = normalizeWorkspaceEntry({
-        id: localWorkspaceId(folderPath),
-        name: String(input.name ?? (path.basename(folderPath) || "Workspace")),
-        displayName: String(input.name ?? (path.basename(folderPath) || "Workspace")),
-        path: folderPath,
-        preset,
-        workspaceType: "local",
-      });
-      await mkdir(path.join(folderPath, ".opencode"), { recursive: true });
-      await writeWorkspaceOpenworkConfig(folderPath, defaultWorkspaceOpenworkConfig(folderPath, preset));
-
-      return mutateWorkspaceState((state) => {
-        const workspacePathKey = normalizeWorkspacePathKey(workspace.path);
-        state.workspaces = state.workspaces.filter(
-          (entry) => entry.id !== workspace.id && normalizeWorkspacePathKey(entry.path) !== workspacePathKey,
-        );
-        state.workspaces.push(workspace);
-        state.selectedId = workspace.id;
-        state.activeId = workspace.id;
-        state.watchedId = workspace.id;
-        return state;
-      });
+      return workspaceStore.createWorkspace(args[0] ?? {});
   },
   "workspaceCreateRemote": async (event, ...args) => {
-      const input = args[0] ?? {};
-      const baseUrl = String(input.baseUrl ?? "").trim();
-      if (!baseUrl) throw new Error("baseUrl is required");
-      if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
-        throw new Error("baseUrl must start with http:// or https://");
-      }
-      const remoteType = input.remoteType === "opencode" ? "opencode" : "openwork";
-      const directory = typeof input.directory === "string" && input.directory.trim() ? input.directory.trim() : null;
-      const rawOpenworkHostUrl = typeof input.openworkHostUrl === "string" && input.openworkHostUrl.trim()
-        ? input.openworkHostUrl.trim()
-        : null;
-      const openworkHostUrl = remoteType === "openwork"
-        ? stripOpenworkWorkspaceMount(rawOpenworkHostUrl ?? baseUrl)
-        : rawOpenworkHostUrl;
-      const openworkWorkspaceId = typeof input.openworkWorkspaceId === "string" && input.openworkWorkspaceId.trim()
-        ? input.openworkWorkspaceId.trim()
-        : remoteType === "openwork"
-          ? parseOpenworkWorkspaceIdFromUrl(rawOpenworkHostUrl) || parseOpenworkWorkspaceIdFromUrl(baseUrl)
-          : null;
-      let resolvedOpenworkWorkspaceId = openworkWorkspaceId;
-      let resolvedOpenworkWorkspaceName = input.openworkWorkspaceName ?? null;
-      if (remoteType === "openwork" && !resolvedOpenworkWorkspaceId) {
-        const discovered = await discoverOpenworkWorkspace({
-          hostUrl: openworkHostUrl ?? baseUrl,
-          token: input.openworkToken,
-          hostToken: input.openworkHostToken,
-          directory,
-        });
-        if (!discovered?.id) {
-          throw new Error(
-            directory
-              ? `OpenWork server has no workspace matching ${directory}.`
-              : "OpenWork server returned no workspaces.",
-          );
-        }
-        resolvedOpenworkWorkspaceId = String(discovered.id).trim();
-        resolvedOpenworkWorkspaceName = openworkWorkspaceDisplayName(discovered);
-      }
-      const id = remoteType === "openwork"
-        ? openworkRemoteWorkspaceId(openworkHostUrl ?? baseUrl, resolvedOpenworkWorkspaceId)
-        : remoteWorkspaceId(baseUrl, directory);
-      const workspace = normalizeWorkspaceEntry({
-        id,
-        name: String(input.displayName ?? resolvedOpenworkWorkspaceName ?? "Remote workspace"),
-        displayName: input.displayName ?? null,
-        path: directory ?? "",
-        preset: "remote",
-        workspaceType: "remote",
-        remoteType,
-        baseUrl: remoteType === "openwork" ? (openworkHostUrl ?? baseUrl) : baseUrl,
-        directory,
-        openworkHostUrl,
-        openworkToken: input.openworkToken ?? null,
-        openworkClientToken: input.openworkClientToken ?? null,
-        openworkHostToken: input.openworkHostToken ?? null,
-        openworkWorkspaceId: resolvedOpenworkWorkspaceId,
-        openworkWorkspaceName: resolvedOpenworkWorkspaceName,
-        sandboxBackend: input.sandboxBackend ?? null,
-        sandboxRunId: input.sandboxRunId ?? null,
-        sandboxContainerName: input.sandboxContainerName ?? null,
-      });
-      return mutateWorkspaceState((state) => {
-        state.workspaces = state.workspaces.filter((entry) => entry.id !== workspace.id);
-        state.workspaces.push(workspace);
-        state.selectedId = workspace.id;
-        state.activeId = workspace.id;
-        return state;
-      });
+      return workspaceStore.createRemoteWorkspace(args[0] ?? {});
   },
   "workspaceUpdateRemote": async (event, ...args) => {
-      const input = args[0] ?? {};
-      const workspaceId = String(input.workspaceId ?? "").trim();
-      if (!workspaceId) throw new Error("workspaceId is required");
-      const { workspaceId: _workspaceId, ...patch } = input;
-      return mutateWorkspaceState(async (state) => {
-        const existing = state.workspaces.find((entry) => entry.id === workspaceId);
-        if (!existing) return state;
-
-        let nextWorkspace = { ...existing, ...patch };
-        const nextRemoteType = nextWorkspace.remoteType === "opencode" ? "opencode" : "openwork";
-        if (nextRemoteType === "openwork") {
-          const rawHostUrl = typeof nextWorkspace.openworkHostUrl === "string" && nextWorkspace.openworkHostUrl.trim()
-            ? nextWorkspace.openworkHostUrl.trim()
-            : null;
-          const nextBaseUrl = String(nextWorkspace.baseUrl ?? "").trim();
-          const hostUrl = stripOpenworkWorkspaceMount(rawHostUrl ?? nextBaseUrl);
-          const directory = typeof nextWorkspace.directory === "string" && nextWorkspace.directory.trim()
-            ? nextWorkspace.directory.trim()
-            : null;
-          const parsedWorkspaceId = parseOpenworkWorkspaceIdFromUrl(rawHostUrl) || parseOpenworkWorkspaceIdFromUrl(nextBaseUrl);
-          let remoteWorkspaceId = parsedWorkspaceId || (
-            typeof nextWorkspace.openworkWorkspaceId === "string" && nextWorkspace.openworkWorkspaceId.trim()
-              ? nextWorkspace.openworkWorkspaceId.trim()
-              : null
-          );
-          let remoteWorkspaceName = nextWorkspace.openworkWorkspaceName ?? null;
-          if (!remoteWorkspaceId) {
-            const discovered = await discoverOpenworkWorkspace({
-              hostUrl: hostUrl ?? nextBaseUrl,
-              token: nextWorkspace.openworkToken,
-              hostToken: nextWorkspace.openworkHostToken,
-              directory,
-            });
-            if (!discovered?.id) {
-              throw new Error(
-                directory
-                  ? `OpenWork server has no workspace matching ${directory}.`
-                  : "OpenWork server returned no workspaces.",
-              );
-            }
-            remoteWorkspaceId = String(discovered.id).trim();
-            remoteWorkspaceName = openworkWorkspaceDisplayName(discovered);
-          }
-          const nextId = openworkRemoteWorkspaceId(hostUrl ?? nextBaseUrl, remoteWorkspaceId);
-          nextWorkspace = normalizeWorkspaceEntry({
-            ...nextWorkspace,
-            id: nextId,
-            baseUrl: hostUrl ?? nextBaseUrl,
-            openworkHostUrl: hostUrl,
-            directory,
-            remoteType: "openwork",
-            openworkWorkspaceId: remoteWorkspaceId,
-            openworkWorkspaceName: remoteWorkspaceName,
-          });
-          if (nextId !== workspaceId) {
-            if (state.selectedId === workspaceId) state.selectedId = nextId;
-            if (state.activeId === workspaceId) state.activeId = nextId;
-            if (state.watchedId === workspaceId) state.watchedId = nextId;
-          }
-        }
-
-        state.workspaces = state.workspaces.map((entry) =>
-          entry.id === workspaceId ? nextWorkspace : entry,
-        );
-        return state;
-      });
+      return workspaceStore.updateRemoteWorkspace(args[0] ?? {});
   },
   "workspaceUpdateDisplayName": async (event, ...args) => {
-      const input = args[0] ?? {};
-      const workspaceId = String(input.workspaceId ?? "").trim();
-      if (!workspaceId) throw new Error("workspaceId is required");
-      return mutateWorkspaceState((state) => {
-        state.workspaces = state.workspaces.map((entry) =>
-          entry.id === workspaceId ? { ...entry, displayName: input.displayName ?? null } : entry,
-        );
-        return state;
-      });
+      return workspaceStore.updateWorkspaceDisplayName(args[0] ?? {});
   },
   "workspaceForget": async (event, ...args) => {
-      const workspaceId = String(args[0] ?? "").trim();
-      if (!workspaceId) throw new Error("workspaceId is required");
-      return mutateWorkspaceState((state) => {
-        state.workspaces = state.workspaces.filter((entry) => entry.id !== workspaceId);
-        if (state.selectedId === workspaceId) state.selectedId = "";
-        if (state.activeId === workspaceId) state.activeId = null;
-        if (state.watchedId === workspaceId) state.watchedId = null;
-        return state;
-      });
+      return workspaceStore.forgetWorkspace(String(args[0] ?? "").trim());
   },
   "workspaceAddAuthorizedRoot": async (event, ...args) => {
-      const input = args[0] ?? {};
-      const workspacePath = String(input.workspacePath ?? "").trim();
-      const authorizedRoot = String(input.folderPath ?? input.authorizedRoot ?? "").trim();
-      if (!workspacePath || !authorizedRoot) {
-        throw new Error("workspacePath and folderPath are required");
-      }
-      const config = await readWorkspaceOpenworkConfig(workspacePath);
-      if (!Array.isArray(config.authorizedRoots)) {
-        config.authorizedRoots = [];
-      }
-      if (!config.authorizedRoots.includes(authorizedRoot)) {
-        config.authorizedRoots.push(authorizedRoot);
-      }
-      return writeWorkspaceOpenworkConfig(workspacePath, config);
+      return workspaceStore.addAuthorizedRoot(args[0] ?? {});
   },
   "workspaceOpenworkRead": async (event, ...args) => {
-      return readWorkspaceOpenworkConfig(String(args[0]?.workspacePath ?? "").trim());
+      return workspaceStore.readWorkspaceOpenworkConfig(String(args[0]?.workspacePath ?? "").trim());
   },
   "workspaceOpenworkWrite": async (event, ...args) => {
-      return writeWorkspaceOpenworkConfig(
+      return workspaceStore.writeWorkspaceOpenworkConfig(
         String(args[0]?.workspacePath ?? "").trim(),
-        args[0]?.config ?? defaultWorkspaceOpenworkConfig(""),
+        args[0]?.config ?? workspaceStore.defaultWorkspaceOpenworkConfig(""),
       );
   },
   "workspaceExportConfig": async (event, ...args) => {
-      const input = args[0] ?? {};
-      const workspaceId = String(input.workspaceId ?? "").trim();
-      const outputPath = String(input.outputPath ?? "").trim();
-      if (!workspaceId) throw new Error("workspaceId is required");
-      if (!outputPath) throw new Error("outputPath is required");
-      const state = await readWorkspaceState();
-      const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
-      if (!workspace) throw new Error("Unknown workspaceId");
-      return exportWorkspaceConfig({ workspace, outputPath });
+      return workspaceStore.exportConfig(args[0] ?? {});
   },
   "workspaceImportConfig": async (event, ...args) => {
-      const input = args[0] ?? {};
-      const archivePath = String(input.archivePath ?? "").trim();
-      const targetDirRaw = String(input.targetDir ?? "").trim();
-      if (!archivePath) throw new Error("archivePath is required");
-      if (!targetDirRaw) throw new Error("targetDir is required");
-      const targetDir = await normalizeLocalWorkspacePath(targetDirRaw);
-      const imported = await importWorkspaceConfig({
-        archivePath,
-        targetDir,
-        name: input.name ?? null,
-      });
-      const workspace = normalizeWorkspaceEntry({
-        id: localWorkspaceId(targetDir),
-        name: imported.workspaceName,
-        displayName: null,
-        path: targetDir,
-        preset: imported.preset,
-        workspaceType: "local",
-      });
-      return mutateWorkspaceState((state) => {
-        const workspacePathKey = normalizeWorkspacePathKey(workspace.path);
-        state.workspaces = state.workspaces.filter(
-          (entry) => entry.id !== workspace.id && normalizeWorkspacePathKey(entry.path) !== workspacePathKey,
-        );
-        state.workspaces.push(workspace);
-        state.selectedId = workspace.id;
-        state.activeId = workspace.id;
-        state.watchedId = workspace.id;
-        return state;
-      });
+      return workspaceStore.importConfig(args[0] ?? {});
   },
   "opencodeCommandList": async (event, ...args) => {
       return listCommandNames(String(args[0]?.scope ?? "").trim(), String(args[0]?.projectDir ?? "").trim());
@@ -1793,13 +1085,13 @@ const desktopCommandHandlers = {
       };
   },
   "getDesktopBootstrapConfig": async (event, ...args) => {
-      return getDesktopBootstrapConfig();
+      return workspaceStore.getDesktopBootstrapConfig();
   },
   "debugDesktopBootstrapConfig": async (event, ...args) => {
-      return debugDesktopBootstrapConfig();
+      return workspaceStore.debugDesktopBootstrapConfig();
   },
   "setDesktopBootstrapConfig": async (event, ...args) => {
-      return setDesktopBootstrapConfig(args[0] ?? {});
+      return workspaceStore.setDesktopBootstrapConfig(args[0] ?? {});
   },
   "nukeOpenworkAndOpencodeConfigAndExit": async (event, ...args) => {
       await rm(app.getPath("userData"), { recursive: true, force: true });
@@ -1953,9 +1245,7 @@ const desktopCommandHandlers = {
       );
   },
   "resetOpenworkState": async (event, ...args) => {
-      await rm(workspaceStatePath(), { force: true });
-      await rm(desktopBootstrapPath(), { force: true });
-      return undefined;
+      return workspaceStore.resetOpenworkState();
   },
   "resetOpencodeCache": async (event, ...args) => {
       return { removed: [], missing: [], errors: [] };
@@ -2241,7 +1531,7 @@ if (!app.requestSingleInstanceLock()) {
     // Use Tauri's existing workspace state file as canonical so rollback and
     // Electron see the same workspace list. Import the short-lived
     // Electron-only filename only when the shared file is missing.
-    await migrateLegacyElectronWorkspaceStateIfNeeded();
+    await workspaceStore.migrateLegacyElectronWorkspaceStateIfNeeded();
     await uiControlServer.start().catch((error) => {
       console.warn("[ui-control] failed to start", error);
     });
