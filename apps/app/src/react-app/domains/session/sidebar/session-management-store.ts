@@ -39,11 +39,18 @@ type SessionGroupMutationSuccess = {
   state: SessionGroupServerState;
 };
 
+type SessionGroupDeferredServerSync = {
+  version: number;
+  state: SessionGroupServerState;
+};
+
 type SessionGroupSyncStatus = {
-  nextVersion: number;
+  nextMutationVersion: number;
+  nextServerSyncVersion: number;
   pendingMutations: number;
   lastAppliedMutationVersion: number;
   latestMutationSuccess?: SessionGroupMutationSuccess;
+  deferredServerSync?: SessionGroupDeferredServerSync;
 };
 
 type SessionManagementState = {
@@ -78,7 +85,8 @@ export function setSessionGroupSyncHandler(handler: SessionGroupSyncHandler | nu
 
 function syncStatus(workspaceId: string): SessionGroupSyncStatus {
   sessionGroupSyncStatusByWorkspace[workspaceId] ??= {
-    nextVersion: 0,
+    nextMutationVersion: 0,
+    nextServerSyncVersion: 0,
     pendingMutations: 0,
     lastAppliedMutationVersion: 0,
   };
@@ -87,17 +95,29 @@ function syncStatus(workspaceId: string): SessionGroupSyncStatus {
 
 function beginSessionGroupMutation(workspaceId: string): number {
   const status = syncStatus(workspaceId);
-  status.nextVersion += 1;
+  status.nextMutationVersion += 1;
   status.pendingMutations += 1;
-  return status.nextVersion;
+  return status.nextMutationVersion;
+}
+
+export function beginSessionGroupServerSync(workspaceId: string): number {
+  const status = syncStatus(workspaceId);
+  status.nextServerSyncVersion += 1;
+  return status.nextServerSyncVersion;
 }
 
 export function applySessionGroupServerState(
   workspaceId: string,
   state: SessionGroupServerState | null,
+  version: number,
 ): void {
   if (!state) return;
-  if (syncStatus(workspaceId).pendingMutations > 0) return;
+  const status = syncStatus(workspaceId);
+  if (version !== status.nextServerSyncVersion) return;
+  if (status.pendingMutations > 0) {
+    status.deferredServerSync = { version, state };
+    return;
+  }
   useSessionManagementStore.getState().replaceWorkspaceGroups(workspaceId, state);
 }
 
@@ -114,9 +134,17 @@ function completeSessionGroupMutation(
   if (status.pendingMutations > 0) return;
 
   const success = status.latestMutationSuccess;
-  if (!success || success.version <= status.lastAppliedMutationVersion) return;
-  status.lastAppliedMutationVersion = success.version;
-  useSessionManagementStore.getState().replaceWorkspaceGroups(workspaceId, success.state);
+  if (success && success.version > status.lastAppliedMutationVersion) {
+    status.lastAppliedMutationVersion = success.version;
+    status.deferredServerSync = undefined;
+    useSessionManagementStore.getState().replaceWorkspaceGroups(workspaceId, success.state);
+    return;
+  }
+
+  const deferred = status.deferredServerSync;
+  if (!deferred || deferred.version !== status.nextServerSyncVersion) return;
+  status.deferredServerSync = undefined;
+  useSessionManagementStore.getState().replaceWorkspaceGroups(workspaceId, deferred.state);
 }
 
 function reportSyncError(error: unknown): void {
