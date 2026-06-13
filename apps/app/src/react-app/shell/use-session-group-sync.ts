@@ -13,7 +13,7 @@ import {
 } from "@/react-app/domains/session/sidebar/session-management-store";
 import type { RouteWorkspace } from "./route-workspaces";
 
-const MIGRATION_PREFIX = "openwork.sessionGroups.migrated.v1";
+const MIGRATION_PREFIX = "openwork.sessionGroups.migrated.v2";
 
 type UseSessionGroupSyncInput = {
   workspaces: RouteWorkspace[];
@@ -29,6 +29,19 @@ function serverStateFromWorkspaceState(state: WorkspaceGroupState): OpenworkSess
     groups: state.groups.map((group) => ({ id: group.id, label: group.label })),
     assignments: { ...state.assignments },
   };
+}
+
+function localGroupStateForWorkspace(
+  workspace: RouteWorkspace,
+  endpoint: ResolvedWorkspaceEndpoint,
+): WorkspaceGroupState | undefined {
+  const byWorkspace = useSessionManagementStore.getState().groupsByWorkspace;
+  const ids = [workspace.id, endpoint.workspaceId, `rem_${endpoint.workspaceId}`];
+  for (const id of ids) {
+    const state = byWorkspace[id];
+    if (hasGroupData(state)) return state;
+  }
+  return undefined;
 }
 
 function migrationKey(endpoint: ResolvedWorkspaceEndpoint): string {
@@ -116,12 +129,12 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
       if (cancelled) return;
 
       let nextState = response.state;
-      const localState = useSessionManagementStore.getState().groupsByWorkspace[workspace.id];
+      const localState = localGroupStateForWorkspace(workspace, endpoint);
       if (
         migrateLocal &&
         !readMigrationComplete(endpoint) &&
         !hasGroupData(response.state) &&
-        hasGroupData(localState)
+        localState !== undefined
       ) {
         const migrated = await endpoint.client.putSessionGroups(
           endpoint.workspaceId,
