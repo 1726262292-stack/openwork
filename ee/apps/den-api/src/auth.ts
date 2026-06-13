@@ -6,6 +6,7 @@ import {
   DEN_MCP_ACCESS_TOKEN_EXPIRES_IN_SECONDS,
   DEN_MCP_REFRESH_TOKEN_EXPIRES_IN_SECONDS,
 } from "./mcp/token-lifetime.js";
+import { SCIM_TOKEN_STORAGE_STRATEGY } from "./scim-token-storage.js";
 import { syncDenSignupContact } from "./loops.js";
 import { sendEmail } from "./utils/email/send-email.js";
 import {
@@ -405,6 +406,7 @@ export const auth = betterAuth({
       },
     }),
     scim({
+      storeSCIMToken: SCIM_TOKEN_STORAGE_STRATEGY,
       beforeSCIMTokenGenerated: async ({ member }) => {
         if (!member?.organizationId) {
           throw new APIError("FORBIDDEN", {
