@@ -80,6 +80,8 @@ type OpenSessionTab = {
 type StatusBarOverrides = Pick<
   StatusBarProps,
   | "loading"
+  | "showSettingsButton"
+  | "settingsOpen"
 >;
 
 export type SessionPageHistoryControls = {
@@ -1156,10 +1158,13 @@ export function SessionPage(props: SessionPageProps) {
               clientConnected={props.clientConnected}
               openworkServerStatus={props.openworkServerStatus}
               developerMode={props.developerMode}
+              settingsOpen={props.statusBar?.settingsOpen ?? false}
               onSendFeedback={props.onSendFeedback}
+              onOpenSettings={props.onOpenSettings}
               providerConnectedIds={props.providerConnectedIds}
               mcpConnectedCount={props.mcpConnectedCount}
               loading={props.statusBar?.loading ?? false}
+              showSettingsButton={props.statusBar?.showSettingsButton}
             />
           ) : null}
               </main>
