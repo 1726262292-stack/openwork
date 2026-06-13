@@ -49,7 +49,6 @@ const samlRegistrationSchema = baseRegistrationSchema.extend({
   entryPoint: z.string().url(),
   cert: z.string().min(1),
   audience: z.string().url().optional(),
-  wantAssertionsSigned: z.boolean().optional(),
 }).meta({ ref: "RegisterOrganizationSamlSsoBody" })
 
 const oidcRegistrationSchema = baseRegistrationSchema.extend({

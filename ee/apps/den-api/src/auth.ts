@@ -19,6 +19,11 @@ import {
   getOrganizationSsoJitRole,
   ORGANIZATION_SSO_JIT_ROLE,
 } from "./sso-jit.js";
+import {
+  ORGANIZATION_SAML_ALLOW_IDP_INITIATED,
+  ORGANIZATION_SAML_DEPRECATED_ALGORITHM_BEHAVIOR,
+  ORGANIZATION_SAML_REQUIRE_TIMESTAMPS,
+} from "./sso-saml-policy.js";
 import { seedDefaultOrganizationRoles } from "./orgs.js";
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid";
 import * as schema from "@openwork-ee/den-db/schema";
@@ -420,9 +425,10 @@ export const auth = betterAuth({
       },
       saml: {
         enableInResponseToValidation: true,
-        allowIdpInitiated: true,
+        allowIdpInitiated: ORGANIZATION_SAML_ALLOW_IDP_INITIATED,
+        requireTimestamps: ORGANIZATION_SAML_REQUIRE_TIMESTAMPS,
         algorithms: {
-          onDeprecated: "warn",
+          onDeprecated: ORGANIZATION_SAML_DEPRECATED_ALGORITHM_BEHAVIOR,
         },
       },
       provisionUser: async ({ user, userInfo, provider }) => {
