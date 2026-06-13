@@ -86,3 +86,29 @@ test("organization audit events support SCIM management actions", () => {
     providerId: "openwork-scim-org_id",
   })
 })
+
+test("organization audit events support SSO management actions", () => {
+  const ssoConnectionId = createDenTypeId("ssoConnection")
+
+  const event = buildOrganizationAuditEvent({
+    organizationId: createDenTypeId("organization"),
+    actorUserId: createDenTypeId("user"),
+    action: ORGANIZATION_AUDIT_ACTIONS.ssoConnectionRegistered,
+    payload: {
+      ssoConnectionId,
+      providerId: "openwork-sso-org_id",
+      kind: "saml",
+      issuer: "https://idp.example.com",
+      domain: "example.com",
+    },
+  })
+
+  expect(event.action).toBe("organization.sso.connection_registered")
+  expect(event.payload).toEqual({
+    ssoConnectionId,
+    providerId: "openwork-sso-org_id",
+    kind: "saml",
+    issuer: "https://idp.example.com",
+    domain: "example.com",
+  })
+})

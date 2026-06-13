@@ -2,6 +2,7 @@ import type { Hono } from "hono"
 import { describeRoute, resolver } from "hono-openapi"
 import { z } from "zod"
 import { auth } from "../../auth.js"
+import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
 import { checkEntitlement } from "../../entitlements.js"
 import { env } from "../../env.js"
 import { enterprisePlanRequiredSchema } from "../../openapi.js"
@@ -305,6 +306,19 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
       })
       const domainVerificationToken = await requestDomainVerificationToken(connection.providerId, c.req.raw.headers).catch(() => null)
 
+      await recordOrganizationAuditEvent({
+        organizationId: payload.organization.id,
+        actorUserId: payload.currentMember.userId,
+        action: ORGANIZATION_AUDIT_ACTIONS.ssoConnectionRegistered,
+        payload: {
+          ssoConnectionId: connection.id,
+          providerId: connection.providerId,
+          kind: connection.kind,
+          issuer: connection.issuer,
+          domain: connection.domain,
+        },
+      })
+
       return c.json({ connection: await buildConnectionPayload(connection, c.req.url), domainVerificationToken }, 201)
     },
   )
@@ -356,6 +370,19 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
       })
       const domainVerificationToken = await requestDomainVerificationToken(connection.providerId, c.req.raw.headers).catch(() => null)
 
+      await recordOrganizationAuditEvent({
+        organizationId: payload.organization.id,
+        actorUserId: payload.currentMember.userId,
+        action: ORGANIZATION_AUDIT_ACTIONS.ssoConnectionRegistered,
+        payload: {
+          ssoConnectionId: connection.id,
+          providerId: connection.providerId,
+          kind: connection.kind,
+          issuer: connection.issuer,
+          domain: connection.domain,
+        },
+      })
+
       return c.json({ connection: await buildConnectionPayload(connection, c.req.url), domainVerificationToken }, 201)
     },
   )
@@ -384,7 +411,22 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
       }
 
       const payload = c.get("organizationContext")
-      await deleteOrganizationSsoConnection(payload.organization.id)
+      const connection = await getOrganizationSsoConnection(payload.organization.id)
+      const deleted = await deleteOrganizationSsoConnection(payload.organization.id)
+      if (deleted && connection) {
+        await recordOrganizationAuditEvent({
+          organizationId: payload.organization.id,
+          actorUserId: payload.currentMember.userId,
+          action: ORGANIZATION_AUDIT_ACTIONS.ssoConnectionDeleted,
+          payload: {
+            ssoConnectionId: connection.id,
+            providerId: connection.providerId,
+            kind: connection.kind,
+            issuer: connection.issuer,
+            domain: connection.domain,
+          },
+        })
+      }
       return c.body(null, 204)
     },
   )

@@ -9,6 +9,8 @@ export const ORGANIZATION_AUDIT_ACTIONS = {
   memberRemoved: "organization.member.removed",
   scimTokenRotated: "organization.scim.token_rotated",
   scimConnectionDeleted: "organization.scim.connection_deleted",
+  ssoConnectionRegistered: "organization.sso.connection_registered",
+  ssoConnectionDeleted: "organization.sso.connection_deleted",
 }
 
 type OrganizationAuditAction = typeof ORGANIZATION_AUDIT_ACTIONS[keyof typeof ORGANIZATION_AUDIT_ACTIONS]
