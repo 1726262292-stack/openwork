@@ -66,3 +66,23 @@ test("organization audit events support member lifecycle actions", () => {
     nextRole: "admin",
   })
 })
+
+test("organization audit events support SCIM management actions", () => {
+  const scimProviderId = createDenTypeId("scimProvider")
+
+  const event = buildOrganizationAuditEvent({
+    organizationId: createDenTypeId("organization"),
+    actorUserId: createDenTypeId("user"),
+    action: ORGANIZATION_AUDIT_ACTIONS.scimTokenRotated,
+    payload: {
+      scimProviderId,
+      providerId: "openwork-scim-org_id",
+    },
+  })
+
+  expect(event.action).toBe("organization.scim.token_rotated")
+  expect(event.payload).toEqual({
+    scimProviderId,
+    providerId: "openwork-scim-org_id",
+  })
+})

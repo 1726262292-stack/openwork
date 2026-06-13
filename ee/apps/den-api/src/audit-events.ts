@@ -7,6 +7,8 @@ export const ORGANIZATION_AUDIT_ACTIONS = {
   apiKeyDeleted: "organization.api_key.deleted",
   memberRoleUpdated: "organization.member.role_updated",
   memberRemoved: "organization.member.removed",
+  scimTokenRotated: "organization.scim.token_rotated",
+  scimConnectionDeleted: "organization.scim.connection_deleted",
 }
 
 type OrganizationAuditAction = typeof ORGANIZATION_AUDIT_ACTIONS[keyof typeof ORGANIZATION_AUDIT_ACTIONS]

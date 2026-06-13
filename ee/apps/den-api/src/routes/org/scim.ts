@@ -2,6 +2,7 @@ import type { Hono } from "hono"
 import { describeRoute, resolver } from "hono-openapi"
 import { z } from "zod"
 import { deleteOrganizationScimConnection, getOrganizationScimConnection, getScimBaseUrl, rotateOrganizationScimToken } from "../../scim.js"
+import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
 import { requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { ensureScimManager } from "./shared.js"
@@ -190,6 +191,16 @@ export function registerOrgScimRoutes<T extends { Variables: OrgRouteVariables }
         headers: c.req.raw.headers,
       })
 
+      await recordOrganizationAuditEvent({
+        organizationId: payload.organization.id,
+        actorUserId: payload.currentMember.userId,
+        action: ORGANIZATION_AUDIT_ACTIONS.scimTokenRotated,
+        payload: {
+          scimProviderId: rotated.connection.id,
+          providerId: rotated.connection.providerId,
+        },
+      })
+
       return c.json({
         baseUrl: getScimBaseUrl(),
         connection: serializeConnection(rotated.connection),
@@ -252,7 +263,14 @@ export function registerOrgScimRoutes<T extends { Variables: OrgRouteVariables }
       }
 
       const payload = c.get("organizationContext")
-      await deleteOrganizationScimConnection(payload.organization.id)
+      const deleted = await deleteOrganizationScimConnection(payload.organization.id)
+      if (deleted) {
+        await recordOrganizationAuditEvent({
+          organizationId: payload.organization.id,
+          actorUserId: payload.currentMember.userId,
+          action: ORGANIZATION_AUDIT_ACTIONS.scimConnectionDeleted,
+        })
+      }
       return c.body(null, 204)
     },
   )
