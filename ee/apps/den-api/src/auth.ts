@@ -2,6 +2,10 @@ import { getInitialActiveOrganizationIdForUser } from "./active-organization.js"
 import { db } from "./db.js";
 import { env } from "./env.js";
 import { deriveDenMcpResource } from "./mcp/resource.js";
+import {
+  DEN_MCP_ACCESS_TOKEN_EXPIRES_IN_SECONDS,
+  DEN_MCP_REFRESH_TOKEN_EXPIRES_IN_SECONDS,
+} from "./mcp/token-lifetime.js";
 import { syncDenSignupContact } from "./loops.js";
 import { sendEmail } from "./utils/email/send-email.js";
 import {
@@ -344,6 +348,9 @@ export const auth = betterAuth({
       allowPublicClientPrelogin: true,
       allowDynamicClientRegistration: true,
       allowUnauthenticatedClientRegistration: true,
+      accessTokenExpiresIn: DEN_MCP_ACCESS_TOKEN_EXPIRES_IN_SECONDS,
+      m2mAccessTokenExpiresIn: DEN_MCP_ACCESS_TOKEN_EXPIRES_IN_SECONDS,
+      refreshTokenExpiresIn: DEN_MCP_REFRESH_TOKEN_EXPIRES_IN_SECONDS,
       clientRegistrationDefaultScopes: ["openid", "profile", "email", "mcp:read", "mcp:write"],
       clientRegistrationAllowedScopes: [...DEN_MCP_SCOPES],
       advertisedMetadata: {
