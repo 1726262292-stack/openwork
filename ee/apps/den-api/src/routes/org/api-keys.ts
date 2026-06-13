@@ -8,6 +8,7 @@ import {
   DEN_API_KEY_RATE_LIMIT_TIME_WINDOW_MS,
   listOrganizationApiKeys,
 } from "../../api-keys.js"
+import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
 import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { denTypeIdSchema } from "../../openapi.js"
 import { auth } from "../../auth.js"
@@ -239,6 +240,18 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
         },
       })
 
+      await recordOrganizationAuditEvent({
+        organizationId: payload.organization.id,
+        actorUserId: payload.currentMember.userId,
+        action: ORGANIZATION_AUDIT_ACTIONS.apiKeyCreated,
+        payload: {
+          apiKeyId: created.id,
+          orgMembershipId: payload.currentMember.id,
+          name: created.name,
+          prefix: created.prefix,
+        },
+      })
+
       return c.json({
         apiKey: {
           id: created.id,
@@ -323,6 +336,19 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
       if (!deleted) {
         return c.json({ error: "api_key_not_found" }, 404)
       }
+
+      await recordOrganizationAuditEvent({
+        organizationId: payload.organization.id,
+        actorUserId: payload.currentMember.userId,
+        action: ORGANIZATION_AUDIT_ACTIONS.apiKeyDeleted,
+        payload: {
+          apiKeyId: deleted.id,
+          ownerUserId: deleted.owner.userId,
+          ownerOrgMembershipId: deleted.owner.memberId,
+          name: deleted.name,
+          prefix: deleted.prefix,
+        },
+      })
 
       return c.body(null, 204)
     },
