@@ -338,14 +338,12 @@ export type DesktopCommandMap = {
   };
 
   // Engine / runtime lifecycle
-  // TODO: EngineInfo once runtime.mjs return inference is annotated (tsc
-  // currently infers void for the manager methods).
-  engineStart: { args: [projectDir: string, options?: Record<string, unknown>]; result: unknown };
+  engineStart: { args: [projectDir: string, options?: Record<string, unknown>]; result: EngineInfo };
   prepareFreshRuntime: { args: []; result: unknown };
   runtimeBootstrap: { args: []; result: unknown };
   runtimeStatus: { args: []; result: unknown };
-  engineStop: { args: []; result: unknown };
-  engineRestart: { args: [options?: Record<string, unknown>]; result: unknown };
+  engineStop: { args: []; result: EngineInfo };
+  engineRestart: { args: [options?: Record<string, unknown>]; result: EngineInfo };
   engineInfo: { args: []; result: EngineInfo };
   engineDoctor: { args: [projectDir?: string]; result: EngineDoctorResult };
   engineInstall: { args: []; result: unknown };
@@ -389,7 +387,7 @@ export type DesktopCommandMap = {
   openworkServerInfo: { args: []; result: OpenworkServerInfo };
   openworkServerRestart: {
     args: [options?: Record<string, unknown>];
-    result: unknown;
+    result: OpenworkServerInfo;
   };
 
   // Dialogs
