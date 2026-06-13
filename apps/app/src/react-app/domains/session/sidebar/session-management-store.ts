@@ -34,6 +34,18 @@ type SessionGroupSyncHandler = {
   removeGroup: (workspaceId: string, groupId: string) => Promise<SessionGroupServerState | null>;
 };
 
+type SessionGroupMutationSuccess = {
+  version: number;
+  state: SessionGroupServerState;
+};
+
+type SessionGroupSyncStatus = {
+  nextVersion: number;
+  pendingMutations: number;
+  lastAppliedMutationVersion: number;
+  latestMutationSuccess?: SessionGroupMutationSuccess;
+};
+
 type SessionManagementState = {
   pinnedIds: string[];
   orderByWorkspace: Record<string, string[]>;
@@ -58,26 +70,53 @@ type SessionManagementStore = SessionManagementState & SessionManagementActions;
 const EMPTY_GROUP_STATE: WorkspaceGroupState = { groups: [], assignments: {} };
 
 let sessionGroupSyncHandler: SessionGroupSyncHandler | null = null;
-const sessionGroupSyncVersionByWorkspace: Record<string, number> = {};
+const sessionGroupSyncStatusByWorkspace: Record<string, SessionGroupSyncStatus> = {};
 
 export function setSessionGroupSyncHandler(handler: SessionGroupSyncHandler | null): void {
   sessionGroupSyncHandler = handler;
 }
 
-export function nextSessionGroupSyncVersion(workspaceId: string): number {
-  const next = (sessionGroupSyncVersionByWorkspace[workspaceId] ?? 0) + 1;
-  sessionGroupSyncVersionByWorkspace[workspaceId] = next;
-  return next;
+function syncStatus(workspaceId: string): SessionGroupSyncStatus {
+  sessionGroupSyncStatusByWorkspace[workspaceId] ??= {
+    nextVersion: 0,
+    pendingMutations: 0,
+    lastAppliedMutationVersion: 0,
+  };
+  return sessionGroupSyncStatusByWorkspace[workspaceId];
+}
+
+function beginSessionGroupMutation(workspaceId: string): number {
+  const status = syncStatus(workspaceId);
+  status.nextVersion += 1;
+  status.pendingMutations += 1;
+  return status.nextVersion;
 }
 
 export function applySessionGroupServerState(
   workspaceId: string,
   state: SessionGroupServerState | null,
-  version?: number,
 ): void {
   if (!state) return;
-  if (typeof version === "number" && sessionGroupSyncVersionByWorkspace[workspaceId] !== version) return;
+  if (syncStatus(workspaceId).pendingMutations > 0) return;
   useSessionManagementStore.getState().replaceWorkspaceGroups(workspaceId, state);
+}
+
+function completeSessionGroupMutation(
+  workspaceId: string,
+  version: number,
+  state: SessionGroupServerState | null,
+): void {
+  const status = syncStatus(workspaceId);
+  status.pendingMutations = Math.max(0, status.pendingMutations - 1);
+  if (state && version > (status.latestMutationSuccess?.version ?? 0)) {
+    status.latestMutationSuccess = { version, state };
+  }
+  if (status.pendingMutations > 0) return;
+
+  const success = status.latestMutationSuccess;
+  if (!success || success.version <= status.lastAppliedMutationVersion) return;
+  status.lastAppliedMutationVersion = success.version;
+  useSessionManagementStore.getState().replaceWorkspaceGroups(workspaceId, success.state);
 }
 
 function reportSyncError(error: unknown): void {
@@ -86,10 +125,13 @@ function reportSyncError(error: unknown): void {
 
 function syncServerState(request: Promise<SessionGroupServerState | null> | undefined, workspaceId: string): void {
   if (!request) return;
-  const version = nextSessionGroupSyncVersion(workspaceId);
+  const version = beginSessionGroupMutation(workspaceId);
   void request
-    .then((state) => applySessionGroupServerState(workspaceId, state, version))
-    .catch(reportSyncError);
+    .then((state) => completeSessionGroupMutation(workspaceId, version, state))
+    .catch((error) => {
+      completeSessionGroupMutation(workspaceId, version, null);
+      reportSyncError(error);
+    });
 }
 
 export const useSessionManagementStore = create<SessionManagementStore>()(

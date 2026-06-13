@@ -4,7 +4,6 @@ import type { OpenworkSessionGroupState } from "@/app/lib/openwork-server";
 import type { ResolvedWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import {
   applySessionGroupServerState,
-  nextSessionGroupSyncVersion,
   setSessionGroupSyncHandler,
   useSessionManagementStore,
   type SessionGroupDefinition,
@@ -110,7 +109,6 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
     const syncWorkspace = async (workspace: RouteWorkspace, migrateLocal: boolean) => {
       const endpoint = endpointForWorkspace(workspace);
       if (!endpoint) return;
-      const version = nextSessionGroupSyncVersion(workspace.id);
 
       const response = await endpoint.client.getSessionGroups(endpoint.workspaceId);
       if (cancelled) return;
@@ -132,7 +130,7 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
       }
 
       writeMigrationComplete(endpoint);
-      applySessionGroupServerState(workspace.id, nextState, version);
+      applySessionGroupServerState(workspace.id, nextState);
     };
 
     for (const workspace of workspaces) {
