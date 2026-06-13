@@ -142,7 +142,7 @@ function completeSessionGroupMutation(
   }
 
   const deferred = status.deferredServerSync;
-  if (!deferred || deferred.version !== status.nextServerSyncVersion) return;
+  if (!deferred) return;
   status.deferredServerSync = undefined;
   useSessionManagementStore.getState().replaceWorkspaceGroups(workspaceId, deferred.state);
 }
