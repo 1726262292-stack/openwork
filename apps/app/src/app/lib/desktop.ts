@@ -49,7 +49,10 @@ export type BrowserProxyState = {
 declare global {
   interface Window {
     __OPENWORK_ELECTRON__?: {
-      invokeDesktop?: (command: string, ...args: unknown[]) => Promise<unknown>;
+      invokeDesktop?: <C extends DesktopCommandName>(
+        command: C,
+        ...args: DesktopCommandArgs<C>
+      ) => Promise<DesktopCommandResult<C>>;
       shell?: {
         openExternal?: (url: string) => Promise<void>;
         relaunch?: () => Promise<void>;
@@ -214,7 +217,13 @@ export const desktopBridge = new Proxy(electronBridge, {
       if (!invokeDesktop) {
         throw new Error(`Electron desktop helper is unavailable: ${prop}`);
       }
-      return invokeDesktop(prop, ...args);
+      // The Proxy is the one dynamic point in the bridge: `prop` is whatever
+      // property was accessed, already constrained by the DesktopBridge
+      // surface this Proxy is exported as.
+      return invokeDesktop(
+        prop as DesktopCommandName,
+        ...(args as DesktopCommandArgs<DesktopCommandName>),
+      );
     };
     target[prop] = fn;
     return fn;
