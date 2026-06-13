@@ -97,6 +97,35 @@ test("organization audit events support invitation lifecycle actions", () => {
   })
 })
 
+test("organization audit events support custom role lifecycle actions", () => {
+  const organizationRoleId = createDenTypeId("organizationRole")
+
+  expect(ORGANIZATION_AUDIT_ACTIONS.roleCreated).toBe("organization.role.created")
+  expect(ORGANIZATION_AUDIT_ACTIONS.roleDeleted).toBe("organization.role.deleted")
+
+  const event = buildOrganizationAuditEvent({
+    organizationId: createDenTypeId("organization"),
+    actorUserId: createDenTypeId("user"),
+    action: ORGANIZATION_AUDIT_ACTIONS.roleUpdated,
+    payload: {
+      organizationRoleId,
+      previousRole: "analyst",
+      nextRole: "ops-analyst",
+      roleRenamed: true,
+      permissionChanged: true,
+    },
+  })
+
+  expect(event.action).toBe("organization.role.updated")
+  expect(event.payload).toEqual({
+    organizationRoleId,
+    previousRole: "analyst",
+    nextRole: "ops-analyst",
+    roleRenamed: true,
+    permissionChanged: true,
+  })
+})
+
 test("organization audit events support SCIM management actions", () => {
   const scimProviderId = createDenTypeId("scimProvider")
 
