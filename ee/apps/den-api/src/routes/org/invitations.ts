@@ -304,12 +304,16 @@ export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVaria
 
     await db.update(InvitationTable).set({ status: "canceled" }).where(eq(InvitationTable.id, invitationId))
 
-    if (invitedMemberRows[0]) {
-      await removeOrganizationMember({
+    const invitedMember = invitedMemberRows[0]
+    if (invitedMember) {
+      const removed = await removeOrganizationMember({
         organizationId: payload.organization.id,
-        memberId: invitedMemberRows[0].id,
+        memberId: invitedMember.id,
         removedByOrgMemberId: payload.currentMember.id,
       })
+      if (!removed.ok && removed.error !== "member_not_found") {
+        return c.json({ error: removed.error, message: removed.message }, 400)
+      }
     }
 
     return c.json({ success: true })

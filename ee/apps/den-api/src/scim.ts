@@ -331,10 +331,13 @@ export async function deleteScimProvisionedAccess(input: {
     return { ok: false as const, status: 404, body: { detail: "User not found" } }
   }
 
-  await removeOrganizationMember({
+  const removed = await removeOrganizationMember({
     organizationId: provider.organizationId,
     memberId: member.id,
   })
+  if (!removed.ok) {
+    return { ok: false as const, status: 409, body: { detail: removed.message } }
+  }
 
   await db.delete(AuthAccountTable).where(eq(AuthAccountTable.id, account.id))
   await deactivateExternalIdentityForScimUser({ bearerToken: input.bearerToken, userId: input.userId })
