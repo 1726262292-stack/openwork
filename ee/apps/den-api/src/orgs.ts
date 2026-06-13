@@ -11,6 +11,7 @@ import {
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { revokeOrganizationApiKeysForMember } from "./api-keys.js"
+import { revokeMembershipSessionCredentials } from "./credential-revocation.js"
 import { db } from "./db.js"
 import {
   roleIncludesOwner as guardRoleIncludesOwner,
@@ -1132,6 +1133,10 @@ export async function removeOrganizationMember(input: {
   await revokeOrganizationApiKeysForMember({
     organizationId: input.organizationId,
     orgMembershipId: member.id,
+    userId: member.userId,
+  })
+  await revokeMembershipSessionCredentials({
+    organizationId: input.organizationId,
     userId: member.userId,
   })
 

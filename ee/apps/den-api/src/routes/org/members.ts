@@ -6,6 +6,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { revokeOrganizationApiKeysForMember } from "../../api-keys.js"
 import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
+import { revokeMembershipSessionCredentials } from "../../credential-revocation.js"
 import { db } from "../../db.js"
 import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
@@ -79,6 +80,10 @@ export function registerOrgMemberRoutes<T extends { Variables: OrgRouteVariables
       await revokeOrganizationApiKeysForMember({
         organizationId: payload.organization.id,
         orgMembershipId: validation.member.id,
+        userId: validation.member.userId,
+      })
+      await revokeMembershipSessionCredentials({
+        organizationId: payload.organization.id,
         userId: validation.member.userId,
       })
       await recordOrganizationAuditEvent({
