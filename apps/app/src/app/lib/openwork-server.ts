@@ -500,6 +500,27 @@ export type OpenworkReloadEvent = {
   timestamp: number;
 };
 
+export type OpenworkSessionGroupDefinition = {
+  id: string;
+  label: string;
+};
+
+export type OpenworkSessionGroupState = {
+  groups: OpenworkSessionGroupDefinition[];
+  assignments: Record<string, string>;
+};
+
+export type OpenworkSessionGroupEvent = {
+  id: string;
+  seq: number;
+  workspaceId: string;
+  type: "session_groups.updated";
+  action: "created" | "updated" | "deleted" | "assigned" | "reordered" | "imported";
+  groupId?: string;
+  sessionId?: string;
+  timestamp: number;
+};
+
 // Fallback for explicit server-mode URL derivation. Desktop local workers replace this
 // with the persisted runtime-discovered port once the host reports it.
 export const DEFAULT_OPENWORK_SERVER_PORT = 8787;
@@ -1115,6 +1136,56 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/sessions${suffix}`,
         { token, hostToken, timeoutMs: timeouts.sessionRead },
+      );
+    },
+    getSessionGroups: (workspaceId: string) =>
+      requestJson<{ state: OpenworkSessionGroupState; updatedAt: number | null }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/session-groups`,
+        { token, hostToken, timeoutMs: timeouts.sessionRead },
+      ),
+    putSessionGroups: (workspaceId: string, state: OpenworkSessionGroupState) =>
+      requestJson<{ state: OpenworkSessionGroupState; updatedAt: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/session-groups`,
+        { token, hostToken, method: "PUT", body: { state }, timeoutMs: timeouts.config },
+      ),
+    createSessionGroup: (workspaceId: string, input: { id?: string; label: string }) =>
+      requestJson<{ state: OpenworkSessionGroupState; updatedAt: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/session-groups`,
+        { token, hostToken, method: "POST", body: input, timeoutMs: timeouts.config },
+      ),
+    reorderSessionGroups: (workspaceId: string, groupIds: string[]) =>
+      requestJson<{ state: OpenworkSessionGroupState; updatedAt: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/session-groups/reorder`,
+        { token, hostToken, method: "PATCH", body: { groupIds }, timeoutMs: timeouts.config },
+      ),
+    assignSessionGroup: (workspaceId: string, sessionId: string, groupId: string | null) =>
+      requestJson<{ state: OpenworkSessionGroupState; updatedAt: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/session-groups/assignments/${encodeURIComponent(sessionId)}`,
+        { token, hostToken, method: "PATCH", body: { groupId }, timeoutMs: timeouts.config },
+      ),
+    renameSessionGroup: (workspaceId: string, groupId: string, label: string) =>
+      requestJson<{ state: OpenworkSessionGroupState; updatedAt: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/session-groups/${encodeURIComponent(groupId)}`,
+        { token, hostToken, method: "PATCH", body: { label }, timeoutMs: timeouts.config },
+      ),
+    removeSessionGroup: (workspaceId: string, groupId: string) =>
+      requestJson<{ state: OpenworkSessionGroupState; updatedAt: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/session-groups/${encodeURIComponent(groupId)}`,
+        { token, hostToken, method: "DELETE", timeoutMs: timeouts.config },
+      ),
+    listSessionGroupEvents: (workspaceId: string, options?: { since?: number }) => {
+      const query = typeof options?.since === "number" ? `?since=${options.since}` : "";
+      return requestJson<{ items: OpenworkSessionGroupEvent[]; cursor?: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/session-groups/events${query}`,
+        { token, hostToken },
       );
     },
     getSession: (workspaceId: string, sessionId: string) =>
