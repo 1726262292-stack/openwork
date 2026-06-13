@@ -3,6 +3,23 @@ import { defaultRoles, defaultStatements } from "better-auth/plugins/organizatio
 
 export const denOrganizationAccess = createAccessControl(defaultStatements)
 
+export type OrganizationPermissionRecord = Record<string, string[]>
+
+export type OrganizationRolePermission = {
+  role: string
+  permission: OrganizationPermissionRecord
+}
+
+type PermissionValidationResult = {
+  ok: true
+} | {
+  ok: false
+  error: "invalid_permission"
+  message: string
+}
+
+const denOrganizationPermissionCatalogEntries = Object.entries(defaultStatements)
+
 export const denOrganizationStaticRoles = {
   owner: defaultRoles.owner,
   admin: defaultRoles.admin,
@@ -13,3 +30,118 @@ export const denDefaultDynamicOrganizationRoles = {
   admin: defaultRoles.admin.statements,
   member: defaultRoles.member.statements,
 } as const
+
+function getAllowedPermissionActions(resource: string): readonly string[] | null {
+  const entry = denOrganizationPermissionCatalogEntries.find(([knownResource]) => knownResource === resource)
+  return entry?.[1] ?? null
+}
+
+function splitRoleValue(value: string) {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function addPermissions(target: OrganizationPermissionRecord, source: OrganizationPermissionRecord) {
+  for (const [resource, actions] of Object.entries(source)) {
+    const merged = new Set(target[resource] ?? [])
+    for (const action of actions) {
+      merged.add(action)
+    }
+    target[resource] = [...merged]
+  }
+}
+
+function hasPermission(permission: OrganizationPermissionRecord, resource: string, action: string) {
+  return permission[resource]?.includes(action) ?? false
+}
+
+export function cloneOrganizationPermissionCatalog() {
+  const permission: OrganizationPermissionRecord = {}
+  for (const [resource, actions] of denOrganizationPermissionCatalogEntries) {
+    permission[resource] = [...actions]
+  }
+  return permission
+}
+
+export function filterOrganizationPermissionRecord(permission: OrganizationPermissionRecord) {
+  const filtered: OrganizationPermissionRecord = {}
+  for (const [resource, actions] of Object.entries(permission)) {
+    const allowedActions = getAllowedPermissionActions(resource)
+    if (!allowedActions) {
+      continue
+    }
+
+    const validActions = actions.filter((action) => allowedActions.includes(action))
+    if (validActions.length > 0) {
+      filtered[resource] = validActions
+    }
+  }
+  return filtered
+}
+
+export function validateOrganizationPermissionRecord(permission: OrganizationPermissionRecord): PermissionValidationResult {
+  for (const [resource, actions] of Object.entries(permission)) {
+    const allowedActions = getAllowedPermissionActions(resource)
+    if (!allowedActions) {
+      return {
+        ok: false,
+        error: "invalid_permission",
+        message: `Unsupported permission resource "${resource}".`,
+      }
+    }
+
+    for (const action of actions) {
+      if (!allowedActions.includes(action)) {
+        return {
+          ok: false,
+          error: "invalid_permission",
+          message: `Unsupported permission action "${resource}.${action}".`,
+        }
+      }
+    }
+  }
+
+  return { ok: true }
+}
+
+export function resolveOrganizationPermissionRecord(roleValue: string, roles: readonly OrganizationRolePermission[]) {
+  const roleNames = splitRoleValue(roleValue)
+  const permission: OrganizationPermissionRecord = {}
+
+  for (const role of roles) {
+    if (!roleNames.includes(role.role)) {
+      continue
+    }
+    addPermissions(permission, role.permission)
+  }
+
+  return filterOrganizationPermissionRecord(permission)
+}
+
+export function validateAssignableOrganizationPermissionRecord(input: {
+  permission: OrganizationPermissionRecord
+  roleValue: string
+  roles: readonly OrganizationRolePermission[]
+}): PermissionValidationResult {
+  const validPermission = validateOrganizationPermissionRecord(input.permission)
+  if (!validPermission.ok) {
+    return validPermission
+  }
+
+  const assignablePermission = resolveOrganizationPermissionRecord(input.roleValue, input.roles)
+  for (const [resource, actions] of Object.entries(input.permission)) {
+    for (const action of actions) {
+      if (!hasPermission(assignablePermission, resource, action)) {
+        return {
+          ok: false,
+          error: "invalid_permission",
+          message: `Cannot assign permission "${resource}.${action}".`,
+        }
+      }
+    }
+  }
+
+  return { ok: true }
+}

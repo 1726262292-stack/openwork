@@ -13,7 +13,12 @@ import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { db } from "./db.js"
 import { runPostOrganizationMemberChangeHooks } from "./organization-member-hooks.js"
 import { DEFAULT_ORGANIZATION_LIMITS, normalizeOrganizationMetadata, serializeOrganizationMetadata } from "./organization-limits.js"
-import { denDefaultDynamicOrganizationRoles, denOrganizationStaticRoles } from "./organization-access.js"
+import {
+  denDefaultDynamicOrganizationRoles,
+  denOrganizationStaticRoles,
+  filterOrganizationPermissionRecord,
+  type OrganizationPermissionRecord,
+} from "./organization-access.js"
 import { ensureDefaultDesktopPolicyForOrganization } from "./desktop-policies.js"
 
 type UserId = typeof AuthUserTable.$inferSelect.id
@@ -103,7 +108,7 @@ export type OrganizationContext = {
   roles: Array<{
     id: string
     role: string
-    permission: Record<string, string[]>
+    permission: OrganizationPermissionRecord
     builtIn: boolean
     protected: boolean
     createdAt: Date | null
@@ -253,21 +258,26 @@ export function parsePermissionRecord(value: string | null) {
   }
 
   try {
-    const parsed = JSON.parse(value) as Record<string, unknown>
-    return Object.fromEntries(
-      Object.entries(parsed)
-        .filter((entry): entry is [string, unknown[]] => Array.isArray(entry[1]))
-        .map(([resource, actions]) => [
-          resource,
-          actions.filter((entry: unknown): entry is string => typeof entry === "string"),
-        ]),
-    )
+    const parsed: unknown = JSON.parse(value)
+    const permission: OrganizationPermissionRecord = {}
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return permission
+    }
+
+    for (const [resource, actions] of Object.entries(parsed)) {
+      if (!Array.isArray(actions)) {
+        continue
+      }
+      permission[resource] = actions.filter((entry): entry is string => typeof entry === "string")
+    }
+
+    return filterOrganizationPermissionRecord(permission)
   } catch {
     return {}
   }
 }
 
-export function serializePermissionRecord(value: Record<string, string[]>) {
+export function serializePermissionRecord(value: OrganizationPermissionRecord) {
   return JSON.stringify(value)
 }
 
@@ -289,9 +299,11 @@ export class OrganizationEmailDomainRestrictionError extends Error {
 }
 
 function clonePermissionRecord(value: Record<string, readonly string[]>) {
-  return Object.fromEntries(
-    Object.entries(value).map(([resource, actions]) => [resource, [...actions]]),
-  ) as Record<string, string[]>
+  const permission: OrganizationPermissionRecord = {}
+  for (const [resource, actions] of Object.entries(value)) {
+    permission[resource] = [...actions]
+  }
+  return permission
 }
 
 async function listMembershipRows(userId: UserId) {

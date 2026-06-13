@@ -7,6 +7,7 @@ import { z } from "zod"
 import { db } from "../../db.js"
 import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
+import { validateAssignableOrganizationPermissionRecord } from "../../organization-access.js"
 import { serializePermissionRecord } from "../../orgs.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { createRoleId, ensureOwner, idParamSchema, normalizeRoleName, replaceRoleValue, splitRoles } from "./shared.js"
@@ -52,6 +53,15 @@ export function registerOrgRoleRoutes<T extends { Variables: OrgRouteVariables }
 
     const payload = c.get("organizationContext")
     const input = c.req.valid("json")
+
+    const validPermission = validateAssignableOrganizationPermissionRecord({
+      permission: input.permission,
+      roleValue: payload.currentMember.role,
+      roles: payload.roles,
+    })
+    if (!validPermission.ok) {
+      return c.json({ error: validPermission.error, message: validPermission.message }, 400)
+    }
 
     const roleName = normalizeRoleName(input.roleName)
     if (roleName === "owner") {
@@ -141,7 +151,18 @@ export function registerOrgRoleRoutes<T extends { Variables: OrgRouteVariables }
       }
     }
 
-    const nextPermission = input.permission ? serializePermissionRecord(input.permission) : roleRow.permission
+    let nextPermission = roleRow.permission
+    if (input.permission !== undefined) {
+      const validPermission = validateAssignableOrganizationPermissionRecord({
+        permission: input.permission,
+        roleValue: payload.currentMember.role,
+        roles: payload.roles,
+      })
+      if (!validPermission.ok) {
+        return c.json({ error: validPermission.error, message: validPermission.message }, 400)
+      }
+      nextPermission = serializePermissionRecord(input.permission)
+    }
 
     await db
       .update(OrganizationRoleTable)
