@@ -6,6 +6,7 @@ import { describeRoute } from "hono-openapi"
 import { auth } from "../../auth.js"
 import { db } from "../../db.js"
 import { env } from "../../env.js"
+import { getInvalidMcpOAuthRedirectUris } from "../../mcp/oauth-client-policy.js"
 import { emptyResponse } from "../../openapi.js"
 import type { AuthContextVariables } from "../../session.js"
 import { registerDesktopAuthRoutes } from "./desktop-handoff.js"
@@ -15,6 +16,17 @@ function rewriteAuthRequest(request: Request, path: string) {
   const url = new URL(request.url)
   url.pathname = path
   return new Request(url, request)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function oauthRegistrationError(status: number, error: string, errorDescription: string) {
+  return new Response(JSON.stringify({ error, error_description: errorDescription }), {
+    status,
+    headers: { "content-type": "application/json" },
+  })
 }
 
 async function rewriteMcpClientRegistrationRequest(request: Request, path: string) {
@@ -27,7 +39,30 @@ async function rewriteMcpClientRegistrationRequest(request: Request, path: strin
     return new Request(url, request)
   }
 
-  const body = await request.json() as Record<string, unknown>
+  let parsedBody: unknown
+  try {
+    parsedBody = await request.json()
+  } catch {
+    return oauthRegistrationError(400, "invalid_client_metadata", "Registration request body must be valid JSON.")
+  }
+
+  if (!isRecord(parsedBody)) {
+    return oauthRegistrationError(400, "invalid_client_metadata", "Registration request body must be a JSON object.")
+  }
+
+  const body = parsedBody
+  const invalidRedirectUris = [
+    ...getInvalidMcpOAuthRedirectUris(body.redirect_uris),
+    ...getInvalidMcpOAuthRedirectUris(body.post_logout_redirect_uris),
+  ]
+  if (invalidRedirectUris.length > 0) {
+    return oauthRegistrationError(
+      400,
+      "invalid_redirect_uri",
+      "MCP OAuth redirect URIs must use loopback HTTP(S) or a private-use custom scheme.",
+    )
+  }
+
   const scope = typeof body.scope === "string" ? body.scope : ""
   const scopes = new Set(scope.split(/\s+/).filter(Boolean))
   if (scopes.has("mcp:read") || scopes.has("mcp:write")) {
@@ -44,6 +79,11 @@ async function rewriteMcpClientRegistrationRequest(request: Request, path: strin
     headers,
     body: JSON.stringify(body),
   })
+}
+
+async function handleMcpClientRegistrationRequest(request: Request, path: string) {
+  const rewritten = await rewriteMcpClientRegistrationRequest(request, path)
+  return rewritten instanceof Response ? rewritten : auth.handler(rewritten)
 }
 
 async function rewriteMetadataOrigin(response: Response, origin: string) {
@@ -128,8 +168,8 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
   app.get("/.well-known/openid-configuration/api/auth", async (c) => rewriteMetadataOrigin(await oauthProviderOpenIdConfigMetadata(auth)(c.req.raw), requestOrigin(c.req.raw)))
   app.get("/.well-known/oauth-authorization-server", async (c) => rewriteMetadataOrigin(await oauthProviderAuthServerMetadata(auth)(rewriteAuthRequest(c.req.raw, "/api/auth/.well-known/oauth-authorization-server")), requestOrigin(c.req.raw)))
   app.get("/.well-known/openid-configuration", async (c) => rewriteMetadataOrigin(await oauthProviderOpenIdConfigMetadata(auth)(rewriteAuthRequest(c.req.raw, "/api/auth/.well-known/openid-configuration")), requestOrigin(c.req.raw)))
-  app.post("/register", async (c) => auth.handler(await rewriteMcpClientRegistrationRequest(c.req.raw, "/api/auth/oauth2/register")))
-  app.post("/api/auth/oauth2/register", async (c) => auth.handler(await rewriteMcpClientRegistrationRequest(c.req.raw, "/api/auth/oauth2/register")))
+  app.post("/register", async (c) => handleMcpClientRegistrationRequest(c.req.raw, "/api/auth/oauth2/register"))
+  app.post("/api/auth/oauth2/register", async (c) => handleMcpClientRegistrationRequest(c.req.raw, "/api/auth/oauth2/register"))
   app.get("/api/auth/oauth2/authorize", async (c) => {
     await ensureMcpClientScopes(c.req.raw)
     return auth.handler(c.req.raw)
