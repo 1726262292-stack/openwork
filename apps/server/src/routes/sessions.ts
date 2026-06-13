@@ -6,7 +6,7 @@ import {
   normalizeSessionGroupState,
   readSessionGroupState,
   SessionGroupEventStore,
-  writeSessionGroupState,
+  updateSessionGroupState,
   type SessionGroupDefinition,
   type SessionGroupState,
 } from "../session-groups.js";
@@ -158,8 +158,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     workspaceId: string,
     updater: (current: SessionGroupState) => SessionGroupState,
   ) {
-    const current = await readSessionGroupState(config, workspaceId);
-    return writeSessionGroupState(config, workspaceId, updater(current.state));
+    return updateSessionGroupState(config, workspaceId, updater);
   }
 
   function requireStringField(body: Record<string, unknown>, field: string): string {
@@ -193,7 +192,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const state = normalizeSessionGroupState(body.state);
-    const result = await writeSessionGroupState(config, workspace.id, state);
+    const result = await updateWorkspaceSessionGroups(workspace.id, () => state);
     sessionGroupEvents.record(workspace.id, "imported");
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
@@ -304,7 +303,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     const sinceRaw = ctx.url.searchParams.get("since");
     const since = sinceRaw ? Number(sinceRaw) : undefined;
     const items = sessionGroupEvents.list(workspace.id, since);
-    return jsonResponse({ items, cursor: sessionGroupEvents.cursor(), workspaceId: workspace.id });
+    return jsonResponse({ items, cursor: sessionGroupEvents.cursor(workspace.id), workspaceId: workspace.id });
   });
 
   addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId", "client", async (ctx) => {

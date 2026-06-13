@@ -58,13 +58,25 @@ type SessionManagementStore = SessionManagementState & SessionManagementActions;
 const EMPTY_GROUP_STATE: WorkspaceGroupState = { groups: [], assignments: {} };
 
 let sessionGroupSyncHandler: SessionGroupSyncHandler | null = null;
+const sessionGroupSyncVersionByWorkspace: Record<string, number> = {};
 
 export function setSessionGroupSyncHandler(handler: SessionGroupSyncHandler | null): void {
   sessionGroupSyncHandler = handler;
 }
 
-function applyServerState(workspaceId: string, state: SessionGroupServerState | null): void {
+export function nextSessionGroupSyncVersion(workspaceId: string): number {
+  const next = (sessionGroupSyncVersionByWorkspace[workspaceId] ?? 0) + 1;
+  sessionGroupSyncVersionByWorkspace[workspaceId] = next;
+  return next;
+}
+
+export function applySessionGroupServerState(
+  workspaceId: string,
+  state: SessionGroupServerState | null,
+  version?: number,
+): void {
   if (!state) return;
+  if (typeof version === "number" && sessionGroupSyncVersionByWorkspace[workspaceId] !== version) return;
   useSessionManagementStore.getState().replaceWorkspaceGroups(workspaceId, state);
 }
 
@@ -74,8 +86,9 @@ function reportSyncError(error: unknown): void {
 
 function syncServerState(request: Promise<SessionGroupServerState | null> | undefined, workspaceId: string): void {
   if (!request) return;
+  const version = nextSessionGroupSyncVersion(workspaceId);
   void request
-    .then((state) => applyServerState(workspaceId, state))
+    .then((state) => applySessionGroupServerState(workspaceId, state, version))
     .catch(reportSyncError);
 }
 

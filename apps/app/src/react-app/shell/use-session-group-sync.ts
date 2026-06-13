@@ -3,6 +3,8 @@ import { useEffect, useRef } from "react";
 import type { OpenworkSessionGroupState } from "@/app/lib/openwork-server";
 import type { ResolvedWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import {
+  applySessionGroupServerState,
+  nextSessionGroupSyncVersion,
   setSessionGroupSyncHandler,
   useSessionManagementStore,
   type SessionGroupDefinition,
@@ -54,6 +56,7 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
   const workspacesRef = useRef(workspaces);
   const endpointForWorkspaceRef = useRef(endpointForWorkspace);
   const eventCursorByWorkspaceRef = useRef<Record<string, number | null>>({});
+  const pollInFlightRef = useRef(false);
 
   useEffect(() => {
     workspacesRef.current = workspaces;
@@ -107,6 +110,7 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
     const syncWorkspace = async (workspace: RouteWorkspace, migrateLocal: boolean) => {
       const endpoint = endpointForWorkspace(workspace);
       if (!endpoint) return;
+      const version = nextSessionGroupSyncVersion(workspace.id);
 
       const response = await endpoint.client.getSessionGroups(endpoint.workspaceId);
       if (cancelled) return;
@@ -128,7 +132,7 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
       }
 
       writeMigrationComplete(endpoint);
-      useSessionManagementStore.getState().replaceWorkspaceGroups(workspace.id, nextState);
+      applySessionGroupServerState(workspace.id, nextState, version);
     };
 
     for (const workspace of workspaces) {
@@ -138,27 +142,33 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
     }
 
     const pollEvents = async () => {
-      for (const workspace of workspacesRef.current) {
-        const endpoint = endpointForWorkspaceRef.current(workspace);
-        if (!endpoint) continue;
-        const key = `${endpoint.baseUrl}:${endpoint.workspaceId}`;
-        const currentCursor = eventCursorByWorkspaceRef.current[key];
-        try {
-          const response = await endpoint.client.listSessionGroupEvents(
-            endpoint.workspaceId,
-            typeof currentCursor === "number" ? { since: currentCursor } : undefined,
-          );
-          if (cancelled) return;
-          eventCursorByWorkspaceRef.current[key] =
-            typeof response.cursor === "number"
-              ? response.cursor
-              : Math.max(currentCursor ?? 0, ...((response.items ?? []).map((item) => Number(item.seq) || 0)));
-          if (currentCursor === undefined || currentCursor === null) continue;
-          if ((response.items ?? []).length === 0) continue;
-          await syncWorkspace(workspace, false);
-        } catch {
-          // Best effort: normal workspace/session loading still surfaces connection issues.
+      if (pollInFlightRef.current) return;
+      pollInFlightRef.current = true;
+      try {
+        for (const workspace of workspacesRef.current) {
+          const endpoint = endpointForWorkspaceRef.current(workspace);
+          if (!endpoint) continue;
+          const key = `${endpoint.baseUrl}:${endpoint.workspaceId}`;
+          const currentCursor = eventCursorByWorkspaceRef.current[key];
+          try {
+            const response = await endpoint.client.listSessionGroupEvents(
+              endpoint.workspaceId,
+              typeof currentCursor === "number" ? { since: currentCursor } : undefined,
+            );
+            if (cancelled) return;
+            eventCursorByWorkspaceRef.current[key] =
+              typeof response.cursor === "number"
+                ? response.cursor
+                : Math.max(currentCursor ?? 0, ...((response.items ?? []).map((item) => Number(item.seq) || 0)));
+            if (currentCursor === undefined || currentCursor === null) continue;
+            if ((response.items ?? []).length === 0) continue;
+            await syncWorkspace(workspace, false);
+          } catch {
+            // Best effort: normal workspace/session loading still surfaces connection issues.
+          }
         }
+      } finally {
+        pollInFlightRef.current = false;
       }
     };
 

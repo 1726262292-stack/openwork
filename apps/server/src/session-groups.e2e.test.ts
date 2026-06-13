@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { startServer } from "./server.js";
+import { SessionGroupEventStore } from "./session-groups.js";
 import type { ServerConfig } from "./types.js";
 
 const stops: Array<() => void | Promise<void>> = [];
@@ -106,5 +107,45 @@ describe("session group API", () => {
 
     const persisted = await json(await fetch(`${base}/workspace/ws_1/session-groups`, { headers: auth(token) }));
     expect(persisted).toMatchObject(assigned);
+  });
+
+  test("serializes concurrent read-modify-write group updates", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startOpenworkServer(root);
+
+    const responses = await Promise.all([
+      fetch(`${base}/workspace/ws_1/session-groups`, {
+        method: "POST",
+        headers: auth(token),
+        body: JSON.stringify({ id: "grp_first", label: "First" }),
+      }),
+      fetch(`${base}/workspace/ws_1/session-groups`, {
+        method: "POST",
+        headers: auth(token),
+        body: JSON.stringify({ id: "grp_second", label: "Second" }),
+      }),
+    ]);
+    for (const response of responses) {
+      expect(response.status).toBe(200);
+    }
+
+    const persisted = await json(await fetch(`${base}/workspace/ws_1/session-groups`, { headers: auth(token) }));
+    expect(persisted.state.groups.map((group: { id: string }) => group.id).sort()).toEqual([
+      "grp_first",
+      "grp_second",
+    ]);
+  });
+
+  test("keeps session group events buffered per workspace", () => {
+    const store = new SessionGroupEventStore(2);
+    const first = store.record("quiet", "created", { groupId: "grp_quiet" });
+    store.record("busy", "created", { groupId: "grp_1" });
+    store.record("busy", "created", { groupId: "grp_2" });
+    store.record("busy", "created", { groupId: "grp_3" });
+
+    expect(store.list("quiet", first.seq - 1).map((event) => event.groupId)).toEqual(["grp_quiet"]);
+    expect(store.list("busy").map((event) => event.groupId)).toEqual(["grp_2", "grp_3"]);
+    expect(store.cursor("quiet")).toBe(1);
+    expect(store.cursor("busy")).toBe(3);
   });
 });

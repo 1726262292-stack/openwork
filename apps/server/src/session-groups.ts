@@ -42,6 +42,11 @@ type SessionGroupDb = {
   upsert: (value: { workspaceId: string; stateJson: string; updatedAt: number }) => void;
 };
 
+type SessionGroupEventState = {
+  seq: number;
+  events: SessionGroupEvent[];
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -144,6 +149,7 @@ async function openSessionGroupDb(path: string): Promise<SessionGroupDb> {
 }
 
 const dbByPath = new Map<string, Promise<SessionGroupDb>>();
+const updateQueueByWorkspace = new Map<string, Promise<void>>();
 
 async function sessionGroupDb(config: ServerConfig): Promise<SessionGroupDb> {
   const path = runtimeDbPath(config);
@@ -180,9 +186,34 @@ export async function writeSessionGroupState(
   return { state: next, updatedAt };
 }
 
+export async function updateSessionGroupState(
+  config: ServerConfig,
+  workspaceId: string,
+  updater: (current: SessionGroupState) => SessionGroupState,
+): Promise<{ state: SessionGroupState; updatedAt: number }> {
+  const key = `${runtimeDbPath(config)}:${workspaceId}`;
+  const previous = updateQueueByWorkspace.get(key) ?? Promise.resolve();
+  let release = () => {};
+  const queued = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const currentQueue = previous.then(() => queued, () => queued);
+  updateQueueByWorkspace.set(key, currentQueue);
+
+  await previous.catch(() => undefined);
+  try {
+    const current = await readSessionGroupState(config, workspaceId);
+    return await writeSessionGroupState(config, workspaceId, updater(current.state));
+  } finally {
+    release();
+    if (updateQueueByWorkspace.get(key) === currentQueue) {
+      updateQueueByWorkspace.delete(key);
+    }
+  }
+}
+
 export class SessionGroupEventStore {
-  private events: SessionGroupEvent[] = [];
-  private seq = 0;
+  private eventsByWorkspace = new Map<string, SessionGroupEventState>();
   private maxSize: number;
 
   constructor(maxSize = 500) {
@@ -194,9 +225,10 @@ export class SessionGroupEventStore {
     action: SessionGroupEventAction,
     details?: { groupId?: string; sessionId?: string },
   ): SessionGroupEvent {
+    const state = this.eventsByWorkspace.get(workspaceId) ?? { seq: 0, events: [] };
     const event: SessionGroupEvent = {
       id: shortId(),
-      seq: ++this.seq,
+      seq: ++state.seq,
       workspaceId,
       type: "session_groups.updated",
       action,
@@ -205,19 +237,21 @@ export class SessionGroupEventStore {
       timestamp: Date.now(),
     };
 
-    this.events.push(event);
-    if (this.events.length > this.maxSize) {
-      this.events.splice(0, this.events.length - this.maxSize);
+    state.events.push(event);
+    if (state.events.length > this.maxSize) {
+      state.events.splice(0, state.events.length - this.maxSize);
     }
+    this.eventsByWorkspace.set(workspaceId, state);
     return event;
   }
 
   list(workspaceId: string, since?: number): SessionGroupEvent[] {
     const cursor = typeof since === "number" && Number.isFinite(since) ? since : 0;
-    return this.events.filter((event) => event.workspaceId === workspaceId && event.seq > cursor);
+    const state = this.eventsByWorkspace.get(workspaceId);
+    return state ? state.events.filter((event) => event.seq > cursor) : [];
   }
 
-  cursor(): number {
-    return this.seq;
+  cursor(workspaceId: string): number {
+    return this.eventsByWorkspace.get(workspaceId)?.seq ?? 0;
   }
 }
