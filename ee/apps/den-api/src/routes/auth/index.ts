@@ -4,6 +4,12 @@ import { oauthProviderAuthServerMetadata, oauthProviderOpenIdConfigMetadata } fr
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { auth } from "../../auth.js"
+import {
+  getBreachedPasswordResponse,
+  getEmailPasswordLockoutResponse,
+  readEmailPasswordSignInAttempt,
+  recordEmailPasswordSignInResult,
+} from "../../auth-protection.js"
 import { db } from "../../db.js"
 import { env } from "../../env.js"
 import { getInvalidMcpOAuthRedirectUris } from "../../mcp/oauth-client-policy.js"
@@ -160,6 +166,27 @@ async function ensureMcpClientScopes(request: Request) {
     .where(eq(OAuthClientTable.clientId, clientId))
 }
 
+async function handleAuthRequest(request: Request) {
+  const emailPasswordAttempt = await readEmailPasswordSignInAttempt(request)
+  if (emailPasswordAttempt) {
+    const lockoutResponse = await getEmailPasswordLockoutResponse(emailPasswordAttempt)
+    if (lockoutResponse) {
+      return lockoutResponse
+    }
+  }
+
+  const breachedPasswordResponse = await getBreachedPasswordResponse(request)
+  if (breachedPasswordResponse) {
+    return breachedPasswordResponse
+  }
+
+  const response = await auth.handler(request)
+  if (emailPasswordAttempt) {
+    await recordEmailPasswordSignInResult(emailPasswordAttempt, response)
+  }
+  return response
+}
+
 export function registerAuthRoutes<T extends { Variables: AuthContextVariables }>(app: Hono<T>) {
   registerScimAuthRoutes(app)
   app.get("/api/auth/.well-known/oauth-authorization-server", async (c) => rewriteMetadataOrigin(await oauthProviderAuthServerMetadata(auth)(c.req.raw), requestOrigin(c.req.raw)))
@@ -190,7 +217,7 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
         401: emptyResponse("Better Auth rejected the request because authentication failed."),
       },
     }),
-    (c) => auth.handler(c.req.raw),
+    (c) => handleAuthRequest(c.req.raw),
   )
   registerDesktopAuthRoutes(app)
 }
