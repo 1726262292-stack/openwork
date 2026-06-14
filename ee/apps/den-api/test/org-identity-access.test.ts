@@ -9,6 +9,18 @@ function seedRequiredEnv() {
 
 let sharedModule: typeof import("../src/routes/org/shared.js")
 
+function privilegedContext(input: {
+  createdAt: Date
+  isOwner: boolean
+  role: string
+}) {
+  return {
+    get: (key: "organizationContext" | "session") => key === "organizationContext"
+      ? { currentMember: { isOwner: input.isOwner, role: input.role } }
+      : { createdAt: input.createdAt },
+  } as Parameters<typeof sharedModule.ensureInviteManager>[0]
+}
+
 beforeAll(async () => {
   seedRequiredEnv()
   sharedModule = await import("../src/routes/org/shared.js")
@@ -88,4 +100,35 @@ test("fresh auth failures remain forbidden responses", () => {
   expect(sharedModule.orgAccessFailureStatus({ error: "fresh_auth_required" })).toBe(403)
   expect(sharedModule.orgAccessFailureStatus({ error: "forbidden" })).toBe(403)
   expect(sharedModule.orgAccessFailureStatus({ error: "organization_not_found" })).toBe(404)
+})
+
+test("member invitations and removals require a fresh privileged session", () => {
+  const now = new Date()
+  const freshContext = privilegedContext({
+    createdAt: new Date(now.getTime() - 1000),
+    isOwner: false,
+    role: "admin",
+  })
+  const staleContext = privilegedContext({
+    createdAt: new Date(now.getTime() - sharedModule.PRIVILEGED_SESSION_MAX_AGE_MS - 1),
+    isOwner: false,
+    role: "admin",
+  })
+
+  expect(sharedModule.ensureInviteManager(freshContext)).toEqual({ ok: true })
+  expect(sharedModule.ensureMemberRemover(freshContext)).toEqual({ ok: true })
+  expect(sharedModule.ensureInviteManager(staleContext)).toEqual({
+    ok: false,
+    response: {
+      error: "fresh_auth_required",
+      message: "Sign in again before performing this privileged action.",
+    },
+  })
+  expect(sharedModule.ensureMemberRemover(staleContext)).toEqual({
+    ok: false,
+    response: {
+      error: "fresh_auth_required",
+      message: "Sign in again before performing this privileged action.",
+    },
+  })
 })

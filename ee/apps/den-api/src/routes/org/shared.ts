@@ -122,7 +122,7 @@ export function ensureOwner(c: PrivilegedOrgRouteContext) {
   return ensureFreshPrivilegedSession(c)
 }
 
-export function ensureInviteManager(c: { get: (key: "organizationContext") => OrgRouteVariables["organizationContext"] }) {
+export function ensureInviteManager(c: PrivilegedOrgRouteContext) {
   const payload = c.get("organizationContext")
   if (!payload) {
     return {
@@ -134,7 +134,7 @@ export function ensureInviteManager(c: { get: (key: "organizationContext") => Or
   }
 
   if (payload.currentMember.isOwner || memberHasRole(payload.currentMember.role, "admin")) {
-    return { ok: true as const }
+    return ensureFreshPrivilegedSession(c)
   }
 
   return {
@@ -146,7 +146,7 @@ export function ensureInviteManager(c: { get: (key: "organizationContext") => Or
   }
 }
 
-export function ensureMemberRemover(c: { get: (key: "organizationContext") => OrgRouteVariables["organizationContext"] }) {
+export function ensureMemberRemover(c: PrivilegedOrgRouteContext) {
   const payload = c.get("organizationContext")
   if (!payload) {
     return {
@@ -158,7 +158,7 @@ export function ensureMemberRemover(c: { get: (key: "organizationContext") => Or
   }
 
   if (payload.currentMember.isOwner || memberHasRole(payload.currentMember.role, "admin")) {
-    return { ok: true as const }
+    return ensureFreshPrivilegedSession(c)
   }
 
   return {

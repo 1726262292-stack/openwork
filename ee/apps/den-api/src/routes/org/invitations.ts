@@ -14,7 +14,7 @@ import { isEmailAllowedForOrganization, listAssignableRoles, removeOrganizationM
 import { getOrganizationSeatAddEligibility } from "../../stripe-billing.js"
 import { DenEmailSendError, sendEmail } from "../../utils/email/send-email.js"
 import type { OrgRouteVariables } from "./shared.js"
-import { buildInvitationLink, createInvitationId, createInvitationToken, ensureInviteManager, idParamSchema, normalizeRoleName } from "./shared.js"
+import { buildInvitationLink, createInvitationId, createInvitationToken, ensureInviteManager, idParamSchema, normalizeRoleName, orgAccessFailureStatus } from "./shared.js"
 
 const inviteMemberSchema = z.object({
   email: z.string().email(),
@@ -81,7 +81,7 @@ export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVaria
     async (c) => {
     const permission = ensureInviteManager(c)
     if (!permission.ok) {
-      return c.json(permission.response, permission.response.error === "forbidden" ? 403 : 404)
+      return c.json(permission.response, orgAccessFailureStatus(permission.response))
     }
 
     const payload = c.get("organizationContext")
@@ -307,7 +307,7 @@ export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVaria
     async (c) => {
     const permission = ensureInviteManager(c)
     if (!permission.ok) {
-      return c.json(permission.response, permission.response.error === "forbidden" ? 403 : 404)
+      return c.json(permission.response, orgAccessFailureStatus(permission.response))
     }
 
     const payload = c.get("organizationContext")
