@@ -1202,7 +1202,7 @@ export async function createConfigObject(input: {
   }
 
   for (const pluginId of input.pluginIds ?? []) {
-    await requirePluginArchResourceRole({ context: input.context, resourceId: pluginId, resourceKind: "plugin", role: "editor" })
+    await ensureEditablePlugin(input.context, pluginId)
   }
 
   const now = new Date()
