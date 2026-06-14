@@ -68,6 +68,9 @@ export default {
     {
       name: "Cloud MCP auto-config marker is written",
       run: async (ctx) => {
+        await ctx.navigateHash("/settings/extensions/mcp");
+        await ctx.waitForText("OpenWork Cloud Control", { timeoutMs: 30_000 });
+        await ctx.eval(`window.dispatchEvent(new CustomEvent("openwork-den-settings-changed"))`);
         await ctx.waitFor(
           "Boolean(localStorage.getItem('openwork.den.mcp.sync'))",
           { timeoutMs: 120_000, label: "openwork.den.mcp.sync marker" },

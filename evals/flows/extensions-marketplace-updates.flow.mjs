@@ -58,7 +58,18 @@ export default {
     {
       name: "Updates filter is interactive and view stays stable",
       run: async (ctx) => {
-        await ctx.clickText("Updates");
+        const clicked = await ctx.eval(`(() => {
+          const buttons = Array.from(document.querySelectorAll("button"));
+          const filter = buttons.find((button) => {
+            const label = (button.textContent ?? "").trim();
+            return label === "Updates" && button.getBoundingClientRect().left > 250;
+          });
+          if (!filter) return false;
+          filter.scrollIntoView({ block: "center" });
+          filter.click();
+          return true;
+        })()`);
+        ctx.assert(clicked, "Expected to click the Marketplace Updates filter");
         await ctx.waitForText("Extension Marketplace");
         const crashed = await ctx.hasText("Something went wrong");
         ctx.assert(!crashed, "Marketplace view crashed after selecting Updates filter");
