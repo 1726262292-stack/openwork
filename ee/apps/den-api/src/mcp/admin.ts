@@ -19,7 +19,7 @@ import { DEN_ADMIN_MCP_VERSION, registerAdminMcpTools } from "./admin-tools.js"
  *    token's user — the same gate as /v1/admin/overview. Non-admins get 403.
  *
  * This intentionally does NOT reuse the /mcp OpenAPI tool catalog: admin
- * tools are hand-written read-only analytics (see ./admin-tools.ts), and the
+ * tools are hand-written for platform operations (see ./admin-tools.ts), and the
  * /mcp exposure policy keeps blocking everything tagged Admin.
  */
 export function registerAdminMcpRoutes<T extends { Variables: Record<string, unknown> }>(app: Hono<T>) {
@@ -55,7 +55,7 @@ export function registerAdminMcpRoutes<T extends { Variables: Record<string, unk
       name: "den-admin",
       version: DEN_ADMIN_MCP_VERSION,
     })
-    registerAdminMcpTools(server)
+    registerAdminMcpTools(server, { canWrite: principal.scopes.has("mcp:write") })
 
     const transport = new StreamableHTTPTransport()
     await server.connect(transport)

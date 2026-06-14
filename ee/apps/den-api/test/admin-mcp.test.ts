@@ -101,3 +101,10 @@ describe("buildAdminMcpVersionInfo", () => {
     expect(Date.parse(info.serverStartedAt)).not.toBeNaN()
   })
 })
+
+describe("admin write tool scope", () => {
+  test("requires mcp:write for mutating admin tools", () => {
+    expect(() => adminTools.assertAdminWriteAllowed(false)).toThrow("mcp_write_scope_required")
+    expect(() => adminTools.assertAdminWriteAllowed(true)).not.toThrow()
+  })
+})

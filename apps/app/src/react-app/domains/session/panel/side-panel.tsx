@@ -393,8 +393,13 @@ export function SidePanel({
   const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId);
 
   React.useEffect(() => {
+    const isEditableTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+      return Boolean(target.closest("input, textarea, select, [contenteditable='true'], [role='dialog']"));
+    };
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!event.ctrlKey || event.altKey || event.metaKey || event.key !== "Tab" || tabs.length < 2) {
+      if (event.defaultPrevented || isEditableTarget(event.target) || !event.ctrlKey || event.altKey || event.metaKey || event.key !== "Tab" || tabs.length < 2) {
         return;
       }
 

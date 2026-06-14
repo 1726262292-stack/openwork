@@ -510,7 +510,7 @@ export const auth = betterAuth({
         defaultExpiresIn: DEN_API_KEY_EXPIRES_IN_SECONDS,
         disableCustomExpiresTime: true,
         minExpiresIn: 1,
-        maxExpiresIn: DEN_API_KEY_EXPIRES_IN_DAYS,
+        maxExpiresIn: DEN_API_KEY_EXPIRES_IN_SECONDS,
       },
       rateLimit: {
         enabled: true,

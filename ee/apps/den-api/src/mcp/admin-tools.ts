@@ -31,6 +31,15 @@ const SERVER_STARTED_AT = new Date().toISOString()
 
 type Row = Record<string, unknown>
 type OrganizationId = typeof OrganizationTable.$inferSelect.id
+type AdminMcpToolOptions = {
+  canWrite?: boolean
+}
+
+export function assertAdminWriteAllowed(canWrite: boolean) {
+  if (!canWrite) {
+    throw new Error("mcp_write_scope_required")
+  }
+}
 
 /**
  * `db` is drizzle over either mysql2 (returns `[rows, fields]`) or
@@ -308,7 +317,7 @@ export function buildAdminMcpVersionInfo() {
 
 // --- tool registration ---
 
-export function registerAdminMcpTools(server: McpServer) {
+export function registerAdminMcpTools(server: McpServer, options: AdminMcpToolOptions = {}) {
   server.registerTool(
     "den_admin_version",
     {
@@ -376,6 +385,8 @@ export function registerAdminMcpTools(server: McpServer) {
     },
     async ({ organizationId, tier, seatLimit }) =>
       run(async () => {
+        assertAdminWriteAllowed(options.canWrite === true)
+
         if (!isOrganizationId(organizationId)) {
           throw new Error("Invalid organization id")
         }

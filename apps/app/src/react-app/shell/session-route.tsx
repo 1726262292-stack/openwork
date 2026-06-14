@@ -755,7 +755,7 @@ export function SessionRoute() {
     // local server with the local `rem_*` id.
     return {
       workspaceRoot: selectedWorkspaceRoot,
-      developerMode: false,
+      developerMode,
       modelLabel,
       onModelClick: () => {
         modelPicker.setQuery("");
@@ -922,6 +922,7 @@ export function SessionRoute() {
     };
   }, [
     client,
+    developerMode,
     modelPicker.compactOpen,
     handleOpenSettings,
     hasUsableModel,
@@ -1581,7 +1582,7 @@ export function SessionRoute() {
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,
-        developerMode: false,
+        developerMode,
         sessionStatusById: sidebarSessionStatusById,
         connectingWorkspaceId: null,
         workspaceConnectionStateById,

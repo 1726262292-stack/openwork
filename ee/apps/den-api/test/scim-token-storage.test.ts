@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import {
+  getStoredScimTokenVerification,
   hashScimToken,
   SCIM_TOKEN_STORAGE_STRATEGY,
   verifyStoredScimToken,
@@ -14,4 +15,11 @@ test("SCIM token verification compares the stored hash in constant time", () => 
   const storedToken = hashScimToken("scim-test-token")
   expect(verifyStoredScimToken({ storedToken, rawToken: "scim-test-token" })).toBe(true)
   expect(verifyStoredScimToken({ storedToken, rawToken: "wrong-token" })).toBe(false)
+})
+
+test("SCIM token verification accepts legacy plaintext tokens for migration", () => {
+  expect(getStoredScimTokenVerification({
+    storedToken: "legacy-scim-token",
+    rawToken: "legacy-scim-token",
+  })).toEqual({ ok: true, needsRehash: true })
 })

@@ -19,10 +19,17 @@ export type OrgRouteVariables =
 export const PRIVILEGED_SESSION_MAX_AGE_MS = 15 * 60 * 1000
 
 type PrivilegedOrgRouteContext = {
-  get: <K extends "organizationContext" | "session">(key: K) => OrgRouteVariables[K]
+  get: <K extends "organizationContext" | "session" | "apiKey">(key: K) => OrgRouteVariables[K]
 }
 
-export function hasFreshPrivilegedSession(payload: { session: { createdAt?: Date | string | null } | null | undefined }, now = new Date()) {
+export function hasFreshPrivilegedSession(payload: {
+  session: { id?: string | null; createdAt?: Date | string | null } | null | undefined
+  apiKey?: unknown | null
+}, now = new Date()) {
+  if (payload.apiKey || payload.session?.id === "mcp_internal") {
+    return false
+  }
+
   const createdAt = payload.session?.createdAt
   const createdAtMs = createdAt instanceof Date
     ? createdAt.getTime()
@@ -38,8 +45,8 @@ export function hasFreshPrivilegedSession(payload: { session: { createdAt?: Date
   return ageMs >= 0 && ageMs <= PRIVILEGED_SESSION_MAX_AGE_MS
 }
 
-function ensureFreshPrivilegedSession(c: { get: (key: "session") => OrgRouteVariables["session"] }) {
-  if (hasFreshPrivilegedSession({ session: c.get("session") })) {
+function ensureFreshPrivilegedSession(c: { get: <K extends "session" | "apiKey">(key: K) => OrgRouteVariables[K] }) {
+  if (hasFreshPrivilegedSession({ session: c.get("session"), apiKey: c.get("apiKey") })) {
     return { ok: true as const }
   }
 

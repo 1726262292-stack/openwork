@@ -90,13 +90,14 @@ export function cloneOrganizationPermissionCatalog() {
 
 export function filterOrganizationPermissionRecord(permission: OrganizationPermissionRecord) {
   const filtered: OrganizationPermissionRecord = {}
-  for (const [resource, actions] of Object.entries(permission)) {
-    const allowedActions = getAllowedPermissionActions(resource)
-    if (!allowedActions) {
+  for (const [resource, allowedActions] of denOrganizationPermissionCatalogEntries) {
+    const actions = permission[resource]
+    if (!actions) {
       continue
     }
 
-    const validActions = actions.filter((action) => allowedActions.includes(action))
+    const actionSet = new Set(actions)
+    const validActions = allowedActions.filter((action) => actionSet.has(action))
     if (validActions.length > 0) {
       filtered[resource] = validActions
     }

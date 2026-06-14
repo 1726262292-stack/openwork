@@ -82,6 +82,15 @@ test("privileged actions require a fresh session", () => {
   }, now)).toBe(false)
 
   expect(sharedModule.hasFreshPrivilegedSession({ session: null }, now)).toBe(false)
+
+  expect(sharedModule.hasFreshPrivilegedSession({
+    session: { id: "mcp_internal", createdAt: now },
+  }, now)).toBe(false)
+
+  expect(sharedModule.hasFreshPrivilegedSession({
+    session: { id: "api_key_session", createdAt: now },
+    apiKey: { id: "api_key_session" },
+  }, now)).toBe(false)
 })
 
 test("fresh auth failures remain forbidden responses", () => {

@@ -121,3 +121,13 @@ test("legacy stored permissions are filtered to the catalog when read", () => {
     [SECURITY_CONFIGURATION_PERMISSION_RESOURCE]: [SECURITY_CONFIGURATION_PERMISSION_ACTION],
   })
 })
+
+test("permission records are canonicalized to avoid false-positive revocations", () => {
+  expect(filterOrganizationPermissionRecord({
+    [SECURITY_CONFIGURATION_PERMISSION_RESOURCE]: [SECURITY_CONFIGURATION_PERMISSION_ACTION],
+    ac: ["delete", "read", "delete"],
+  })).toEqual({
+    ac: ["read", "delete"],
+    [SECURITY_CONFIGURATION_PERMISSION_RESOURCE]: [SECURITY_CONFIGURATION_PERMISSION_ACTION],
+  })
+})

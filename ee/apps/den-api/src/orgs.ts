@@ -295,7 +295,7 @@ export function parsePermissionRecord(value: string | null) {
 }
 
 export function serializePermissionRecord(value: OrganizationPermissionRecord) {
-  return JSON.stringify(value)
+  return JSON.stringify(filterOrganizationPermissionRecord(value))
 }
 
 export class OrganizationEmailDomainRestrictionError extends Error {

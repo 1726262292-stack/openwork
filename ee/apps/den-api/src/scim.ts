@@ -6,7 +6,7 @@ import { auth } from "./auth.js"
 import { db } from "./db.js"
 import { env } from "./env.js"
 import { removeOrganizationMember } from "./orgs.js"
-import { verifyStoredScimToken } from "./scim-token-storage.js"
+import { getStoredScimTokenVerification, hashScimToken } from "./scim-token-storage.js"
 
 type OrganizationId = typeof MemberTable.$inferSelect.organizationId
 type UserId = typeof AuthUserTable.$inferSelect.id
@@ -64,8 +64,24 @@ async function resolveScimProviderFromBearerToken(bearerToken: string) {
     .limit(1)
 
   const provider = providerRows[0] ?? null
-  if (!provider || !verifyStoredScimToken({ storedToken: provider.scimToken, rawToken })) {
+  if (!provider) {
     return null
+  }
+
+  const verification = getStoredScimTokenVerification({ storedToken: provider.scimToken, rawToken })
+  if (!verification.ok) {
+    return null
+  }
+
+  if (verification.needsRehash) {
+    try {
+      await db
+        .update(ScimProviderTable)
+        .set({ scimToken: hashScimToken(rawToken) })
+        .where(eq(ScimProviderTable.id, provider.id))
+    } catch {
+      // Keep legacy SCIM integrations working even if the opportunistic upgrade fails.
+    }
   }
 
   return provider
