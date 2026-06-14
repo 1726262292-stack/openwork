@@ -9,6 +9,7 @@ import { db } from "../../db.js"
 import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
 import { validateAssignableOrganizationPermissionRecord } from "../../organization-access.js"
+import { revokeCredentialsForOrganizationRoleMembers } from "../../organization-role-credential-revocation.js"
 import { serializePermissionRecord } from "../../orgs.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { createRoleId, ensureOwner, idParamSchema, normalizeRoleName, replaceRoleValue, splitRoles } from "./shared.js"
@@ -175,6 +176,7 @@ export function registerOrgRoleRoutes<T extends { Variables: OrgRouteVariables }
       }
       nextPermission = serializePermissionRecord(input.permission)
     }
+    const permissionChanged = nextPermission !== roleRow.permission
 
     await db
       .update(OrganizationRoleTable)
@@ -215,6 +217,13 @@ export function registerOrgRoleRoutes<T extends { Variables: OrgRouteVariables }
       }
     }
 
+    if (permissionChanged) {
+      await revokeCredentialsForOrganizationRoleMembers({
+        organizationId: payload.organization.id,
+        role: nextRoleName,
+      })
+    }
+
     await recordOrganizationAuditEvent({
       organizationId: payload.organization.id,
       actorUserId: payload.currentMember.userId,
@@ -224,7 +233,7 @@ export function registerOrgRoleRoutes<T extends { Variables: OrgRouteVariables }
         previousRole: roleRow.role,
         nextRole: nextRoleName,
         roleRenamed: nextRoleName !== roleRow.role,
-        permissionChanged: nextPermission !== roleRow.permission,
+        permissionChanged,
       },
     })
 
