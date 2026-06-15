@@ -35,15 +35,20 @@ import {
   ORGANIZATION_SAML_REQUIRE_TIMESTAMPS,
 } from "./sso-saml-policy.js";
 import { getOrganizationContextForUser, seedDefaultOrganizationRoles } from "./orgs.js";
+import {
+  findEnterpriseAuthRequirementForEmail,
+  findEnterpriseAuthRequirementForUserId,
+} from "./enterprise-auth-requirement.js";
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid";
 import * as schema from "@openwork-ee/den-db/schema";
 import { apiKey } from "@better-auth/api-key";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { scim } from "@better-auth/scim";
 import { sso } from "@better-auth/sso";
-import { APIError } from "better-call";
 import { betterAuth } from "better-auth";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { deleteSessionCookie } from "better-auth/cookies";
 import { sql } from "@openwork-ee/den-db/drizzle";
 import { emailOTP, jwt, organization } from "better-auth/plugins";
 
@@ -140,6 +145,28 @@ function hasMcpScope(scopes: readonly string[]) {
   return scopes.some((scope) => scope.startsWith("mcp:"));
 }
 
+function getBodyEmail(body: unknown) {
+  if (!body || typeof body !== "object") {
+    return null;
+  }
+
+  const value = Object.getOwnPropertyDescriptor(body, "email")?.value;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getEnterpriseAuthRedirectUrl(input: {
+  signInPath: string;
+  email: string;
+  callbackUrl: string | null;
+}) {
+  const url = new URL(input.signInPath, env.betterAuthTrustedOrigins[0] ?? env.betterAuthUrl);
+  url.searchParams.set("loginHint", input.email);
+  if (input.callbackUrl) {
+    url.searchParams.set("callbackURL", input.callbackUrl);
+  }
+  return url.toString();
+}
+
 export const auth = betterAuth({
   baseURL: env.betterAuthUrl,
   secret: env.betterAuthSecret,
@@ -172,6 +199,50 @@ export const auth = betterAuth({
         },
       },
     },
+  },
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/sign-in/email" && ctx.path !== "/sign-up/email") {
+        return;
+      }
+
+      const email = getBodyEmail(ctx.body);
+      if (!email) {
+        return;
+      }
+
+      const requirement = await findEnterpriseAuthRequirementForEmail(email);
+      if (!requirement) {
+        return;
+      }
+
+      throw new APIError("FORBIDDEN", {
+        message: "This account is managed by an organization. Use SSO to sign in.",
+      });
+    }),
+    after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/callback/:id") {
+        return;
+      }
+
+      const newSession = ctx.context.newSession;
+      if (!newSession) {
+        return;
+      }
+
+      const requirement = await findEnterpriseAuthRequirementForUserId(newSession.user.id);
+      if (!requirement) {
+        return;
+      }
+
+      await ctx.context.internalAdapter.deleteSession(newSession.session.token);
+      deleteSessionCookie(ctx);
+      throw ctx.redirect(getEnterpriseAuthRedirectUrl({
+        signInPath: requirement.signInPath,
+        email: newSession.user.email,
+        callbackUrl: ctx.context.responseHeaders?.get("location") ?? null,
+      }));
+    }),
   },
   advanced: {
     ipAddress: {
