@@ -966,6 +966,16 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
         return c.json({ error: "forbidden", message: "Only the hub creator or a workspace admin can manage hub skills." }, 403)
       }
 
+      const skillRows = await db
+        .select({ id: SkillTable.id })
+        .from(SkillTable)
+        .where(and(eq(SkillTable.id, skillId), eq(SkillTable.organizationId, payload.organization.id)))
+        .limit(1)
+
+      if (!skillRows[0]) {
+        return c.json({ error: "skill_not_found" }, 404)
+      }
+
       const existing = await db
         .select({ id: SkillHubSkillTable.id })
         .from(SkillHubSkillTable)

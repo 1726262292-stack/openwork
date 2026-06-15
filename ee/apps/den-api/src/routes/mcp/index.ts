@@ -11,8 +11,8 @@ import { DEN_FIRST_PARTY_MCP_TOKEN_TTL_MS } from "../../mcp/token-lifetime.js"
 import {
   jsonValidator,
   requireUserMiddleware,
-  resolveUserOrganizationsMiddleware,
-  type UserOrganizationsContext,
+  resolveOrganizationContextMiddleware,
+  type OrganizationContextVariables,
 } from "../../middleware/index.js"
 import { invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import type { AuthContextVariables } from "../../session.js"
@@ -24,8 +24,8 @@ import type { AuthContextVariables } from "../../session.js"
  * without the browser OAuth dance. This is not a privilege escalation: the
  * caller already holds a full session token for the same user, which can do
  * strictly more than the resulting `mcp:*`-scoped token. The org is the
- * session's active organization, validated for membership by
- * `resolveUserOrganizationsMiddleware`.
+ * session's active organization, validated for membership and API-key scope by
+ * `resolveOrganizationContextMiddleware`.
  *
  * Tokens are stored exactly like oauthProvider-issued opaque tokens
  * (sha256 of the secret in OAuthAccessTokenTable, org in referenceId), so
@@ -51,7 +51,7 @@ const organizationRequiredSchema = z.object({
   message: z.string(),
 }).meta({ ref: "McpTokenOrganizationRequiredError" })
 
-type McpRouteVariables = AuthContextVariables & Partial<UserOrganizationsContext>
+type McpRouteVariables = AuthContextVariables & Partial<OrganizationContextVariables>
 
 export function registerMcpTokenRoutes<T extends { Variables: McpRouteVariables }>(app: Hono<T>) {
   app.post(
@@ -69,19 +69,21 @@ export function registerMcpTokenRoutes<T extends { Variables: McpRouteVariables 
       },
     }),
     requireUserMiddleware,
-    resolveUserOrganizationsMiddleware,
+    resolveOrganizationContextMiddleware,
     jsonValidator(mintMcpTokenSchema),
     async (c) => {
       const user = c.get("user")
       const session = c.get("session")
-      const orgId = c.get("activeOrganizationId")
+      const apiKey = c.get("apiKey")
+      const organizationContext = c.get("organizationContext")
+      const orgId = organizationContext.organization.id
       const input = c.req.valid("json")
 
-      if (!orgId) {
+      if (apiKey) {
         return c.json({
-          error: "organization_required",
-          message: "Select an active organization before minting an MCP token.",
-        }, 400)
+          error: "forbidden",
+          message: "Use a signed-in user session to mint MCP tokens.",
+        }, 403)
       }
 
       const scopes = input.scopes ?? ["mcp:read", "mcp:write"]
