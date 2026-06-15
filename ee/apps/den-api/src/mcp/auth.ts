@@ -229,7 +229,14 @@ export async function verifyMcpRequest(headers: Headers, resourceUrl = DEN_MCP_R
   }
 
   const sessionId = readStringClaim(payload, "sid")
-  if (sessionId && !(await hasActiveMcpSession(sessionId))) {
+  if (!sessionId) {
+    return new Response(JSON.stringify({ error: "mcp_session_required" }), {
+      status: 403,
+      headers: { "content-type": "application/json" },
+    })
+  }
+
+  if (!(await hasActiveMcpSession(sessionId))) {
     return new Response(JSON.stringify({ error: "mcp_session_revoked" }), {
       status: 403,
       headers: { "content-type": "application/json" },

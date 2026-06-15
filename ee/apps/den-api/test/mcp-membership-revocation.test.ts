@@ -9,6 +9,7 @@ function seedRequiredEnv() {
 }
 
 let selectedRows: Array<{ id: string }> = []
+let jwtPayload: Record<string, unknown> = {}
 let mcpAuth: typeof import("../src/mcp/auth.js")
 
 beforeAll(async () => {
@@ -36,6 +37,10 @@ beforeAll(async () => {
         }),
       }),
     },
+  }))
+
+  mock.module("better-auth/oauth2", () => ({
+    verifyJwsAccessToken: () => Promise.resolve(jwtPayload),
   }))
 
   mcpAuth = await import("../src/mcp/auth.js")
@@ -75,4 +80,23 @@ test("MCP bearer tokens tied to deleted sessions are rejected", async () => {
   selectedRows = []
   await expect(mcpAuth.hasActiveMcpSession(sessionId)).resolves.toBe(false)
   await expect(mcpAuth.hasActiveMcpSession("not-a-session-id")).resolves.toBe(false)
+})
+
+test("MCP JWTs without session claims are rejected", async () => {
+  jwtPayload = {
+    sub: createDenTypeId("user"),
+    scope: "mcp:read mcp:write",
+    "https://openworklabs.com/token_use": "mcp",
+    "https://openworklabs.com/resource": "http://127.0.0.1:8790/mcp",
+    "https://openworklabs.com/org_id": createDenTypeId("organization"),
+  }
+
+  const response = await mcpAuth.verifyMcpRequest(new Headers({
+    authorization: "Bearer header.payload.signature",
+  }))
+
+  expect(response).toBeInstanceOf(Response)
+  if (response instanceof Response) {
+    await expect(response.json()).resolves.toEqual({ error: "mcp_session_required" })
+  }
 })
