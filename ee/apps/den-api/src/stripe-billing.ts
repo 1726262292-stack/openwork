@@ -136,8 +136,51 @@ async function activeMemberCount(organizationId: OrgId) {
   return Math.max(0, Number(row?.count ?? 0))
 }
 
-export async function getActiveMemberCountForBilling(organizationId: OrgId) {
-  return activeMemberCount(organizationId)
+function normalizeSeatCount(value: number) {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+}
+
+function normalizeAdditionalFreeSeats(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : 0
+}
+
+export function additionalFreeSeatCountFromMetadata(metadata: Record<string, unknown> | null | undefined) {
+  return normalizeAdditionalFreeSeats(metadata?.seatsFreeAdditional)
+}
+
+export function calculateOrganizationSeatBillingCounts(input: {
+  memberCount: number
+  metadata?: Record<string, unknown> | null
+  additionalFreeSeats?: number
+}) {
+  const total = normalizeSeatCount(input.memberCount)
+  const additionalFree = input.additionalFreeSeats === undefined
+    ? additionalFreeSeatCountFromMetadata(input.metadata)
+    : normalizeAdditionalFreeSeats(input.additionalFreeSeats)
+  const free = FREE_ORG_SEAT_COUNT + additionalFree
+  const chargeable = Math.max(0, total - free)
+
+  return {
+    total,
+    chargeable,
+    free,
+    includedFree: FREE_ORG_SEAT_COUNT,
+    additionalFree,
+  }
+}
+
+export async function getOrganizationSeatBillingCounts(input: { organizationId: OrgId; memberCount?: number }) {
+  const memberCountPromise = typeof input.memberCount === "number"
+    ? Promise.resolve(input.memberCount)
+    : activeMemberCount(input.organizationId)
+  const metadataPromise = db
+    .select({ metadata: OrganizationTable.metadata })
+    .from(OrganizationTable)
+    .where(eq(OrganizationTable.id, input.organizationId))
+    .limit(1)
+
+  const [memberCount, rows] = await Promise.all([memberCountPromise, metadataPromise])
+  return calculateOrganizationSeatBillingCounts({ memberCount, metadata: rows[0]?.metadata })
 }
 
 async function findOrgSubscriptionByType(organizationId: OrgId, subscriptionType: OrgSubscriptionTypeValue) {
@@ -210,17 +253,14 @@ export async function organizationHasActiveSeatSubscription(organizationId: OrgI
   return Boolean(row && ACTIVE_STATUSES.has(row.status))
 }
 
-export function billableSeatQuantity(memberCount: number) {
-  return Math.max(0, memberCount - FREE_ORG_SEAT_COUNT)
-}
-
 export async function getOrganizationSeatAddEligibility(organizationId: OrgId) {
-  const currentCount = await activeMemberCount(organizationId)
-  if (currentCount < FREE_ORG_SEAT_COUNT) {
+  const seatCounts = await getOrganizationSeatBillingCounts({ organizationId })
+  if (seatCounts.total < seatCounts.free) {
     return {
       allowed: true,
-      currentCount,
-      freeSeatCount: FREE_ORG_SEAT_COUNT,
+      currentCount: seatCounts.total,
+      freeSeatCount: seatCounts.free,
+      billableSeatCount: seatCounts.chargeable,
       hasActiveSeatSubscription: false,
     }
   }
@@ -228,8 +268,9 @@ export async function getOrganizationSeatAddEligibility(organizationId: OrgId) {
   const hasActiveSeatSubscription = await organizationHasActiveSeatSubscription(organizationId)
   return {
     allowed: hasActiveSeatSubscription,
-    currentCount,
-    freeSeatCount: FREE_ORG_SEAT_COUNT,
+    currentCount: seatCounts.total,
+    freeSeatCount: seatCounts.free,
+    billableSeatCount: seatCounts.chargeable,
     hasActiveSeatSubscription,
   }
 }
@@ -436,7 +477,7 @@ function serializeSubscription(row: Awaited<ReturnType<typeof findOrgSubscriptio
 export async function getOrgBillingSummary(input: { organizationId: OrgId; includePortalUrl?: boolean; returnUrl: string }) {
   const row = await findInferenceSubscriptionByOrg(input.organizationId)
   const seatRow = await findSeatSubscriptionByOrg(input.organizationId)
-  const memberCount = await activeMemberCount(input.organizationId)
+  const seatCounts = await getOrganizationSeatBillingCounts({ organizationId: input.organizationId })
   const hasActiveSubscription = Boolean(row && ACTIVE_STATUSES.has(row.status))
   const hasActiveSeatSubscription = Boolean(seatRow && ACTIVE_STATUSES.has(seatRow.status))
   let portalUrl: string | null = null
@@ -455,7 +496,7 @@ export async function getOrgBillingSummary(input: { organizationId: OrgId; inclu
       unitAmount: 1000,
       currency: "usd",
       interval: "month",
-      memberCount,
+      memberCount: seatCounts.total,
       hasActiveSubscription,
       portalUrl,
       subscription: serializeSubscription(row),
@@ -465,8 +506,9 @@ export async function getOrgBillingSummary(input: { organizationId: OrgId; inclu
         unitAmount: 1000,
         currency: "usd",
         interval: "month",
-        freeSeatCount: FREE_ORG_SEAT_COUNT,
-        billableSeatCount: billableSeatQuantity(memberCount),
+        freeSeatCount: seatCounts.free,
+        seatsFreeAdditional: seatCounts.additionalFree,
+        billableSeatCount: seatCounts.chargeable,
         hasActiveSubscription: hasActiveSeatSubscription,
         subscription: serializeSubscription(seatRow),
       },
@@ -501,8 +543,9 @@ export async function syncSeatSubscriptionQuantityAfterMemberChange(input: { org
     return
   }
 
+  const seatCounts = await getOrganizationSeatBillingCounts(input)
   await stripe().subscriptionItems.update(row.stripe_subscription_item_id, {
-    quantity: billableSeatQuantity(input.memberCount),
+    quantity: seatCounts.chargeable,
     proration_behavior: "always_invoice",
   })
 }

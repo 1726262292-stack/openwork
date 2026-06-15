@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Pencil } from "lucide-react";
 
 type AccessState = "loading" | "ready" | "signed-out" | "forbidden" | "error";
 type WorkerFilter = "all" | "with-workers" | "without-workers";
@@ -8,6 +9,8 @@ type BillingFilter = "all" | "paid" | "unpaid" | "unavailable";
 type ViewMode = "users" | "companies" | "organizations";
 type ActivityFilter = "all" | "active-7d" | "active-30d" | "recurring" | "inactive-30d";
 type SortMode = "newest" | "recently-active" | "most-sign-ins" | "most-active-days" | "fastest-invite";
+
+const DEFAULT_FREE_SEAT_COUNT = 5;
 
 type AdminBillingStatus = {
   status: "paid" | "unpaid" | "unavailable";
@@ -93,6 +96,9 @@ type AdminOrganization = {
     source: string;
   };
   seatLimit: number;
+  freeSeatCount: number;
+  seatsFreeAdditional: number;
+  billableSeatCount: number;
 };
 
 type AdminPayload = {
@@ -251,7 +257,10 @@ function parseAdminPayload(payload: unknown): AdminPayload | null {
             tier,
             source: toStringValue(plan.source) ?? "default"
           },
-          seatLimit: toNumberValue(value.seatLimit)
+          seatLimit: toNumberValue(value.seatLimit),
+          freeSeatCount: toNumberValue(value.freeSeatCount) || DEFAULT_FREE_SEAT_COUNT,
+          seatsFreeAdditional: toNumberValue(value.seatsFreeAdditional),
+          billableSeatCount: toNumberValue(value.billableSeatCount)
         };
       })
       .filter((value): value is AdminOrganization => value !== null)
@@ -733,6 +742,8 @@ export function DenAdminPanel() {
   const [includeBilling, setIncludeBilling] = useState(false);
   const [orgDrafts, setOrgDrafts] = useState<Record<string, { tier: AdminOrganization["plan"]["tier"]; seatLimit: string }>>({});
   const [savingOrgId, setSavingOrgId] = useState<string | null>(null);
+  const [freeSeatsDialog, setFreeSeatsDialog] = useState<{ org: AdminOrganization; totalFreeSeats: string } | null>(null);
+  const [savingFreeSeatsOrgId, setSavingFreeSeatsOrgId] = useState<string | null>(null);
 
   const loadOverview = useCallback(async (loadBilling: boolean) => {
     setRefreshing(true);
@@ -941,12 +952,45 @@ export function DenAdminPanel() {
     }
   }, [includeBilling, loadOverview, orgDrafts]);
 
+  const saveOrganizationFreeSeats = useCallback(async () => {
+    if (!freeSeatsDialog) {
+      return;
+    }
+
+    const totalFreeSeats = Number(freeSeatsDialog.totalFreeSeats);
+    if (!Number.isInteger(totalFreeSeats) || totalFreeSeats < DEFAULT_FREE_SEAT_COUNT) {
+      setError(`Free seats must be a whole number at least ${DEFAULT_FREE_SEAT_COUNT}.`);
+      return;
+    }
+
+    setSavingFreeSeatsOrgId(freeSeatsDialog.org.id);
+    setError(null);
+
+    try {
+      const { response, payload: nextPayload } = await patchJson(`/v1/admin/organizations/${freeSeatsDialog.org.id}/free-seats`, {
+        totalFreeSeats
+      });
+
+      if (!response.ok) {
+        setError(getErrorMessage(nextPayload, `Could not update free seats for ${freeSeatsDialog.org.name}.`));
+        return;
+      }
+
+      setFreeSeatsDialog(null);
+      await loadOverview(includeBilling);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unknown network error");
+    } finally {
+      setSavingFreeSeatsOrgId(null);
+    }
+  }, [freeSeatsDialog, includeBilling, loadOverview]);
+
   const exportCsv = useCallback(() => {
     const date = new Date().toISOString().slice(0, 10);
 
     if (viewMode === "organizations") {
       downloadCsv(`den-organizations-${date}.csv`, [
-        ["id", "name", "slug", "plan", "plan_source", "seat_limit", "members", "created_at"],
+        ["id", "name", "slug", "plan", "plan_source", "seat_limit", "free_seats", "additional_free_seats", "chargeable_seats", "members", "created_at"],
         ...filteredOrganizations.map((org) => [
           org.id,
           org.name,
@@ -954,6 +998,9 @@ export function DenAdminPanel() {
           org.plan.tier,
           org.plan.source,
           String(org.seatLimit),
+          String(org.freeSeatCount),
+          String(org.seatsFreeAdditional),
+          String(org.billableSeatCount),
           String(org.memberCount),
           org.createdAt ?? ""
         ])
@@ -1310,6 +1357,12 @@ export function DenAdminPanel() {
                       <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-600">
                         {org.memberCount} / {org.seatLimit} seats
                       </span>
+                      <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                        {org.freeSeatCount} free
+                      </span>
+                      <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-amber-700">
+                        {org.billableSeatCount} chargeable
+                      </span>
                     </div>
                   </div>
 
@@ -1317,7 +1370,23 @@ export function DenAdminPanel() {
                     <MetaCell label="Created" value={formatDateTime(org.createdAt)} />
                     <MetaCell label="Plan source" value={formatProvider(org.plan.source)} />
                     <MetaCell label="Members" value={String(org.memberCount)} />
-                    <MetaCell label="Seat limit" value={String(org.seatLimit)} />
+                    <div>
+                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-500">Free seats</p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <p className="text-sm text-slate-700">{org.freeSeatCount}</p>
+                        <button
+                          type="button"
+                          aria-label={`Edit free seats for ${org.name}`}
+                          onClick={() => setFreeSeatsDialog({ org, totalFreeSeats: String(org.freeSeatCount) })}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
+                        >
+                          <Pencil size={13} aria-hidden="true" />
+                        </button>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {org.seatsFreeAdditional > 0 ? `${org.seatsFreeAdditional} additional` : "Default included"}
+                      </p>
+                    </div>
                   </div>
 
                   <div className="mt-4 grid gap-3 border-t border-slate-200 pt-4 lg:grid-cols-[12rem_10rem_auto] lg:items-end">
@@ -1507,6 +1576,61 @@ export function DenAdminPanel() {
 
         <p className="mt-6 text-xs leading-6 text-slate-500">Snapshot generated {formatDateTime(payload.generatedAt)}.</p>
       </div>
+
+      {freeSeatsDialog ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="free-seats-dialog-title"
+          onClick={() => setFreeSeatsDialog(null)}
+        >
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">Organization billing</p>
+            <h2 id="free-seats-dialog-title" className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-slate-950">
+              Edit free seats
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Set the total number of free seats for {freeSeatsDialog.org.name}. The default {DEFAULT_FREE_SEAT_COUNT} seats stay included; OpenWork saves only the additional seats in organization metadata.
+            </p>
+
+            <label className="mt-5 grid gap-2">
+              <span className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-500">Total free seats</span>
+              <input
+                type="number"
+                min={DEFAULT_FREE_SEAT_COUNT}
+                value={freeSeatsDialog.totalFreeSeats}
+                onChange={(event) => setFreeSeatsDialog({ ...freeSeatsDialog, totalFreeSeats: event.target.value })}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-400"
+              />
+            </label>
+
+            <p className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-500">
+              Additional metadata value to save: {Math.max(0, Number(freeSeatsDialog.totalFreeSeats) - DEFAULT_FREE_SEAT_COUNT) || 0}
+            </p>
+
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setFreeSeatsDialog(null)}
+                className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void saveOrganizationFreeSeats();
+                }}
+                disabled={savingFreeSeatsOrgId === freeSeatsDialog.org.id}
+                className="inline-flex items-center justify-center rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {savingFreeSeatsOrgId === freeSeatsDialog.org.id ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

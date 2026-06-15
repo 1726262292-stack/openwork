@@ -20,9 +20,12 @@ import { queryValidator, requireAdminMiddleware } from "../../middleware/index.j
 import { denTypeIdSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { DEFAULT_ORGANIZATION_LIMITS, normalizeOrganizationMetadata } from "../../organization-limits.js"
 import type { AuthContextVariables } from "../../session.js"
+import { calculateOrganizationSeatBillingCounts, getOrganizationSeatBillingCounts, syncSeatSubscriptionQuantityAfterMemberChange } from "../../stripe-billing.js"
 
 type UserId = typeof AuthUserTable.$inferSelect.id
 type OrganizationId = typeof OrganizationTable.$inferSelect.id
+
+const DEFAULT_ORGANIZATION_FREE_SEAT_COUNT = calculateOrganizationSeatBillingCounts({ memberCount: 0 }).includedFree
 
 const overviewQuerySchema = z.object({
   includeBilling: z.string().optional(),
@@ -31,6 +34,10 @@ const overviewQuerySchema = z.object({
 const updateOrganizationPlanSchema = z.object({
   tier: z.enum(["free", "team", "enterprise"]),
   seatLimit: z.number().int().min(1).max(100000),
+})
+
+const updateOrganizationFreeSeatsSchema = z.object({
+  totalFreeSeats: z.number().int().min(DEFAULT_ORGANIZATION_FREE_SEAT_COUNT).max(100000),
 })
 
 const adminOverviewResponseSchema = z.object({
@@ -42,6 +49,7 @@ const adminOverviewResponseSchema = z.object({
   admins: z.array(z.object({}).passthrough()),
   summary: z.object({}).passthrough(),
   users: z.array(z.object({}).passthrough()),
+  organizations: z.array(z.object({}).passthrough()),
   generatedAt: z.string().datetime(),
 }).meta({ ref: "AdminOverviewResponse" })
 
@@ -225,6 +233,58 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
     },
   )
 
+  app.patch(
+    "/v1/admin/organizations/:organizationId/free-seats",
+    requireAdminMiddleware,
+    async (c) => {
+      const body = updateOrganizationFreeSeatsSchema.safeParse(await c.req.json().catch(() => null))
+      if (!body.success) {
+        return c.json({ error: "invalid_request", message: body.error.issues[0]?.message ?? "Invalid organization free seats request." }, 400)
+      }
+
+      const organizationId = c.req.param("organizationId")
+      if (!isOrganizationId(organizationId)) {
+        return c.json({ error: "invalid_request", message: "Invalid organization id." }, 400)
+      }
+
+      const rows = await db
+        .select({ id: OrganizationTable.id, metadata: OrganizationTable.metadata })
+        .from(OrganizationTable)
+        .where(eq(OrganizationTable.id, organizationId))
+        .limit(1)
+
+      const organization = rows[0]
+      if (!organization) {
+        return c.json({ error: "not_found", message: "Organization not found." }, 404)
+      }
+
+      const seatsFreeAdditional = body.data.totalFreeSeats - DEFAULT_ORGANIZATION_FREE_SEAT_COUNT
+      const metadata = {
+        ...normalizeOrganizationMetadata(organization.metadata).metadata,
+        seatsFreeAdditional,
+      }
+
+      await db
+        .update(OrganizationTable)
+        .set({ metadata })
+        .where(eq(OrganizationTable.id, organizationId))
+
+      const seatCounts = await getOrganizationSeatBillingCounts({ organizationId })
+      await syncSeatSubscriptionQuantityAfterMemberChange({ organizationId, memberCount: seatCounts.total })
+
+      return c.json({
+        ok: true,
+        organization: {
+          id: organizationId,
+          memberCount: seatCounts.total,
+          freeSeatCount: seatCounts.free,
+          seatsFreeAdditional: seatCounts.additionalFree,
+          billableSeatCount: seatCounts.chargeable,
+        },
+      })
+    },
+  )
+
   app.get(
     "/v1/admin/overview",
     describeRoute({
@@ -370,6 +430,10 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
       const metadata = normalizeOrganizationMetadata(entry.metadata).metadata
       const plan = parseOrganizationPlan(metadata)
       const seatLimit = metadata.limits.members ?? DEFAULT_ORGANIZATION_LIMITS.members
+      const seatCounts = calculateOrganizationSeatBillingCounts({
+        memberCount: memberCountByOrg.get(entry.id) ?? 0,
+        metadata,
+      })
 
       return {
         id: entry.id,
@@ -377,9 +441,12 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         slug: entry.slug,
         createdAt: entry.createdAt,
         updatedAt: entry.updatedAt,
-        memberCount: memberCountByOrg.get(entry.id) ?? 0,
+        memberCount: seatCounts.total,
         plan,
         seatLimit,
+        freeSeatCount: seatCounts.free,
+        seatsFreeAdditional: seatCounts.additionalFree,
+        billableSeatCount: seatCounts.chargeable,
       }
     })
 
