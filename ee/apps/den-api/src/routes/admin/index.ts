@@ -6,6 +6,7 @@ import {
   InvitationTable,
   MemberTable,
   OrganizationTable,
+  OrgSubscriptionTable,
   TelemetryEventTable,
   WorkerTable,
   AdminAllowlistTable,
@@ -13,16 +14,26 @@ import {
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { getCloudWorkerAdminBillingStatus } from "../../billing/polar.js"
 import { db } from "../../db.js"
 import { parseOrganizationPlan, type PlanTier } from "../../entitlements.js"
 import { queryValidator, requireAdminMiddleware } from "../../middleware/index.js"
 import { denTypeIdSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { DEFAULT_ORGANIZATION_LIMITS, normalizeOrganizationMetadata } from "../../organization-limits.js"
 import type { AuthContextVariables } from "../../session.js"
+import { refreshOrgSubscriptionFromStripe } from "../../stripe-billing.js"
 
 type UserId = typeof AuthUserTable.$inferSelect.id
 type OrganizationId = typeof OrganizationTable.$inferSelect.id
+
+type AdminBillingStatus = {
+  status: "paid" | "unpaid" | "unavailable"
+  featureGateEnabled: boolean
+  subscriptionId: string | null
+  subscriptionStatus: string | null
+  currentPeriodEnd: Date | string | null
+  source: "benefit" | "subscription" | "unavailable"
+  note: string | null
+}
 
 const overviewQuerySchema = z.object({
   includeBilling: z.string().optional(),
@@ -179,6 +190,30 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item
   const workerCount = Math.max(1, Math.min(limit, items.length))
   await Promise.all(Array.from({ length: workerCount }, () => runWorker()))
   return results
+}
+
+function isPaidSubscriptionStatus(value: string | null) {
+  return value === "active" || value === "trialing"
+}
+
+function billingTime(value: Date | string | null) {
+  if (!value) {
+    return 0
+  }
+
+  return value instanceof Date ? value.getTime() : new Date(value).getTime()
+}
+
+function shouldReplaceBillingStatus(current: AdminBillingStatus, candidate: AdminBillingStatus) {
+  if (candidate.status === "paid" && current.status !== "paid") {
+    return true
+  }
+
+  if (candidate.status !== current.status) {
+    return false
+  }
+
+  return billingTime(candidate.currentPeriodEnd) > billingTime(current.currentPeriodEnd)
 }
 
 export function registerAdminRoutes<T extends { Variables: AuthContextVariables }>(app: Hono<T>) {
@@ -522,28 +557,72 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
     const activeUsers1d = todayKey ? (activeUsersByDay.get(todayKey)?.size ?? 0) : 0
     const realActiveUsers1d = todayKey ? (realActiveUsersByDay.get(todayKey)?.size ?? 0) : 0
 
-    const defaultBilling = {
-      status: "unavailable" as const,
+    const defaultBilling: AdminBillingStatus = {
+      status: "unpaid",
       featureGateEnabled: false,
       subscriptionId: null,
       subscriptionStatus: null,
       currentPeriodEnd: null,
-      source: "unavailable" as const,
-      note: "Billing lookup unavailable.",
+      source: "subscription",
+      note: "No cached Stripe organization subscription covers this user.",
     }
 
-    const billingRows = includeBilling
-      ? await mapWithConcurrency(users, 4, async (entry) => ({
-          userId: entry.id,
-          billing: await getCloudWorkerAdminBillingStatus({
-            userId: entry.id,
-            email: entry.email,
-            name: entry.name ?? entry.email,
-          }),
-        }))
+    const subscriptionRows = includeBilling
+      ? await db
+          .select({
+            userId: MemberTable.userId,
+            subscriptionId: OrgSubscriptionTable.stripe_subscription_id,
+            subscriptionStatus: OrgSubscriptionTable.status,
+            currentPeriodEnd: OrgSubscriptionTable.current_period_end,
+          })
+          .from(OrgSubscriptionTable)
+          .innerJoin(MemberTable, eq(OrgSubscriptionTable.organization_id, MemberTable.organizationId))
+          .where(isNull(MemberTable.removedAt))
       : []
 
-    const billingByUser = new Map(billingRows.map((row) => [row.userId, row.billing]))
+    const subscriptionIds = Array.from(new Set(subscriptionRows.map((row) => row.subscriptionId)))
+    const refreshedRows = await mapWithConcurrency(subscriptionIds, 4, async (subscriptionId) => {
+      try {
+        return await refreshOrgSubscriptionFromStripe(subscriptionId)
+      } catch (error) {
+        console.warn("[admin] failed to refresh Stripe subscription", subscriptionId, error)
+        return null
+      }
+    })
+    const refreshedBySubscriptionId = new Map<string, NonNullable<(typeof refreshedRows)[number]>>()
+    for (const row of refreshedRows) {
+      if (row) {
+        refreshedBySubscriptionId.set(row.stripe_subscription_id, row)
+      }
+    }
+
+    const billingByUser = new Map<UserId, AdminBillingStatus>()
+    for (const row of subscriptionRows) {
+      if (!row.userId) {
+        continue
+      }
+
+      const refreshed = refreshedBySubscriptionId.get(row.subscriptionId)
+      const subscriptionStatus = refreshed?.status ?? row.subscriptionStatus
+      const subscriptionId = refreshed?.stripe_subscription_id ?? row.subscriptionId
+      const currentPeriodEnd = refreshed?.current_period_end ?? row.currentPeriodEnd
+      const paid = isPaidSubscriptionStatus(subscriptionStatus)
+      const billing: AdminBillingStatus = {
+        status: paid ? "paid" : "unpaid",
+        featureGateEnabled: false,
+        subscriptionId,
+        subscriptionStatus,
+        currentPeriodEnd,
+        source: "subscription",
+        note: paid
+          ? "Covered by an active Stripe organization subscription."
+          : "Stripe organization subscription is not active.",
+      }
+      const current = billingByUser.get(row.userId)
+      if (!current || shouldReplaceBillingStatus(current, billing)) {
+        billingByUser.set(row.userId, billing)
+      }
+    }
 
     const userRows = users.map((entry) => {
       const workerStats = workerStatsByUser.get(entry.id) ?? {

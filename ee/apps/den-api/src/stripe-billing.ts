@@ -297,6 +297,37 @@ export async function upsertInferenceSubscriptionFromStripe(subscription: Stripe
   return upsertOrgSubscriptionFromStripe(subscription, eventId)
 }
 
+export async function refreshOrgSubscriptionFromStripe(stripeSubscriptionId: string) {
+  if (!env.stripe.secretKey) {
+    return findOrgSubscriptionByStripeId(stripeSubscriptionId)
+  }
+
+  const subscription = await stripe().subscriptions.retrieve(stripeSubscriptionId)
+  const item = firstSubscriptionItem(subscription)
+  const status = subscriptionStatus(subscription.status)
+  const quantity = item?.quantity ?? 0
+  const priceId = typeof item?.price?.id === "string" ? item.price.id : null
+
+  await db
+    .update(OrgSubscriptionTable)
+    .set({
+      status,
+      stripe_customer_id: customerIdFromSubscription(subscription),
+      stripe_price_id: priceId,
+      stripe_subscription_item_id: item?.id ?? null,
+      quantity,
+      current_period_start: fromUnixSeconds((subscription as Stripe.Subscription & { current_period_start?: number }).current_period_start),
+      current_period_end: fromUnixSeconds((subscription as Stripe.Subscription & { current_period_end?: number }).current_period_end),
+      cancel_at_period_end: subscription.cancel_at_period_end,
+      canceled_at: fromUnixSeconds(subscription.canceled_at),
+      ended_at: fromUnixSeconds(subscription.ended_at),
+      updated_at: new Date(),
+    })
+    .where(eq(OrgSubscriptionTable.stripe_subscription_id, subscription.id))
+
+  return findOrgSubscriptionByStripeId(subscription.id)
+}
+
 export async function findOrCreateStripeCustomer(input: {
   email: string
   name: string
