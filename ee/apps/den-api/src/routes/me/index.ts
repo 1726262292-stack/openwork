@@ -1,16 +1,16 @@
-import type { Hono } from "hono"
-import { describeRoute } from "hono-openapi"
-import { desktopConfigSchema } from "@openwork/types/den/desktop-policies"
-import { z } from "zod"
 import { eq } from "@openwork-ee/den-db/drizzle"
 import { AuthAccountTable } from "@openwork-ee/den-db/schema"
+import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
+import { desktopConfigSchema } from "@openwork/types/den/desktop-policies"
+import type { Hono } from "hono"
+import { describeRoute } from "hono-openapi"
+import { z } from "zod"
 import { db } from "../../db.js"
-import { jsonValidator, requireUserMiddleware, resolveOrganizationContextMiddleware, resolveUserOrganizationsMiddleware, type OrganizationContextVariables, type UserOrganizationsContext } from "../../middleware/index.js"
+import { authenticatedRoute, jsonValidator, orgMemberRoute, type OrganizationContextVariables, type UserOrganizationsContext } from "../../middleware/index.js"
 import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import { resolveUserOrganizations, setSessionActiveOrganization } from "../../orgs.js"
 import type { AuthContextVariables } from "../../session.js"
-import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { calculateDesktopPolicyForOrgMember } from "../../desktop-policies.js"
 
 const meResponseSchema = z.object({
@@ -69,7 +69,7 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
         401: jsonResponse("The caller must be signed in to read profile data.", unauthorizedSchema),
       },
     }),
-    requireUserMiddleware,
+    authenticatedRoute(),
     async (c) => {
     const user = c.get("user")
     if (!user) {
@@ -103,7 +103,7 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
         200: jsonResponse("Current user organizations returned successfully.", meOrganizationsResponseSchema),
       },
     }),
-    resolveUserOrganizationsMiddleware,
+    orgMemberRoute({ useUserOrganizations: true }),
     (c) => {
     const orgs = (c.get("userOrganizations") ?? []) as NonNullable<UserOrganizationsContext["userOrganizations"]>
 
@@ -132,7 +132,7 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
         403: jsonResponse("The caller cannot switch this kind of session.", forbiddenSchema),
       },
     }),
-    requireUserMiddleware,
+    authenticatedRoute(),
     jsonValidator(setActiveOrganizationSchema),
     async (c) => {
       const user = c.get("user")
@@ -174,8 +174,7 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
         401: jsonResponse("The caller must be signed in to read desktop config.", unauthorizedSchema),
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     async (c) => {
       const organization = c.get("organizationContext").organization
       const currentMember = c.get("organizationContext").currentMember

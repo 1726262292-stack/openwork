@@ -9,7 +9,7 @@ import {
   listOrganizationApiKeys,
 } from "../../api-keys.js"
 import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
-import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { jsonValidator, orgMemberRoute, paramValidator } from "../../middleware/index.js"
 import { denTypeIdSchema } from "../../openapi.js"
 import { auth } from "../../auth.js"
 import type { OrgRouteVariables } from "./shared.js"
@@ -149,8 +149,7 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
         },
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     async (c) => {
       const access = ensureApiKeyManager(c)
       if (!access.ok) {
@@ -214,8 +213,7 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
         },
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     jsonValidator(createOrganizationApiKeySchema),
     async (c) => {
       const access = ensureApiKeyManager(c)
@@ -318,9 +316,8 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
         },
       },
     }),
-    requireUserMiddleware,
+    orgMemberRoute(),
     paramValidator(apiKeyIdParamSchema),
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const access = ensureApiKeyManager(c)
       if (!access.ok) {

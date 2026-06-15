@@ -10,8 +10,7 @@ import { hashOpaqueMcpSecret } from "../../mcp/auth.js"
 import { DEN_FIRST_PARTY_MCP_TOKEN_TTL_MS } from "../../mcp/token-lifetime.js"
 import {
   jsonValidator,
-  requireUserMiddleware,
-  resolveOrganizationContextMiddleware,
+  orgMemberRoute,
   type OrganizationContextVariables,
 } from "../../middleware/index.js"
 import { forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
@@ -69,8 +68,7 @@ export function registerMcpTokenRoutes<T extends { Variables: McpRouteVariables 
         403: jsonResponse("API keys cannot mint MCP tokens.", forbiddenSchema),
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     jsonValidator(mintMcpTokenSchema),
     async (c) => {
       const user = c.get("user")

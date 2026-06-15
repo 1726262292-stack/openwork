@@ -16,7 +16,7 @@ import {
   getSsoProviderForConnection,
   registerOrganizationSsoConnection,
 } from "../../sso.js"
-import { requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { orgMemberRoute } from "../../middleware/index.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { ensureSsoManager, orgAccessFailureStatus } from "./shared.js"
 
@@ -240,8 +240,7 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
         404: { description: "Organization not found", content: { "application/json": { schema: resolver(organizationNotFoundSchema) } } },
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     async (c) => {
       const access = ensureSsoManager(c)
       if (!access.ok) {
@@ -276,8 +275,7 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
         404: { description: "Organization not found", content: { "application/json": { schema: resolver(organizationNotFoundSchema) } } },
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     async (c) => {
       const access = ensureSsoManager(c)
       if (!access.ok) {
@@ -340,8 +338,7 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
         404: { description: "Organization not found", content: { "application/json": { schema: resolver(organizationNotFoundSchema) } } },
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     async (c) => {
       const access = ensureSsoManager(c)
       if (!access.ok) {
@@ -403,8 +400,7 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
         404: { description: "Organization not found", content: { "application/json": { schema: resolver(organizationNotFoundSchema) } } },
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     async (c) => {
       const access = ensureSsoManager(c)
       if (!access.ok) {
@@ -447,8 +443,7 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
         404: { description: "Organization not found", content: { "application/json": { schema: resolver(organizationNotFoundSchema) } } },
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     async (c) => {
       const access = ensureSsoManager(c)
       if (!access.ok) {
@@ -496,8 +491,7 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
         404: { description: "Organization not found", content: { "application/json": { schema: resolver(organizationNotFoundSchema) } } },
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     async (c) => {
       const access = ensureSsoManager(c)
       if (!access.ok) {
@@ -555,8 +549,7 @@ export function registerOrgSsoRoutes<T extends { Variables: OrgRouteVariables }>
         404: { description: "Organization not found", content: { "application/json": { schema: resolver(organizationNotFoundSchema) } } },
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     async (c) => {
       const access = ensureSsoManager(c)
       if (!access.ok) {

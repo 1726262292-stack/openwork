@@ -1,6 +1,6 @@
 import type { Context, Hono } from "hono"
 import { describeRoute } from "hono-openapi"
-import { queryValidator, jsonValidator, paramValidator, requireUserMiddleware, resolveMemberTeamsMiddleware, resolveOrganizationContextMiddleware } from "../../../middleware/index.js"
+import { queryValidator, jsonValidator, orgMemberRoute, paramValidator, resolveMemberTeamsMiddleware } from "../../../middleware/index.js"
 import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../../openapi.js"
 import type { OrgRouteVariables } from "../shared.js"
 import {
@@ -216,7 +216,7 @@ function withPluginArchOrgContext(app: Hono<any>, method: "delete" | "get" | "pa
   const routeHandler = handlers.pop() as unknown
   const routeMiddlewares = handlers as unknown[]
   const routeApp = app as unknown as Record<string, (...args: unknown[]) => unknown>
-  routeApp[method](path, requireUserMiddleware, ...routeMiddlewares, resolveOrganizationContextMiddleware, resolveMemberTeamsMiddleware, routeHandler)
+  routeApp[method](path, orgMemberRoute(), ...routeMiddlewares, resolveMemberTeamsMiddleware, routeHandler)
 }
 
 export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariables }>(app: Hono<T>) {

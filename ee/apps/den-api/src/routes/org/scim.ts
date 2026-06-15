@@ -3,7 +3,7 @@ import { describeRoute, resolver } from "hono-openapi"
 import { z } from "zod"
 import { deleteOrganizationScimConnection, getOrganizationScimConnection, getOrganizationScimHealth, getScimBaseUrl, reconcileOrganizationScimDrift, rotateOrganizationScimToken } from "../../scim.js"
 import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
-import { requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { orgMemberRoute } from "../../middleware/index.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { ensureScimManager, orgAccessFailureStatus } from "./shared.js"
 
@@ -137,8 +137,7 @@ export function registerOrgScimRoutes<T extends { Variables: OrgRouteVariables }
         },
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     async (c) => {
       const access = ensureScimManager(c)
       if (!access.ok) {
@@ -210,8 +209,7 @@ export function registerOrgScimRoutes<T extends { Variables: OrgRouteVariables }
         },
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     async (c) => {
       const access = ensureScimManager(c)
       if (!access.ok) {
@@ -276,10 +274,17 @@ export function registerOrgScimRoutes<T extends { Variables: OrgRouteVariables }
             },
           },
         },
+        404: {
+          description: "Organization not found",
+          content: {
+            "application/json": {
+              schema: resolver(organizationNotFoundSchema),
+            },
+          },
+        },
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     async (c) => {
       const access = ensureScimManager(c)
       if (!access.ok) {
@@ -288,6 +293,12 @@ export function registerOrgScimRoutes<T extends { Variables: OrgRouteVariables }
 
       const payload = c.get("organizationContext")
       const result = await reconcileOrganizationScimDrift(payload.organization.id)
+      await recordOrganizationAuditEvent({
+        organizationId: payload.organization.id,
+        actorUserId: payload.currentMember.userId,
+        action: ORGANIZATION_AUDIT_ACTIONS.scimReconciliationRun,
+        payload: result,
+      })
       return c.json(result)
     },
   )
@@ -337,8 +348,7 @@ export function registerOrgScimRoutes<T extends { Variables: OrgRouteVariables }
         },
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     async (c) => {
       const access = ensureScimManager(c)
       if (!access.ok) {
