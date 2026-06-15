@@ -6,7 +6,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { db } from "../../db.js"
 import { checkEntitlement } from "../../entitlements.js"
-import { requireUserMiddleware, resolveUserOrganizationsMiddleware, resolveOrganizationContextMiddleware, jsonValidator, orgMemberRoute } from "../../middleware/index.js"
+import { jsonValidator, orgMemberRoute } from "../../middleware/index.js"
 import { enterprisePlanRequiredSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema, emptyResponse } from "../../openapi.js"
 import type { AuthContextVariables } from "../../session.js"
 import type { UserOrganizationsContext, OrganizationContextVariables } from "../../middleware/index.js"
@@ -112,9 +112,6 @@ export function registerTelemetryRoutes<T extends { Variables: TelemetryRouteVar
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveUserOrganizationsMiddleware,
-    resolveOrganizationContextMiddleware,
     jsonValidator(ingestBatchSchema),
     async (c) => {
       const orgContext = c.get("organizationContext")
@@ -166,8 +163,6 @@ export function registerTelemetryRoutes<T extends { Variables: TelemetryRouteVar
       },
     }),
     orgMemberRoute({ useUserOrganizations: true }),
-    requireUserMiddleware,
-    resolveUserOrganizationsMiddleware,
     async (c) => {
       const orgId = c.get("activeOrganizationId")
 
@@ -246,9 +241,6 @@ export function registerTelemetryRoutes<T extends { Variables: TelemetryRouteVar
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveUserOrganizationsMiddleware,
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const orgId = c.get("activeOrganizationId")
 

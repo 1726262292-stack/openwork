@@ -5,7 +5,7 @@ import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { db } from "../../db.js"
-import { jsonValidator, orgMemberRoute, paramValidator, queryValidator, requireUserMiddleware, resolveUserOrganizationsMiddleware } from "../../middleware/index.js"
+import { jsonValidator, orgMemberRoute, paramValidator, queryValidator } from "../../middleware/index.js"
 import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { getOrganizationLimitStatus } from "../../organization-limits.js"
 import { getRequiredUserEmail } from "../../user.js"
@@ -138,8 +138,6 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
       },
     }),
     orgMemberRoute({ useUserOrganizations: true }),
-    requireUserMiddleware,
-    resolveUserOrganizationsMiddleware,
     queryValidator(listWorkersQuerySchema),
     async (c) => {
     const user = c.get("user")
@@ -187,8 +185,6 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
       },
     }),
     orgMemberRoute({ useUserOrganizations: true }),
-    requireUserMiddleware,
-    resolveUserOrganizationsMiddleware,
     jsonValidator(createWorkerSchema),
     async (c) => {
     const user = c.get("user")
@@ -329,8 +325,6 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
       },
     }),
     orgMemberRoute({ useUserOrganizations: true }),
-    requireUserMiddleware,
-    resolveUserOrganizationsMiddleware,
     paramValidator(workerIdParamSchema),
     async (c) => {
     const user = c.get("user")
@@ -377,8 +371,6 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
       },
     }),
     orgMemberRoute({ useUserOrganizations: true }),
-    requireUserMiddleware,
-    resolveUserOrganizationsMiddleware,
     paramValidator(workerIdParamSchema),
     jsonValidator(updateWorkerSchema),
     async (c) => {
@@ -440,8 +432,6 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
       },
     }),
     orgMemberRoute({ useUserOrganizations: true }),
-    requireUserMiddleware,
-    resolveUserOrganizationsMiddleware,
     paramValidator(workerIdParamSchema),
     async (c) => {
     const orgId = c.get("activeOrganizationId")
@@ -491,8 +481,6 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
       },
     }),
     orgMemberRoute({ useUserOrganizations: true }),
-    requireUserMiddleware,
-    resolveUserOrganizationsMiddleware,
     paramValidator(workerIdParamSchema),
     async (c) => {
     const orgId = c.get("activeOrganizationId")

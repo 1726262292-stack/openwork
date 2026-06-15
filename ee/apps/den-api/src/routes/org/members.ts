@@ -8,11 +8,11 @@ import { revokeOrganizationApiKeysForMember } from "../../api-keys.js"
 import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
 import { revokeMembershipSessionCredentials } from "../../credential-revocation.js"
 import { db } from "../../db.js"
-import { jsonValidator, orgRoleRoute, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { jsonValidator, orgRoleRoute, paramValidator } from "../../middleware/index.js"
 import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
 import { listAssignableRoles, removeOrganizationMember, validateOrganizationMemberRoleUpdate } from "../../orgs.js"
 import type { OrgRouteVariables } from "./shared.js"
-import { ensureMemberRemover, ensureOwner, idParamSchema, normalizeRoleName } from "./shared.js"
+import { ensureMemberRemover, ensureOwner, idParamSchema, normalizeRoleName, orgAccessFailureStatus } from "./shared.js"
 
 const updateMemberRoleSchema = z.object({
   role: z.string().trim().min(1).max(64),
@@ -37,9 +37,7 @@ export function registerOrgMemberRoutes<T extends { Variables: OrgRouteVariables
       },
     }),
     orgRoleRoute(["owner"]),
-    requireUserMiddleware,
     paramValidator(orgMemberParamsSchema),
-    resolveOrganizationContextMiddleware,
     jsonValidator(updateMemberRoleSchema),
     async (c) => {
     const permission = ensureOwner(c)
@@ -119,13 +117,11 @@ export function registerOrgMemberRoutes<T extends { Variables: OrgRouteVariables
       },
     }),
     orgRoleRoute(["admin"]),
-    requireUserMiddleware,
     paramValidator(orgMemberParamsSchema),
-    resolveOrganizationContextMiddleware,
     async (c) => {
     const permission = ensureMemberRemover(c)
     if (!permission.ok) {
-      return c.json(permission.response, permission.response.error === "forbidden" ? 403 : 404)
+      return c.json(permission.response, orgAccessFailureStatus(permission.response))
     }
 
     const payload = c.get("organizationContext")

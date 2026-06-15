@@ -4,7 +4,7 @@ import { Copy, RefreshCw, Shield, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
 import { DenButton } from "../../_components/ui/button";
-import { getErrorMessage, requestJson } from "../../_lib/den-flow";
+import { getErrorMessage, getRequestError, requestJson } from "../../_lib/den-flow";
 import {
   type DenOrgScimConnection,
   getOrgAccessFlags,
@@ -26,7 +26,7 @@ function formatDateTime(value: string | null) {
 }
 
 export function ScimScreen() {
-  const { orgId, orgContext } = useOrgDashboard();
+  const { orgId, orgContext, runReauthableAction } = useOrgDashboard();
   const [baseUrl, setBaseUrl] = useState<string | null>(null);
   const [connection, setConnection] = useState<DenOrgScimConnection | null>(null);
   const [visibleToken, setVisibleToken] = useState<string | null>(null);
@@ -123,37 +123,39 @@ export function ScimScreen() {
       return;
     }
 
-    setRotating(true);
     setError(null);
     setVisibleToken(null);
     try {
-      const { response, payload } = await requestJson(
-        "/v1/scim/token",
-        { method: "POST", body: JSON.stringify({}) },
-        12000,
-      );
+      await runReauthableAction("rotate-scim-token", async () => {
+        setRotating(true);
+        try {
+          const { response, payload } = await requestJson(
+            "/v1/scim/token",
+            { method: "POST", body: JSON.stringify({}) },
+            12000,
+          );
 
-      if (!response.ok) {
-        throw new Error(
-          getErrorMessage(payload, `Failed to rotate SCIM token (${response.status}).`),
-        );
-      }
+          if (!response.ok) {
+            throw getRequestError(payload, response, `Failed to rotate SCIM token (${response.status}).`);
+          }
 
-      const parsed = parseOrgScimPayload(payload);
-      if (!parsed.baseUrl || !parsed.connection || !parsed.scimToken) {
-        throw new Error("SCIM token rotation succeeded, but the response was incomplete.");
-      }
+          const parsed = parseOrgScimPayload(payload);
+          if (!parsed.baseUrl || !parsed.connection || !parsed.scimToken) {
+            throw new Error("SCIM token rotation succeeded, but the response was incomplete.");
+          }
 
-      setBaseUrl(parsed.baseUrl);
-      setConnection(parsed.connection);
-      setVisibleToken(parsed.scimToken);
-      setCopiedValue(null);
+          setBaseUrl(parsed.baseUrl);
+          setConnection(parsed.connection);
+          setVisibleToken(parsed.scimToken);
+          setCopiedValue(null);
+        } finally {
+          setRotating(false);
+        }
+      });
     } catch (nextError) {
       setError(
         nextError instanceof Error ? nextError.message : "Failed to rotate SCIM token.",
       );
-    } finally {
-      setRotating(false);
     }
   }
 
@@ -167,31 +169,33 @@ export function ScimScreen() {
       return;
     }
 
-    setDeleting(true);
     setError(null);
     try {
-      const { response, payload } = await requestJson(
-        "/v1/scim",
-        { method: "DELETE" },
-        12000,
-      );
+      await runReauthableAction("delete-scim-connection", async () => {
+        setDeleting(true);
+        try {
+          const { response, payload } = await requestJson(
+            "/v1/scim",
+            { method: "DELETE" },
+            12000,
+          );
 
-      if (response.status !== 204 && !response.ok) {
-        throw new Error(
-          getErrorMessage(payload, `Failed to delete SCIM connection (${response.status}).`),
-        );
-      }
+          if (response.status !== 204 && !response.ok) {
+            throw getRequestError(payload, response, `Failed to delete SCIM connection (${response.status}).`);
+          }
 
-      setConnection(null);
-      setVisibleToken(null);
-      setCopiedValue(null);
-      await loadScimConfig();
+          setConnection(null);
+          setVisibleToken(null);
+          setCopiedValue(null);
+          await loadScimConfig();
+        } finally {
+          setDeleting(false);
+        }
+      });
     } catch (nextError) {
       setError(
         nextError instanceof Error ? nextError.message : "Failed to delete SCIM connection.",
       );
-    } finally {
-      setDeleting(false);
     }
   }
 

@@ -3,7 +3,7 @@ import { describeRoute, resolver } from "hono-openapi"
 import { z } from "zod"
 import { deleteOrganizationScimConnection, getOrganizationScimConnection, getScimBaseUrl, rotateOrganizationScimToken } from "../../scim.js"
 import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
-import { orgMemberRoute, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { orgMemberRoute } from "../../middleware/index.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { ensureScimManager, orgAccessFailureStatus } from "./shared.js"
 
@@ -24,7 +24,8 @@ const organizationNotFoundSchema = z.object({
 }).meta({ ref: "ScimOrganizationNotFoundError" })
 
 const forbiddenSchema = z.object({
-  error: z.enum(["forbidden", "fresh_auth_required"]),
+  error: z.enum(["forbidden", "reauth"]),
+  reason: z.string().optional(),
   message: z.string(),
 }).meta({ ref: "ScimForbiddenError" })
 
@@ -109,8 +110,6 @@ export function registerOrgScimRoutes<T extends { Variables: OrgRouteVariables }
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const access = ensureScimManager(c)
       if (!access.ok) {
@@ -179,8 +178,6 @@ export function registerOrgScimRoutes<T extends { Variables: OrgRouteVariables }
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const access = ensureScimManager(c)
       if (!access.ok) {
@@ -257,8 +254,6 @@ export function registerOrgScimRoutes<T extends { Variables: OrgRouteVariables }
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const access = ensureScimManager(c)
       if (!access.ok) {

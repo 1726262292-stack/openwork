@@ -1,7 +1,7 @@
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { authenticatedRoute, requireUserMiddleware } from "../../middleware/index.js"
+import { authenticatedRoute } from "../../middleware/index.js"
 import { jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import type { WorkerRouteVariables } from "./shared.js"
 
@@ -29,7 +29,6 @@ export function registerWorkerBillingRoutes<T extends { Variables: WorkerRouteVa
       },
     }),
     authenticatedRoute(),
-    requireUserMiddleware,
     async (c) => {
       return c.json(workerBillingRetiredResponse, 410)
     },
@@ -48,7 +47,6 @@ export function registerWorkerBillingRoutes<T extends { Variables: WorkerRouteVa
       },
     }),
     authenticatedRoute(),
-    requireUserMiddleware,
     async (c) => {
       return c.json(workerBillingRetiredResponse, 410)
     },

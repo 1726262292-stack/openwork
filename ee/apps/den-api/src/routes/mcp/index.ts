@@ -11,8 +11,6 @@ import { DEN_FIRST_PARTY_MCP_TOKEN_TTL_MS } from "../../mcp/token-lifetime.js"
 import {
   jsonValidator,
   orgMemberRoute,
-  requireUserMiddleware,
-  resolveOrganizationContextMiddleware,
   type OrganizationContextVariables,
 } from "../../middleware/index.js"
 import { forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
@@ -71,8 +69,6 @@ export function registerMcpTokenRoutes<T extends { Variables: McpRouteVariables 
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     jsonValidator(mintMcpTokenSchema),
     async (c) => {
       const user = c.get("user")

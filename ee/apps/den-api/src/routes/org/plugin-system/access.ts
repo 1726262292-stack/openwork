@@ -13,7 +13,7 @@ import {
 } from "@openwork-ee/den-db/schema"
 import type { MemberTeamSummary, OrganizationContext } from "../../../orgs.js"
 import { db } from "../../../db.js"
-import { memberHasRole } from "../shared.js"
+import { hasFreshPrivilegedSession, memberHasRole } from "../shared.js"
 
 export type PluginArchResourceKind = "config_object" | "connector_instance" | "marketplace" | "plugin"
 export type PluginArchRole = "viewer" | "editor" | "manager"
@@ -22,6 +22,7 @@ export type PluginArchCapability = "config_object.create" | "connector_account.c
 export type PluginArchActorContext = {
   memberTeams: MemberTeamSummary[]
   organizationContext: OrganizationContext
+  session: { createdAt?: Date | string | null } | null | undefined
 }
 
 type MemberId = OrganizationContext["currentMember"]["id"]
@@ -72,8 +73,9 @@ type RequireResourceRoleInput = ResourceLookupInput & { role: PluginArchRole }
 export class PluginArchAuthorizationError extends Error {
   constructor(
     readonly status: 403,
-    readonly error: "forbidden",
+    readonly error: "forbidden" | "reauth",
     message: string,
+    readonly reason?: string,
   ) {
     super(message)
     this.name = "PluginArchAuthorizationError"
@@ -98,6 +100,14 @@ export function isPluginArchOrgAdmin(context: PluginArchActorContext) {
 
 export function hasPluginArchCapability(context: PluginArchActorContext, _capability: PluginArchCapability) {
   return isPluginArchOrgAdmin(context)
+}
+
+function ensureFreshPluginArchAdmin(context: PluginArchActorContext) {
+  if (!isPluginArchOrgAdmin(context) || hasFreshPrivilegedSession({ session: context.session })) {
+    return
+  }
+
+  throw new PluginArchAuthorizationError(403, "reauth", "Sign in again before performing this privileged action.", "fresh_auth_required")
 }
 
 function roleSatisfies(role: PluginArchRole | null, required: PluginArchRole) {
@@ -354,6 +364,7 @@ export async function resolvePluginArchResourceRole(input: ResourceLookupInput) 
 
 export async function requirePluginArchCapability(context: PluginArchActorContext, capability: PluginArchCapability) {
   if (hasPluginArchCapability(context, capability)) {
+    ensureFreshPluginArchAdmin(context)
     return
   }
 
@@ -366,6 +377,10 @@ export async function requirePluginArchResourceRole(input: {
   resourceKind: PluginArchResourceKind
   role: PluginArchRole
 }) {
+  if (input.role !== "viewer") {
+    ensureFreshPluginArchAdmin(input.context)
+  }
+
   const resolved = await resolvePluginArchResourceRole(input as RequireResourceRoleInput)
   if (roleSatisfies(resolved, input.role)) {
     return resolved

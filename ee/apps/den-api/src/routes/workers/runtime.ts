@@ -1,7 +1,7 @@
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { jsonValidator, orgMemberRoute, paramValidator, requireUserMiddleware, resolveUserOrganizationsMiddleware } from "../../middleware/index.js"
+import { jsonValidator, orgMemberRoute, paramValidator } from "../../middleware/index.js"
 import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import type { WorkerRouteVariables } from "./shared.js"
 import { fetchWorkerRuntimeJson, getWorkerByIdForOrg, parseWorkerIdParam, workerIdParamSchema } from "./shared.js"
@@ -23,8 +23,6 @@ export function registerWorkerRuntimeRoutes<T extends { Variables: WorkerRouteVa
       },
     }),
     orgMemberRoute({ useUserOrganizations: true }),
-    requireUserMiddleware,
-    resolveUserOrganizationsMiddleware,
     paramValidator(workerIdParamSchema),
     async (c) => {
     const orgId = c.get("activeOrganizationId")
@@ -74,8 +72,6 @@ export function registerWorkerRuntimeRoutes<T extends { Variables: WorkerRouteVa
       },
     }),
     orgMemberRoute({ useUserOrganizations: true }),
-    requireUserMiddleware,
-    resolveUserOrganizationsMiddleware,
     paramValidator(workerIdParamSchema),
     jsonValidator(z.object({}).passthrough()),
     async (c) => {

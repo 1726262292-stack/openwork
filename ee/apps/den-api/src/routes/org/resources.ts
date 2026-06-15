@@ -16,9 +16,7 @@ import { db } from "../../db.js"
 import {
   type MemberTeamsContext,
   orgMemberRoute,
-  requireUserMiddleware,
   resolveMemberTeamsMiddleware,
-  resolveOrganizationContextMiddleware,
 } from "../../middleware/index.js"
 import { jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { resolvePluginArchResourceRole, type PluginArchActorContext } from "./plugin-system/access.js"
@@ -256,8 +254,6 @@ export function registerOrgResourceRoutes<T extends { Variables: OrgRouteVariabl
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     resolveMemberTeamsMiddleware,
     async (c) => {
       const organizationContext = c.get("organizationContext")
@@ -277,7 +273,7 @@ export function registerOrgResourceRoutes<T extends { Variables: OrgRouteVariabl
           teamIds,
         }),
         listAccessibleMarketplaces({
-          context: { memberTeams, organizationContext },
+          context: { memberTeams, organizationContext, session: c.get("session") },
           organizationId,
         }),
       ])

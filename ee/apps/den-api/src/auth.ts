@@ -19,7 +19,9 @@ import {
   DEN_API_KEY_EXPIRES_IN_SECONDS,
   DEN_API_KEY_RATE_LIMIT_MAX,
   DEN_API_KEY_RATE_LIMIT_TIME_WINDOW_MS,
+  revokeOrganizationApiKeysForMember,
 } from "./api-keys.js";
+import { revokeMembershipSessionCredentials } from "./credential-revocation.js";
 import {
   canManageSecurityConfiguration,
   denOrganizationAccess,
@@ -145,6 +147,26 @@ function hasMcpScope(scopes: readonly string[]) {
   return scopes.some((scope) => scope.startsWith("mcp:"));
 }
 
+async function revokeOrganizationMemberCredentials(input: {
+  organizationId: string;
+  orgMembershipId: string;
+  userId: string | null;
+}) {
+  const organizationId = normalizeDenTypeId("organization", input.organizationId);
+  const orgMembershipId = normalizeDenTypeId("member", input.orgMembershipId);
+  const userId = input.userId ? normalizeDenTypeId("user", input.userId) : null;
+
+  await revokeOrganizationApiKeysForMember({
+    organizationId,
+    orgMembershipId,
+    userId,
+  });
+  await revokeMembershipSessionCredentials({
+    organizationId,
+    userId,
+  });
+}
+
 function getBodyEmail(body: unknown) {
   if (!body || typeof body !== "object") {
     return null;
@@ -183,6 +205,7 @@ export const auth = betterAuth({
   session: {
     expiresIn: DEN_SESSION_EXPIRES_IN_SECONDS,
     updateAge: DEN_SESSION_UPDATE_AGE_IN_SECONDS,
+    freshAge: 15 * 60,
   },
   databaseHooks: {
     session: {
@@ -404,6 +427,12 @@ export const auth = betterAuth({
               message: "The organization owner cannot be removed.",
             });
           }
+
+          await revokeOrganizationMemberCredentials({
+            organizationId: member.organizationId,
+            orgMembershipId: member.id,
+            userId: member.userId,
+          });
         },
         beforeUpdateMemberRole: async ({ member, newRole }) => {
           if (hasRole(member.role, "owner")) {
@@ -416,6 +445,14 @@ export const auth = betterAuth({
             throw new APIError("BAD_REQUEST", {
               message:
                 "Owner can only be assigned during organization creation.",
+            });
+          }
+
+          if (member.role !== newRole) {
+            await revokeOrganizationMemberCredentials({
+              organizationId: member.organizationId,
+              orgMembershipId: member.id,
+              userId: member.userId,
             });
           }
         },

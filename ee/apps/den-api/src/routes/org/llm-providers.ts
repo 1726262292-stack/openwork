@@ -19,15 +19,13 @@ import {
   orgMemberRoute,
   paramValidator,
   queryValidator,
-  requireUserMiddleware,
   resolveMemberTeamsMiddleware,
-  resolveOrganizationContextMiddleware,
 } from "../../middleware/index.js"
 import { getModelsDevProvider, listModelsDevProviders } from "../../llm/models-dev.js"
 import type { MemberTeamsContext } from "../../middleware/member-teams.js"
 import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import type { OrgRouteVariables } from "./shared.js"
-import { idParamSchema, memberHasRole } from "./shared.js"
+import { ensureOrganizationAdmin, idParamSchema, memberHasRole, orgAccessFailureStatus } from "./shared.js"
 
 type LlmProviderId = typeof LlmProviderTable.$inferSelect.id
 type LlmProviderAccessId = typeof LlmProviderAccessTable.$inferSelect.id
@@ -494,8 +492,6 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     async (c) => {
       try {
         const providers = await listModelsDevProviders()
@@ -524,9 +520,7 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
     paramValidator(providerCatalogParamsSchema),
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const params = c.req.valid("param")
 
@@ -570,9 +564,7 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
     queryValidator(llmProviderListQuerySchema),
-    resolveOrganizationContextMiddleware,
     resolveMemberTeamsMiddleware,
     async (c) => {
       const query = c.req.valid("query")
@@ -611,9 +603,7 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
     paramValidator(orgLlmProviderParamsSchema),
-    resolveOrganizationContextMiddleware,
     resolveMemberTeamsMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
@@ -687,8 +677,6 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     jsonValidator(llmProviderWriteSchema),
     async (c) => {
       const payload = c.get("organizationContext")
@@ -800,9 +788,7 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
     paramValidator(orgLlmProviderParamsSchema),
-    resolveOrganizationContextMiddleware,
     jsonValidator(llmProviderWriteSchema),
     async (c) => {
       const payload = c.get("organizationContext")
@@ -832,6 +818,13 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
           error: "forbidden",
           message: "Only the provider creator or a workspace admin can update providers.",
         }, 403)
+      }
+
+      if (isOrganizationAdmin(payload)) {
+        const permission = ensureOrganizationAdmin(c, "Only the provider creator or a workspace admin can update providers.")
+        if (!permission.ok) {
+          return c.json(permission.response, orgAccessFailureStatus(permission.response))
+        }
       }
 
       try {
@@ -937,9 +930,7 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
     paramValidator(orgLlmProviderParamsSchema),
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
       const params = c.req.valid("param")
@@ -969,6 +960,13 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
         }, 403)
       }
 
+      if (isOrganizationAdmin(payload)) {
+        const permission = ensureOrganizationAdmin(c, "Only the provider creator or a workspace admin can delete providers.")
+        if (!permission.ok) {
+          return c.json(permission.response, orgAccessFailureStatus(permission.response))
+        }
+      }
+
       await db.transaction(async (tx) => {
         await tx.delete(LlmProviderAccessTable).where(eq(LlmProviderAccessTable.llmProviderId, provider.id))
         await tx.delete(LlmProviderModelTable).where(eq(LlmProviderModelTable.llmProviderId, provider.id))
@@ -995,9 +993,7 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
     paramValidator(orgLlmProviderParamsSchema.extend(idParamSchema("accessId", "llmProviderAccess").shape)),
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
       const params = c.req.valid("param")
@@ -1024,6 +1020,13 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
 
       if (!canManageLlmProvider(payload, provider)) {
         return c.json({ error: "forbidden", message: "Only the provider creator or a workspace admin can manage access." }, 403)
+      }
+
+      if (isOrganizationAdmin(payload)) {
+        const permission = ensureOrganizationAdmin(c, "Only the provider creator or a workspace admin can manage access.")
+        if (!permission.ok) {
+          return c.json(permission.response, orgAccessFailureStatus(permission.response))
+        }
       }
 
       const accessRows = await db

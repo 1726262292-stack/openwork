@@ -1,5 +1,5 @@
 import { eq } from "@openwork-ee/den-db/drizzle"
-import { OrganizationTable } from "@openwork-ee/den-db/schema"
+import { OrganizationTable, ScimProviderTable, SsoConnectionTable } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
@@ -9,7 +9,7 @@ import { db } from "../../db.js"
 import { checkEntitlement, getOrganizationEntitlements, parseOrganizationPlan } from "../../entitlements.js"
 import { env } from "../../env.js"
 import { findEnterpriseAuthRequirementForEmail } from "../../enterprise-auth-requirement.js"
-import { authenticatedRoute, jsonValidator, orgMemberRoute, orgRoleRoute, publicRoute, queryValidator, requireUserMiddleware, resolveMemberTeamsMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { authenticatedRoute, jsonValidator, orgMemberRoute, orgRoleRoute, publicRoute, queryValidator, resolveMemberTeamsMiddleware } from "../../middleware/index.js"
 import { denTypeIdSchema, enterprisePlanRequiredSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import {
@@ -152,7 +152,6 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
       },
     }),
     authenticatedRoute(),
-    requireUserMiddleware,
     jsonValidator(createOrganizationSchema),
     async (c) => {
     if (c.get("apiKey")) {
@@ -224,7 +223,6 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
       },
     }),
     authenticatedRoute(),
-    requireUserMiddleware,
     jsonValidator(acceptInvitationSchema),
     async (c) => {
     if (c.get("apiKey")) {
@@ -298,8 +296,6 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
       },
     }),
     orgRoleRoute(["owner"]),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     jsonValidator(updateOrganizationSchema),
     async (c) => {
       const permission = ensureOwner(c)
@@ -392,12 +388,22 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     resolveMemberTeamsMiddleware,
-    (c) => {
+    async (c) => {
       const payload = c.get("organizationContext")
       const owner = payload.members.find((member: typeof payload.members[number]) => member.isOwner) ?? null
+      const [ssoRows, scimRows] = await Promise.all([
+        db
+          .select({ id: SsoConnectionTable.id })
+          .from(SsoConnectionTable)
+          .where(eq(SsoConnectionTable.organizationId, payload.organization.id))
+          .limit(1),
+        db
+          .select({ id: ScimProviderTable.id })
+          .from(ScimProviderTable)
+          .where(eq(ScimProviderTable.organizationId, payload.organization.id))
+          .limit(1),
+      ])
 
       return c.json({
         ...payload,
@@ -416,6 +422,10 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         currentMemberTeams: c.get("memberTeams") ?? [],
         plan: parseOrganizationPlan(payload.organization.metadata),
         entitlements: getOrganizationEntitlements(payload.organization.metadata),
+        authMethods: {
+          sso: Boolean(ssoRows[0]),
+          scim: Boolean(scimRows[0]),
+        },
       })
     },
   )

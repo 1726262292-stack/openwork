@@ -80,6 +80,11 @@ function findNextRouteCall(source: string, startIndex: number) {
     }
   }
 
+  const dynamicRouteIndex = source.indexOf("routeApp[method](", startIndex)
+  if (dynamicRouteIndex >= 0 && (!nextRoute || dynamicRouteIndex < nextRoute.index)) {
+    nextRoute = { index: dynamicRouteIndex, method: "dynamic" }
+  }
+
   return nextRoute
 }
 

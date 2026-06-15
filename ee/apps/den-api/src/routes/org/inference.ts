@@ -3,7 +3,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { getInferenceStatus, setInferenceEnabled } from "../../inference.js"
 import { organizationHasActiveInferenceSubscription } from "../../stripe-billing.js"
-import { jsonValidator, orgMemberRoute, orgRoleRoute, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { jsonValidator, orgMemberRoute, orgRoleRoute } from "../../middleware/index.js"
 import { forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { ensureOwner } from "./shared.js"
@@ -53,8 +53,6 @@ export function registerOrgInferenceRoutes<T extends { Variables: OrgRouteVariab
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
       return c.json({
@@ -80,8 +78,6 @@ export function registerOrgInferenceRoutes<T extends { Variables: OrgRouteVariab
       },
     }),
     orgRoleRoute(["owner"]),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     jsonValidator(inferenceSettingsSchema),
     async (c) => {
       const permission = ensureOwner(c)

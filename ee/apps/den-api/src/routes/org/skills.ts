@@ -19,14 +19,12 @@ import {
   jsonValidator,
   orgMemberRoute,
   paramValidator,
-  requireUserMiddleware,
   resolveMemberTeamsMiddleware,
-  resolveOrganizationContextMiddleware,
 } from "../../middleware/index.js"
 import type { MemberTeamsContext } from "../../middleware/member-teams.js"
 import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
 import type { OrgRouteVariables } from "./shared.js"
-import { idParamSchema, memberHasRole } from "./shared.js"
+import { ensureOrganizationAdmin, idParamSchema, memberHasRole, orgAccessFailureStatus } from "./shared.js"
 
 const skillTextSchema = z.string().superRefine((value, ctx) => {
   if (!value.trim()) {
@@ -207,6 +205,15 @@ function canManageHub(payload: { currentMember: { id: MemberId; isOwner: boolean
   return isOrganizationAdmin(payload) || skillHub.createdByOrgMembershipId === payload.currentMember.id
 }
 
+function ensureFreshAdminIfApplicable(c: { get: <K extends "organizationContext" | "session">(key: K) => OrgRouteVariables[K] }, message: string) {
+  const payload = c.get("organizationContext")
+  if (!payload || !isOrganizationAdmin(payload)) {
+    return { ok: true as const }
+  }
+
+  return ensureOrganizationAdmin(c, message)
+}
+
 async function listAccessibleHubMemberships(input: {
   organizationId: typeof SkillHubTable.$inferSelect.organizationId
   currentMemberId: MemberId
@@ -282,8 +289,6 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     jsonValidator(createSkillSchema),
     async (c) => {
       const payload = c.get("organizationContext")
@@ -333,8 +338,6 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     resolveMemberTeamsMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
@@ -381,9 +384,7 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
     paramValidator(orgSkillParamsSchema),
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
       const params = c.req.valid("param")
@@ -408,6 +409,10 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
 
       if (!canManageSkill(payload, skill)) {
         return c.json({ error: "forbidden", message: "Only the skill creator or a workspace admin can delete skills." }, 403)
+      }
+      const freshPermission = ensureFreshAdminIfApplicable(c, "Only the skill creator or a workspace admin can delete skills.")
+      if (!freshPermission.ok) {
+        return c.json(freshPermission.response, orgAccessFailureStatus(freshPermission.response))
       }
 
       await db.transaction(async (tx) => {
@@ -434,9 +439,7 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
     paramValidator(orgSkillParamsSchema),
-    resolveOrganizationContextMiddleware,
     jsonValidator(updateSkillSchema),
     async (c) => {
       const payload = c.get("organizationContext")
@@ -463,6 +466,10 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
 
       if (!canManageSkill(payload, skill)) {
         return c.json({ error: "forbidden", message: "Only the skill creator or a workspace admin can update skills." }, 403)
+      }
+      const freshPermission = ensureFreshAdminIfApplicable(c, "Only the skill creator or a workspace admin can update skills.")
+      if (!freshPermission.ok) {
+        return c.json(freshPermission.response, orgAccessFailureStatus(freshPermission.response))
       }
 
       const nextSkillText = input.skillText ?? skill.skillText
@@ -507,8 +514,6 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     jsonValidator(createSkillHubSchema),
     async (c) => {
       const payload = c.get("organizationContext")
@@ -563,8 +568,6 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     resolveMemberTeamsMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
@@ -733,9 +736,7 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
     paramValidator(orgSkillHubParamsSchema),
-    resolveOrganizationContextMiddleware,
     jsonValidator(updateSkillHubSchema),
     async (c) => {
       const payload = c.get("organizationContext")
@@ -762,6 +763,10 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
 
       if (!canManageHub(payload, skillHub)) {
         return c.json({ error: "forbidden", message: "Only the hub creator or a workspace admin can update hubs." }, 403)
+      }
+      const freshPermission = ensureFreshAdminIfApplicable(c, "Only the hub creator or a workspace admin can update hubs.")
+      if (!freshPermission.ok) {
+        return c.json(freshPermission.response, orgAccessFailureStatus(freshPermission.response))
       }
 
       const updatedAt = new Date()
@@ -803,9 +808,7 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
     paramValidator(orgSkillHubParamsSchema),
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
       const params = c.req.valid("param")
@@ -830,6 +833,10 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
 
       if (!canManageHub(payload, skillHub)) {
         return c.json({ error: "forbidden", message: "Only the hub creator or a workspace admin can delete hubs." }, 403)
+      }
+      const freshPermission = ensureFreshAdminIfApplicable(c, "Only the hub creator or a workspace admin can delete hubs.")
+      if (!freshPermission.ok) {
+        return c.json(freshPermission.response, orgAccessFailureStatus(freshPermission.response))
       }
 
       await db.transaction(async (tx) => {
@@ -858,9 +865,7 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
     paramValidator(orgSkillHubParamsSchema),
-    resolveOrganizationContextMiddleware,
     jsonValidator(addSkillToHubSchema),
     async (c) => {
       const payload = c.get("organizationContext")
@@ -889,6 +894,10 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
 
       if (!canManageHub(payload, skillHub)) {
         return c.json({ error: "forbidden", message: "Only the hub creator or a workspace admin can manage hub skills." }, 403)
+      }
+      const freshPermission = ensureFreshAdminIfApplicable(c, "Only the hub creator or a workspace admin can manage hub skills.")
+      if (!freshPermission.ok) {
+        return c.json(freshPermission.response, orgAccessFailureStatus(freshPermission.response))
       }
 
       const skillRows = await db
@@ -946,9 +955,7 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
     paramValidator(orgSkillHubSkillParamsSchema),
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
       const params = c.req.valid("param")
@@ -975,6 +982,10 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
 
       if (!canManageHub(payload, skillHub)) {
         return c.json({ error: "forbidden", message: "Only the hub creator or a workspace admin can manage hub skills." }, 403)
+      }
+      const freshPermission = ensureFreshAdminIfApplicable(c, "Only the hub creator or a workspace admin can manage hub skills.")
+      if (!freshPermission.ok) {
+        return c.json(freshPermission.response, orgAccessFailureStatus(freshPermission.response))
       }
 
       const skillRows = await db
@@ -1021,9 +1032,7 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
     paramValidator(orgSkillHubParamsSchema),
-    resolveOrganizationContextMiddleware,
     jsonValidator(addSkillHubAccessSchema),
     async (c) => {
       const payload = c.get("organizationContext")
@@ -1054,6 +1063,10 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
 
       if (!canManageHub(payload, skillHub)) {
         return c.json({ error: "forbidden", message: "Only the hub creator or a workspace admin can manage access." }, 403)
+      }
+      const freshPermission = ensureFreshAdminIfApplicable(c, "Only the hub creator or a workspace admin can manage access.")
+      if (!freshPermission.ok) {
+        return c.json(freshPermission.response, orgAccessFailureStatus(freshPermission.response))
       }
 
       if (orgMembershipId) {
@@ -1132,9 +1145,7 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
     paramValidator(orgSkillHubAccessParamsSchema),
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
       const params = c.req.valid("param")
@@ -1161,6 +1172,10 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
 
       if (!canManageHub(payload, skillHub)) {
         return c.json({ error: "forbidden", message: "Only the hub creator or a workspace admin can manage access." }, 403)
+      }
+      const freshPermission = ensureFreshAdminIfApplicable(c, "Only the hub creator or a workspace admin can manage access.")
+      if (!freshPermission.ok) {
+        return c.json(freshPermission.response, orgAccessFailureStatus(freshPermission.response))
       }
 
       const accessRows = await db

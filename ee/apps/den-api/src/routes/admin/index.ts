@@ -16,7 +16,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { db } from "../../db.js"
 import { parseOrganizationPlan, type PlanTier } from "../../entitlements.js"
-import { adminRoute, queryValidator, requireAdminMiddleware } from "../../middleware/index.js"
+import { adminRoute, queryValidator } from "../../middleware/index.js"
 import { denTypeIdSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { DEFAULT_ORGANIZATION_LIMITS, normalizeOrganizationMetadata } from "../../organization-limits.js"
 import type { AuthContextVariables } from "../../session.js"
@@ -227,7 +227,6 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
   app.patch(
     "/v1/admin/organizations/:organizationId/plan",
     adminRoute(),
-    requireAdminMiddleware,
     async (c) => {
       const body = updateOrganizationPlanSchema.safeParse(await c.req.json().catch(() => null))
       if (!body.success) {
@@ -271,7 +270,6 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
   app.patch(
     "/v1/admin/organizations/:organizationId/free-seats",
     adminRoute(),
-    requireAdminMiddleware,
     async (c) => {
       const body = updateOrganizationFreeSeatsSchema.safeParse(await c.req.json().catch(() => null))
       if (!body.success) {
@@ -334,7 +332,6 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
       },
     }),
     adminRoute(),
-    requireAdminMiddleware,
     queryValidator(overviewQuerySchema),
     async (c) => {
     const user = c.get("user")

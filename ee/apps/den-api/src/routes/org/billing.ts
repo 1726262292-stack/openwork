@@ -3,7 +3,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { getCloudWorkerBillingStatus } from "../../billing/polar.js"
 import { createInferenceCheckoutSession, createInferencePortalSession, createSeatCheckoutSession, getOrgBillingSummary, syncSeatCheckoutSession } from "../../stripe-billing.js"
-import { orgMemberRoute, orgRoleRoute, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { orgMemberRoute, orgRoleRoute } from "../../middleware/index.js"
 import { forbiddenSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { getRequiredUserEmail } from "../../user.js"
 import { env } from "../../env.js"
@@ -85,8 +85,6 @@ export function registerOrgBillingRoutes<T extends { Variables: OrgRouteVariable
       },
     }),
     orgMemberRoute(),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const user = c.get("user")
       const payload = c.get("organizationContext")
@@ -124,8 +122,6 @@ export function registerOrgBillingRoutes<T extends { Variables: OrgRouteVariable
       },
     }),
     orgRoleRoute(["owner"]),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const permission = ensureOwner(c)
       if (!permission.ok) {
@@ -169,8 +165,6 @@ export function registerOrgBillingRoutes<T extends { Variables: OrgRouteVariable
       },
     }),
     orgRoleRoute(["owner"]),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const permission = ensureOwner(c)
       if (!permission.ok) {
@@ -198,8 +192,6 @@ export function registerOrgBillingRoutes<T extends { Variables: OrgRouteVariable
       },
     }),
     orgRoleRoute(["owner"]),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const permission = ensureOwner(c)
       if (!permission.ok) {

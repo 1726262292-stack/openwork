@@ -6,7 +6,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
 import { db } from "../../db.js"
-import { jsonValidator, orgRoleRoute, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { jsonValidator, orgRoleRoute, paramValidator } from "../../middleware/index.js"
 import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
 import { validateAssignableOrganizationPermissionRecord } from "../../organization-access.js"
 import { revokeCredentialsForOrganizationRoleMembers } from "../../organization-role-credential-revocation.js"
@@ -45,8 +45,6 @@ export function registerOrgRoleRoutes<T extends { Variables: OrgRouteVariables }
       },
     }),
     orgRoleRoute(["owner"]),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
     jsonValidator(createRoleSchema),
     async (c) => {
     const permission = ensureOwner(c)
@@ -118,9 +116,7 @@ export function registerOrgRoleRoutes<T extends { Variables: OrgRouteVariables }
       },
     }),
     orgRoleRoute(["owner"]),
-    requireUserMiddleware,
     paramValidator(orgRoleParamsSchema),
-    resolveOrganizationContextMiddleware,
     jsonValidator(updateRoleSchema),
     async (c) => {
     const permission = ensureOwner(c)
@@ -258,9 +254,7 @@ export function registerOrgRoleRoutes<T extends { Variables: OrgRouteVariables }
       },
     }),
     orgRoleRoute(["owner"]),
-    requireUserMiddleware,
     paramValidator(orgRoleParamsSchema),
-    resolveOrganizationContextMiddleware,
     async (c) => {
     const permission = ensureOwner(c)
     if (!permission.ok) {
