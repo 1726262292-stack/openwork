@@ -193,55 +193,65 @@ export function PluginEditorScreen() {
     setSaving(true);
     setSaveError(null);
     try {
-      await runReauthableAction("create-plugin", async () => {
       setProgress("Creating plugin...");
-      const pluginPayload = await postJson(
-        "/v1/plugins",
-        { name: name.trim(), description: description.trim() || null },
-        "Failed to create the plugin",
-      );
+      let pluginPayload: unknown = null;
+      await runReauthableAction("create-plugin", async () => {
+        pluginPayload = await postJson(
+          "/v1/plugins",
+          { name: name.trim(), description: description.trim() || null },
+          "Failed to create the plugin",
+        );
+      });
       const pluginId = createdItemId(pluginPayload);
       if (!pluginId) throw new Error("The plugin was created, but no id was returned.");
 
       for (const [index, component] of components.entries()) {
         setProgress(`Adding ${COMPONENT_META[component.kind].label.toLowerCase()} ${index + 1} of ${components.length}...`);
-        const objectPayload = await postJson(
-          "/v1/config-objects",
-          buildConfigObjectBody(pluginId, component),
-          `Failed to add "${component.name}"`,
-        );
+        let objectPayload: unknown = null;
+        await runReauthableAction("create-plugin-config-object", async () => {
+          objectPayload = await postJson(
+            "/v1/config-objects",
+            buildConfigObjectBody(pluginId, component),
+            `Failed to add "${component.name}"`,
+          );
+        });
         const configObjectId = createdItemId(objectPayload);
         if (shareOrgWide && configObjectId) {
-          await postJson(
-            `/v1/config-objects/${encodeURIComponent(configObjectId)}/access`,
-            { orgWide: true, role: "viewer" },
-            `Failed to share "${component.name}" with the organization`,
-          );
+          await runReauthableAction("share-plugin-config-object", async () => {
+            await postJson(
+              `/v1/config-objects/${encodeURIComponent(configObjectId)}/access`,
+              { orgWide: true, role: "viewer" },
+              `Failed to share "${component.name}" with the organization`,
+            );
+          });
         }
       }
 
       if (shareOrgWide) {
         setProgress("Sharing with your organization...");
-        await postJson(
-          `/v1/plugins/${encodeURIComponent(pluginId)}/access`,
-          { orgWide: true, role: "viewer" },
-          "Failed to share the plugin with the organization",
-        );
+        await runReauthableAction("share-plugin", async () => {
+          await postJson(
+            `/v1/plugins/${encodeURIComponent(pluginId)}/access`,
+            { orgWide: true, role: "viewer" },
+            "Failed to share the plugin with the organization",
+          );
+        });
       }
 
       if (marketplaceId) {
         setProgress("Publishing to the marketplace...");
-        await postJson(
-          `/v1/marketplaces/${encodeURIComponent(marketplaceId)}/plugins`,
-          { pluginId },
-          "Failed to publish to the marketplace",
-        );
+        await runReauthableAction("publish-plugin", async () => {
+          await postJson(
+            `/v1/marketplaces/${encodeURIComponent(marketplaceId)}/plugins`,
+            { pluginId },
+            "Failed to publish to the marketplace",
+          );
+        });
       }
 
       await queryClient.invalidateQueries({ queryKey: pluginQueryKeys.all });
       router.push(getPluginRoute(orgSlug, pluginId));
       router.refresh();
-      });
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Failed to create the plugin.");
     } finally {
