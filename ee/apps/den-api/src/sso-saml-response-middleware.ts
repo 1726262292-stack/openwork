@@ -81,7 +81,7 @@ function providerIdFromPath(pathname: string) {
 }
 
 async function readSamlResponse(request: Request) {
-  const contentType = request.headers.get("content-type") ?? ""
+  const contentType = request.headers.get("content-type")?.toLowerCase() ?? ""
   if (contentType.includes("application/json")) {
     const body: unknown = await request.clone().json().catch(() => null)
     if (!isRecord(body)) {
