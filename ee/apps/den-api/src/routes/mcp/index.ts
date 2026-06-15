@@ -10,6 +10,7 @@ import { hashOpaqueMcpSecret } from "../../mcp/auth.js"
 import { DEN_FIRST_PARTY_MCP_TOKEN_TTL_MS } from "../../mcp/token-lifetime.js"
 import {
   jsonValidator,
+  orgMemberRoute,
   requireUserMiddleware,
   resolveOrganizationContextMiddleware,
   type OrganizationContextVariables,
@@ -69,6 +70,7 @@ export function registerMcpTokenRoutes<T extends { Variables: McpRouteVariables 
         403: jsonResponse("API keys cannot mint MCP tokens.", forbiddenSchema),
       },
     }),
+    orgMemberRoute(),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     jsonValidator(mintMcpTokenSchema),

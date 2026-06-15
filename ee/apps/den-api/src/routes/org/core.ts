@@ -9,7 +9,7 @@ import { db } from "../../db.js"
 import { checkEntitlement, getOrganizationEntitlements, parseOrganizationPlan } from "../../entitlements.js"
 import { env } from "../../env.js"
 import { findEnterpriseAuthRequirementForEmail } from "../../enterprise-auth-requirement.js"
-import { jsonValidator, queryValidator, requireUserMiddleware, resolveMemberTeamsMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { authenticatedRoute, jsonValidator, orgMemberRoute, orgRoleRoute, publicRoute, queryValidator, requireUserMiddleware, resolveMemberTeamsMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { denTypeIdSchema, enterprisePlanRequiredSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import {
@@ -151,6 +151,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         403: jsonResponse("API keys cannot create organizations.", forbiddenSchema),
       },
     }),
+    authenticatedRoute(),
     requireUserMiddleware,
     jsonValidator(createOrganizationSchema),
     async (c) => {
@@ -193,6 +194,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         404: jsonResponse("The invitation could not be found.", notFoundSchema),
       },
     }),
+    publicRoute,
     queryValidator(invitationPreviewQuerySchema),
     async (c) => {
     const query = c.req.valid("query")
@@ -221,6 +223,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         404: jsonResponse("The invitation could not be found.", notFoundSchema),
       },
     }),
+    authenticatedRoute(),
     requireUserMiddleware,
     jsonValidator(acceptInvitationSchema),
     async (c) => {
@@ -294,6 +297,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         404: jsonResponse("The organization could not be found.", notFoundSchema),
       },
     }),
+    orgRoleRoute(["owner"]),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     jsonValidator(updateOrganizationSchema),
@@ -357,6 +361,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         400: jsonResponse("The SSO resolution query parameters were invalid.", invalidRequestSchema),
       },
     }),
+    publicRoute,
     queryValidator(resolveSsoByEmailQuerySchema),
     async (c) => {
       const query = c.req.valid("query")
@@ -386,6 +391,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         404: jsonResponse("The organization could not be found.", notFoundSchema),
       },
     }),
+    orgMemberRoute(),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     resolveMemberTeamsMiddleware,

@@ -2,7 +2,7 @@ import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { desktopConfigSchema } from "@openwork/types/den/desktop-policies"
 import { z } from "zod"
-import { jsonValidator, requireUserMiddleware, resolveOrganizationContextMiddleware, resolveUserOrganizationsMiddleware, type OrganizationContextVariables, type UserOrganizationsContext } from "../../middleware/index.js"
+import { authenticatedRoute, jsonValidator, orgMemberRoute, requireUserMiddleware, resolveOrganizationContextMiddleware, resolveUserOrganizationsMiddleware, type OrganizationContextVariables, type UserOrganizationsContext } from "../../middleware/index.js"
 import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import { resolveUserOrganizations, setSessionActiveOrganization } from "../../orgs.js"
@@ -52,6 +52,7 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
         401: jsonResponse("The caller must be signed in to read profile data.", unauthorizedSchema),
       },
     }),
+    authenticatedRoute(),
     requireUserMiddleware,
     (c) => {
     return c.json({
@@ -71,6 +72,7 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
         200: jsonResponse("Current user organizations returned successfully.", meOrganizationsResponseSchema),
       },
     }),
+    authenticatedRoute(),
     resolveUserOrganizationsMiddleware,
     (c) => {
     const orgs = (c.get("userOrganizations") ?? []) as NonNullable<UserOrganizationsContext["userOrganizations"]>
@@ -100,6 +102,7 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
         403: jsonResponse("The caller cannot switch this kind of session.", forbiddenSchema),
       },
     }),
+    authenticatedRoute(),
     requireUserMiddleware,
     jsonValidator(setActiveOrganizationSchema),
     async (c) => {
@@ -142,6 +145,7 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
         401: jsonResponse("The caller must be signed in to read desktop config.", unauthorizedSchema),
       },
     }),
+    orgMemberRoute(),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     async (c) => {

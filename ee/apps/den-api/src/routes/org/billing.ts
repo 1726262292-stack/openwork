@@ -3,7 +3,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { getCloudWorkerBillingStatus } from "../../billing/polar.js"
 import { createInferenceCheckoutSession, createInferencePortalSession, createSeatCheckoutSession, getOrgBillingSummary, syncSeatCheckoutSession } from "../../stripe-billing.js"
-import { requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { orgMemberRoute, orgRoleRoute, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { forbiddenSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { getRequiredUserEmail } from "../../user.js"
 import { env } from "../../env.js"
@@ -84,6 +84,7 @@ export function registerOrgBillingRoutes<T extends { Variables: OrgRouteVariable
         401: jsonResponse("The caller must be signed in to read billing settings.", unauthorizedSchema),
       },
     }),
+    orgMemberRoute(),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     async (c) => {
@@ -122,6 +123,7 @@ export function registerOrgBillingRoutes<T extends { Variables: OrgRouteVariable
         403: jsonResponse("Only workspace owners can start billing.", forbiddenSchema),
       },
     }),
+    orgRoleRoute(["owner"]),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     async (c) => {
@@ -166,6 +168,7 @@ export function registerOrgBillingRoutes<T extends { Variables: OrgRouteVariable
         403: jsonResponse("Only workspace owners can manage billing.", forbiddenSchema),
       },
     }),
+    orgRoleRoute(["owner"]),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     async (c) => {
@@ -194,6 +197,7 @@ export function registerOrgBillingRoutes<T extends { Variables: OrgRouteVariable
         403: jsonResponse("Only workspace owners can sync billing.", forbiddenSchema),
       },
     }),
+    orgRoleRoute(["owner"]),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     async (c) => {

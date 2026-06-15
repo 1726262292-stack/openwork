@@ -12,6 +12,7 @@ import { z } from "zod"
 import { db } from "../../db.js"
 import {
   jsonValidator,
+  orgRoleRoute,
   paramValidator,
   requireUserMiddleware,
   resolveOrganizationContextMiddleware,
@@ -97,6 +98,7 @@ export function registerOrgTeamRoutes<T extends { Variables: OrgRouteVariables }
         404: jsonResponse("The organization or a referenced member could not be found.", notFoundSchema),
       },
     }),
+    orgRoleRoute(["admin"]),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     jsonValidator(createTeamSchema),
@@ -185,6 +187,7 @@ export function registerOrgTeamRoutes<T extends { Variables: OrgRouteVariables }
         404: jsonResponse("The team, organization, or a referenced member could not be found.", notFoundSchema),
       },
     }),
+    orgRoleRoute(["admin"]),
     requireUserMiddleware,
     paramValidator(orgTeamParamsSchema),
     resolveOrganizationContextMiddleware,
@@ -289,6 +292,7 @@ export function registerOrgTeamRoutes<T extends { Variables: OrgRouteVariables }
         404: jsonResponse("The team or organization could not be found.", notFoundSchema),
       },
     }),
+    orgRoleRoute(["admin"]),
     requireUserMiddleware,
     paramValidator(orgTeamParamsSchema),
     resolveOrganizationContextMiddleware,

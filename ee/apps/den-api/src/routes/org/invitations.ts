@@ -6,7 +6,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
 import { db } from "../../db.js"
-import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { jsonValidator, orgRoleRoute, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
 import { runPostOrganizationMemberChangeHooks } from "../../organization-member-hooks.js"
 import { resolveOrganizationPermissionRecord, validateAssignableOrganizationPermissionRecord } from "../../organization-access.js"
@@ -75,6 +75,7 @@ export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVaria
         502: jsonResponse("The invitation was saved but the email provider rejected or failed to deliver it. Retry by submitting the same email again.", invitationEmailFailedSchema),
       },
     }),
+    orgRoleRoute(["admin"]),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     jsonValidator(inviteMemberSchema),
@@ -301,6 +302,7 @@ export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVaria
         404: jsonResponse("The invitation or organization could not be found.", notFoundSchema),
       },
     }),
+    orgRoleRoute(["admin"]),
     requireUserMiddleware,
     paramValidator(orgInvitationParamsSchema),
     resolveOrganizationContextMiddleware,

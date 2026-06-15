@@ -4,6 +4,7 @@ import { resolver } from "hono-openapi"
 import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { z } from "zod"
 import { auth } from "../../auth.js"
+import { authenticatedRoute, publicRoute, tokenRoute } from "../../middleware/index.js"
 import { deleteScimProvisionedAccess, syncExternalIdentityFromScimResource, syncExternalIdentityFromScimUserId } from "../../scim.js"
 import type { AuthContextVariables } from "../../session.js"
 
@@ -149,6 +150,7 @@ export function registerScimAuthRoutes<T extends { Variables: AuthContextVariabl
         },
       },
     }),
+    authenticatedRoute(),
     (c) => rejectManagementRoute(c),
   )
 
@@ -171,6 +173,7 @@ export function registerScimAuthRoutes<T extends { Variables: AuthContextVariabl
         },
       },
     }),
+    authenticatedRoute(),
     (c) => rejectManagementRoute(c),
   )
 
@@ -193,6 +196,7 @@ export function registerScimAuthRoutes<T extends { Variables: AuthContextVariabl
         },
       },
     }),
+    authenticatedRoute(),
     (c) => rejectManagementRoute(c),
   )
 
@@ -215,11 +219,12 @@ export function registerScimAuthRoutes<T extends { Variables: AuthContextVariabl
         },
       },
     }),
+    authenticatedRoute(),
     (c) => rejectManagementRoute(c),
   )
 
-  app.all("/api/auth/scim/v2/Groups", (c) => scimGroupsNotSupported(c))
-  app.all("/api/auth/scim/v2/Groups/:groupId", (c) => scimGroupsNotSupported(c))
+  app.all("/api/auth/scim/v2/Groups", publicRoute, (c) => scimGroupsNotSupported(c))
+  app.all("/api/auth/scim/v2/Groups/:groupId", publicRoute, (c) => scimGroupsNotSupported(c))
 
   app.delete(
     "/api/auth/scim/v2/Users/:userId",
@@ -250,6 +255,7 @@ export function registerScimAuthRoutes<T extends { Variables: AuthContextVariabl
         },
       },
     }),
+    tokenRoute,
     async (c) => {
       const bearerToken = readBearerToken(c.req.raw.headers)
       if (!bearerToken) {
@@ -294,7 +300,7 @@ export function registerScimAuthRoutes<T extends { Variables: AuthContextVariabl
     return response
   }
 
-  app.post("/api/auth/scim/v2/Users", async (c) => handleScimMutation(c))
-  app.put("/api/auth/scim/v2/Users/:userId", async (c) => handleScimMutation(c))
-  app.patch("/api/auth/scim/v2/Users/:userId", async (c) => handleScimMutation(c))
+  app.post("/api/auth/scim/v2/Users", tokenRoute, async (c) => handleScimMutation(c))
+  app.put("/api/auth/scim/v2/Users/:userId", tokenRoute, async (c) => handleScimMutation(c))
+  app.patch("/api/auth/scim/v2/Users/:userId", tokenRoute, async (c) => handleScimMutation(c))
 }

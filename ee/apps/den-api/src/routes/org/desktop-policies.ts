@@ -18,7 +18,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { db } from "../../db.js"
 import { checkEntitlement } from "../../entitlements.js"
-import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { jsonValidator, orgRoleRoute, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { denTypeIdSchema, emptyResponse, enterprisePlanRequiredSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { idParamSchema, memberHasRole } from "./shared.js"
@@ -157,6 +157,7 @@ export function registerOrgDesktopPolicyRoutes<T extends { Variables: OrgRouteVa
         403: jsonResponse("Only workspace owners and admins can list desktop policies.", forbiddenSchema),
       },
     }),
+    orgRoleRoute(["admin"]),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     async (c) => {
@@ -184,6 +185,7 @@ export function registerOrgDesktopPolicyRoutes<T extends { Variables: OrgRouteVa
         404: jsonResponse("A referenced member or team was not found.", notFoundSchema),
       },
     }),
+    orgRoleRoute(["admin"]),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     jsonValidator(desktopPolicyWriteSchema),
@@ -267,6 +269,7 @@ export function registerOrgDesktopPolicyRoutes<T extends { Variables: OrgRouteVa
         404: jsonResponse("The policy or a referenced resource was not found.", notFoundSchema),
       },
     }),
+    orgRoleRoute(["admin"]),
     requireUserMiddleware,
     paramValidator(desktopPolicyParamsSchema),
     resolveOrganizationContextMiddleware,
@@ -373,6 +376,7 @@ export function registerOrgDesktopPolicyRoutes<T extends { Variables: OrgRouteVa
         404: jsonResponse("The policy was not found.", notFoundSchema),
       },
     }),
+    orgRoleRoute(["admin"]),
     requireUserMiddleware,
     paramValidator(desktopPolicyParamsSchema),
     resolveOrganizationContextMiddleware,

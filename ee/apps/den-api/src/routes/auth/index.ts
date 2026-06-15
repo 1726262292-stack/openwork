@@ -13,6 +13,7 @@ import {
 import { db } from "../../db.js"
 import { env } from "../../env.js"
 import { getInvalidMcpOAuthRedirectUris } from "../../mcp/oauth-client-policy.js"
+import { publicRoute, tokenRoute } from "../../middleware/index.js"
 import { emptyResponse } from "../../openapi.js"
 import type { AuthContextVariables } from "../../session.js"
 import { registerDesktopAuthRoutes } from "./desktop-handoff.js"
@@ -189,15 +190,15 @@ async function handleAuthRequest(request: Request) {
 
 export function registerAuthRoutes<T extends { Variables: AuthContextVariables }>(app: Hono<T>) {
   registerScimAuthRoutes(app)
-  app.get("/api/auth/.well-known/oauth-authorization-server", async (c) => rewriteMetadataOrigin(await oauthProviderAuthServerMetadata(auth)(c.req.raw), requestOrigin(c.req.raw)))
-  app.get("/api/auth/.well-known/openid-configuration", async (c) => rewriteMetadataOrigin(await oauthProviderOpenIdConfigMetadata(auth)(c.req.raw), requestOrigin(c.req.raw)))
-  app.get("/.well-known/oauth-authorization-server/api/auth", async (c) => rewriteMetadataOrigin(await oauthProviderAuthServerMetadata(auth)(c.req.raw), requestOrigin(c.req.raw)))
-  app.get("/.well-known/openid-configuration/api/auth", async (c) => rewriteMetadataOrigin(await oauthProviderOpenIdConfigMetadata(auth)(c.req.raw), requestOrigin(c.req.raw)))
-  app.get("/.well-known/oauth-authorization-server", async (c) => rewriteMetadataOrigin(await oauthProviderAuthServerMetadata(auth)(rewriteAuthRequest(c.req.raw, "/api/auth/.well-known/oauth-authorization-server")), requestOrigin(c.req.raw)))
-  app.get("/.well-known/openid-configuration", async (c) => rewriteMetadataOrigin(await oauthProviderOpenIdConfigMetadata(auth)(rewriteAuthRequest(c.req.raw, "/api/auth/.well-known/openid-configuration")), requestOrigin(c.req.raw)))
-  app.post("/register", async (c) => handleMcpClientRegistrationRequest(c.req.raw, "/api/auth/oauth2/register"))
-  app.post("/api/auth/oauth2/register", async (c) => handleMcpClientRegistrationRequest(c.req.raw, "/api/auth/oauth2/register"))
-  app.get("/api/auth/oauth2/authorize", async (c) => {
+  app.get("/api/auth/.well-known/oauth-authorization-server", publicRoute, async (c) => rewriteMetadataOrigin(await oauthProviderAuthServerMetadata(auth)(c.req.raw), requestOrigin(c.req.raw)))
+  app.get("/api/auth/.well-known/openid-configuration", publicRoute, async (c) => rewriteMetadataOrigin(await oauthProviderOpenIdConfigMetadata(auth)(c.req.raw), requestOrigin(c.req.raw)))
+  app.get("/.well-known/oauth-authorization-server/api/auth", publicRoute, async (c) => rewriteMetadataOrigin(await oauthProviderAuthServerMetadata(auth)(c.req.raw), requestOrigin(c.req.raw)))
+  app.get("/.well-known/openid-configuration/api/auth", publicRoute, async (c) => rewriteMetadataOrigin(await oauthProviderOpenIdConfigMetadata(auth)(c.req.raw), requestOrigin(c.req.raw)))
+  app.get("/.well-known/oauth-authorization-server", publicRoute, async (c) => rewriteMetadataOrigin(await oauthProviderAuthServerMetadata(auth)(rewriteAuthRequest(c.req.raw, "/api/auth/.well-known/oauth-authorization-server")), requestOrigin(c.req.raw)))
+  app.get("/.well-known/openid-configuration", publicRoute, async (c) => rewriteMetadataOrigin(await oauthProviderOpenIdConfigMetadata(auth)(rewriteAuthRequest(c.req.raw, "/api/auth/.well-known/openid-configuration")), requestOrigin(c.req.raw)))
+  app.post("/register", publicRoute, async (c) => handleMcpClientRegistrationRequest(c.req.raw, "/api/auth/oauth2/register"))
+  app.post("/api/auth/oauth2/register", publicRoute, async (c) => handleMcpClientRegistrationRequest(c.req.raw, "/api/auth/oauth2/register"))
+  app.get("/api/auth/oauth2/authorize", tokenRoute, async (c) => {
     await ensureMcpClientScopes(c.req.raw)
     return auth.handler(c.req.raw)
   })
@@ -217,6 +218,7 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
         401: emptyResponse("Better Auth rejected the request because authentication failed."),
       },
     }),
+    publicRoute,
     (c) => handleAuthRequest(c.req.raw),
   )
   registerDesktopAuthRoutes(app)

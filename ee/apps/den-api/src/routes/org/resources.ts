@@ -15,6 +15,7 @@ import { z } from "zod"
 import { db } from "../../db.js"
 import {
   type MemberTeamsContext,
+  orgMemberRoute,
   requireUserMiddleware,
   resolveMemberTeamsMiddleware,
   resolveOrganizationContextMiddleware,
@@ -254,6 +255,7 @@ export function registerOrgResourceRoutes<T extends { Variables: OrgRouteVariabl
         401: jsonResponse("The caller must be signed in to list resources.", unauthorizedSchema),
       },
     }),
+    orgMemberRoute(),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     resolveMemberTeamsMiddleware,

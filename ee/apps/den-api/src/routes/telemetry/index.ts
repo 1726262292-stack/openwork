@@ -6,7 +6,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { db } from "../../db.js"
 import { checkEntitlement } from "../../entitlements.js"
-import { requireUserMiddleware, resolveUserOrganizationsMiddleware, resolveOrganizationContextMiddleware, jsonValidator } from "../../middleware/index.js"
+import { requireUserMiddleware, resolveUserOrganizationsMiddleware, resolveOrganizationContextMiddleware, jsonValidator, orgMemberRoute } from "../../middleware/index.js"
 import { enterprisePlanRequiredSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema, emptyResponse } from "../../openapi.js"
 import type { AuthContextVariables } from "../../session.js"
 import type { UserOrganizationsContext, OrganizationContextVariables } from "../../middleware/index.js"
@@ -111,6 +111,7 @@ export function registerTelemetryRoutes<T extends { Variables: TelemetryRouteVar
         401: jsonResponse("Caller must be signed in.", unauthorizedSchema),
       },
     }),
+    orgMemberRoute(),
     requireUserMiddleware,
     resolveUserOrganizationsMiddleware,
     resolveOrganizationContextMiddleware,
@@ -164,6 +165,7 @@ export function registerTelemetryRoutes<T extends { Variables: TelemetryRouteVar
         401: jsonResponse("Caller must be signed in.", unauthorizedSchema),
       },
     }),
+    orgMemberRoute({ useUserOrganizations: true }),
     requireUserMiddleware,
     resolveUserOrganizationsMiddleware,
     async (c) => {
@@ -243,6 +245,7 @@ export function registerTelemetryRoutes<T extends { Variables: TelemetryRouteVar
         402: jsonResponse("Usage analytics requires an Enterprise plan.", enterprisePlanRequiredSchema),
       },
     }),
+    orgMemberRoute(),
     requireUserMiddleware,
     resolveUserOrganizationsMiddleware,
     resolveOrganizationContextMiddleware,

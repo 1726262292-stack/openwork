@@ -9,7 +9,7 @@ import {
   listOrganizationApiKeys,
 } from "../../api-keys.js"
 import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
-import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { jsonValidator, orgMemberRoute, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { denTypeIdSchema } from "../../openapi.js"
 import { auth } from "../../auth.js"
 import type { OrgRouteVariables } from "./shared.js"
@@ -148,6 +148,7 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
         },
       },
     }),
+    orgMemberRoute(),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     async (c) => {
@@ -213,6 +214,7 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
         },
       },
     }),
+    orgMemberRoute(),
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     jsonValidator(createOrganizationApiKeySchema),
@@ -317,6 +319,7 @@ export function registerOrgApiKeyRoutes<T extends { Variables: OrgRouteVariables
         },
       },
     }),
+    orgMemberRoute(),
     requireUserMiddleware,
     paramValidator(apiKeyIdParamSchema),
     resolveOrganizationContextMiddleware,

@@ -8,7 +8,7 @@ import { revokeOrganizationApiKeysForMember } from "../../api-keys.js"
 import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
 import { revokeMembershipSessionCredentials } from "../../credential-revocation.js"
 import { db } from "../../db.js"
-import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
+import { jsonValidator, orgRoleRoute, paramValidator, requireUserMiddleware, resolveOrganizationContextMiddleware } from "../../middleware/index.js"
 import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
 import { listAssignableRoles, removeOrganizationMember, validateOrganizationMemberRoleUpdate } from "../../orgs.js"
 import type { OrgRouteVariables } from "./shared.js"
@@ -36,6 +36,7 @@ export function registerOrgMemberRoutes<T extends { Variables: OrgRouteVariables
         404: jsonResponse("The member or organization could not be found.", notFoundSchema),
       },
     }),
+    orgRoleRoute(["owner"]),
     requireUserMiddleware,
     paramValidator(orgMemberParamsSchema),
     resolveOrganizationContextMiddleware,
@@ -117,6 +118,7 @@ export function registerOrgMemberRoutes<T extends { Variables: OrgRouteVariables
         404: jsonResponse("The member or organization could not be found.", notFoundSchema),
       },
     }),
+    orgRoleRoute(["admin"]),
     requireUserMiddleware,
     paramValidator(orgMemberParamsSchema),
     resolveOrganizationContextMiddleware,
