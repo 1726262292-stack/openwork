@@ -22,6 +22,7 @@ type QueryChain = {
 }
 
 let insertCalls = 0
+let maxInnerJoinCalls = 0
 
 const vulnerableCrossInstallationMatch = {
   instance: {
@@ -48,6 +49,7 @@ function queryChain(): QueryChain {
     from: () => chain,
     innerJoin: () => {
       innerJoinCalls += 1
+      maxInnerJoinCalls = Math.max(maxInnerJoinCalls, innerJoinCalls)
       return chain
     },
     limit: () => Promise.resolve(resolveRows(innerJoinCalls)),
@@ -59,7 +61,7 @@ function queryChain(): QueryChain {
 }
 
 function resolveRows(innerJoinCalls: number): QueryResult {
-  if (innerJoinCalls === 1) {
+  if (innerJoinCalls < 2) {
     return [vulnerableCrossInstallationMatch]
   }
 
@@ -86,6 +88,7 @@ beforeAll(async () => {
 
 test("GitHub push webhooks only match targets for the payload installation", async () => {
   insertCalls = 0
+  maxInnerJoinCalls = 0
 
   const result = await storeModule.enqueueGithubWebhookSync({
     deliveryId: "delivery-tenant-scope",
@@ -99,5 +102,6 @@ test("GitHub push webhooks only match targets for the payload installation", asy
   })
 
   expect(result).toEqual({ accepted: false, reason: "event ignored" })
+  expect(maxInnerJoinCalls).toBeGreaterThanOrEqual(2)
   expect(insertCalls).toBe(0)
 })

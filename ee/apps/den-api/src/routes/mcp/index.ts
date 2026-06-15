@@ -14,7 +14,7 @@ import {
   resolveOrganizationContextMiddleware,
   type OrganizationContextVariables,
 } from "../../middleware/index.js"
-import { invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
+import { forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import type { AuthContextVariables } from "../../session.js"
 
 /**
@@ -66,6 +66,7 @@ export function registerMcpTokenRoutes<T extends { Variables: McpRouteVariables 
         200: jsonResponse("MCP access token minted successfully.", mcpTokenResponseSchema),
         400: jsonResponse("The token request was invalid or no active organization is selected.", z.union([invalidRequestSchema, organizationRequiredSchema])),
         401: jsonResponse("The caller must be signed in to mint an MCP token.", unauthorizedSchema),
+        403: jsonResponse("API keys cannot mint MCP tokens.", forbiddenSchema),
       },
     }),
     requireUserMiddleware,
