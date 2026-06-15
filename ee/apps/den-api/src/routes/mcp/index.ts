@@ -7,6 +7,7 @@ import { z } from "zod"
 import { DEN_MCP_OPAQUE_ACCESS_TOKEN_PREFIX, DEN_MCP_RESOURCE } from "../../auth.js"
 import { db } from "../../db.js"
 import { hashOpaqueMcpSecret } from "../../mcp/auth.js"
+import { resolveMcpTokenScopes } from "../../mcp/scopes.js"
 import { DEN_FIRST_PARTY_MCP_TOKEN_TTL_MS } from "../../mcp/token-lifetime.js"
 import {
   jsonValidator,
@@ -87,7 +88,7 @@ export function registerMcpTokenRoutes<T extends { Variables: McpRouteVariables 
         }, 403)
       }
 
-      const scopes = input.scopes ?? ["mcp:read", "mcp:write"]
+      const scopes = resolveMcpTokenScopes(input.scopes)
       const secret = crypto.randomBytes(32).toString("base64url")
       const expiresAt = new Date(Date.now() + DEN_FIRST_PARTY_MCP_TOKEN_TTL_MS)
 

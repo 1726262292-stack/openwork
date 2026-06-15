@@ -3,6 +3,10 @@ import { db } from "./db.js";
 import { env } from "./env.js";
 import { deriveDenMcpResource } from "./mcp/resource.js";
 import {
+  DEN_MCP_DEFAULT_CLIENT_SCOPES,
+  DEN_MCP_SCOPES,
+} from "./mcp/scopes.js";
+import {
   DEN_MCP_ACCESS_TOKEN_EXPIRES_IN_SECONDS,
   DEN_MCP_REFRESH_TOKEN_EXPIRES_IN_SECONDS,
 } from "./mcp/token-lifetime.js";
@@ -82,11 +86,11 @@ export const DEN_MCP_RESOURCES = Array.from(new Set([
   `${env.betterAuthUrl}/mcp`,
   ...localMcpResourceAliases(DEN_MCP_RESOURCE),
 ]));
-export const DEN_MCP_SCOPES = ["openid", "profile", "email", "offline_access", "mcp:read", "mcp:write"];
 export const DEN_MCP_TOKEN_USE_CLAIM = "https://openworklabs.com/token_use";
 export const DEN_MCP_ORG_ID_CLAIM = "https://openworklabs.com/org_id";
 export const DEN_MCP_RESOURCE_CLAIM = "https://openworklabs.com/resource";
 export const DEN_MCP_OPAQUE_ACCESS_TOKEN_PREFIX = "ow_mcp_at_";
+export { DEN_MCP_SCOPES } from "./mcp/scopes.js";
 
 const socialProviders = {
   ...(env.github.clientId && env.github.clientSecret
@@ -469,7 +473,7 @@ export const auth = betterAuth({
       accessTokenExpiresIn: DEN_MCP_ACCESS_TOKEN_EXPIRES_IN_SECONDS,
       m2mAccessTokenExpiresIn: DEN_MCP_ACCESS_TOKEN_EXPIRES_IN_SECONDS,
       refreshTokenExpiresIn: DEN_MCP_REFRESH_TOKEN_EXPIRES_IN_SECONDS,
-      clientRegistrationDefaultScopes: ["openid", "profile", "email", "mcp:read", "mcp:write"],
+      clientRegistrationDefaultScopes: [...DEN_MCP_DEFAULT_CLIENT_SCOPES],
       clientRegistrationAllowedScopes: [...DEN_MCP_SCOPES],
       advertisedMetadata: {
         scopes_supported: [...DEN_MCP_SCOPES],
