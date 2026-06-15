@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pencil } from "lucide-react";
+import { Copy, Pencil } from "lucide-react";
 
 type AccessState = "loading" | "ready" | "signed-out" | "forbidden" | "error";
 type WorkerFilter = "all" | "with-workers" | "without-workers";
@@ -20,6 +20,14 @@ type AdminBillingStatus = {
   currentPeriodEnd: string | null;
   source: "benefit" | "subscription" | "unavailable";
   note: string | null;
+};
+
+type AdminUserOrganization = {
+  id: string;
+  name: string;
+  role: string;
+  memberCount: number;
+  joinedAt: string | null;
 };
 
 type AdminEntry = {
@@ -82,6 +90,7 @@ type AdminUser = {
   localWorkerCount: number;
   latestWorkerCreatedAt: string | null;
   billing: AdminBillingStatus | null;
+  organizations: AdminUserOrganization[];
 };
 
 type AdminOrganization = {
@@ -198,6 +207,24 @@ function parseAdminPayload(payload: unknown): AdminPayload | null {
         ? value.authProviders.filter((provider): provider is string => typeof provider === "string")
         : [];
 
+      const organizations: AdminUserOrganization[] = Array.isArray(value.organizations)
+        ? value.organizations
+          .map((organization) => {
+            if (!isRecord(organization) || typeof organization.id !== "string" || typeof organization.name !== "string" || typeof organization.role !== "string") {
+              return null;
+            }
+
+            return {
+              id: organization.id,
+              name: organization.name,
+              role: organization.role,
+              memberCount: toNumberValue(organization.memberCount),
+              joinedAt: toStringValue(organization.joinedAt)
+            };
+          })
+          .filter((organization): organization is AdminUserOrganization => organization !== null)
+        : [];
+
       return {
         id: value.id,
         name: toStringValue(value.name),
@@ -218,7 +245,8 @@ function parseAdminPayload(payload: unknown): AdminPayload | null {
         cloudWorkerCount: toNumberValue(value.cloudWorkerCount),
         localWorkerCount: toNumberValue(value.localWorkerCount),
         latestWorkerCreatedAt: toStringValue(value.latestWorkerCreatedAt),
-        billing: parseBillingStatus(value.billing)
+        billing: parseBillingStatus(value.billing),
+        organizations
       };
     })
     .filter((value): value is AdminUser => value !== null);
@@ -739,6 +767,7 @@ export function DenAdminPanel() {
   const [workerFilter, setWorkerFilter] = useState<WorkerFilter>("all");
   const [billingFilter, setBillingFilter] = useState<BillingFilter>("all");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [copiedOrgId, setCopiedOrgId] = useState<string | null>(null);
   const [includeBilling, setIncludeBilling] = useState(false);
   const [orgDrafts, setOrgDrafts] = useState<Record<string, { tier: AdminOrganization["plan"]["tier"]; seatLimit: string }>>({});
   const [savingOrgId, setSavingOrgId] = useState<string | null>(null);
@@ -796,6 +825,24 @@ export function DenAdminPanel() {
     void loadOverview(false);
   }, [loadOverview]);
 
+  useEffect(() => {
+    if (!copiedOrgId) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setCopiedOrgId(null), 1500);
+    return () => window.clearTimeout(timeout);
+  }, [copiedOrgId]);
+
+  const copyOrgId = useCallback(async (orgId: string) => {
+    try {
+      await navigator.clipboard.writeText(orgId);
+      setCopiedOrgId(orgId);
+    } catch {
+      setError("Could not copy the organization ID to the clipboard.");
+    }
+  }, []);
+
   const filteredUsers = useMemo(() => {
     if (!payload) {
       return [] as AdminUser[];
@@ -837,7 +884,13 @@ export function DenAdminPanel() {
         return true;
       }
 
-      const haystack = [user.name ?? "", user.email, user.id, ...user.authProviders].join(" ").toLowerCase();
+      const haystack = [
+        user.name ?? "",
+        user.email,
+        user.id,
+        ...user.authProviders,
+        ...user.organizations.flatMap((org) => [org.name, org.id, org.role])
+      ].join(" ").toLowerCase();
       return haystack.includes(normalizedQuery);
     });
 
@@ -1026,7 +1079,7 @@ export function DenAdminPanel() {
     }
 
     downloadCsv(`den-users-${date}.csv`, [
-      ["email", "name", "domain", "verified", "signed_up", "last_active", "sign_ins", "active_days", "recurring", "invites_sent", "hours_to_first_invite", "workers", "providers"],
+      ["email", "name", "domain", "verified", "signed_up", "last_active", "sign_ins", "active_days", "recurring", "invites_sent", "hours_to_first_invite", "workers", "providers", "organizations"],
       ...filteredUsers.map((user) => [
         user.email,
         user.name ?? "",
@@ -1040,7 +1093,8 @@ export function DenAdminPanel() {
         String(user.invitesSent),
         user.hoursToFirstInvite === null ? "" : String(user.hoursToFirstInvite),
         String(user.workerCount),
-        user.authProviders.join("; ")
+        user.authProviders.join("; "),
+        user.organizations.map((org) => `${org.name} (${org.id}, ${org.role})`).join("; ")
       ])
     ]);
   }, [filteredDomains, filteredOrganizations, filteredUsers, viewMode]);
@@ -1489,46 +1543,49 @@ export function DenAdminPanel() {
             const isSelected = user.id === selectedUser?.id;
 
             return (
-              <button
+              <div
                 key={user.id}
-                type="button"
-                onClick={() => setSelectedUserId(user.id)}
-                className={`rounded-2xl border px-4 py-4 text-left transition ${isSelected ? "border-slate-900 bg-slate-50" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/70"}`}
+                className={`rounded-2xl border px-4 py-4 transition ${isSelected ? "border-slate-900 bg-slate-50" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/70"}`}
               >
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate text-base font-semibold text-slate-950">{user.name?.trim() || user.email}</p>
-                      {user.emailVerified ? (
-                        <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[0.66rem] font-semibold uppercase tracking-[0.14em] text-emerald-700">
-                          Verified
-                        </span>
-                      ) : null}
-                      {user.isRecurring ? (
-                        <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[0.66rem] font-semibold uppercase tracking-[0.14em] text-sky-700">
-                          Recurring
-                        </span>
-                      ) : null}
+                <button type="button" onClick={() => setSelectedUserId(user.id)} className="block w-full text-left">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-base font-semibold text-slate-950">{user.name?.trim() || user.email}</p>
+                        {user.emailVerified ? (
+                          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[0.66rem] font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                            Verified
+                          </span>
+                        ) : null}
+                        {user.isRecurring ? (
+                          <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[0.66rem] font-semibold uppercase tracking-[0.14em] text-sky-700">
+                            Recurring
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-1 truncate text-sm text-slate-500">{user.email}</p>
                     </div>
-                    <p className="mt-1 truncate text-sm text-slate-500">{user.email}</p>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <BillingPill billing={user.billing} />
+                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-600">
+                        {user.workerCount} workers
+                      </span>
+                      <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-violet-700">
+                        {user.organizations.length} {user.organizations.length === 1 ? "org" : "orgs"}
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    <BillingPill billing={user.billing} />
-                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-600">
-                      {user.workerCount} workers
-                    </span>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+                    <MetaCell label="Signed up" value={formatDateTime(user.createdAt)} />
+                    <MetaCell label="Last active" value={formatRelativeTime(user.lastActiveAt)} />
+                    <MetaCell label="Sign-ins" value={String(user.sessionCount)} />
+                    <MetaCell label="Active days" value={String(user.activeDayCount)} />
+                    <MetaCell label="Invites" value={user.invitesSent > 0 ? `${user.invitesSent} · first after ${formatHours(user.hoursToFirstInvite)}` : "None"} />
+                    <MetaCell label="Workers" value={`${user.cloudWorkerCount} cloud / ${user.localWorkerCount} local`} />
                   </div>
-                </div>
-
-                <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-                  <MetaCell label="Signed up" value={formatDateTime(user.createdAt)} />
-                  <MetaCell label="Last active" value={formatRelativeTime(user.lastActiveAt)} />
-                  <MetaCell label="Sign-ins" value={String(user.sessionCount)} />
-                  <MetaCell label="Active days" value={String(user.activeDayCount)} />
-                  <MetaCell label="Invites" value={user.invitesSent > 0 ? `${user.invitesSent} · first after ${formatHours(user.hoursToFirstInvite)}` : "None"} />
-                  <MetaCell label="Workers" value={`${user.cloudWorkerCount} cloud / ${user.localWorkerCount} local`} />
-                </div>
+                </button>
 
                 {isSelected ? (
                   <div className="mt-4 grid gap-4 border-t border-slate-200 pt-4 lg:grid-cols-2">
@@ -1562,9 +1619,71 @@ export function DenAdminPanel() {
                         </div>
                       )}
                     </div>
+
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 lg:col-span-2">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-500">Organizations</p>
+                          <p className="mt-1 text-sm text-slate-600">
+                            {user.organizations.length > 0
+                              ? `${user.email} is a member of ${user.organizations.length} organization${user.organizations.length === 1 ? "" : "s"}.`
+                              : `${user.email} is not an active member of any organization.`}
+                          </p>
+                        </div>
+                        {user.organizations.length > 0 ? (
+                          <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-violet-700">
+                            {user.organizations.length} total
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {user.organizations.length > 0 ? (
+                        <div className="mt-3 grid gap-2">
+                          {user.organizations.map((org) => (
+                            <div key={org.id} className="rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-3">
+                              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold text-slate-950">{org.name}</p>
+                                  <p className="mt-1 truncate font-mono text-xs text-slate-500">{org.id}</p>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-600">
+                                    {formatProvider(org.role)}
+                                  </span>
+                                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-600">
+                                    {org.memberCount} {org.memberCount === 1 ? "member" : "members"}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      void copyOrgId(org.id);
+                                    }}
+                                    className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300"
+                                  >
+                                    <Copy size={13} aria-hidden="true" />
+                                    {copiedOrgId === org.id ? "Copied" : "Copy ID"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setQuery(org.id);
+                                      setViewMode("organizations");
+                                    }}
+                                    className="inline-flex items-center justify-center rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white"
+                                  >
+                                    View org
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 ) : null}
-              </button>
+              </div>
             );
           }) : (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-10 text-center">

@@ -345,7 +345,7 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
     const sessionDayExpr = sql<string>`date_format(${AuthSessionTable.createdAt}, '%Y-%m-%d')`
     const telemetryDayExpr = sql<string>`date_format(${TelemetryEventTable.event_timestamp}, '%Y-%m-%d')`
 
-    const [admins, organizations, orgMemberStatsRows, users, workerStatsRows, sessionStatsRows, accountRows, sessionDayRows, telemetryDayRows, taskDayRows, inviteStatsRows] = await Promise.all([
+    const [admins, organizations, orgMemberStatsRows, orgMembershipRows, users, workerStatsRows, sessionStatsRows, accountRows, sessionDayRows, telemetryDayRows, taskDayRows, inviteStatsRows] = await Promise.all([
       db
         .select({
           email: AdminAllowlistTable.email,
@@ -363,6 +363,17 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         .from(MemberTable)
         .where(isNull(MemberTable.removedAt))
         .groupBy(MemberTable.organizationId),
+      db
+        .select({
+          userId: MemberTable.userId,
+          organizationId: MemberTable.organizationId,
+          organizationName: OrganizationTable.name,
+          role: MemberTable.role,
+          joinedAt: MemberTable.joinedAt,
+        })
+        .from(MemberTable)
+        .innerJoin(OrganizationTable, eq(MemberTable.organizationId, OrganizationTable.id))
+        .where(and(isNotNull(MemberTable.userId), isNull(MemberTable.removedAt))),
       db.select().from(AuthUserTable).orderBy(desc(AuthUserTable.createdAt)),
       db
         .select({
@@ -458,6 +469,35 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
     const memberCountByOrg = new Map<string, number>()
     for (const row of orgMemberStatsRows) {
       memberCountByOrg.set(row.organizationId, toNumber(row.memberCount))
+    }
+
+    type UserOrganizationMembership = {
+      id: OrganizationId
+      name: string
+      role: string
+      memberCount: number
+      joinedAt: Date | string | null
+    }
+
+    const membershipsByUser = new Map<UserId, UserOrganizationMembership[]>()
+    for (const row of orgMembershipRows) {
+      if (!row.userId || !isOrganizationId(row.organizationId)) {
+        continue
+      }
+
+      const memberships = membershipsByUser.get(row.userId) ?? []
+      memberships.push({
+        id: row.organizationId,
+        name: row.organizationName,
+        role: row.role,
+        memberCount: memberCountByOrg.get(row.organizationId) ?? 0,
+        joinedAt: row.joinedAt,
+      })
+      membershipsByUser.set(row.userId, memberships)
+    }
+
+    for (const memberships of membershipsByUser.values()) {
+      memberships.sort((a, b) => a.name.localeCompare(b.name))
     }
 
     const organizationRows = organizations.map((entry) => {
@@ -742,6 +782,7 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         localWorkerCount: workerStats.localWorkerCount,
         latestWorkerCreatedAt: workerStats.latestWorkerCreatedAt,
         billing: includeBilling ? billingByUser.get(entry.id) ?? defaultBilling : null,
+        organizations: membershipsByUser.get(entry.id) ?? [],
       }
     })
 
