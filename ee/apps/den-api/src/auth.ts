@@ -159,7 +159,7 @@ function getEnterpriseAuthRedirectUrl(input: {
   email: string;
   callbackUrl: string | null;
 }) {
-  const url = new URL(input.signInPath, env.betterAuthTrustedOrigins[0] ?? env.betterAuthUrl);
+  const url = new URL(input.signInPath, getInvitationOrigin());
   url.searchParams.set("loginHint", input.email);
   if (input.callbackUrl) {
     url.searchParams.set("callbackURL", input.callbackUrl);

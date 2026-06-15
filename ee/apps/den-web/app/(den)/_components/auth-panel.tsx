@@ -425,7 +425,7 @@ export function AuthPanel({
               required
             />
           </label>
-        ) : isPasswordResetRequest ? null : (
+        ) : verificationRequired ? (
           <label className="grid gap-2">
             <span className="den-label">Verification code</span>
             <input
@@ -441,7 +441,7 @@ export function AuthPanel({
               required
             />
           </label>
-        )}
+        ) : null}
 
         {authMode === "sign-in" && !verificationRequired && !isPasswordResetRequest && !isSignInEmailStep && !hideEmailField ? (
           <div className="-mt-2 flex justify-end">
