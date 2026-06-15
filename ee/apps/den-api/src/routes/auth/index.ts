@@ -15,6 +15,7 @@ import { env } from "../../env.js"
 import { getInvalidMcpOAuthRedirectUris } from "../../mcp/oauth-client-policy.js"
 import { publicRoute, tokenRoute } from "../../middleware/index.js"
 import { emptyResponse } from "../../openapi.js"
+import { samlResponsePolicyMiddleware } from "../../sso-saml-response-middleware.js"
 import type { AuthContextVariables } from "../../session.js"
 import { registerDesktopAuthRoutes } from "./desktop-handoff.js"
 import { registerScimAuthRoutes } from "./scim.js"
@@ -190,6 +191,8 @@ async function handleAuthRequest(request: Request) {
 
 export function registerAuthRoutes<T extends { Variables: AuthContextVariables }>(app: Hono<T>) {
   registerScimAuthRoutes(app)
+  app.use("/api/auth/sso/saml2/callback/*", samlResponsePolicyMiddleware)
+  app.use("/api/auth/sso/saml2/sp/acs/*", samlResponsePolicyMiddleware)
   app.get("/api/auth/.well-known/oauth-authorization-server", publicRoute, async (c) => rewriteMetadataOrigin(await oauthProviderAuthServerMetadata(auth)(c.req.raw), requestOrigin(c.req.raw)))
   app.get("/api/auth/.well-known/openid-configuration", publicRoute, async (c) => rewriteMetadataOrigin(await oauthProviderOpenIdConfigMetadata(auth)(c.req.raw), requestOrigin(c.req.raw)))
   app.get("/.well-known/oauth-authorization-server/api/auth", publicRoute, async (c) => rewriteMetadataOrigin(await oauthProviderAuthServerMetadata(auth)(c.req.raw), requestOrigin(c.req.raw)))

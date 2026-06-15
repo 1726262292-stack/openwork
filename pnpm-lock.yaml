@@ -471,6 +471,9 @@ importers:
       dotenv:
         specifier: ^16.4.5
         version: 16.6.1
+      fast-xml-parser:
+        specifier: 5.8.0
+        version: 5.8.0
       hono:
         specifier: ^4.7.2
         version: 4.12.8
