@@ -577,7 +577,7 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
           })
           .from(OrgSubscriptionTable)
           .innerJoin(MemberTable, eq(OrgSubscriptionTable.organization_id, MemberTable.organizationId))
-          .where(isNull(MemberTable.removedAt))
+          .where(and(isNull(MemberTable.removedAt), eq(OrgSubscriptionTable.type, "inference")))
       : []
 
     const subscriptionIds = Array.from(new Set(subscriptionRows.map((row) => row.subscriptionId)))
