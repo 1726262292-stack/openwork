@@ -29,7 +29,7 @@ Use separate secrets per environment for:
 - OAuth, SSO, SCIM, and webhook secrets
 - provider API keys and worker provisioning tokens
 
-OpenWork stores organization API keys and SCIM bearer tokens as hashes. SSO provider configuration is stored encrypted. Rotate production secrets on a defined schedule and immediately after suspected exposure or emergency access use.
+OpenWork stores organization API keys and SCIM bearer tokens as hashes. SSO provider configuration is stored encrypted. Rotate production secrets on a defined schedule and immediately after suspected exposure or emergency access use. SCIM token rotation invalidates the previous bearer token; update the identity provider immediately after rotating.
 
 ## Identity and access governance
 
@@ -65,6 +65,8 @@ For mover and leaver handling:
 - Cancel stale invitations.
 - Rotate or revoke organization API keys that were issued for the affected member.
 - Prefer SCIM deprovisioning where an identity provider is the system of record.
+
+SCIM lifecycle failures should not be treated as successful offboarding. OpenWork records failed SCIM provisioning and deprovisioning work for retry, runs periodic local SCIM drift reconciliation, and surfaces unresolved SCIM health issues in the organization SCIM screen. Operators should monitor those health indicators and route Den API logs that include `[scim][sync_failure_recorded]` or `[scim][maintenance_failed]` to their alerting system.
 
 ## Emergency access
 

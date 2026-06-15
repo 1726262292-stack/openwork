@@ -113,6 +113,15 @@ export type DenOrgScimConnection = {
   updatedAt: string | null;
 };
 
+export type DenOrgScimHealth = {
+  unresolvedFailureCount: number;
+  lastFailureAt: string | null;
+  lastFailureAction: string | null;
+  lastFailureMessage: string | null;
+  nextRetryAt: string | null;
+  lastSuccessfulSyncAt: string | null;
+};
+
 export type DenOrgSsoConnection = {
   id: string;
   providerId: string;
@@ -811,10 +820,23 @@ export function parseOrgApiKeysPayload(payload: unknown): DenOrgApiKey[] {
 export function parseOrgScimPayload(payload: unknown): {
   baseUrl: string | null;
   connection: DenOrgScimConnection | null;
+  health: DenOrgScimHealth;
   scimToken: string | null;
 } {
   if (!isRecord(payload)) {
-    return { baseUrl: null, connection: null, scimToken: null };
+    return {
+      baseUrl: null,
+      connection: null,
+      health: {
+        unresolvedFailureCount: 0,
+        lastFailureAt: null,
+        lastFailureAction: null,
+        lastFailureMessage: null,
+        nextRetryAt: null,
+        lastSuccessfulSyncAt: null,
+      },
+      scimToken: null,
+    };
   }
 
   const rawConnection = isRecord(payload.connection) ? payload.connection : null;
@@ -838,9 +860,22 @@ export function parseOrgScimPayload(payload: unknown): {
       })()
     : null;
 
+  const rawHealth = isRecord(payload.health) ? payload.health : null;
+  const health = {
+    unresolvedFailureCount: typeof rawHealth?.unresolvedFailureCount === "number"
+      ? rawHealth.unresolvedFailureCount
+      : 0,
+    lastFailureAt: asIsoString(rawHealth?.lastFailureAt),
+    lastFailureAction: asString(rawHealth?.lastFailureAction),
+    lastFailureMessage: asString(rawHealth?.lastFailureMessage),
+    nextRetryAt: asIsoString(rawHealth?.nextRetryAt),
+    lastSuccessfulSyncAt: asIsoString(rawHealth?.lastSuccessfulSyncAt),
+  } satisfies DenOrgScimHealth;
+
   return {
     baseUrl: asString(payload.baseUrl),
     connection,
+    health,
     scimToken: asString(payload.scimToken),
   };
 }

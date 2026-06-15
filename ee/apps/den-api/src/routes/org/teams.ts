@@ -12,9 +12,8 @@ import { z } from "zod"
 import { db } from "../../db.js"
 import {
   jsonValidator,
+  orgRoleRoute,
   paramValidator,
-  requireUserMiddleware,
-  resolveOrganizationContextMiddleware,
 } from "../../middleware/index.js"
 import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import type { OrgRouteVariables } from "./shared.js"
@@ -98,8 +97,7 @@ export function registerOrgTeamRoutes<T extends { Variables: OrgRouteVariables }
         404: jsonResponse("The organization or a referenced member could not be found.", notFoundSchema),
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgRoleRoute(["admin"]),
     jsonValidator(createTeamSchema),
     async (c) => {
       const permission = ensureTeamManager(c)
@@ -186,9 +184,8 @@ export function registerOrgTeamRoutes<T extends { Variables: OrgRouteVariables }
         404: jsonResponse("The team, organization, or a referenced member could not be found.", notFoundSchema),
       },
     }),
-    requireUserMiddleware,
+    orgRoleRoute(["admin"]),
     paramValidator(orgTeamParamsSchema),
-    resolveOrganizationContextMiddleware,
     jsonValidator(updateTeamSchema),
     async (c) => {
       const permission = ensureTeamManager(c)
@@ -290,9 +287,8 @@ export function registerOrgTeamRoutes<T extends { Variables: OrgRouteVariables }
         404: jsonResponse("The team or organization could not be found.", notFoundSchema),
       },
     }),
-    requireUserMiddleware,
+    orgRoleRoute(["admin"]),
     paramValidator(orgTeamParamsSchema),
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const permission = ensureTeamManager(c)
       if (!permission.ok) {

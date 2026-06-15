@@ -17,10 +17,9 @@ import { z } from "zod"
 import { db } from "../../db.js"
 import {
   jsonValidator,
+  orgMemberRoute,
   paramValidator,
-  requireUserMiddleware,
   resolveMemberTeamsMiddleware,
-  resolveOrganizationContextMiddleware,
 } from "../../middleware/index.js"
 import type { MemberTeamsContext } from "../../middleware/member-teams.js"
 import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
@@ -289,8 +288,7 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
         401: jsonResponse("The caller must be signed in to create skills.", unauthorizedSchema),
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     jsonValidator(createSkillSchema),
     async (c) => {
       const payload = c.get("organizationContext")
@@ -339,8 +337,7 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
         401: jsonResponse("The caller must be signed in to list skills.", unauthorizedSchema),
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     resolveMemberTeamsMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
@@ -386,9 +383,8 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
         404: jsonResponse("The skill could not be found.", notFoundSchema),
       },
     }),
-    requireUserMiddleware,
+    orgMemberRoute(),
     paramValidator(orgSkillParamsSchema),
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
       const params = c.req.valid("param")
@@ -442,9 +438,8 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
         404: jsonResponse("The skill could not be found.", notFoundSchema),
       },
     }),
-    requireUserMiddleware,
+    orgMemberRoute(),
     paramValidator(orgSkillParamsSchema),
-    resolveOrganizationContextMiddleware,
     jsonValidator(updateSkillSchema),
     async (c) => {
       const payload = c.get("organizationContext")
@@ -518,8 +513,7 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
         401: jsonResponse("The caller must be signed in to create skill hubs.", unauthorizedSchema),
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     jsonValidator(createSkillHubSchema),
     async (c) => {
       const payload = c.get("organizationContext")
@@ -573,8 +567,7 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
         401: jsonResponse("The caller must be signed in to list skill hubs.", unauthorizedSchema),
       },
     }),
-    requireUserMiddleware,
-    resolveOrganizationContextMiddleware,
+    orgMemberRoute(),
     resolveMemberTeamsMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
@@ -742,9 +735,8 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
         404: jsonResponse("The skill hub could not be found.", notFoundSchema),
       },
     }),
-    requireUserMiddleware,
+    orgMemberRoute(),
     paramValidator(orgSkillHubParamsSchema),
-    resolveOrganizationContextMiddleware,
     jsonValidator(updateSkillHubSchema),
     async (c) => {
       const payload = c.get("organizationContext")
@@ -815,9 +807,8 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
         404: jsonResponse("The skill hub could not be found.", notFoundSchema),
       },
     }),
-    requireUserMiddleware,
+    orgMemberRoute(),
     paramValidator(orgSkillHubParamsSchema),
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
       const params = c.req.valid("param")
@@ -873,9 +864,8 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
         409: jsonResponse("The skill is already attached to the skill hub.", conflictSchema),
       },
     }),
-    requireUserMiddleware,
+    orgMemberRoute(),
     paramValidator(orgSkillHubParamsSchema),
-    resolveOrganizationContextMiddleware,
     jsonValidator(addSkillToHubSchema),
     async (c) => {
       const payload = c.get("organizationContext")
@@ -964,9 +954,8 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
         404: jsonResponse("The skill hub or hub-skill link could not be found.", notFoundSchema),
       },
     }),
-    requireUserMiddleware,
+    orgMemberRoute(),
     paramValidator(orgSkillHubSkillParamsSchema),
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
       const params = c.req.valid("param")
@@ -1042,9 +1031,8 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
         409: jsonResponse("The requested access entry already exists.", conflictSchema),
       },
     }),
-    requireUserMiddleware,
+    orgMemberRoute(),
     paramValidator(orgSkillHubParamsSchema),
-    resolveOrganizationContextMiddleware,
     jsonValidator(addSkillHubAccessSchema),
     async (c) => {
       const payload = c.get("organizationContext")
@@ -1156,9 +1144,8 @@ export function registerOrgSkillRoutes<T extends { Variables: OrgRouteVariables 
         404: jsonResponse("The skill hub or access entry could not be found.", notFoundSchema),
       },
     }),
-    requireUserMiddleware,
+    orgMemberRoute(),
     paramValidator(orgSkillHubAccessParamsSchema),
-    resolveOrganizationContextMiddleware,
     async (c) => {
       const payload = c.get("organizationContext")
       const params = c.req.valid("param")
