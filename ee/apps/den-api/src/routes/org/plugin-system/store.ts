@@ -2992,6 +2992,7 @@ async function buildConnectorAutomationContext(input: { connectorInstance: Conne
 
   return {
     memberTeams: [],
+    session: null,
     organizationContext: {
       currentMember: {
         createdAt: member.createdAt,

@@ -26,7 +26,7 @@ import { getModelsDevProvider, listModelsDevProviders } from "../../llm/models-d
 import type { MemberTeamsContext } from "../../middleware/member-teams.js"
 import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import type { OrgRouteVariables } from "./shared.js"
-import { idParamSchema, memberHasRole } from "./shared.js"
+import { ensureOrganizationAdmin, idParamSchema, memberHasRole, orgAccessFailureStatus } from "./shared.js"
 
 type LlmProviderId = typeof LlmProviderTable.$inferSelect.id
 type LlmProviderAccessId = typeof LlmProviderAccessTable.$inferSelect.id
@@ -827,6 +827,13 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
         }, 403)
       }
 
+      if (isOrganizationAdmin(payload)) {
+        const permission = ensureOrganizationAdmin(c, "Only the provider creator or a workspace admin can update providers.")
+        if (!permission.ok) {
+          return c.json(permission.response, orgAccessFailureStatus(permission.response))
+        }
+      }
+
       try {
         const normalized = await normalizeLlmProviderInput(input)
         const memberIds = await resolveMemberIds({
@@ -961,6 +968,13 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
         }, 403)
       }
 
+      if (isOrganizationAdmin(payload)) {
+        const permission = ensureOrganizationAdmin(c, "Only the provider creator or a workspace admin can delete providers.")
+        if (!permission.ok) {
+          return c.json(permission.response, orgAccessFailureStatus(permission.response))
+        }
+      }
+
       await db.transaction(async (tx) => {
         await tx.delete(LlmProviderAccessTable).where(eq(LlmProviderAccessTable.llmProviderId, provider.id))
         await tx.delete(LlmProviderModelTable).where(eq(LlmProviderModelTable.llmProviderId, provider.id))
@@ -1015,6 +1029,13 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
 
       if (!canManageLlmProvider(payload, provider)) {
         return c.json({ error: "forbidden", message: "Only the provider creator or a workspace admin can manage access." }, 403)
+      }
+
+      if (isOrganizationAdmin(payload)) {
+        const permission = ensureOrganizationAdmin(c, "Only the provider creator or a workspace admin can manage access.")
+        if (!permission.ok) {
+          return c.json(permission.response, orgAccessFailureStatus(permission.response))
+        }
       }
 
       const accessRows = await db

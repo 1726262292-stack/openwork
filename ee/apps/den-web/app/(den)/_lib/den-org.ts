@@ -178,6 +178,12 @@ export type DenOrgContext = {
   teams: DenOrgTeam[];
   currentMemberTeams: DenCurrentMemberTeam[];
   entitlements: DenOrgEntitlements;
+  authMethods: DenOrgAuthMethods;
+};
+
+export type DenOrgAuthMethods = {
+  sso: boolean;
+  scim: boolean;
 };
 
 export type DenOrgEntitlements = {
@@ -672,6 +678,18 @@ export function parseOrgContextPayload(payload: unknown): DenOrgContext | null {
     teams,
     currentMemberTeams,
     entitlements: parseOrgEntitlements(payload.entitlements),
+    authMethods: parseOrgAuthMethods(payload.authMethods),
+  };
+}
+
+function parseOrgAuthMethods(value: unknown): DenOrgAuthMethods {
+  if (!isRecord(value)) {
+    return { sso: false, scim: false };
+  }
+
+  return {
+    sso: value.sso === true,
+    scim: value.scim === true,
   };
 }
 

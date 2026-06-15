@@ -12,7 +12,7 @@ import { jsonValidator, paramValidator, requireUserMiddleware, resolveOrganizati
 import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
 import { listAssignableRoles, removeOrganizationMember, validateOrganizationMemberRoleUpdate } from "../../orgs.js"
 import type { OrgRouteVariables } from "./shared.js"
-import { ensureMemberRemover, ensureOwner, idParamSchema, normalizeRoleName } from "./shared.js"
+import { ensureMemberRemover, ensureOwner, idParamSchema, normalizeRoleName, orgAccessFailureStatus } from "./shared.js"
 
 const updateMemberRoleSchema = z.object({
   role: z.string().trim().min(1).max(64),
@@ -123,7 +123,7 @@ export function registerOrgMemberRoutes<T extends { Variables: OrgRouteVariables
     async (c) => {
     const permission = ensureMemberRemover(c)
     if (!permission.ok) {
-      return c.json(permission.response, permission.response.error === "forbidden" ? 403 : 404)
+      return c.json(permission.response, orgAccessFailureStatus(permission.response))
     }
 
     const payload = c.get("organizationContext")

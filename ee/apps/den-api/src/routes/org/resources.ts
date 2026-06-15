@@ -275,7 +275,7 @@ export function registerOrgResourceRoutes<T extends { Variables: OrgRouteVariabl
           teamIds,
         }),
         listAccessibleMarketplaces({
-          context: { memberTeams, organizationContext },
+          context: { memberTeams, organizationContext, session: c.get("session") },
           organizationId,
         }),
       ])

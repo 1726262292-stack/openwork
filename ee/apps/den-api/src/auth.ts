@@ -156,6 +156,7 @@ export const auth = betterAuth({
   session: {
     expiresIn: DEN_SESSION_EXPIRES_IN_SECONDS,
     updateAge: DEN_SESSION_UPDATE_AGE_IN_SECONDS,
+    freshAge: 15 * 60,
   },
   databaseHooks: {
     session: {

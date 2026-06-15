@@ -2,6 +2,9 @@ import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { desktopConfigSchema } from "@openwork/types/den/desktop-policies"
 import { z } from "zod"
+import { eq } from "@openwork-ee/den-db/drizzle"
+import { AuthAccountTable } from "@openwork-ee/den-db/schema"
+import { db } from "../../db.js"
 import { jsonValidator, requireUserMiddleware, resolveOrganizationContextMiddleware, resolveUserOrganizationsMiddleware, type OrganizationContextVariables, type UserOrganizationsContext } from "../../middleware/index.js"
 import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
@@ -40,6 +43,20 @@ const activeOrganizationResponseSchema = z.object({
   activeOrgSlug: z.string().nullable(),
 }).meta({ ref: "ActiveOrganizationResponse" })
 
+function normalizeAuthProvider(providerId: string) {
+  const normalized = providerId.trim().toLowerCase()
+  if (normalized === "credential" || normalized === "email-password") {
+    return "email"
+  }
+  if (normalized.startsWith("openwork-sso-")) {
+    return "sso"
+  }
+  if (normalized.startsWith("openwork-scim-")) {
+    return "scim"
+  }
+  return normalized || "unknown"
+}
+
 export function registerMeRoutes<T extends { Variables: AuthContextVariables & Partial<UserOrganizationsContext> & Partial<OrganizationContextVariables> }>(app: Hono<T>) {
   app.get(
     "/v1/me",
@@ -53,9 +70,24 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
       },
     }),
     requireUserMiddleware,
-    (c) => {
+    async (c) => {
+    const user = c.get("user")
+    if (!user) {
+      return c.json({ error: "unauthorized" }, 401)
+    }
+
+    const accounts = await db
+      .select({ providerId: AuthAccountTable.providerId })
+      .from(AuthAccountTable)
+      .where(eq(AuthAccountTable.userId, normalizeDenTypeId("user", user.id)))
+
+    const authProviders = [...new Set(accounts.map((account) => normalizeAuthProvider(account.providerId)))].sort()
+
     return c.json({
-      user: c.get("user"),
+      user: {
+        ...user,
+        authProviders,
+      },
       session: c.get("session"),
     })
     },

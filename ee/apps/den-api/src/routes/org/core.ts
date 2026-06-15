@@ -1,5 +1,5 @@
 import { eq } from "@openwork-ee/den-db/drizzle"
-import { OrganizationTable, SsoConnectionTable } from "@openwork-ee/den-db/schema"
+import { OrganizationTable, ScimProviderTable, SsoConnectionTable } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
@@ -404,9 +404,21 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
     requireUserMiddleware,
     resolveOrganizationContextMiddleware,
     resolveMemberTeamsMiddleware,
-    (c) => {
+    async (c) => {
       const payload = c.get("organizationContext")
       const owner = payload.members.find((member: typeof payload.members[number]) => member.isOwner) ?? null
+      const [ssoRows, scimRows] = await Promise.all([
+        db
+          .select({ id: SsoConnectionTable.id })
+          .from(SsoConnectionTable)
+          .where(eq(SsoConnectionTable.organizationId, payload.organization.id))
+          .limit(1),
+        db
+          .select({ id: ScimProviderTable.id })
+          .from(ScimProviderTable)
+          .where(eq(ScimProviderTable.organizationId, payload.organization.id))
+          .limit(1),
+      ])
 
       return c.json({
         ...payload,
@@ -425,6 +437,10 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         currentMemberTeams: c.get("memberTeams") ?? [],
         plan: parseOrganizationPlan(payload.organization.metadata),
         entitlements: getOrganizationEntitlements(payload.organization.metadata),
+        authMethods: {
+          sso: Boolean(ssoRows[0]),
+          scim: Boolean(scimRows[0]),
+        },
       })
     },
   )

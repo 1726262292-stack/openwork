@@ -21,6 +21,7 @@ import type { OrgRouteVariables } from "./shared.js"
 import {
   ensureTeamManager,
   idParamSchema,
+  orgAccessFailureStatus,
 } from "./shared.js"
 
 const createTeamSchema = z.object({
@@ -103,7 +104,7 @@ export function registerOrgTeamRoutes<T extends { Variables: OrgRouteVariables }
     async (c) => {
       const permission = ensureTeamManager(c)
       if (!permission.ok) {
-        return c.json(permission.response, 403)
+        return c.json(permission.response, orgAccessFailureStatus(permission.response))
       }
 
       const payload = c.get("organizationContext")
@@ -192,7 +193,7 @@ export function registerOrgTeamRoutes<T extends { Variables: OrgRouteVariables }
     async (c) => {
       const permission = ensureTeamManager(c)
       if (!permission.ok) {
-        return c.json(permission.response, 403)
+        return c.json(permission.response, orgAccessFailureStatus(permission.response))
       }
 
       const payload = c.get("organizationContext")
@@ -295,7 +296,7 @@ export function registerOrgTeamRoutes<T extends { Variables: OrgRouteVariables }
     async (c) => {
       const permission = ensureTeamManager(c)
       if (!permission.ok) {
-        return c.json(permission.response, 403)
+        return c.json(permission.response, orgAccessFailureStatus(permission.response))
       }
 
       const payload = c.get("organizationContext")

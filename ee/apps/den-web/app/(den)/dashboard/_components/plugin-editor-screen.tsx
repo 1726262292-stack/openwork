@@ -9,7 +9,7 @@ import { DenButton } from "../../_components/ui/button";
 import { DenInput } from "../../_components/ui/input";
 import { DenSelect } from "../../_components/ui/select";
 import { DenTextarea } from "../../_components/ui/textarea";
-import { getErrorMessage, requestJson } from "../../_lib/den-flow";
+import { getRequestError, requestJson } from "../../_lib/den-flow";
 import { getPluginRoute, getPluginsRoute } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { useMarketplaces } from "./marketplace-data";
@@ -110,7 +110,7 @@ async function postJson(path: string, body: unknown, failureLabel: string): Prom
     20000,
   );
   if (!response.ok) {
-    throw new Error(getErrorMessage(payload, `${failureLabel} (${response.status}).`));
+    throw getRequestError(payload, response, `${failureLabel} (${response.status}).`);
   }
   return payload;
 }
@@ -126,7 +126,7 @@ function createdItemId(payload: unknown): string | null {
 export function PluginEditorScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { orgSlug } = useOrgDashboard();
+  const { orgSlug, runReauthableAction } = useOrgDashboard();
   const { data: marketplaces = [] } = useMarketplaces();
 
   const [name, setName] = useState("");
@@ -193,6 +193,7 @@ export function PluginEditorScreen() {
     setSaving(true);
     setSaveError(null);
     try {
+      await runReauthableAction("create-plugin", async () => {
       setProgress("Creating plugin...");
       const pluginPayload = await postJson(
         "/v1/plugins",
@@ -240,6 +241,7 @@ export function PluginEditorScreen() {
       await queryClient.invalidateQueries({ queryKey: pluginQueryKeys.all });
       router.push(getPluginRoute(orgSlug, pluginId));
       router.refresh();
+      });
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Failed to create the plugin.");
     } finally {
