@@ -12,6 +12,7 @@ export const ORGANIZATION_AUDIT_ACTIONS = {
   roleUpdated: "organization.role.updated",
   roleDeleted: "organization.role.deleted",
   memberRoleUpdated: "organization.member.role_updated",
+  memberOwnershipTransferred: "organization.member.ownership_transferred",
   memberRemoved: "organization.member.removed",
   scimTokenRotated: "organization.scim.token_rotated",
   scimConnectionDeleted: "organization.scim.connection_deleted",
