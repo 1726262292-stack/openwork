@@ -2,6 +2,7 @@ import { getInitialActiveOrganizationIdForUser } from "./active-organization.js"
 import { db } from "./db.js";
 import { env } from "./env.js";
 import { deriveDenMcpResource } from "./mcp/resource.js";
+import { getDenAuthIssuer, getDenJwtOptions } from "./mcp/jwt-policy.js";
 import {
   DEN_MCP_DEFAULT_CLIENT_SCOPES,
   DEN_MCP_SCOPES,
@@ -378,7 +379,7 @@ export const auth = betterAuth({
     },
   },
   plugins: [
-    jwt(),
+    jwt(getDenJwtOptions({ issuer: getDenAuthIssuer(env.betterAuthUrl) })),
     emailOTP({
       overrideDefaultEmailVerification: true,
       otpLength: 6,
