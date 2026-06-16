@@ -113,13 +113,21 @@ Audit payloads avoid bearer tokens, API key secrets, SCIM tokens, SAML certifica
 
 ## Availability and failover
 
-Production deployments should avoid a single-node control plane:
+OpenWork Cloud treats Den API as the logical control plane for identity, RBAC, hosted workers, shared providers, and organization policy. The hosted deployment avoids making that logical control plane a single physical chokepoint:
+
+- Render runs the Cloud app and Den API as scaled services with a minimum of two instances for production traffic.
+- Render load balances requests across healthy instances, stops routing to instances that fail health checks, and restarts failed instances.
+- Den API instances are stateless application replicas; shared state lives in PlanetScale and external managed services.
+- PlanetScale production clusters provide one primary and at least two replicas across three availability zones, with automated failover managed by PlanetScale.
+- PlanetScale automated backups run at least every 12 hours on the Base plan; operators should also define retention, restore testing, and point-in-time recovery expectations for their plan.
+
+Production and private deployments should avoid a single-node control plane:
 
 - Run the Cloud app and Den API behind health checks.
 - Run more than one API instance where the platform supports it.
-- Use a managed database with automated backups and failover.
+- Use a managed database with automated backups and failover, such as PlanetScale production branches or an equivalent MySQL-compatible HA service.
 - Monitor API health, worker provisioning, queue depth, webhook failures, sign-in failures, and database connectivity.
 - Define recovery objectives for the database, object storage, and worker state.
 - Test restore and failover procedures before an incident.
 
-For self-hosted deployments, document the exact topology: ingress, app, API, worker provisioning, database, backups, and the person or team responsible for each part.
+For self-hosted deployments, document the exact topology: ingress, app, API, worker provisioning, database, backups, failover owner, restore owner, and the person or team responsible for each part.
