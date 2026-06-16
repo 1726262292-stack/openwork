@@ -58,6 +58,17 @@ For production organizations, use SSO with identity-provider MFA as the primary 
 
 Native factor enrollment and in-product reauthentication should be treated as product work before replacing SSO-enforced MFA as the production control.
 
+## Standard email/password protections
+
+The standard OpenWork Cloud email/password path is protected server-side against high-volume guessing and known-compromised passwords:
+
+- Email/password sign-in is rate limited. The default sign-in rule allows 5 attempts in a 5-minute window, in addition to the global Better Auth rate limit.
+- Failed email/password sign-ins are tracked by a hashed account identifier. After 5 recent failures, the account enters progressive lockout: 5 minutes first, then longer lockouts for continued failures, capped at 1 hour. Successful sign-in clears the failure counter.
+- Password creation and password reset requests screen the proposed password against the Have I Been Pwned Pwned Passwords range API. OpenWork sends only the first 5 characters of the SHA-1 password hash, uses the k-anonymity response to compare suffixes locally, and rejects known-compromised passwords.
+- If password screening is temporarily unavailable, password creation or reset fails closed and asks the user to try again later.
+
+OpenWork does not call the breached-password service during normal sign-in. Existing-password sign-in should be protected by rate limiting, lockout, identity-provider controls, monitoring, and a forced reset process if a credential is later suspected to be compromised.
+
 For mover and leaver handling:
 
 - Change roles when responsibilities change.
