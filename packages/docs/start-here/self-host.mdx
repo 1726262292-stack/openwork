@@ -38,6 +38,13 @@ For a containerized worker runtime, start from the [Docker packaging](https://gi
 - The Den control plane uses a MySQL-compatible database. Local Docker uses MySQL 8.4; production can use standard MySQL or PlanetScale-compatible credentials.
 - Postgres is not required by the current Den deployment path.
 
+For production, configure encryption explicitly:
+
+- Enable encryption at rest for the MySQL-compatible database, database backups, object storage, worker volumes, and logs that may contain operational metadata.
+- Require TLS for application-to-database traffic. PlanetScale connections require TLS. For standard MySQL, include an SSL mode in `DATABASE_URL`, such as `?sslmode=require` or, when you can validate the server certificate chain, `?sslmode=verify-full`.
+- Keep the local Docker MySQL URL (`mysql://root:password@127.0.0.1:3306/openwork_den`) for development only; it is not a production security posture.
+- Set a unique `DEN_DB_ENCRYPTION_KEY` of at least 32 characters. OpenWork uses it to encrypt selected sensitive database columns, but it does not replace infrastructure-level encryption at rest.
+
 ## Auth and SSO
 
 Den uses Better Auth. It runs in your deployment, uses your database, and is configured with your `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, trusted origins, and optional GitHub/Google OAuth credentials.

@@ -16,6 +16,10 @@ Production deployments should enforce encrypted transport and encrypted storage:
 - Enable encryption at rest for the production database, object storage, backups, and logs that may contain operational metadata.
 - Keep local development defaults local-only. Example development database URLs and local secrets in repository scripts are not production settings.
 
+OpenWork Cloud's hosted Den database runs on PlanetScale. PlanetScale encrypts database storage and backups at rest, and PlanetScale database connection strings require TLS before SQL commands can be issued. OpenWork's production migration workflow also configures strict TLS verification for PlanetScale MySQL-protocol connections.
+
+OpenWork also encrypts selected sensitive database columns, such as provider secrets and SSO configuration, with application-level AES-256-GCM encryption using `DEN_DB_ENCRYPTION_KEY`. This is an additional control and does not replace provider-managed storage encryption at rest.
+
 For private or self-hosted deployments, the operator is responsible for enabling TLS certificates, database storage encryption, backup encryption, and private network policy in the target environment.
 
 ## Secrets and keys
