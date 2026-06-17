@@ -101,3 +101,59 @@ test("prefers server config workspaces when desktop state is empty", async () =>
     else process.env.OPENWORK_SERVER_CONFIG = previous;
   }
 });
+
+test("normalizes recovered remote OpenWork entries before persisting", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "openwork-workspace-store-"));
+  const userData = path.join(root, "userData");
+  const serverConfig = path.join(root, "server.json");
+  await mkdir(userData, { recursive: true });
+
+  await writeFile(
+    path.join(userData, "openwork-workspaces.json"),
+    JSON.stringify({ selectedId: "", activeId: null, watchedId: null, workspaces: [] }),
+    "utf8",
+  );
+  await writeFile(
+    serverConfig,
+    JSON.stringify({
+      workspaces: [
+        {
+          id: "legacy_one",
+          path: "/workspace",
+          workspaceType: "remote",
+          remoteType: "openwork",
+          baseUrl: "https://worker.example.com/workspace/ws_remote",
+        },
+        {
+          id: "legacy_two",
+          path: "/workspace",
+          workspaceType: "remote",
+          remoteType: "openwork",
+          baseUrl: "https://worker.example.com/w/ws_remote",
+        },
+      ],
+    }),
+    "utf8",
+  );
+
+  const previous = process.env.OPENWORK_SERVER_CONFIG;
+  process.env.OPENWORK_SERVER_CONFIG = serverConfig;
+  try {
+    const store = createWorkspaceStore({
+      app: { getPath: (name) => name === "userData" ? userData : root },
+      defaultDenBaseUrl: "https://example.test",
+      defaultRequireSignin: false,
+      forceRequireSignin: false,
+    });
+
+    const state = await store.readWorkspaceState();
+    assert.equal(state.workspaces.length, 1);
+    assert.equal(state.workspaces[0].id, "rem_ws_remote");
+    assert.equal(state.workspaces[0].baseUrl, "https://worker.example.com");
+    assert.equal(state.workspaces[0].openworkWorkspaceId, "ws_remote");
+    assert.equal(state.selectedId, "rem_ws_remote");
+  } finally {
+    if (previous === undefined) delete process.env.OPENWORK_SERVER_CONFIG;
+    else process.env.OPENWORK_SERVER_CONFIG = previous;
+  }
+});

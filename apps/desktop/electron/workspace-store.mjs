@@ -511,7 +511,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
 
   async function readWorkspaceState() {
     const state = await readJsonFile(workspaceStatePath(), EMPTY_WORKSPACE_LIST);
-    const selectedId =
+    let selectedId =
       typeof state?.selectedId === "string"
         ? state.selectedId
         : typeof state?.selectedWorkspaceId === "string"
@@ -519,14 +519,14 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
           : typeof state?.activeId === "string"
             ? state.activeId
             : "";
-    const watchedId =
+    let watchedId =
       typeof state?.watchedId === "string"
         ? state.watchedId
         : typeof state?.watchedWorkspaceId === "string"
           ? state.watchedWorkspaceId
           : null;
-    const activeId = typeof state?.activeId === "string" ? state.activeId : null;
-    const workspaces = Array.isArray(state?.workspaces) ? state.workspaces : [];
+    let activeId = typeof state?.activeId === "string" ? state.activeId : null;
+    let workspaces = Array.isArray(state?.workspaces) ? state.workspaces : [];
     let changed = false;
     if (workspaces.length === 0) {
       const recoveredWorkspaces = await recoverWorkspacesFromKnownState();
@@ -536,12 +536,11 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
           count: recoveredWorkspaces.length,
           selectedWorkspaceId: selectedWorkspace.id,
         });
-        return writeWorkspaceState({
-          selectedId: selectedWorkspace.id,
-          watchedId: selectedWorkspace.id,
-          activeId: selectedWorkspace.id,
-          workspaces: recoveredWorkspaces,
-        });
+        selectedId = selectedWorkspace.id;
+        watchedId = selectedWorkspace.id;
+        activeId = selectedWorkspace.id;
+        workspaces = recoveredWorkspaces;
+        changed = true;
       }
     }
     const idMap = new Map();
