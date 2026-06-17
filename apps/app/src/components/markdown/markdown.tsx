@@ -69,9 +69,16 @@ function localPathFromHref(href: string) {
 
   if (/^file:/i.test(trimmed)) {
     try {
-      const pathname = decodeURIComponent(new URL(trimmed).pathname);
+      const parsed = new URL(trimmed);
+      const host = decodeURIComponent(parsed.hostname);
+      const pathname = decodeURIComponent(parsed.pathname);
+      const localPath = /^\/[A-Za-z]:\//.test(pathname) ? pathname.slice(1) : pathname;
 
-      return /^\/[A-Za-z]:\//.test(pathname) ? pathname.slice(1) : pathname;
+      if (host && host !== "localhost") {
+        return `//${host}${localPath.startsWith("/") ? localPath : `/${localPath}`}`;
+      }
+
+      return localPath;
     } catch {
       return "";
     }
