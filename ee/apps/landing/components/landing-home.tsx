@@ -32,43 +32,14 @@ const externalLinkProps = (href: string) =>
     : {};
 
 const CLOUD_SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
-const DOWNLOAD_SNIPPET = "open https://openworklabs.com/download";
 
 const proofLogos = [
-  { name: "Toyota", users: "4", src: "https://logo.clearbit.com/toyota.com" },
-  { name: "Lenovo", users: "4", src: "https://logo.clearbit.com/lenovo.com" },
-  { name: "IBM", users: "3", src: "https://logo.clearbit.com/ibm.com" },
-  { name: "Tesla", users: "2", src: "https://logo.clearbit.com/tesla.com" },
-  { name: "Stanford", users: "2", src: "https://logo.clearbit.com/stanford.edu" },
-  { name: "MIT", users: "1", src: "https://logo.clearbit.com/mit.edu" }
-];
-
-const comparisonRows = [
-  {
-    feature: "Source model",
-    openwork: "Open source desktop app",
-    claude: "Closed Anthropic product"
-  },
-  {
-    feature: "Model choice",
-    openwork: "50+ LLM providers, including local models",
-    claude: "Claude only"
-  },
-  {
-    feature: "Files and workspace",
-    openwork: "Local-first. Your files stay on your machine by default.",
-    claude: "Hosted workspace flow"
-  },
-  {
-    feature: "Team sharing",
-    openwork: "Package skills, MCPs, plugins, and configs into one link",
-    claude: "Built around Anthropic's managed experience"
-  },
-  {
-    feature: "Deployment control",
-    openwork: "Desktop, Cloud, or enterprise/self-hosted paths",
-    claude: "Anthropic-hosted"
-  }
+  { name: "Toyota", users: "4", src: "https://logo.clearbit.com/toyota.com", type: "Company" },
+  { name: "Lenovo", users: "4", src: "https://logo.clearbit.com/lenovo.com", type: "Company" },
+  { name: "IBM", users: "3", src: "https://logo.clearbit.com/ibm.com", type: "Company" },
+  { name: "Tesla", users: "2", src: "https://logo.clearbit.com/tesla.com", type: "Company" },
+  { name: "Stanford", users: "2", src: "https://logo.clearbit.com/stanford.edu", type: "University" },
+  { name: "MIT", users: "1", src: "https://logo.clearbit.com/mit.edu", type: "University" }
 ];
 
 export function LandingHome(props: Props) {
@@ -86,8 +57,8 @@ export function LandingHome(props: Props) {
   );
 
   const callLinkProps = externalLinkProps(props.callHref);
-  const primaryCtaHref = props.downloadHref;
-  const primaryCtaLabel = "Download free — no sign-in";
+  const primaryCtaHref = CLOUD_SIGNUP_URL;
+  const primaryCtaLabel = "Get Started for free";
   const primaryCtaLinkProps = externalLinkProps(primaryCtaHref);
 
   return (
@@ -109,18 +80,17 @@ export function LandingHome(props: Props) {
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-16 px-6 pb-24 md:gap-20 md:px-8 md:pb-28">
           <section className="max-w-4xl pt-8 md:pt-12">
             <h1 className="mb-5 text-4xl font-medium leading-[1.1] tracking-tight md:text-5xl lg:text-6xl">
-              Run AI agents on
+              The open source
               <br />
-              your own files —
+              Claude Cowork
               <br />
               <span className="font-pixel inline-block align-middle text-[1.05em] font-normal">
-                open source.
+                alternative.
               </span>
             </h1>
             <p className="mb-6 max-w-4xl text-lg leading-relaxed text-gray-700 md:mb-7 md:text-xl">
-              OpenWork is the free desktop app that runs 50+ LLM providers with
-              your own keys, keeps your files local by default, and lets your
-              whole team share agent setups in one link.
+              OpenWork is the desktop app that lets you use 50+ LLMs, bring your
+              own keys, and share your setups seamlessly with your team.
             </p>
 
             <div className="mt-6 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
@@ -143,59 +113,33 @@ export function LandingHome(props: Props) {
 
             </div>
 
-            <div className="mt-5 flex w-full max-w-xl items-center gap-2 rounded-2xl border border-gray-200 bg-white/80 px-4 py-3 shadow-sm">
-              <span className="text-[12px] font-medium uppercase tracking-[0.18em] text-gray-400">
-                Try it
-              </span>
-              <code className="min-w-0 flex-1 truncate font-mono text-[13px] text-[#011627]">
-                {DOWNLOAD_SNIPPET}
-              </code>
-            </div>
-
-            <div className="mt-6 grid max-w-3xl grid-cols-2 gap-3 text-left sm:grid-cols-4">
-              {[
-                { value: props.stars, label: "GitHub stars" },
-                { value: "~200k", label: "downloads" },
-                { value: "50+", label: "LLM providers" },
-                { value: "YC", label: "backed" }
-              ].map((stat) => (
-                <div
-                  key={stat.label}
-                  className="rounded-2xl border border-gray-100 bg-white/75 px-4 py-3 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.22)]"
-                >
-                  <div className="text-lg font-semibold tracking-tight text-[#011627]">
-                    {stat.value}
-                  </div>
-                  <div className="text-[12px] text-gray-500">
-                    {stat.label}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-8 max-w-4xl">
-              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">
-                Used by people at teams and universities including
+            <div className="mt-7 max-w-3xl overflow-hidden rounded-full border border-gray-100 bg-white/65 py-2 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.22)]">
+              <div className="mb-1 px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-400">
+                Used by people at
               </div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                {proofLogos.map((logo) => (
+              <motion.div
+                aria-label="OpenWork users at Toyota, Lenovo, IBM, Tesla, Stanford, and MIT"
+                className="flex w-max gap-3 px-4"
+                animate={{ x: [0, -420] }}
+                transition={{ duration: 22, repeat: Infinity, ease: "linear" }}
+              >
+                {[...proofLogos, ...proofLogos].map((logo, index) => (
                   <div
-                    key={logo.name}
-                    className="flex min-h-[76px] flex-col items-center justify-center gap-2 rounded-2xl border border-gray-100 bg-white/75 px-3 py-3 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.22)]"
-                    title={`${logo.users} OpenWork users at ${logo.name}`}
+                    key={`${logo.name}-${index}`}
+                    className="flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-[12px] text-gray-500"
+                    title={`${logo.users} ${logo.users === "1" ? "user" : "users"} at ${logo.name}`}
                   >
                     <img
                       src={logo.src}
                       alt={`${logo.name} logo`}
-                      className="h-7 max-w-[100px] object-contain grayscale opacity-70 transition hover:grayscale-0 hover:opacity-100"
+                      className="h-4 w-4 rounded-sm object-contain grayscale opacity-70"
                       loading="lazy"
                     />
-                    <div className="text-[11px] text-gray-400">
-                      {logo.users} {logo.users === "1" ? "user" : "users"}
-                    </div>
+                    <span className="font-medium text-[#011627]">{logo.name}</span>
+                    <span className="text-gray-400">{logo.users}</span>
                   </div>
                 ))}
-              </div>
+              </motion.div>
             </div>
           </section>
 
@@ -292,62 +236,6 @@ export function LandingHome(props: Props) {
                   </AnimatePresence>
                 </div>
               </div>
-            </div>
-          </section>
-
-          <section className="landing-shell rounded-[2.5rem] p-8 md:p-12">
-            <div className="mb-10 max-w-2xl">
-              <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">
-                OpenWork vs Claude Cowork
-              </div>
-              <h2 className="mb-4 text-3xl font-medium leading-[1.15] tracking-tight md:text-4xl">
-                Built for teams that want control, not another locked-down AI workspace.
-              </h2>
-              <p className="text-lg leading-relaxed text-gray-700">
-                Claude Cowork is a managed Anthropic experience. OpenWork is an
-                open-source desktop app for teams that want local files, model
-                choice, BYO keys, and shareable agent setups.
-              </p>
-            </div>
-
-            <div className="overflow-hidden rounded-3xl border border-gray-100 bg-white">
-              <div className="grid grid-cols-[1.15fr_1fr_1fr] border-b border-gray-100 bg-gray-50/70 px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.16em] text-gray-400 md:px-6">
-                <div>Capability</div>
-                <div>OpenWork</div>
-                <div>Claude Cowork</div>
-              </div>
-              {comparisonRows.map((row) => (
-                <div
-                  key={row.feature}
-                  className="grid grid-cols-1 gap-3 border-b border-gray-100 px-4 py-4 last:border-b-0 md:grid-cols-[1.15fr_1fr_1fr] md:gap-6 md:px-6"
-                >
-                  <div className="text-sm font-medium text-[#011627]">
-                    {row.feature}
-                  </div>
-                  <div className="text-sm leading-relaxed text-gray-700">
-                    <span className="mr-2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-50 text-[10px] font-semibold text-emerald-700">
-                      ✓
-                    </span>
-                    {row.openwork}
-                  </div>
-                  <div className="text-sm leading-relaxed text-gray-500">
-                    {row.claude}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-8 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-              <a
-                href={primaryCtaHref}
-                className="doc-button inline-flex items-center gap-2"
-                {...primaryCtaLinkProps}
-              >
-                Download OpenWork <ArrowRight size={18} />
-              </a>
-              <a href="/enterprise" className="secondary-button">
-                See enterprise options
-              </a>
             </div>
           </section>
 

@@ -6,9 +6,6 @@ import { homeFaq } from "../lib/faq";
 import { baseOpenGraph } from "../lib/seo";
 
 export const metadata = {
-  title: "OpenWork — Open-source Claude Cowork alternative",
-  description:
-    "Run AI agents on your own files with an open-source desktop app. OpenWork supports 50+ LLM providers, BYO keys, local-first files, and one-link team sharing.",
   alternates: {
     canonical: "/"
   },
@@ -23,7 +20,7 @@ const softwareApplicationSchema = {
   "@type": "SoftwareApplication",
   name: "OpenWork",
   description:
-    "Open-source Claude Cowork alternative. Desktop app that lets teams run AI agents on local files, use 50+ LLM providers with BYO keys, and share reusable agent setups in one link.",
+    "Open source Claude Cowork alternative. Desktop app that lets teams use 50+ LLMs, bring their own provider keys, and ship reusable agent setups with guardrails.",
   url: "https://openworklabs.com",
   applicationCategory: "BusinessApplication",
   operatingSystem: "macOS, Windows, Linux",
