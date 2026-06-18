@@ -56,7 +56,10 @@ export function EnvVarRequestTool({ part }: EnvVarRequestToolProps) {
   const save = () => {
     if (isModifying) return
     void modifyAsync(editor, {
-      onSuccess: () => setSaved(true),
+      onSuccess: () => {
+        setSaved(true)
+        setEditor((current) => ({ ...current, value: "" }))
+      },
     })
   }
 
