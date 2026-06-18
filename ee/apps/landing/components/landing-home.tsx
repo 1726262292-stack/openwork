@@ -31,6 +31,15 @@ const externalLinkProps = (href: string) =>
 
 const CLOUD_SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
 
+const trustedCompanies = [
+  "Stanford",
+  "MIT",
+  "Toyota",
+  "Lenovo",
+  "IBM",
+  "Tesla"
+];
+
 export function LandingHome(props: Props) {
   const [activeDemoId, setActiveDemoId] = useState(defaultLandingDemoFlowId);
   const [activeUseCase, setActiveUseCase] = useState(0);
@@ -138,6 +147,33 @@ export function LandingHome(props: Props) {
               </p>
             </section>
           ) : null}
+
+          <section
+            aria-labelledby="trusted-by-heading"
+            className="landing-shell-soft -mt-6 overflow-hidden rounded-[2rem] p-4 shadow-[0_18px_50px_-34px_rgba(1,22,39,0.45)] md:-mt-8 md:p-5"
+          >
+            <div className="flex flex-col gap-4 md:flex-row md:items-center">
+              <div className="flex items-center gap-3 md:w-[220px]">
+                <h2
+                  id="trusted-by-heading"
+                  className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400"
+                >
+                  Used by people at
+                </h2>
+                <div className="h-px flex-1 bg-slate-200 md:hidden" />
+              </div>
+              <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                {trustedCompanies.map((company) => (
+                  <div
+                    key={company}
+                    className="flex h-14 items-center justify-center rounded-2xl border border-slate-200/80 bg-white/70 px-4 text-center text-[15px] font-semibold tracking-[-0.03em] text-slate-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+                  >
+                    {company}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
 
           <section className="relative flex flex-col gap-6 overflow-hidden md:gap-8">
             <div className="landing-shell relative flex flex-col overflow-hidden rounded-2xl">
