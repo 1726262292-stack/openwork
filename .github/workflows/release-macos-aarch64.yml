@@ -259,31 +259,15 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
       MACOS_NOTARIZE: ${{ needs.resolve-release.outputs.notarize }}
+      SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID || vars.SIGNPATH_ORGANIZATION_ID }}
+      SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG || vars.SIGNPATH_PROJECT_SLUG }}
+      SIGNPATH_SIGNING_POLICY_SLUG: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG || vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+      SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ secrets.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG || vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
 
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-14
-            os_type: macos
-            artifact: electron-macos-arm64
-            electron_args: "--mac --arm64"
-            target_triple: aarch64-apple-darwin
-          - platform: macos-14
-            os_type: macos
-            artifact: electron-macos-x64
-            electron_args: "--mac --x64"
-            target_triple: x86_64-apple-darwin
-          - platform: ubuntu-22.04
-            os_type: linux
-            artifact: electron-linux-x64
-            electron_args: "--linux --x64"
-            target_triple: x86_64-unknown-linux-gnu
-          - platform: ubuntu-22.04-arm
-            os_type: linux
-            artifact: electron-linux-arm64
-            electron_args: "--linux --arm64"
-            target_triple: aarch64-unknown-linux-gnu
           - platform: windows-2022
             os_type: windows
             artifact: electron-windows-x64
@@ -421,9 +405,6 @@ jobs:
         shell: bash
         env:
           SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
         run: |
           set -euo pipefail
 
@@ -470,26 +451,26 @@ jobs:
           retention-days: 1
 
       - name: Submit Windows signing request to SignPath
-        if: matrix.os_type == 'windows' && vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG == ''
+        if: matrix.os_type == 'windows' && env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG == ''
         uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
           github-artifact-id: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
           wait-for-completion: true
           output-artifact-directory: ${{ runner.temp }}/signpath-signed
 
       - name: Submit Windows signing request to SignPath (artifact configuration)
-        if: matrix.os_type == 'windows' && vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != ''
+        if: matrix.os_type == 'windows' && env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != ''
         uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
           github-artifact-id: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
           wait-for-completion: true
           output-artifact-directory: ${{ runner.temp }}/signpath-signed
@@ -824,11 +805,7 @@ jobs:
   aur-publish:
     name: Publish AUR
     needs: [resolve-release, publish-electron, publish-release]
-    if: |
-      always() &&
-      needs.resolve-release.result == 'success' &&
-      needs.publish-electron.result == 'success' &&
-      (needs.publish-release.result == 'success' || needs.publish-release.result == 'skipped')
+    if: ${{ false }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
