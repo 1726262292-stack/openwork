@@ -34,7 +34,7 @@ export function SiteNav(props: Props) {
     { href: "/docs", label: "Docs", key: "docs", newTab: true },
     { href: "/pricing", label: "Pricing", key: "pricing" },
     { href: "/download", label: "Desktop", key: "download" },
-    { href: "https://app.openworklabs.com", label: "Cloud", key: "cloud" },
+    { href: "/cloud", label: "Cloud", key: "cloud" },
     { href: "/enterprise", label: "Enterprise", key: "enterprise" }
   ] as const;
 

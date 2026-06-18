@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from "react";
 
 import { LandingAppDemoPanel } from "./landing-app-demo-panel";
 import { LandingBackground } from "./landing-background";
+import { LandingCloudSection } from "./landing-cloud-section";
 import { LandingCloudWorkersCard } from "./landing-cloud-workers-card";
 import {
   defaultLandingDemoFlowId,
@@ -416,7 +417,35 @@ export function LandingHome(props: Props) {
             </div>
           </section>
 
+          <LandingCloudSection />
+
           <LandingFaq />
+
+          <section className="landing-shell rounded-[2.5rem] p-8 text-center md:p-12">
+            <h2 className="mx-auto mb-4 max-w-2xl text-3xl font-medium leading-[1.15] tracking-tight md:text-4xl">
+              Start free. Upgrade when your team&apos;s ready.
+            </h2>
+            <p className="mx-auto mb-8 max-w-xl text-lg leading-relaxed text-gray-700">
+              Run OpenWork locally for free, or spin up a shared cloud workspace
+              in minutes. No credit card to start.
+            </p>
+            <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <a
+                href={primaryCtaHref}
+                className="doc-button inline-flex items-center gap-2"
+                {...primaryCtaLinkProps}
+              >
+                {primaryCtaLabel} <ArrowRight size={18} />
+              </a>
+              <a
+                href={props.callHref}
+                className="secondary-button"
+                {...callLinkProps}
+              >
+                Contact sales
+              </a>
+            </div>
+          </section>
 
           <SiteFooter />
         </div>
