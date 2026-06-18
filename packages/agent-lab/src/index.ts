@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createServer } from "node:net";
 import { mkdir, writeFile, rm, readFile, symlink } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -6,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { generateAppTs } from "./app-template.js";
+import { resolveNodeBin } from "./node-resolver.js";
 
 export type AgentToolDef = {
   name: string;
@@ -41,12 +43,22 @@ export type LabAgent = {
 };
 
 const BASE_PORT = 4820;
-let nextPort = BASE_PORT;
 const agents = new Map<string, LabAgent>();
 const LAB_ROOT = join(tmpdir(), "openwork-agent-lab");
 
-function allocatePort(): number {
-  return nextPort++;
+async function allocatePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.unref();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const port = server.address();
+      server.close(() => {
+        if (port && typeof port === "object") resolve(port.port);
+        else reject(new Error("Failed to allocate port"));
+      });
+    });
+  });
 }
 
 function agentId(): string {
@@ -278,19 +290,20 @@ async function waitForHealth(baseUrl: string, timeoutMs = 20000): Promise<void> 
 export async function createLabAgent(config: AgentConfig): Promise<LabAgent> {
   const id = agentId();
   const dir = projectDirFor(config.name, id);
-  const port = allocatePort();
+  const port = await allocatePort();
   const logs: string[] = [];
 
   await mkdir(dir, { recursive: true });
   await writeProject(dir, config);
 
   const flueBin = findFlueBin();
+  const nodeBin = await resolveNodeBin();
   const envVars: Record<string, string> = { ...process.env as Record<string, string> };
   for (const key of PROVIDER_KEY_PATTERNS) {
     const val = getEnv(key);
     if (val) envVars[key] = val;
   }
-  const child = spawn("node", [flueBin, "dev", "--target", "node", "--port", String(port)], {
+  const child = spawn(nodeBin, [flueBin, "dev", "--target", "node", "--port", String(port)], {
     cwd: dir,
     env: envVars,
     stdio: ["ignore", "pipe", "pipe"],
