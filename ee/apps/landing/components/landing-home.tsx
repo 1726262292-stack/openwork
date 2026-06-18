@@ -6,6 +6,7 @@ import { useMemo, useRef, useState } from "react";
 import { LandingAppDemoPanel } from "./landing-app-demo-panel";
 import { LandingBackground } from "./landing-background";
 import { LandingCloudSection } from "./landing-cloud-section";
+import { LandingCoworkerSection } from "./landing-coworker-section";
 import { LandingCloudWorkersCard } from "./landing-cloud-workers-card";
 import {
   defaultLandingDemoFlowId,
@@ -418,6 +419,8 @@ export function LandingHome(props: Props) {
           </section>
 
           <LandingCloudSection />
+
+          <LandingCoworkerSection />
 
           <LandingFaq />
 
