@@ -1,6 +1,6 @@
 const home = `# OpenWork
 
-> The open-source Claude Cowork alternative. OpenWork is a desktop app that lets teams chat with 50+ LLMs, bring their own provider keys, and ship reusable agent setups with guardrails.
+> The open-source Claude Cowork alternative. OpenWork is a free desktop app that lets teams run AI agents on their own files, use 50+ LLM providers with their own keys, and share reusable agent setups in one link.
 
 ## What it is
 
@@ -8,13 +8,16 @@ const home = `# OpenWork
 - Bring your own model and provider (OpenAI, Anthropic, local models, 50+ supported)
 - Skills, plugins, and MCP servers extend what the agent can do
 - Shared agent setups for teams, with policy and guardrails
+- Local-first desktop mode keeps files on the user's machine by default
 - Free and open source
 
 ## Primary calls-to-action
 
-- **Try it free** — [Get Started for free](https://app.openworklabs.com?mode=sign-up)
+- **Download desktop** — [Download OpenWork](https://openworklabs.com/download)
+- **Try Cloud** — [Get Started for free](https://app.openworklabs.com?mode=sign-up)
 - **Team plans** — [Pricing](https://openworklabs.com/pricing) (first 5 seats free, then \\$10 per seat/mo)
-- **Sign in to the hosted workspace** — [Cloud](https://app.openworklabs.com)
+- **Cloud control plane** — [Cloud](https://openworklabs.com/cloud)
+- **Private beta** — [OpenWork Coworker](https://openworklabs.com/coworker)
 - **SSO / audit / procurement** — [Enterprise](https://openworklabs.com/enterprise)
 - **Docs** — [openworklabs.com/docs](https://openworklabs.com/docs)
 
@@ -166,9 +169,49 @@ const trust = `# Trust & Security
 Omar McAdam — team+security@openworklabs.com
 `
 
+const cloud = `# OpenWork Cloud
+
+> The control plane for shared skills, plugins, members, providers, and team governance — local-first by default, cloud-ready when a team needs shared setup and access.
+
+## What Cloud adds
+
+- Shared skills, MCPs, plugins, and configs for teams
+- Managed models through OpenWork Models
+- Organization controls: members, roles, SSO/SAML, SCIM, provider policy, and desktop policies
+- Cloud MCP: manage the organization from plain English in any MCP client
+- Hosted workers are marked coming soon
+
+## CTA
+
+- [Get Started for free](https://app.openworklabs.com?mode=sign-up)
+- [Contact sales](https://openworklabs.com/enterprise#book)
+`
+
+const coworker = `# OpenWork Coworker
+
+> Private beta: design an AI coworker from the OpenWork desktop chat, connect the tools that matter, and deploy it to Slack, email, and beyond.
+
+## Why it exists
+
+Teams deploying AI coworkers today usually choose between hosting the whole infra themselves or using a locked-down SaaS that decides too much for them.
+
+## The OpenWork way
+
+- Design the coworker from desktop chat
+- Connect skills, MCPs, Slack, email, HubSpot, Notion, and internal tools
+- Deploy from the conversation without hosting your own infrastructure
+- Teams using OpenWork Models or OpenWork Cloud get access first
+
+## CTA
+
+- [Join the private beta](https://app.openworklabs.com?mode=sign-up)
+`
+
 export const agentMarkdown: Record<string, string> = {
   "/": home,
   "/pricing": pricing,
+  "/cloud": cloud,
+  "/coworker": coworker,
   "/enterprise": enterprise,
   "/download": download,
   "/trust": trust,
