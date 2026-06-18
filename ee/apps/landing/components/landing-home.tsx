@@ -34,12 +34,12 @@ const externalLinkProps = (href: string) =>
 const CLOUD_SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
 
 const proofLogos = [
-  { name: "Toyota", users: "4", className: "font-semibold tracking-[0.14em]" },
-  { name: "Lenovo", users: "4", className: "font-semibold tracking-tight" },
-  { name: "IBM", users: "3", className: "font-black tracking-[0.22em]" },
-  { name: "Tesla", users: "2", className: "font-medium tracking-[0.28em]" },
-  { name: "Stanford", users: "2", className: "font-serif font-semibold tracking-tight" },
-  { name: "MIT", users: "1", className: "font-black tracking-[0.18em]" }
+  { name: "Toyota", users: "4", src: "/proof-logos/toyota.svg", className: "h-6 w-16" },
+  { name: "Lenovo", users: "4", src: "/proof-logos/lenovo.svg", className: "h-6 w-20" },
+  { name: "IBM", users: "3", src: "/proof-logos/ibm.svg", className: "h-7 w-16" },
+  { name: "Tesla", users: "2", src: "/proof-logos/tesla.svg", className: "h-7 w-10" },
+  { name: "Stanford", users: "2", src: "/proof-logos/stanford.svg", className: "h-7 w-24" },
+  { name: "MIT", users: "1", src: "/proof-logos/mit.svg", className: "h-7 w-16" }
 ];
 
 export function LandingHome(props: Props) {
@@ -127,15 +127,15 @@ export function LandingHome(props: Props) {
                 {[...proofLogos, ...proofLogos].map((logo, index) => (
                   <div
                     key={`${logo.name}-${index}`}
-                    className="flex h-9 items-center gap-2 rounded-full border border-gray-100 bg-white px-3.5 text-[12px] text-gray-500 shadow-[0_8px_20px_-18px_rgba(15,23,42,0.25)]"
+                    className="flex h-10 min-w-[104px] items-center justify-center rounded-full border border-gray-100 bg-white px-4 shadow-[0_8px_20px_-18px_rgba(15,23,42,0.25)]"
                     title={`${logo.users} ${logo.users === "1" ? "user" : "users"} at ${logo.name}`}
                   >
-                    <span className={`text-[13px] leading-none text-[#011627] ${logo.className}`}>
-                      {logo.name}
-                    </span>
-                    <span className="rounded-full bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-400">
-                      {logo.users}
-                    </span>
+                    <img
+                      src={logo.src}
+                      alt={logo.name}
+                      className={`${logo.className} object-contain opacity-70 grayscale transition hover:opacity-100 hover:grayscale-0`}
+                      loading="lazy"
+                    />
                   </div>
                 ))}
               </motion.div>
