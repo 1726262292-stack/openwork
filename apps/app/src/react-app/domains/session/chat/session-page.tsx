@@ -146,6 +146,7 @@ export type SessionPageProps = {
   clientConnected: boolean;
   openworkServerStatus: OpenworkServerStatus;
   openworkServerClient: OpenworkServerClient | null;
+  environmentClient?: OpenworkServerClient | null;
   openworkServerToken?: string | null;
   developerMode: boolean;
   headerStatus: string;
@@ -986,6 +987,7 @@ export function SessionPage(props: SessionPageProps) {
                         // SessionRoute, not from anything in `surface`.
                         {...props.surface!}
                         client={props.openworkServerClient!}
+                        environmentClient={props.environmentClient}
                         workspaceId={props.runtimeWorkspaceId!}
                         sessionId={props.selectedSessionId!}
                         opencodeBaseUrl={reactSessionBaseUrl}
@@ -1006,6 +1008,7 @@ export function SessionPage(props: SessionPageProps) {
                         <SessionSurface
                           {...props.surface!}
                           client={props.openworkServerClient!}
+                          environmentClient={props.environmentClient}
                           workspaceId={props.runtimeWorkspaceId!}
                           sessionId={splitSessionId!}
                           opencodeBaseUrl={reactSessionBaseUrl}

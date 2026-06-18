@@ -93,6 +93,7 @@ type SessionError = {
 
 export type SessionSurfaceProps = {
   client: OpenworkServerClient;
+  environmentClient?: OpenworkServerClient | null;
   workspaceId: string;
   workspaceRoot: string;
   sessionId: string;
@@ -1281,7 +1282,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   onOpenTarget={props.onOpenTarget}
                 >
                   <EnvironmentVariableProvider
-                    client={props.isRemoteWorkspace ? null : props.client}
+                    client={props.isRemoteWorkspace ? null : props.environmentClient ?? props.client}
                     runtimeKey={props.environmentRuntimeKey}
                     onApplyChanges={props.onApplyEnvironmentChanges}
                   >
