@@ -34,12 +34,12 @@ const externalLinkProps = (href: string) =>
 const CLOUD_SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
 
 const proofLogos = [
-  { name: "Toyota", users: "4", src: "https://logo.clearbit.com/toyota.com", type: "Company" },
-  { name: "Lenovo", users: "4", src: "https://logo.clearbit.com/lenovo.com", type: "Company" },
-  { name: "IBM", users: "3", src: "https://logo.clearbit.com/ibm.com", type: "Company" },
-  { name: "Tesla", users: "2", src: "https://logo.clearbit.com/tesla.com", type: "Company" },
-  { name: "Stanford", users: "2", src: "https://logo.clearbit.com/stanford.edu", type: "University" },
-  { name: "MIT", users: "1", src: "https://logo.clearbit.com/mit.edu", type: "University" }
+  { name: "Toyota", users: "4", className: "font-semibold tracking-[0.14em]" },
+  { name: "Lenovo", users: "4", className: "font-semibold tracking-tight" },
+  { name: "IBM", users: "3", className: "font-black tracking-[0.22em]" },
+  { name: "Tesla", users: "2", className: "font-medium tracking-[0.28em]" },
+  { name: "Stanford", users: "2", className: "font-serif font-semibold tracking-tight" },
+  { name: "MIT", users: "1", className: "font-black tracking-[0.18em]" }
 ];
 
 export function LandingHome(props: Props) {
@@ -113,30 +113,29 @@ export function LandingHome(props: Props) {
 
             </div>
 
-            <div className="mt-7 max-w-3xl overflow-hidden rounded-full border border-gray-100 bg-white/65 py-2 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.22)]">
-              <div className="mb-1 px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-400">
-                Used by people at
+            <div className="mt-7 max-w-3xl overflow-hidden rounded-2xl border border-gray-100 bg-white/70 py-2.5 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.22)]">
+              <div className="mb-2 flex items-center gap-2 px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-400">
+                <span>Used by people at</span>
+                <span className="h-px flex-1 bg-gray-100" />
               </div>
               <motion.div
                 aria-label="OpenWork users at Toyota, Lenovo, IBM, Tesla, Stanford, and MIT"
-                className="flex w-max gap-3 px-4"
-                animate={{ x: [0, -420] }}
-                transition={{ duration: 22, repeat: Infinity, ease: "linear" }}
+                className="flex w-max gap-2 px-4"
+                animate={{ x: ["0%", "-50%"] }}
+                transition={{ duration: 24, repeat: Infinity, ease: "linear" }}
               >
                 {[...proofLogos, ...proofLogos].map((logo, index) => (
                   <div
                     key={`${logo.name}-${index}`}
-                    className="flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-[12px] text-gray-500"
+                    className="flex h-9 items-center gap-2 rounded-full border border-gray-100 bg-white px-3.5 text-[12px] text-gray-500 shadow-[0_8px_20px_-18px_rgba(15,23,42,0.25)]"
                     title={`${logo.users} ${logo.users === "1" ? "user" : "users"} at ${logo.name}`}
                   >
-                    <img
-                      src={logo.src}
-                      alt={`${logo.name} logo`}
-                      className="h-4 w-4 rounded-sm object-contain grayscale opacity-70"
-                      loading="lazy"
-                    />
-                    <span className="font-medium text-[#011627]">{logo.name}</span>
-                    <span className="text-gray-400">{logo.users}</span>
+                    <span className={`text-[13px] leading-none text-[#011627] ${logo.className}`}>
+                      {logo.name}
+                    </span>
+                    <span className="rounded-full bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-400">
+                      {logo.users}
+                    </span>
                   </div>
                 ))}
               </motion.div>
