@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { openworkExtensionsPreviewPluginPath, openworkPluginPath } from "./openwork-extensions-plugin-path.js";
+import { OpenWorkExtensionsPreview } from "./opencode-plugins/openwork-extensions-preview.js";
 
 async function withWorkspace(fn: (root: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "openwork-workspace-init-"));
@@ -34,6 +35,15 @@ describe("ensureWorkspaceFiles", () => {
     const plugin = await readFile(pluginPath, "utf8");
     expect(pluginPath).toContain(join("opencode-plugins", "openwork-extensions-preview.ts"));
     expect(plugin).toContain("openwork_extension_call");
+    expect(plugin).toContain("request_env_var");
+    expect(plugin).toContain("env_var_request");
+  });
+
+  test("extension preview plugin exposes env var request tools", async () => {
+    const plugin = await OpenWorkExtensionsPreview();
+
+    expect(await plugin.tool.request_env_var.execute({ key: "NOTION_TOKEN" })).toContain("NOTION_TOKEN");
+    expect(await plugin.tool.env_var_request.execute({ key: "NOTION_TOKEN" })).toContain("NOTION_TOKEN");
   });
 
   test("uses external resources plugin path in packaged Electron", () => {

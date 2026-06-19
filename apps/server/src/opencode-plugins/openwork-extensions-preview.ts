@@ -42,6 +42,15 @@ const browserSetProxyArgsSchema = z.object({
   proxy: z.string().describe("Proxy URL like http://user:pass@host:8080 or socks5://host:1080. Prefer env:NAME (resolves the OPENWORK_BROWSER_PROXY_NAME environment variable on the user's machine) so credentials never enter the conversation."),
 });
 
+const requestEnvVarArgsSchema = z.object({
+  key: z.string().describe("Environment variable name to request, such as NOTION_TOKEN."),
+  label: z.string().optional().describe("Human-friendly label for the secret field, such as Notion token."),
+  description: z.string().optional().describe("Short explanation of what token or key the user should paste."),
+  placeholder: z.string().optional().describe("Optional input placeholder, such as secret_..."),
+  helpUrl: z.string().optional().describe("Optional URL where the user can create or find this credential."),
+  followUpPrompt: z.string().optional().describe("Optional short prompt the user can send after saving the variable."),
+});
+
 const OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION =
   "If the user asks for something you cannot do with obvious built-in tools, check OpenWork extensions before saying the capability is unavailable. Use openwork_extension_list_actions to inspect available extension actions, then call the matching action with openwork_extension_call.";
 
@@ -65,6 +74,9 @@ Do NOT use browser_navigate, browser_click, or browser_snapshot to interact with
 ## Built-in Browser (external websites)
 For web browsing tasks, ALWAYS start with openwork_browser_open_url. It creates/selects a built-in OpenWork browser tab and returns browser_url plus target_id. Use that exact browser_url and target_id for every later browser_snapshot, browser_click, browser_fill, browser_eval, and browser_screenshot call.
 Do not call browser_navigate without a target_id returned by openwork_browser_open_url. Do not use browser_* tools on the OpenWork app target (avoid targets with title "OpenWork" or URLs containing ":5173/#/").`;
+
+const OPENWORK_ENV_VAR_INSTRUCTION =
+  "When a task needs a missing token, API key, or other environment variable, use request_env_var instead of asking the user to paste the secret into chat. Include the exact env var key and concise provider-specific guidance.";
 
 // ── UI control bridge discovery ──
 
@@ -200,12 +212,36 @@ function contextPayload(context: OpenCodeContext) {
   };
 }
 
+function requestEnvVarResult(rawArgs: unknown): string {
+  const args = requestEnvVarArgsSchema.parse(rawArgs);
+  return JSON.stringify({
+    ok: true,
+    requested: args.key,
+    message: `OpenWork displayed a secure input for ${args.key}. Continue after the user saves it.`,
+  });
+}
+
 export const OpenWorkExtensionsPreview = async () => ({
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
     output.system.push(OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION);
     output.system.push(OPENWORK_UI_CONTROL_INSTRUCTION);
+    output.system.push(OPENWORK_ENV_VAR_INSTRUCTION);
   },
   tool: {
+    request_env_var: {
+      description: `Render a secure OpenWork environment-variable request card in chat. ${OPENWORK_ENV_VAR_INSTRUCTION}`,
+      args: requestEnvVarArgsSchema.shape,
+      async execute(rawArgs: unknown) {
+        return requestEnvVarResult(rawArgs);
+      },
+    },
+    env_var_request: {
+      description: `Alias for request_env_var. Render a secure OpenWork environment-variable request card in chat. ${OPENWORK_ENV_VAR_INSTRUCTION}`,
+      args: requestEnvVarArgsSchema.shape,
+      async execute(rawArgs: unknown) {
+        return requestEnvVarResult(rawArgs);
+      },
+    },
     openwork_extension_list_actions: {
       description: `List extension actions currently exposed by OpenWork. ${OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION}`,
       args: listActionsArgsSchema.shape,
