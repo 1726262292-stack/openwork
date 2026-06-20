@@ -111,14 +111,17 @@ async function runFlow(flow, { cdpBaseUrl, outDir, env }) {
       }
     }
     for (const step of flow.steps) {
-      const stepResult = { name: step.name, status: "passed", durationMs: 0, error: null };
+      const stepResult = { name: step.name, status: "passed", durationMs: 0, error: null, evidence: [] };
       const startedAt = Date.now();
+      ctx.beginStep(step.name);
       try {
         await step.run(ctx);
       } catch (error) {
         stepResult.status = "failed";
         stepResult.error = error instanceof Error ? error.message : String(error);
         result.status = "failed";
+      } finally {
+        stepResult.evidence = ctx.endStep();
       }
       stepResult.durationMs = Date.now() - startedAt;
       result.steps.push(stepResult);
@@ -129,6 +132,7 @@ async function runFlow(flow, { cdpBaseUrl, outDir, env }) {
     }
   } finally {
     result.screenshots = ctx.screenshots;
+    result.evidenceFrames = ctx.evidenceFrames;
     result.logs = ctx.logs;
     client.close();
   }
@@ -155,6 +159,10 @@ function renderMarkdown(report) {
     for (const step of flow.steps ?? []) {
       const stepIcon = step.status === "passed" ? "✅" : "❌";
       lines.push(`- ${stepIcon} ${step.name} (${step.durationMs}ms)${step.error ? ` — ${step.error}` : ""}`);
+      for (const evidence of step.evidence ?? []) {
+        if (evidence.type === "frame") lines.push(`  - Frame: ${evidence.file} (${evidence.status})`);
+        if (evidence.type === "assertion") lines.push(`  - Assertion: ${evidence.assertion} (${evidence.status})`);
+      }
     }
     if (flow.screenshots?.length) {
       lines.push("", `Screenshots: ${flow.screenshots.join(", ")}`);
@@ -174,27 +182,21 @@ function escapeHtml(value) {
 
 function renderFrameIndex(report) {
   const flowSections = report.flows.map((flow) => {
-    const screenshots = flow.screenshots ?? [];
-    const frames = screenshots.length > 0
-      ? screenshots.map((screenshot) => `
-          <figure>
-            <a href="${escapeHtml(screenshot)}"><img src="${escapeHtml(screenshot)}" alt="${escapeHtml(screenshot)}" /></a>
-            <figcaption>${escapeHtml(screenshot)}</figcaption>
-          </figure>`).join("\n")
-      : `<p class="muted">No screenshots captured for this flow.</p>`;
     const steps = (flow.steps ?? []).map((step) => `
-        <li class="${step.status === "passed" ? "passed" : "failed"}">
-          <strong>${escapeHtml(step.status.toUpperCase())}</strong>
-          ${escapeHtml(step.name)} (${Number(step.durationMs) || 0}ms)
-          ${step.error ? `<div class="error">${escapeHtml(step.error)}</div>` : ""}
-        </li>`).join("\n");
+        <article class="step ${step.status === "passed" ? "passed" : "failed"}">
+          <header>
+            <div class="eyebrow">${escapeHtml(step.status.toUpperCase())} · ${Number(step.durationMs) || 0}ms</div>
+            <h3>${escapeHtml(step.name)}</h3>
+            ${step.error ? `<div class="error">${escapeHtml(step.error)}</div>` : ""}
+          </header>
+          ${renderEvidence(step.evidence ?? [])}
+        </article>`).join("\n");
     return `
       <section>
         <h2>${escapeHtml(flow.id)} - ${escapeHtml(flow.title)}</h2>
         ${flow.spec ? `<p class="muted">Spec: ${escapeHtml(flow.spec)}</p>` : ""}
         ${flow.skipReason ? `<p class="skipped">Skipped: ${escapeHtml(flow.skipReason)}</p>` : ""}
-        <ol>${steps}</ol>
-        <div class="grid">${frames}</div>
+        <div class="steps">${steps}</div>
       </section>`;
   }).join("\n");
 
@@ -209,15 +211,23 @@ function renderFrameIndex(report) {
     main { max-width: 1180px; margin: 0 auto; padding: 32px; }
     h1 { margin: 0 0 8px; font-size: 28px; }
     h2 { margin-top: 32px; }
+    h3 { margin: 2px 0 10px; font-size: 18px; }
     .meta, .muted { color: #5f6368; }
     .summary { display: inline-flex; gap: 12px; margin: 16px 0 8px; padding: 10px 12px; border: 1px solid #ddd; border-radius: 10px; background: white; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; margin-top: 16px; }
+    .steps { display: grid; gap: 18px; margin-top: 16px; }
+    .step { padding: 16px; border: 1px solid #ddd; border-radius: 14px; background: white; box-shadow: 0 1px 4px rgba(0,0,0,.04); }
+    .step.failed { border-color: #f4b4ae; background: #fff8f7; }
+    .eyebrow { color: #5f6368; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    .evidence { display: grid; gap: 12px; }
+    .claim { padding: 10px 12px; border-left: 4px solid #7c3aed; background: #f5f3ff; border-radius: 8px; }
+    .assertions, .validations { margin: 8px 0 0; padding-left: 20px; }
+    .assertions li, .validations li { margin: 5px 0; }
     figure { margin: 0; overflow: hidden; border: 1px solid #ddd; border-radius: 12px; background: white; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
     img { display: block; width: 100%; height: auto; }
     figcaption { padding: 10px 12px; border-top: 1px solid #eee; font-size: 13px; color: #444; }
     li { margin: 8px 0; }
-    .passed strong { color: #0a7f35; }
-    .failed strong, .error { color: #b42318; }
+    .passed-text { color: #0a7f35; font-weight: 700; }
+    .failed-text, .error { color: #b42318; font-weight: 700; }
     .skipped { color: #8a5a00; }
     code { background: #ededf0; padding: 2px 5px; border-radius: 5px; }
   </style>
@@ -240,6 +250,34 @@ function renderFrameIndex(report) {
   </main>
 </body>
 </html>`;
+}
+
+function renderEvidence(evidence) {
+  if (evidence.length === 0) return `<p class="muted">No structured evidence recorded for this step.</p>`;
+  return `<div class="evidence">${evidence.map((item) => {
+    if (item.type === "claim") {
+      return `<div class="claim"><strong>${escapeHtml(item.name ?? "Claim")}</strong><br />${escapeHtml(item.claim ?? "")}</div>`;
+    }
+    if (item.type === "assertion") {
+      const cls = item.status === "passed" ? "passed-text" : "failed-text";
+      return `<div><span class="${cls}">${escapeHtml(item.status ?? "unknown")}</span> ${escapeHtml(item.assertion ?? "Assertion")}${item.actual ? `<br /><span class="muted">Actual: ${escapeHtml(item.actual)}</span>` : ""}</div>`;
+    }
+    if (item.type === "frame") {
+      const validations = (item.validations ?? []).map((validation) => {
+        const cls = validation.passed ? "passed-text" : "failed-text";
+        return `<li><span class="${cls}">${validation.passed ? "PASS" : "FAIL"}</span> ${escapeHtml(validation.label)}${validation.detail ? ` <span class="muted">${escapeHtml(validation.detail)}</span>` : ""}</li>`;
+      }).join("\n");
+      return `<figure>
+        <a href="${escapeHtml(item.file)}"><img src="${escapeHtml(item.file)}" alt="${escapeHtml(item.claim ?? item.name ?? item.file)}" /></a>
+        <figcaption>
+          <strong>${escapeHtml(item.name ?? item.file)}</strong>${item.claim ? `<br />Claim: ${escapeHtml(item.claim)}` : ""}
+          ${item.url ? `<br /><span class="muted">URL: ${escapeHtml(item.url)}</span>` : ""}
+          <ul class="validations">${validations}</ul>
+        </figcaption>
+      </figure>`;
+    }
+    return `<pre>${escapeHtml(JSON.stringify(item, null, 2))}</pre>`;
+  }).join("\n")}</div>`;
 }
 
 async function main() {

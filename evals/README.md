@@ -105,7 +105,14 @@ plugin (configured in `.opencode/opencode.json`). Every tool takes
 
 - Prefer coded flows in `evals/flows/*.flow.mjs` over ad hoc browser tool calls.
 - Use runner helpers such as `ctx.clickText`, `ctx.fill`, `ctx.waitFor`,
-  `ctx.waitForText`, `ctx.control`, and `ctx.screenshot`.
+  `ctx.expectText`, `ctx.expectNoText`, `ctx.expectHashIncludes`,
+  `ctx.control`, `ctx.prove`, and validated `ctx.screenshot` calls.
+- Prefer `ctx.prove("claim", { action, assert, screenshot })` for PR evidence.
+  It records the claim, assertions, screenshot, and validation results together
+  so the HTML frame proof explains why each image proves the step.
+- Screenshots should include `claim`, `requireText`, `rejectText`, or
+  `hashIncludes` whenever possible. A screenshot without an assertion is only a
+  visual checkpoint, not proof that the workflow passed.
 - Use direct `browser_eval` only for debugging/prototyping or when a flow has
   not yet been codified. If the behavior matters for a PR, codify it before
   calling the UI validation complete.
@@ -115,6 +122,24 @@ plugin (configured in `.opencode/opencode.json`). Every tool takes
   `__reactFiber$` → reducer dispatch pattern documented in `daytona-flows.md`.
 - Prefer poll-until-condition waits (`ctx.waitFor`, `ctx.waitForText`) over
   fixed sleeps.
+
+## Evidence and repair standard
+
+Frame proof is the default for UI evals. The generated `index.html` should show
+each step, the claim being proven, assertions, screenshot validation checks, and
+supporting images. Treat recordings as supplementary evidence for motion, not as
+the primary pass/fail source.
+
+Before reporting a flow as passed:
+- Confirm every important user-visible claim has an assertion.
+- Confirm every important screenshot has validation metadata and is not just a
+  loose gallery image.
+- Re-capture or repair evidence if the screenshot is duplicated, missing required
+  text, showing an error state, or taken on the wrong route.
+- For Daytona display screenshots, also verify no native picker, modal, stale
+  dialog, or unrelated desktop window is covering the claimed state.
+- If the test used API/localStorage/setup shortcuts, label that evidence as setup
+  and resume visible proof at the next user-facing step.
 
 ## Files
 
