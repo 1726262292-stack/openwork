@@ -14,6 +14,8 @@ const EnvSchema = z
     DEN_DB_ENCRYPTION_KEY: z.string().trim().min(32),
     INFERENCE_PROXY_BASE_URL: z.string().optional(),
     OPENROUTER_UPSTREAM_URL: z.string().optional(),
+    OPENAI_REALTIME_API_KEY: z.string().optional(),
+    OPENAI_API_KEY: z.string().optional(),
     INFERENCE_ADMIN_TOKEN: z.string().optional(),
     INFERENCE_WEBHOOK_SECRET: z.string().optional(),
     INFERENCE_CREDITS_PER_DOLLAR: z.string().optional(),
@@ -120,6 +122,7 @@ export const env = {
   openRouterUpstreamUrl: normalizeUrl(
     parsed.OPENROUTER_UPSTREAM_URL ?? "https://openrouter.ai/api/v1",
   ),
+  openAiRealtimeApiKey: optionalString(parsed.OPENAI_REALTIME_API_KEY) ?? optionalString(parsed.OPENAI_API_KEY),
   adminToken: optionalString(parsed.INFERENCE_ADMIN_TOKEN),
   webhookSecret: optionalString(parsed.INFERENCE_WEBHOOK_SECRET),
   creditsPerDollar: parseCreditsPerDollar(parsed.INFERENCE_CREDITS_PER_DOLLAR),

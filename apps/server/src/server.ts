@@ -277,6 +277,26 @@ async function resolveOpenAiRealtimeApiKey(env: EnvService): Promise<string> {
     "";
 }
 
+async function resolveOpenWorkModelsVoiceConfig(env: EnvService): Promise<{ baseUrl: string; apiKey: string } | null> {
+  const records = await env.list();
+  const apiKey =
+    records.find((entry) => entry.key === "OPENWORK_API_KEY")?.value.trim() ||
+    records.find((entry) => entry.key === "OPENWORK_MODELS_API_KEY")?.value.trim() ||
+    process.env.OPENWORK_API_KEY?.trim() ||
+    process.env.OPENWORK_MODELS_API_KEY?.trim() ||
+    "";
+  if (!apiKey) return null;
+
+  const baseUrl =
+    records.find((entry) => entry.key === "OPENWORK_INFERENCE_BASE_URL")?.value.trim() ||
+    records.find((entry) => entry.key === "OPENWORK_MODELS_BASE_URL")?.value.trim() ||
+    process.env.OPENWORK_INFERENCE_BASE_URL?.trim() ||
+    process.env.OPENWORK_MODELS_BASE_URL?.trim() ||
+    "";
+  if (!baseUrl) return null;
+  return { apiKey, baseUrl: baseUrl.replace(/\/+$/, "") };
+}
+
 function openworkVoiceRealtimeInstructions() {
   return `# Role and Objective
 
@@ -323,6 +343,34 @@ function readOpenAiClientSecret(payload: unknown): { clientSecret: string; expir
 }
 
 async function createOpenAiRealtimeVoiceSession(env: EnvService, input: unknown) {
+  const managedVoice = await resolveOpenWorkModelsVoiceConfig(env);
+  if (managedVoice) {
+    const response = await fetch(`${managedVoice.baseUrl}/voice/realtime/session`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${managedVoice.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input ?? {}),
+    });
+    const text = await response.text();
+    let payload: unknown = null;
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      payload = null;
+    }
+    if (!response.ok) {
+      const errorPayload = isRecord(payload) && isRecord(payload.error) ? payload.error : null;
+      const message = typeof errorPayload?.message === "string" ? errorPayload.message : response.statusText;
+      throw new ApiError(response.status, "openwork_models_voice_failed", message || "OpenWork Models could not create a voice session");
+    }
+    if (!isRecord(payload) || payload.ok !== true || typeof payload.clientSecret !== "string") {
+      throw new ApiError(502, "openwork_models_voice_invalid_response", "OpenWork Models did not return a usable Realtime client secret");
+    }
+    return payload;
+  }
+
   const apiKey = await resolveOpenAiRealtimeApiKey(env);
   if (!apiKey) {
     throw new ApiError(
