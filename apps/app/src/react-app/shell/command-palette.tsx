@@ -24,7 +24,7 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { Button } from "@/components/ui/button";
-import { Check, ChevronLeftIcon, FileText, Globe, Zap } from "lucide-react";
+import { BrainCircuit, Check, ChevronLeftIcon, FileText, Globe, Zap } from "lucide-react";
 
 export type PaletteItem = {
   id: string;
@@ -84,6 +84,9 @@ export type CommandPaletteProps = {
   onCreateNewSession: () => void;
   /** Called when "Open settings" is chosen. Accepts an optional route to jump straight to a tab. */
   onOpenSettings: (route?: string) => void;
+  /** Optional: open the full default-model picker. */
+  onOpenModelPicker?: () => void;
+  selectedModelLabel?: string;
   /** Optional — open a URL in the user's browser. Falls back to window.open. */
   onOpenUrl?: (url: string) => void;
   /** Optional: current session servers/artifacts exposed through Cmd/Ctrl+K. */
@@ -164,6 +167,20 @@ export function CommandPalette(props: CommandPaletteProps) {
         setMode("sessions");
       },
     },
+    ...(props.onOpenModelPicker
+      ? [{
+          id: "models",
+          title: "Switch model",
+          detail: "Choose the LLM that runs your next prompts",
+          meta: props.selectedModelLabel ?? t("session.default_model"),
+          icon: <BrainCircuit className="size-4 text-primary" />,
+          searchText: "model models llm provider openai anthropic claude gpt gemini switch pick select default",
+          action: () => {
+            props.onClose();
+            props.onOpenModelPicker?.();
+          },
+        }]
+      : []),
     ...(props.listAgents
       ? [{
           id: "agents",

@@ -1847,6 +1847,12 @@ export function SessionRoute() {
       }}
       onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)}
       onOpenSettings={(route) => handleOpenSettings(route ?? "/settings/general")}
+      onOpenModelPicker={() => {
+        modelPicker.setQuery("");
+        modelPicker.setRecentProviderIds(new Set());
+        window.requestAnimationFrame(() => modelPicker.setOpen(true));
+      }}
+      selectedModelLabel={modelLabel}
       accessibleTargets={paletteAccessibleTargets}
       onOpenAccessibleTarget={(target) => {
         try {
