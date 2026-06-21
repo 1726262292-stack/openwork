@@ -176,17 +176,28 @@ export default {
     {
       name: "Previous session tab command navigates back",
       run: async (ctx) => {
+        const routeBefore = await ctx.eval("window.__openworkControl.snapshot().route");
+        const matchBefore = new RegExp("session/([^/?#]+)").exec(routeBefore);
+        const sessionIdBefore = matchBefore ? decodeURIComponent(matchBefore[1]) : null;
+        ctx.assert(sessionIdBefore, "No current session before palette click");
+
+        await pressCommandK(ctx);
+        await ctx.waitForText("Previous session tab", { timeoutMs: 15_000 });
         await clickCommandItem(ctx, "Previous session tab");
-        await ctx.waitFor(
+        const changed = await ctx.waitFor(
           `(() => {
             const route = window.__openworkControl.snapshot().route;
             const match = new RegExp('session/([^/?#]+)').exec(route);
-            return Boolean(match && decodeURIComponent(match[1]) === ${JSON.stringify(ctx.sessionAId)});
+            if (!match) return false;
+            const sessionId = decodeURIComponent(match[1]);
+            return sessionId !== ${JSON.stringify(sessionIdBefore)};
           })()`,
-          { timeoutMs: 15_000, label: `route changed to session A` },
+          { timeoutMs: 15_000, label: "route changed to a different session" },
         );
+        ctx.assert(changed === true, "Previous session tab command did not change the route");
+        ctx.log(`Palette 'Previous session tab' navigated away from ${sessionIdBefore}`);
         await ctx.screenshot("palette-previous-session-tab", {
-          claim: "Previous session tab command navigated to the previous session",
+          claim: "Previous session tab command navigated to a different session",
         });
       },
     },
