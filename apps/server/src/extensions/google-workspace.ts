@@ -89,6 +89,22 @@ export const GOOGLE_WORKSPACE_EXTENSION_ACTIONS = [
   },
   {
     extensionId: GOOGLE_WORKSPACE_EXTENSION_ID,
+    action: "gmail_create_reply_draft",
+    title: "Create Gmail reply draft",
+    description: "Create a Gmail draft reply in an existing thread. This does not send email. Requires Gmail read access (gmail.readonly scope).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        messageId: { type: "string", description: "Gmail message id to reply to." },
+        body: { type: "string", description: "Plain text reply body." },
+        replyAll: { type: "boolean", description: "Reply to everyone on the original message. Defaults to true." },
+      },
+      required: ["messageId", "body"],
+      additionalProperties: false,
+    },
+  },
+  {
+    extensionId: GOOGLE_WORKSPACE_EXTENSION_ID,
     action: "gmail_list_messages",
     title: "List Gmail messages",
     description: "List recent Gmail messages for the connected account. Requires Gmail read access (gmail.readonly scope).",
@@ -600,16 +616,78 @@ function stringArrayField(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
 }
 
-function gmailRawMessage(input: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string }): string {
+function gmailRawMessage(input: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string; headers?: { name: string; value: string }[] }): string {
   return [
     `To: ${input.to.join(", ")}`,
     input.cc?.length ? `Cc: ${input.cc.join(", ")}` : null,
     input.bcc?.length ? `Bcc: ${input.bcc.join(", ")}` : null,
     `Subject: ${input.subject}`,
+    ...(input.headers ?? []).map((header) => `${header.name}: ${header.value}`),
     "Content-Type: text/plain; charset=UTF-8",
     "",
     input.body,
   ].filter((line): line is string => typeof line === "string").join("\r\n");
+}
+
+function splitEmailHeader(value: string): string[] {
+  const entries: string[] = [];
+  let current = "";
+  let quoted = false;
+  let escaped = false;
+  let angleDepth = 0;
+  for (const character of value) {
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+    if (character === "\\" && quoted) {
+      current += character;
+      escaped = true;
+      continue;
+    }
+    if (character === "\"") quoted = !quoted;
+    if (!quoted && character === "<") angleDepth += 1;
+    if (!quoted && character === ">" && angleDepth > 0) angleDepth -= 1;
+    if (character === "," && !quoted && angleDepth === 0) {
+      const entry = current.trim();
+      if (entry) entries.push(entry);
+      current = "";
+      continue;
+    }
+    current += character;
+  }
+  const entry = current.trim();
+  if (entry) entries.push(entry);
+  return entries;
+}
+
+function emailHeaderKey(value: string): string {
+  const match = /<([^<>]+)>/.exec(value);
+  return (match?.[1] ?? value).trim().toLowerCase();
+}
+
+function uniqueEmailHeaders(values: string[], exclude: string[]): string[] {
+  const seen = new Set(exclude.map((value) => value.trim().toLowerCase()).filter(Boolean));
+  const recipients: string[] = [];
+  for (const value of values.flatMap(splitEmailHeader)) {
+    const key = emailHeaderKey(value);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    recipients.push(value);
+  }
+  return recipients;
+}
+
+function gmailReplySubject(subject: string): string {
+  const trimmed = subject.trim();
+  if (!trimmed) return "Re:";
+  return /^re\s*:/i.test(trimmed) ? trimmed : `Re: ${trimmed}`;
+}
+
+function gmailReplyReferences(references: string, messageId: string): string {
+  const entries = references.trim().split(/\s+/).filter(Boolean);
+  return entries.includes(messageId) ? entries.join(" ") : [...entries, messageId].join(" ");
 }
 
 function requireScope(record: Record<string, unknown>, scope: string, code: string, message: string) {
@@ -778,6 +856,48 @@ async function googleWorkspaceCreateDraft(config: ServerConfig, args: Record<str
   });
 }
 
+async function googleWorkspaceCreateReplyDraft(config: ServerConfig, args: Record<string, unknown>) {
+  const messageId = readStringField(args, "messageId");
+  const body = typeof args.body === "string" ? args.body : "";
+  const replyAll = args.replyAll !== false;
+  if (!messageId || !body.trim()) throw new ApiError(400, "invalid_payload", "messageId and body are required");
+  const { record, accessToken } = await googleWorkspaceAccessToken(config);
+  requireGmailReadScope(record);
+  const url = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}`);
+  url.searchParams.set("format", "metadata");
+  for (const header of ["Message-ID", "References", "Reply-To", "Subject", "From", "To", "Cc"]) url.searchParams.append("metadataHeaders", header);
+  const message = await fetchGoogleJson(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+  const payload = isRecord(message) ? message.payload : null;
+  const threadId = isRecord(message) && typeof message.threadId === "string" ? message.threadId : "";
+  const originalMessageId = gmailHeader(payload, "Message-ID");
+  if (!threadId || !originalMessageId) throw new Error("Gmail message is missing thread metadata required to create a reply draft.");
+  const account = googleWorkspaceSafeAccount(record.account);
+  const ownEmail = typeof account?.email === "string" ? account.email : "";
+  const replyTarget = gmailHeader(payload, "Reply-To") || gmailHeader(payload, "From");
+  const to = uniqueEmailHeaders(replyAll ? [replyTarget, gmailHeader(payload, "To")] : [replyTarget], [ownEmail]);
+  const cc = replyAll ? uniqueEmailHeaders([gmailHeader(payload, "Cc")], [ownEmail, ...to.map(emailHeaderKey)]) : [];
+  if (!to.length) throw new ApiError(400, "invalid_payload", "Original message does not include reply recipients");
+  return fetchGoogleJson("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: {
+        threadId,
+        raw: base64UrlString(gmailRawMessage({
+          to,
+          cc,
+          subject: gmailReplySubject(gmailHeader(payload, "Subject")),
+          body,
+          headers: [
+            { name: "In-Reply-To", value: originalMessageId },
+            { name: "References", value: gmailReplyReferences(gmailHeader(payload, "References"), originalMessageId) },
+          ],
+        })),
+      },
+    }),
+  });
+}
+
 async function googleWorkspaceSearchFiles(config: ServerConfig, args: Record<string, unknown>) {
   const query = readStringField(args, "query");
   if (!query) throw new ApiError(400, "invalid_payload", "query is required");
@@ -896,6 +1016,7 @@ export async function callGoogleWorkspaceExtensionAction(config: ServerConfig, a
   }
   if (action === "calendar_list_events") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceListEvents(config, args), context };
   if (action === "gmail_create_draft") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceCreateDraft(config, args), context };
+  if (action === "gmail_create_reply_draft") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceCreateReplyDraft(config, args), context };
   if (action === "gmail_list_messages") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceListMessages(config, args), context };
   if (action === "gmail_get_message") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceGetMessage(config, args), context };
   if (action === "gmail_download_attachment") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceDownloadAttachment(config, args), context };
