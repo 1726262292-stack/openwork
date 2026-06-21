@@ -31,6 +31,8 @@ import {
   type DeepLinkBridgeDetail,
 } from "../../../app/lib/deep-link-bridge";
 import { parseDenAuthDeepLink } from "../../../app/lib/openwork-links";
+import { parseModelRef } from "../../../app/utils";
+import { writeStoredDefaultModel } from "../../kernel/model-config";
 
 export type DenAuthStatus = "checking" | "signed_in" | "signed_out";
 
@@ -167,6 +169,13 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
               activeOrgSlug: null,
               activeOrgName: null,
             });
+
+            if (parsed.model) {
+              const modelRef = parseModelRef(parsed.model);
+              if (modelRef) {
+                writeStoredDefaultModel(modelRef);
+              }
+            }
 
             dispatchDenSessionUpdated({
               status: "success",

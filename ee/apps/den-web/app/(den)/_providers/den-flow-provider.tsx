@@ -48,6 +48,9 @@ import {
   isWorkerLaunch,
   listItemToWorker,
   normalizeAuthModeParam,
+  normalizeNextRouteParam,
+  PENDING_DESKTOP_MODEL_STORAGE_KEY,
+  PENDING_NEXT_ROUTE_STORAGE_KEY,
   parseWorkspaceIdFromUrl,
   requestJson,
   resetPosthogUser,
@@ -156,6 +159,39 @@ function getPendingOrgInvitationId() {
 
   const invitationId = window.sessionStorage.getItem(PENDING_ORG_INVITATION_STORAGE_KEY)?.trim() ?? "";
   return invitationId || null;
+}
+
+function getPendingNextRoute() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.sessionStorage.getItem(PENDING_NEXT_ROUTE_STORAGE_KEY)?.trim() || null;
+}
+
+function clearPendingNextRoute() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(PENDING_NEXT_ROUTE_STORAGE_KEY);
+}
+
+function getPendingDesktopModel() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.sessionStorage.getItem(PENDING_DESKTOP_MODEL_STORAGE_KEY)?.trim() || null;
+}
+
+function appendModelToDeepLink(rawUrl: string, model: string | null): string {
+  if (!model) return rawUrl;
+  try {
+    const url = new URL(rawUrl);
+    url.searchParams.set("model", model);
+    return url.toString();
+  } catch {
+    const separator = rawUrl.includes("?") ? "&" : "?";
+    return `${rawUrl}${separator}model=${encodeURIComponent(model)}`;
+  }
 }
 
 export function DenFlowProvider({ children }: { children: ReactNode }) {
@@ -982,11 +1018,13 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
       }
 
       const openworkPayload = payload as { openworkUrl?: unknown } | null;
-      const openworkUrl = typeof openworkPayload?.openworkUrl === "string" ? openworkPayload.openworkUrl.trim() : "";
-      if (!openworkUrl) {
+      const rawOpenworkUrl = typeof openworkPayload?.openworkUrl === "string" ? openworkPayload.openworkUrl.trim() : "";
+      if (!rawOpenworkUrl) {
         setAuthError("Desktop handoff succeeded, but no OpenWork redirect URL was returned.");
         return;
       }
+
+      const openworkUrl = appendModelToDeepLink(rawOpenworkUrl, getPendingDesktopModel());
 
       setDesktopRedirectUrl(openworkUrl);
       window.location.assign(openworkUrl);
@@ -1014,6 +1052,12 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
     const pendingInvitationId = getPendingOrgInvitationId();
     if (pendingInvitationId) {
       return getJoinOrgRoute(pendingInvitationId);
+    }
+
+    const pendingNextRoute = getPendingNextRoute();
+    if (pendingNextRoute) {
+      clearPendingNextRoute();
+      return pendingNextRoute;
     }
 
     const dashboardRoute = await resolveDashboardRoute();
@@ -1724,6 +1768,16 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
     const invitationId = params.get("invite")?.trim() ?? "";
     if (invitationId) {
       window.sessionStorage.setItem(PENDING_ORG_INVITATION_STORAGE_KEY, invitationId);
+    }
+
+    const nextRoute = normalizeNextRouteParam(params.get("next"));
+    if (nextRoute) {
+      window.sessionStorage.setItem(PENDING_NEXT_ROUTE_STORAGE_KEY, nextRoute);
+    }
+
+    const modelParam = params.get("model")?.trim() ?? "";
+    if (modelParam) {
+      window.sessionStorage.setItem(PENDING_DESKTOP_MODEL_STORAGE_KEY, modelParam);
     }
   }, []);
 

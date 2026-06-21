@@ -12,6 +12,7 @@ export type RemoteWorkspaceDefaults = {
 export type DenAuthDeepLink = {
   grant: string;
   denBaseUrl: string;
+  model: string | null;
 };
 
 function isSupportedDeepLinkProtocol(protocol: string): boolean {
@@ -129,7 +130,9 @@ export function parseDenAuthDeepLink(rawUrl: string): DenAuthDeepLink | null {
     return null;
   }
 
-  return { grant, denBaseUrl };
+  const model = url.searchParams.get("model")?.trim() || null;
+
+  return { grant, denBaseUrl, model };
 }
 
 function normalizeDebugDeepLinkInput(rawValue: string): string {

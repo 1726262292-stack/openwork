@@ -176,6 +176,8 @@ export const LAST_WORKER_STORAGE_KEY = "openwork:web:last-worker";
 export const PENDING_SOCIAL_SIGNUP_STORAGE_KEY = "openwork:web:pending-social-signup";
 export const AUTH_TOKEN_STORAGE_KEY = "openwork:web:auth-token";
 export const ONBOARDING_INTENT_STORAGE_KEY = "openwork:web:onboarding-intent";
+export const PENDING_NEXT_ROUTE_STORAGE_KEY = "openwork:web:pending-next-route";
+export const PENDING_DESKTOP_MODEL_STORAGE_KEY = "openwork:web:pending-desktop-model";
 export const WORKER_STATUS_POLL_MS = DEN_WORKER_POLL_INTERVAL_MS;
 export const DEFAULT_AUTH_NAME = "OpenWork User";
 export const DEFAULT_WORKER_NAME = "My Worker";
@@ -243,6 +245,14 @@ export function normalizeAuthModeParam(value: string | null | undefined): AuthMo
   return value === "sign-in" || value === "sign-up" ? value : null;
 }
 
+export function normalizeNextRouteParam(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
+  if (/\s|[<>]/.test(trimmed)) return null;
+  return trimmed;
+}
+
 export function getSocialProviderLabel(provider: SocialAuthProvider): string {
   return provider === "github" ? "GitHub" : "Google";
 }
@@ -271,7 +281,7 @@ export function getSocialCallbackUrl(): string {
     const callbackUrl = new URL("/", origin);
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      for (const key of ["mode", "desktopAuth", "desktopScheme", "invite"]) {
+      for (const key of ["mode", "desktopAuth", "desktopScheme", "invite", "next", "model"]) {
         const value = params.get(key)?.trim() ?? "";
         if (value) {
           callbackUrl.searchParams.set(key, value);
