@@ -1169,6 +1169,35 @@ export function SessionRoute() {
     }
   }, [baseUrl, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces]);
 
+  // Latest session-list state for prev/next session tab navigation. Updated
+  // during render (see below, after `paletteSessionOptions` is computed) so the
+  // stable callbacks below always read fresh data without re-subscribing the
+  // global keydown listener.
+  const sessionTabNavRef = useRef<{
+    options: PaletteSessionOption[];
+    workspaceId: string;
+    sessionId: string | null;
+    navigate: (workspaceId: string, sessionId?: string | null) => void;
+  }>({ options: [], workspaceId: "", sessionId: null, navigate: () => {} });
+
+  const goToSessionTabByOffset = useCallback((offset: number) => {
+    const { options, workspaceId, sessionId, navigate } = sessionTabNavRef.current;
+    const scoped = options.filter((option) => option.workspaceId === workspaceId);
+    if (scoped.length === 0) return;
+    const currentIndex = sessionId
+      ? scoped.findIndex((option) => option.sessionId === sessionId)
+      : -1;
+    const nextIndex = currentIndex === -1
+      ? offset > 0 ? 0 : scoped.length - 1
+      : (currentIndex + offset + scoped.length) % scoped.length;
+    const target = scoped[nextIndex];
+    if (!target || target.sessionId === sessionId) return;
+    navigate(target.workspaceId, target.sessionId);
+  }, []);
+
+  const goToNextSessionTab = useCallback(() => goToSessionTabByOffset(1), [goToSessionTabByOffset]);
+  const goToPrevSessionTab = useCallback(() => goToSessionTabByOffset(-1), [goToSessionTabByOffset]);
+
   const {
     commandPaletteOpen,
     setCommandPaletteOpen,
@@ -1180,6 +1209,8 @@ export function SessionRoute() {
     canCreateTask,
     workspaceId: selectedWorkspaceId,
     onCreateTask: handleCreateTaskInWorkspace,
+    onNextSessionTab: goToNextSessionTab,
+    onPrevSessionTab: goToPrevSessionTab,
   });
   useReactRenderWatchdog("SessionRoute", {
     selectedSessionId,
@@ -1295,6 +1326,16 @@ export function SessionRoute() {
     return out;
   }, [sessionsByWorkspaceId, selectedWorkspaceId, workspaces]);
 
+  // Keep the prev/next session tab navigation ref in sync with the latest
+  // session list, current selection, and navigator. Read by the stable
+  // callbacks above so the global keydown handler never goes stale.
+  sessionTabNavRef.current = {
+    options: paletteSessionOptions,
+    workspaceId: selectedWorkspaceId,
+    sessionId: selectedSessionId,
+    navigate: navigateToWorkspaceSession,
+  };
+
   const paletteSessionGroups = useMemo<SessionGroupOption[]>(
     () => selectedWorkspaceGroupState?.groups ?? [],
     [selectedWorkspaceGroupState?.groups],
@@ -1366,6 +1407,30 @@ export function SessionRoute() {
       });
     },
   }), [developerMode]);
+
+  const nextSessionTabPaletteItem = useMemo<PaletteItem>(() => ({
+    id: "session-tab.next",
+    title: "Next session tab",
+    detail: "Switch to the next session in this workspace",
+    meta: "Cmd/Ctrl+T",
+    searchText: "next session tab switch forward",
+    action: () => {
+      setCommandPaletteOpen(false);
+      goToNextSessionTab();
+    },
+  }), [goToNextSessionTab]);
+
+  const prevSessionTabPaletteItem = useMemo<PaletteItem>(() => ({
+    id: "session-tab.previous",
+    title: "Previous session tab",
+    detail: "Switch to the previous session in this workspace",
+    meta: "Cmd/Ctrl+Shift+T",
+    searchText: "previous session tab switch back",
+    action: () => {
+      setCommandPaletteOpen(false);
+      goToPrevSessionTab();
+    },
+  }), [goToPrevSessionTab]);
 
   const handleReorderWorkspaces = useCallback((workspaceIds: string[]) => {
     const activeWorkspaceIds = new Set(workspacesRef.current.map((workspace) => workspace.id));
@@ -1898,7 +1963,7 @@ export function SessionRoute() {
       currentSessionForGroupMove={currentSessionForGroupMove}
       currentSessionGroupId={currentSessionGroupId}
       onMoveCurrentSessionToGroup={handleMoveCurrentSessionToGroup}
-      extraItems={[sessionSearchPaletteItem, ...terminalPaletteItems, developerModePaletteItem]}
+      extraItems={[sessionSearchPaletteItem, ...terminalPaletteItems, developerModePaletteItem, nextSessionTabPaletteItem, prevSessionTabPaletteItem]}
       listAgents={listAgents}
       selectedAgent={selectedAgent}
       onSelectAgent={setSelectedAgent}
