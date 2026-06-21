@@ -46,32 +46,41 @@ export const metadata = {
   }
 };
 
-const features = [
+const productFeatures = [
   {
-    title: "OpenWork Models — 2x usage",
-    body: "GLM 5.2 is available through OpenWork Models, our managed way to access leading OSS models without bringing your own keys. We're doubling your usage so your team can run real agent work at a fraction of the cost.",
-    color: "border-sky-100 bg-sky-50/60"
-  },
-  {
+    tag: "Chat control",
     title: "Run your day from chat",
-    body: "Orchestrate OpenWork fully through chat. Tasks now organize into groups — In progress, Done, Requires attention — and you can move them by asking, not clicking. Try: \"Put this session in In progress now.\"",
-    color: "border-violet-100 bg-violet-50/50"
+    body: "Orchestrate OpenWork fully through chat. Tasks now organize into groups — In progress, Done, Requires attention — and you can move them by asking, not clicking.",
+    badge: "Put this session in In progress now.",
+    color: "text-blue-600",
+    bg: "bg-blue-50",
+    border: "border-blue-100",
+    badgeBg: "bg-blue-100",
   },
   {
+    tag: "Focus mode",
     title: "Split screen",
     body: "Two windows, side by side. Keep a reference open on the left while you work on the right. Less tab-switching, more shipping.",
-    color: "border-emerald-100 bg-emerald-50/60"
+    color: "text-emerald-600",
+    bg: "bg-emerald-50",
+    border: "border-emerald-100",
+    badgeBg: "bg-emerald-100",
   },
   {
+    tag: "Hands-free UI",
     title: "Voice mode",
     body: "Control the OpenWork UI by voice. Talk through a task, navigate panels, and drive the agent without touching the keyboard.",
-    color: "border-amber-100 bg-amber-50/50"
+    color: "text-violet-600",
+    bg: "bg-violet-50",
+    border: "border-violet-100",
+    badgeBg: "bg-violet-100",
   },
   {
-    title: "Advanced analytics on OpenWork Cloud",
+    tag: "OpenWork Cloud",
+    title: "Advanced analytics",
     body: "The cloud platform now has advanced analytics — usage, activity, and team behavior in one view. If you're running OpenWork across a team, this is your new dashboard.",
-    color: "border-rose-100 bg-rose-50/50"
-  }
+    dark: true,
+  },
 ];
 
 export default async function GlmLanding() {
@@ -89,13 +98,15 @@ export default async function GlmLanding() {
         <div className="content-max-width px-6">
           {/* Hero */}
           <div className="animate-fade-up max-w-3xl">
-            <div className="mb-3 text-[12px] font-bold uppercase tracking-wider text-gray-500">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white/80 px-3 py-1 text-[12px] font-bold uppercase tracking-wider text-gray-500">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               New in OpenWork
             </div>
-            <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
-              GLM 5.2, now in the API — with 2x usage
+            <h1 className="mb-5 text-4xl font-bold tracking-tight md:text-5xl">
+              GLM 5.2, now in the API —{" "}
+              <span className="text-blue-600">with 2x usage</span>
             </h1>
-            <p className="mb-6 text-[17px] leading-relaxed text-gray-700">
+            <p className="mb-8 text-[17px] leading-relaxed text-gray-700">
               GLM 5.2 is available today through OpenWork Models, and we&apos;re
               doubling your usage so you and your team can run real agent work on
               an open model at a fraction of the cost. OpenWork Models is our
@@ -117,24 +128,66 @@ export default async function GlmLanding() {
             </div>
           </div>
 
-          {/* Feature grid */}
-          <section className="my-12 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {features.map((f) => (
-              <div key={f.title} className={`feature-card ${f.color}`}>
-                <span className="mb-2 block text-[16px] font-semibold text-gray-900">
-                  {f.title}
-                </span>
-                <p className="text-[14px] leading-relaxed text-gray-700">{f.body}</p>
+          {/* Feature showcase graphic */}
+          <section className="my-12">
+            <div className="overflow-hidden rounded-3xl border border-gray-200 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.18)]">
+              <img
+                src="/glm-features.svg"
+                alt="OpenWork product update: chat control, split screen, voice mode, and advanced analytics"
+                width={1920}
+                height={1080}
+                className="block w-full"
+              />
+            </div>
+          </section>
+
+          {/* Product feature grid */}
+          <section className="my-12">
+            <div className="mb-6">
+              <div className="mb-2 text-[12px] font-bold uppercase tracking-wider text-gray-500">
+                What shipped
               </div>
-            ))}
+              <h2 className="text-2xl font-bold tracking-tight">
+                Four new ways to move faster with agents
+              </h2>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {productFeatures.map((f) => (
+                <div
+                  key={f.title}
+                  className={`feature-card ${f.dark ? "bg-[#011627] text-white" : ""}`}
+                >
+                  <div className="mb-3 flex items-center gap-2">
+                    <span
+                      className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider ${f.dark ? "bg-sky-500/20 text-sky-300" : `${f.badgeBg} ${f.color}`}`}
+                    >
+                      {f.tag}
+                    </span>
+                  </div>
+                  <h3 className={`mb-2 text-[18px] font-bold tracking-tight ${f.dark ? "text-white" : "text-gray-900"}`}>
+                    {f.title}
+                  </h3>
+                  <p className={`text-[14px] leading-relaxed ${f.dark ? "text-slate-300" : "text-gray-700"}`}>
+                    {f.body}
+                  </p>
+                  {f.badge ? (
+                    <div className="mt-3">
+                      <code className={`rounded-lg px-2 py-1 text-[12px] ${f.badgeBg} ${f.color}`}>
+                        {f.badge}
+                      </code>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
           </section>
 
           {/* What to try first */}
-          <section className="landing-shell my-12 rounded-2xl p-8">
+          <section className="landing-shell my-12 rounded-2xl p-8 md:p-10">
             <div className="mb-3 text-[12px] font-bold uppercase tracking-wider text-gray-500">
               What to try first
             </div>
-            <h2 className="mb-3 text-2xl font-bold tracking-tight">
+            <h2 className="mb-3 text-2xl font-bold tracking-tight md:text-3xl">
               Switch to GLM 5.2 and ask the chat to organize your tasks
             </h2>
             <p className="mb-6 text-[15px] leading-relaxed text-gray-700">
@@ -159,12 +212,14 @@ export default async function GlmLanding() {
 
           {/* How it works — conversion funnel */}
           <section className="my-12">
-            <div className="mb-3 text-[12px] font-bold uppercase tracking-wider text-gray-500">
-              How it works
+            <div className="mb-6">
+              <div className="mb-2 text-[12px] font-bold uppercase tracking-wider text-gray-500">
+                How it works
+              </div>
+              <h2 className="text-2xl font-bold tracking-tight">
+                From signup to GLM 5.2 in three steps
+              </h2>
             </div>
-            <h2 className="mb-6 text-2xl font-bold tracking-tight">
-              From signup to GLM 5.2 in three steps
-            </h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div className="feature-card">
                 <span className="step-circle mb-3">1</span>
@@ -201,8 +256,8 @@ export default async function GlmLanding() {
           </section>
 
           {/* Final CTA bar */}
-          <section className="my-12 flex flex-col items-center gap-4 rounded-2xl border border-gray-200 bg-white/60 p-8 text-center">
-            <h2 className="text-2xl font-bold tracking-tight">
+          <section className="my-12 flex flex-col items-center gap-4 rounded-3xl border border-gray-200 bg-white/60 p-10 text-center">
+            <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
               Run real agent work on GLM 5.2 today
             </h2>
             <p className="max-w-xl text-[15px] text-gray-600">

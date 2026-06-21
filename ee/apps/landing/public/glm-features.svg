@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f9fc"/>
+      <stop offset="0.55" stop-color="#edf4fb"/>
+      <stop offset="1" stop-color="#e8eff7"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#011627"/>
+      <stop offset="1" stop-color="#102a43"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#6366f1"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#34d399"/>
+      <stop offset="1" stop-color="#0ea5e9"/>
+    </linearGradient>
+    <filter id="cardShadow" x="-10%" y="-20%" width="120%" height="150%">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#0f172a" flood-opacity="0.14"/>
+    </filter>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#0f172a" flood-opacity="0.18"/>
+    </filter>
+    <style>
+      .sans { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .mono { font-family: "SFMono-Regular", Menlo, Consolas, monospace; }
+      .eyebrow { font-size: 24px; font-weight: 800; letter-spacing: 0.18em; fill: #64748b; text-transform: uppercase; }
+      .headline { font-size: 72px; font-weight: 850; letter-spacing: -0.055em; fill: #011627; }
+      .subhead { font-size: 28px; line-height: 1.35; fill: #475569; }
+      .card-title { font-size: 36px; font-weight: 800; letter-spacing: -0.035em; fill: #0f172a; }
+      .card-body { font-size: 25px; line-height: 1.42; fill: #475569; }
+      .pill { font-size: 18px; font-weight: 750; fill: #334155; }
+      .label { font-size: 17px; font-weight: 800; letter-spacing: 0.14em; fill: #64748b; }
+    </style>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+
+  <circle cx="1625" cy="75" r="440" fill="#dbeafe" opacity="0.5"/>
+  <circle cx="250" cy="980" r="360" fill="#dcfce7" opacity="0.45"/>
+  <path d="M-80 220 C220 40 420 270 640 120 S1050 -80 1280 110 1550 420 1940 170" fill="none" stroke="#93c5fd" stroke-width="16" opacity="0.24"/>
+  <path d="M-140 840 C170 680 360 920 590 740 S1050 500 1320 705 1580 1010 2060 730" fill="none" stroke="#34d399" stroke-width="16" opacity="0.18"/>
+
+  <g transform="translate(96 76)">
+    <rect x="0" y="0" width="52" height="52" rx="16" fill="#ffffff" stroke="#dbe4ee"/>
+    <path d="M18 15l18-9 12 7v24l-18 10-12-7z" fill="none" stroke="#011627" stroke-width="2.6" stroke-linejoin="round"/>
+    <path d="M30 47V24l18-11M30 24L18 15M30 24l-12 7v9" fill="none" stroke="#011627" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="72" y="36" class="sans" font-size="34" font-weight="800" fill="#011627">OpenWork</text>
+  </g>
+
+  <g transform="translate(96 142)">
+    <text x="0" y="0" class="sans eyebrow">Product Update</text>
+    <text x="0" y="84" class="sans headline">Run your day from chat.</text>
+    <text x="0" y="135" class="sans subhead">Four new ways to move faster with agents: chat control, split screen,</text>
+    <text x="0" y="172" class="sans subhead">voice mode, and advanced cloud analytics for teams.</text>
+  </g>
+
+  <g transform="translate(102 350)" filter="url(#cardShadow)">
+    <rect width="820" height="282" rx="38" fill="#ffffff" opacity="0.92" stroke="#e2e8f0"/>
+    <g transform="translate(48 42)">
+      <rect width="86" height="86" rx="26" fill="url(#blue)" opacity="0.94"/>
+      <path d="M24 29h38a12 12 0 0 1 12 12v6a12 12 0 0 1-12 12H44l-16 14v-14h-4a12 12 0 0 1-12-12v-6a12 12 0 0 1 12-12z" fill="none" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+    <text x="166" y="72" class="sans label">CHAT CONTROL</text>
+    <text x="166" y="123" class="sans card-title">Run your day from chat</text>
+    <text x="48" y="176" class="sans card-body">Orchestrate OpenWork fully through chat. Tasks organize</text>
+    <text x="48" y="212" class="sans card-body">into groups, and you can move them by asking, not clicking.</text>
+    <g transform="translate(48 232)">
+      <rect width="142" height="38" rx="19" fill="#dbeafe" stroke="#bfdbfe"/>
+      <text x="22" y="25" class="sans pill">In progress</text>
+      <rect x="158" width="86" height="38" rx="19" fill="#dcfce7" stroke="#bbf7d0"/>
+      <text x="185" y="25" class="sans pill">Done</text>
+      <rect x="260" width="208" height="38" rx="19" fill="#fef3c7" stroke="#fde68a"/>
+      <text x="285" y="25" class="sans pill">Requires attention</text>
+    </g>
+  </g>
+
+  <g transform="translate(998 350)" filter="url(#cardShadow)">
+    <rect width="820" height="282" rx="38" fill="#ffffff" opacity="0.92" stroke="#e2e8f0"/>
+    <g transform="translate(48 44)">
+      <rect width="240" height="138" rx="24" fill="#f8fafc" stroke="#cbd5e1"/>
+      <rect x="20" y="24" width="88" height="90" rx="14" fill="#e0f2fe" stroke="#7dd3fc"/>
+      <rect x="132" y="24" width="88" height="90" rx="14" fill="#ecfdf5" stroke="#86efac"/>
+      <line x1="120" y1="18" x2="120" y2="120" stroke="#94a3b8" stroke-width="4" stroke-dasharray="8 10"/>
+    </g>
+    <text x="330" y="72" class="sans label">FOCUS MODE</text>
+    <text x="330" y="123" class="sans card-title">Split screen</text>
+    <text x="330" y="174" class="sans card-body">Two windows, side by side. Keep a reference open</text>
+    <text x="330" y="210" class="sans card-body">on the left while you work on the right.</text>
+    <text x="330" y="250" class="sans card-body" fill="#0f172a">Less tab-switching, more shipping.</text>
+  </g>
+
+  <g transform="translate(102 682)" filter="url(#cardShadow)">
+    <rect width="820" height="286" rx="38" fill="#ffffff" opacity="0.92" stroke="#e2e8f0"/>
+    <g transform="translate(50 48)">
+      <circle cx="58" cy="58" r="58" fill="#ede9fe"/>
+      <path d="M58 30a19 19 0 0 1 19 19v21a19 19 0 0 1-38 0V49a19 19 0 0 1 19-19z" fill="none" stroke="#7c3aed" stroke-width="6"/>
+      <path d="M30 68c0 20 12 33 28 33s28-13 28-33M58 101v20M42 121h32" fill="none" stroke="#7c3aed" stroke-width="6" stroke-linecap="round"/>
+      <path d="M110 43c13 17 13 48 0 65M6 43c-13 17-13 48 0 65" fill="none" stroke="#a78bfa" stroke-width="6" stroke-linecap="round" opacity="0.75"/>
+    </g>
+    <text x="196" y="80" class="sans label">HANDS-FREE UI</text>
+    <text x="196" y="131" class="sans card-title">Voice mode</text>
+    <text x="50" y="196" class="sans card-body">Control the OpenWork UI by voice. Talk through a task,</text>
+    <text x="50" y="232" class="sans card-body">navigate panels, and drive the agent without touching the keyboard.</text>
+  </g>
+
+  <g transform="translate(998 682)" filter="url(#cardShadow)">
+    <rect width="820" height="286" rx="38" fill="url(#ink)"/>
+    <rect x="1" y="1" width="818" height="284" rx="37" fill="none" stroke="#1e3a5f"/>
+    <text x="48" y="64" class="sans label" fill="#93c5fd">OPENWORK CLOUD</text>
+    <text x="48" y="116" class="sans card-title" fill="#ffffff">Advanced analytics</text>
+    <text x="48" y="178" class="sans card-body" fill="#cbd5e1">Usage, activity, and team behavior in one dashboard.</text>
+    <text x="48" y="214" class="sans card-body" fill="#cbd5e1">For teams running OpenWork at scale.</text>
+    <g transform="translate(520 54)">
+      <rect width="232" height="182" rx="28" fill="#ffffff" opacity="0.08" stroke="#38bdf8" stroke-opacity="0.3"/>
+      <polyline points="28,136 68,104 108,116 148,66 204,42" fill="none" stroke="#38bdf8" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="68" cy="104" r="8" fill="#67e8f9"/>
+      <circle cx="148" cy="66" r="8" fill="#67e8f9"/>
+      <rect x="34" y="150" width="30" height="12" rx="6" fill="#94a3b8" opacity="0.6"/>
+      <rect x="82" y="150" width="54" height="12" rx="6" fill="#94a3b8" opacity="0.45"/>
+      <rect x="154" y="150" width="42" height="12" rx="6" fill="#94a3b8" opacity="0.55"/>
+    </g>
+  </g>
+
+  <g transform="translate(96 1012)">
+    <text class="mono" font-size="18" fill="#64748b">Tasks move by command · references stay open · voice drives the UI · analytics guide the team</text>
+  </g>
+</svg>
