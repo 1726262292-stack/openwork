@@ -159,8 +159,13 @@ export default {
       },
     },
     {
-      name: "Command palette shows Next and Previous session tab items",
+      name: "Command palette shows tab items and Previous navigates back",
       run: async (ctx) => {
+        const routeBefore = await ctx.eval("window.__openworkControl.snapshot().route");
+        const matchBefore = new RegExp("session/([^/?#]+)").exec(routeBefore);
+        const sessionIdBefore = matchBefore ? decodeURIComponent(matchBefore[1]) : null;
+        ctx.assert(sessionIdBefore, "No current session before palette click");
+
         await pressCommandK(ctx);
         await ctx.waitForText("Next session tab", { timeoutMs: 15_000 });
         await ctx.waitForText("Previous session tab", { timeoutMs: 5_000 });
@@ -171,18 +176,7 @@ export default {
           claim: "Command palette lists Next and Previous session tab items",
           requireText: ["Next session tab", "Previous session tab"],
         });
-      },
-    },
-    {
-      name: "Previous session tab command navigates back",
-      run: async (ctx) => {
-        const routeBefore = await ctx.eval("window.__openworkControl.snapshot().route");
-        const matchBefore = new RegExp("session/([^/?#]+)").exec(routeBefore);
-        const sessionIdBefore = matchBefore ? decodeURIComponent(matchBefore[1]) : null;
-        ctx.assert(sessionIdBefore, "No current session before palette click");
 
-        await pressCommandK(ctx);
-        await ctx.waitForText("Previous session tab", { timeoutMs: 15_000 });
         await clickCommandItem(ctx, "Previous session tab");
         const changed = await ctx.waitFor(
           `(() => {
