@@ -47,9 +47,9 @@ import {
   identifyPosthogUser,
   isWorkerLaunch,
   listItemToWorker,
+  normalizeAuthIntentParam,
   normalizeAuthModeParam,
-  normalizeNextRouteParam,
-  PENDING_NEXT_ROUTE_STORAGE_KEY,
+  PENDING_AUTH_INTENT_STORAGE_KEY,
   parseWorkspaceIdFromUrl,
   requestJson,
   resetPosthogUser,
@@ -58,6 +58,7 @@ import {
 } from "../_lib/den-flow";
 import {
   PENDING_ORG_INVITATION_STORAGE_KEY,
+  getInferenceRoute,
   getJoinOrgRoute,
   getOrgDashboardRoute,
   parseOrgListPayload,
@@ -160,17 +161,17 @@ function getPendingOrgInvitationId() {
   return invitationId || null;
 }
 
-function getPendingNextRoute() {
+function getPendingAuthIntent() {
   if (typeof window === "undefined") {
     return null;
   }
 
-  return window.sessionStorage.getItem(PENDING_NEXT_ROUTE_STORAGE_KEY)?.trim() || null;
+  return normalizeAuthIntentParam(window.sessionStorage.getItem(PENDING_AUTH_INTENT_STORAGE_KEY));
 }
 
-function clearPendingNextRoute() {
+function clearPendingAuthIntent() {
   if (typeof window === "undefined") return;
-  window.sessionStorage.removeItem(PENDING_NEXT_ROUTE_STORAGE_KEY);
+  window.sessionStorage.removeItem(PENDING_AUTH_INTENT_STORAGE_KEY);
 }
 
 export function DenFlowProvider({ children }: { children: ReactNode }) {
@@ -1031,15 +1032,14 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
       return getJoinOrgRoute(pendingInvitationId);
     }
 
-    const pendingNextRoute = getPendingNextRoute();
-    if (pendingNextRoute) {
-      clearPendingNextRoute();
-      return pendingNextRoute;
-    }
-
     const dashboardRoute = await resolveDashboardRoute();
 
     if (dashboardRoute) {
+      if (getPendingAuthIntent() === "models") {
+        clearPendingAuthIntent();
+        return getInferenceRoute();
+      }
+
       return dashboardRoute;
     }
 
@@ -1747,9 +1747,9 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
       window.sessionStorage.setItem(PENDING_ORG_INVITATION_STORAGE_KEY, invitationId);
     }
 
-    const nextRoute = normalizeNextRouteParam(params.get("next"));
-    if (nextRoute) {
-      window.sessionStorage.setItem(PENDING_NEXT_ROUTE_STORAGE_KEY, nextRoute);
+    const requestedIntent = normalizeAuthIntentParam(params.get("intent"));
+    if (requestedIntent) {
+      window.sessionStorage.setItem(PENDING_AUTH_INTENT_STORAGE_KEY, requestedIntent);
     }
   }, []);
 

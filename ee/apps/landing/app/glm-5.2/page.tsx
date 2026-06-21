@@ -5,7 +5,7 @@ import { getGithubData } from "../../lib/github";
 import { baseOpenGraph } from "../../lib/seo";
 
 const CLOUD_SIGNUP_URL =
-  "https://app.openworklabs.com?mode=sign-up&next=/dashboard/inference";
+  "https://app.openworklabs.com?mode=sign-up&intent=models";
 const CALENDAR_URL =
   "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0M6zjfdm9ntqokfGCWovfuM21J9C2sqB9R6E1v_plXo8MqKswICQET7-ncV4dOVM5W8pFn1RFM";
 const CHANGELOG_URL = "/docs/changelog";
