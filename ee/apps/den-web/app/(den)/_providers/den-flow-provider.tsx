@@ -49,7 +49,6 @@ import {
   listItemToWorker,
   normalizeAuthModeParam,
   normalizeNextRouteParam,
-  PENDING_DESKTOP_MODEL_STORAGE_KEY,
   PENDING_NEXT_ROUTE_STORAGE_KEY,
   parseWorkspaceIdFromUrl,
   requestJson,
@@ -172,26 +171,6 @@ function getPendingNextRoute() {
 function clearPendingNextRoute() {
   if (typeof window === "undefined") return;
   window.sessionStorage.removeItem(PENDING_NEXT_ROUTE_STORAGE_KEY);
-}
-
-function getPendingDesktopModel() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  return window.sessionStorage.getItem(PENDING_DESKTOP_MODEL_STORAGE_KEY)?.trim() || null;
-}
-
-function appendModelToDeepLink(rawUrl: string, model: string | null): string {
-  if (!model) return rawUrl;
-  try {
-    const url = new URL(rawUrl);
-    url.searchParams.set("model", model);
-    return url.toString();
-  } catch {
-    const separator = rawUrl.includes("?") ? "&" : "?";
-    return `${rawUrl}${separator}model=${encodeURIComponent(model)}`;
-  }
 }
 
 export function DenFlowProvider({ children }: { children: ReactNode }) {
@@ -1018,13 +997,11 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
       }
 
       const openworkPayload = payload as { openworkUrl?: unknown } | null;
-      const rawOpenworkUrl = typeof openworkPayload?.openworkUrl === "string" ? openworkPayload.openworkUrl.trim() : "";
-      if (!rawOpenworkUrl) {
+      const openworkUrl = typeof openworkPayload?.openworkUrl === "string" ? openworkPayload.openworkUrl.trim() : "";
+      if (!openworkUrl) {
         setAuthError("Desktop handoff succeeded, but no OpenWork redirect URL was returned.");
         return;
       }
-
-      const openworkUrl = appendModelToDeepLink(rawOpenworkUrl, getPendingDesktopModel());
 
       setDesktopRedirectUrl(openworkUrl);
       window.location.assign(openworkUrl);
@@ -1773,11 +1750,6 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
     const nextRoute = normalizeNextRouteParam(params.get("next"));
     if (nextRoute) {
       window.sessionStorage.setItem(PENDING_NEXT_ROUTE_STORAGE_KEY, nextRoute);
-    }
-
-    const modelParam = params.get("model")?.trim() ?? "";
-    if (modelParam) {
-      window.sessionStorage.setItem(PENDING_DESKTOP_MODEL_STORAGE_KEY, modelParam);
     }
   }, []);
 

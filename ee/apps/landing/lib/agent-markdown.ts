@@ -159,9 +159,9 @@ const glm52 = `# GLM 5.2 is now in OpenWork — with 2x usage
 
 ## How it works
 
-1. **Sign up** — [Get Started for free](https://app.openworklabs.com?mode=sign-up&next=/dashboard/inference&model=openwork/z-ai/glm-5.2)
+1. **Sign up** — [Get Started for free](https://app.openworklabs.com?mode=sign-up&next=/dashboard/inference)
 2. **Subscribe** — OpenWork Models at $10/user/mo includes GLM 5.2 with 2x usage
-3. **Open the app** — your account and GLM 5.2 are ready automatically
+3. **Open the app** — switch to GLM 5.2 from the model picker
 
 ## What to try first
 
@@ -169,7 +169,7 @@ Open OpenWork, switch to GLM 5.2, and ask the chat to organize your tasks.
 
 ## Links
 
-- [Try GLM 5.2 in OpenWork](https://app.openworklabs.com?mode=sign-up&next=/dashboard/inference&model=openwork/z-ai/glm-5.2)
+- [Try GLM 5.2 in OpenWork](https://app.openworklabs.com?mode=sign-up&next=/dashboard/inference)
 - [Download the app](https://openworklabs.com/download)
 - [Full changelog](https://openworklabs.com/docs/changelog)
 `

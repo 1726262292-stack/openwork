@@ -5,7 +5,7 @@ import { getGithubData } from "../../lib/github";
 import { baseOpenGraph } from "../../lib/seo";
 
 const CLOUD_SIGNUP_URL =
-  "https://app.openworklabs.com?mode=sign-up&next=/dashboard/inference&model=openwork/z-ai/glm-5.2";
+  "https://app.openworklabs.com?mode=sign-up&next=/dashboard/inference";
 const CALENDAR_URL =
   "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0M6zjfdm9ntqokfGCWovfuM21J9C2sqB9R6E1v_plXo8MqKswICQET7-ncV4dOVM5W8pFn1RFM";
 const CHANGELOG_URL = "/docs/changelog";
@@ -192,9 +192,9 @@ export default async function GlmLanding() {
                   Open the app
                 </span>
                 <p className="text-[14px] text-gray-700">
-                  Launch the desktop app — your account and GLM 5.2 are ready. No
-                  manual model setup needed. Don&apos;t have the app? Download it
-                  for macOS, Windows, or Linux.
+                  Launch the desktop app, sign in, and switch to GLM 5.2 from the
+                  model picker. Don&apos;t have the app? Download it for macOS,
+                  Windows, or Linux.
                 </p>
               </div>
             </div>
