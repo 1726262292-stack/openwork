@@ -105,13 +105,28 @@ export const GOOGLE_WORKSPACE_EXTENSION_ACTIONS = [
     extensionId: GOOGLE_WORKSPACE_EXTENSION_ID,
     action: "gmail_get_message",
     title: "Read Gmail message",
-    description: "Read a Gmail message by id, including its plain text body. Requires Gmail read access (gmail.readonly scope).",
+    description: "Read a Gmail message by id, including its plain text body and attachment metadata. Requires Gmail read access (gmail.readonly scope).",
     inputSchema: {
       type: "object",
       properties: {
         messageId: { type: "string", description: "Gmail message id." },
       },
       required: ["messageId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    extensionId: GOOGLE_WORKSPACE_EXTENSION_ID,
+    action: "gmail_download_attachment",
+    title: "Download Gmail attachment",
+    description: "Download a Gmail attachment by message id and attachment id. Returns base64-encoded attachment bytes. Requires Gmail read access (gmail.readonly scope).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        messageId: { type: "string", description: "Gmail message id." },
+        attachmentId: { type: "string", description: "Gmail attachment id from gmail_get_message attachment metadata." },
+      },
+      required: ["messageId", "attachmentId"],
       additionalProperties: false,
     },
   },
@@ -634,8 +649,12 @@ function gmailMessageSummary(message: unknown) {
   };
 }
 
+function decodeBase64Url(data: string): Buffer {
+  return Buffer.from(data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+}
+
 function decodeGmailBody(data: string): string {
-  return Buffer.from(data.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+  return decodeBase64Url(data).toString("utf8");
 }
 
 function gmailMessageText(payload: unknown, mimePrefix = "text/plain"): string {
@@ -649,6 +668,27 @@ function gmailMessageText(payload: unknown, mimePrefix = "text/plain"): string {
     if (text) return text;
   }
   return "";
+}
+
+function gmailAttachmentMetadata(payload: unknown) {
+  const attachments: { attachmentId: string; filename: string; mimeType: string; size: number | null }[] = [];
+  const visit = (part: unknown) => {
+    if (!isRecord(part)) return;
+    const body = isRecord(part.body) ? part.body : null;
+    const attachmentId = typeof body?.attachmentId === "string" ? body.attachmentId : "";
+    if (attachmentId) {
+      attachments.push({
+        attachmentId,
+        filename: typeof part.filename === "string" ? part.filename : "",
+        mimeType: typeof part.mimeType === "string" ? part.mimeType : "",
+        size: typeof body?.size === "number" ? body.size : null,
+      });
+    }
+    const parts = Array.isArray(part.parts) ? part.parts : [];
+    for (const child of parts) visit(child);
+  };
+  visit(payload);
+  return attachments;
 }
 
 async function googleWorkspaceListMessages(config: ServerConfig, args: Record<string, unknown>) {
@@ -684,7 +724,28 @@ async function googleWorkspaceGetMessage(config: ServerConfig, args: Record<stri
   );
   const payload = isRecord(message) ? message.payload : null;
   const body = gmailMessageText(payload) || gmailMessageText(payload, "text/html");
-  return { ...gmailMessageSummary(message), body };
+  return { ...gmailMessageSummary(message), body, attachments: gmailAttachmentMetadata(payload) };
+}
+
+async function googleWorkspaceDownloadAttachment(config: ServerConfig, args: Record<string, unknown>) {
+  const messageId = readStringField(args, "messageId");
+  const attachmentId = readStringField(args, "attachmentId");
+  if (!messageId || !attachmentId) throw new ApiError(400, "invalid_payload", "messageId and attachmentId are required");
+  const { record, accessToken } = await googleWorkspaceAccessToken(config);
+  requireGmailReadScope(record);
+  const attachment = await fetchGoogleJson(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!isRecord(attachment) || typeof attachment.data !== "string") throw new Error("Gmail attachment download did not return data.");
+  const data = attachment.data;
+  const content = decodeBase64Url(data);
+  return {
+    messageId,
+    attachmentId,
+    size: isRecord(attachment) && typeof attachment.size === "number" ? attachment.size : content.byteLength,
+    dataBase64: content.toString("base64"),
+  };
 }
 
 async function googleWorkspaceListEvents(config: ServerConfig, args: Record<string, unknown>) {
@@ -837,6 +898,7 @@ export async function callGoogleWorkspaceExtensionAction(config: ServerConfig, a
   if (action === "gmail_create_draft") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceCreateDraft(config, args), context };
   if (action === "gmail_list_messages") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceListMessages(config, args), context };
   if (action === "gmail_get_message") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceGetMessage(config, args), context };
+  if (action === "gmail_download_attachment") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceDownloadAttachment(config, args), context };
   if (action === "drive_search_files") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceSearchFiles(config, args), context };
   if (action === "drive_read_file") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceReadFile(config, args), context };
   if (action === "drive_update_file") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceUpdateFile(config, args), context };

@@ -212,7 +212,10 @@ describe("Google Workspace extension", () => {
         payload: {
           mimeType: "multipart/alternative",
           headers: [{ name: "Subject", value: "Greetings" }],
-          parts: [{ mimeType: "text/plain", body: { data: bodyData } }],
+          parts: [
+            { mimeType: "text/plain", body: { data: bodyData } },
+            { filename: "report.pdf", mimeType: "application/pdf", body: { attachmentId: "att-1", size: 42 } },
+          ],
         },
       }), { status: 200 }),
       { preconnect: previousFetch.preconnect },
@@ -221,6 +224,38 @@ describe("Google Workspace extension", () => {
     const result = await callGoogleWorkspaceExtensionAction(config, "gmail_get_message", { messageId: "m1" }, {});
     expect(result?.ok).toBe(true);
     expect(result?.result).toMatchObject({ id: "m1", subject: "Greetings", body: "Hello from Gmail" });
+    expect(result?.result).toMatchObject({ attachments: [{ attachmentId: "att-1", filename: "report.pdf", mimeType: "application/pdf", size: 42 }] });
+  });
+
+  test("gmail_download_attachment decodes attachment data", async () => {
+    process.env.OPENWORK_DEV_MODE = "1";
+    process.env.OPENWORK_GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT = "1";
+    process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET = "secret";
+    const config = createTestConfig();
+    await writePlaintextVault(config, {
+      version: 2,
+      activeAccountId: "sub-one",
+      accounts: [accountRecord("one@example.com", "sub-one", ["openid", "https://www.googleapis.com/auth/gmail.readonly"])],
+    });
+    const attachmentData = Buffer.from("attachment bytes", "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    const requestedUrls: string[] = [];
+    globalThis.fetch = Object.assign(
+      async (input: string | URL | Request) => {
+        requestedUrls.push(String(input instanceof Request ? input.url : input));
+        return new Response(JSON.stringify({ data: attachmentData, size: 16 }), { status: 200 });
+      },
+      { preconnect: previousFetch.preconnect },
+    );
+
+    const result = await callGoogleWorkspaceExtensionAction(config, "gmail_download_attachment", { messageId: "m1", attachmentId: "att-1" }, {});
+    expect(result?.ok).toBe(true);
+    expect(result?.result).toEqual({
+      messageId: "m1",
+      attachmentId: "att-1",
+      size: 16,
+      dataBase64: Buffer.from("attachment bytes", "utf8").toString("base64"),
+    });
+    expect(requestedUrls[0]).toBe("https://gmail.googleapis.com/gmail/v1/users/me/messages/m1/attachments/att-1");
   });
 
   test("calendar_create_event rejects accounts without the calendar.events scope", async () => {
