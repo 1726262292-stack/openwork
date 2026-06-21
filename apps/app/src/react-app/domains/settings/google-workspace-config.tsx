@@ -24,7 +24,7 @@ type BusyAction = "status" | "connect" | "disconnect" | "set-active" | "test" | 
 type OptionalFeature = "gmailRead" | "driveFull" | "calendarWrite" | "chat";
 
 const OPTIONAL_FEATURES: { id: OptionalFeature; label: string; description: string }[] = [
-  { id: "gmailRead", label: "Read Gmail", description: "Read your Gmail messages and threads." },
+  { id: "gmailRead", label: "Read Gmail", description: "Read your Gmail messages, threads, and attachments." },
   { id: "driveFull", label: "Full Google Drive access", description: "Search, read, and edit all files in your Drive, not just files created through OpenWork." },
   { id: "calendarWrite", label: "Create calendar events", description: "Create events on your Google Calendar." },
   { id: "chat", label: "Google Chat", description: "List spaces, read messages, and send messages in Google Chat." },
