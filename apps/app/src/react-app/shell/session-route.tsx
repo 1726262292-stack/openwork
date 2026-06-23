@@ -1431,6 +1431,21 @@ export function SessionRoute() {
     },
   }), [goToPrevSessionTab]);
 
+  const reloadConfigPaletteItem = useMemo<PaletteItem>(() => ({
+    id: "reload-opencode-config",
+    title: t("session.cmd_reload_config_title"),
+    detail: t("session.cmd_reload_config_detail"),
+    meta: reloadCoordinator.canReloadWorkspaceEngine
+      ? t("config.reload_engine")
+      : t("system.reload_unavailable"),
+    searchText: "reload opencode config providers models mcp jsonc refresh re-read engine restart",
+    action: () => {
+      setCommandPaletteOpen(false);
+      if (!reloadCoordinator.canReloadWorkspaceEngine) return;
+      void reloadCoordinator.reloadWorkspaceEngine();
+    },
+  }), [reloadCoordinator.canReloadWorkspaceEngine, reloadCoordinator.reloadWorkspaceEngine]);
+
   const handleReorderWorkspaces = useCallback((workspaceIds: string[]) => {
     const activeWorkspaceIds = new Set(workspacesRef.current.map((workspace) => workspace.id));
     const nextOrderIds: string[] = [];
@@ -1880,7 +1895,7 @@ export function SessionRoute() {
           : undefined
       }
       onArchiveSession={opencodeClient ? handleArchiveSession : undefined}
-      statusBar={{ loading: showPreparingStatus }}
+      statusBar={{ loading: showPreparingStatus, reloadBusy: reloadCoordinator.reloadBusy, reloadError: reloadCoordinator.reloadError }}
       notFoundMessage={routeNotFoundMessage}
       onAccessibleTargetsChange={setPaletteAccessibleTargets}
     />
@@ -1965,7 +1980,7 @@ export function SessionRoute() {
       currentSessionForGroupMove={currentSessionForGroupMove}
       currentSessionGroupId={currentSessionGroupId}
       onMoveCurrentSessionToGroup={handleMoveCurrentSessionToGroup}
-      extraItems={[sessionSearchPaletteItem, ...terminalPaletteItems, developerModePaletteItem, nextSessionTabPaletteItem, prevSessionTabPaletteItem]}
+      extraItems={[sessionSearchPaletteItem, ...terminalPaletteItems, developerModePaletteItem, nextSessionTabPaletteItem, prevSessionTabPaletteItem, reloadConfigPaletteItem]}
       listAgents={listAgents}
       selectedAgent={selectedAgent}
       onSelectAgent={setSelectedAgent}

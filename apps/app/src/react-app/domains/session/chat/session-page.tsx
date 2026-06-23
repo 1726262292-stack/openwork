@@ -83,6 +83,8 @@ type StatusBarOverrides = Pick<
   | "loading"
   | "showSettingsButton"
   | "settingsOpen"
+  | "reloadBusy"
+  | "reloadError"
 >;
 
 export type SessionPageHistoryControls = {
@@ -1234,6 +1236,8 @@ export function SessionPage(props: SessionPageProps) {
               mcpConnectedCount={props.mcpConnectedCount}
               loading={props.statusBar?.loading ?? false}
               showSettingsButton={props.statusBar?.showSettingsButton}
+              reloadBusy={props.statusBar?.reloadBusy}
+              reloadError={props.statusBar?.reloadError}
             />
           ) : null}
               </main>
