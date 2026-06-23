@@ -11,11 +11,21 @@ Initial Helm chart for the OpenWork EE Den stack:
 
 ## Install
 
+Published releases are available as an OCI Helm chart:
+
+```bash
+helm upgrade --install openwork-ee oci://ghcr.io/different-ai/charts/openwork-ee \
+  --version 0.17.1 \
+  -f values.prod.yaml
+```
+
+Use the matching image tag in `values.prod.yaml`:
+
 Create a values file for the target environment:
 
 ```yaml
 image:
-  tag: "2026.06.23-sha"
+  tag: "0.17.1"
 
 config:
   public:
@@ -45,7 +55,24 @@ ingress:
     host: api.openwork.example.com
 ```
 
-Then render or install:
+For private GHCR packages, authenticate before installing:
+
+```bash
+helm registry login ghcr.io
+kubectl create secret docker-registry ghcr-pull-secret \
+  --docker-server=ghcr.io \
+  --docker-username=<github-user> \
+  --docker-password=<github-token>
+```
+
+Then add:
+
+```yaml
+imagePullSecrets:
+  - name: ghcr-pull-secret
+```
+
+For local development from a repository checkout, render or install directly:
 
 ```bash
 helm template openwork-ee ./packaging/helm/openwork-ee -f values.prod.yaml

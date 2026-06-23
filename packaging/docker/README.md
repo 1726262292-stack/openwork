@@ -31,6 +31,11 @@ Production-oriented EE images:
 
 These images are intended for Terraform, Helm, ECS, EKS, and customer-cloud deployments. Prefer immutable tags or digests in production.
 
+Publish flow:
+- Release tags like `v0.17.1` publish images tagged `v0.17.1`, `0.17.1`, `sha-<commit>`, and `latest`.
+- The same workflow publishes the Helm chart to `oci://ghcr.io/different-ai/charts/openwork-ee` with chart version `0.17.1`.
+- Manual publishes from a branch require `push=true` and an explicit `chart_version`.
+
 Health and smoke expectations:
 - Published service images include shallow Docker healthchecks for the HTTP process only.
 - Den API and inference probe `GET /health`; Den web probes `GET /api/health`.
