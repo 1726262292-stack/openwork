@@ -25,11 +25,20 @@ function metadataBaseFromOrigin(origin: string) {
   }
 }
 
+function firstHeaderValue(value: string | null) {
+  return value?.split(",")[0]?.trim() || "";
+}
+
+function forwardedProtocol(value: string | null) {
+  const protocol = firstHeaderValue(value).toLowerCase();
+  return protocol === "http" || protocol === "https" ? protocol : "https";
+}
+
 export async function generateMetadata(): Promise<Metadata> {
   const configuredOrigin = process.env.DEN_WEB_PUBLIC_ORIGIN?.trim();
   const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host")?.trim() || requestHeaders.get("host")?.trim() || "";
-  const protocol = requestHeaders.get("x-forwarded-proto")?.trim() || "https";
+  const host = firstHeaderValue(requestHeaders.get("x-forwarded-host")) || firstHeaderValue(requestHeaders.get("host"));
+  const protocol = forwardedProtocol(requestHeaders.get("x-forwarded-proto"));
   const metadataOrigin = configuredOrigin || (host ? `${protocol}://${host}` : "http://localhost:3005");
 
   return {
