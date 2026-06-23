@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Inter } from "next/font/google";
+import { headers } from "next/headers";
 import Script from "next/script";
 import "./globals.css";
 
@@ -16,28 +17,44 @@ const ibmPlexMono = IBM_Plex_Mono({
   weight: ["400", "500"]
 });
 
-export const metadata: Metadata = {
-  metadataBase: new URL(process.env.DEN_WEB_PUBLIC_ORIGIN?.trim() || "http://localhost:3005"),
-  title: "OpenWork Cloud",
-  description:
-    "Share your OpenWork setup with your team, manage billing, and use OpenWork Cloud from app.openworklabs.com.",
-  openGraph: {
-    title: "OpenWork Cloud",
-    description:
-      "Share your OpenWork setup with your team and keep selected workflows available in OpenWork Cloud.",
-    images: ["/opengraph-image"]
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "OpenWork Cloud",
-    description:
-      "Share your OpenWork setup with your team and manage OpenWork Cloud from app.openworklabs.com.",
-    images: ["/opengraph-image"]
-  },
-  icons: {
-    icon: "/openwork-mark.svg"
+function metadataBaseFromOrigin(origin: string) {
+  try {
+    return new URL(origin);
+  } catch {
+    return new URL("http://localhost:3005");
   }
-};
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  const configuredOrigin = process.env.DEN_WEB_PUBLIC_ORIGIN?.trim();
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("x-forwarded-host")?.trim() || requestHeaders.get("host")?.trim() || "";
+  const protocol = requestHeaders.get("x-forwarded-proto")?.trim() || "https";
+  const metadataOrigin = configuredOrigin || (host ? `${protocol}://${host}` : "http://localhost:3005");
+
+  return {
+    metadataBase: metadataBaseFromOrigin(metadataOrigin),
+    title: "OpenWork Cloud",
+    description:
+      "Share your OpenWork setup with your team, manage billing, and use OpenWork Cloud from app.openworklabs.com.",
+    openGraph: {
+      title: "OpenWork Cloud",
+      description:
+        "Share your OpenWork setup with your team and keep selected workflows available in OpenWork Cloud.",
+      images: ["/opengraph-image"]
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: "OpenWork Cloud",
+      description:
+        "Share your OpenWork setup with your team and manage OpenWork Cloud from app.openworklabs.com.",
+      images: ["/opengraph-image"]
+    },
+    icons: {
+      icon: "/openwork-mark.svg"
+    }
+  };
+}
 
 const defaultPosthogProxyPath = "/ow";
 const posthogKey = process.env.DEN_WEB_POSTHOG_KEY?.trim() || "";

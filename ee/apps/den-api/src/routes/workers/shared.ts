@@ -338,7 +338,7 @@ export async function continueCloudProvisioning(input: {
     await db
       .update(WorkerTable)
       .set({ status: provisioned.status })
-      .where(eq(WorkerTable.id, input.workerId))
+      .where(and(eq(WorkerTable.id, input.workerId), eq(WorkerTable.status, "provisioning")))
 
     await db.insert(WorkerInstanceTable).values({
       id: createDenTypeId("workerInstance"),
@@ -352,7 +352,7 @@ export async function continueCloudProvisioning(input: {
     await db
       .update(WorkerTable)
       .set({ status: "failed" })
-      .where(eq(WorkerTable.id, input.workerId))
+      .where(and(eq(WorkerTable.id, input.workerId), eq(WorkerTable.status, "provisioning")))
 
     const message = error instanceof Error ? error.message : "provisioning_failed"
     console.error(`[workers] provisioning failed for ${input.workerId}: ${message}`)

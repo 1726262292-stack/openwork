@@ -27,12 +27,16 @@ export function getRuntimeConfig(): Promise<DenWebRuntimeConfig> {
     runtimeConfigPromise = fetch("/api/runtime-config", { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) {
+          runtimeConfigPromise = null;
           return EMPTY_RUNTIME_CONFIG;
         }
 
         return normalizeRuntimeConfig(await response.json());
       })
-      .catch(() => EMPTY_RUNTIME_CONFIG);
+      .catch(() => {
+        runtimeConfigPromise = null;
+        return EMPTY_RUNTIME_CONFIG;
+      });
   }
 
   return runtimeConfigPromise;

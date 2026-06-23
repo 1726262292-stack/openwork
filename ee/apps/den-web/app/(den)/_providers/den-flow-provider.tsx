@@ -1169,7 +1169,9 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
         }
         return;
       }
-      const callbackURL = getSocialCallbackUrl(runtimeConfig.openworkAuthCallbackUrl);
+      const latestRuntimeConfig = await getRuntimeConfig();
+      setRuntimeConfig(latestRuntimeConfig);
+      const callbackURL = getSocialCallbackUrl(latestRuntimeConfig.openworkAuthCallbackUrl);
       const { response, payload } = await requestJson("/api/auth/sign-in/social", {
         method: "POST",
         body: JSON.stringify({

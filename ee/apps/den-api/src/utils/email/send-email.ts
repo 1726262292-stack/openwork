@@ -7,7 +7,7 @@ export function sendEmail<Template extends EmailTemplate>(
   input: Omit<SendEmailInput<Template>, "config">,
 ) {
   console.info(
-    `[email] sending template=${input.template} to=${input.to} hasFrom=${Boolean(env.email.from)} hasResend=${Boolean(env.resend.apiKey)} hasSmtp=${Boolean(env.smtp.host)}`,
+    `[email] sending template=${input.template} hasFrom=${Boolean(env.email.from)} hasResend=${Boolean(env.resend.apiKey)} hasSmtp=${Boolean(env.smtp.host)}`,
   )
 
   return sendSharedEmail({
@@ -20,10 +20,10 @@ export function sendEmail<Template extends EmailTemplate>(
     },
   })
     .then(() => {
-      console.info(`[email] sent template=${input.template} to=${input.to}`)
+      console.info(`[email] sent template=${input.template}`)
     })
     .catch((error) => {
-      console.error(`[email] failed template=${input.template} to=${input.to}`, error)
+      console.error(`[email] failed template=${input.template}`, error)
       throw error
     })
 }

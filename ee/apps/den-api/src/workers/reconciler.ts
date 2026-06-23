@@ -29,7 +29,7 @@ async function reconcileWorker(worker: ProvisioningWorker) {
     await db
       .update(WorkerTable)
       .set({ status: "failed" })
-      .where(eq(WorkerTable.id, worker.id))
+      .where(and(eq(WorkerTable.id, worker.id), eq(WorkerTable.status, "provisioning")))
     console.error(`[workers] provisioning reconcile failed for ${worker.id}: missing worker tokens`)
     return
   }
