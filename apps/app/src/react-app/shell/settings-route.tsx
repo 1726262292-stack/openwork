@@ -1977,6 +1977,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 importedCloudProviders={providerAuthSnapshot.importedCloudProviders}
                 onOpenAccount={openCloudAccountSettings}
                 refreshCloudOrgProviders={providerAuthStore.refreshCloudOrgProviders}
+                refreshImportedCloudProviders={providerAuthStore.refreshImportedCloudProviders}
                 removeCloudProvider={providerAuthStore.removeCloudProvider}
                 session={denSession}
               />
@@ -2141,6 +2142,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             importedCloudProviders={providerAuthSnapshot.importedCloudProviders}
             onOpenAccount={openCloudAccountSettings}
             refreshCloudOrgProviders={providerAuthStore.refreshCloudOrgProviders}
+            refreshImportedCloudProviders={providerAuthStore.refreshImportedCloudProviders}
             removeCloudProvider={providerAuthStore.removeCloudProvider}
             session={denSession}
           />

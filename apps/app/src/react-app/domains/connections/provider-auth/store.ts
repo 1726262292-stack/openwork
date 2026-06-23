@@ -440,11 +440,19 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     try {
       const config = await readWorkspaceOpenworkConfigRecord();
       const cloudImports = readWorkspaceCloudImports(config);
-      setStateField("importedCloudProviders", cloudImports.providers);
-      return cloudImports.providers;
+      const next = cloudImports.providers;
+      // Guard: don't overwrite non-empty import state with an empty read.
+      // This prevents a transient server unavailability (e.g. during engine
+      // restart) from clearing a just-completed import from the badge.
+      const hasNext = Object.keys(next).length > 0;
+      const hasCurrent = Object.keys(state.importedCloudProviders).length > 0;
+      if (hasNext || !hasCurrent) {
+        setStateField("importedCloudProviders", next);
+      }
+      return next;
     } catch {
-      setStateField("importedCloudProviders", {});
-      return {};
+      // Preserve existing state on read failure to avoid losing import state.
+      return state.importedCloudProviders;
     }
   };
 
@@ -1931,6 +1939,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     dispose,
     syncFromOptions,
     refreshCloudOrgProviders,
+    refreshImportedCloudProviders,
     runCloudProviderSync,
     startProviderAuth,
     refreshProviders,
