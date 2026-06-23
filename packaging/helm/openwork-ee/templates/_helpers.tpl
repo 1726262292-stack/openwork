@@ -61,10 +61,6 @@ app.kubernetes.io/component: {{ .component }}
 {{ include "openwork-ee.fullname" . }}-den-web
 {{- end -}}
 
-{{- define "openwork-ee.denWorkerProxyServiceName" -}}
-{{ include "openwork-ee.fullname" . }}-den-worker-proxy
-{{- end -}}
-
 {{- define "openwork-ee.inferenceServiceName" -}}
 {{ include "openwork-ee.fullname" . }}-inference
 {{- end -}}
@@ -75,10 +71,6 @@ app.kubernetes.io/component: {{ .component }}
 
 {{- define "openwork-ee.authFallbackInternalUrl" -}}
 {{- default (include "openwork-ee.denApiInternalUrl" .) .Values.config.internal.authFallbackBaseUrl -}}
-{{- end -}}
-
-{{- define "openwork-ee.workerProxyInternalUrl" -}}
-{{- default (printf "http://%s:%v" (include "openwork-ee.denWorkerProxyServiceName" .) .Values.denWorkerProxy.service.port) .Values.config.internal.workerProxyBaseUrl -}}
 {{- end -}}
 
 {{- define "openwork-ee.inferenceInternalUrl" -}}

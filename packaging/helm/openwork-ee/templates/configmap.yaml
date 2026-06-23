@@ -24,7 +24,6 @@ data:
   WORKER_PROVISIONING_RECONCILE_STALE_MS: {{ .Values.config.provisioner.reconcileStaleMs | quote }}
   WORKER_PROVISIONING_RECONCILE_BATCH_SIZE: {{ .Values.config.provisioner.reconcileBatchSize | quote }}
   WORKER_URL_TEMPLATE: {{ .Values.config.provisioner.workerUrlTemplate | quote }}
-  DAYTONA_WORKER_PROXY_BASE_URL: {{ include "openwork-ee.workerProxyInternalUrl" . | quote }}
   {{ if or .Values.inference.enabled .Values.config.internal.inferenceProxyBaseUrl }}
   INFERENCE_PROXY_BASE_URL: {{ include "openwork-ee.inferenceInternalUrl" . | quote }}
   {{ end }}

@@ -4,7 +4,6 @@ Initial Helm chart for the OpenWork EE Den stack:
 
 - `den-api` control plane on port `8788`
 - `den-web` web app on port `3005`
-- `den-worker-proxy` on port `8789`
 - optional `inference` service on port `8791`
 - shared ConfigMap and Secret templating
 - optional Ingress for web and API hosts
@@ -77,7 +76,6 @@ By default, the chart wires internal services through Kubernetes DNS:
 
 - `DEN_API_BASE=http://<release>-openwork-ee-den-api:8788`
 - `DEN_AUTH_FALLBACK_BASE=http://<release>-openwork-ee-den-api:8788`
-- `DAYTONA_WORKER_PROXY_BASE_URL=http://<release>-openwork-ee-den-worker-proxy:8789`
 - `INFERENCE_PROXY_BASE_URL=http://<release>-openwork-ee-inference:8791` when `inference.enabled=true`
 
 Override `config.internal.*` only when routing through a mesh, gateway, or external service.
@@ -101,14 +99,12 @@ The chart uses the existing service health endpoints:
 
 - `den-api`: `GET /health`
 - `den-web`: `GET /api/health`
-- `den-worker-proxy`: `GET /health`
 - `inference`: `GET /health`
 
 Readiness probes use dependency-aware endpoints:
 
 - `den-api`: `GET /ready`
 - `den-web`: `GET /api/ready`
-- `den-worker-proxy`: `GET /ready`
 - `inference`: `GET /ready`
 
 ## Worker Provisioning Recovery

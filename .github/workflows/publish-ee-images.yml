@@ -16,12 +16,10 @@ on:
       - ".github/workflows/publish-ee-images.yml"
       - "packaging/docker/Dockerfile.den"
       - "packaging/docker/Dockerfile.den-web"
-      - "packaging/docker/Dockerfile.den-worker-proxy"
       - "packaging/docker/Dockerfile.inference"
       - "packaging/helm/openwork-ee/**"
       - "ee/apps/den-api/**"
       - "ee/apps/den-web/**"
-      - "ee/apps/den-worker-proxy/**"
       - "ee/apps/inference/**"
       - "ee/packages/**"
       - "packages/email/**"
@@ -77,13 +75,6 @@ jobs:
             port: 3005
             health_path: /api/health
             smoke_env: ""
-          - image: openwork-den-worker-proxy
-            dockerfile: packaging/docker/Dockerfile.den-worker-proxy
-            port: 8789
-            health_path: /health
-            smoke_env: >-
-              -e DB_MODE=mysql
-              -e DATABASE_URL=mysql://smoke:smoke@127.0.0.1:3306/smoke
           - image: openwork-inference
             dockerfile: packaging/docker/Dockerfile.inference
             port: 8791

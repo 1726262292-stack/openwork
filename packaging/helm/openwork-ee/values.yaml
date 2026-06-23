@@ -25,7 +25,6 @@ config:
   internal:
     apiBaseUrl: ""
     authFallbackBaseUrl: ""
-    workerProxyBaseUrl: ""
     inferenceProxyBaseUrl: ""
   provisioner:
     mode: stub
@@ -146,31 +145,6 @@ denWeb:
       periodSeconds: 5
       timeoutSeconds: 10
       failureThreshold: 18
-
-denWorkerProxy:
-  replicaCount: 1
-  image:
-    repository: ghcr.io/different-ai/openwork-den-worker-proxy
-    tag: ""
-  service:
-    type: ClusterIP
-    port: 8789
-  containerPort: 8789
-  env: {}
-  podAnnotations: {}
-  podLabels: {}
-  resources: {}
-  probes:
-    liveness:
-      initialDelaySeconds: 30
-      periodSeconds: 10
-      timeoutSeconds: 5
-      failureThreshold: 6
-    readiness:
-      initialDelaySeconds: 10
-      periodSeconds: 5
-      timeoutSeconds: 5
-      failureThreshold: 12
 
 inference:
   enabled: false
