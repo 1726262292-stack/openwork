@@ -62,6 +62,7 @@ import {
   getCloudManagedProviderId,
   getCloudProviderEnv,
   getProviderModelIds,
+  isCloudManagedProviderKey,
   isCloudProviderOutOfSync,
 } from "./cloud-provider-config";
 import { refreshDesktopCloudSync } from "../../../../app/cloud/desktop-cloud-sync";
@@ -605,6 +606,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   ) => {
     const localProviderId = getCloudManagedProviderId(provider);
     const existingImported = state.importedCloudProviders[provider.id] ?? null;
+    // `lpr_*` / `openwork` keys are owned by the cloud-import system. When the
+    // import baseline was lost or diverged (e.g. it lives in a different file
+    // than the provider block, or a prior reconcile failed mid-flight), an
+    // existing cloud-managed block must be treated as a re-import to reconcile,
+    // not blocked. Only guard against clobbering a user's manual provider.
+    const cloudManagedKey = isCloudManagedProviderKey(localProviderId);
     if (
       existingImported &&
       existingImported.providerId !== localProviderId &&
@@ -617,14 +624,18 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       );
     }
 
-    if (!existingImported && options.providerConnectedIds().includes(localProviderId)) {
+    if (
+      !existingImported &&
+      !cloudManagedKey &&
+      options.providerConnectedIds().includes(localProviderId)
+    ) {
       throw new Error(
         `${localProviderId} is already connected in this workspace. Disconnect it before importing the cloud-managed version.`,
       );
     }
 
     const configFile = await readProjectConfigFile() as { content?: string } | null;
-    if (!configFile?.content?.trim() || existingImported) {
+    if (!configFile?.content?.trim() || existingImported || cloudManagedKey) {
       return;
     }
 

@@ -10,6 +10,7 @@ import {
   formatConfigWithCloudProvider,
   getCloudManagedProviderId,
   getProviderModelIds,
+  isCloudManagedProviderKey,
   isCloudProviderOutOfSync,
 } from "../src/react-app/domains/connections/provider-auth/cloud-provider-config";
 
@@ -138,6 +139,14 @@ describe("cloud provider re-import diff (#2346)", () => {
       LPR_ID,
     ]);
     expect(providerModelKeys(result)).toEqual(["model-x", "model-y"]);
+  });
+
+  test("cloud-managed key predicate guards re-import vs manual clobber", () => {
+    expect(isCloudManagedProviderKey(LPR_ID)).toBe(true);
+    expect(isCloudManagedProviderKey("lpr_anything")).toBe(true);
+    expect(isCloudManagedProviderKey("openwork")).toBe(true);
+    expect(isCloudManagedProviderKey("openai")).toBe(false);
+    expect(isCloudManagedProviderKey("anthropic")).toBe(false);
   });
 
   test("out-of-sync detection flags a changed Den model list", () => {
