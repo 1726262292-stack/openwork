@@ -10,7 +10,7 @@ RUN apt-get update \
 
 COPY . .
 
-RUN pnpm install --frozen-lockfile --filter openwork-orchestrator... --filter openwork-server... \
+RUN pnpm install --frozen-lockfile --trust-lockfile --filter openwork-orchestrator... --filter openwork-server... \
   && pnpm --filter openwork-orchestrator build:bin \
   && pnpm --filter openwork-server build:bin
 

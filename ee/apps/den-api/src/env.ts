@@ -39,7 +39,11 @@ const EnvSchema = z.object({
   DEN_DESKTOP_DEN_BASE_URL: z.string().optional(),
   DEN_MARKETING_URL: z.string().optional(),
   DEN_MCP_CLAIM_NAMESPACE: z.string().optional(),
+  DEN_BOOTSTRAP_ADMIN_EMAILS: z.string().optional(),
   WORKER_PROXY_PORT: z.string().optional(),
+  WORKER_PROVISIONING_RECONCILE_INTERVAL_MS: z.string().optional(),
+  WORKER_PROVISIONING_RECONCILE_STALE_MS: z.string().optional(),
+  WORKER_PROVISIONING_RECONCILE_BATCH_SIZE: z.string().optional(),
   PROVISIONER_MODE: z.enum(["stub", "render", "daytona"]).optional(),
   WORKER_URL_TEMPLATE: z.string().optional(),
   WORKER_ACTIVITY_BASE_URL: z.string().optional(),
@@ -255,7 +259,11 @@ export const env = {
   desktopDenBaseUrl: optionalString(parsed.DEN_DESKTOP_DEN_BASE_URL),
   marketingUrl: optionalString(parsed.DEN_MARKETING_URL),
   mcpClaimNamespace: normalizeOrigin(optionalString(parsed.DEN_MCP_CLAIM_NAMESPACE) ?? parsed.BETTER_AUTH_URL),
+  bootstrapAdminEmails: splitCsv(parsed.DEN_BOOTSTRAP_ADMIN_EMAILS).map((email) => email.toLowerCase()),
   provisionerMode: parsed.PROVISIONER_MODE ?? "stub",
+  workerProvisioningReconcileIntervalMs: Number(parsed.WORKER_PROVISIONING_RECONCILE_INTERVAL_MS ?? "60000"),
+  workerProvisioningReconcileStaleMs: Number(parsed.WORKER_PROVISIONING_RECONCILE_STALE_MS ?? "1200000"),
+  workerProvisioningReconcileBatchSize: Number(parsed.WORKER_PROVISIONING_RECONCILE_BATCH_SIZE ?? "10"),
   workerUrlTemplate: parsed.WORKER_URL_TEMPLATE,
   workerActivityBaseUrl:
     optionalString(parsed.WORKER_ACTIVITY_BASE_URL) ??

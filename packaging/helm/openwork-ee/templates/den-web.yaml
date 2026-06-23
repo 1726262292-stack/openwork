@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openwork-ee.denWebServiceName" . }}
+  labels:
+    {{- include "openwork-ee.componentLabels" (dict "root" . "component" "den-web") | nindent 4 }}
+spec:
+  type: {{ .Values.denWeb.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.denWeb.service.port }}
+      targetPort: http
+  selector:
+    {{- include "openwork-ee.componentSelectorLabels" (dict "root" . "component" "den-web") | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openwork-ee.fullname" . }}-den-web
+  labels:
+    {{- include "openwork-ee.componentLabels" (dict "root" . "component" "den-web") | nindent 4 }}
+spec:
+  replicas: {{ .Values.denWeb.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "openwork-ee.componentSelectorLabels" (dict "root" . "component" "den-web") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openwork-ee.componentSelectorLabels" (dict "root" . "component" "den-web") | nindent 8 }}
+        {{- with .Values.denWeb.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.denWeb.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: den-web
+          image: "{{ .Values.denWeb.image.repository }}:{{ default .Values.image.tag .Values.denWeb.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.denWeb.containerPort }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "openwork-ee.configName" . }}
+            - secretRef:
+                name: {{ include "openwork-ee.secretName" . }}
+          env:
+            - name: PORT
+              value: {{ .Values.denWeb.containerPort | quote }}
+            {{- range $key, $value := .Values.denWeb.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            {{- toYaml .Values.denWeb.probes.liveness | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /api/ready
+              port: http
+            {{- toYaml .Values.denWeb.probes.readiness | nindent 12 }}
+          {{- with .Values.denWeb.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

@@ -18,6 +18,7 @@ on:
       - "packaging/docker/Dockerfile.den-web"
       - "packaging/docker/Dockerfile.den-worker-proxy"
       - "packaging/docker/Dockerfile.inference"
+      - "packaging/helm/openwork-ee/**"
       - "ee/apps/den-api/**"
       - "ee/apps/den-web/**"
       - "ee/apps/den-worker-proxy/**"
@@ -38,6 +39,22 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  helm-chart:
+    name: Validate Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: helm lint packaging/helm/openwork-ee
+
+      - name: Render chart
+        run: helm template openwork-ee packaging/helm/openwork-ee --set ingress.enabled=true --set inference.enabled=true
+
   ee-images:
     name: Build ${{ matrix.image }}
     runs-on: ubuntu-latest
@@ -47,12 +64,34 @@ jobs:
         include:
           - image: openwork-den-api
             dockerfile: packaging/docker/Dockerfile.den
+            port: 8788
+            health_path: /health
+            smoke_env: >-
+              -e DB_MODE=mysql
+              -e DATABASE_URL=mysql://smoke:smoke@127.0.0.1:3306/smoke
+              -e DEN_DB_ENCRYPTION_KEY=ci-den-db-encryption-key-value-123456
+              -e BETTER_AUTH_SECRET=ci-better-auth-secret-value-123456
+              -e BETTER_AUTH_URL=http://127.0.0.1:8788
           - image: openwork-den-web
             dockerfile: packaging/docker/Dockerfile.den-web
+            port: 3005
+            health_path: /api/health
+            smoke_env: ""
           - image: openwork-den-worker-proxy
             dockerfile: packaging/docker/Dockerfile.den-worker-proxy
+            port: 8789
+            health_path: /health
+            smoke_env: >-
+              -e DB_MODE=mysql
+              -e DATABASE_URL=mysql://smoke:smoke@127.0.0.1:3306/smoke
           - image: openwork-inference
             dockerfile: packaging/docker/Dockerfile.inference
+            port: 8791
+            health_path: /health
+            smoke_env: >-
+              -e DB_MODE=mysql
+              -e DATABASE_URL=mysql://smoke:smoke@127.0.0.1:3306/smoke
+              -e DEN_DB_ENCRYPTION_KEY=ci-den-db-encryption-key-value-123456
 
     steps:
       - name: Checkout
@@ -90,9 +129,48 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          load: ${{ github.event_name == 'pull_request' }}
           push: ${{ github.event_name == 'push' || inputs.push == true }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Smoke health endpoint
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          image_tag="$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)"
+          container_id="$(docker run -d --rm -P ${{ matrix.smoke_env }} "$image_tag")"
+          cleanup() {
+            docker stop "$container_id" >/dev/null || true
+          }
+          trap cleanup EXIT
+
+          host_port=""
+          for attempt in {1..10}; do
+            host_port="$(docker port "$container_id" "${{ matrix.port }}/tcp" 2>/dev/null | awk -F: 'NR == 1 { print $NF }')"
+            if [ -n "$host_port" ]; then
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$host_port" ]; then
+            docker logs "$container_id" || true
+            exit 1
+          fi
+
+          url="http://127.0.0.1:${host_port}${{ matrix.health_path }}"
+
+          for attempt in {1..30}; do
+            if node -e "fetch(process.argv[1]).then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))" "$url"; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs "$container_id" || true
+          exit 1

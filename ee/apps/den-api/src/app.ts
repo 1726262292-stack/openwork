@@ -1,6 +1,7 @@
 import "./load-env.js"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { swaggerUI } from "@hono/swagger-ui"
+import { sql } from "@openwork-ee/den-db/drizzle"
 import { cors } from "hono/cors"
 import { Hono } from "hono"
 import { logger } from "hono/logger"
@@ -8,6 +9,7 @@ import type { RequestIdVariables } from "hono/request-id"
 import { requestId } from "hono/request-id"
 import { describeRoute, openAPIRouteHandler, resolver } from "hono-openapi"
 import { z } from "zod"
+import { db } from "./db.js"
 import { env } from "./env.js"
 import { publicRoute } from "./middleware/index.js"
 import { registerAdminMcpRoutes } from "./mcp/admin.js"
@@ -33,6 +35,14 @@ const healthResponseSchema = z.object({
   service: z.literal("den-api"),
 }).meta({ ref: "DenApiHealthResponse" })
 
+const readinessResponseSchema = z.object({
+  ok: z.boolean(),
+  service: z.literal("den-api"),
+  checks: z.object({
+    database: z.enum(["ok", "error"]),
+  }),
+}).meta({ ref: "DenApiReadinessResponse" })
+
 const openApiDocumentSchema = z.object({
   openapi: z.string(),
   info: z.object({
@@ -48,7 +58,7 @@ const app = new Hono<{ Variables: AppVariables }>()
 const requestLogger = logger()
 
 app.use("*", async (c, next) => {
-  if (c.req.path === "/health") {
+  if (c.req.path === "/health" || c.req.path === "/ready") {
     await next()
     return
   }
@@ -121,6 +131,29 @@ app.get(
   publicRoute,
   (c) => {
     return c.json({ ok: true, service: "den-api" })
+  },
+)
+
+app.get(
+  "/ready",
+  describeRoute({
+    tags: ["System"],
+    summary: "Check den-api readiness",
+    description: "Verifies den-api can reach its database dependency.",
+    responses: {
+      200: jsonResponse("den-api is ready to serve traffic.", readinessResponseSchema),
+      503: jsonResponse("den-api is not ready to serve traffic.", readinessResponseSchema),
+    },
+  }),
+  publicRoute,
+  async (c) => {
+    try {
+      await db.execute(sql`select 1`)
+      return c.json({ ok: true, service: "den-api", checks: { database: "ok" } })
+    } catch (error) {
+      console.error("[readiness] den-api database check failed", error)
+      return c.json({ ok: false, service: "den-api", checks: { database: "error" } }, 503)
+    }
   },
 )
 

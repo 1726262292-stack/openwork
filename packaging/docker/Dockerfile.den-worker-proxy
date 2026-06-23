@@ -13,7 +13,7 @@ COPY ee/packages/utils/package.json /app/ee/packages/utils/package.json
 COPY ee/packages/den-db/package.json /app/ee/packages/den-db/package.json
 COPY ee/apps/den-worker-proxy/package.json /app/ee/apps/den-worker-proxy/package.json
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --trust-lockfile
 
 COPY packages/types /app/packages/types
 COPY ee/packages/utils /app/ee/packages/utils
@@ -25,5 +25,7 @@ RUN pnpm --dir /app/ee/packages/den-db run build
 RUN pnpm --dir /app/ee/apps/den-worker-proxy run build
 
 EXPOSE 8789
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || '8789') + '/health').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 CMD ["sh", "-lc", "node /app/ee/apps/den-worker-proxy/dist/server.js"]

@@ -2,10 +2,12 @@ import "./load-env.js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { sql } from "@openwork-ee/den-db/drizzle";
 import { cors } from "hono/cors";
 import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { z } from "zod";
+import { db } from "./db.js";
 import { env } from "./env.js";
 import { registerProxyRoutes } from "./proxy.js";
 import { registerVoiceRoutes } from "./voice.js";
@@ -27,7 +29,7 @@ const requestLogger = logger((message, ...rest) => {
 });
 
 app.use("*", async (c, next) => {
-  if (c.req.path === "/health") {
+  if (c.req.path === "/health" || c.req.path === "/ready") {
     await next();
     return;
   }
@@ -55,6 +57,16 @@ if (env.corsOrigins.length > 0) {
 }
 
 app.get("/health", (c) => c.json({ ok: true, service: "inference" }));
+
+app.get("/ready", async (c) => {
+  try {
+    await db.execute(sql`select 1`);
+    return c.json({ ok: true, service: "inference", checks: { database: "ok" } });
+  } catch (error) {
+    console.error("[readiness] inference database check failed", error);
+    return c.json({ ok: false, service: "inference", checks: { database: "error" } }, 503);
+  }
+});
 
 if (shouldServeLocalModelCatalog) {
   app.get("/models/api.json", async (c) => {

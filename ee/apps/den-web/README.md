@@ -45,6 +45,11 @@ Frontend for `app.openworklabs.com`.
   - set it to `https://us.i.posthog.com` to bypass the local proxy
 - `GET /api/health` returns a shallow app health payload for container probes.
 
+### Related Den API env vars
+
+- `DEN_MCP_CLAIM_NAMESPACE`: namespace used for MCP token claim URIs. Leave blank to use `BETTER_AUTH_URL`; set a stable value before issuing tokens if hosts may change. Use `https://openworklabs.com` to preserve the original hosted MCP claim names.
+- `DEN_BOOTSTRAP_ADMIN_EMAILS`: comma-separated platform admin emails seeded by `den-api` on startup. Blank disables bootstrap admin seeding.
+
 ## Deploy on Vercel
 
 Recommended project settings:

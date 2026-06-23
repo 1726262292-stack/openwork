@@ -1,0 +1,227 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  tag: latest
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+config:
+  databaseMode: mysql
+  openworkDevMode: "0"
+  public:
+    webOrigin: https://openwork.example.com
+    apiOrigin: https://api.openwork.example.com
+    mcpResourceUrl: https://api.openwork.example.com/mcp
+    mcpClaimNamespace: ""
+    desktopDenBaseUrl: https://openwork.example.com
+    corsOrigins: https://openwork.example.com,https://api.openwork.example.com
+    betterAuthTrustedOrigins: https://openwork.example.com
+    webAppHosts: openwork.example.com
+    bootstrapAdminEmails: ""
+    openworkAppConnectUrl: ""
+    authCallbackUrl: https://openwork.example.com
+  internal:
+    apiBaseUrl: ""
+    authFallbackBaseUrl: ""
+    workerProxyBaseUrl: ""
+    inferenceProxyBaseUrl: ""
+  provisioner:
+    mode: stub
+    reconcileIntervalMs: "60000"
+    reconcileStaleMs: "1200000"
+    reconcileBatchSize: "10"
+    workerUrlTemplate: ""
+  daytona:
+    apiUrl: ""
+    target: ""
+    snapshot: ""
+    sandboxImage: ""
+    sandboxCpu: ""
+    sandboxMemory: ""
+    sandboxDisk: ""
+    sandboxPublic: ""
+    sandboxAutoStopInterval: ""
+    sandboxAutoArchiveInterval: ""
+    sandboxAutoDeleteInterval: ""
+    signedPreviewExpiresSeconds: "86400"
+    sandboxNamePrefix: ""
+    sharedVolumeName: ""
+    volumeNamePrefix: ""
+    workspaceMountPath: ""
+    dataMountPath: ""
+    runtimeWorkspacePath: ""
+    runtimeDataPath: ""
+    sidecarDir: ""
+    openworkPort: ""
+    opencodePort: ""
+    createTimeoutSeconds: ""
+    deleteTimeoutSeconds: ""
+    healthcheckTimeoutMs: ""
+  polar:
+    featureGateEnabled: "false"
+    apiBase: ""
+    productId: ""
+    benefitId: ""
+    successUrl: ""
+    returnUrl: ""
+  inference:
+    openRouterWorkspaceId: ""
+    stripeInferencePriceId: ""
+    openRouterUpstreamUrl: ""
+    creditsPerDollar: ""
+  web:
+    posthogKey: ""
+    posthogHost: ""
+
+secret:
+  create: true
+  existingSecret: ""
+  keys:
+    databaseUrl: DATABASE_URL
+    betterAuthSecret: BETTER_AUTH_SECRET
+    denDbEncryptionKey: DEN_DB_ENCRYPTION_KEY
+    daytonaApiKey: DAYTONA_API_KEY
+    polarAccessToken: POLAR_ACCESS_TOKEN
+    openRouterManagementApiKey: OPENROUTER_MANAGEMENT_API_KEY
+    inferenceAdminToken: INFERENCE_ADMIN_TOKEN
+    inferenceWebhookSecret: INFERENCE_WEBHOOK_SECRET
+  values:
+    databaseUrl: mysql://openwork:change-me@mysql:3306/openwork_den
+    betterAuthSecret: CHANGE_ME_32_CHARS_MINIMUM_BETTER_AUTH
+    denDbEncryptionKey: CHANGE_ME_32_CHARS_MINIMUM_DB_ENCRYPTION
+    daytonaApiKey: ""
+    polarAccessToken: ""
+    openRouterManagementApiKey: ""
+    inferenceAdminToken: ""
+    inferenceWebhookSecret: ""
+
+denApi:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/different-ai/openwork-den-api
+    tag: ""
+  service:
+    type: ClusterIP
+    port: 8788
+  containerPort: 8788
+  env: {}
+  podAnnotations: {}
+  podLabels: {}
+  resources: {}
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 12
+
+denWeb:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/different-ai/openwork-den-web
+    tag: ""
+  service:
+    type: ClusterIP
+    port: 3005
+  containerPort: 3005
+  env: {}
+  podAnnotations: {}
+  podLabels: {}
+  resources: {}
+  probes:
+    liveness:
+      initialDelaySeconds: 60
+      periodSeconds: 10
+      timeoutSeconds: 10
+      failureThreshold: 6
+    readiness:
+      initialDelaySeconds: 20
+      periodSeconds: 5
+      timeoutSeconds: 10
+      failureThreshold: 18
+
+denWorkerProxy:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/different-ai/openwork-den-worker-proxy
+    tag: ""
+  service:
+    type: ClusterIP
+    port: 8789
+  containerPort: 8789
+  env: {}
+  podAnnotations: {}
+  podLabels: {}
+  resources: {}
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 12
+
+inference:
+  enabled: false
+  replicaCount: 1
+  image:
+    repository: ghcr.io/different-ai/openwork-inference
+    tag: ""
+  service:
+    type: ClusterIP
+    port: 8791
+  containerPort: 8791
+  env: {}
+  podAnnotations: {}
+  podLabels: {}
+  resources: {}
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 12
+
+migrations:
+  enabled: true
+  hook: true
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  podAnnotations: {}
+  resources: {}
+  command:
+    - sh
+    - -lc
+  args:
+    - pnpm --dir /app/ee/packages/den-db run db:bootstrap
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  web:
+    host: openwork.example.com
+    path: /
+    pathType: Prefix
+  api:
+    enabled: true
+    host: api.openwork.example.com
+    path: /
+    pathType: Prefix
+  tls: []

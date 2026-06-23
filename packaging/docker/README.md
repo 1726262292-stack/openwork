@@ -32,6 +32,11 @@ Production-oriented EE images:
 
 These images are intended for Terraform, Helm, ECS, EKS, and customer-cloud deployments. Prefer immutable tags or digests in production.
 
+Health and smoke expectations:
+- Published service images include shallow Docker healthchecks for the HTTP process only.
+- Den API, worker proxy, and inference probe `GET /health`; Den web probes `GET /api/health`.
+- The publish workflow loads each PR image locally and probes the same endpoint without cloud secrets. Production orchestrators should still add dependency-aware readiness checks where needed.
+
 ### Demo org seed
 
 After the Den DB is running, seed a full local demo org with users, teams, pending invites, and imported plugin data from `anthropics/knowledge-work-plugins`:

@@ -14,7 +14,7 @@ COPY ee/packages/utils/package.json /app/ee/packages/utils/package.json
 COPY ee/packages/den-db/package.json /app/ee/packages/den-db/package.json
 COPY ee/apps/den-api/package.json /app/ee/apps/den-api/package.json
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --trust-lockfile
 
 COPY packages/types /app/packages/types
 COPY packages/email /app/packages/email
@@ -24,10 +24,11 @@ COPY ee/apps/den-api /app/ee/apps/den-api
 
 RUN pnpm --dir /app/packages/email run build
 RUN pnpm --dir /app/ee/packages/utils run build
-RUN pnpm --dir /app/packages/email run build
 RUN pnpm --dir /app/ee/packages/den-db run build
 RUN pnpm --dir /app/ee/apps/den-api run build
 
 EXPOSE 8788
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || '8788') + '/health').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 CMD ["sh", "-lc", "node /app/ee/apps/den-api/dist/server.js"]
