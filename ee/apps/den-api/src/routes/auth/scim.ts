@@ -4,8 +4,8 @@ import { resolver } from "hono-openapi"
 import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { z } from "zod"
 import { auth } from "../../auth.js"
-import { deleteScimProvisionedAccessForProvider, recordScimSyncFailure, recordScimSyncFailureFromBearerToken, resolveScimProviderFromBearerToken, syncExternalIdentityFromScimResource, syncExternalIdentityFromScimUserId } from "../../scim.js"
-import { authenticatedRoute, publicRoute, tokenRoute } from "../../middleware/index.js"
+import { createScimGroupForToken, deleteScimGroupForToken, deleteScimProvisionedAccessForProvider, getScimGroupForToken, listScimGroupsForToken, patchScimGroupForToken, recordScimSyncFailure, recordScimSyncFailureFromBearerToken, replaceScimGroupForToken, resolveScimProviderFromBearerToken, syncExternalIdentityFromScimResource, syncExternalIdentityFromScimUserId } from "../../scim.js"
+import { authenticatedRoute, tokenRoute } from "../../middleware/index.js"
 import type { AuthContextVariables } from "../../session.js"
 
 const scimErrorSchema = z.object({
@@ -134,14 +134,6 @@ export async function syncScimMutationFromResponse(input: {
 }
 
 export function registerScimAuthRoutes<T extends { Variables: AuthContextVariables }>(app: Hono<T>) {
-  const scimGroupsNotSupported = (c: { json: (object: unknown, status?: number | { status: number }) => Response }) => {
-    return c.json({
-      schemas: ["urn:ietf:params:scim:api:messages:2.0:Error"],
-      detail: "SCIM Groups are not supported yet.",
-      status: "501",
-    }, 501)
-  }
-
   const rejectManagementRoute = (c: {
     get: (key: "user") => AuthContextVariables["user"]
     json: (object: unknown, status?: number | { status: number }) => Response
@@ -249,8 +241,141 @@ export function registerScimAuthRoutes<T extends { Variables: AuthContextVariabl
     (c) => rejectManagementRoute(c),
   )
 
-  app.all("/api/auth/scim/v2/Groups", publicRoute, (c) => scimGroupsNotSupported(c))
-  app.all("/api/auth/scim/v2/Groups/:groupId", publicRoute, (c) => scimGroupsNotSupported(c))
+  const scimJsonResponse = (result: Awaited<ReturnType<typeof listScimGroupsForToken>>) => {
+    const headers = new Headers(result.headers)
+    headers.set("content-type", "application/scim+json")
+    if (result.status === 204) {
+      return new Response(null, { status: result.status, headers })
+    }
+    return new Response(JSON.stringify(result.body), { status: result.status, headers })
+  }
+
+  const readScimJsonBody = async (request: Request) => {
+    const payload: unknown = await request.json().catch(() => null)
+    return payload
+  }
+
+  app.get("/api/auth/scim/v2/Groups", tokenRoute, async (c) => {
+    const bearerToken = readBearerToken(c.req.raw.headers)
+    if (!bearerToken) {
+      return scimJsonResponse({
+        status: 401,
+        body: {
+          schemas: ["urn:ietf:params:scim:api:messages:2.0:Error"],
+          detail: "SCIM token is required",
+          status: "401",
+        },
+      })
+    }
+
+    const result = await listScimGroupsForToken({
+      bearerToken,
+      filter: c.req.query("filter") ?? null,
+    })
+    return scimJsonResponse(result)
+  })
+
+  app.post("/api/auth/scim/v2/Groups", tokenRoute, async (c) => {
+    const bearerToken = readBearerToken(c.req.raw.headers)
+    if (!bearerToken) {
+      return scimJsonResponse({
+        status: 401,
+        body: {
+          schemas: ["urn:ietf:params:scim:api:messages:2.0:Error"],
+          detail: "SCIM token is required",
+          status: "401",
+        },
+      })
+    }
+
+    const result = await createScimGroupForToken({
+      bearerToken,
+      resource: await readScimJsonBody(c.req.raw),
+    })
+    return scimJsonResponse(result)
+  })
+
+  app.get("/api/auth/scim/v2/Groups/:groupId", tokenRoute, async (c) => {
+    const bearerToken = readBearerToken(c.req.raw.headers)
+    if (!bearerToken) {
+      return scimJsonResponse({
+        status: 401,
+        body: {
+          schemas: ["urn:ietf:params:scim:api:messages:2.0:Error"],
+          detail: "SCIM token is required",
+          status: "401",
+        },
+      })
+    }
+
+    const result = await getScimGroupForToken({
+      bearerToken,
+      groupId: c.req.param("groupId"),
+    })
+    return scimJsonResponse(result)
+  })
+
+  app.put("/api/auth/scim/v2/Groups/:groupId", tokenRoute, async (c) => {
+    const bearerToken = readBearerToken(c.req.raw.headers)
+    if (!bearerToken) {
+      return scimJsonResponse({
+        status: 401,
+        body: {
+          schemas: ["urn:ietf:params:scim:api:messages:2.0:Error"],
+          detail: "SCIM token is required",
+          status: "401",
+        },
+      })
+    }
+
+    const result = await replaceScimGroupForToken({
+      bearerToken,
+      groupId: c.req.param("groupId"),
+      resource: await readScimJsonBody(c.req.raw),
+    })
+    return scimJsonResponse(result)
+  })
+
+  app.patch("/api/auth/scim/v2/Groups/:groupId", tokenRoute, async (c) => {
+    const bearerToken = readBearerToken(c.req.raw.headers)
+    if (!bearerToken) {
+      return scimJsonResponse({
+        status: 401,
+        body: {
+          schemas: ["urn:ietf:params:scim:api:messages:2.0:Error"],
+          detail: "SCIM token is required",
+          status: "401",
+        },
+      })
+    }
+
+    const result = await patchScimGroupForToken({
+      bearerToken,
+      groupId: c.req.param("groupId"),
+      patch: await readScimJsonBody(c.req.raw),
+    })
+    return scimJsonResponse(result)
+  })
+
+  app.delete("/api/auth/scim/v2/Groups/:groupId", tokenRoute, async (c) => {
+    const bearerToken = readBearerToken(c.req.raw.headers)
+    if (!bearerToken) {
+      return scimJsonResponse({
+        status: 401,
+        body: {
+          schemas: ["urn:ietf:params:scim:api:messages:2.0:Error"],
+          detail: "SCIM token is required",
+          status: "401",
+        },
+      })
+    }
+
+    const result = await deleteScimGroupForToken({
+      bearerToken,
+      groupId: c.req.param("groupId"),
+    })
+    return scimJsonResponse(result)
+  })
 
   app.delete(
     "/api/auth/scim/v2/Users/:userId",

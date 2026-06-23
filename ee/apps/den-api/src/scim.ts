@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer"
-import { and, count, desc, eq, isNotNull, isNull, lt, lte, or, sql } from "@openwork-ee/den-db/drizzle"
-import { AuthAccountTable, AuthUserTable, ExternalIdentityTable, MemberTable, ScimProviderTable, ScimSyncEventTable } from "@openwork-ee/den-db/schema"
+import { and, count, desc, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from "@openwork-ee/den-db/drizzle"
+import { AuthAccountTable, AuthUserTable, ExternalIdentityTable, MemberTable, ScimProviderTable, ScimSyncEventTable, SkillHubMemberTable, TeamMemberTable, TeamTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { auth } from "./auth.js"
 import { db } from "./db.js"
@@ -10,6 +10,8 @@ import { verifyStoredScimToken } from "./scim-token-storage.js"
 
 type OrganizationId = typeof MemberTable.$inferSelect.organizationId
 type UserId = typeof AuthUserTable.$inferSelect.id
+type TeamId = typeof TeamTable.$inferSelect.id
+type MemberId = typeof MemberTable.$inferSelect.id
 type ScimProvider = typeof ScimProviderTable.$inferSelect
 type ScimSyncEvent = typeof ScimSyncEventTable.$inferSelect
 
@@ -27,6 +29,25 @@ type ScimUserResource = {
   emails?: unknown
   active?: unknown
 }
+
+type ScimGroupState = {
+  displayName: string
+  memberUserIds: UserId[]
+}
+
+type ScimGroupPatchOperation = {
+  op: string
+  path?: string
+  value?: unknown
+}
+
+export type ScimGroupRouteResult =
+  | { status: 200 | 201 | 400 | 401 | 404 | 409; body: Record<string, unknown>; headers?: Record<string, string> }
+  | { status: 204; headers?: Record<string, string> }
+
+const SCIM_GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group"
+const SCIM_LIST_RESPONSE_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+const SCIM_ERROR_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:Error"
 
 function decodeBase64Url(value: string) {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/")
@@ -48,6 +69,201 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asArray(value: unknown): unknown[] | null {
   return Array.isArray(value) ? value : null
+}
+
+function maybeNormalizeUserId(value: unknown) {
+  const raw = maybeString(value)
+  if (!raw) {
+    return null
+  }
+
+  try {
+    return normalizeDenTypeId("user", raw)
+  } catch {
+    return null
+  }
+}
+
+function maybeNormalizeTeamId(value: unknown) {
+  const raw = maybeString(value)
+  if (!raw) {
+    return null
+  }
+
+  try {
+    return normalizeDenTypeId("team", raw)
+  } catch {
+    return null
+  }
+}
+
+function uniqueUserIds(userIds: UserId[]) {
+  const seen = new Set<UserId>()
+  const result: UserId[] = []
+  for (const userId of userIds) {
+    if (!seen.has(userId)) {
+      seen.add(userId)
+      result.push(userId)
+    }
+  }
+  return result
+}
+
+function parseScimGroupMembers(value: unknown) {
+  const members = asArray(value)
+  if (!members) {
+    return null
+  }
+
+  const userIds: UserId[] = []
+  for (const member of members) {
+    const userId = maybeNormalizeUserId(asRecord(member)?.value)
+    if (!userId) {
+      return null
+    }
+    userIds.push(userId)
+  }
+  return uniqueUserIds(userIds)
+}
+
+function parseScimGroupResource(value: unknown): ScimGroupState | null {
+  const resource = asRecord(value)
+  const displayName = maybeString(resource?.displayName)
+  if (!resource || !displayName) {
+    return null
+  }
+
+  const memberUserIds = resource.members === undefined ? [] : parseScimGroupMembers(resource.members)
+  if (!memberUserIds) {
+    return null
+  }
+
+  return {
+    displayName,
+    memberUserIds,
+  }
+}
+
+function parseScimGroupPatchOperations(value: unknown) {
+  const resource = asRecord(value)
+  const operations = asArray(resource?.Operations)
+  if (!operations) {
+    return null
+  }
+
+  const parsed: ScimGroupPatchOperation[] = []
+  for (const operation of operations) {
+    const record = asRecord(operation)
+    const op = maybeString(record?.op)?.toLowerCase() ?? "replace"
+    if (op !== "add" && op !== "replace" && op !== "remove") {
+      return null
+    }
+    parsed.push({
+      op,
+      path: maybeString(record?.path) ?? undefined,
+      value: record?.value,
+    })
+  }
+  return parsed
+}
+
+function parseMemberFilterPath(path: string) {
+  const match = path.match(/^members\[value\s+eq\s+"([^"]+)"\]$/i)
+  return maybeNormalizeUserId(match?.[1])
+}
+
+function parsePatchMemberValues(value: unknown) {
+  const arrayValue = asArray(value)
+  if (arrayValue) {
+    return parseScimGroupMembers(arrayValue)
+  }
+
+  const singleValue = asRecord(value)
+  if (singleValue) {
+    const userId = maybeNormalizeUserId(singleValue.value)
+    return userId ? [userId] : null
+  }
+
+  return null
+}
+
+export function applyScimGroupPatch(input: {
+  current: ScimGroupState
+  patch: unknown
+}): ScimGroupState | null {
+  const operations = parseScimGroupPatchOperations(input.patch)
+  if (!operations) {
+    return null
+  }
+
+  let displayName = input.current.displayName
+  let memberUserIds = uniqueUserIds(input.current.memberUserIds)
+
+  for (const operation of operations) {
+    const normalizedPath = operation.path?.toLowerCase()
+    if (operation.op === "replace" && !normalizedPath) {
+      const value = asRecord(operation.value)
+      if (!value) {
+        return null
+      }
+      const nextDisplayName = maybeString(value.displayName)
+      if (nextDisplayName) {
+        displayName = nextDisplayName
+      }
+      if (value.members !== undefined) {
+        const nextMembers = parseScimGroupMembers(value.members)
+        if (!nextMembers) {
+          return null
+        }
+        memberUserIds = nextMembers
+      }
+      continue
+    }
+
+    if (normalizedPath === "displayname") {
+      const nextDisplayName = maybeString(operation.value)
+      if (!nextDisplayName || operation.op === "remove") {
+        return null
+      }
+      displayName = nextDisplayName
+      continue
+    }
+
+    if (normalizedPath === "members") {
+      if (operation.op === "remove" && operation.value === undefined) {
+        memberUserIds = []
+        continue
+      }
+
+      const patchMembers = parsePatchMemberValues(operation.value)
+      if (!patchMembers) {
+        return null
+      }
+
+      if (operation.op === "add") {
+        memberUserIds = uniqueUserIds([...memberUserIds, ...patchMembers])
+      } else if (operation.op === "replace") {
+        memberUserIds = patchMembers
+      } else {
+        const removeUserIds = new Set(patchMembers)
+        memberUserIds = memberUserIds.filter((userId) => !removeUserIds.has(userId))
+      }
+      continue
+    }
+
+    const memberFilterUserId = operation.path ? parseMemberFilterPath(operation.path) : null
+    if (memberFilterUserId && operation.op === "remove") {
+      memberUserIds = memberUserIds.filter((userId) => userId !== memberFilterUserId)
+      continue
+    }
+
+    return null
+  }
+
+  return {
+    displayName,
+    memberUserIds,
+  }
 }
 
 function stringifyScimError(error: unknown) {
@@ -245,6 +461,391 @@ export async function deactivateExternalIdentityForScimUser(input: {
 
 export function getScimBaseUrl() {
   return `${env.betterAuthUrl}/api/auth/scim/v2`
+}
+
+function scimJson(status: 200 | 201 | 400 | 401 | 404 | 409, body: Record<string, unknown>, headers?: Record<string, string>): ScimGroupRouteResult {
+  return { status, body, headers }
+}
+
+function scimError(status: 400 | 401 | 404 | 409, detail: string, scimType?: string): ScimGroupRouteResult {
+  return scimJson(status, {
+    schemas: [SCIM_ERROR_SCHEMA],
+    detail,
+    status: String(status),
+    ...(scimType ? { scimType } : {}),
+  })
+}
+
+function getScimGroupLocation(teamId: TeamId) {
+  return `${getScimBaseUrl()}/Groups/${encodeURIComponent(teamId)}`
+}
+
+async function getTeamMemberUserIds(teamIds: TeamId[]) {
+  const userIdsByTeamId = new Map<TeamId, UserId[]>()
+  if (teamIds.length === 0) {
+    return userIdsByTeamId
+  }
+
+  const rows = await db
+    .select({
+      teamId: TeamMemberTable.teamId,
+      userId: MemberTable.userId,
+    })
+    .from(TeamMemberTable)
+    .innerJoin(MemberTable, eq(TeamMemberTable.orgMembershipId, MemberTable.id))
+    .where(and(inArray(TeamMemberTable.teamId, teamIds), isNull(MemberTable.removedAt)))
+
+  for (const row of rows) {
+    if (!row.userId) {
+      continue
+    }
+    const existing = userIdsByTeamId.get(row.teamId) ?? []
+    existing.push(row.userId)
+    userIdsByTeamId.set(row.teamId, existing)
+  }
+
+  return userIdsByTeamId
+}
+
+function createScimGroupResource(input: {
+  team: Pick<typeof TeamTable.$inferSelect, "id" | "name" | "createdAt" | "updatedAt">
+  memberUserIds: UserId[]
+}) {
+  return {
+    schemas: [SCIM_GROUP_SCHEMA],
+    id: input.team.id,
+    displayName: input.team.name,
+    members: input.memberUserIds.map((userId) => ({
+      value: userId,
+      $ref: `${getScimBaseUrl()}/Users/${encodeURIComponent(userId)}`,
+    })),
+    meta: {
+      resourceType: "Group",
+      created: input.team.createdAt.toISOString(),
+      lastModified: input.team.updatedAt.toISOString(),
+      location: getScimGroupLocation(input.team.id),
+    },
+  }
+}
+
+async function getScimGroupResourceForTeam(team: typeof TeamTable.$inferSelect) {
+  const memberUserIds = await getTeamMemberUserIds([team.id])
+  return createScimGroupResource({
+    team,
+    memberUserIds: memberUserIds.get(team.id) ?? [],
+  })
+}
+
+async function resolveOrgMembershipIds(input: {
+  organizationId: OrganizationId
+  userIds: UserId[]
+}) {
+  const membershipIdsByUserId = new Map<UserId, MemberId>()
+  const userIds = uniqueUserIds(input.userIds)
+  if (userIds.length === 0) {
+    return membershipIdsByUserId
+  }
+
+  const rows = await db
+    .select({
+      id: MemberTable.id,
+      userId: MemberTable.userId,
+    })
+    .from(MemberTable)
+    .where(and(eq(MemberTable.organizationId, input.organizationId), inArray(MemberTable.userId, userIds), isNull(MemberTable.removedAt)))
+
+  for (const row of rows) {
+    if (!row.userId) {
+      continue
+    }
+    membershipIdsByUserId.set(row.userId, row.id)
+  }
+
+  return membershipIdsByUserId
+}
+
+async function ensureScimGroupMembersBelongToOrg(input: {
+  organizationId: OrganizationId
+  userIds: UserId[]
+}) {
+  const membershipIdsByUserId = await resolveOrgMembershipIds(input)
+  return input.userIds.every((userId) => membershipIdsByUserId.has(userId))
+    ? membershipIdsByUserId
+    : null
+}
+
+async function getScimTeamForProvider(input: {
+  provider: ScimProvider
+  groupId: string
+}) {
+  const teamId = maybeNormalizeTeamId(input.groupId)
+  if (!teamId) {
+    return null
+  }
+
+  const rows = await db
+    .select()
+    .from(TeamTable)
+    .where(and(eq(TeamTable.id, teamId), eq(TeamTable.organizationId, input.provider.organizationId)))
+    .limit(1)
+
+  return rows[0] ?? null
+}
+
+function parseScimGroupDisplayNameFilter(filter: string | null) {
+  if (!filter) {
+    return null
+  }
+
+  const match = filter.match(/^\s*displayName\s+eq\s+"([^"]+)"\s*$/i)
+  return maybeString(match?.[1])
+}
+
+export async function listScimGroupsForToken(input: {
+  bearerToken: string
+  filter: string | null
+}) {
+  const provider = await resolveScimProviderFromBearerToken(input.bearerToken)
+  if (!provider) {
+    return scimError(401, "Invalid SCIM token")
+  }
+
+  const displayNameFilter = parseScimGroupDisplayNameFilter(input.filter)
+  if (input.filter && !displayNameFilter) {
+    return scimError(400, "Only displayName eq filters are supported for SCIM Groups.", "invalidFilter")
+  }
+
+  const teams = await db
+    .select()
+    .from(TeamTable)
+    .where(displayNameFilter
+      ? and(eq(TeamTable.organizationId, provider.organizationId), eq(TeamTable.name, displayNameFilter))
+      : eq(TeamTable.organizationId, provider.organizationId))
+    .orderBy(TeamTable.createdAt)
+
+  const memberUserIds = await getTeamMemberUserIds(teams.map((team) => team.id))
+  return scimJson(200, {
+    schemas: [SCIM_LIST_RESPONSE_SCHEMA],
+    totalResults: teams.length,
+    startIndex: 1,
+    itemsPerPage: teams.length,
+    Resources: teams.map((team) => createScimGroupResource({
+      team,
+      memberUserIds: memberUserIds.get(team.id) ?? [],
+    })),
+  })
+}
+
+export async function getScimGroupForToken(input: {
+  bearerToken: string
+  groupId: string
+}) {
+  const provider = await resolveScimProviderFromBearerToken(input.bearerToken)
+  if (!provider) {
+    return scimError(401, "Invalid SCIM token")
+  }
+
+  const team = await getScimTeamForProvider({ provider, groupId: input.groupId })
+  if (!team) {
+    return scimError(404, "Group not found")
+  }
+
+  return scimJson(200, await getScimGroupResourceForTeam(team))
+}
+
+export async function createScimGroupForToken(input: {
+  bearerToken: string
+  resource: unknown
+}) {
+  const provider = await resolveScimProviderFromBearerToken(input.bearerToken)
+  if (!provider) {
+    return scimError(401, "Invalid SCIM token")
+  }
+
+  const group = parseScimGroupResource(input.resource)
+  if (!group) {
+    return scimError(400, "SCIM Group requires displayName and valid members.", "invalidValue")
+  }
+
+  const duplicateRows = await db
+    .select({ id: TeamTable.id })
+    .from(TeamTable)
+    .where(and(eq(TeamTable.organizationId, provider.organizationId), eq(TeamTable.name, group.displayName)))
+    .limit(1)
+  if (duplicateRows[0]) {
+    return scimError(409, "Group already exists", "uniqueness")
+  }
+
+  const membershipIdsByUserId = await ensureScimGroupMembersBelongToOrg({
+    organizationId: provider.organizationId,
+    userIds: group.memberUserIds,
+  })
+  if (!membershipIdsByUserId) {
+    return scimError(400, "All SCIM Group members must be active users in the organization.", "invalidValue")
+  }
+
+  const teamId = createDenTypeId("team")
+  const now = new Date()
+  await db.transaction(async (tx) => {
+    await tx.insert(TeamTable).values({
+      id: teamId,
+      name: group.displayName,
+      organizationId: provider.organizationId,
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const memberIds = group.memberUserIds.map((userId) => membershipIdsByUserId.get(userId)).filter((memberId) => memberId !== undefined)
+    if (memberIds.length > 0) {
+      await tx.insert(TeamMemberTable).values(
+        memberIds.map((memberId) => ({
+          id: createDenTypeId("teamMember"),
+          teamId,
+          orgMembershipId: memberId,
+          createdAt: now,
+        })),
+      )
+    }
+  })
+
+  const team = {
+    id: teamId,
+    name: group.displayName,
+    organizationId: provider.organizationId,
+    createdAt: now,
+    updatedAt: now,
+  }
+
+  return scimJson(201, createScimGroupResource({
+    team,
+    memberUserIds: group.memberUserIds,
+  }), { location: getScimGroupLocation(teamId) })
+}
+
+async function updateScimGroupForProvider(input: {
+  provider: ScimProvider
+  groupId: string
+  group: ScimGroupState
+}) {
+  const team = await getScimTeamForProvider({ provider: input.provider, groupId: input.groupId })
+  if (!team) {
+    return scimError(404, "Group not found")
+  }
+
+  const duplicateRows = await db
+    .select({ id: TeamTable.id })
+    .from(TeamTable)
+    .where(and(eq(TeamTable.organizationId, input.provider.organizationId), eq(TeamTable.name, input.group.displayName)))
+    .limit(1)
+  if (duplicateRows[0] && duplicateRows[0].id !== team.id) {
+    return scimError(409, "Group already exists", "uniqueness")
+  }
+
+  const membershipIdsByUserId = await ensureScimGroupMembersBelongToOrg({
+    organizationId: input.provider.organizationId,
+    userIds: input.group.memberUserIds,
+  })
+  if (!membershipIdsByUserId) {
+    return scimError(400, "All SCIM Group members must be active users in the organization.", "invalidValue")
+  }
+
+  const updatedAt = new Date()
+  const memberIds = input.group.memberUserIds.map((userId) => membershipIdsByUserId.get(userId)).filter((memberId) => memberId !== undefined)
+  await db.transaction(async (tx) => {
+    await tx.update(TeamTable).set({ name: input.group.displayName, updatedAt }).where(eq(TeamTable.id, team.id))
+    await tx.delete(TeamMemberTable).where(eq(TeamMemberTable.teamId, team.id))
+    if (memberIds.length > 0) {
+      await tx.insert(TeamMemberTable).values(
+        memberIds.map((memberId) => ({
+          id: createDenTypeId("teamMember"),
+          teamId: team.id,
+          orgMembershipId: memberId,
+          createdAt: updatedAt,
+        })),
+      )
+    }
+  })
+
+  return scimJson(200, createScimGroupResource({
+    team: {
+      ...team,
+      name: input.group.displayName,
+      updatedAt,
+    },
+    memberUserIds: input.group.memberUserIds,
+  }))
+}
+
+export async function replaceScimGroupForToken(input: {
+  bearerToken: string
+  groupId: string
+  resource: unknown
+}) {
+  const provider = await resolveScimProviderFromBearerToken(input.bearerToken)
+  if (!provider) {
+    return scimError(401, "Invalid SCIM token")
+  }
+
+  const group = parseScimGroupResource(input.resource)
+  if (!group) {
+    return scimError(400, "SCIM Group requires displayName and valid members.", "invalidValue")
+  }
+
+  return updateScimGroupForProvider({ provider, groupId: input.groupId, group })
+}
+
+export async function patchScimGroupForToken(input: {
+  bearerToken: string
+  groupId: string
+  patch: unknown
+}) {
+  const provider = await resolveScimProviderFromBearerToken(input.bearerToken)
+  if (!provider) {
+    return scimError(401, "Invalid SCIM token")
+  }
+
+  const team = await getScimTeamForProvider({ provider, groupId: input.groupId })
+  if (!team) {
+    return scimError(404, "Group not found")
+  }
+
+  const memberUserIdsByTeamId = await getTeamMemberUserIds([team.id])
+  const group = applyScimGroupPatch({
+    current: {
+      displayName: team.name,
+      memberUserIds: memberUserIdsByTeamId.get(team.id) ?? [],
+    },
+    patch: input.patch,
+  })
+  if (!group) {
+    return scimError(400, "SCIM Group patch is invalid or unsupported.", "invalidSyntax")
+  }
+
+  return updateScimGroupForProvider({ provider, groupId: input.groupId, group })
+}
+
+export async function deleteScimGroupForToken(input: {
+  bearerToken: string
+  groupId: string
+}) {
+  const provider = await resolveScimProviderFromBearerToken(input.bearerToken)
+  if (!provider) {
+    return scimError(401, "Invalid SCIM token")
+  }
+
+  const team = await getScimTeamForProvider({ provider, groupId: input.groupId })
+  if (!team) {
+    return scimError(404, "Group not found")
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.delete(SkillHubMemberTable).where(eq(SkillHubMemberTable.teamId, team.id))
+    await tx.delete(TeamMemberTable).where(eq(TeamMemberTable.teamId, team.id))
+    await tx.delete(TeamTable).where(eq(TeamTable.id, team.id))
+  })
+
+  const result: ScimGroupRouteResult = { status: 204 }
+  return result
 }
 
 export async function getOrganizationScimConnection(organizationId: OrganizationId) {

@@ -92,7 +92,7 @@ export function registerOrgScimRoutes<T extends { Variables: OrgRouteVariables }
     describeRoute({
       tags: ["SCIM"],
       summary: "Get organization SCIM connection",
-      description: "Returns the SCIM User provisioning base URL and current connector metadata for the selected organization. SCIM Groups are not enabled yet.",
+      description: "Returns the SCIM provisioning base URL and current connector metadata for the selected organization. SCIM Groups are synced to organization teams.",
       security: [{ bearerAuth: [] }],
       responses: {
         200: {
@@ -163,7 +163,7 @@ export function registerOrgScimRoutes<T extends { Variables: OrgRouteVariables }
     describeRoute({
       tags: ["SCIM"],
       summary: "Create or rotate an organization SCIM token",
-      description: "Creates the organization SCIM User provisioning connector if needed and returns a freshly rotated bearer token. SCIM Groups are not enabled yet.",
+      description: "Creates the organization SCIM provisioning connector if needed and returns a freshly rotated bearer token. SCIM Groups are synced to organization teams.",
       hide: process.env.NODE_ENV === "production",
       security: [{ bearerAuth: [] }],
       responses: {

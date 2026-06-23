@@ -9,10 +9,12 @@ function seedRequiredEnv() {
 }
 
 let scimAuthModule: typeof import("../src/routes/auth/scim.js")
+let scimModule: typeof import("../src/scim.js")
 
 beforeAll(async () => {
   seedRequiredEnv()
   scimAuthModule = await import("../src/routes/auth/scim.js")
+  scimModule = await import("../src/scim.js")
 })
 
 test("SCIM mutation sync is skipped when the upstream SCIM mutation fails", async () => {
@@ -121,5 +123,76 @@ test("SCIM sync failure response supports deprovision retry alerts", async () =>
     detail: "SCIM user mutation completed, but external identity sync failed; retry later.",
     status: "503",
     action: "delete_user",
+  })
+})
+
+test("SCIM group patch adds and removes team member user ids", async () => {
+  const firstUserId = createDenTypeId("user")
+  const secondUserId = createDenTypeId("user")
+
+  const added = scimModule.applyScimGroupPatch({
+    current: {
+      displayName: "Engineering",
+      memberUserIds: [firstUserId],
+    },
+    patch: {
+      schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+      Operations: [{
+        op: "add",
+        path: "members",
+        value: [{ value: secondUserId }],
+      }],
+    },
+  })
+
+  expect(added).toEqual({
+    displayName: "Engineering",
+    memberUserIds: [firstUserId, secondUserId],
+  })
+  if (!added) {
+    throw new Error("Expected SCIM group add patch to succeed")
+  }
+
+  const removed = scimModule.applyScimGroupPatch({
+    current: added,
+    patch: {
+      schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+      Operations: [{
+        op: "remove",
+        path: `members[value eq "${firstUserId}"]`,
+      }],
+    },
+  })
+
+  expect(removed).toEqual({
+    displayName: "Engineering",
+    memberUserIds: [secondUserId],
+  })
+})
+
+test("SCIM group patch replaces team name and member list", async () => {
+  const firstUserId = createDenTypeId("user")
+  const secondUserId = createDenTypeId("user")
+
+  const result = scimModule.applyScimGroupPatch({
+    current: {
+      displayName: "Engineering",
+      memberUserIds: [firstUserId],
+    },
+    patch: {
+      schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+      Operations: [{
+        op: "replace",
+        value: {
+          displayName: "Platform",
+          members: [{ value: secondUserId }],
+        },
+      }],
+    },
+  })
+
+  expect(result).toEqual({
+    displayName: "Platform",
+    memberUserIds: [secondUserId],
   })
 })
