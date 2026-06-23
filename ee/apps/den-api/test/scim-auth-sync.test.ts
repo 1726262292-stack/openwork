@@ -196,3 +196,37 @@ test("SCIM group patch replaces team name and member list", async () => {
     memberUserIds: [secondUserId],
   })
 })
+
+test("SCIM group patch rejects operations without an op", async () => {
+  const userId = createDenTypeId("user")
+
+  const result = scimModule.applyScimGroupPatch({
+    current: {
+      displayName: "Engineering",
+      memberUserIds: [userId],
+    },
+    patch: {
+      schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+      Operations: [{
+        path: "displayName",
+        value: "Platform",
+      }],
+    },
+  })
+
+  expect(result).toBeNull()
+})
+
+test("SCIM group create detects duplicate team-name races", async () => {
+  expect(scimModule.isDuplicateTeamNameError({
+    code: "ER_DUP_ENTRY",
+    errno: 1062,
+    message: "Duplicate entry 'org_123-Engineering' for key 'team_organization_name'",
+  })).toBe(true)
+
+  expect(scimModule.isDuplicateTeamNameError({
+    code: "ER_DUP_ENTRY",
+    errno: 1062,
+    message: "Duplicate entry 'team_123-member_123' for key 'team_member_team_org_membership'",
+  })).toBe(false)
+})

@@ -154,7 +154,7 @@ function parseScimGroupPatchOperations(value: unknown) {
   const parsed: ScimGroupPatchOperation[] = []
   for (const operation of operations) {
     const record = asRecord(operation)
-    const op = maybeString(record?.op)?.toLowerCase() ?? "replace"
+    const op = maybeString(record?.op)?.toLowerCase()
     if (op !== "add" && op !== "replace" && op !== "remove") {
       return null
     }
@@ -269,6 +269,17 @@ export function applyScimGroupPatch(input: {
 function stringifyScimError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   return message.slice(0, 2_000)
+}
+
+export function isDuplicateTeamNameError(error: unknown) {
+  const record = asRecord(error)
+  const code = maybeString(record?.code)
+  const errno = typeof record?.errno === "number" ? record.errno : null
+  const message = error instanceof Error ? error.message : maybeString(record?.message)
+  const sqlMessage = maybeString(record?.sqlMessage)
+  const text = [message, sqlMessage].filter((value) => value !== null).join(" ")
+
+  return (code === "ER_DUP_ENTRY" || errno === 1062) && text.includes("team_organization_name")
 }
 
 function nextScimRetryAt(attempts: number, now = new Date()) {
@@ -686,27 +697,34 @@ export async function createScimGroupForToken(input: {
 
   const teamId = createDenTypeId("team")
   const now = new Date()
-  await db.transaction(async (tx) => {
-    await tx.insert(TeamTable).values({
-      id: teamId,
-      name: group.displayName,
-      organizationId: provider.organizationId,
-      createdAt: now,
-      updatedAt: now,
-    })
+  try {
+    await db.transaction(async (tx) => {
+      await tx.insert(TeamTable).values({
+        id: teamId,
+        name: group.displayName,
+        organizationId: provider.organizationId,
+        createdAt: now,
+        updatedAt: now,
+      })
 
-    const memberIds = group.memberUserIds.map((userId) => membershipIdsByUserId.get(userId)).filter((memberId) => memberId !== undefined)
-    if (memberIds.length > 0) {
-      await tx.insert(TeamMemberTable).values(
-        memberIds.map((memberId) => ({
-          id: createDenTypeId("teamMember"),
-          teamId,
-          orgMembershipId: memberId,
-          createdAt: now,
-        })),
-      )
+      const memberIds = group.memberUserIds.map((userId) => membershipIdsByUserId.get(userId)).filter((memberId) => memberId !== undefined)
+      if (memberIds.length > 0) {
+        await tx.insert(TeamMemberTable).values(
+          memberIds.map((memberId) => ({
+            id: createDenTypeId("teamMember"),
+            teamId,
+            orgMembershipId: memberId,
+            createdAt: now,
+          })),
+        )
+      }
+    })
+  } catch (error) {
+    if (isDuplicateTeamNameError(error)) {
+      return scimError(409, "Group already exists", "uniqueness")
     }
-  })
+    throw error
+  }
 
   const team = {
     id: teamId,
