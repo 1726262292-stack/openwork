@@ -52,6 +52,8 @@ const DESKTOP_CONFIG_CACHE_PREFIX = "openwork.den.desktopConfig:";
 const DESKTOP_CONFIG_ITEMS = [
   ...desktopPolicyKeys,
   "allowedDesktopVersions",
+  "brandLogoUrl",
+  "brandAccentColor",
 ] as const satisfies readonly (keyof DenDesktopConfig)[];
 
 type DesktopConfigItem = (typeof DESKTOP_CONFIG_ITEMS)[number];
@@ -270,6 +272,21 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
       window.clearInterval(interval);
     };
   }, [desktopConfigHandler, isSignedIn]);
+
+  // Dev-only: expose a bridge so evals can inject config directly without
+  // requiring a cloud sign-in. This simply applies the config to React state.
+  useEffect(() => {
+    if (!import.meta.env.DEV || typeof window === "undefined") return;
+    const bridge = (configPayload: unknown) => {
+      applyDesktopConfigActions(
+        normalizeDenDesktopConfig(configPayload),
+      );
+    };
+    (window as Record<string, unknown>).__openworkApplyDesktopConfig = bridge;
+    return () => {
+      delete (window as Record<string, unknown>).__openworkApplyDesktopConfig;
+    };
+  }, [applyDesktopConfigActions]);
 
   const value = useMemo<DesktopConfigStore>(() => {
     // Bind the checker to the latest `config` so callers see the most

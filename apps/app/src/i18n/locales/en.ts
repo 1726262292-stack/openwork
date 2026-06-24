@@ -1229,6 +1229,8 @@ export default {
   "settings.tab_cloud_marketplaces": "Marketplace",
   "settings.tab_cloud_providers": "Cloud Providers",
   "settings.tab_cloud_workers": "Cloud Workers",
+  "settings.desktop_policy_active_title": "Organization policies active",
+  "settings.desktop_policy_active_body": "Some features and appearance settings are managed by your organization administrator.",
   "settings.tab_debug": "Debug",
   "settings.tab_description_advanced": "Inspect runtime health, connection state, and developer-facing controls.",
   "settings.tab_description_appearance": "Adjust how OpenWork looks across desktop, system theme, and app frame.",

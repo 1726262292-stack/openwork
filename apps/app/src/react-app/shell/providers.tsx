@@ -7,6 +7,7 @@ import { isWebDeployment } from "@/app/lib/openwork-deployment";
 import { hydrateOpenworkServerSettingsFromEnv } from "@/app/lib/openwork-server";
 import { isDesktopRuntime } from "@/app/utils";
 import { DenAuthProvider } from "@/react-app/domains/cloud/den-auth-provider";
+import { BrandThemeProvider } from "@/react-app/domains/cloud/brand-theme";
 import { DesktopConfigProvider } from "@/react-app/domains/cloud/desktop-config-provider";
 import { RestrictionNoticeProvider } from "@/react-app/domains/cloud/restriction-notice-provider";
 import { LocalProvider } from "@/react-app/kernel/local-provider";
@@ -67,12 +68,14 @@ export function AppProviders({ children }: AppProvidersProps) {
           <DesktopRuntimeBoot />
           <DenAuthProvider>
             <DesktopConfigProvider>
+              <BrandThemeProvider>
               <RestrictionNoticeProvider>
                 <LocalProvider>
                   <ReloadCoordinatorProvider>{children}</ReloadCoordinatorProvider>
                   <Toaster />
                 </LocalProvider>
               </RestrictionNoticeProvider>
+              </BrandThemeProvider>
             </DesktopConfigProvider>
           </DenAuthProvider>
         </ArchitectureMismatchGate>

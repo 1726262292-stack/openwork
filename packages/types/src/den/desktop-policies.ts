@@ -113,11 +113,43 @@ export const desktopPolicyDefaults = Object.fromEntries(
   ]),
 ) as Required<DesktopPolicyValue>;
 
+// ---------------------------------------------------------------------------
+// Radix color families that can be used as a brand accent.
+// ---------------------------------------------------------------------------
+export const brandAccentColorValues = [
+  "blue",
+  "crimson",
+  "cyan",
+  "gold",
+  "grass",
+  "green",
+  "indigo",
+  "iris",
+  "jade",
+  "lime",
+  "mint",
+  "orange",
+  "pink",
+  "plum",
+  "purple",
+  "red",
+  "ruby",
+  "sky",
+  "teal",
+  "tomato",
+  "violet",
+  "yellow",
+] as const;
+
+export type BrandAccentColor = (typeof brandAccentColorValues)[number];
+
 export const desktopConfigSchema = desktopPolicyValueSchema
   .extend({
     allowedDesktopVersions: z
       .array(z.string().trim().min(1).max(32))
       .optional(),
+    brandLogoUrl: z.string().url().max(2048).optional(),
+    brandAccentColor: z.enum(brandAccentColorValues).optional(),
   })
   .meta({ ref: "DenDesktopConfig" });
 
@@ -215,15 +247,39 @@ export function calculateEffectiveDesktopPolicy(input: {
   return calculated;
 }
 
+function normalizeBrandLogoUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    new URL(trimmed);
+    return trimmed.slice(0, 2048);
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeBrandAccentColor(value: unknown): BrandAccentColor | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim().toLowerCase();
+  return (brandAccentColorValues as readonly string[]).includes(trimmed)
+    ? (trimmed as BrandAccentColor)
+    : undefined;
+}
+
 export function normalizeDesktopConfig(value: unknown): DesktopConfig {
   const policy = normalizeDesktopPolicyValue(value);
+  const raw = value as Record<string, unknown> | null;
   const allowedDesktopVersions = normalizeAllowedDesktopVersions(
-    (value as { allowedDesktopVersions?: unknown } | null)
-      ?.allowedDesktopVersions,
+    raw?.allowedDesktopVersions,
   );
+  const brandLogoUrl = normalizeBrandLogoUrl(raw?.brandLogoUrl);
+  const brandAccentColor = normalizeBrandAccentColor(raw?.brandAccentColor);
 
   return {
     ...policy,
     ...(allowedDesktopVersions !== undefined ? { allowedDesktopVersions } : {}),
+    ...(brandLogoUrl !== undefined ? { brandLogoUrl } : {}),
+    ...(brandAccentColor !== undefined ? { brandAccentColor } : {}),
   };
 }
