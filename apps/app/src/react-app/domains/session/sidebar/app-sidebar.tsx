@@ -736,12 +736,12 @@ export function AppSidebar(props: AppSidebarProps) {
         {brandLogoUrl ? (
           <div
             data-testid="brand-logo"
-            className="flex shrink-0 items-center gap-2 px-3 pb-2 pt-1 mac:pt-0"
+            className="flex shrink-0 items-center px-3 pb-3 pt-2 mac:pt-0"
           >
             <img
               src={brandLogoUrl}
               alt="Organization logo"
-              className="h-6 max-w-[140px] object-contain"
+              className="h-9 max-h-9 w-auto max-w-[180px] object-contain object-left"
             />
           </div>
         ) : null}

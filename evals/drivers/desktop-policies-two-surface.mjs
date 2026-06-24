@@ -94,17 +94,18 @@ async function denApi(token, path, options = {}) {
 
 /** Drive the admin web UI: fill logo URL field + click Save. */
 async function adminSetLogoViaUI(admin, logoUrl) {
-  // Find the Logo URL input by placeholder and set it via the native setter.
+  // Set the controlled React input by writing through the native setter AND
+  // clearing React's internal value tracker so onChange fires.
   await evaluate(admin, `(() => {
-    const inputs = [...document.querySelectorAll('input')];
-    const logo = inputs.find(i => (i.placeholder || '').includes('logo'));
+    const logo = [...document.querySelectorAll('input')].find(i => (i.placeholder || '').includes('logo'));
     if (!logo) throw new Error('Logo URL input not found');
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    if (logo._valueTracker) logo._valueTracker.setValue('');
     setter.call(logo, ${JSON.stringify(logoUrl)});
     logo.dispatchEvent(new Event('input', { bubbles: true }));
     logo.dispatchEvent(new Event('change', { bubbles: true }));
     logo.scrollIntoView({ block: 'center' });
-    return true;
+    return logo.value;
   })()`);
 }
 
@@ -113,10 +114,12 @@ async function adminSetAccentViaUI(admin, accentValue) {
     const select = document.querySelector('select');
     if (!select) throw new Error('Accent select not found');
     const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+    if (select._valueTracker) select._valueTracker.setValue('');
     setter.call(select, ${JSON.stringify(accentValue)});
+    select.dispatchEvent(new Event('input', { bubbles: true }));
     select.dispatchEvent(new Event('change', { bubbles: true }));
     select.scrollIntoView({ block: 'center' });
-    return true;
+    return select.value;
   })()`);
 }
 
@@ -130,6 +133,22 @@ async function adminClickSave(admin) {
   })()`);
 }
 
+/**
+ * Org settings changes require "fresh" auth (≤15 min). Re-sign-in the admin
+ * browser session so privileged PATCH /v1/org and policy edits aren't blocked
+ * by a 403 fresh_auth_required.
+ */
+async function adminEnsureFreshAuth(admin) {
+  const result = await evaluate(admin, `(async () => {
+    const r = await fetch('/api/auth/sign-in/email', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ email: ${JSON.stringify(ADMIN_EMAIL)}, password: ${JSON.stringify(ADMIN_PASSWORD)} }),
+    });
+    return r.status;
+  })()`, { awaitPromise: true });
+  if (result !== 200) throw new Error(`Admin fresh re-auth failed: HTTP ${result}`);
+}
+
 /** Trigger the member app to refresh its desktop config and wait for a DOM condition. */
 async function memberRefreshAndWait(member, condition, label, timeoutMs = 25000) {
   await evaluate(member, `window.dispatchEvent(new CustomEvent('openwork-den-settings-changed', { detail: {} }))`);
@@ -141,6 +160,46 @@ async function memberRefreshAndWait(member, condition, label, timeoutMs = 25000)
     await sleep(1000);
   }
   throw new Error(`Member app timed out waiting for: ${label}`);
+}
+
+/** Open the member app's notification center (bell) and wait for the panel.
+ *  Assumes we're already on the session route; does NOT re-navigate (that would
+ *  re-render and dismiss the panel). Retries the click until the panel opens. */
+async function memberOpenNotifications(member) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await evaluate(member, `(() => {
+      const bell = document.querySelector('[title="Notifications"]');
+      if (bell) bell.click();
+      return Boolean(bell);
+    })()`);
+    await sleep(700);
+    const open = await evaluate(member, `Boolean([...document.querySelectorAll('div')].find(e => e.innerText && e.innerText.startsWith('Notifications') && e.innerText.includes('Clear all')))`).catch(() => false);
+    if (open) return true;
+  }
+  return false;
+}
+
+/** Count how many distinct accent-colored pixels appear (proves the accent paints). */
+async function memberAccentVisible(member) {
+  // The notification badge + unread dots use the accent. Verify a blue-ish
+  // pixel exists by sampling the accent CSS var and an actual painted element.
+  return evaluate(member, `(() => {
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--dls-accent').trim();
+    // Find an element actually painted with the accent (badge, unread dot, primary button).
+    const candidates = [...document.querySelectorAll('*')].slice(0, 4000);
+    let painted = false;
+    for (const el of candidates) {
+      const s = getComputedStyle(el);
+      const bg = s.backgroundColor;
+      // Radix blue-9 ≈ rgb(0, 144, 255)
+      const m = bg.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/);
+      if (m) {
+        const [r,g,b] = [+m[1],+m[2],+m[3]];
+        if (b > 180 && r < 80 && g > 100 && g < 200) { painted = true; break; }
+      }
+    }
+    return { accentVar: v, painted };
+  })()`);
 }
 
 async function main() {
@@ -176,6 +235,8 @@ async function main() {
   await sleep(1500);
 
   // Reload admin org-settings so the form reflects the cleared state.
+  // Refresh auth first so privileged saves aren't blocked (fresh_auth_required).
+  await adminEnsureFreshAuth(admin);
   await admin.send("Page.navigate", { url: `${DEN_WEB}/dashboard/org-settings` });
   await sleep(3500);
 
@@ -213,9 +274,14 @@ async function main() {
   await memberRefreshAndWait(member,
     `(() => { const img = document.querySelector('[data-testid="brand-logo"] img'); return img && img.naturalWidth > 0 && img.complete; })()`,
     "Genpact logo loaded in member app");
+  // Verify the logo renders at a legible size (not a squished icon).
+  const logoDims = await evaluate(member, `(() => { const i = document.querySelector('[data-testid="brand-logo"] img'); const r = i.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; })()`);
   await shot(member, "member", "01-logo-appeared",
-    "Member: app fetched the change and rendered the Genpact logo (no reload).",
-    [{ label: "Genpact logo rendered", passed: await evaluate(member, `Boolean(document.querySelector('[data-testid="brand-logo"] img'))`) }]);
+    "Member: app fetched the change and rendered the Genpact logo at a legible size (no reload).",
+    [
+      { label: "Genpact logo rendered", passed: await evaluate(member, `Boolean(document.querySelector('[data-testid="brand-logo"] img'))`) },
+      { label: "logo legible (height ≥ 28px)", passed: logoDims.h >= 28, detail: `${logoDims.w}x${logoDims.h}` },
+    ]);
 
   // =================================================================
   // JOURNEY 2: admin sets accent (blue) in the web UI → member accent changes
@@ -237,12 +303,41 @@ async function main() {
   await memberRefreshAndWait(member,
     `document.documentElement.dataset.brandAccent === 'blue'`,
     "blue accent applied in member app");
-  const cssAccent = await evaluate(member, `document.documentElement.style.getPropertyValue('--dls-accent').trim()`);
+  // The accent's most prominent painted surface is the notification badge +
+  // unread dots. Push a fresh unread notice so the blue accent is guaranteed
+  // visible, then open the bell — this single frame shows the blue accent
+  // (badge + unread dot) together with the Genpact logo top-left.
+  await evaluate(member, `window.location.hash = '#/session'`);
+  await sleep(800);
+  await evaluate(member, `(() => {
+    const store = window.__openwork?.notificationStore;
+    // Use the public notify path if exposed; otherwise write an unread entry.
+    try {
+      const raw = localStorage.getItem('openwork:notifications:v1');
+      const data = raw ? JSON.parse(raw) : { state: { notifications: [] }, version: 0 };
+      data.state.notifications.unshift({
+        id: 'accent-demo-' + Date.now(), kind: 'cloud', severity: 'info',
+        title: 'Brand updated', body: 'Your organization accent color was applied.',
+        count: 1, createdAt: Date.now(), updatedAt: Date.now(), readAt: null,
+      });
+      localStorage.setItem('openwork:notifications:v1', JSON.stringify(data));
+    } catch {}
+    return true;
+  })()`);
+  // Reload so the store rehydrates the unread entry, then re-apply brand.
+  await evaluate(member, `location.reload()`);
+  await memberRefreshAndWait(member, `document.documentElement.dataset.brandAccent === 'blue'`, "accent re-applied after reload");
+  await sleep(800);
+  await memberOpenNotifications(member);
+  const cssAccent = await evaluate(member, `getComputedStyle(document.documentElement).getPropertyValue('--dls-accent').trim()`);
+  const accentCheck = await memberAccentVisible(member);
   await shot(member, "member", "02-accent-applied",
-    "Member: app accent switched to blue. Genpact logo still shown.",
+    "Member: accent switched to blue — visible on the notification badge + unread dots, with the Genpact logo top-left.",
     [
       { label: "data-brand-accent=blue", passed: await evaluate(member, `document.documentElement.dataset.brandAccent === 'blue'`) },
-      { label: "--dls-accent references blue", passed: cssAccent.includes("blue"), detail: cssAccent },
+      { label: "--dls-accent is blue-9", passed: cssAccent === "#0090ff" || cssAccent.includes("blue"), detail: cssAccent },
+      { label: "blue accent painted on screen", passed: accentCheck.painted, detail: accentCheck.painted ? "blue pixels found" : "no blue painted" },
+      { label: "Genpact logo still shown", passed: await evaluate(member, `Boolean(document.querySelector('[data-testid="brand-logo"] img'))`) },
     ]);
 
   // =================================================================
@@ -250,6 +345,7 @@ async function main() {
   // (Desktop Policy editor: toggle off "Multiple workspaces")
   // =================================================================
   console.log("\nJourney 3: admin restricts a policy via web UI");
+  await adminEnsureFreshAuth(admin);
   await admin.send("Page.navigate", { url: `${DEN_WEB}/dashboard/desktop-policies` });
   await sleep(3500);
   await shot(admin, "admin", "03-policies-list",
@@ -316,19 +412,43 @@ async function main() {
     `Admin: saved → server reports allowMultipleWorkspaces=false (via ${restrictedVia}).`,
     [{ label: "server: workspaces blocked", passed: cfg3.allowMultipleWorkspaces === false, detail: String(cfg3.allowMultipleWorkspaces) }]);
 
-  // Member app: settings page shows the policy banner.
-  await evaluate(member, `window.location.hash = '#/settings/general'`);
+  // Member app: the policy notice lands in the NOTIFICATION CENTER (the bell),
+  // which is the primary surface for org-policy notices. Open it and assert
+  // the "Organization policies active" entry is present.
   await memberRefreshAndWait(member,
-    `Boolean(document.querySelector('[data-testid="desktop-policy-banner"]'))`,
-    "policy banner in member settings");
-  await shot(member, "member", "03-policy-banner",
-    "Member: settings shows 'Organization policies active' banner after the admin's change.",
+    `(() => {
+      const raw = localStorage.getItem('openwork:notifications:v1');
+      if (!raw) return false;
+      try { return (JSON.parse(raw)?.state?.notifications ?? []).some(n => n.dedupeKey === 'desktop-policy-active'); }
+      catch { return false; }
+    })()`,
+    "desktop-policy notification in store");
+  await evaluate(member, `window.location.hash = '#/session'`);
+  await sleep(1200);
+  await memberOpenNotifications(member);
+  const notifText = await evaluate(member, `(() => {
+    const panel = [...document.querySelectorAll('div')].find(e => e.innerText && e.innerText.startsWith('Notifications') && e.innerText.includes('Organization policies active'));
+    return panel ? panel.innerText.slice(0, 400) : '';
+  })()`);
+  await shot(member, "member", "03-notification-center",
+    "Member: the notification center (bell) shows the 'Organization policies active' entry after the admin's change.",
+    [
+      { label: "notification center open", passed: notifText.startsWith("Notifications"), detail: notifText.slice(0, 60) },
+      { label: "policy entry present", passed: notifText.includes("Organization policies active") },
+    ]);
+
+  // Also capture the in-context settings banner as a secondary surface.
+  await evaluate(member, `window.location.hash = '#/settings/general'`);
+  await sleep(1500);
+  await shot(member, "member", "03-settings-banner",
+    "Member: settings also shows the 'Organization policies active' banner (secondary surface).",
     [{ label: "policy banner visible", passed: await evaluate(member, `Boolean(document.querySelector('[data-testid="desktop-policy-banner"]'))`) }]);
 
   // =================================================================
   // JOURNEY 4: admin clears everything → member returns to default
   // =================================================================
   console.log("\nJourney 4: admin restores everything via web UI");
+  await adminEnsureFreshAuth(admin);
   await admin.send("Page.navigate", { url: `${DEN_WEB}/dashboard/org-settings` });
   await sleep(3500);
   // Clear logo field + reset accent to Default, then Save.
