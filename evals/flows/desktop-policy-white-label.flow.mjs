@@ -29,19 +29,24 @@ export default {
         );
         ctx.log(`initial route: ${JSON.stringify(route)}`);
 
-        // Reset any brand state from a previous run.
+        // Persist light mode and reset brand, then reload so the theme
+        // module's internal cache picks up the new value.
         await ctx.eval(`(() => {
+          localStorage.setItem('openwork.react.settings.theme-mode', 'light');
           const bridge = window.__openworkApplyDesktopConfig;
           if (typeof bridge === 'function') bridge({});
-          const root = document.documentElement;
-          root.style.removeProperty('--dls-accent');
-          root.style.removeProperty('--dls-accent-hover');
-          root.style.removeProperty('--dls-accent-fg');
-          root.style.removeProperty('--dls-accent-rgb');
-          delete root.dataset.brandAccent;
           return true;
         })()`);
-
+        await ctx.eval("location.reload()");
+        // Wait for the app to fully re-render after reload.
+        await ctx.waitFor("Boolean(window.__openworkControl)", {
+          timeoutMs: 30_000,
+          label: "control API after reload",
+        });
+        await ctx.waitFor(
+          "document.documentElement.dataset.theme === 'light'",
+          { timeoutMs: 5_000, label: "light mode applied" },
+        );
         // Navigate to a clean session view.
         await ctx.navigateHash("/session");
         await new Promise((r) => setTimeout(r, 500));
@@ -84,33 +89,33 @@ export default {
           { timeoutMs: 10_000, label: "eval.brand_theme.apply action" },
         );
 
-        // Apply both at once so the logo immediately differentiates screenshots.
-        const testLogoUrl =
-          "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/SVG_Logo.svg/100px-SVG_Logo.svg.png";
+        // Apply Genpact branding: blue accent + Genpact logo.
+        const genpactLogoUrl =
+          "https://upload.wikimedia.org/wikipedia/commons/5/50/Genpact_Logo_Black_%283%29.png";
 
         await ctx.control("eval.brand_theme.apply", {
-          brandAccentColor: "violet",
-          brandLogoUrl: testLogoUrl,
+          brandAccentColor: "blue",
+          brandLogoUrl: genpactLogoUrl,
         });
 
         // Wait for the brand accent data attribute AND the CSS variable override.
         await ctx.waitFor(
-          "document.documentElement.dataset.brandAccent === 'violet'",
+          "document.documentElement.dataset.brandAccent === 'blue'",
           { timeoutMs: 5_000, label: "brand accent data attribute" },
         );
 
         const accent = await ctx.eval(
           "document.documentElement.dataset.brandAccent",
         );
-        ctx.assert(accent === "violet", `Expected data-brand-accent="violet", got "${accent}".`);
+        ctx.assert(accent === "blue", `Expected data-brand-accent="blue", got "${accent}".`);
 
-        // Verify the actual computed CSS variable changed to a violet hue.
+        // Verify the actual computed CSS variable changed to a blue hue.
         const dlsAccent = await ctx.eval(
           "document.documentElement.style.getPropertyValue('--dls-accent').trim()",
         );
         ctx.assert(
-          typeof dlsAccent === "string" && dlsAccent.includes("violet"),
-          `Expected --dls-accent to reference violet, got "${dlsAccent}".`,
+          typeof dlsAccent === "string" && dlsAccent.includes("blue"),
+          `Expected --dls-accent to reference blue, got "${dlsAccent}".`,
         );
 
         // Verify the computed RGB changed (not the default dark navy #011627 = 1,22,39).
@@ -134,8 +139,17 @@ export default {
         );
         ctx.log(`brand logo rendered: ${logoSrc}`);
 
-        await ctx.screenshot("branded", {
-          claim: "Brand accent (violet) and organization logo applied via desktop policy — no reload needed.",
+        // Wait for the Genpact logo image to actually load.
+        await ctx.waitFor(
+          `(() => {
+            const img = document.querySelector('[data-testid="brand-logo"] img');
+            return img && img.naturalWidth > 0 && img.complete;
+          })()`,
+          { timeoutMs: 8_000, label: "logo image loaded" },
+        );
+
+        await ctx.screenshot("genpact-branded", {
+          claim: "Genpact branding (blue accent + logo) applied via desktop policy in light mode — no reload needed.",
         });
       },
     },
@@ -215,8 +229,8 @@ export default {
         // even from a clean starting point (the previous steps proved
         // initial injection; this step proves the config → UI path is solid).
         await ctx.control("eval.brand_theme.apply", {
-          brandAccentColor: "violet",
-          brandLogoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/SVG_Logo.svg/100px-SVG_Logo.svg.png",
+          brandAccentColor: "blue",
+          brandLogoUrl: "https://upload.wikimedia.org/wikipedia/commons/5/50/Genpact_Logo_Black_%283%29.png",
         });
 
         // Navigate back to session view.
@@ -235,7 +249,7 @@ export default {
         );
         ctx.log(`brand accent after nav: ${accent}`);
         ctx.assert(
-          accent === "violet",
+          accent === "blue",
           `Expected brand accent to persist after navigation, got "${accent}".`,
         );
 
