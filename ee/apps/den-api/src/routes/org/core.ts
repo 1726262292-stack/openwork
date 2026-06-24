@@ -330,6 +330,14 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         }
       }
 
+      const enablesBranding = (typeof input.brandLogoUrl === "string") || (typeof input.brandAccentColor === "string")
+      if (enablesBranding) {
+        const entitlement = checkEntitlement(payload.organization.metadata, "desktopPolicies")
+        if (!entitlement.ok) {
+          return c.json(entitlement.response, entitlement.status)
+        }
+      }
+
       const updated = await updateOrganizationSettings({
         organizationId: payload.organization.id,
         name: input.name,

@@ -678,6 +678,9 @@ export function OrgSettingsScreen() {
             </p>
           </div>
 
+          {orgContext && !orgContext.entitlements.desktopPolicies ? (
+            <EnterprisePlanNotice feature="White-label brand appearance" />
+          ) : (
           <div className="grid gap-5 lg:grid-cols-2">
             <label className="grid gap-3">
               <span className="text-[14px] font-medium text-gray-700">
@@ -732,6 +735,7 @@ export function OrgSettingsScreen() {
               </span>
             </label>
           </div>
+          )}
         </DenCard>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
