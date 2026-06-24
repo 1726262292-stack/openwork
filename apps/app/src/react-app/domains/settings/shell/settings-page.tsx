@@ -359,7 +359,7 @@ function DesktopPolicyBanner() {
   // Show the banner when the org has any active desktop policy restriction
   // (a boolean set to false) or any white-label branding override.
   const hasRestriction = Object.entries(config).some(
-    ([key, value]) => typeof value === "boolean" && value === false && key.startsWith("allow"),
+    ([key, value]) => typeof value === "boolean" && value === false && key !== "allowedDesktopVersions",
   );
   const hasBranding = Boolean(config.brandLogoUrl ?? config.brandAccentColor);
 

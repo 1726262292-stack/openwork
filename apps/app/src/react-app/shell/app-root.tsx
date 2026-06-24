@@ -214,7 +214,7 @@ function BrandThemeControlActions() {
         { name: "brandAccentColor", type: "string", description: "Radix color family" },
       ],
       execute: (args) => {
-        const bridge = (window as Record<string, unknown>).__openworkApplyDesktopConfig;
+        const bridge = (window as unknown as Record<string, unknown>).__openworkApplyDesktopConfig;
         if (typeof bridge !== "function") {
           return { ok: false, error: "Desktop config bridge not available (dev mode only)." };
         }

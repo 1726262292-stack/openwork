@@ -3,7 +3,7 @@
 import { Check, Copy, Pencil, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { getErrorMessage, requestJson } from "../../_lib/den-flow";
-import { getAllowedDesktopVersionsFromMetadata, getRequireSsoFromMetadata } from "../../_lib/den-org";
+import { getAllowedDesktopVersionsFromMetadata, getRequireSsoFromMetadata, parseOrganizationMetadata } from "../../_lib/den-org";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
 import { DenButton } from "../../_components/ui/button";
 import { DenCard } from "../../_components/ui/card";
@@ -172,6 +172,8 @@ export function OrgSettingsScreen() {
   >(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [pageSuccess, setPageSuccess] = useState<string | null>(null);
+  const [brandLogoUrlDraft, setBrandLogoUrlDraft] = useState("");
+  const [brandAccentColorDraft, setBrandAccentColorDraft] = useState("");
   const [copiedOrgId, setCopiedOrgId] = useState(false);
 
   const currentAllowedDomains =
@@ -213,6 +215,9 @@ export function OrgSettingsScreen() {
       (orgContext.organization.allowedEmailDomains?.length ?? 0) > 0,
     );
     setRequireSsoEnabled(getRequireSsoFromMetadata(orgContext.organization.metadata));
+    const meta = parseOrganizationMetadata(orgContext.organization.metadata);
+    setBrandLogoUrlDraft(typeof meta?.brandLogoUrl === "string" ? meta.brandLogoUrl : "");
+    setBrandAccentColorDraft(typeof meta?.brandAccentColor === "string" ? meta.brandAccentColor : "");
     setDomainEditModeEnabled(false);
   }, [orgContext]);
 
@@ -387,6 +392,8 @@ export function OrgSettingsScreen() {
             }
           : {}),
         requireSso: requireSsoEnabled,
+        brandLogoUrl: brandLogoUrlDraft.trim() || null,
+        brandAccentColor: brandAccentColorDraft.trim() || null,
       });
       setDomainEditModeEnabled(false);
       setPageSuccess("Workspace settings updated.");
@@ -656,6 +663,75 @@ export function OrgSettingsScreen() {
               </div>
             </div>
           ) : null}
+        </DenCard>
+
+        <DenCard size="spacious" className="grid gap-6">
+          <div className="grid gap-2">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-gray-400">
+              White-label
+            </p>
+            <h2 className="text-[24px] font-semibold tracking-[-0.04em] text-gray-900">
+              Brand Appearance
+            </h2>
+            <p className="text-[14px] text-gray-500">
+              Customize the desktop app with your organization's branding. Changes apply to all members in real-time.
+            </p>
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-2">
+            <label className="grid gap-3">
+              <span className="text-[14px] font-medium text-gray-700">
+                Logo URL
+              </span>
+              <DenInput
+                type="url"
+                value={brandLogoUrlDraft}
+                onChange={(event) => setBrandLogoUrlDraft(event.target.value)}
+                placeholder="https://example.com/logo.svg"
+                maxLength={2048}
+                disabled={!isOwner}
+              />
+              <span className="text-[11px] text-gray-400">
+                Displayed in the sidebar top-left. Use an SVG or PNG with a transparent background.
+              </span>
+            </label>
+
+            <label className="grid gap-3">
+              <span className="text-[14px] font-medium text-gray-700">
+                Accent color
+              </span>
+              <select
+                value={brandAccentColorDraft}
+                onChange={(event) => setBrandAccentColorDraft(event.target.value)}
+                disabled={!isOwner}
+                className="h-11 rounded-2xl border border-gray-200 bg-white px-4 text-[14px] text-gray-900 outline-none"
+              >
+                <option value="">Default (OpenWork)</option>
+                <option value="blue">Blue</option>
+                <option value="violet">Violet</option>
+                <option value="purple">Purple</option>
+                <option value="indigo">Indigo</option>
+                <option value="iris">Iris</option>
+                <option value="crimson">Crimson</option>
+                <option value="red">Red</option>
+                <option value="ruby">Ruby</option>
+                <option value="pink">Pink</option>
+                <option value="plum">Plum</option>
+                <option value="orange">Orange</option>
+                <option value="tomato">Tomato</option>
+                <option value="gold">Gold</option>
+                <option value="green">Green</option>
+                <option value="grass">Grass</option>
+                <option value="jade">Jade</option>
+                <option value="teal">Teal</option>
+                <option value="cyan">Cyan</option>
+                <option value="sky">Sky</option>
+              </select>
+              <span className="text-[11px] text-gray-400">
+                Overrides buttons and accent highlights across the desktop app.
+              </span>
+            </label>
+          </div>
         </DenCard>
 
         <div className="flex flex-wrap items-center justify-between gap-3">

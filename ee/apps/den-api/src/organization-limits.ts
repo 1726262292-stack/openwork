@@ -21,6 +21,8 @@ export type OrganizationMetadata = {
   seatsFreeAdditional?: number
   allowedDesktopVersions?: string[]
   requireSso?: boolean
+  brandLogoUrl?: string
+  brandAccentColor?: string
 } & Record<string, unknown>
 
 type OrganizationMetadataInput = Record<string, unknown> | string | null | undefined

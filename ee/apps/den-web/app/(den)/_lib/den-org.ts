@@ -205,6 +205,8 @@ export type DenOrgEntitlements = {
 export type DenOrganizationMetadata = {
   allowedDesktopVersions?: string[];
   requireSso?: boolean;
+  brandLogoUrl?: string;
+  brandAccentColor?: string;
 } & Record<string, unknown>;
 
 export const DEN_ROLE_PERMISSION_OPTIONS = {

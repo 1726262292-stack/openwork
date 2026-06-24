@@ -282,9 +282,9 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
         normalizeDenDesktopConfig(configPayload),
       );
     };
-    (window as Record<string, unknown>).__openworkApplyDesktopConfig = bridge;
+    Object.defineProperty(window, "__openworkApplyDesktopConfig", { value: bridge, configurable: true });
     return () => {
-      delete (window as Record<string, unknown>).__openworkApplyDesktopConfig;
+      Object.defineProperty(window, "__openworkApplyDesktopConfig", { value: undefined, configurable: true });
     };
   }, [applyDesktopConfigActions]);
 

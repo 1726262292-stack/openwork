@@ -93,17 +93,35 @@ export default {
           brandLogoUrl: testLogoUrl,
         });
 
-        // Wait for the brand accent data attribute.
+        // Wait for the brand accent data attribute AND the CSS variable override.
         await ctx.waitFor(
           "document.documentElement.dataset.brandAccent === 'violet'",
-          { timeoutMs: 5_000, label: "brand accent applied" },
+          { timeoutMs: 5_000, label: "brand accent data attribute" },
         );
 
         const accent = await ctx.eval(
           "document.documentElement.dataset.brandAccent",
         );
         ctx.assert(accent === "violet", `Expected data-brand-accent="violet", got "${accent}".`);
-        ctx.log(`brand accent applied: ${accent}`);
+
+        // Verify the actual computed CSS variable changed to a violet hue.
+        const dlsAccent = await ctx.eval(
+          "document.documentElement.style.getPropertyValue('--dls-accent').trim()",
+        );
+        ctx.assert(
+          typeof dlsAccent === "string" && dlsAccent.includes("violet"),
+          `Expected --dls-accent to reference violet, got "${dlsAccent}".`,
+        );
+
+        // Verify the computed RGB changed (not the default dark navy #011627 = 1,22,39).
+        const dlsAccentRgb = await ctx.eval(
+          "document.documentElement.style.getPropertyValue('--dls-accent-rgb').trim()",
+        );
+        ctx.assert(
+          typeof dlsAccentRgb === "string" && dlsAccentRgb !== "1 22 39",
+          `Expected --dls-accent-rgb to differ from default, got "${dlsAccentRgb}".`,
+        );
+        ctx.log(`brand accent CSS: --dls-accent=${dlsAccent}, --dls-accent-rgb=${dlsAccentRgb}`);
 
         // Wait for the logo element to appear.
         await ctx.waitFor(

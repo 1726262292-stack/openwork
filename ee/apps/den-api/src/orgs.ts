@@ -726,6 +726,8 @@ export async function updateOrganizationSettings(input: {
   allowedEmailDomains?: readonly string[] | null
   allowedDesktopVersions?: readonly string[] | null
   requireSso?: boolean
+  brandLogoUrl?: string | null
+  brandAccentColor?: string | null
 }) {
   const nextName = typeof input.name === "string" ? input.name.trim() : null
   if (typeof input.name === "string" && !nextName) {
@@ -739,7 +741,7 @@ export async function updateOrganizationSettings(input: {
   if (input.allowedEmailDomains !== undefined) {
     updates.allowedEmailDomains = normalizeAllowedEmailDomains(input.allowedEmailDomains).domains
   }
-  if (input.allowedDesktopVersions !== undefined || input.requireSso !== undefined) {
+  if (input.allowedDesktopVersions !== undefined || input.requireSso !== undefined || input.brandLogoUrl !== undefined || input.brandAccentColor !== undefined) {
     const rows = await db
       .select({ metadata: OrganizationTable.metadata })
       .from(OrganizationTable)
@@ -765,6 +767,22 @@ export async function updateOrganizationSettings(input: {
 
     if (input.requireSso !== undefined) {
       nextMetadata.requireSso = input.requireSso
+    }
+
+    if (input.brandLogoUrl !== undefined) {
+      if (input.brandLogoUrl === null) {
+        delete nextMetadata.brandLogoUrl
+      } else {
+        nextMetadata.brandLogoUrl = input.brandLogoUrl
+      }
+    }
+
+    if (input.brandAccentColor !== undefined) {
+      if (input.brandAccentColor === null) {
+        delete nextMetadata.brandAccentColor
+      } else {
+        nextMetadata.brandAccentColor = input.brandAccentColor
+      }
     }
 
     updates.metadata = normalizeOrganizationMetadata(nextMetadata).metadata

@@ -189,6 +189,12 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
         ...(Array.isArray(metadata.allowedDesktopVersions)
           ? { allowedDesktopVersions: metadata.allowedDesktopVersions }
           : {}),
+        ...(typeof metadata.brandLogoUrl === "string"
+          ? { brandLogoUrl: metadata.brandLogoUrl }
+          : {}),
+        ...(typeof metadata.brandAccentColor === "string"
+          ? { brandAccentColor: metadata.brandAccentColor }
+          : {}),
       })
     },
   )
