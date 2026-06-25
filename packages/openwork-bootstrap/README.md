@@ -8,12 +8,16 @@ channel. A bootstrap script can place `bin/openwork.mjs` on disk, then run:
 ```bash
 openwork install --bin-dir ~/.local/bin --install-dir ~/.openwork/bootstrap
 openwork doctor --json
+openwork install app --manifest https://example.com/openwork-install-manifest.json
+openwork doctor --app --json
 openwork cloud onboard --base-url https://den.example.com --owner-email ada@example.com --owner-password '...' --org-name 'Ada Workspace' --invite-email teammate@example.com --skill-name 'First skill' --json
 ```
 
 Current scope:
 
 - `install` installs the lightweight CLI into a user-writable bin directory.
+- `install app` downloads a manifest-selected desktop app artifact, verifies its
+  SHA-256 digest, and installs `OpenWork.app` from a macOS `.dmg`.
 - `doctor` verifies the CLI install and, optionally, a Den API health endpoint.
 - `cloud onboard` drives the headless REST onboarding flow: sign up, sign in,
   create an org, invite a teammate, and create a starter skill.

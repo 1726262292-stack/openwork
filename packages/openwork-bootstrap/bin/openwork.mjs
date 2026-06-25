@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { createHash } from "node:crypto"
+import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -60,11 +63,13 @@ function printHelp() {
     "",
     "Usage:",
     "  openwork install [--bin-dir <path>] [--install-dir <path>] [--source <path>] [--json]",
+    "  openwork install app --manifest <url-or-file> [--app-dir <path>] [--json]",
     "  openwork doctor [--bin-dir <path>] [--install-dir <path>] [--base-url <url>] [--json]",
     "  openwork cloud onboard --base-url <url> --owner-email <email> --owner-password <password> --org-name <name> --invite-email <email> [--skill-name <name>] [--json]",
     "",
     "Commands:",
     "  install          Install the lightweight openwork CLI into a user bin dir",
+    "  install app      Download and install the desktop app from a manifest",
     "  doctor           Check CLI installation and optional Den API health",
     "  cloud onboard    Sign up, create an org, invite a teammate, and create a skill",
     "",
@@ -83,7 +88,17 @@ function defaultBinDir() {
   return process.env.OPENWORK_BIN_DIR || join(process.env.HOME || process.cwd(), ".local", "bin")
 }
 
+function defaultAppDir() {
+  return process.env.OPENWORK_APP_DIR || (process.platform === "darwin"
+    ? join(process.env.HOME || process.cwd(), "Applications")
+    : join(process.env.HOME || process.cwd(), ".local", "share", "applications"))
+}
+
 function runInstall(args) {
+  if (args.positionals[1] === "app") {
+    return runInstallApp(args)
+  }
+
   const installDir = resolve(getFlag(args.flags, "install-dir", defaultInstallDir()))
   const binDir = resolve(getFlag(args.flags, "bin-dir", defaultBinDir()))
   const source = resolve(getFlag(args.flags, "source", selfPath))
@@ -121,10 +136,144 @@ function runInstall(args) {
   jsonOut({ ok: true, message: `OpenWork CLI installed at ${executable}`, install: manifest }, json)
 }
 
+function sha256(buffer) {
+  return createHash("sha256").update(buffer).digest("hex")
+}
+
+function isHttpUrl(value) {
+  return /^https?:\/\//i.test(value)
+}
+
+function filePathFromUrl(value) {
+  if (value.startsWith("file://")) {
+    return fileURLToPath(value)
+  }
+  return resolve(value)
+}
+
+async function readJsonLocation(location) {
+  if (isHttpUrl(location)) {
+    const response = await fetch(location)
+    if (!response.ok) throw new Error(`manifest_fetch_failed: ${response.status}`)
+    return response.json()
+  }
+  return JSON.parse(readFileSync(filePathFromUrl(location), "utf8"))
+}
+
+async function downloadArtifact(url, destination) {
+  if (isHttpUrl(url)) {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`artifact_download_failed: ${response.status}`)
+    writeFileSync(destination, Buffer.from(await response.arrayBuffer()))
+    return
+  }
+  copyFileSync(filePathFromUrl(url), destination)
+}
+
+function selectArtifact(manifest) {
+  const platform = process.platform
+  const arch = process.arch
+  const candidates = [
+    manifest.artifacts?.[platform]?.[arch],
+    manifest.artifacts?.[`${platform}-${arch}`],
+    manifest.artifacts?.[platform],
+    Array.isArray(manifest.artifacts) ? manifest.artifacts.find((artifact) => artifact.platform === platform && (!artifact.arch || artifact.arch === arch)) : null,
+  ].filter(Boolean)
+  const artifact = candidates[0]
+  if (!artifact?.url) throw new Error(`no_artifact_for_platform: ${platform}-${arch}`)
+  return { ...artifact, platform, arch }
+}
+
+function installDmg(input) {
+  if (process.platform !== "darwin") {
+    throw new Error("dmg_install_requires_macos")
+  }
+
+  const mountPoint = join(input.workDir, "mount")
+  mkdirSync(mountPoint, { recursive: true })
+  let mounted = false
+  try {
+    execFileSync("hdiutil", ["attach", input.artifactPath, "-nobrowse", "-readonly", "-mountpoint", mountPoint], { stdio: "pipe" })
+    mounted = true
+    const appName = input.appName || "OpenWork.app"
+    const sourceApp = join(mountPoint, appName)
+    if (!existsSync(sourceApp)) {
+      throw new Error(`app_not_found_in_dmg: ${appName}`)
+    }
+    mkdirSync(input.appDir, { recursive: true })
+    const targetApp = join(input.appDir, appName)
+    rmSync(targetApp, { recursive: true, force: true })
+    cpSync(sourceApp, targetApp, { recursive: true })
+    return targetApp
+  } finally {
+    if (mounted) {
+      try {
+        execFileSync("hdiutil", ["detach", mountPoint, "-quiet"], { stdio: "pipe" })
+      } catch {
+        execFileSync("hdiutil", ["detach", mountPoint, "-force", "-quiet"], { stdio: "pipe" })
+      }
+    }
+  }
+}
+
+async function runInstallApp(args) {
+  const json = hasFlag(args.flags, "json")
+  const manifestLocation = getFlag(args.flags, "manifest") || process.env.OPENWORK_INSTALL_MANIFEST
+  if (!manifestLocation) throw new Error("missing_required_flag: --manifest")
+
+  const appDir = resolve(getFlag(args.flags, "app-dir", defaultAppDir()))
+  const workDir = join(tmpdir(), `openwork-app-install-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  mkdirSync(workDir, { recursive: true })
+
+  try {
+    const manifest = await readJsonLocation(manifestLocation)
+    const artifact = selectArtifact(manifest)
+    const type = artifact.type || (artifact.url.endsWith(".dmg") ? "dmg" : null)
+    if (type !== "dmg") {
+      throw new Error(`unsupported_app_artifact_type: ${type || "unknown"}`)
+    }
+
+    const artifactPath = join(workDir, artifact.fileName || "OpenWork.dmg")
+    await downloadArtifact(artifact.url, artifactPath)
+    const digest = sha256(readFileSync(artifactPath))
+    if (artifact.sha256 && digest !== artifact.sha256) {
+      throw new Error(`checksum_mismatch: expected ${artifact.sha256} got ${digest}`)
+    }
+
+    const appPath = installDmg({
+      artifactPath,
+      workDir,
+      appDir,
+      appName: artifact.appName || manifest.appName || "OpenWork.app",
+    })
+
+    const install = {
+      version: manifest.version || artifact.version || null,
+      installedAt: new Date().toISOString(),
+      appDir,
+      appPath,
+      manifest: manifestLocation,
+      artifact: {
+        type,
+        url: artifact.url,
+        sha256: digest,
+        platform: artifact.platform,
+        arch: artifact.arch,
+      },
+    }
+    mkdirSync(dirname(appPath), { recursive: true })
+    writeFileSync(join(appDir, "openwork-app-install.json"), JSON.stringify(install, null, 2))
+    jsonOut({ ok: true, message: `OpenWork app installed at ${appPath}`, install }, json)
+  } finally {
+    rmSync(workDir, { recursive: true, force: true })
+  }
+}
+
 async function runDoctor(args) {
   const installDir = resolve(getFlag(args.flags, "install-dir", defaultInstallDir()))
   const binDir = resolve(getFlag(args.flags, "bin-dir", defaultBinDir()))
   const baseUrl = getFlag(args.flags, "base-url")
+  const appDir = resolve(getFlag(args.flags, "app-dir", defaultAppDir()))
   const json = hasFlag(args.flags, "json")
   const checks = []
 
@@ -153,6 +302,13 @@ async function runDoctor(args) {
     } catch (error) {
       checks.push({ name: "denApiHealth", ok: false, value: error instanceof Error ? error.message : String(error) })
     }
+  }
+
+  if (hasFlag(args.flags, "app") || args.flags.has("app-dir")) {
+    const appPath = join(appDir, "OpenWork.app")
+    const appManifest = join(appDir, "openwork-app-install.json")
+    checks.push({ name: "openworkApp", ok: existsSync(appPath) && statSync(appPath).isDirectory(), value: appPath })
+    checks.push({ name: "appInstallManifest", ok: existsSync(appManifest), value: appManifest })
   }
 
   const ok = checks.every((check) => check.ok)

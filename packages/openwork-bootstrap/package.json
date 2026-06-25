@@ -12,7 +12,7 @@
     "README.md"
   ],
   "scripts": {
-    "check": "node --check bin/openwork.mjs && node --check evals/agent-fraimz-openwork-bootstrap.mjs",
+    "check": "node --check bin/openwork.mjs && node --check evals/agent-fraimz-openwork-bootstrap.mjs && node --check evals/agent-fraimz-openwork-app-install.mjs",
     "test": "node test/openwork-bootstrap.test.mjs"
   },
   "engines": {
