@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { tmpdir } from "node:os"
@@ -91,7 +91,9 @@ function defaultBinDir() {
 function defaultAppDir() {
   return process.env.OPENWORK_APP_DIR || (process.platform === "darwin"
     ? join(process.env.HOME || process.cwd(), "Applications")
-    : join(process.env.HOME || process.cwd(), ".local", "share", "applications"))
+    : process.platform === "win32"
+      ? join(process.env.LOCALAPPDATA || join(process.env.HOME || process.cwd(), "AppData", "Local"), "OpenWork")
+      : join(process.env.HOME || process.cwd(), ".local", "share", "openwork"))
 }
 
 function runInstall(args) {
@@ -184,6 +186,54 @@ function selectArtifact(manifest) {
   return { ...artifact, platform, arch }
 }
 
+function inferArtifactType(url) {
+  const lower = url.toLowerCase()
+  if (lower.endsWith(".dmg")) return "dmg"
+  if (lower.endsWith(".zip")) return "zip"
+  if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) return "tar.gz"
+  if (lower.endsWith(".appimage")) return "appimage"
+  if (lower.endsWith(".exe")) return "exe"
+  if (lower.endsWith(".msi")) return "msi"
+  return null
+}
+
+function defaultInstalledName(type, manifest, artifact) {
+  if (artifact.appName || manifest.appName) return artifact.appName || manifest.appName
+  if (type === "dmg") return "OpenWork.app"
+  if (type === "appimage") return "OpenWork.AppImage"
+  if (type === "exe") return "OpenWork.exe"
+  if (type === "msi") return "OpenWork.msi"
+  if (process.platform === "darwin") return "OpenWork.app"
+  if (process.platform === "win32") return "OpenWork.exe"
+  return "openwork"
+}
+
+function findInstallCandidate(root, expectedName) {
+  const direct = join(root, expectedName)
+  if (existsSync(direct)) return direct
+
+  const queue = [root]
+  while (queue.length > 0) {
+    const current = queue.shift()
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const path = join(current, entry.name)
+      if (entry.name === expectedName) return path
+      if (entry.isDirectory()) queue.push(path)
+    }
+  }
+  throw new Error(`app_not_found_in_archive: ${expectedName}`)
+}
+
+function installFromDirectory(input) {
+  const source = findInstallCandidate(input.sourceDir, input.appName)
+  mkdirSync(input.appDir, { recursive: true })
+  const target = join(input.appDir, input.appName)
+  rmSync(target, { recursive: true, force: true })
+  cpSync(source, target, { recursive: true })
+  if (input.executable) chmodSync(target, 0o755)
+  return target
+}
+
 function installDmg(input) {
   if (process.platform !== "darwin") {
     throw new Error("dmg_install_requires_macos")
@@ -216,6 +266,35 @@ function installDmg(input) {
   }
 }
 
+function installZip(input) {
+  const extractDir = join(input.workDir, "zip")
+  mkdirSync(extractDir, { recursive: true })
+  if (process.platform === "win32") {
+    execFileSync("powershell.exe", ["-NoProfile", "-Command", `Expand-Archive -LiteralPath ${JSON.stringify(input.artifactPath)} -DestinationPath ${JSON.stringify(extractDir)} -Force`], { stdio: "pipe" })
+  } else if (process.platform === "darwin") {
+    execFileSync("ditto", ["-x", "-k", input.artifactPath, extractDir], { stdio: "pipe" })
+  } else {
+    execFileSync("unzip", ["-q", input.artifactPath, "-d", extractDir], { stdio: "pipe" })
+  }
+  return installFromDirectory({ ...input, sourceDir: extractDir })
+}
+
+function installTarGz(input) {
+  const extractDir = join(input.workDir, "tar")
+  mkdirSync(extractDir, { recursive: true })
+  execFileSync("tar", ["-xzf", input.artifactPath, "-C", extractDir], { stdio: "pipe" })
+  return installFromDirectory({ ...input, sourceDir: extractDir })
+}
+
+function installSingleFile(input) {
+  mkdirSync(input.appDir, { recursive: true })
+  const target = join(input.appDir, input.appName)
+  rmSync(target, { force: true })
+  copyFileSync(input.artifactPath, target)
+  if (input.executable) chmodSync(target, 0o755)
+  return target
+}
+
 async function runInstallApp(args) {
   const json = hasFlag(args.flags, "json")
   const manifestLocation = getFlag(args.flags, "manifest") || process.env.OPENWORK_INSTALL_MANIFEST
@@ -228,10 +307,8 @@ async function runInstallApp(args) {
   try {
     const manifest = await readJsonLocation(manifestLocation)
     const artifact = selectArtifact(manifest)
-    const type = artifact.type || (artifact.url.endsWith(".dmg") ? "dmg" : null)
-    if (type !== "dmg") {
-      throw new Error(`unsupported_app_artifact_type: ${type || "unknown"}`)
-    }
+    const type = artifact.type || inferArtifactType(artifact.url)
+    if (!type) throw new Error("unsupported_app_artifact_type: unknown")
 
     const artifactPath = join(workDir, artifact.fileName || "OpenWork.dmg")
     await downloadArtifact(artifact.url, artifactPath)
@@ -240,12 +317,18 @@ async function runInstallApp(args) {
       throw new Error(`checksum_mismatch: expected ${artifact.sha256} got ${digest}`)
     }
 
-    const appPath = installDmg({
-      artifactPath,
-      workDir,
-      appDir,
-      appName: artifact.appName || manifest.appName || "OpenWork.app",
-    })
+    const appName = defaultInstalledName(type, manifest, artifact)
+    const appPath = type === "dmg"
+      ? installDmg({ artifactPath, workDir, appDir, appName })
+      : type === "zip"
+        ? installZip({ artifactPath, workDir, appDir, appName, executable: !appName.endsWith(".app") && process.platform !== "win32" })
+        : type === "tar.gz"
+          ? installTarGz({ artifactPath, workDir, appDir, appName, executable: process.platform !== "win32" })
+          : type === "appimage"
+            ? installSingleFile({ artifactPath, appDir, appName, executable: true })
+            : type === "exe" || type === "msi"
+              ? installSingleFile({ artifactPath, appDir, appName, executable: false })
+              : (() => { throw new Error(`unsupported_app_artifact_type: ${type}`) })()
 
     const install = {
       version: manifest.version || artifact.version || null,
@@ -305,8 +388,20 @@ async function runDoctor(args) {
   }
 
   if (hasFlag(args.flags, "app") || args.flags.has("app-dir")) {
-    const appPath = join(appDir, "OpenWork.app")
     const appManifest = join(appDir, "openwork-app-install.json")
+    let appPath = process.platform === "darwin"
+      ? join(appDir, "OpenWork.app")
+      : process.platform === "win32"
+        ? join(appDir, "OpenWork.exe")
+        : join(appDir, "openwork")
+    if (existsSync(appManifest)) {
+      try {
+        const appInstall = JSON.parse(readFileSync(appManifest, "utf8"))
+        if (appInstall.appPath) appPath = appInstall.appPath
+      } catch {
+        // Keep fallback path.
+      }
+    }
     checks.push({ name: "openworkApp", ok: existsSync(appPath) && statSync(appPath).isDirectory(), value: appPath })
     checks.push({ name: "appInstallManifest", ok: existsSync(appManifest), value: appManifest })
   }
