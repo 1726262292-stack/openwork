@@ -5,10 +5,10 @@
 // instead of `any`.
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { engineInfo } from "@/app/lib/desktop";
+import { engineInfo, engineRestart } from "@/app/lib/desktop";
 import type { EngineInfo } from "@/app/lib/desktop-types";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
-import type { OpenworkServerClient } from "@/app/lib/openwork-server";
+import { OpenworkServerError, type OpenworkServerClient } from "@/app/lib/openwork-server";
 import type { ResolvedWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { t } from "@/i18n";
 import { useReloadCoordinator } from "./reload-coordinator";
@@ -55,15 +55,33 @@ export function useEngineReload(input: UseEngineReloadInput) {
       onError(t("app.error_connect_first"));
       return false;
     }
-    await endpoint.client.reloadEngine(endpoint.workspaceId);
-    await refreshProviderListQueries(getReactQueryClient());
+    let restartedEngine = false;
+    try {
+      await endpoint.client.reloadEngine(endpoint.workspaceId);
+    } catch (error) {
+      const unreachable =
+        error instanceof OpenworkServerError && error.code === "opencode_engine_unreachable";
+      if (!unreachable || !isDesktopRuntime()) {
+        throw error;
+      }
+      await engineRestart({});
+      restartedEngine = true;
+    }
+    if (restartedEngine) {
+      await refreshRouteState();
+      await refreshProviderListQueries(getReactQueryClient()).catch(() => undefined);
+    } else {
+      await refreshProviderListQueries(getReactQueryClient());
+    }
     setEngineReloadVersion((v) => v + 1);
     try {
       window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
     } catch {
       // ignore browser event dispatch failures
     }
-    await refreshRouteState();
+    if (!restartedEngine) {
+      await refreshRouteState();
+    }
     return true;
   }, [client, endpointForWorkspace, onError, refreshRouteState, workspace, workspaceId]);
 

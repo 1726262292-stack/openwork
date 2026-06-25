@@ -340,11 +340,13 @@ describe("runtime MCP engine sync", () => {
     }
   });
 
-  // Repro for "Failed to reload the engine": when the OpenCode engine process
-  // is not running (engine.running === false in runtime diagnostics), the reload
-  // POST to /instance/dispose throws ECONNREFUSED. The reload endpoint must not
-  // 5xx on a connection error — a down engine is reloadable, not a server fault.
-  test("engine reload succeeds when the engine is unreachable", async () => {
+  // When the OpenCode engine endpoint on record is unreachable (process down or
+  // moved to a new port), a lightweight /instance/dispose cannot revive it.
+  // The reload endpoint must report a distinct, actionable error
+  // (opencode_engine_unreachable) instead of either a generic 502 or a fake
+  // 200 — the latter would tell the user "reloaded" while chat stays broken.
+  // The desktop client uses this code to escalate to a full engine restart.
+  test("engine reload reports engine-unreachable when the engine is down", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const previousDb = process.env.OPENWORK_RUNTIME_DB;
     process.env.OPENWORK_RUNTIME_DB = join(workspaceRoot, "runtime.sqlite");
@@ -355,9 +357,9 @@ describe("runtime MCP engine sync", () => {
         method: "POST",
         headers: auth(openwork.token),
       });
-      expect(response.status).toBe(200);
-      const body = await response.json() as { ok: boolean };
-      expect(body.ok).toBe(true);
+      expect(response.status).toBe(503);
+      const body = await response.json() as { code?: string };
+      expect(body.code).toBe("opencode_engine_unreachable");
     } finally {
       if (previousDb === undefined) delete process.env.OPENWORK_RUNTIME_DB;
       else process.env.OPENWORK_RUNTIME_DB = previousDb;

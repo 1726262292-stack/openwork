@@ -1393,6 +1393,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // EADDRINUSE and leaving the runtime in error -> boot screen.
     const requestedRemoteAccess = options.openworkRemoteAccess === true;
     if (
+      options.forceRestart !== true &&
       openworkServerState.inProcess &&
       lifecycleState === "healthy" &&
       normalizeWorkspaceKey(engineState.projectDir) === normalizeWorkspaceKey(safeProjectDir) &&
@@ -1448,11 +1449,15 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     if (!projectDir) {
       throw new Error("OpenCode is not configured for a local workspace");
     }
+    const openworkRemoteAccess = typeof options.openworkRemoteAccess === "boolean"
+      ? options.openworkRemoteAccess
+      : openworkServerState.remoteAccessEnabled;
     return engineStart(projectDir, {
       runtime: engineState.runtime,
       workspacePaths: [projectDir],
       opencodeEnableExa: options.opencodeEnableExa,
-      openworkRemoteAccess: options.openworkRemoteAccess,
+      openworkRemoteAccess,
+      forceRestart: true,
     });
   }
 

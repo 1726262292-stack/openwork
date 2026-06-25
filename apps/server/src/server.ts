@@ -2788,13 +2788,13 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
   let response: Response;
   try {
     response = await fetch(targetUrl, { method: "POST", headers });
-  } catch {
-    // The engine process isn't running (e.g. it crashed or was never started),
-    // so the dispose POST throws ECONNREFUSED. There's no live instance to
-    // dispose — the engine rebuilds from the on-disk config on the next request
-    // — so a reload is a no-op success here, not a server fault. Surfacing this
-    // as a 5xx is what produces the user-facing "Failed to reload the engine".
-    return;
+  } catch (error) {
+    throw new ApiError(
+      503,
+      "opencode_engine_unreachable",
+      "OpenCode engine is not reachable; a full engine restart is required",
+      { baseUrl, cause: error instanceof Error ? error.message : String(error) },
+    );
   }
   if (!response.ok) {
     const body = parseOpencodeErrorBody(await response.text());
