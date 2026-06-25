@@ -207,6 +207,10 @@ function describeTaskCreateError(error: unknown) {
   return message;
 }
 
+function taskCreateUnavailableToastId(workspaceId: string) {
+  return `opencode-unavailable:${workspaceId}`;
+}
+
 function focusPromptSoon() {
   if (typeof window === "undefined") return;
   const focus = () => window.dispatchEvent(new Event("openwork:focusPrompt"));
@@ -1129,6 +1133,7 @@ export function SessionRoute() {
         source: "new_task",
         workspace_type: workspace.workspaceType ?? "unknown",
       });
+      toast.dismiss(taskCreateUnavailableToastId(workspaceId));
       setLegacySelectedWorkspaceId(workspaceId);
       writeActiveWorkspaceId(workspaceId || null);
       writeLastSessionFor(workspaceId, session.id);
@@ -1149,6 +1154,7 @@ export function SessionRoute() {
       setRouteError(message);
       setErrorsByWorkspaceId((current) => ({ ...current, [workspaceId]: message }));
       toast.error("OpenCode unavailable", {
+        id: taskCreateUnavailableToastId(workspaceId),
         description: message,
         action: {
           label: "Retry",

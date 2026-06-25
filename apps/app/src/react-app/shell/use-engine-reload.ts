@@ -15,8 +15,13 @@ import { useReloadCoordinator } from "./reload-coordinator";
 import { refreshProviderListQueries } from "@/react-app/infra/provider-list-query";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import type { RouteWorkspace } from "./route-workspaces";
+import { toast } from "@/components/ui/sonner";
 
 const reloadAfterOrgOnboardingKey = "openwork.reloadAfterOrgOnboarding";
+
+function taskCreateUnavailableToastId(workspaceId: string) {
+  return `opencode-unavailable:${workspaceId}`;
+}
 
 export type UseEngineReloadInput = {
   client: OpenworkServerClient | null;
@@ -82,6 +87,7 @@ export function useEngineReload(input: UseEngineReloadInput) {
     if (!restartedEngine) {
       await refreshRouteState();
     }
+    toast.dismiss(taskCreateUnavailableToastId(workspaceId));
     return true;
   }, [client, endpointForWorkspace, onError, refreshRouteState, workspace, workspaceId]);
 
