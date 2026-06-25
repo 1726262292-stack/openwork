@@ -10,6 +10,7 @@ import {
   createOpenworkServerClient,
   isLoopbackOpenworkServerUrl,
   readOpenworkServerSettings,
+  OpenworkServerError,
   type OpenworkServerCapabilities,
   type OpenworkServerClient,
   type OpenworkWorkspaceInfo,
@@ -99,6 +100,7 @@ import {
   openworkServerInfo,
   openworkServerRestart,
   engineStart,
+  engineRestart,
   pickDirectory,
   resolveWorkspaceListSelectedId,
   workspaceBootstrap,
@@ -168,6 +170,24 @@ const ROUTE_OPENWORK_CAPABILITIES: OpenworkServerCapabilities = {
   commands: { read: true, write: true },
   config: { read: true, write: true },
 };
+
+async function reloadEngineOrRestartDesktop(
+  client: Pick<OpenworkServerClient, "reloadEngine">,
+  workspaceId: string,
+  afterRestart?: () => Promise<void>,
+): Promise<void> {
+  try {
+    await client.reloadEngine(workspaceId);
+  } catch (error) {
+    const unreachable =
+      error instanceof OpenworkServerError && error.code === "opencode_engine_unreachable";
+    if (!unreachable || !isDesktopRuntime()) {
+      throw error;
+    }
+    await engineRestart({});
+    await afterRestart?.();
+  }
+}
 
 function isOpenWorkCloudProvider(provider: {
   providerId?: string | null;
@@ -513,49 +533,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         }),
     [sessionsByWorkspaceId],
   );
-
-  const reloadWorkspaceEngineFromUi = useCallback(async () => {
-    const workspaceId = routeStateRef.current.runtimeWorkspaceId?.trim() || selectedWorkspaceId.trim();
-    if (!openworkClient || !workspaceId) {
-      toast.error(t("app.error_connect_first"));
-      return false;
-    }
-
-    await openworkClient.reloadEngine(workspaceId);
-    await refreshProviderListQueries(getReactQueryClient());
-
-    try {
-      window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
-    } catch {
-      // ignore browser event dispatch failures
-    }
-
-    // OpenCode reconnects MCPs async after dispose — the store polls until
-    // statuses settle so users don't have to collapse/expand the card.
-    void pollMcpServersAfterReloadRef.current?.();
-
-    return true;
-  }, [openworkClient, selectedWorkspaceId]);
-
-  useEffect(() => {
-    return reloadCoordinator.registerWorkspaceReloadControls({
-      canReloadWorkspaceEngine: () => Boolean(openworkClient && (selectedWorkspace?.id || selectedWorkspaceId)),
-      reloadWorkspaceEngine: reloadWorkspaceEngineFromUi,
-      activeSessions: () => activeReloadBlockingSessions,
-      stopSession: async (sessionId) => {
-        if (!activeClient) return;
-        await abortSessionSafe(activeClient, sessionId);
-      },
-    });
-  }, [
-    activeClient,
-    activeReloadBlockingSessions,
-    openworkClient,
-    reloadCoordinator,
-    reloadWorkspaceEngineFromUi,
-    selectedWorkspace?.id,
-    selectedWorkspaceId,
-  ]);
 
   const openworkServerStore = useMemo(
     () =>
@@ -1057,7 +1034,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       }
       reloadCoordinator.markReloadRequired("config", { type: "config", name: "opencode.json", action: "updated" });
       try {
-        await client.reloadEngine(workspaceId);
+        await reloadEngineOrRestartDesktop(client, workspaceId);
       } catch {
         // The reload toast still lets the user retry if the immediate reload fails.
       }
@@ -1240,6 +1217,49 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       markBootRouteReady();
     }
   }, [markBootRouteReady, navigationSessionId, navigationWorkspaceId, routeWorkspaceId]);
+
+  const reloadWorkspaceEngineFromUi = useCallback(async () => {
+    const workspaceId = routeStateRef.current.runtimeWorkspaceId?.trim() || selectedWorkspaceId.trim();
+    if (!openworkClient || !workspaceId) {
+      toast.error(t("app.error_connect_first"));
+      return false;
+    }
+
+    await reloadEngineOrRestartDesktop(openworkClient, workspaceId, refreshRouteState);
+    await refreshProviderListQueries(getReactQueryClient());
+
+    try {
+      window.dispatchEvent(new CustomEvent("openwork-server-settings-changed"));
+    } catch {
+      // ignore browser event dispatch failures
+    }
+
+    // OpenCode reconnects MCPs async after dispose — the store polls until
+    // statuses settle so users don't have to collapse/expand the card.
+    void pollMcpServersAfterReloadRef.current?.();
+
+    return true;
+  }, [openworkClient, refreshRouteState, selectedWorkspaceId]);
+
+  useEffect(() => {
+    return reloadCoordinator.registerWorkspaceReloadControls({
+      canReloadWorkspaceEngine: () => Boolean(openworkClient && (selectedWorkspace?.id || selectedWorkspaceId)),
+      reloadWorkspaceEngine: reloadWorkspaceEngineFromUi,
+      activeSessions: () => activeReloadBlockingSessions,
+      stopSession: async (sessionId) => {
+        if (!activeClient) return;
+        await abortSessionSafe(activeClient, sessionId);
+      },
+    });
+  }, [
+    activeClient,
+    activeReloadBlockingSessions,
+    openworkClient,
+    reloadCoordinator,
+    reloadWorkspaceEngineFromUi,
+    selectedWorkspace?.id,
+    selectedWorkspaceId,
+  ]);
 
   useEffect(() => {
     workspacesRef.current = workspaces;

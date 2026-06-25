@@ -17,9 +17,11 @@ import { unwrap, waitForHealthy } from "../../../../app/lib/opencode";
 import {
   readOpencodeConfig,
   writeOpencodeConfig,
+  engineRestart,
   workspaceOpenworkRead,
   workspaceOpenworkWrite,
 } from "../../../../app/lib/desktop";
+import { OpenworkServerError } from "../../../../app/lib/openwork-server";
 import type {
   Client,
   ProviderListItem,
@@ -1058,7 +1060,16 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
             (await options.ensureRuntimeWorkspaceId?.())?.trim() ||
             "";
           if (workspaceId) {
-            await openworkClient.reloadEngine(workspaceId);
+            try {
+              await openworkClient.reloadEngine(workspaceId);
+            } catch (error) {
+              const unreachable =
+                error instanceof OpenworkServerError && error.code === "opencode_engine_unreachable";
+              if (!unreachable || !isDesktopRuntime()) {
+                throw error;
+              }
+              await engineRestart({});
+            }
             reloaded = true;
           }
         }
