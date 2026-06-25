@@ -797,6 +797,8 @@ importers:
 
   packages/handsfree: {}
 
+  packages/openwork-bootstrap: {}
+
   packages/openwork-ui-mcp:
     dependencies:
       '@modelcontextprotocol/sdk':
