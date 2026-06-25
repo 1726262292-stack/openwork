@@ -88,6 +88,7 @@ export function useEngineReload(input: UseEngineReloadInput) {
       await refreshRouteState();
     }
     toast.dismiss(taskCreateUnavailableToastId(workspaceId));
+    toast.dismiss();
     return true;
   }, [client, endpointForWorkspace, onError, refreshRouteState, workspace, workspaceId]);
 

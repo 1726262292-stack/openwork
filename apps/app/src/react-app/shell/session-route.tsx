@@ -1134,6 +1134,7 @@ export function SessionRoute() {
         workspace_type: workspace.workspaceType ?? "unknown",
       });
       toast.dismiss(taskCreateUnavailableToastId(workspaceId));
+      toast.dismiss();
       setLegacySelectedWorkspaceId(workspaceId);
       writeActiveWorkspaceId(workspaceId || null);
       writeLastSessionFor(workspaceId, session.id);
