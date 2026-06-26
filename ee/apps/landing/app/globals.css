@@ -384,13 +384,31 @@ hr {
   }
 }
 
+/* Agent chip pixel shimmer (OpenWork addition; Flue ships the chip static). */
+.chip-pixel {
+  animation: chip-pixel-pulse 3.2s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes chip-pixel-pulse {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .word-cycle span,
   .animate-fade-up,
   .den-running-dot,
   .doc-button,
   .secondary-button,
-  .feature-card {
+  .feature-card,
+  .chip-pixel {
     animation: none;
     transition: none;
   }
