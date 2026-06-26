@@ -34,14 +34,27 @@ mkdirSync(outDir, { recursive: true })
 
 const frames = []
 
-function run(command, args) {
-  const result = spawnSync(command, args, { encoding: "utf8" })
+function parseJson(text) {
+  if (!text) return null
+  try {
+    return JSON.parse(text)
+  } catch {
+    return text
+  }
+}
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, { encoding: "utf8", timeout: options.timeout ?? 10_000, ...options })
+  const stdout = result.stdout?.trim() ?? ""
+  const stderr = result.stderr?.trim() ?? ""
   return {
     command: [command, ...args].join(" "),
     status: result.status,
-    stdout: result.stdout.trim(),
-    stderr: result.stderr.trim(),
-    json: result.stdout.trim() ? JSON.parse(result.stdout.trim()) : null,
+    signal: result.signal,
+    error: result.error ? String(result.error) : null,
+    stdout,
+    stderr,
+    json: parseJson(stdout),
   }
 }
 
@@ -98,7 +111,7 @@ try {
     evidence: { status: installCli.status, body: installCli.json },
   }, installCli.status === 0 && existsSync(installedOpenwork))
 
-  const installApp = run(installedOpenwork, ["install", "app", "--manifest", manifestPath, "--app-dir", appDir, "--json"])
+  const installApp = run(installedOpenwork, ["install", "app", "--manifest", manifestPath, "--app-dir", appDir, "--json"], { timeout: 30_000 })
   const appPath = join(appDir, "OpenWork.app")
   prove("The installed CLI can download, verify, mount, and install OpenWork.app from a DMG", {
     action: "openwork install app --manifest <fixture-manifest> --app-dir <tmp>/Applications --json",

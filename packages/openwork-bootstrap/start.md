@@ -19,10 +19,14 @@ node packages/openwork-bootstrap/bin/openwork.mjs install \
   --json
 ```
 
-In production, use the published bootstrap script when available:
+In production, use the published bootstrap script when available. Download it to
+a file, inspect it, then run it. Do not pipe remote scripts directly into a
+shell.
 
 ```bash
-curl -fsSL https://openwork.com/install.sh | sh
+curl -fsSLo /tmp/openwork-install.sh https://openwork.com/install.sh
+less /tmp/openwork-install.sh
+sh /tmp/openwork-install.sh
 ```
 
 Verify:
@@ -59,10 +63,10 @@ Generate a strong password locally unless the user provides one. Do not print th
 password or token in the final response.
 
 ```bash
+OPENWORK_OWNER_PASSWORD="<generated-password>" \
 openwork cloud onboard \
   --base-url https://cloud.openwork.com \
   --owner-email "<owner-email>" \
-  --owner-password "<generated-password>" \
   --org-name "<workspace-name>" \
   --invite-email "<teammate-email>" \
   --skill-name "First OpenWork Skill" \
@@ -76,10 +80,10 @@ You are done only when all are true:
 - `openwork doctor --json` returns `ok: true`
 - `openwork doctor --app --json` returns `ok: true`
 - `openwork cloud onboard ... --json` returns:
-- `ok: true`
-- `organization.id`
-- `invitation.invitationId`
-- `skill.id`
+  - `ok: true`
+  - `organization.id` is present
+  - `invitation.invitationId` is present
+  - `skill.id` is present
 
 ## 5. If Something Fails
 

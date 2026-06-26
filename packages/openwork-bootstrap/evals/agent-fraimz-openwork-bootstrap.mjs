@@ -36,6 +36,7 @@ const frames = []
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
 function parseJson(text) {
+  if (!text) return null
   try {
     return JSON.parse(text)
   } catch {
@@ -44,13 +45,17 @@ function parseJson(text) {
 }
 
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { encoding: "utf8", ...options })
+  const result = spawnSync(command, args, { encoding: "utf8", timeout: options.timeout ?? 10_000, ...options })
+  const stdout = result.stdout?.trim() ?? ""
+  const stderr = result.stderr?.trim() ?? ""
   return {
     command: [command, ...args].join(" "),
     status: result.status,
-    stdout: result.stdout.trim(),
-    stderr: result.stderr.trim(),
-    json: result.stdout.trim() ? parseJson(result.stdout.trim()) : null,
+    signal: result.signal,
+    error: result.error ? String(result.error) : null,
+    stdout,
+    stderr,
+    json: parseJson(stdout),
   }
 }
 
@@ -99,8 +104,6 @@ try {
     baseUrl,
     "--owner-email",
     ownerEmail,
-    "--owner-password",
-    randomPassword(),
     "--org-name",
     orgName,
     "--invite-email",
@@ -108,7 +111,7 @@ try {
     "--skill-name",
     skillName,
     "--json",
-  ])
+  ], { env: { ...process.env, OPENWORK_OWNER_PASSWORD: randomPassword() }, timeout: 30_000 })
   prove("The installed CLI can onboard a user, org, invite, and skill end-to-end", {
     action: "openwork cloud onboard --base-url <live-den-api> --owner-email ... --org-name ... --invite-email ... --skill-name ... --json",
     assert: "exit 0 with user, organization, invitation, and skill ids from live API responses",

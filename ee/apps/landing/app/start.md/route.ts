@@ -8,10 +8,13 @@ Goal: install OpenWork, create or sign in to an OpenWork Cloud account, create a
 
 Install the lightweight \`openwork\` bootstrap CLI into a user-writable bin dir.
 
-Production path:
+Production path: download the script, inspect it, then run it. Do not pipe remote
+scripts directly into a shell.
 
 \`\`\`bash
-curl -fsSL https://openworklabs.com/install.sh | sh
+curl -fsSLo /tmp/openwork-install.sh https://openworklabs.com/install.sh
+less /tmp/openwork-install.sh
+sh /tmp/openwork-install.sh
 \`\`\`
 
 If working from the OpenWork repository locally:
@@ -50,10 +53,10 @@ openwork doctor --app --json
 Ask the user for the owner email, workspace name, and teammate email to invite. Generate a strong password locally unless the user provides one. Do not print the password or token in the final response.
 
 \`\`\`bash
+OPENWORK_OWNER_PASSWORD="<generated-password>" \\
 openwork cloud onboard \\
   --base-url https://app.openworklabs.com \\
   --owner-email "<owner-email>" \\
-  --owner-password "<generated-password>" \\
   --org-name "<workspace-name>" \\
   --invite-email "<teammate-email>" \\
   --skill-name "First OpenWork Skill" \\
@@ -66,8 +69,11 @@ You are done only when all are true:
 
 - \`openwork doctor --json\` returns \`ok: true\`
 - \`openwork doctor --app --json\` returns \`ok: true\`
-- \`openwork cloud onboard ... --json\` returns \`ok: true\`
-- The onboarding result includes \`organization.id\`, \`invitation.invitationId\`, and \`skill.id\`
+- \`openwork cloud onboard ... --json\` returns:
+  - \`ok: true\`
+  - \`organization.id\` is present
+  - \`invitation.invitationId\` is present
+  - \`skill.id\` is present
 
 ## 5. If Something Fails
 

@@ -65,7 +65,7 @@ function printHelp() {
     "  openwork install [--bin-dir <path>] [--install-dir <path>] [--source <path>] [--json]",
     "  openwork install app --manifest <url-or-file> [--app-dir <path>] [--json]",
     "  openwork doctor [--bin-dir <path>] [--install-dir <path>] [--base-url <url>] [--json]",
-    "  openwork cloud onboard --base-url <url> --owner-email <email> --owner-password <password> --org-name <name> --invite-email <email> [--skill-name <name>] [--json]",
+    "  OPENWORK_OWNER_PASSWORD=<password> openwork cloud onboard --base-url <url> --owner-email <email> --org-name <name> --invite-email <email> [--skill-name <name>] [--json]",
     "",
     "Commands:",
     "  install          Install the lightweight openwork CLI into a user bin dir",
@@ -78,6 +78,14 @@ function printHelp() {
     "  --version        Print version",
     "  --help           Show help",
   ].join("\n"))
+}
+
+async function readStdin() {
+  const chunks = []
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks).toString("utf8")
 }
 
 function defaultInstallDir() {
@@ -455,6 +463,22 @@ function skillText(name) {
   return `---\nname: ${name}\ndescription: Starter skill created by openwork bootstrap.\n---\n\n# ${name}\n\nUse this skill to confirm OpenWork cloud onboarding can create skills directly.`
 }
 
+async function resolveOwnerPassword(flags) {
+  const fromFlag = getFlag(flags, "owner-password")
+  if (fromFlag) return fromFlag
+
+  const envName = getFlag(flags, "owner-password-env", "OPENWORK_OWNER_PASSWORD")
+  const fromEnv = process.env[envName]
+  if (fromEnv) return fromEnv
+
+  const filePath = getFlag(flags, "owner-password-file")
+  if (filePath) return readFileSync(resolve(filePath), "utf8").trim()
+
+  if (hasFlag(flags, "owner-password-stdin")) return (await readStdin()).trim()
+
+  return null
+}
+
 async function runCloudOnboard(args) {
   const subcommand = args.positionals[1]
   if (subcommand !== "onboard") {
@@ -466,7 +490,7 @@ async function runCloudOnboard(args) {
   const json = hasFlag(args.flags, "json")
   const baseUrl = getFlag(args.flags, "base-url")?.replace(/\/$/, "")
   const ownerEmail = getFlag(args.flags, "owner-email")
-  const ownerPassword = getFlag(args.flags, "owner-password")
+  const ownerPassword = await resolveOwnerPassword(args.flags)
   const orgName = getFlag(args.flags, "org-name")
   const inviteEmail = getFlag(args.flags, "invite-email")
   const skillName = getFlag(args.flags, "skill-name", "First OpenWork Skill")

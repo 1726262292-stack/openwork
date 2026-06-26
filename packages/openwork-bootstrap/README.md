@@ -10,7 +10,7 @@ openwork install --bin-dir ~/.local/bin --install-dir ~/.openwork/bootstrap
 openwork doctor --json
 openwork install app --manifest https://example.com/openwork-install-manifest.json
 openwork doctor --app --json
-openwork cloud onboard --base-url https://den.example.com --owner-email ada@example.com --owner-password '...' --org-name 'Ada Workspace' --invite-email teammate@example.com --skill-name 'First skill' --json
+OPENWORK_OWNER_PASSWORD='<generated-password>' openwork cloud onboard --base-url https://den.example.com --owner-email ada@example.com --org-name 'Ada Workspace' --invite-email teammate@example.com --skill-name 'First skill' --json
 ```
 
 Current scope:
