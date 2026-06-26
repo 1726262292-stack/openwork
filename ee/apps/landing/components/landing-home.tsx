@@ -60,7 +60,7 @@ export function LandingHome(props: Props) {
         throw new Error("clipboard_unavailable");
       }
       setAgentPromptCopied(true);
-      window.setTimeout(() => setAgentPromptCopied(false), 1800);
+      window.setTimeout(() => setAgentPromptCopied(false), 5000);
     } catch {
       const textarea = document.createElement("textarea");
       textarea.value = AGENT_START_PROMPT;
@@ -73,7 +73,7 @@ export function LandingHome(props: Props) {
       document.body.removeChild(textarea);
       setAgentPromptCopied(copied);
       if (copied) {
-        window.setTimeout(() => setAgentPromptCopied(false), 1800);
+        window.setTimeout(() => setAgentPromptCopied(false), 5000);
       }
     }
   };
@@ -144,30 +144,33 @@ export function LandingHome(props: Props) {
 
             </div>
 
-            <div className="mt-8 max-w-3xl overflow-hidden rounded-2xl border border-[#011627]/10 bg-white/80 shadow-[0_24px_80px_rgba(1,22,39,0.08)] backdrop-blur">
-              <div className="flex flex-col gap-4 border-b border-[#011627]/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">
-                    Agent-first setup
-                  </div>
-                  <div className="mt-1 text-sm font-medium text-[#011627]">
-                    Give any coding agent one prompt and let it install OpenWork.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={copyAgentPrompt}
-                  className="inline-flex items-center justify-center gap-2 rounded-full border border-[#011627]/10 bg-[#011627] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#102638]"
-                >
-                  {agentPromptCopied ? <Check size={16} /> : <Copy size={16} />}
-                  {agentPromptCopied ? "Copied" : "Copy Prompt"}
-                </button>
-              </div>
-              <div className="bg-[#011627] px-4 py-4 text-[13px] leading-6 text-white md:text-sm">
-                <code className="font-mono text-white/90">
-                  {AGENT_START_PROMPT}
-                </code>
-              </div>
+            <div className="group/copy relative mt-8 inline-flex flex-col items-start">
+              <button
+                type="button"
+                onClick={copyAgentPrompt}
+                aria-label="Copy the agent setup prompt"
+                className="inline-flex cursor-pointer items-center gap-2.5 rounded-xl border border-[#011627] bg-[#011627] px-5 py-3 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#102638]"
+              >
+                {agentPromptCopied ? <Check size={16} /> : <Copy size={16} />}
+                {agentPromptCopied ? "Copied" : "Copy Prompt"}
+              </button>
+              <span
+                aria-live="polite"
+                className="pointer-events-none mt-3 hidden max-w-xl whitespace-normal font-mono text-xs text-gray-500 opacity-0 transition-opacity duration-200 group-hover/copy:opacity-100 group-focus-within/copy:opacity-100 sm:block"
+                data-copied={agentPromptCopied ? "true" : "false"}
+              >
+                {agentPromptCopied ? (
+                  <span className="text-[#011627]">
+                    Copied — now paste this into your coding agent (opencode, Claude Code, Cursor…) and it installs OpenWork for you.
+                  </span>
+                ) : (
+                  <span>
+                    <span className="text-blue-400">&ldquo;</span>
+                    {AGENT_START_PROMPT}
+                    <span className="text-blue-400">&rdquo;</span>
+                  </span>
+                )}
+              </span>
             </div>
           </section>
 
