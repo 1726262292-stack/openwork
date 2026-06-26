@@ -384,6 +384,21 @@ hr {
   }
 }
 
+/*
+ * Squircle button shape, ported from Flue (https://github.com/withastro/flue,
+ * apps/www/src/styles/global.css), Apache License 2.0. Used by the Copy Prompt
+ * CTA glyph button.
+ */
+.squircle-button {
+  border-radius: 32px;
+}
+
+@supports (corner-shape: squircle) {
+  .squircle-button {
+    corner-shape: squircle;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .word-cycle span,
   .animate-fade-up,
