@@ -14,9 +14,9 @@ import {
   setDenBootstrapConfig,
   writeDenSettings,
 } from "../../../app/lib/den";
+import { exchangeHandoffAndSignIn } from "../../../app/lib/den-handoff";
 import {
   denSessionUpdatedEvent,
-  dispatchDenSessionUpdated,
   type DenSessionUpdatedDetail,
 } from "../../../app/lib/den-session-events";
 import { usePlatform } from "../../kernel/platform";
@@ -128,9 +128,15 @@ export function ForcedSigninPage({ developerMode }: ForcedSigninPageProps) {
       const client = createDenClient({
         baseUrl: nextBaseUrl,
       });
-      const result = await client.exchangeDesktopHandoff(parsed.grant);
-      if (!result.token) {
-        throw new Error(t("den.error_no_token"));
+      // The helper exchanges, persists (incl. the working apiBaseUrl, #1808), and
+      // dispatches the success/error session events.
+      const result = await exchangeHandoffAndSignIn(parsed.grant, {
+        baseUrl: nextBaseUrl,
+        client,
+        fallbackErrorMessage: t("den.error_no_token"),
+      });
+      if (!result.ok) {
+        return false;
       }
 
       if (developerMode) {
@@ -138,34 +144,9 @@ export function ForcedSigninPage({ developerMode }: ForcedSigninPageProps) {
         setBaseUrlDraft(nextBaseUrl);
       }
 
-      // Persist the API base URL the exchange actually succeeded against so
-      // relaunches reuse the same working endpoint (#1808).
-      writeDenSettings({
-        baseUrl: nextBaseUrl,
-        apiBaseUrl: client.baseUrls.apiBaseUrl,
-        authToken: result.token,
-        activeOrgId: null,
-        activeOrgSlug: null,
-        activeOrgName: null,
-      });
-
       setManualAuthInput("");
       setManualAuthOpen(false);
-      dispatchDenSessionUpdated({
-        status: "success",
-        baseUrl: nextBaseUrl,
-        token: result.token,
-        user: result.user,
-        email: result.user?.email ?? null,
-      });
-    } catch (error) {
-      dispatchDenSessionUpdated({
-        status: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : t("den.error_signin_failed"),
-      });
+      return true;
     } finally {
       setAuthBusy(false);
     }

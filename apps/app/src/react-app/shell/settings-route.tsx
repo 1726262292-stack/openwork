@@ -23,10 +23,8 @@ import {
 } from "@/app/theme";
 import type {
   Client,
-  DenOrgSkillCard,
   ProviderListItem,
   SettingsTab,
-  SkillCard,
   WorkspaceConnectionState,
   WorkspaceDisplay,
   WorkspacePreset,
@@ -107,7 +105,6 @@ import {
   workspaceForget,
   workspaceSetRuntimeActive,
   workspaceSetSelected,
-  getDesktopBootstrapConfig,
   desktopBridge,
   type WorkspaceInfo,
   type WorkspaceList,
@@ -223,150 +220,6 @@ const SETTINGS_HIDE_TITLEBAR_KEY = "openwork.react.settings.hide-titlebar";
 const SETTINGS_UPDATE_AUTO_CHECK_KEY = "openwork.react.settings.update-auto-check";
 const SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY = "openwork.react.settings.update-auto-download";
 
-function BootstrapDiagnosticsView({
-  baseUrl,
-  authToken,
-  userEmail,
-  org,
-  client,
-  localSkills,
-}: {
-  baseUrl: string;
-  authToken: string;
-  userEmail: string | null;
-  org: { id: string; name: string; slug: string } | null;
-  client: ReturnType<typeof useCloudSession>["client"];
-  localSkills: SkillCard[];
-}) {
-  const [cloudSkills, setCloudSkills] = useState<DenOrgSkillCard[]>([]);
-  const [cloudSkillStatus, setCloudSkillStatus] = useState<string | null>(null);
-  const [preparedSkill, setPreparedSkill] = useState<{
-    skillId: string;
-    skillTitle: string;
-    skillPath: string;
-  } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void getDesktopBootstrapConfig()
-      .then((config) => {
-        if (cancelled) return;
-        const prepared = config.prepared;
-        if (prepared?.skillId && prepared.skillTitle && prepared.skillPath) {
-          setPreparedSkill({
-            skillId: prepared.skillId,
-            skillTitle: prepared.skillTitle,
-            skillPath: prepared.skillPath,
-          });
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const orgId = org?.id.trim() ?? "";
-    // Clear stale skills from a previous org/session before any refetch so the
-    // diagnostics never transiently report another org's skills.
-    setCloudSkills([]);
-    if (!authToken.trim() || !orgId) {
-      setCloudSkillStatus(null);
-      return;
-    }
-
-    setCloudSkillStatus("Loading skills from OpenWork Cloud...");
-    void client
-      .listOrgSkills(orgId)
-      .then((skills) => {
-        if (cancelled) return;
-        setCloudSkills(skills);
-        setCloudSkillStatus(null);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setCloudSkills([]);
-        setCloudSkillStatus(error instanceof Error ? error.message : "Failed to load cloud skills.");
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authToken, client, org?.id]);
-
-  const accountReady = Boolean(userEmail);
-  const orgReady = Boolean(org?.id);
-  // Match the SPECIFIC skill the bootstrap CLI created, not any arbitrary skill,
-  // so readiness can't be falsely satisfied by unrelated org/local skills.
-  const cloudSkill = preparedSkill
-    ? cloudSkills.find((skill) => skill.id === preparedSkill.skillId) ?? null
-    : cloudSkills[0] ?? null;
-  const localSkill = preparedSkill
-    ? localSkills.find((skill) => skill.path === preparedSkill.skillPath) ?? null
-    : null;
-  const prepared =
-    accountReady &&
-    orgReady &&
-    Boolean(preparedSkill) &&
-    Boolean(cloudSkill) &&
-    Boolean(localSkill || preparedSkill);
-  const rowClass = "rounded-2xl border border-dls-border bg-dls-hover px-4 py-3";
-  const labelClass = "text-[11px] font-semibold uppercase tracking-[0.16em] text-dls-secondary";
-  const valueClass = "mt-1 break-words text-[14px] font-semibold text-dls-text";
-
-  return (
-    <SettingsStack>
-      <div className="rounded-[28px] border border-dls-border bg-dls-surface p-5 shadow-sm">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-dls-secondary">
-              Agent-first setup proof
-            </div>
-            <h3 className="mt-2 text-xl font-semibold tracking-[-0.3px] text-dls-text">
-              OpenWork is prepared by the CLI
-            </h3>
-            <p className="mt-2 max-w-2xl text-[13px] leading-6 text-dls-secondary">
-              This screen is designed for install verification: it reflects the account, organization, server, and skills configured by the bootstrap CLI.
-            </p>
-          </div>
-          <div className={`w-fit rounded-full border px-3 py-1 text-[12px] font-semibold ${prepared ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700" : "border-amber-500/40 bg-amber-500/10 text-amber-700"}`}>
-            {prepared ? "Prepared" : "Incomplete"}
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
-          <div className={rowClass}>
-            <div className={labelClass}>Signed-in account</div>
-            <div className={valueClass}>{userEmail ?? "Not signed in"}</div>
-          </div>
-          <div className={rowClass}>
-            <div className={labelClass}>Organization</div>
-            <div className={valueClass}>{org ? `${org.name} (${org.id})` : "No organization selected"}</div>
-          </div>
-          <div className={rowClass}>
-            <div className={labelClass}>Server URL</div>
-            <div className={valueClass}>{baseUrl}</div>
-          </div>
-          <div className={rowClass}>
-            <div className={labelClass}>Doctor status</div>
-            <div className={valueClass}>{prepared ? "ok: true" : "waiting for account, org, and skills"}</div>
-          </div>
-          <div className={rowClass}>
-            <div className={labelClass}>Cloud skill from CLI</div>
-            <div className={valueClass}>{cloudSkill ? `${cloudSkill.title} (${cloudSkill.id})` : cloudSkillStatus ?? "No cloud skill loaded"}</div>
-          </div>
-          <div className={rowClass}>
-            <div className={labelClass}>Local skill file</div>
-            <div className={valueClass}>{localSkill ? `${localSkill.name} — ${localSkill.path}` : preparedSkill ? `${preparedSkill.skillTitle} — ${preparedSkill.skillPath}` : "No local skill detected"}</div>
-          </div>
-        </div>
-      </div>
-    </SettingsStack>
-  );
-}
-
 function parseSettingsPath(pathname: string): {
   tab: SettingsTab;
   redirectPath: string | null;
@@ -395,7 +248,6 @@ function parseSettingsPath(pathname: string): {
     case "debug":
       return { tab: head, redirectPath: null };
     case "cloud-account":
-    case "bootstrap":
     case "cloud-marketplaces":
     case "cloud-workers":
     case "cloud-providers":
@@ -2270,17 +2122,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           <CloudAccountView
             developerMode={developerMode}
             session={denSession}
-          />
-        );
-      case "bootstrap":
-        return (
-          <BootstrapDiagnosticsView
-            baseUrl={cloudSession.baseUrl}
-            authToken={cloudSession.authToken}
-            userEmail={cloudSession.user?.email ?? null}
-            org={cloudSession.activeOrganization}
-            client={cloudSession.client}
-            localSkills={extensionsStore.skills()}
           />
         );
       case "cloud-marketplaces":

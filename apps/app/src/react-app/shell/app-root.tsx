@@ -8,13 +8,11 @@ import {
   createDenClient,
   readDenBootstrapConfig,
   readDenSettings,
-  writeDenSettings,
 } from "../../app/lib/den";
+import { exchangeHandoffAndSignIn } from "../../app/lib/den-handoff";
 import {
-  bootstrapPreparedReadyEvent,
   denSettingsChangedEvent,
   denSessionUpdatedEvent,
-  dispatchDenSessionUpdated,
 } from "../../app/lib/den-session-events";
 import { useDenAuth } from "../domains/cloud/den-auth-provider";
 import { ForcedSigninPage } from "../domains/cloud/forced-signin-page";
@@ -33,7 +31,6 @@ import {
 } from "./control/control-provider";
 import { SessionRoute } from "./session-route";
 import { SettingsRoute } from "./settings-route";
-import { ReadyRoute } from "./ready-route";
 import { ShellConfigProvider } from "./shell-config";
 import { WelcomeRoute } from "./welcome-route";
 
@@ -162,24 +159,13 @@ function DenAuthControlActions() {
       const settings = readDenSettings();
       const targetBaseUrl = argBaseUrl?.trim() || settings.baseUrl;
       const client = createDenClient({ baseUrl: targetBaseUrl, apiBaseUrl: settings.apiBaseUrl });
-      const result = await client.exchangeDesktopHandoff(grant.trim());
-      if (!result.token) return { ok: false, error: "No token returned" };
-      writeDenSettings({
+      const result = await exchangeHandoffAndSignIn(grant.trim(), {
         baseUrl: targetBaseUrl,
-        apiBaseUrl: client.baseUrls.apiBaseUrl,
-        authToken: result.token,
-        activeOrgId: null,
-        activeOrgSlug: null,
-        activeOrgName: null,
+        client,
+        fallbackErrorMessage: "No token returned",
       });
-      dispatchDenSessionUpdated({
-        status: "success",
-        baseUrl: targetBaseUrl,
-        token: result.token,
-        user: result.user,
-        email: result.user?.email ?? null,
-      });
-      return { email: result.user?.email };
+      if (!result.ok) return { ok: false, error: result.error };
+      return { email: result.exchange.user?.email };
     },
   }), []);
   useControlAction(exchangeGrantAction);
@@ -234,7 +220,6 @@ let appOpenedCaptured = false;
 
 export function AppRoot() {
   useDesktopFontZoomBehavior();
-  const navigate = useNavigate();
 
   // Module-level dedupe keeps StrictMode double-mounts from double-counting.
   useEffect(() => {
@@ -243,14 +228,6 @@ export function AppRoot() {
     initAnalytics();
     captureAnalyticsEvent("app_opened", {});
   }, []);
-
-  // When an agent-first install prepared this desktop and the bootstrap handoff
-  // is consumed at boot, land the human on the polished "You're ready" screen.
-  useEffect(() => {
-    const onReady = () => navigate("/ready");
-    window.addEventListener(bootstrapPreparedReadyEvent, onReady);
-    return () => window.removeEventListener(bootstrapPreparedReadyEvent, onReady);
-  }, [navigate]);
 
   return (
     <>
@@ -287,14 +264,7 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
-              <Route
-                path="/ready"
-                element={
-                  <DevProfiler id="ReadyRoute">
-                    <ReadyRoute />
-                  </DevProfiler>
-                }
-              />
+
               <Route
                 path="/session"
                 element={

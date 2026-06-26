@@ -69,8 +69,6 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return FolderLock;
     case "cloud-account":
       return UserCircle;
-    case "bootstrap":
-      return Info;
     case "cloud-marketplaces":
       return Store;
     case "cloud-workers":
@@ -110,8 +108,6 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return "Permissions";
     case "cloud-account":
       return t("settings.tab_cloud_account");
-    case "bootstrap":
-      return "Bootstrap";
     case "cloud-marketplaces":
       return t("settings.tab_cloud_marketplaces");
     case "cloud-workers":
@@ -153,8 +149,6 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return "Authorized folders and file access";
     case "cloud-account":
       return t("settings.tab_description_cloud_account");
-    case "bootstrap":
-      return "Agent-first install, account, org, and skill proof";
     case "cloud-marketplaces":
       return t("settings.tab_description_cloud_marketplaces");
     case "cloud-workers":
@@ -196,7 +190,6 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
 
 export const CLOUD_SETTINGS_TABS: SettingsTab[] = [
   "cloud-account",
-  "bootstrap",
   "cloud-workers",
 ];
 

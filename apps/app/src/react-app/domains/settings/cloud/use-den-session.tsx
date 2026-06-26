@@ -16,6 +16,7 @@ import {
   writeDenSettings,
   type DenOrgSummary,
 } from "@/app/lib/den";
+import { exchangeHandoffAndSignIn } from "@/app/lib/den-handoff";
 import {
   denSessionUpdatedEvent,
   dispatchDenSessionUpdated,
@@ -397,41 +398,22 @@ export function useDenSession({
           ? settings.apiBaseUrl ?? null
           : null;
       const exchangeClient = createDenClient({ baseUrl: nextBaseUrl, apiBaseUrl: configuredApiBaseUrl });
-      const result = await exchangeClient.exchangeDesktopHandoff(parsed.grant);
-      if (!result.token) {
-        throw new Error(t("den.error_no_token"));
+      // The helper exchanges, persists (incl. the working apiBaseUrl, #1808), and
+      // dispatches the success/error session events.
+      const result = await exchangeHandoffAndSignIn(parsed.grant, {
+        baseUrl: nextBaseUrl,
+        client: exchangeClient,
+        fallbackErrorMessage: t("den.error_no_token"),
+      });
+      if (!result.ok) {
+        return false;
       }
 
       if (developerMode) {
         setBaseUrl(nextBaseUrl);
         setBaseUrlDraft(nextBaseUrl);
       }
-
-      // Persist the API base URL the exchange actually succeeded against so
-      // relaunches reuse the same working endpoint (#1808).
-      writeDenSettings({
-        baseUrl: nextBaseUrl,
-        apiBaseUrl: exchangeClient.baseUrls.apiBaseUrl,
-        authToken: result.token,
-        activeOrgId: null,
-        activeOrgSlug: null,
-        activeOrgName: null,
-      });
-
-      dispatchDenSessionUpdated({
-        status: "success",
-        baseUrl: nextBaseUrl,
-        token: result.token,
-        user: result.user,
-        email: result.user?.email ?? null,
-      });
       return true;
-    } catch (error) {
-      dispatchDenSessionUpdated({
-        status: "error",
-        message: error instanceof Error ? error.message : t("den.error_signin_failed"),
-      });
-      return false;
     } finally {
       setAuthBusy(false);
     }

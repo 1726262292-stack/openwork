@@ -6,7 +6,9 @@ import {
   ArrowRight,
   ArrowUpRightIcon,
   Check,
+  CheckCircle2,
   CircleAlert,
+  Sparkles,
 } from "lucide-react";
 import {
   BuildingOffice2Icon,
@@ -25,6 +27,7 @@ import {
   type DenOrgSummary,
   type DenWorkerSummary,
 } from "@/app/lib/den";
+import { getDesktopBootstrapConfig } from "@/app/lib/desktop";
 import { usePlatform } from "../../kernel/platform";
 import { useBootState } from "../../shell/boot-state";
 import { resolveModelDisplayName, resolveProviderDisplayName } from "@/app/utils";
@@ -85,6 +88,30 @@ function useDenClient() {
     orgName: settings.activeOrgName ?? "",
     settings,
   };
+}
+
+/**
+ * When an agent-first install prepared this desktop, read the non-secret
+ * prepared summary (org + first skill) so the onboarding payoff can greet the
+ * user with "Setup complete" instead of a generic resource list.
+ */
+function usePreparedBootstrap() {
+  const [prepared, setPrepared] = useState<{ skillTitle: string } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void getDesktopBootstrapConfig()
+      .then((config) => {
+        if (cancelled) return;
+        if (config.prepared?.skillTitle) {
+          setPrepared({ skillTitle: config.prepared.skillTitle });
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return prepared;
 }
 
 function markProvidersSeen(providers: DenOrgLlmProvider[]) {
@@ -207,6 +234,8 @@ export function ResourceSelectionPage() {
   const { markRouteReady } = useBootState();
   const { authToken, denClient, orgId, orgName, settings } = useDenClient();
 
+  const prepared = usePreparedBootstrap();
+
   const [selectedDefault, setSelectedDefault] = useState<{
     providerId: string;
     modelId: string;
@@ -285,12 +314,31 @@ export function ResourceSelectionPage() {
       <PageContainer>
         {/* Header */}
         <PageHeader>
+          {prepared ? (
+            <div
+              data-openwork-prepared="true"
+              className="mx-auto flex w-fit items-center gap-2 rounded-full border border-green-6/30 bg-green-2/30 px-3 py-1 text-xs font-semibold text-green-11"
+            >
+              <CheckCircle2 className="size-3.5" />
+              Setup complete — OpenWork installed and signed you in
+            </div>
+          ) : null}
           <div className="mx-auto flex size-14 items-center justify-center rounded-2xl border border-dls-border bg-dls-hover">
             <BuildingOffice2Icon className="size-7 text-foreground" />
           </div>
           <PageTitle>
             {orgName || "Your organization"}
           </PageTitle>
+          {prepared ? (
+            <div
+              data-openwork-prepared-skill={prepared.skillTitle}
+              className="mx-auto flex w-fit items-center gap-2 rounded-xl border border-border bg-dls-hover px-3 py-2 text-sm text-foreground"
+            >
+              <Sparkles className="size-4 text-foreground/60" />
+              First skill ready:
+              <span className="font-semibold">{prepared.skillTitle}</span>
+            </div>
+          ) : null}
           {loading ? (
             null
           ) : error ? (

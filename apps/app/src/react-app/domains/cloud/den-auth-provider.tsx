@@ -16,19 +16,16 @@ import {
   DenApiError,
   ensureDenActiveOrganization,
   denOriginComparisonKey,
-  normalizeDenBaseUrl,
   readDenBootstrapConfig,
   readDenSettings,
   setDenBootstrapConfig,
-  writeDenSettings,
   type DenBootstrapConfig,
   type DenUser,
 } from "../../../app/lib/den";
+import { exchangeHandoffAndSignIn } from "../../../app/lib/den-handoff";
 import {
   denSessionUpdatedEvent,
   denSettingsChangedEvent,
-  dispatchBootstrapPreparedReady,
-  dispatchDenSessionUpdated,
 } from "../../../app/lib/den-session-events";
 import {
   deepLinkBridgeEvent,
@@ -166,44 +163,18 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
       apiBaseUrl: bootstrap.apiBaseUrl,
     });
 
-    void client
-      .exchangeDesktopHandoff(handoff.grant)
-      .then((result) => {
-        if (!result.token) {
-          throw new Error("Failed to sign in to OpenWork Cloud.");
-        }
-
-        writeDenSettings({
-          baseUrl: handoff.denBaseUrl,
-          apiBaseUrl: client.baseUrls.apiBaseUrl,
-          authToken: result.token,
-          activeOrgId: handoff.orgId,
-          activeOrgSlug: handoff.orgSlug || null,
-          activeOrgName: handoff.orgName || null,
-        });
-
-        dispatchDenSessionUpdated({
-          status: "success",
-          baseUrl: handoff.denBaseUrl,
-          token: result.token,
-          user: result.user,
-          email: result.user?.email ?? null,
-        });
-        dispatchBootstrapPreparedReady();
-
-        // Best-effort cleanup; not part of the auth success/failure path.
-        clearConsumedBootstrapHandoff(bootstrap, handoff.denBaseUrl, client.baseUrls.apiBaseUrl);
-      })
-      .catch((error) => {
+    void exchangeHandoffAndSignIn(handoff.grant, {
+      baseUrl: handoff.denBaseUrl,
+      client,
+      activeOrg: { id: handoff.orgId, slug: handoff.orgSlug || null, name: handoff.orgName || null },
+    }).then((result) => {
+      if (!result.ok) {
         handledGrantsRef.current.delete(handoff.grant);
-        dispatchDenSessionUpdated({
-          status: "error",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Failed to sign in to OpenWork Cloud.",
-        });
-      });
+        return;
+      }
+      // Best-effort cleanup; not part of the auth success/failure path.
+      clearConsumedBootstrapHandoff(bootstrap, handoff.denBaseUrl, result.apiBaseUrl);
+    });
   }, [clearConsumedBootstrapHandoff]);
 
   useEffect(() => {
@@ -239,43 +210,14 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
           baseUrl: parsed.denBaseUrl,
           apiBaseUrl: sameControlPlane ? settings.apiBaseUrl ?? null : null,
         });
-        void client
-          .exchangeDesktopHandoff(parsed.grant)
-          .then((result) => {
-            if (!result.token) {
-              throw new Error("Failed to sign in to OpenWork Cloud.");
-            }
-
-            // Persist the API base URL the exchange actually succeeded
-            // against; re-deriving it from the web URL on relaunch breaks
-            // deployments where den-web only proxies under /api/den (#1808).
-            writeDenSettings({
-              baseUrl: parsed.denBaseUrl,
-              apiBaseUrl: client.baseUrls.apiBaseUrl,
-              authToken: result.token,
-              activeOrgId: null,
-              activeOrgSlug: null,
-              activeOrgName: null,
-            });
-
-            dispatchDenSessionUpdated({
-              status: "success",
-              baseUrl: parsed.denBaseUrl,
-              token: result.token,
-              user: result.user,
-              email: result.user?.email ?? null,
-            });
-          })
-          .catch((error) => {
-            handledGrantsRef.current.delete(parsed.grant);
-            dispatchDenSessionUpdated({
-              status: "error",
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "Failed to sign in to OpenWork Cloud.",
-            });
-          });
+        // Persist the API base URL the exchange actually succeeds against; the
+        // helper reads it from the client (#1808).
+        void exchangeHandoffAndSignIn(parsed.grant, {
+          baseUrl: parsed.denBaseUrl,
+          client,
+        }).then((result) => {
+          if (!result.ok) handledGrantsRef.current.delete(parsed.grant);
+        });
       }
     };
 

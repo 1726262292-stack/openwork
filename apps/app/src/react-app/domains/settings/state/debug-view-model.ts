@@ -5,6 +5,7 @@ import {
   appBuildInfo as appBuildInfoCmd,
   engineInfo as engineInfoCmd,
   engineStart as engineStartCmd,
+  getDesktopBootstrapConfig,
   nukeOpenworkAndOpencodeConfigAndExit,
   openDesktopUrl,
   openworkServerInfo as openworkServerInfoCmd,
@@ -16,6 +17,7 @@ import {
   updaterEnvironment as updaterEnvironmentCmd,
   workspaceBootstrap as workspaceBootstrapCmd,
   type AppBuildInfo,
+  type DesktopBootstrapConfig,
   type EngineInfo,
   type OpenworkServerInfo,
   type SandboxDebugProbeResult,
@@ -263,6 +265,7 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
 
   const [engineInfoState, setEngineInfoState] = useState<EngineInfo | null>(null);
   const [appBuild, setAppBuild] = useState<AppBuildInfo | null>(null);
+  const [bootstrapPrepared, setBootstrapPrepared] = useState<DesktopBootstrapConfig["prepared"]>(null);
   const [runtimeDebugStatus, setRuntimeDebugStatus] = useState<string | null>(null);
   const [sandboxProbeBusy, setSandboxProbeBusy] = useState(false);
   const [sandboxProbeResult, setSandboxProbeResult] = useState<SandboxDebugProbeResult | null>(null);
@@ -331,6 +334,22 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     return () => window.clearInterval(interval);
   }, [developerMode, refreshEngineInfo]);
 
+  // Surface the agent-first install's non-secret prepared summary (org + first
+  // skill) in the runtime debug report so install verification has one place to
+  // read it without a dedicated diagnostics screen.
+  useEffect(() => {
+    if (!developerMode || !isDesktopRuntime()) return;
+    let cancelled = false;
+    void getDesktopBootstrapConfig()
+      .then((config) => {
+        if (!cancelled) setBootstrapPrepared(config.prepared ?? null);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [developerMode]);
+
   const pushDeveloperLog = useCallback((message: string) => {
     const timestamp = new Date().toISOString();
     setDeveloperLog((current) => {
@@ -369,9 +388,11 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       },
       runtimeWorkspaceId,
       selectedWorkspaceRoot,
+      bootstrap: bootstrapPrepared ? { prepared: bootstrapPrepared } : null,
     };
   }, [
     appBuild,
+    bootstrapPrepared,
     engineInfoState,
     openworkServerSnapshot.openworkServerCapabilities,
     openworkServerSnapshot.openworkServerDiagnostics,
