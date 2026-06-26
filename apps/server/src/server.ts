@@ -19,7 +19,7 @@ import { computeReloadFingerprint } from "./reload-fingerprint.js";
 import { startReloadWatchers } from "./reload-watcher.js";
 import { opencodeConfigPath, openworkConfigPath, projectCommandsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId } from "./utils.js";
-import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
+import { defaultWorkspaceOpenworkConfig, ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
 import { EnvService } from "./env-file.js";
@@ -2709,7 +2709,16 @@ async function readOpenworkConfigForWorkspace(
     return stored;
   }
   const legacy = await readOpenworkConfigForStatus(workspace.path);
-  if (Object.keys(legacy.data).length === 0) return {};
+  if (Object.keys(legacy.data).length === 0) {
+    if (workspace.workspaceType !== "remote" && workspace.path.trim()) {
+      return seedOpenworkWorkspaceConfigIfEmpty(
+        config,
+        workspace.id,
+        defaultWorkspaceOpenworkConfig(workspace.path, workspace.preset ?? "starter"),
+      );
+    }
+    return {};
+  }
   // Migrate-on-read: copy the legacy file contents into the DB once.
   await seedOpenworkWorkspaceConfigIfEmpty(config, workspace.id, legacy.data);
   return mergeOpenworkWorkspaceConfigs(legacy.data, await readOpenworkWorkspaceConfig(config, workspace.id));

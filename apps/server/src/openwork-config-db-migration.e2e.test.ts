@@ -158,4 +158,40 @@ describe("openwork config DB migration", () => {
       }
     });
   });
+
+  test("existing local workspace without legacy file gets default DB config on read", async () => {
+    await withSandbox(async ({ root, config }) => {
+      const workspacePath = join(root, "ws-existing-no-file");
+      const workspaceId = "ws_existing_no_file";
+      await mkdir(workspacePath, { recursive: true });
+
+      const existingConfig: ServerConfig = {
+        ...config,
+        workspaces: [
+          { id: workspaceId, name: "Existing", path: workspacePath, preset: "starter", workspaceType: "local" },
+        ],
+        authorizedRoots: [workspacePath],
+      };
+
+      const server = (await startServer(existingConfig)) as Served;
+      try {
+        expect(await fileExists(join(workspacePath, ".opencode", "openwork.json"))).toBe(false);
+        expect(Object.keys(await readOpenworkWorkspaceConfig(existingConfig, workspaceId)).length).toBe(0);
+
+        const configRes = await fetch(`http://127.0.0.1:${server.port}/workspace/${workspaceId}/config`, {
+          headers: { authorization: `Bearer ${existingConfig.token}` },
+        });
+        expect(configRes.status).toBe(200);
+        const body = (await configRes.json()) as { openwork: Record<string, unknown> };
+        expect(body.openwork.version).toBe(1);
+        expect(body.openwork.authorizedRoots).toEqual([workspacePath]);
+        expect((body.openwork.workspace as { preset?: string } | undefined)?.preset).toBe("starter");
+
+        const stored = await readOpenworkWorkspaceConfig(existingConfig, workspaceId);
+        expect(stored.authorizedRoots).toEqual([workspacePath]);
+      } finally {
+        await server.stop(true);
+      }
+    });
+  });
 });
