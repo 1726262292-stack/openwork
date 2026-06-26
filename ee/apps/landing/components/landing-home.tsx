@@ -1,7 +1,7 @@
 "use client";
 import { AnimatePresence, motion, useInView } from "framer-motion";
 import { ArrowRight, Check, Copy, Users } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { LandingAppDemoPanel } from "./landing-app-demo-panel";
 import { LandingBackground } from "./landing-background";
@@ -36,6 +36,7 @@ export function LandingHome(props: Props) {
   const [activeDemoId, setActiveDemoId] = useState(defaultLandingDemoFlowId);
   const [activeUseCase, setActiveUseCase] = useState(0);
   const [agentPromptCopied, setAgentPromptCopied] = useState(false);
+  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enterpriseShowcaseRef = useRef<HTMLElement>(null);
   const showEnterpriseShowcase = useInView(enterpriseShowcaseRef, {
     once: true,
@@ -52,6 +53,17 @@ export function LandingHome(props: Props) {
   const primaryCtaLabel = "Get Started for free";
   const primaryCtaLinkProps = externalLinkProps(primaryCtaHref);
 
+  const markCopied = () => {
+    setAgentPromptCopied(true);
+    // Single-flight: cancel any pending reset so rapid re-clicks don't clear
+    // the "Copied" state early.
+    if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+    copyResetTimer.current = setTimeout(() => {
+      setAgentPromptCopied(false);
+      copyResetTimer.current = null;
+    }, 5000);
+  };
+
   const copyAgentPrompt = async () => {
     try {
       if (navigator.clipboard) {
@@ -59,8 +71,7 @@ export function LandingHome(props: Props) {
       } else {
         throw new Error("clipboard_unavailable");
       }
-      setAgentPromptCopied(true);
-      window.setTimeout(() => setAgentPromptCopied(false), 5000);
+      markCopied();
     } catch {
       const textarea = document.createElement("textarea");
       textarea.value = AGENT_START_PROMPT;
@@ -71,12 +82,15 @@ export function LandingHome(props: Props) {
       textarea.select();
       const copied = document.execCommand("copy");
       document.body.removeChild(textarea);
-      setAgentPromptCopied(copied);
-      if (copied) {
-        window.setTimeout(() => setAgentPromptCopied(false), 5000);
-      }
+      if (copied) markCopied();
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+    };
+  }, []);
 
   return (
     <div className="relative min-h-screen overflow-hidden text-[#011627]">
@@ -156,7 +170,7 @@ export function LandingHome(props: Props) {
               </button>
               <span
                 aria-live="polite"
-                className="pointer-events-none mt-3 hidden max-w-xl whitespace-normal font-mono text-xs text-gray-500 opacity-0 transition-opacity duration-200 group-hover/copy:opacity-100 group-focus-within/copy:opacity-100 sm:block"
+                className="mt-3 block max-w-xl whitespace-normal font-mono text-xs text-gray-500"
                 data-copied={agentPromptCopied ? "true" : "false"}
               >
                 {agentPromptCopied ? (

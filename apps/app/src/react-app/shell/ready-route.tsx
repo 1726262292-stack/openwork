@@ -39,7 +39,7 @@ export function ReadyRoute() {
           orgName: config.prepared?.orgName || settings.activeOrgName || "",
           skillTitle: config.prepared?.skillTitle || "",
           serverUrl: config.baseUrl || settings.baseUrl || "",
-          account: user?.email || settings.authToken ? user?.email ?? "" : "",
+          account: user?.email ?? "",
         };
         setPrepared(summary);
       })

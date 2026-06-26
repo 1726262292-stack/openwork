@@ -107,3 +107,11 @@ You are done only when all are true:
 - Prefer user-local install paths.
 - Do not print passwords or tokens in final output.
 - Report exactly what was installed and where.
+
+## 7. Security note: desktop preparation
+
+`--prepare-desktop` writes a one-time, short-lived (~5 minute) desktop sign-in
+grant to a machine-local `desktop-bootstrap.json`. The grant is never printed.
+On first launch the desktop app exchanges it once and rewrites the file without
+the grant, so it cannot be reused. This file is local-only; do not copy it
+between machines or commit it.

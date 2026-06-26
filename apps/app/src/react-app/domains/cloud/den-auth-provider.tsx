@@ -21,10 +21,13 @@ import {
   readDenSettings,
   setDenBootstrapConfig,
   writeDenSettings,
+  type DenBootstrapConfig,
   type DenUser,
 } from "../../../app/lib/den";
 import {
   denSessionUpdatedEvent,
+  denSettingsChangedEvent,
+  dispatchBootstrapPreparedReady,
   dispatchDenSessionUpdated,
 } from "../../../app/lib/den-session-events";
 import {
@@ -129,21 +132,31 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
     };
   }, [refresh]);
 
-  useEffect(() => {
+  // Strip the consumed one-time grant from the persisted bootstrap so a
+  // relaunch never re-exchanges it. Persisting is best-effort: a failure here
+  // must NOT be reported as an auth failure, since the user is already signed
+  // in at this point.
+  const clearConsumedBootstrapHandoff = useCallback((bootstrap: DenBootstrapConfig, denBaseUrl: string, apiBaseUrl: string) => {
+    void setDenBootstrapConfig({
+      baseUrl: denBaseUrl,
+      apiBaseUrl,
+      requireSignin: bootstrap.requireSignin,
+      handoff: null,
+      ...(bootstrap.prepared ? { prepared: bootstrap.prepared } : {}),
+    }).catch(() => undefined);
+  }, []);
+
+  const consumeBootstrapHandoff = useCallback(() => {
     if (typeof window === "undefined") return;
 
     const bootstrap = readDenBootstrapConfig();
     const handoff = bootstrap.handoff;
     if (!handoff?.grant || handledGrantsRef.current.has(handoff.grant)) return;
 
-    const existing = readDenSettings();
-    if (existing.authToken?.trim()) {
-      void setDenBootstrapConfig({
-        baseUrl: bootstrap.baseUrl,
-        apiBaseUrl: bootstrap.apiBaseUrl,
-        requireSignin: bootstrap.requireSignin,
-        ...(bootstrap.prepared ? { prepared: bootstrap.prepared } : {}),
-      }).catch(() => undefined);
+    // Already signed in: just drop the now-unused grant from disk.
+    if (readDenSettings().authToken?.trim()) {
+      handledGrantsRef.current.add(handoff.grant);
+      clearConsumedBootstrapHandoff(bootstrap, bootstrap.baseUrl, bootstrap.apiBaseUrl);
       return;
     }
 
@@ -176,19 +189,10 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
           user: result.user,
           email: result.user?.email ?? null,
         });
+        dispatchBootstrapPreparedReady();
 
-        try {
-          window.dispatchEvent(new Event("openwork:bootstrap-prepared-ready"));
-        } catch {
-          // best-effort UI hint
-        }
-
-        return setDenBootstrapConfig({
-          baseUrl: handoff.denBaseUrl,
-          apiBaseUrl: client.baseUrls.apiBaseUrl,
-          requireSignin: bootstrap.requireSignin,
-          ...(bootstrap.prepared ? { prepared: bootstrap.prepared } : {}),
-        });
+        // Best-effort cleanup; not part of the auth success/failure path.
+        clearConsumedBootstrapHandoff(bootstrap, handoff.denBaseUrl, client.baseUrls.apiBaseUrl);
       })
       .catch((error) => {
         handledGrantsRef.current.delete(handoff.grant);
@@ -200,7 +204,18 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
               : "Failed to sign in to OpenWork Cloud.",
         });
       });
-  }, []);
+  }, [clearConsumedBootstrapHandoff]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // Run now, and again whenever the bootstrap config heals in later (the
+    // shell IPC bridge can deliver the prepared bootstrap after first render).
+    consumeBootstrapHandoff();
+    const handleSettingsChanged = () => consumeBootstrapHandoff();
+    window.addEventListener(denSettingsChangedEvent, handleSettingsChanged);
+    return () => window.removeEventListener(denSettingsChangedEvent, handleSettingsChanged);
+  }, [consumeBootstrapHandoff]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

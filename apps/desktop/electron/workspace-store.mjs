@@ -172,6 +172,12 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       typeof input?.apiBaseUrl === "string" && input.apiBaseUrl.trim().length > 0
         ? input.apiBaseUrl.trim()
         : null;
+    // The handoff grant is a one-time, short-lived (~5 min) desktop sign-in
+    // token written to this machine-local config by the bootstrap CLI. The app
+    // exchanges it once on boot and then rewrites this file with `handoff: null`
+    // (see den-auth-provider) so it is never reusable. It is intentionally kept
+    // in plaintext here because it is single-use and local-only; do not persist
+    // long-lived secrets in this file.
     const handoffInput = input?.handoff;
     const handoff = handoffInput && typeof handoffInput === "object"
       ? {

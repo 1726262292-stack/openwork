@@ -241,6 +241,7 @@ function BootstrapDiagnosticsView({
   const [cloudSkills, setCloudSkills] = useState<DenOrgSkillCard[]>([]);
   const [cloudSkillStatus, setCloudSkillStatus] = useState<string | null>(null);
   const [preparedSkill, setPreparedSkill] = useState<{
+    skillId: string;
     skillTitle: string;
     skillPath: string;
   } | null>(null);
@@ -251,8 +252,12 @@ function BootstrapDiagnosticsView({
       .then((config) => {
         if (cancelled) return;
         const prepared = config.prepared;
-        if (prepared?.skillTitle && prepared.skillPath) {
-          setPreparedSkill({ skillTitle: prepared.skillTitle, skillPath: prepared.skillPath });
+        if (prepared?.skillId && prepared.skillTitle && prepared.skillPath) {
+          setPreparedSkill({
+            skillId: prepared.skillId,
+            skillTitle: prepared.skillTitle,
+            skillPath: prepared.skillPath,
+          });
         }
       })
       .catch(() => undefined);
@@ -264,8 +269,10 @@ function BootstrapDiagnosticsView({
   useEffect(() => {
     let cancelled = false;
     const orgId = org?.id.trim() ?? "";
+    // Clear stale skills from a previous org/session before any refetch so the
+    // diagnostics never transiently report another org's skills.
+    setCloudSkills([]);
     if (!authToken.trim() || !orgId) {
-      setCloudSkills([]);
       setCloudSkillStatus(null);
       return;
     }
@@ -291,9 +298,20 @@ function BootstrapDiagnosticsView({
 
   const accountReady = Boolean(userEmail);
   const orgReady = Boolean(org?.id);
-  const cloudSkill = cloudSkills[0] ?? null;
-  const localSkill = localSkills.find((skill) => skill.name.includes("openwork") || skill.name.includes("skill")) ?? localSkills[0] ?? null;
-  const prepared = accountReady && orgReady && Boolean(cloudSkill) && Boolean(localSkill || preparedSkill);
+  // Match the SPECIFIC skill the bootstrap CLI created, not any arbitrary skill,
+  // so readiness can't be falsely satisfied by unrelated org/local skills.
+  const cloudSkill = preparedSkill
+    ? cloudSkills.find((skill) => skill.id === preparedSkill.skillId) ?? null
+    : cloudSkills[0] ?? null;
+  const localSkill = preparedSkill
+    ? localSkills.find((skill) => skill.path === preparedSkill.skillPath) ?? null
+    : null;
+  const prepared =
+    accountReady &&
+    orgReady &&
+    Boolean(preparedSkill) &&
+    Boolean(cloudSkill) &&
+    Boolean(localSkill || preparedSkill);
   const rowClass = "rounded-2xl border border-dls-border bg-dls-hover px-4 py-3";
   const labelClass = "text-[11px] font-semibold uppercase tracking-[0.16em] text-dls-secondary";
   const valueClass = "mt-1 break-words text-[14px] font-semibold text-dls-text";

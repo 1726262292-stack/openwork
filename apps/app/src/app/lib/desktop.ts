@@ -231,21 +231,25 @@ export const desktopBridge = new Proxy(electronBridge, {
 }) as unknown as DesktopBridge;
 
 // ---------------------------------------------------------------------------
-// desktopFetch — proxies non-loopback requests through Electron main process
+// desktopFetch — proxies non-loopback requests through the Electron main
+// process. Loopback hosts (the local opencode/openwork server) use the
+// renderer's own fetch, which works against same-machine services. Cross-origin
+// requests that need CORS headers the target does not send (e.g. the Den API on
+// a different control plane) should instead use `desktopFetchViaMain` directly.
 // ---------------------------------------------------------------------------
 
-function isSameOriginUrl(input: RequestInfo | URL): boolean {
+function isLoopbackUrl(input: RequestInfo | URL): boolean {
   const raw = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
   try {
     const url = new URL(raw);
-    return typeof window !== "undefined" && url.origin === window.location.origin;
+    return url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
   } catch {
     return false;
   }
 }
 
 export const desktopFetch: typeof globalThis.fetch = async (input, init) => {
-  if (isSameOriginUrl(input)) {
+  if (isLoopbackUrl(input)) {
     return globalThis.fetch(input, init);
   }
 

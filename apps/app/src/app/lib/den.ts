@@ -16,6 +16,7 @@ import {
 } from "./den-session-events";
 import {
   desktopFetch,
+  desktopFetchViaMain,
   getDesktopBootstrapConfig as getDesktopBootstrapConfigFromShell,
   setDesktopBootstrapConfig as setDesktopBootstrapConfigInShell,
   type DesktopBootstrapConfig as ShellDesktopBootstrapConfig,
@@ -85,23 +86,22 @@ type DenBaseUrls = {
   apiBaseUrl: string;
 };
 
-export type DenBootstrapHandoff = {
-  grant: string;
-  denBaseUrl: string;
+/** Org + first-skill identity shared by the handoff and prepared records. */
+export type DenBootstrapOrgSkill = {
   orgId: string;
   orgName: string;
   orgSlug: string;
   skillId: string;
   skillTitle: string;
+};
+
+export type DenBootstrapHandoff = DenBootstrapOrgSkill & {
+  grant: string;
+  denBaseUrl: string;
   createdAt: string;
 };
 
-export type DenBootstrapPrepared = {
-  orgId: string;
-  orgName: string;
-  orgSlug: string;
-  skillId: string;
-  skillTitle: string;
+export type DenBootstrapPrepared = DenBootstrapOrgSkill & {
   skillsDir: string;
   skillPath: string;
   preparedAt: string;
@@ -1626,7 +1626,22 @@ function getBillingSummary(payload: unknown): DenBillingSummary | null {
   };
 }
 
-const resolveFetch = () => (isDesktopRuntime() ? desktopFetch : globalThis.fetch);
+// Den requests target a control plane that does not answer CORS preflights.
+// On desktop, route cross-origin Den calls (including a Den API on a different
+// loopback port than the renderer) through the Electron main process so the
+// renderer never issues a blocked preflight. Same-origin requests can use the
+// renderer's own fetch.
+const resolveFetch = (url: string): FetchLike => {
+  if (!isDesktopRuntime()) return globalThis.fetch;
+  try {
+    if (typeof window !== "undefined" && new URL(url).origin === window.location.origin) {
+      return desktopFetch;
+    }
+  } catch {
+    // fall through to the main-process proxy on unparseable URLs
+  }
+  return (input, init) => desktopFetchViaMain(input, init);
+};
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -1687,7 +1702,7 @@ async function requestJsonRaw<T>(
   }
 
   const response = await fetchWithTimeout(
-    resolveFetch(),
+    resolveFetch(url),
     url,
     {
       method: options.method ?? "GET",

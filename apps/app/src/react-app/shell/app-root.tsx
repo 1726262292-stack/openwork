@@ -11,6 +11,7 @@ import {
   writeDenSettings,
 } from "../../app/lib/den";
 import {
+  bootstrapPreparedReadyEvent,
   denSettingsChangedEvent,
   denSessionUpdatedEvent,
   dispatchDenSessionUpdated,
@@ -247,8 +248,8 @@ export function AppRoot() {
   // is consumed at boot, land the human on the polished "You're ready" screen.
   useEffect(() => {
     const onReady = () => navigate("/ready");
-    window.addEventListener("openwork:bootstrap-prepared-ready", onReady);
-    return () => window.removeEventListener("openwork:bootstrap-prepared-ready", onReady);
+    window.addEventListener(bootstrapPreparedReadyEvent, onReady);
+    return () => window.removeEventListener(bootstrapPreparedReadyEvent, onReady);
   }, [navigate]);
 
   return (

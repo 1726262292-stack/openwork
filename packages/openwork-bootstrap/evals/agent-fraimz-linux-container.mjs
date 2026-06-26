@@ -68,8 +68,9 @@ function redactSecrets(value) {
 }
 
 function prove(claim, { action, assert, evidence }, ok) {
-  frames.push({ claim, action, assert, evidence, ok })
-  if (!ok) throw new Error(`Frame failed: ${claim}`)
+  // Record the frame regardless of outcome so the fraimz/report still render
+  // when a frame fails. The process exit code below reflects pass/fail.
+  frames.push({ claim, action, assert, evidence, ok: Boolean(ok) })
 }
 
 function sha256(path) {
@@ -80,6 +81,9 @@ function dockerRun(script, options = {}) {
   return run("docker", [
     "run",
     "--rm",
+    // Linux Docker Engine does not auto-map host.docker.internal; map it to the
+    // host gateway so the Den API is reachable from inside the container.
+    "--add-host=host.docker.internal:host-gateway",
     "-v",
     `${packageRoot}:/package:ro`,
     "-v",
