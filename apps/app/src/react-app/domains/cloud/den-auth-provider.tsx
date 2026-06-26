@@ -17,7 +17,9 @@ import {
   ensureDenActiveOrganization,
   denOriginComparisonKey,
   normalizeDenBaseUrl,
+  readDenBootstrapConfig,
   readDenSettings,
+  setDenBootstrapConfig,
   writeDenSettings,
   type DenUser,
 } from "../../../app/lib/den";
@@ -126,6 +128,79 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
       window.removeEventListener(denSessionUpdatedEvent, handleSessionUpdated);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const bootstrap = readDenBootstrapConfig();
+    const handoff = bootstrap.handoff;
+    if (!handoff?.grant || handledGrantsRef.current.has(handoff.grant)) return;
+
+    const existing = readDenSettings();
+    if (existing.authToken?.trim()) {
+      void setDenBootstrapConfig({
+        baseUrl: bootstrap.baseUrl,
+        apiBaseUrl: bootstrap.apiBaseUrl,
+        requireSignin: bootstrap.requireSignin,
+        ...(bootstrap.prepared ? { prepared: bootstrap.prepared } : {}),
+      }).catch(() => undefined);
+      return;
+    }
+
+    handledGrantsRef.current.add(handoff.grant);
+    const client = createDenClient({
+      baseUrl: handoff.denBaseUrl,
+      apiBaseUrl: bootstrap.apiBaseUrl,
+    });
+
+    void client
+      .exchangeDesktopHandoff(handoff.grant)
+      .then((result) => {
+        if (!result.token) {
+          throw new Error("Failed to sign in to OpenWork Cloud.");
+        }
+
+        writeDenSettings({
+          baseUrl: handoff.denBaseUrl,
+          apiBaseUrl: client.baseUrls.apiBaseUrl,
+          authToken: result.token,
+          activeOrgId: handoff.orgId,
+          activeOrgSlug: handoff.orgSlug || null,
+          activeOrgName: handoff.orgName || null,
+        });
+
+        dispatchDenSessionUpdated({
+          status: "success",
+          baseUrl: handoff.denBaseUrl,
+          token: result.token,
+          user: result.user,
+          email: result.user?.email ?? null,
+        });
+
+        try {
+          window.dispatchEvent(new Event("openwork:bootstrap-prepared-ready"));
+        } catch {
+          // best-effort UI hint
+        }
+
+        return setDenBootstrapConfig({
+          baseUrl: handoff.denBaseUrl,
+          apiBaseUrl: client.baseUrls.apiBaseUrl,
+          requireSignin: bootstrap.requireSignin,
+          ...(bootstrap.prepared ? { prepared: bootstrap.prepared } : {}),
+        });
+      })
+      .catch((error) => {
+        handledGrantsRef.current.delete(handoff.grant);
+        dispatchDenSessionUpdated({
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Failed to sign in to OpenWork Cloud.",
+        });
+      });
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

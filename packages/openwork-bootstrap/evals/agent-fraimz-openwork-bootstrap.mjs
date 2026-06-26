@@ -116,7 +116,7 @@ try {
     action: "openwork cloud onboard --base-url <live-den-api> --owner-email ... --org-name ... --invite-email ... --skill-name ... --json",
     assert: "exit 0 with user, organization, invitation, and skill ids from live API responses",
     evidence: { status: onboard.status, body: onboard.json, stderr: onboard.stderr },
-  }, onboard.status === 0 && onboard.json?.ok === true && onboard.json?.organization?.id && onboard.json?.invitation?.invitationId && onboard.json?.skill?.id && onboard.json?.skill?.title === skillName)
+  }, onboard.status === 0 && onboard.json?.ok === true && onboard.json?.organization?.id && onboard.json?.invitation?.invitationId && onboard.json?.skill?.id && onboard.json?.skill?.title === skillName && onboard.json?.skillRun?.triggered === true && onboard.json?.skillRun?.output === "OPENWORK_BOOTSTRAP_SKILL_TRIGGERED")
 } finally {
   rmSync(temp, { recursive: true, force: true })
 }

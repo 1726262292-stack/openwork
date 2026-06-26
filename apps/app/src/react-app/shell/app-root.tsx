@@ -32,6 +32,7 @@ import {
 } from "./control/control-provider";
 import { SessionRoute } from "./session-route";
 import { SettingsRoute } from "./settings-route";
+import { ReadyRoute } from "./ready-route";
 import { ShellConfigProvider } from "./shell-config";
 import { WelcomeRoute } from "./welcome-route";
 
@@ -232,6 +233,7 @@ let appOpenedCaptured = false;
 
 export function AppRoot() {
   useDesktopFontZoomBehavior();
+  const navigate = useNavigate();
 
   // Module-level dedupe keeps StrictMode double-mounts from double-counting.
   useEffect(() => {
@@ -240,6 +242,14 @@ export function AppRoot() {
     initAnalytics();
     captureAnalyticsEvent("app_opened", {});
   }, []);
+
+  // When an agent-first install prepared this desktop and the bootstrap handoff
+  // is consumed at boot, land the human on the polished "You're ready" screen.
+  useEffect(() => {
+    const onReady = () => navigate("/ready");
+    window.addEventListener("openwork:bootstrap-prepared-ready", onReady);
+    return () => window.removeEventListener("openwork:bootstrap-prepared-ready", onReady);
+  }, [navigate]);
 
   return (
     <>
@@ -273,6 +283,14 @@ export function AppRoot() {
                 element={
                   <DevProfiler id="WelcomeRoute">
                     <WelcomeRoute />
+                  </DevProfiler>
+                }
+              />
+              <Route
+                path="/ready"
+                element={
+                  <DevProfiler id="ReadyRoute">
+                    <ReadyRoute />
                   </DevProfiler>
                 }
               />

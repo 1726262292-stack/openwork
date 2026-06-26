@@ -131,6 +131,26 @@ export type DesktopBootstrapConfig = {
   baseUrl: string;
   apiBaseUrl?: string | null;
   requireSignin: boolean;
+  handoff?: {
+    grant: string;
+    denBaseUrl: string;
+    orgId: string;
+    orgName: string;
+    orgSlug: string;
+    skillId: string;
+    skillTitle: string;
+    createdAt: string;
+  } | null;
+  prepared?: {
+    orgId: string;
+    orgName: string;
+    orgSlug: string;
+    skillId: string;
+    skillTitle: string;
+    skillsDir: string;
+    skillPath: string;
+    preparedAt: string;
+  } | null;
 };
 
 export type OrchestratorDetachedHost = {

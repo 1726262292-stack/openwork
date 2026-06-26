@@ -234,18 +234,18 @@ export const desktopBridge = new Proxy(electronBridge, {
 // desktopFetch — proxies non-loopback requests through Electron main process
 // ---------------------------------------------------------------------------
 
-function isLoopbackUrl(input: RequestInfo | URL): boolean {
+function isSameOriginUrl(input: RequestInfo | URL): boolean {
   const raw = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
   try {
     const url = new URL(raw);
-    return url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+    return typeof window !== "undefined" && url.origin === window.location.origin;
   } catch {
     return false;
   }
 }
 
 export const desktopFetch: typeof globalThis.fetch = async (input, init) => {
-  if (isLoopbackUrl(input)) {
+  if (isSameOriginUrl(input)) {
     return globalThis.fetch(input, init);
   }
 

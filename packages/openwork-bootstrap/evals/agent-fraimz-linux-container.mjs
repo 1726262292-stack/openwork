@@ -144,16 +144,18 @@ try {
   const onboard = dockerRun([
     "set -euo pipefail",
     "node /package/bin/openwork.mjs install --install-dir /tmp/openwork/install --bin-dir /tmp/openwork/bin --json >/tmp/install.json",
-    `/tmp/openwork/bin/openwork cloud onboard --base-url "$DEN_API_E2E_BASE_URL" --owner-email ${JSON.stringify(ownerEmail)} --org-name ${JSON.stringify(`Linux CLI Org ${runId}`)} --invite-email ${JSON.stringify(inviteEmail)} --skill-name ${JSON.stringify(skillName)} --json`,
+    `/tmp/openwork/bin/openwork cloud onboard --base-url "$DEN_API_E2E_BASE_URL" --owner-email ${JSON.stringify(ownerEmail)} --org-name ${JSON.stringify(`Linux CLI Org ${runId}`)} --invite-email ${JSON.stringify(inviteEmail)} --skill-name ${JSON.stringify(skillName)} --prepare-desktop --desktop-bootstrap-path /tmp/openwork/desktop-bootstrap.json --skills-dir /tmp/openwork/skills --json >/tmp/onboard.json`,
+    "/tmp/openwork/bin/openwork doctor --install-dir /tmp/openwork/install --bin-dir /tmp/openwork/bin --desktop-bootstrap --desktop-bootstrap-path /tmp/openwork/desktop-bootstrap.json --json >/tmp/doctor.json",
+    "node -e \"const fs=require('fs'); console.log(JSON.stringify({onboard:JSON.parse(fs.readFileSync('/tmp/onboard.json','utf8')),doctor:JSON.parse(fs.readFileSync('/tmp/doctor.json','utf8'))}, null, 2))\"",
   ].join(" && "), {
     env: ["-e", `OPENWORK_OWNER_PASSWORD=${randomPassword()}`],
     timeout: 90_000,
   })
   prove("Linux installed CLI can complete live cloud onboarding", {
     action: "Run openwork cloud onboard from inside Linux against live Den API",
-    assert: "exit 0 and returns user, organization, invitation, and skill from live API",
+    assert: "exit 0 and returns prepared desktop bootstrap with user, organization, invitation, skill, and triggered skill output from live API",
     evidence: onboard,
-  }, onboard.status === 0 && onboard.json?.ok === true && onboard.json?.organization?.id && onboard.json?.invitation?.invitationId && onboard.json?.skill?.id && onboard.json?.skill?.title === skillName)
+  }, onboard.status === 0 && onboard.json?.onboard?.ok === true && onboard.json?.onboard?.organization?.id && onboard.json?.onboard?.invitation?.invitationId && onboard.json?.onboard?.skill?.id && onboard.json?.onboard?.skill?.title === skillName && onboard.json?.onboard?.skillRun?.triggered === true && onboard.json?.onboard?.skillRun?.output === "OPENWORK_BOOTSTRAP_SKILL_TRIGGERED" && onboard.json?.onboard?.desktop?.prepared === true && onboard.json?.onboard?.desktop?.bootstrapPath && onboard.json?.onboard?.desktop?.skillPath && onboard.json?.doctor?.ok === true && onboard.json?.doctor?.checks?.some((check) => check.name === "desktopBootstrap" && check.ok === true) && onboard.json?.doctor?.checks?.some((check) => check.name === "desktopBootstrapHandoff" && check.ok === true))
 } finally {
   rmSync(temp, { recursive: true, force: true })
 }

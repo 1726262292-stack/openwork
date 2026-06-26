@@ -30,7 +30,7 @@ const externalLinkProps = (href: string) =>
     : {};
 
 const CLOUD_SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
-const AGENT_START_PROMPT = "Read https://openworklabs.com/start.md then install OpenWork and set up my first workspace.";
+const AGENT_START_PROMPT = "Read https://openworklabs.com/start.md then install OpenWork, sign me up, prepare the desktop app, and prove it is ready.";
 
 export function LandingHome(props: Props) {
   const [activeDemoId, setActiveDemoId] = useState(defaultLandingDemoFlowId);

@@ -85,8 +85,32 @@ type DenBaseUrls = {
   apiBaseUrl: string;
 };
 
+export type DenBootstrapHandoff = {
+  grant: string;
+  denBaseUrl: string;
+  orgId: string;
+  orgName: string;
+  orgSlug: string;
+  skillId: string;
+  skillTitle: string;
+  createdAt: string;
+};
+
+export type DenBootstrapPrepared = {
+  orgId: string;
+  orgName: string;
+  orgSlug: string;
+  skillId: string;
+  skillTitle: string;
+  skillsDir: string;
+  skillPath: string;
+  preparedAt: string;
+};
+
 export type DenBootstrapConfig = DenBaseUrls & {
   requireSignin: boolean;
+  handoff?: DenBootstrapHandoff | null;
+  prepared?: DenBootstrapPrepared | null;
 };
 
 export type DenDesktopConfig = SharedDesktopConfig;
@@ -575,11 +599,19 @@ export function resolveCloudMcpResourceUrl(resource: string | null | undefined):
 }
 
 function resolveDenBootstrapConfig(
-  input: { baseUrl: string; apiBaseUrl?: string | null; requireSignin?: boolean | null },
+  input: {
+    baseUrl: string;
+    apiBaseUrl?: string | null;
+    requireSignin?: boolean | null;
+    handoff?: DenBootstrapHandoff | null;
+    prepared?: DenBootstrapPrepared | null;
+  },
 ): DenBootstrapConfig {
   return {
     ...resolveDenBaseUrls(input),
     requireSignin: input.requireSignin === true,
+    ...(input.handoff ? { handoff: input.handoff } : {}),
+    ...(input.prepared ? { prepared: input.prepared } : {}),
   };
 }
 
@@ -682,6 +714,8 @@ export async function setDenBootstrapConfig(
       baseUrl: normalized.baseUrl,
       apiBaseUrl: normalized.apiBaseUrl,
       requireSignin: normalized.requireSignin,
+      ...(normalized.handoff ? { handoff: normalized.handoff } : {}),
+      ...(normalized.prepared ? { prepared: normalized.prepared } : {}),
     }) as ShellDesktopBootstrapConfig;
     
     applyDesktopBootstrapConfig(resolveDenBootstrapConfig(persisted));

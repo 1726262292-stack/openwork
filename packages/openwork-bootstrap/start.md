@@ -3,8 +3,9 @@
 You are an agent helping a user install and set up OpenWork.
 
 Goal: install OpenWork, create or sign in to an OpenWork Cloud account, create a
-workspace organization, invite a teammate, create a first skill, and verify the
-setup works.
+workspace organization, invite a teammate, create a first skill, prepare the
+desktop app with that account/org/skill, and verify the running app shows the
+prepared state.
 
 ## 1. Install CLI
 
@@ -70,6 +71,7 @@ openwork cloud onboard \
   --org-name "<workspace-name>" \
   --invite-email "<teammate-email>" \
   --skill-name "First OpenWork Skill" \
+  --prepare-desktop \
   --json
 ```
 
@@ -84,6 +86,13 @@ You are done only when all are true:
   - `organization.id` is present
   - `invitation.invitationId` is present
   - `skill.id` is present
+  - `skillRun.triggered` is `true`
+  - `skillRun.output` is `OPENWORK_BOOTSTRAP_SKILL_TRIGGERED`
+- `desktop.prepared` is `true`
+- `desktop.bootstrapPath` is present
+- `desktop.skillPath` is present
+- `openwork doctor --desktop-bootstrap --json` returns `ok: true`
+- The desktop app opens to Settings -> Bootstrap and visibly shows signed-in account, organization, server URL, cloud skill from CLI, and local skill file.
 
 ## 5. If Something Fails
 

@@ -64,8 +64,8 @@ function printHelp() {
     "Usage:",
     "  openwork install [--bin-dir <path>] [--install-dir <path>] [--source <path>] [--json]",
     "  openwork install app --manifest <url-or-file> [--app-dir <path>] [--json]",
-    "  openwork doctor [--bin-dir <path>] [--install-dir <path>] [--base-url <url>] [--json]",
-    "  OPENWORK_OWNER_PASSWORD=<password> openwork cloud onboard --base-url <url> --owner-email <email> --org-name <name> --invite-email <email> [--skill-name <name>] [--json]",
+    "  openwork doctor [--bin-dir <path>] [--install-dir <path>] [--base-url <url>] [--desktop-bootstrap] [--json]",
+    "  OPENWORK_OWNER_PASSWORD=<password> openwork cloud onboard --base-url <url> --owner-email <email> --org-name <name> --invite-email <email> [--skill-name <name>] [--prepare-desktop] [--json]",
     "",
     "Commands:",
     "  install          Install the lightweight openwork CLI into a user bin dir",
@@ -102,6 +102,24 @@ function defaultAppDir() {
     : process.platform === "win32"
       ? join(process.env.LOCALAPPDATA || join(process.env.HOME || process.cwd(), "AppData", "Local"), "OpenWork")
       : join(process.env.HOME || process.cwd(), ".local", "share", "openwork"))
+}
+
+function configHomeDir() {
+  if (process.env.XDG_CONFIG_HOME) return process.env.XDG_CONFIG_HOME
+  if (process.platform === "win32" && process.env.APPDATA) return process.env.APPDATA
+  return join(process.env.HOME || process.cwd(), ".config")
+}
+
+function defaultDesktopBootstrapPath() {
+  return process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH || join(configHomeDir(), "openwork", "desktop-bootstrap.json")
+}
+
+function defaultSkillsDir() {
+  return process.env.OPENWORK_SKILLS_DIR || join(configHomeDir(), "opencode", "skills")
+}
+
+function slugifySkillName(value) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80) || "openwork-bootstrap-skill"
 }
 
 function runInstall(args) {
@@ -365,6 +383,7 @@ async function runDoctor(args) {
   const binDir = resolve(getFlag(args.flags, "bin-dir", defaultBinDir()))
   const baseUrl = getFlag(args.flags, "base-url")
   const appDir = resolve(getFlag(args.flags, "app-dir", defaultAppDir()))
+  const desktopBootstrapPath = resolve(getFlag(args.flags, "desktop-bootstrap-path", defaultDesktopBootstrapPath()))
   const json = hasFlag(args.flags, "json")
   const checks = []
 
@@ -414,6 +433,20 @@ async function runDoctor(args) {
     checks.push({ name: "appInstallManifest", ok: existsSync(appManifest), value: appManifest })
   }
 
+  if (hasFlag(args.flags, "desktop-bootstrap") || args.flags.has("desktop-bootstrap-path")) {
+    let bootstrap = null
+    try {
+      bootstrap = JSON.parse(readFileSync(desktopBootstrapPath, "utf8"))
+    } catch {
+      bootstrap = null
+    }
+    const handoff = bootstrap?.handoff
+    const prepared = bootstrap?.prepared
+    checks.push({ name: "desktopBootstrap", ok: Boolean(bootstrap?.baseUrl), value: desktopBootstrapPath })
+    checks.push({ name: "desktopBootstrapPrepared", ok: Boolean(prepared?.orgId && prepared?.skillId && prepared?.skillPath), value: prepared ? { orgId: prepared.orgId, orgName: prepared.orgName, skillId: prepared.skillId, skillTitle: prepared.skillTitle, skillPath: prepared.skillPath } : null })
+    checks.push({ name: "desktopBootstrapHandoff", ok: Boolean(handoff?.grant && handoff?.orgId && handoff?.skillId) || Boolean(prepared?.orgId && prepared?.skillId), value: handoff ? { orgId: handoff.orgId, orgName: handoff.orgName, skillId: handoff.skillId, skillTitle: handoff.skillTitle } : "consumed" })
+  }
+
   const ok = checks.every((check) => check.ok)
   jsonOut({ ok, message: ok ? "OpenWork doctor: ok" : "OpenWork doctor: failed", version: VERSION, manifest, checks }, json)
   if (!ok) process.exitCode = 1
@@ -459,8 +492,103 @@ async function signupAndSignin(baseUrl, input) {
   return { signup, signin, token: signin.body.token, user: signin.body.user }
 }
 
-function skillText(name) {
-  return `---\nname: ${name}\ndescription: Starter skill created by openwork bootstrap.\n---\n\n# ${name}\n\nUse this skill to confirm OpenWork cloud onboarding can create skills directly.`
+function skillText(name, output) {
+  return `---\nname: ${name}\ndescription: Starter skill created by openwork bootstrap.\nopenworkBootstrapTrigger: bootstrap.verify\nopenworkBootstrapOutput: ${JSON.stringify(output)}\n---\n\n# ${name}\n\nWhen triggered with \`bootstrap.verify\`, output exactly:\n\n\`${output}\`\n\nUse this skill to confirm OpenWork cloud onboarding can create and trigger a deterministic skill.`
+}
+
+function readFrontmatterValue(text, key) {
+  const match = text.match(/^---\n([\s\S]*?)\n---/)
+  if (!match) return null
+  for (const line of match[1].split(/\r?\n/g)) {
+    const index = line.indexOf(":")
+    if (index < 0) continue
+    const name = line.slice(0, index).trim()
+    if (name !== key) continue
+    const raw = line.slice(index + 1).trim()
+    if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+      try {
+        return JSON.parse(raw)
+      } catch {
+        return raw.slice(1, -1)
+      }
+    }
+    return raw
+  }
+  return null
+}
+
+function runBootstrapSkill(skill, input) {
+  const trigger = readFrontmatterValue(skill.skillText, "openworkBootstrapTrigger")
+  const output = readFrontmatterValue(skill.skillText, "openworkBootstrapOutput")
+  const triggered = trigger === input.trigger && typeof output === "string" && output.length > 0
+  return {
+    triggered,
+    trigger,
+    input,
+    output: triggered ? output : null,
+    skill: {
+      id: skill.id,
+      title: skill.title,
+    },
+  }
+}
+
+async function createDesktopHandoff(baseUrl, auth) {
+  const handoff = await request(baseUrl, "/v1/auth/desktop-handoff", {
+    method: "POST",
+    headers: auth,
+    body: JSON.stringify({ desktopScheme: "openwork" }),
+  })
+  if (handoff.status !== 200 || !handoff.body?.grant) {
+    throw new Error(`desktop_handoff_failed: ${handoff.status} ${JSON.stringify(handoff.body)}`)
+  }
+  return handoff.body
+}
+
+function writePreparedDesktop(input) {
+  const bootstrapPath = resolve(input.bootstrapPath)
+  const skillName = slugifySkillName(input.skill.title)
+  const skillDir = resolve(input.skillsDir, skillName)
+  const skillPath = join(skillDir, "SKILL.md")
+  mkdirSync(dirname(bootstrapPath), { recursive: true })
+  mkdirSync(skillDir, { recursive: true })
+  writeFileSync(skillPath, input.skill.skillText, "utf8")
+  const preparedAt = new Date().toISOString()
+  const prepared = {
+    orgId: input.organization.id,
+    orgName: input.organization.name,
+    orgSlug: input.organization.slug,
+    skillId: input.skill.id,
+    skillTitle: input.skill.title,
+    skillsDir: resolve(input.skillsDir),
+    skillPath,
+    preparedAt,
+  }
+  writeFileSync(bootstrapPath, `${JSON.stringify({
+    baseUrl: input.baseUrl,
+    apiBaseUrl: input.apiBaseUrl,
+    requireSignin: false,
+    prepared,
+    handoff: {
+      grant: input.handoff.grant,
+      denBaseUrl: input.baseUrl,
+      orgId: prepared.orgId,
+      orgName: prepared.orgName,
+      orgSlug: prepared.orgSlug,
+      skillId: prepared.skillId,
+      skillTitle: prepared.skillTitle,
+      createdAt: preparedAt,
+    },
+  }, null, 2)}\n`, "utf8")
+
+  return {
+    prepared: true,
+    bootstrapPath,
+    skillsDir: resolve(input.skillsDir),
+    skillPath,
+    handoffExpiresAt: input.handoff.expiresAt,
+    handoffGrant: "written-to-bootstrap-file",
+  }
 }
 
 async function resolveOwnerPassword(flags) {
@@ -494,6 +622,10 @@ async function runCloudOnboard(args) {
   const orgName = getFlag(args.flags, "org-name")
   const inviteEmail = getFlag(args.flags, "invite-email")
   const skillName = getFlag(args.flags, "skill-name", "First OpenWork Skill")
+  const skillOutput = getFlag(args.flags, "skill-output", "OPENWORK_BOOTSTRAP_SKILL_TRIGGERED")
+  const prepareDesktop = hasFlag(args.flags, "prepare-desktop")
+  const desktopBootstrapPath = getFlag(args.flags, "desktop-bootstrap-path", defaultDesktopBootstrapPath())
+  const skillsDir = getFlag(args.flags, "skills-dir", defaultSkillsDir())
 
   for (const [name, value] of Object.entries({ baseUrl, ownerEmail, ownerPassword, orgName, inviteEmail })) {
     if (!value) throw new Error(`missing_required_flag: --${name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`)
@@ -532,10 +664,29 @@ async function runCloudOnboard(args) {
   const skill = await request(baseUrl, "/v1/skills", {
     method: "POST",
     headers: auth,
-    body: JSON.stringify({ skillText: skillText(skillName), shared: "org" }),
+    body: JSON.stringify({ skillText: skillText(skillName, skillOutput), shared: "org" }),
   })
   if (skill.status !== 201 || !skill.body?.skill?.id) {
     throw new Error(`skill_create_failed: ${skill.status} ${JSON.stringify(skill.body)}`)
+  }
+
+  const skillRun = runBootstrapSkill(skill.body.skill, { trigger: "bootstrap.verify" })
+  if (!skillRun.triggered || skillRun.output !== skillOutput) {
+    throw new Error(`skill_trigger_failed: ${JSON.stringify(skillRun)}`)
+  }
+
+  let desktop = null
+  if (prepareDesktop) {
+    const handoff = await createDesktopHandoff(baseUrl, auth)
+    desktop = writePreparedDesktop({
+      baseUrl,
+      apiBaseUrl: baseUrl,
+      bootstrapPath: desktopBootstrapPath,
+      skillsDir,
+      handoff,
+      organization: org.body.organization,
+      skill: skill.body.skill,
+    })
   }
 
   jsonOut({
@@ -545,6 +696,8 @@ async function runCloudOnboard(args) {
     organization: org.body.organization,
     invitation: invite.body,
     skill: skill.body.skill,
+    skillRun,
+    desktop,
   }, json)
 }
 
