@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { Menu, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Check, Copy, Menu, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { OpenWorkMark } from "./openwork-mark";
+
+const AGENT_START_PROMPT =
+  "Read https://openworklabs.com/start.md then install OpenWork, sign me up, prepare the desktop app, and prove it is ready.";
 
 type Props = {
   stars: string;
@@ -17,6 +20,8 @@ type Props = {
 export function SiteNav(props: Props) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
+  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
@@ -24,6 +29,40 @@ export function SiteNav(props: Props) {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+    };
+  }, []);
+
+  const markCopied = () => {
+    setPromptCopied(true);
+    if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+    copyResetTimer.current = setTimeout(() => {
+      setPromptCopied(false);
+      copyResetTimer.current = null;
+    }, 5000);
+  };
+
+  const copyAgentPrompt = async () => {
+    try {
+      if (!navigator.clipboard) throw new Error("clipboard_unavailable");
+      await navigator.clipboard.writeText(AGENT_START_PROMPT);
+      markCopied();
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = AGENT_START_PROMPT;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      if (copied) markCopied();
+    }
+  };
   const callHref = props.callUrl || "/enterprise#book";
   const cloudSignupHref = "https://app.openworklabs.com?mode=sign-up";
   const mobilePrimaryHref = props.mobilePrimaryHref || cloudSignupHref;
@@ -92,14 +131,15 @@ export function SiteNav(props: Props) {
               </svg>
               {props.stars}
             </a>
-            <a
-              href={cloudSignupHref}
-              className="doc-button !hidden items-center gap-2 md:!inline-flex"
-              rel="noreferrer"
-              target="_blank"
+            <button
+              type="button"
+              onClick={copyAgentPrompt}
+              aria-label="Copy the agent setup prompt"
+              className="!hidden cursor-pointer items-center gap-2 rounded-full border border-[#011627] bg-[#011627] px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#102638] md:!inline-flex"
             >
-              Get Started for free
-            </a>
+              {promptCopied ? <Check size={16} /> : <Copy size={16} />}
+              {promptCopied ? "Copied" : "Copy Prompt"}
+            </button>
             <button
               type="button"
               className="rounded-full p-2 text-[#011627] transition-colors hover:bg-white/70 md:hidden"

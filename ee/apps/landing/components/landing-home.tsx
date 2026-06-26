@@ -1,7 +1,7 @@
 "use client";
 import { AnimatePresence, motion, useInView } from "framer-motion";
-import { ArrowRight, Check, Copy, Users } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, Users } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 
 import { LandingAppDemoPanel } from "./landing-app-demo-panel";
 import { LandingBackground } from "./landing-background";
@@ -30,13 +30,9 @@ const externalLinkProps = (href: string) =>
     : {};
 
 const CLOUD_SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
-const AGENT_START_PROMPT = "Read https://openworklabs.com/start.md then install OpenWork, sign me up, prepare the desktop app, and prove it is ready.";
-
 export function LandingHome(props: Props) {
   const [activeDemoId, setActiveDemoId] = useState(defaultLandingDemoFlowId);
   const [activeUseCase, setActiveUseCase] = useState(0);
-  const [agentPromptCopied, setAgentPromptCopied] = useState(false);
-  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enterpriseShowcaseRef = useRef<HTMLElement>(null);
   const showEnterpriseShowcase = useInView(enterpriseShowcaseRef, {
     once: true,
@@ -52,45 +48,6 @@ export function LandingHome(props: Props) {
   const primaryCtaHref = CLOUD_SIGNUP_URL;
   const primaryCtaLabel = "Get Started for free";
   const primaryCtaLinkProps = externalLinkProps(primaryCtaHref);
-
-  const markCopied = () => {
-    setAgentPromptCopied(true);
-    // Single-flight: cancel any pending reset so rapid re-clicks don't clear
-    // the "Copied" state early.
-    if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
-    copyResetTimer.current = setTimeout(() => {
-      setAgentPromptCopied(false);
-      copyResetTimer.current = null;
-    }, 5000);
-  };
-
-  const copyAgentPrompt = async () => {
-    try {
-      if (navigator.clipboard) {
-        await navigator.clipboard.writeText(AGENT_START_PROMPT);
-      } else {
-        throw new Error("clipboard_unavailable");
-      }
-      markCopied();
-    } catch {
-      const textarea = document.createElement("textarea");
-      textarea.value = AGENT_START_PROMPT;
-      textarea.setAttribute("readonly", "");
-      textarea.style.position = "fixed";
-      textarea.style.left = "-9999px";
-      document.body.appendChild(textarea);
-      textarea.select();
-      const copied = document.execCommand("copy");
-      document.body.removeChild(textarea);
-      if (copied) markCopied();
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
-    };
-  }, []);
 
   return (
     <div className="relative min-h-screen overflow-hidden text-[#011627]">
@@ -155,36 +112,7 @@ export function LandingHome(props: Props) {
                   </span>
                 </div>
               </div>
-
-            </div>
-
-            <div className="group/copy relative mt-8 inline-flex flex-col items-start">
-              <button
-                type="button"
-                onClick={copyAgentPrompt}
-                aria-label="Copy the agent setup prompt"
-                className="inline-flex cursor-pointer items-center gap-2.5 rounded-xl border border-[#011627] bg-[#011627] px-5 py-3 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#102638]"
-              >
-                {agentPromptCopied ? <Check size={16} /> : <Copy size={16} />}
-                {agentPromptCopied ? "Copied" : "Copy Prompt"}
-              </button>
-              <span
-                aria-live="polite"
-                className="mt-3 block max-w-xl whitespace-normal font-mono text-xs text-gray-500"
-                data-copied={agentPromptCopied ? "true" : "false"}
-              >
-                {agentPromptCopied ? (
-                  <span className="text-[#011627]">
-                    Copied — now paste this into your coding agent (opencode, Claude Code, Cursor…) and it installs OpenWork for you.
-                  </span>
-                ) : (
-                  <span>
-                    <span className="text-blue-400">&ldquo;</span>
-                    {AGENT_START_PROMPT}
-                    <span className="text-blue-400">&rdquo;</span>
-                  </span>
-                )}
-              </span>
+ 
             </div>
           </section>
 
