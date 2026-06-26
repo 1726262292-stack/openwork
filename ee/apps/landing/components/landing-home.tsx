@@ -3,7 +3,6 @@ import { AnimatePresence, motion, useInView } from "framer-motion";
 import { ArrowRight, Check, Copy, Users } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { LandingAgentChip } from "./landing-agent-chip";
 import { LandingAppDemoPanel } from "./landing-app-demo-panel";
 import { LandingBackground } from "./landing-background";
 import { LandingCloudWorkersCard } from "./landing-cloud-workers-card";
@@ -110,8 +109,7 @@ export function LandingHome(props: Props) {
         </div>
 
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-16 px-6 pb-24 md:gap-20 md:px-8 md:pb-28">
-          <section className="grid items-center gap-10 pt-8 md:pt-12 lg:grid-cols-12 lg:gap-12">
-            <div className="lg:col-span-7">
+          <section className="max-w-4xl pt-8 md:pt-12">
             <h1 className="mb-5 text-4xl font-medium leading-[1.1] tracking-tight md:text-5xl lg:text-6xl">
               The open source
               <br />
@@ -187,10 +185,6 @@ export function LandingHome(props: Props) {
                   </span>
                 )}
               </span>
-            </div>
-            </div>
-            <div className="hidden lg:col-span-5 lg:block">
-              <LandingAgentChip className="block h-auto w-full max-w-none translate-y-2" />
             </div>
           </section>
 
