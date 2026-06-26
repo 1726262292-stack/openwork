@@ -410,7 +410,7 @@ async function runDoctor(args) {
         // Keep fallback path.
       }
     }
-    checks.push({ name: "openworkApp", ok: existsSync(appPath) && statSync(appPath).isDirectory(), value: appPath })
+    checks.push({ name: "openworkApp", ok: existsSync(appPath), value: appPath })
     checks.push({ name: "appInstallManifest", ok: existsSync(appManifest), value: appManifest })
   }
 
