@@ -1,6 +1,6 @@
 "use client";
 import { AnimatePresence, motion, useInView } from "framer-motion";
-import { ArrowRight, Users } from "lucide-react";
+import { ArrowRight, Check, Copy, Users } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import { LandingAppDemoPanel } from "./landing-app-demo-panel";
@@ -30,10 +30,12 @@ const externalLinkProps = (href: string) =>
     : {};
 
 const CLOUD_SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
+const AGENT_START_PROMPT = "Read https://openworklabs.com/start.md then install OpenWork and set up my first workspace.";
 
 export function LandingHome(props: Props) {
   const [activeDemoId, setActiveDemoId] = useState(defaultLandingDemoFlowId);
   const [activeUseCase, setActiveUseCase] = useState(0);
+  const [agentPromptCopied, setAgentPromptCopied] = useState(false);
   const enterpriseShowcaseRef = useRef<HTMLElement>(null);
   const showEnterpriseShowcase = useInView(enterpriseShowcaseRef, {
     once: true,
@@ -49,6 +51,32 @@ export function LandingHome(props: Props) {
   const primaryCtaHref = CLOUD_SIGNUP_URL;
   const primaryCtaLabel = "Get Started for free";
   const primaryCtaLinkProps = externalLinkProps(primaryCtaHref);
+
+  const copyAgentPrompt = async () => {
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(AGENT_START_PROMPT);
+      } else {
+        throw new Error("clipboard_unavailable");
+      }
+      setAgentPromptCopied(true);
+      window.setTimeout(() => setAgentPromptCopied(false), 1800);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = AGENT_START_PROMPT;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      setAgentPromptCopied(copied);
+      if (copied) {
+        window.setTimeout(() => setAgentPromptCopied(false), 1800);
+      }
+    }
+  };
 
   return (
     <div className="relative min-h-screen overflow-hidden text-[#011627]">
@@ -114,6 +142,32 @@ export function LandingHome(props: Props) {
                 </div>
               </div>
 
+            </div>
+
+            <div className="mt-8 max-w-3xl overflow-hidden rounded-2xl border border-[#011627]/10 bg-white/80 shadow-[0_24px_80px_rgba(1,22,39,0.08)] backdrop-blur">
+              <div className="flex flex-col gap-4 border-b border-[#011627]/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">
+                    Agent-first setup
+                  </div>
+                  <div className="mt-1 text-sm font-medium text-[#011627]">
+                    Give any coding agent one prompt and let it install OpenWork.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={copyAgentPrompt}
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-[#011627]/10 bg-[#011627] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#102638]"
+                >
+                  {agentPromptCopied ? <Check size={16} /> : <Copy size={16} />}
+                  {agentPromptCopied ? "Copied" : "Copy Prompt"}
+                </button>
+              </div>
+              <div className="bg-[#011627] px-4 py-4 text-[13px] leading-6 text-white md:text-sm">
+                <code className="font-mono text-white/90">
+                  {AGENT_START_PROMPT}
+                </code>
+              </div>
             </div>
           </section>
 
