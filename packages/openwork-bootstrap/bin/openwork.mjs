@@ -7,6 +7,11 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const VERSION = "0.1.0"
+// The installed command name. Deliberately NOT "openwork" so it never collides
+// with the openwork-orchestrator npm package, which also installs an "openwork"
+// binary onto the user's PATH.
+const COMMAND_NAME = "openwork-bootstrap"
+const executableBasename = () => (process.platform === "win32" ? `${COMMAND_NAME}.cmd` : COMMAND_NAME)
 const here = dirname(fileURLToPath(import.meta.url))
 const selfPath = fileURLToPath(import.meta.url)
 
@@ -59,16 +64,16 @@ function jsonOut(value, json) {
 
 function printHelp() {
   console.log([
-    "openwork bootstrap",
+    "openwork-bootstrap",
     "",
     "Usage:",
-    "  openwork install [--bin-dir <path>] [--install-dir <path>] [--source <path>] [--json]",
-    "  openwork install app --manifest <url-or-file> [--app-dir <path>] [--json]",
-    "  openwork doctor [--bin-dir <path>] [--install-dir <path>] [--base-url <url>] [--desktop-bootstrap] [--json]",
-    "  OPENWORK_OWNER_PASSWORD=<password> openwork cloud onboard --base-url <url> --owner-email <email> --org-name <name> --invite-email <email> [--skill-name <name>] [--prepare-desktop] [--json]",
+    "  openwork-bootstrap install [--bin-dir <path>] [--install-dir <path>] [--source <path>] [--json]",
+    "  openwork-bootstrap install app --manifest <url-or-file> [--app-dir <path>] [--json]",
+    "  openwork-bootstrap doctor [--bin-dir <path>] [--install-dir <path>] [--base-url <url>] [--desktop-bootstrap] [--json]",
+    "  OPENWORK_OWNER_PASSWORD=<password> openwork-bootstrap cloud onboard --base-url <url> --owner-email <email> --org-name <name> --invite-email <email> [--skill-name <name>] [--prepare-desktop] [--json]",
     "",
     "Commands:",
-    "  install          Install the lightweight openwork CLI into a user bin dir",
+    "  install          Install the openwork-bootstrap CLI into a user bin dir",
     "  install app      Download and install the desktop app from a manifest",
     "  doctor           Check CLI installation and optional Den API health",
     "  cloud onboard    Sign up, create an org, invite a teammate, and create a skill",
@@ -143,7 +148,7 @@ function runInstall(args) {
   copyFileSync(source, installedCli)
   chmodSync(installedCli, 0o755)
 
-  const executable = join(binDir, process.platform === "win32" ? "openwork.cmd" : "openwork")
+  const executable = join(binDir, executableBasename())
   if (process.platform === "win32") {
     writeFileSync(executable, `@echo off\r\nnode "${installedCli}" %*\r\n`)
   } else {
@@ -391,7 +396,7 @@ async function runDoctor(args) {
   checks.push({ name: "installDir", ok: existsSync(installDir), value: installDir })
   checks.push({ name: "binDir", ok: existsSync(binDir), value: binDir })
 
-  const executable = join(binDir, process.platform === "win32" ? "openwork.cmd" : "openwork")
+  const executable = join(binDir, executableBasename())
   const executableOk = existsSync(executable) && statSync(executable).isFile()
   checks.push({ name: "openworkExecutable", ok: executableOk, value: executable })
 

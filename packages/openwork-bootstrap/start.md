@@ -4,12 +4,16 @@ You are an agent helping a user install and set up OpenWork.
 
 Goal: install OpenWork, create or sign in to an OpenWork Cloud account, create a
 workspace organization, invite a teammate, create a first skill, prepare the
-desktop app with that account/org/skill, and verify the running app shows the
-prepared state.
+desktop app with that account/org/skill, and verify the running app opens already
+signed in.
+
+> The bootstrap command is `openwork-bootstrap` (NOT `openwork`). The bare
+> `openwork` command belongs to the separate `openwork-orchestrator` package and
+> may already be on the user's PATH — do not use it for these steps.
 
 ## 1. Install CLI
 
-Install the lightweight `openwork` bootstrap CLI into a user-writable bin dir.
+Install the `openwork-bootstrap` CLI into a user-writable bin dir.
 
 If you already have this repository locally:
 
@@ -20,12 +24,13 @@ node packages/openwork-bootstrap/bin/openwork.mjs install \
   --json
 ```
 
-In production, use the published bootstrap script when available. Download it to
-a file, inspect it, then run it. Do not pipe remote scripts directly into a
-shell.
+In production, download the bootstrap script, inspect it, then run it. Do not
+pipe remote scripts directly into a shell. The script downloads the
+`openwork-bootstrap` CLI (a single dependency-free Node file) and installs it
+into `$HOME/.local/bin` — no npm or npx required.
 
 ```bash
-curl -fsSLo /tmp/openwork-install.sh https://openwork.com/install.sh
+curl -fsSLo /tmp/openwork-install.sh https://openworklabs.com/install.sh
 less /tmp/openwork-install.sh
 sh /tmp/openwork-install.sh
 ```
@@ -33,7 +38,7 @@ sh /tmp/openwork-install.sh
 Verify:
 
 ```bash
-openwork doctor --json
+openwork-bootstrap doctor --json
 ```
 
 ## 2. Install App
@@ -41,15 +46,15 @@ openwork doctor --json
 Install the desktop app for this OS from the manifest:
 
 ```bash
-openwork install app \
-  --manifest https://openwork.com/install-manifest.json \
+openwork-bootstrap install app \
+  --manifest https://openworklabs.com/install-manifest.json \
   --json
 ```
 
 Verify:
 
 ```bash
-openwork doctor --app --json
+openwork-bootstrap doctor --app --json
 ```
 
 ## 3. Create Cloud Workspace
@@ -65,8 +70,8 @@ password or token in the final response.
 
 ```bash
 OPENWORK_OWNER_PASSWORD="<generated-password>" \
-openwork cloud onboard \
-  --base-url https://cloud.openwork.com \
+openwork-bootstrap cloud onboard \
+  --base-url https://app.openworklabs.com \
   --owner-email "<owner-email>" \
   --org-name "<workspace-name>" \
   --invite-email "<teammate-email>" \
@@ -79,25 +84,30 @@ openwork cloud onboard \
 
 You are done only when all are true:
 
-- `openwork doctor --json` returns `ok: true`
-- `openwork doctor --app --json` returns `ok: true`
-- `openwork cloud onboard ... --json` returns:
+- `openwork-bootstrap doctor --json` returns `ok: true`
+- `openwork-bootstrap doctor --app --json` returns `ok: true`
+- `openwork-bootstrap cloud onboard ... --json` returns:
   - `ok: true`
   - `organization.id` is present
   - `invitation.invitationId` is present
   - `skill.id` is present
   - `skillRun.triggered` is `true`
   - `skillRun.output` is `OPENWORK_BOOTSTRAP_SKILL_TRIGGERED`
-- `desktop.prepared` is `true`
-- `desktop.bootstrapPath` is present
-- `desktop.skillPath` is present
-- `openwork doctor --desktop-bootstrap --json` returns `ok: true`
-- The desktop app opens to Settings -> Bootstrap and visibly shows signed-in account, organization, server URL, cloud skill from CLI, and local skill file.
+  - `desktop.prepared` is `true`
+  - `desktop.bootstrapPath` is present
+  - `desktop.skillPath` is present
+- `openwork-bootstrap doctor --desktop-bootstrap --json` returns `ok: true`
+- When the desktop app is launched, it opens already signed in and lands on the
+  onboarding screen showing a green "Setup complete" banner, the organization
+  name, and a "First skill ready" tile with the skill created by the CLI.
 
 ## 5. If Something Fails
 
 - If CLI install fails: report OS, shell, command, and stderr.
-- If app install fails: run `openwork doctor --app --json` and report failed checks.
+- If the `openwork-bootstrap` command is not found after install: ensure
+  `$HOME/.local/bin` is on PATH, or call the binary by its full path
+  (`$HOME/.local/bin/openwork-bootstrap`).
+- If app install fails: run `openwork-bootstrap doctor --app --json` and report failed checks.
 - If signup says the email already exists: ask the user whether to sign in instead.
 - If invite accept returns `email_verification_required`: tell the invited user to verify email before joining.
 

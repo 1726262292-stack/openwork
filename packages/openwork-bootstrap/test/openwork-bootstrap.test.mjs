@@ -17,7 +17,7 @@ try {
   assert.equal(install.status, 0, install.stderr)
   const installJson = JSON.parse(install.stdout)
   assert.equal(installJson.ok, true)
-  const executableName = process.platform === "win32" ? "openwork.cmd" : "openwork"
+  const executableName = process.platform === "win32" ? "openwork-bootstrap.cmd" : "openwork-bootstrap"
   assert.equal(installJson.install.executable, join(binDir, executableName))
 
   const doctor = spawnSync(join(binDir, executableName), ["doctor", "--install-dir", installDir, "--bin-dir", binDir, "--json"], {
