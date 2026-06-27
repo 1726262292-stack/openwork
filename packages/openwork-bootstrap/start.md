@@ -2,14 +2,13 @@
 
 You are an agent helping a user install and set up OpenWork.
 
-Goal: install OpenWork, create or sign in to an OpenWork Cloud account, create a
-workspace organization, invite a teammate, create a first skill, prepare the
-desktop app with that account/org/skill, and verify the running app opens already
-signed in.
+Goal: install OpenWork, create a provisional workspace without requiring email
+identity first, create a first skill, prepare the desktop app with that
+workspace/skill, and verify the running app opens to the setup-complete state.
 
 > The bootstrap command is `openwork-bootstrap` (NOT `openwork`). The bare
 > `openwork` command belongs to the separate `openwork-orchestrator` package and
-> may already be on the user's PATH — do not use it for these steps.
+> may already be on the user's PATH - do not use it for these steps.
 
 ## 1. Install CLI
 
@@ -27,7 +26,7 @@ node packages/openwork-bootstrap/bin/openwork.mjs install \
 In production, download the bootstrap script, inspect it, then run it. Do not
 pipe remote scripts directly into a shell. The script downloads the
 `openwork-bootstrap` CLI (a single dependency-free Node file) and installs it
-into `$HOME/.local/bin` — no npm or npx required.
+into `$HOME/.local/bin` - no npm or npx required.
 
 ```bash
 curl -fsSLo /tmp/openwork-install.sh https://openworklabs.com/install.sh
@@ -65,7 +64,7 @@ account. It writes claim links to the local desktop bootstrap file so a human ca
 claim ownership later.
 
 ```bash
-openwork cloud bootstrap-workspace \
+openwork-bootstrap cloud bootstrap-workspace \
   --base-url https://api.openworklabs.com \
   --workspace-name "<workspace-name>" \
   --skill-name "First OpenWork Skill" \
@@ -104,20 +103,21 @@ You are done only when all are true:
 
 - `openwork-bootstrap doctor --json` returns `ok: true`
 - `openwork-bootstrap doctor --app --json` returns `ok: true`
-- `openwork-bootstrap cloud onboard ... --json` returns:
+- `openwork-bootstrap cloud bootstrap-workspace ... --json` returns:
   - `ok: true`
   - `organization.id` is present
-  - `invitation.invitationId` is present
+  - `setup.id` is present
   - `skill.id` is present
   - `skillRun.triggered` is `true`
   - `skillRun.output` is `OPENWORK_BOOTSTRAP_SKILL_TRIGGERED`
+  - `claimLinks[0].id` is present
   - `desktop.prepared` is `true`
   - `desktop.bootstrapPath` is present
   - `desktop.skillPath` is present
 - `openwork-bootstrap doctor --desktop-bootstrap --json` returns `ok: true`
-- When the desktop app is launched, it opens already signed in and lands on the
-  onboarding screen showing a green "Setup complete" banner, the organization
-  name, and a "First skill ready" tile with the skill created by the CLI.
+- When the desktop app is launched, it lands on the onboarding screen showing a
+  green "Setup complete" banner, the organization name, a "First skill ready"
+  tile, and a "Claim this workspace" action.
 
 ## 5. If Something Fails
 
@@ -138,8 +138,8 @@ You are done only when all are true:
 
 ## 7. Security note: desktop preparation
 
-`--prepare-desktop` writes a one-time, short-lived (~5 minute) desktop sign-in
-grant to a machine-local `desktop-bootstrap.json`. The grant is never printed.
-On first launch the desktop app exchanges it once and rewrites the file without
-the grant, so it cannot be reused. This file is local-only; do not copy it
-between machines or commit it.
+`--prepare-desktop` writes machine-local setup state to
+`desktop-bootstrap.json`. For passwordless workspace bootstrap, this includes
+short-lived claim links so a human can attach an owner later. The links are not
+printed in final output. This file is local-only; do not copy it between
+machines or commit it.

@@ -12,6 +12,7 @@
 //   curl -fsSLo /tmp/openwork-install.sh https://openworklabs.com/install.sh
 //   less /tmp/openwork-install.sh
 //   sh /tmp/openwork-install.sh
+export const dynamic = "force-static";
 
 const installScript = `#!/usr/bin/env sh
 # OpenWork bootstrap installer.
@@ -59,18 +60,12 @@ if [ ! -s "$TMP_CLI" ]; then
 fi
 chmod 0755 "$TMP_CLI"
 
-# Use the CLI's own installer to copy itself into place and write the wrapper +
-# install manifest so the layout matches \`openwork-bootstrap doctor\`.
-node "$TMP_CLI" install \\
-  --source "$TMP_CLI" \\
-  --install-dir "$INSTALL_DIR" \\
-  --bin-dir "$BIN_DIR" \\
-  --json
+node "$TMP_CLI" install --source "$TMP_CLI" --install-dir "$INSTALL_DIR" --bin-dir "$BIN_DIR" --json
 
 echo
 echo "Installed openwork-bootstrap into $BIN_DIR."
 echo "If 'openwork-bootstrap' is not found, add $BIN_DIR to your PATH:"
-echo "  export PATH=\\"$BIN_DIR:\\$PATH\\""
+echo "  export PATH=$BIN_DIR"':$PATH'
 echo
 echo "Verify with:"
 echo "  openwork-bootstrap doctor --json"
