@@ -73,29 +73,9 @@ openwork-bootstrap cloud bootstrap-workspace \
   --json
 ```
 
-Use the email-based flow below only when the user explicitly wants the account
-created during setup.
-
-Ask the user for:
-
-- owner email
-- workspace name
-- teammate email to invite
-
-Generate a strong password locally unless the user provides one. Do not print the
-password or token in the final response.
-
-```bash
-OPENWORK_OWNER_PASSWORD="<generated-password>" \
-openwork-bootstrap cloud onboard \
-  --base-url https://api.openworklabs.com \
-  --owner-email "<owner-email>" \
-  --org-name "<workspace-name>" \
-  --invite-email "<teammate-email>" \
-  --skill-name "First OpenWork Skill" \
-  --prepare-desktop \
-  --json
-```
+If the user wants to attach a real account immediately, finish this provisional
+setup first, then use the `Claim this workspace` action in the desktop app. Do
+not create an email/password account from the CLI during agent-first install.
 
 ## 4. Success Criteria
 
@@ -126,8 +106,9 @@ You are done only when all are true:
   `$HOME/.local/bin` is on PATH, or call the binary by its full path
   (`$HOME/.local/bin/openwork-bootstrap`).
 - If app install fails: run `openwork-bootstrap doctor --app --json` and report failed checks.
-- If signup says the email already exists: ask the user whether to sign in instead.
-- If invite accept returns `email_verification_required`: tell the invited user to verify email before joining.
+- If the user needs account ownership immediately: complete the install, launch
+  the app, and use `Claim this workspace` so email verification happens in the
+  browser/app instead of in the CLI.
 
 ## 6. Constraints
 

@@ -19,7 +19,7 @@
 import { useEffect, useRef, useState } from "react";
 
 const AGENT_START_PROMPT =
-  "Read https://openworklabs.com/start.md then install OpenWork, sign me up, prepare the desktop app, and prove it is ready.";
+  "Read https://openworklabs.com/start.md?v=bootstrap-workspace then install OpenWork, prepare my first workspace, and prove it is ready.";
 
 export function CopyPromptButton({ className }: { className?: string }) {
   const [feedback, setFeedback] = useState(false);
