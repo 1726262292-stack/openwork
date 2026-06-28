@@ -261,12 +261,36 @@ function findInstallCandidate(root, expectedName) {
   throw new Error(`app_not_found_in_archive: ${expectedName}`)
 }
 
+// Copy an installed artifact into place. macOS .app bundles contain internal
+// framework symlinks (e.g. Versions/Current, the framework binary/Resources
+// links) that a naive recursive copy can break — leaving dangling links into a
+// now-unmounted DMG, which makes Gatekeeper report the app as "damaged". Use
+// `ditto` on macOS, which is the Apple-supported way to copy bundles while
+// preserving relative symlinks and the code signature.
+function copyArtifact(source, target) {
+  if (process.platform === "darwin") {
+    try {
+      execFileSync("ditto", [source, target], { stdio: "pipe" })
+    } catch {
+      // Fall back to cp -R (also preserves bundle symlinks) before giving up.
+      execFileSync("cp", ["-R", source, target], { stdio: "pipe" })
+    }
+    // Remove the quarantine flag so Gatekeeper does not block the freshly
+    // installed (already-notarized) app on first launch. Best-effort.
+    try {
+      execFileSync("xattr", ["-dr", "com.apple.quarantine", target], { stdio: "pipe" })
+    } catch {}
+    return
+  }
+  cpSync(source, target, { recursive: true })
+}
+
 function installFromDirectory(input) {
   const source = findInstallCandidate(input.sourceDir, input.appName)
   mkdirSync(input.appDir, { recursive: true })
   const target = join(input.appDir, input.appName)
   rmSync(target, { recursive: true, force: true })
-  cpSync(source, target, { recursive: true })
+  copyArtifact(source, target)
   if (input.executable) chmodSync(target, 0o755)
   return target
 }
@@ -290,7 +314,7 @@ function installDmg(input) {
     mkdirSync(input.appDir, { recursive: true })
     const targetApp = join(input.appDir, appName)
     rmSync(targetApp, { recursive: true, force: true })
-    cpSync(sourceApp, targetApp, { recursive: true })
+    copyArtifact(sourceApp, targetApp)
     return targetApp
   } finally {
     if (mounted) {
