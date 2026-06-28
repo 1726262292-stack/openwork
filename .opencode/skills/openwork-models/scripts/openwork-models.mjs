@@ -160,14 +160,12 @@ async function syncAliases(models, usageOverrides = new Map()) {
   })
 
   const replacement = `export const INFERENCE_MODEL_ALIASES = {\n${entries.join("\n")}\n} as const;`
-  const nextSource = source.replace(
-    /export const INFERENCE_MODEL_ALIASES = \{[\s\S]*?\n\} as const;/,
-    replacement,
-  )
-
-  if (nextSource === source) {
+  const aliasesPattern = /export const INFERENCE_MODEL_ALIASES = \{[\s\S]*?\n\} as const;/
+  if (!aliasesPattern.test(source)) {
     throw new Error(`Could not find INFERENCE_MODEL_ALIASES in ${paths.aliases}`)
   }
+
+  const nextSource = source.replace(aliasesPattern, replacement)
 
   await writeFile(paths.aliases, nextSource)
 }
@@ -185,6 +183,12 @@ async function validate() {
     if (model.id !== id) throw new Error(`${id} must have matching id field`)
     if (typeof model.name !== "string" || model.name.length === 0) {
       throw new Error(`${id} must have a name`)
+    }
+    if (typeof model.family !== "string" || model.family.length === 0) {
+      throw new Error(`${id} must have a family`)
+    }
+    if (!isRecord(model.cost)) {
+      throw new Error(`${id} must have a cost object`)
     }
   }
 

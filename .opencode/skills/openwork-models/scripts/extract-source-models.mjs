@@ -27,7 +27,7 @@ function scoreModel(query, id, model) {
   const compactQuery = normalize(query)
   const haystack = normalize(`${id} ${model.name ?? ""} ${model.family ?? ""}`)
   const queryTerms = terms(query)
-  if (!compactQuery) return 1
+  if (!compactQuery) return 0
   if (id === query || model.id === query) return 1_000
   if (haystack.includes(compactQuery)) return 200 + compactQuery.length
 

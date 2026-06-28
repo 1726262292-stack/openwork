@@ -16,7 +16,7 @@ The editable OpenWork model list is:
 
 - `ee/apps/inference/src/models/openwork-models.json`
 
-Generated/derived file:
+Managed file:
 
 - `packages/types/src/den/inference.ts`
 

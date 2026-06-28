@@ -58,6 +58,40 @@ jobs:
             return Boolean(value) && typeof value === "object" && !Array.isArray(value)
           }
 
+          function isStringArray(value) {
+            return Array.isArray(value) && value.every((item) => typeof item === "string")
+          }
+
+          function validateModel(providerId, modelId, model) {
+            if (!isRecord(model)) {
+              fail(`model ${providerId}.${modelId} was not an object`)
+            }
+
+            if (model.id !== modelId) {
+              fail(`model ${providerId}.${modelId} was missing a matching id`)
+            }
+
+            if (typeof model.name !== "string" || model.name.length === 0) {
+              fail(`model ${providerId}.${modelId} was missing a name`)
+            }
+
+            if (!isRecord(model.modalities)) {
+              fail(`model ${providerId}.${modelId} was missing modalities`)
+            }
+
+            if (!isStringArray(model.modalities.input) || model.modalities.input.length === 0) {
+              fail(`model ${providerId}.${modelId} was missing input modalities`)
+            }
+
+            if (!isStringArray(model.modalities.output) || model.modalities.output.length === 0) {
+              fail(`model ${providerId}.${modelId} was missing output modalities`)
+            }
+
+            if (!isRecord(model.limit)) {
+              fail(`model ${providerId}.${modelId} was missing limits`)
+            }
+          }
+
           const response = await fetch(modelsUrl, {
             headers: { accept: "application/json" },
           })
@@ -98,6 +132,10 @@ jobs:
 
             if (!isRecord(provider.models) || Object.keys(provider.models).length === 0) {
               fail(`provider ${providerId} did not include models`)
+            }
+
+            for (const [modelId, model] of Object.entries(provider.models)) {
+              validateModel(providerId, modelId, model)
             }
           }
 

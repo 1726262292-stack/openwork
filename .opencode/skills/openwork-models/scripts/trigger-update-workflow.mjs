@@ -10,9 +10,10 @@ function readOption(name, fallback) {
 }
 
 function runGh(args, options = {}) {
+  const stdio = options.stdio ?? "pipe"
   const result = spawnSync("gh", args, {
     encoding: "utf8",
-    stdio: options.stdio ?? "pipe",
+    stdio,
   })
 
   if (result.status !== 0) {
@@ -20,7 +21,7 @@ function runGh(args, options = {}) {
     throw new Error(`gh ${args.join(" ")} failed${details ? `:\n${details}` : ""}`)
   }
 
-  return result.stdout.trim()
+  return typeof result.stdout === "string" ? result.stdout.trim() : ""
 }
 
 function readGhJson(args) {
