@@ -373,6 +373,95 @@ describe("Google Workspace extension", () => {
     expect(decoded).not.toContain("one@example.com");
   });
 
+  test("drive_create_file creates a file from inline text content", async () => {
+    process.env.OPENWORK_DEV_MODE = "1";
+    process.env.OPENWORK_GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT = "1";
+    process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET = "secret";
+    const config = createTestConfig();
+    await writePlaintextVault(config, {
+      version: 2,
+      activeAccountId: "sub-one",
+      accounts: [accountRecord("one@example.com", "sub-one")],
+    });
+    const requests: { url: string; body: string }[] = [];
+    globalThis.fetch = Object.assign(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input instanceof Request ? input.url : input);
+        const body = typeof init?.body === "string" ? init.body : Buffer.isBuffer(init?.body) ? (init.body as Buffer).toString("utf8") : "";
+        requests.push({ url, body });
+        return new Response(JSON.stringify({ id: "file-1", name: "notes.txt", mimeType: "text/plain" }), { status: 200 });
+      },
+      { preconnect: previousFetch.preconnect },
+    );
+
+    const result = await callGoogleWorkspaceExtensionAction(config, "drive_create_file", { name: "notes.txt", content: "Hello Drive" }, {});
+    expect(result?.ok).toBe(true);
+    expect(result?.result).toMatchObject({ id: "file-1", name: "notes.txt" });
+    expect(requests[0]?.url).toContain("/upload/drive/v3/files?uploadType=multipart");
+    expect(requests[0]?.body).toContain('"name":"notes.txt"');
+    expect(requests[0]?.body).toContain('"mimeType":"text/plain"');
+    expect(requests[0]?.body).toContain("Hello Drive");
+  });
+
+  test("drive_create_file uploads a local workspace file as binary content", async () => {
+    process.env.OPENWORK_DEV_MODE = "1";
+    process.env.OPENWORK_GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT = "1";
+    process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET = "secret";
+    const config = createTestConfig();
+    const workspaceRoot = join(dirname(config.configPath ?? ""), "workspace");
+    const reportPath = join(workspaceRoot, "reports", "safe-report.docx");
+    config.workspaces = [{ id: "workspace-1", name: "Workspace", path: workspaceRoot, preset: "starter", workspaceType: "local" }];
+    config.authorizedRoots = [workspaceRoot];
+    await mkdir(dirname(reportPath), { recursive: true });
+    await writeFile(reportPath, "binary docx bytes", "utf8");
+    await writePlaintextVault(config, {
+      version: 2,
+      activeAccountId: "sub-one",
+      accounts: [accountRecord("one@example.com", "sub-one")],
+    });
+    const requests: { url: string; body: Buffer }[] = [];
+    globalThis.fetch = Object.assign(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input instanceof Request ? input.url : input);
+        requests.push({ url, body: Buffer.isBuffer(init?.body) ? (init.body as Buffer) : Buffer.from(String(init?.body ?? "")) });
+        return new Response(JSON.stringify({ id: "file-2", name: "safe-report.docx", mimeType: "application/octet-stream" }), { status: 200 });
+      },
+      { preconnect: previousFetch.preconnect },
+    );
+
+    const result = await callGoogleWorkspaceExtensionAction(
+      config,
+      "drive_create_file",
+      { name: "safe-report.docx", path: "reports/safe-report.docx" },
+      { directory: workspaceRoot },
+    );
+    expect(result?.ok).toBe(true);
+    expect(result?.result).toMatchObject({ id: "file-2" });
+    const body = requests[0]?.body.toString("utf8") ?? "";
+    expect(body).toContain('"name":"safe-report.docx"');
+    expect(body).toContain("Content-Transfer-Encoding: base64");
+    expect(body).toContain(Buffer.from("binary docx bytes", "utf8").toString("base64"));
+  });
+
+  test("drive_create_file rejects both content and path provided together", async () => {
+    process.env.OPENWORK_DEV_MODE = "1";
+    process.env.OPENWORK_GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT = "1";
+    process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET = "secret";
+    const config = createTestConfig();
+    await writePlaintextVault(config, {
+      version: 2,
+      activeAccountId: "sub-one",
+      accounts: [accountRecord("one@example.com", "sub-one")],
+    });
+
+    expect(callGoogleWorkspaceExtensionAction(config, "drive_create_file", { name: "f.txt", content: "a", path: "f.txt" }, {})).rejects.toThrow(
+      new ApiError(400, "invalid_payload", "Provide only one of path or content, not both"),
+    );
+    expect(callGoogleWorkspaceExtensionAction(config, "drive_create_file", { name: "f.txt" }, {})).rejects.toThrow(
+      new ApiError(400, "invalid_payload", "Either path or content is required"),
+    );
+  });
+
   test("calendar_create_event rejects accounts without the calendar.events scope", async () => {
     process.env.OPENWORK_DEV_MODE = "1";
     process.env.OPENWORK_GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT = "1";
