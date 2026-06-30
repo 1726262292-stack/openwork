@@ -1,15 +1,17 @@
 /**
- * Proves the additive "search_capabilities" tool on the existing, real Den
- * MCP server ("OpenWork Cloud Control"): a harness can search the existing
- * OpenAPI-derived catalog by keyword instead of receiving the full tool
- * list, then call the matched real tool name via the normal MCP
- * tools/call protocol and get a genuine server-side execution result.
+ * Proves two things on top of the existing, real Den MCP infrastructure:
  *
- * Nothing about auth, policy, or invoke changes. This flow proves the
- * addition is purely additive: the existing UI-visible Cloud Control
- * connection still works, and the new search tool sits alongside the
- * existing catalog tools, dispatching through the same unchanged execute
- * path (invoke.ts).
+ * 1. The rich `/mcp` endpoint ("OpenWork Cloud Control" as it existed
+ *    before this change) keeps every catalog tool individually registered,
+ *    plus the additive `search_capabilities` tool, unchanged.
+ *
+ * 2. A new, separate, minimal endpoint — `/mcp/agent` — exposes exactly
+ *    two tools: `search_capabilities` and `execute_capability`. The
+ *    desktop app's "OpenWork Cloud Control" connection now points here,
+ *    not at the rich endpoint. Both tools dispatch through the exact same
+ *    unchanged `invoke.ts` execute path as the rich endpoint; nothing
+ *    about auth, policy, or execution changes — only what the harness can
+ *    see changes, from ~129 tools to 2.
  *
  * Required env:
  * - OPENWORK_EVAL_DEN_API_URL    Den API base (e.g. http://127.0.0.1:8793)
@@ -43,9 +45,9 @@ async function denFetch(ctx, path, options = {}) {
  * JSON-RPC POST per call is sufficient. Responses are SSE-framed even for a
  * single message, so unwrap the `data: {...}` line.
  */
-async function mcpCall(ctx, mcpToken, method, params) {
+async function mcpCallTo(ctx, path, mcpToken, method, params) {
   const base = ctx.env.OPENWORK_EVAL_DEN_API_URL.trim().replace(/\/+$/, "");
-  const response = await fetch(`${base}/mcp`, {
+  const response = await fetch(`${base}${path}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -55,12 +57,20 @@ async function mcpCall(ctx, mcpToken, method, params) {
     body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params: params ?? {} }),
   });
   const raw = await response.text();
-  ctx.assert(response.ok, `MCP ${method} failed: ${response.status} ${raw.slice(0, 300)}`);
+  ctx.assert(response.ok, `MCP ${method} (${path}) failed: ${response.status} ${raw.slice(0, 300)}`);
   const dataLine = raw.split("\n").find((line) => line.startsWith("data:"));
-  ctx.assert(Boolean(dataLine), `MCP ${method} returned no data frame: ${raw.slice(0, 300)}`);
+  ctx.assert(Boolean(dataLine), `MCP ${method} (${path}) returned no data frame: ${raw.slice(0, 300)}`);
   const parsed = JSON.parse(dataLine.slice(5));
-  ctx.assert(!parsed.error, `MCP ${method} returned a JSON-RPC error: ${JSON.stringify(parsed.error)}`);
+  ctx.assert(!parsed.error, `MCP ${method} (${path}) returned a JSON-RPC error: ${JSON.stringify(parsed.error)}`);
   return parsed.result;
+}
+
+async function mcpCall(ctx, mcpToken, method, params) {
+  return mcpCallTo(ctx, "/mcp", mcpToken, method, params);
+}
+
+async function mcpAgentCall(ctx, mcpToken, method, params) {
+  return mcpCallTo(ctx, "/mcp/agent", mcpToken, method, params);
 }
 
 export default {
@@ -262,18 +272,74 @@ export default {
       },
     },
     {
-      name: "A real chat message triggers search_capabilities then the matched tool through the actual agent",
+      name: "The minimal /mcp/agent endpoint exposes exactly two tools",
       run: async (ctx) => {
-        // This is the strongest proof: not a direct protocol call from the
-        // eval script, but a real chat turn -> real OpenCode agent -> real
-        // tool calls against the live, authenticated Cloud Control MCP ->
-        // real Den API data, surfaced back in the chat transcript. The agent
-        // is instructed to use search_capabilities first so this run
-        // specifically exercises the new tool, not just any cloud capability.
-        await ctx.prove("Chat-triggered: the agent calls search_capabilities, then calls the tool it matched, against the real backend.", {
+        const result = await mcpAgentCall(ctx, ctx.mcpToken, "tools/list", {});
+        const names = result.tools.map((tool) => tool.name).sort();
+        ctx.assert(names.length === 2, `Expected exactly 2 tools on /mcp/agent, got ${names.length}: ${names.join(", ")}`);
+        ctx.assert(
+          names.join(",") === "execute_capability,search_capabilities",
+          `Expected exactly [execute_capability, search_capabilities], got: ${names.join(", ")}`,
+        );
+        ctx.recordEvidence({
+          type: "assertion",
+          status: "passed",
+          assertion: "The harness-facing /mcp/agent endpoint registers only search_capabilities and execute_capability — none of the ~127 other catalog operations are individually callable here.",
+          actual: { tools: names },
+        });
+      },
+    },
+    {
+      name: "search_capabilities on /mcp/agent returns call-shape hints, and execute_capability runs the match for real",
+      run: async (ctx) => {
+        const searchResult = await mcpAgentCall(ctx, ctx.mcpToken, "tools/call", {
+          name: "search_capabilities",
+          arguments: { query: "list organization", limit: 3 },
+        });
+        const searchParsed = JSON.parse(searchResult.content?.[0]?.text ?? "{}");
+        const matches = searchParsed.matches ?? [];
+        const topMatch = matches.find((match) => match.name === "getOrg");
+        ctx.assert(Boolean(topMatch), `Expected getOrg among /mcp/agent search matches, got: ${matches.map((m) => m.name).join(", ")}`);
+        ctx.assert(Array.isArray(topMatch.pathParams) && Array.isArray(topMatch.queryParams) && typeof topMatch.hasBody === "boolean",
+          "Match is missing call-shape hints (pathParams/queryParams/hasBody).");
+
+        const executeResult = await mcpAgentCall(ctx, ctx.mcpToken, "tools/call", {
+          name: "execute_capability",
+          arguments: { name: topMatch.name },
+        });
+        const executeParsed = JSON.parse(executeResult.content?.[0]?.text ?? "{}");
+        ctx.assert(executeParsed.organization?.id === ctx.organizationId, "execute_capability did not return the real, current organization.");
+        ctx.assert(executeParsed.organization?.name === ctx.orgName, "execute_capability returned a different org name than the rich /mcp path.");
+
+        const unknownResult = await mcpAgentCall(ctx, ctx.mcpToken, "tools/call", {
+          name: "execute_capability",
+          arguments: { name: "doesNotExist" },
+        });
+        ctx.assert(unknownResult.isError === true, "execute_capability should error on an unknown capability name.");
+        const unknownParsed = JSON.parse(unknownResult.content?.[0]?.text ?? "{}");
+        ctx.assert(unknownParsed.error === "unknown_capability", `Expected unknown_capability error, got: ${JSON.stringify(unknownParsed)}`);
+
+        ctx.recordEvidence({
+          type: "assertion",
+          status: "passed",
+          assertion: "On the minimal endpoint, search_capabilities -> execute_capability runs through the exact same invoke.ts path as the rich endpoint, returning identical real data; an unknown name fails with a helpful, actionable error.",
+          actual: { organizationName: executeParsed.organization?.name, pathParams: topMatch.pathParams, queryParams: topMatch.queryParams, hasBody: topMatch.hasBody },
+        });
+      },
+    },
+    {
+      name: "A real, unprompted chat message naturally uses search_capabilities then execute_capability — there is no other tool to call",
+      run: async (ctx) => {
+        // The strongest possible proof: this prompt does not mention
+        // search_capabilities, execute_capability, or any tool name at all.
+        // Unlike the earlier rich-/mcp test (which required explicitly
+        // instructing the agent to search first, because getOrg was sitting
+        // right there in its tool list), the desktop app's Cloud Control
+        // connection now points at /mcp/agent — the agent has no other way
+        // to discover or call anything, so it has to use these two tools by
+        // construction, not by instruction.
+        await ctx.prove("Chat-triggered, unprompted: the agent calls search_capabilities then execute_capability because that's all this connection exposes.", {
           action: async () => {
-            // The previous step left us on /settings/cloud-account;
-            // session.create_task is only registered on a session route.
             await ctx.navigateHash("/session");
             await ctx.waitFor(
               "Boolean(window.__openworkControl?.listActions().find((a) => a.id === 'session.create_task' && !a.disabled))",
@@ -295,7 +361,7 @@ export default {
               editor.focus();
               const data = new DataTransfer();
               data.setData('text/plain', ${JSON.stringify(
-                'On the OpenWork Cloud Control MCP, first call the search_capabilities tool with query "organization" to find the right tool, then call whichever tool it matches to tell me my organization name. Use search_capabilities first, do not skip it.',
+                "On the OpenWork Cloud Control MCP, find and tell me the name of my current organization.",
               )});
               editor.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
               return { ok: true };
@@ -314,13 +380,13 @@ export default {
             // Real LLM tool-calling latency: generous timeouts, two real
             // network calls (search, then execute) plus model reasoning.
             await ctx.waitForText("search capabilities", { timeoutMs: 90_000 });
-            await ctx.waitForText("getOrg", { timeoutMs: 60_000 });
+            await ctx.waitForText("execute capability", { timeoutMs: 60_000 });
             await ctx.waitForText(ctx.orgName, { timeoutMs: 60_000 });
             await ctx.expectNoText("Something went wrong");
           },
           screenshot: {
-            name: "chat-triggered-search-then-execute",
-            requireText: ["search capabilities", "getOrg", ctx.orgName],
+            name: "chat-triggered-minimal-surface",
+            requireText: ["search capabilities", "execute capability", ctx.orgName],
             rejectText: ["Something went wrong"],
           },
         });

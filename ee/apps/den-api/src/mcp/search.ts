@@ -1,14 +1,19 @@
-import type { McpToolOperation } from "./catalog.js"
+import { getParameters, hasJsonRequestBody, pathParameterNamesFromTemplate, type McpToolOperation } from "./catalog.js"
 
 /**
- * `search_capabilities` is the additive "search" half of a search+execute
- * facade laid on top of the existing OpenAPI-derived catalog (`catalog.ts`)
- * and its existing in-process "execute" path (`invoke.ts`).
+ * `search_capabilities` is the "search" half of a search+execute facade laid
+ * on top of the existing OpenAPI-derived catalog (`catalog.ts`) and its
+ * existing in-process "execute" path (`invoke.ts`).
  *
- * It does not introduce a new execution mechanism. It only ranks the *same*
- * tool catalog already registered in `index.ts` so a harness can ask a
- * question instead of receiving every tool at once, then call the matched
- * tool name directly via the normal MCP `tools/call` protocol.
+ * Two consumers use this:
+ * - The rich `/mcp` endpoint (`index.ts`), where matches are informational —
+ *   the harness can call the matched tool name directly, since every
+ *   catalog operation is also individually registered there.
+ * - The minimal `/mcp/agent` endpoint (`agent.ts`), where matches are the
+ *   *only* way to discover what's callable — that endpoint exposes nothing
+ *   but `search_capabilities` and a generic `execute_capability`, so each
+ *   match carries enough shape (`pathParams`/`queryParams`/`hasBody`) for the
+ *   caller to construct a valid `execute_capability` call without guessing.
  */
 
 export const SEARCH_CAPABILITIES_TOOL_NAME = "search_capabilities"
@@ -19,6 +24,12 @@ export type CapabilityMatch = {
   path: string
   score: number
   summary: string
+  /** Path parameter names this tool's `path` template requires, e.g. ["workerId"]. */
+  pathParams: string[]
+  /** Query parameter names this tool documents, if any. */
+  queryParams: string[]
+  /** Whether calling this tool requires a JSON `body`. */
+  hasBody: boolean
 }
 
 function tokenize(value: string): string[] {
@@ -82,6 +93,9 @@ export function searchCapabilities(
       path: operation.path,
       score: scoreOperation(operation, queryTokens),
       summary: summaryFor(operation),
+      pathParams: pathParameterNamesFromTemplate(operation.path),
+      queryParams: getParameters(operation.operation, "query").map((parameter) => parameter.name as string),
+      hasBody: hasJsonRequestBody(operation.operation),
     }))
     .filter((match) => match.score > 0)
     .sort((a, b) => (b.score - a.score) || a.name.localeCompare(b.name))

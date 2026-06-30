@@ -16,8 +16,11 @@ let catalogCache: { catalog: McpToolOperation[]; expiresAt: number } | null = nu
  * The tool catalog is derived from the OpenAPI document, which only changes
  * on deploy. Cache it briefly instead of self-fetching openapi.json and
  * rebuilding the catalog on every /mcp request.
+ *
+ * Exported so the minimal agent-facing endpoint (./agent.ts) shares this
+ * exact cache instead of re-fetching/rebuilding the catalog separately.
  */
-async function getCatalog(app: Hono, env: unknown) {
+export async function getCatalog(app: Hono, env: unknown) {
   if (catalogCache && catalogCache.expiresAt > Date.now()) {
     return catalogCache.catalog
   }
