@@ -206,6 +206,27 @@ export const GOOGLE_WORKSPACE_EXTENSION_ACTIONS = [
   },
   {
     extensionId: GOOGLE_WORKSPACE_EXTENSION_ID,
+    action: "drive_create_file",
+    title: "Create Drive file",
+    description: "Create a new file in Google Drive, either from inline text content or by uploading a local workspace file (binary-safe, e.g. .docx, .pdf, images).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Name for the new Drive file." },
+        content: { type: "string", description: "Inline plain text content for the new file. Provide this or path, not both." },
+        path: {
+          type: "string",
+          description: "Local file to upload as the new Drive file's content (binary-safe). Workspace-relative path or authorized absolute file path. Provide this or content, not both.",
+        },
+        mimeType: { type: "string", description: "Optional MIME type for the new file. Defaults to the source file's type when uploading a path, or text/plain for inline content." },
+        parentId: { type: "string", description: "Optional Drive folder id to create the file inside." },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    extensionId: GOOGLE_WORKSPACE_EXTENSION_ID,
     action: "calendar_create_event",
     title: "Create calendar event",
     description: "Create an event on the connected Google Calendar. Requires calendar editing access (calendar.events scope).",
@@ -621,6 +642,23 @@ function multipartRelatedBody(metadata: Record<string, unknown>, content: string
     "Content-Type: text/plain; charset=UTF-8",
     "",
     content,
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
+}
+
+function driveMultipartUploadBody(metadata: Record<string, unknown>, contentMimeType: string, content: string | Buffer, boundary: string): string {
+  const isBinary = Buffer.isBuffer(content);
+  return [
+    `--${boundary}`,
+    "Content-Type: application/json; charset=UTF-8",
+    "",
+    JSON.stringify(metadata),
+    `--${boundary}`,
+    `Content-Type: ${contentMimeType}`,
+    ...(isBinary ? ["Content-Transfer-Encoding: base64"] : []),
+    "",
+    isBinary ? base64MimeContent(content) : content,
     `--${boundary}--`,
     "",
   ].join("\r\n");
@@ -1110,6 +1148,37 @@ async function googleWorkspaceUpdateFile(config: ServerConfig, args: Record<stri
   });
 }
 
+async function googleWorkspaceCreateFile(config: ServerConfig, args: Record<string, unknown>, context: Record<string, unknown>) {
+  const name = readStringField(args, "name");
+  if (!name) throw new ApiError(400, "invalid_payload", "name is required");
+  const path = readStringField(args, "path");
+  const content = typeof args.content === "string" ? args.content : "";
+  if (!path && !content) throw new ApiError(400, "invalid_payload", "Either path or content is required");
+  if (path && content) throw new ApiError(400, "invalid_payload", "Provide only one of path or content, not both");
+  const requestedMimeType = readStringField(args, "mimeType");
+  const parentId = readStringField(args, "parentId");
+
+  let body: string | Buffer;
+  let mimeType: string;
+  if (path) {
+    const resolvedPath = await resolveGmailAttachmentPath(config, context, path);
+    body = await readFile(resolvedPath);
+    mimeType = gmailAttachmentMimeType(resolvedPath, requestedMimeType || undefined);
+  } else {
+    body = content;
+    mimeType = requestedMimeType || "text/plain";
+  }
+
+  const { accessToken } = await googleWorkspaceAccessToken(config);
+  const boundary = `openwork_${randomBytes(8).toString("hex")}`;
+  const metadata: Record<string, unknown> = { name, mimeType, ...(parentId ? { parents: [parentId] } : {}) };
+  return fetchGoogleJson("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,webViewLink,parents", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": `multipart/related; boundary=${boundary}` },
+    body: driveMultipartUploadBody(metadata, mimeType, body, boundary),
+  });
+}
+
 async function googleWorkspaceCreateEvent(config: ServerConfig, args: Record<string, unknown>) {
   const summary = readStringField(args, "summary");
   const start = readStringField(args, "start");
@@ -1193,6 +1262,7 @@ export async function callGoogleWorkspaceExtensionAction(config: ServerConfig, a
   if (action === "drive_search_files") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceSearchFiles(config, args), context };
   if (action === "drive_read_file") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceReadFile(config, args), context };
   if (action === "drive_update_file") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceUpdateFile(config, args), context };
+  if (action === "drive_create_file") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceCreateFile(config, args, context), context };
   if (action === "calendar_create_event") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceCreateEvent(config, args), context };
   if (action === "chat_list_spaces") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceListChatSpaces(config, args), context };
   if (action === "chat_list_messages") return { ok: true, extensionId: GOOGLE_WORKSPACE_EXTENSION_ID, action, result: await googleWorkspaceListChatMessages(config, args), context };
