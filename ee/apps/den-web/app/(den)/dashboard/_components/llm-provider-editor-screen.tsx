@@ -871,6 +871,26 @@ export function LlmProviderEditorScreen({
 
                         <label className="grid gap-3">
                             <span className="text-[14px] font-medium text-gray-700">
+                                API key / credential
+                            </span>
+                            <DenInput
+                                type="password"
+                                value={apiKey}
+                                onChange={(event) => setApiKey(event.target.value)}
+                                placeholder={
+                                    provider?.hasApiKey
+                                        ? "Leave blank to keep current credential"
+                                        : "Paste the provider credential"
+                                }
+                            />
+                        </label>
+                        <p className="-mt-3 text-[13px] text-gray-500">
+                            Used right away to check the endpoint and list the
+                            models it serves.
+                        </p>
+
+                        <label className="grid gap-3">
+                            <span className="text-[14px] font-medium text-gray-700">
                                 Base URL
                             </span>
                             <DenInput
@@ -910,7 +930,7 @@ export function LlmProviderEditorScreen({
                         ) : null}
                         {probeState === "idle" && customBaseUrl.trim() && !apiKey.trim() ? (
                             <p className="-mt-2 text-[13px] text-gray-500">
-                                Enter the API key below to load the models this endpoint serves.
+                                Enter the API key above to load the models this endpoint serves.
                             </p>
                         ) : null}
 
@@ -1046,36 +1066,40 @@ export function LlmProviderEditorScreen({
                 )}
             </section>
 
-            <section className="mb-8 rounded-[36px] border border-gray-200 bg-white p-8 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.24)]">
-                <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                        <h2 className="text-[24px] font-semibold tracking-[-0.05em] text-gray-950">
-                            Credential
-                        </h2>
+            {/* The guided custom form collects the credential inline (before
+                the endpoint, so the probe can run as the admin types). */}
+            {source === "custom" && customMode === "form" ? null : (
+                <section className="mb-8 rounded-[36px] border border-gray-200 bg-white p-8 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.24)]">
+                    <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                            <h2 className="text-[24px] font-semibold tracking-[-0.05em] text-gray-950">
+                                Credential
+                            </h2>
+                        </div>
+                        {provider?.hasApiKey ? (
+                            <span className="rounded-full bg-emerald-50 px-4 py-2 text-[13px] font-medium text-emerald-700">
+                                Existing credential saved
+                            </span>
+                        ) : null}
                     </div>
-                    {provider?.hasApiKey ? (
-                        <span className="rounded-full bg-emerald-50 px-4 py-2 text-[13px] font-medium text-emerald-700">
-                            Existing credential saved
-                        </span>
-                    ) : null}
-                </div>
 
-                <label className="grid gap-3">
-                    <span className="text-[14px] font-medium text-gray-700">
-                        API key / credential
-                    </span>
-                    <DenInput
-                        type="password"
-                        value={apiKey}
-                        onChange={(event) => setApiKey(event.target.value)}
-                        placeholder={
-                            provider?.hasApiKey
-                                ? "Leave blank to keep current credential"
-                                : "Paste the provider credential"
-                        }
-                    />
-                </label>
-            </section>
+                    <label className="grid gap-3">
+                        <span className="text-[14px] font-medium text-gray-700">
+                            API key / credential
+                        </span>
+                        <DenInput
+                            type="password"
+                            value={apiKey}
+                            onChange={(event) => setApiKey(event.target.value)}
+                            placeholder={
+                                provider?.hasApiKey
+                                    ? "Leave blank to keep current credential"
+                                    : "Paste the provider credential"
+                            }
+                        />
+                    </label>
+                </section>
+            )}
 
             {source === "models_dev" ? (
                 <section className="mb-8 rounded-[36px] border border-gray-200 bg-white p-8 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.24)]">

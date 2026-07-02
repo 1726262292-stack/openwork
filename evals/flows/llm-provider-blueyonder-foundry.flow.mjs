@@ -126,6 +126,15 @@ export default {
               ));
             },
             assert: async () => {
+              // The credential is asked for before the endpoint, so the probe
+              // can run the moment the URL is typed.
+              const keyBeforeUrl = await ctx.eval(`(() => {
+                const key = document.querySelector('input[type="password"]');
+                const url = document.querySelector('input[placeholder="https://my-resource.openai.azure.com/openai/v1"]');
+                if (!key || !url) return false;
+                return Boolean(key.compareDocumentPosition(url) & Node.DOCUMENT_POSITION_FOLLOWING);
+              })()`);
+              ctx.assert(keyBeforeUrl === true, "API key field is not before the Base URL field.");
               await ctx.waitForText("Endpoint reachable — 1 model available.", { timeoutMs: 45_000 });
               const healed = await ctx.eval(
                 `document.querySelector('input[placeholder="https://my-resource.openai.azure.com/openai/v1"]')?.value`,
