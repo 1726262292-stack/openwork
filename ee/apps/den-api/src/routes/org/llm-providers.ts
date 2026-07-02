@@ -14,7 +14,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { db } from "../../db.js"
 import { CustomProviderConfigError, normalizeCustomProviderConfig } from "../../llm/custom-provider.js"
-import { probeEndpoint } from "../../llm/endpoint-probe.js"
+import { probeEndpoint, verifyModels } from "../../llm/endpoint-probe.js"
 import {
   jsonValidator,
   orgMemberRoute,
@@ -96,6 +96,7 @@ const llmProviderWriteSchema = z.object({
 const endpointProbeRequestSchema = z.object({
   api: z.string().trim().min(1).max(2048),
   apiKey: z.string().trim().max(65535).optional(),
+  modelIds: z.array(z.string().trim().min(1).max(255)).max(8).optional(),
 })
 
 const endpointProbeResponseSchema = z.object({
@@ -108,6 +109,12 @@ const endpointProbeResponseSchema = z.object({
     hint: z.string().nullable(),
     status: z.number().nullable(),
   }),
+  verifications: z.array(z.object({
+    id: z.string(),
+    status: z.enum(["ok", "adjusted", "failed"]),
+    npm: z.enum(["@ai-sdk/openai-compatible", "@ai-sdk/openai"]),
+    message: z.string().nullable(),
+  })).optional(),
 }).meta({ ref: "LlmProviderTestConnectionResponse" })
 
 const providerCatalogListResponseSchema = z.object({
@@ -513,6 +520,14 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
     async (c) => {
       const input = c.req.valid("json")
       const result = await probeEndpoint({ api: input.api, apiKey: input.apiKey ?? "" })
+      if (result.ok && result.normalizedApi && input.modelIds?.length) {
+        const verifications = await verifyModels({
+          api: result.normalizedApi,
+          apiKey: input.apiKey ?? "",
+          modelIds: input.modelIds,
+        })
+        return c.json({ result, verifications })
+      }
       return c.json({ result })
     },
   )

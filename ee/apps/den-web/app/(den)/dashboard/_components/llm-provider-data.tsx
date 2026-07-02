@@ -365,6 +365,22 @@ export type LlmProviderProbeResult = {
   status: number | null;
 };
 
+export type LlmProviderModelVerification = {
+  id: string;
+  status: "ok" | "adjusted" | "failed";
+  npm: "@ai-sdk/openai-compatible" | "@ai-sdk/openai";
+  message: string | null;
+};
+
+function asModelVerification(value: unknown): LlmProviderModelVerification | null {
+  if (!isRecord(value)) return null;
+  const id = asString(value.id);
+  const status = value.status === "ok" || value.status === "adjusted" || value.status === "failed" ? value.status : null;
+  const npm = value.npm === "@ai-sdk/openai" ? "@ai-sdk/openai" : "@ai-sdk/openai-compatible";
+  if (!id || !status) return null;
+  return { id, status, npm, message: asString(value.message) };
+}
+
 function asProbeResult(value: unknown): LlmProviderProbeResult | null {
   if (!isRecord(value)) return null;
   const models = Array.isArray(value.models)
@@ -389,11 +405,16 @@ function asProbeResult(value: unknown): LlmProviderProbeResult | null {
  * Probe an OpenAI-compatible endpoint through den-api: heals common URL
  * mistakes and returns the model ids the endpoint actually serves.
  */
-export async function requestLlmProviderTestConnection(input: { api: string; apiKey?: string }) {
+export async function requestLlmProviderTestConnection(input: {
+  api: string;
+  apiKey?: string;
+  modelIds?: string[];
+}) {
+  const timeoutMs = input.modelIds?.length ? 60000 : 20000;
   const { response, payload } = await requestJson(
     `/v1/llm-providers/test-connection`,
     { method: "POST", body: JSON.stringify(input) },
-    20000,
+    timeoutMs,
   );
   if (!response.ok) {
     throw new Error(getErrorMessage(payload, `Endpoint test failed (${response.status}).`));
@@ -402,7 +423,12 @@ export async function requestLlmProviderTestConnection(input: { api: string; api
   if (!result) {
     throw new Error("Endpoint test returned an unexpected response.");
   }
-  return result;
+  const verifications = isRecord(payload) && Array.isArray(payload.verifications)
+    ? payload.verifications
+        .map(asModelVerification)
+        .filter((entry): entry is LlmProviderModelVerification => entry !== null)
+    : [];
+  return { ...result, verifications };
 }
 
 export async function requestLlmProviderCatalog(orgId: string) {

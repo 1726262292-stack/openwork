@@ -294,3 +294,137 @@ export async function probeEndpoint(input: {
     status: lastStatus,
   }
 }
+
+export type ModelVerification = {
+  id: string
+  /**
+   * ok       — works with the default openai-compatible request shape
+   * adjusted — works after switching to the OpenAI package request shape
+   *            (max_completion_tokens; GPT-5/o-series on Azure)
+   * failed   — neither shape produced a successful completion
+   */
+  status: "ok" | "adjusted" | "failed"
+  /** The AI SDK package the provider config should use for this model. */
+  npm: "@ai-sdk/openai-compatible" | "@ai-sdk/openai"
+  message: string | null
+}
+
+const VERIFY_TIMEOUT_MS = 20_000
+const MAX_VERIFY_MODELS = 8
+
+function truncate(value: string, max = 300): string {
+  return value.length <= max ? value : `${value.slice(0, max - 3)}...`
+}
+
+function readErrorMessage(payload: unknown): { message: string; param: string | null } {
+  if (isRecord(payload) && isRecord(payload.error)) {
+    const message = typeof payload.error.message === "string" ? payload.error.message : ""
+    const param = typeof payload.error.param === "string" ? payload.error.param : null
+    return { message, param }
+  }
+  return { message: "", param: null }
+}
+
+async function completionAttempt(
+  fetchImpl: FetchLike,
+  base: string,
+  apiKey: string,
+  modelId: string,
+  tokenParam: "max_tokens" | "max_completion_tokens",
+): Promise<{ ok: boolean; needsCompletionTokens: boolean; message: string | null }> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS)
+  try {
+    const response = await fetchImpl(`${base}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "api-key": apiKey,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [{ role: "user", content: "Reply with the single word: ok" }],
+        [tokenParam]: 16,
+      }),
+      signal: controller.signal,
+      redirect: "error",
+    })
+    if (response.ok) {
+      return { ok: true, needsCompletionTokens: false, message: null }
+    }
+    const payload = await readBoundedJson(response)
+    const { message, param } = readErrorMessage(payload)
+    const needsCompletionTokens =
+      response.status === 400 &&
+      (param === "max_tokens" || /max_completion_tokens/i.test(message))
+    return {
+      ok: false,
+      needsCompletionTokens,
+      message: truncate(message || `HTTP ${response.status}`),
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      needsCompletionTokens: false,
+      message: truncate(error instanceof Error ? error.message : "Request failed."),
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Send one tiny real completion per model to determine the request shape
+ * the model accepts. GPT-5/o-series models on Azure reject `max_tokens`
+ * (the openai-compatible default) and require `max_completion_tokens`
+ * (the OpenAI package behavior) — detected here so the editor can pick
+ * the right package automatically instead of surfacing a 400 in chat.
+ */
+export async function verifyModels(input: {
+  api: string
+  apiKey: string
+  modelIds: string[]
+  fetchImpl?: FetchLike
+  allowLoopback?: boolean
+}): Promise<ModelVerification[]> {
+  const fetchImpl: FetchLike = input.fetchImpl ?? ((url, init) => fetch(url, init))
+  const base = normalizeBase(input.api)
+  const ids = [...new Set(input.modelIds.map((id) => id.trim()).filter(Boolean))].slice(
+    0,
+    MAX_VERIFY_MODELS,
+  )
+  if (!base || ids.length === 0) return []
+  assertProbeUrlAllowed(base, { allowLoopback: input.allowLoopback })
+
+  const results: ModelVerification[] = []
+  for (const id of ids) {
+    const first = await completionAttempt(fetchImpl, base, input.apiKey, id, "max_tokens")
+    if (first.ok) {
+      results.push({ id, status: "ok", npm: "@ai-sdk/openai-compatible", message: null })
+      continue
+    }
+    if (first.needsCompletionTokens) {
+      const second = await completionAttempt(
+        fetchImpl,
+        base,
+        input.apiKey,
+        id,
+        "max_completion_tokens",
+      )
+      if (second.ok) {
+        results.push({
+          id,
+          status: "adjusted",
+          npm: "@ai-sdk/openai",
+          message: "Model requires max_completion_tokens; using the OpenAI request shape.",
+        })
+        continue
+      }
+      results.push({ id, status: "failed", npm: "@ai-sdk/openai", message: second.message })
+      continue
+    }
+    results.push({ id, status: "failed", npm: "@ai-sdk/openai-compatible", message: first.message })
+  }
+  return results
+}
