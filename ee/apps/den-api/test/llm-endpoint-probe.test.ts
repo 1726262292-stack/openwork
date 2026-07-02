@@ -125,6 +125,76 @@ describe("probeEndpoint", () => {
     expect(allowed.ok).toBe(true)
   })
 
+  test("Azure: prefers real deployment names over the /models catalog", async () => {
+    const calls: string[] = []
+    const result = await probeEndpoint({
+      api: "https://r.services.ai.azure.com/openai/v1",
+      apiKey: "k",
+      allowLoopback: false,
+      fetchImpl: async (url) => {
+        calls.push(url)
+        if (url.includes("/openai/deployments")) {
+          return jsonResponse(200, { data: [{ id: "gpt-5-mini", object: "deployment" }] })
+        }
+        // The Blue Yonder resource answers /models with the full Azure catalog.
+        return jsonResponse(200, modelsPayload(["gpt-5-mini-2025-08-07", "dall-e-3-3.0"]))
+      },
+    })
+    expect(result.ok).toBe(true)
+    expect(result.models.map((m) => m.id)).toEqual(["gpt-5-mini"])
+    expect(calls).toContain(
+      "https://r.services.ai.azure.com/openai/deployments?api-version=2023-03-15-preview",
+    )
+  })
+
+  test("Azure: falls back to the /models list when deployments is unavailable", async () => {
+    const result = await probeEndpoint({
+      api: "https://r.services.ai.azure.com/openai/v1",
+      apiKey: "k",
+      allowLoopback: false,
+      fetchImpl: async (url) => {
+        if (url.includes("/openai/deployments")) {
+          return jsonResponse(404, { error: { code: "404" } })
+        }
+        return jsonResponse(200, modelsPayload(["gpt-5-mini"]))
+      },
+    })
+    expect(result.ok).toBe(true)
+    expect(result.models.map((m) => m.id)).toEqual(["gpt-5-mini"])
+  })
+
+  test("Azure: salvages the probe from deployments when /models rejects", async () => {
+    const result = await probeEndpoint({
+      api: "https://r.services.ai.azure.com/openai/v1",
+      apiKey: "k",
+      allowLoopback: false,
+      fetchImpl: async (url) => {
+        if (url.includes("/openai/deployments")) {
+          return jsonResponse(200, { data: [{ id: "gpt-5-mini", object: "deployment" }] })
+        }
+        return jsonResponse(404, { error: { code: "404" } })
+      },
+    })
+    expect(result.ok).toBe(true)
+    expect(result.normalizedApi).toBe("https://r.services.ai.azure.com/openai/v1")
+    expect(result.models.map((m) => m.id)).toEqual(["gpt-5-mini"])
+  })
+
+  test("non-Azure endpoints never hit the deployments endpoint", async () => {
+    const calls: string[] = []
+    const result = await probeEndpoint({
+      api: "https://llm.example.com/v1",
+      apiKey: "k",
+      allowLoopback: false,
+      fetchImpl: async (url) => {
+        calls.push(url)
+        return jsonResponse(200, modelsPayload(["m"]))
+      },
+    })
+    expect(result.ok).toBe(true)
+    expect(calls).toEqual(["https://llm.example.com/v1/models"])
+  })
+
   test("network failure on every candidate yields the reachability hint", async () => {
     const result = await probeEndpoint({
       api: "https://nowhere.example.com/v1",

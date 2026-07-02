@@ -174,6 +174,52 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   }
 }
 
+const AZURE_DEPLOYMENTS_API_VERSION = "2023-03-15-preview"
+
+/**
+ * On Azure, `GET /openai/v1/models` often answers with the full Azure model
+ * catalog (hundreds of ids, most of them not deployed on the resource), while
+ * chat/completions only accepts *deployment* names. The legacy deployments
+ * endpoint lists what is actually deployed — exactly what the model picker
+ * needs — so it is preferred, with /models as the fallback.
+ */
+async function listAzureDeployments(
+  fetchImpl: FetchLike,
+  base: string,
+  apiKey: string,
+): Promise<string[] | null> {
+  let origin: string
+  try {
+    origin = new URL(base).origin
+  } catch {
+    return null
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
+  try {
+    const response = await fetchImpl(
+      `${origin}/openai/deployments?api-version=${AZURE_DEPLOYMENTS_API_VERSION}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "api-key": apiKey,
+        },
+        signal: controller.signal,
+        redirect: "error",
+      },
+    )
+    if (!response.ok) return null
+    const payload = await readBoundedJson(response)
+    const ids = parseModelIds(payload)
+    return ids && ids.length > 0 ? ids : null
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function parseModelIds(payload: unknown): string[] | null {
   if (!isRecord(payload)) return null
   const data = payload.data
@@ -269,18 +315,41 @@ export async function probeEndpoint(input: {
       const ids = parseModelIds(payload)
       if (!ids) continue
 
+      const deployments =
+        vendor === "azure" ? await listAzureDeployments(fetchImpl, base, input.apiKey) : null
+
       return {
         ok: true,
         vendor,
         normalizedApi: base,
         attempted,
-        models: ids.map((id) => ({ id })),
+        models: (deployments ?? ids).map((id) => ({ id })),
         hint: null,
         status: response.status,
       }
     } catch {
       // Network error or abort — try the next candidate.
       continue
+    }
+  }
+
+  // Azure resources sometimes reject /openai/v1/models entirely while the
+  // legacy deployments endpoint still answers — salvage the probe from it.
+  if (vendor === "azure") {
+    const origins = [...new Set(candidates.map((base) => new URL(base).origin))]
+    for (const origin of origins) {
+      const deployments = await listAzureDeployments(fetchImpl, `${origin}/openai/v1`, input.apiKey)
+      if (deployments) {
+        return {
+          ok: true,
+          vendor,
+          normalizedApi: `${origin}/openai/v1`,
+          attempted,
+          models: deployments.map((id) => ({ id })),
+          hint: null,
+          status: 200,
+        }
+      }
     }
   }
 
