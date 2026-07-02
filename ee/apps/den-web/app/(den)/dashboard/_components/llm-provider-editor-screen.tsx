@@ -36,6 +36,7 @@ import {
     buildEditableCustomProviderText,
     getProviderApiBase,
     requestLlmProviderTestConnection,
+    type LlmProviderModelVerification,
     type LlmProviderProbeResult,
     getProviderDocUrl,
     getProviderEnvNames,
@@ -116,6 +117,11 @@ export function LlmProviderEditorScreen({
     const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
     const [saveBusy, setSaveBusy] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
+    const [verifyBusy, setVerifyBusy] = useState(false);
+    const [verifyFailures, setVerifyFailures] = useState<LlmProviderModelVerification[]>([]);
+    // Verification outcome for the exact inputs it ran against, so a second
+    // click ("Save anyway") does not re-run completions.
+    const verifiedRef = useRef<{ key: string; npm: string } | null>(null);
 
     useEffect(() => {
         if (!orgId) {
@@ -320,6 +326,16 @@ export function LlmProviderEditorScreen({
             ? selectedCustomModelIds
             : parseGuidedModelIds(customModelsText);
 
+    // "Save anyway" stays armed only while the inputs still match the run
+    // that produced the failures; any edit re-verifies on the next save.
+    const currentVerifyKey = [
+        customBaseUrl.trim(),
+        apiKey.trim(),
+        resolvedCustomModelIds.join(","),
+    ].join("::");
+    const saveAnywayArmed =
+        verifyFailures.length > 0 && verifiedRef.current?.key === currentVerifyKey;
+
     // Probe the endpoint as soon as base URL + key are present (debounced):
     // heals common URL mistakes and loads the models the endpoint actually
     // serves, so users pick deployments instead of guessing ids.
@@ -464,6 +480,59 @@ export function LlmProviderEditorScreen({
             return;
         }
 
+        // Verify-on-save: run one real completion per picked model. Models
+        // that reject max_tokens (GPT-5/o-series on Azure) silently switch
+        // the provider to the OpenAI request shape; models that fail both
+        // shapes surface a per-model message and require "Save anyway".
+        let guidedNpm: string | null = null;
+        if (source === "custom" && customMode === "form" && apiKey.trim()) {
+            const verifyKey = [
+                customBaseUrl.trim(),
+                apiKey.trim(),
+                resolvedCustomModelIds.join(","),
+            ].join("::");
+            if (verifiedRef.current?.key === verifyKey) {
+                guidedNpm = verifiedRef.current.npm;
+            } else {
+                setSaveError(null);
+                setVerifyBusy(true);
+                setSaveBusy(true);
+                try {
+                    const result = await requestLlmProviderTestConnection({
+                        api: customBaseUrl.trim(),
+                        apiKey: apiKey.trim(),
+                        modelIds: resolvedCustomModelIds,
+                    });
+                    const verifications = result.verifications;
+                    const npm = verifications.some(
+                        (entry) => entry.status === "adjusted",
+                    )
+                        ? "@ai-sdk/openai"
+                        : "@ai-sdk/openai-compatible";
+                    verifiedRef.current = { key: verifyKey, npm };
+                    guidedNpm = npm;
+                    const failures = verifications.filter(
+                        (entry) => entry.status === "failed",
+                    );
+                    setVerifyFailures(failures);
+                    if (failures.length > 0) {
+                        setSaveError(
+                            "Some models did not answer a test completion. Fix the model list, or press Save anyway to keep them.",
+                        );
+                        return;
+                    }
+                } catch {
+                    // Verification is a safety net, not a gate: if the check
+                    // itself errors (network, timeout), fall through to save.
+                    verifiedRef.current = { key: verifyKey, npm: "@ai-sdk/openai-compatible" };
+                    setVerifyFailures([]);
+                } finally {
+                    setVerifyBusy(false);
+                    setSaveBusy(false);
+                }
+            }
+        }
+
         setSaveError(null);
         try {
             await runReauthableAction("save-llm-provider", async () => {
@@ -485,6 +554,7 @@ export function LlmProviderEditorScreen({
                     baseUrl: customBaseUrl,
                     modelIds: resolvedCustomModelIds,
                     envName: customEnvName,
+                    npm: guidedNpm,
                 });
             } else {
                 body.customConfigText = customConfigText;
@@ -618,13 +688,29 @@ export function LlmProviderEditorScreen({
                     loading={saveBusy}
                     onClick={() => void saveProvider()}
                 >
-                    {provider ? "Save Provider" : "Create Provider"}
+                    {verifyBusy
+                        ? "Verifying models..."
+                        : saveAnywayArmed
+                          ? "Save anyway"
+                          : provider
+                            ? "Save Provider"
+                            : "Create Provider"}
                 </DenButton>
             </div>
 
             {saveError ? (
                 <div className="mb-6 rounded-[28px] border border-red-200 bg-red-50 px-6 py-4 text-[14px] text-red-700">
-                    {saveError}
+                    <p>{saveError}</p>
+                    {saveAnywayArmed ? (
+                        <ul className="mt-2 grid gap-1">
+                            {verifyFailures.map((failure) => (
+                                <li key={failure.id}>
+                                    <span className="font-medium">{failure.id}</span>
+                                    {failure.message ? ` — ${failure.message}` : null}
+                                </li>
+                            ))}
+                        </ul>
+                    ) : null}
                 </div>
             ) : null}
 
