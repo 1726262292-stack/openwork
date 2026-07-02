@@ -62,6 +62,18 @@ const extensionsExportArgsSchema = z.object({
   workspaceId: z.string().trim().optional().describe("Optional OpenWork workspace id/name. Defaults to the workspace containing the current directory."),
 });
 
+const capabilitySearchArgsSchema = z.object({
+  query: z.string().trim().describe("What you want to do, in plain words — e.g. 'export mcp for marketplace' or 'save this as a skill'. Empty string lists everything."),
+  limit: z.number().int().min(1).max(20).optional().describe("Maximum capability cards to return (default 8)."),
+  workspaceId: z.string().trim().optional().describe("Optional OpenWork workspace id/name. Defaults to the workspace containing the current directory."),
+});
+
+const capabilityExecuteArgsSchema = z.object({
+  id: z.string().trim().min(1).describe("Capability id from openwork_search, e.g. 'extensions.export'."),
+  args: z.record(z.string(), z.unknown()).optional().describe("Arguments matching the capability's argsSchema."),
+  workspaceId: z.string().trim().optional().describe("Optional OpenWork workspace id/name. Defaults to the workspace containing the current directory."),
+});
+
 const workspaceSchema = z.object({
   id: z.string(),
   name: z.string().optional(),
@@ -114,6 +126,9 @@ const sessionMessagesEnvelopeSchema = z.object({
 
 const OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION =
   "If the user asks for something you cannot do with obvious built-in tools, check OpenWork extensions before saying the capability is unavailable. Use openwork_extension_list_actions to inspect available extension actions, then call the matching action with openwork_extension_call.";
+
+const OPENWORK_CAPABILITY_INSTRUCTION =
+  "OpenWork exposes workspace capabilities through search + execute: call openwork_search with what you want to do in plain words (e.g. 'export mcp for marketplace', 'save this as a skill'), then run the matching card with openwork_execute using its id and argsSchema. Capability cards state when to use them and what they touch (effects); write capabilities go through OpenWork's approval flow automatically. Prefer this over guessing at file layouts or internal config for skills, MCP connections, and portable exports.";
 
 const OPENWORK_UI_CONTROL_INSTRUCTION =
   `IMPORTANT: You are running inside the OpenWork desktop app. When the user asks you to open settings, navigate the app, add providers, or control the OpenWork UI in any way, ALWAYS use the openwork_ui_* tools — NOT the browser_* tools. The browser tools are for external websites only. The openwork_ui_* tools control the app directly and are instant (one tool call).
@@ -570,6 +585,32 @@ async function exportOpenWorkExtensions(rawArgs: unknown, context: OpenCodeConte
   return Object.assign(base, { result: payload });
 }
 
+async function searchOpenWorkCapabilities(rawArgs: unknown, context: OpenCodeContext): Promise<object> {
+  const args = capabilitySearchArgsSchema.parse(rawArgs);
+  const workspace = await resolveContextWorkspace(args.workspaceId, context);
+  const query = new URLSearchParams({ q: args.query, ...(args.limit ? { limit: String(args.limit) } : {}) });
+  const payload = await serverGet(`/workspace/${encodeURIComponent(workspace.id)}/capabilities/search?${query.toString()}`);
+  const base = { ok: true, workspaceId: workspace.id, workspace: workspaceLabel(workspace) };
+  if (typeof payload === "object" && payload !== null && !Array.isArray(payload)) {
+    return Object.assign(base, payload);
+  }
+  return Object.assign(base, { result: payload });
+}
+
+async function executeOpenWorkCapability(rawArgs: unknown, context: OpenCodeContext): Promise<object> {
+  const args = capabilityExecuteArgsSchema.parse(rawArgs);
+  const workspace = await resolveContextWorkspace(args.workspaceId, context);
+  const payload = await postJson(`/workspace/${encodeURIComponent(workspace.id)}/capabilities/execute`, {
+    id: args.id,
+    args: args.args ?? {},
+  });
+  const base = { ok: true, workspaceId: workspace.id, workspace: workspaceLabel(workspace) };
+  if (typeof payload === "object" && payload !== null && !Array.isArray(payload)) {
+    return Object.assign(base, payload);
+  }
+  return Object.assign(base, { result: payload });
+}
+
 async function postJson(path: string, body: ExtensionActionPayload | Record<string, unknown>): Promise<unknown> {
   const { url, token } = requireOpenWorkServer();
   const response = await fetch(url + path, {
@@ -600,6 +641,7 @@ function contextPayload(context: OpenCodeContext) {
 export const OpenWorkExtensionsPreview = async () => ({
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
     output.system.push(OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION);
+    output.system.push(OPENWORK_CAPABILITY_INSTRUCTION);
     output.system.push(OPENWORK_UI_CONTROL_INSTRUCTION);
   },
   tool: {
@@ -676,8 +718,30 @@ export const OpenWorkExtensionsPreview = async () => ({
         return JSON.stringify(result, null, 2);
       },
     },
+    openwork_search: {
+      description: `Search OpenWork's capability index by intent and get back capability cards (id, when to use, argsSchema, effects). ${OPENWORK_CAPABILITY_INSTRUCTION}`,
+      args: capabilitySearchArgsSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
+        try {
+          return JSON.stringify(await searchOpenWorkCapabilities(rawArgs, context), null, 2);
+        } catch (error) {
+          return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }, null, 2);
+        }
+      },
+    },
+    openwork_execute: {
+      description: `Execute an OpenWork capability by id with args matching its argsSchema. Use openwork_search first to find the right capability card. Write capabilities are approval-gated and audited by the server. ${OPENWORK_CAPABILITY_INSTRUCTION}`,
+      args: capabilityExecuteArgsSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
+        try {
+          return JSON.stringify(await executeOpenWorkCapability(rawArgs, context), null, 2);
+        } catch (error) {
+          return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }, null, 2);
+        }
+      },
+    },
     openwork_extensions_export: {
-      description: "Export portable definitions of installed skills and MCP servers from OpenWork, including OpenWork-managed runtime MCPs that are not visible as workspace files. Returns full SKILL.md content and MCP configs with secret header/environment values redacted (listed in redactedKeys). Use this when packaging skills/MCPs into a plugin or publishing them to a marketplace; declare redacted keys as required inputs instead of inlining values.",
+      description: "DEPRECATED: prefer openwork_search + openwork_execute with capability id 'extensions.export'. Export portable definitions of installed skills and MCP servers from OpenWork, including OpenWork-managed runtime MCPs that are not visible as workspace files. Returns full SKILL.md content and MCP configs with secret header/environment values redacted (listed in redactedKeys). Declare redacted keys as required inputs instead of inlining values.",
       args: extensionsExportArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         try {

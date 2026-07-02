@@ -9,6 +9,7 @@ import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plu
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
 import { exportExtensions } from "./extensions-export.js";
+import { getCapability, readExecuteArgs, searchCapabilities } from "./capabilities.js";
 import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
 import { installHubSkill, listHubSkills } from "./skill-hub.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
@@ -2170,6 +2171,63 @@ function createRoutes(
       mcps,
     });
     return jsonResponse(result);
+  });
+
+  // Search + Execute: intent-based discovery over capability cards, and a
+  // single execute gateway that owns scope checks, approvals, and audit.
+  // See apps/server/src/capabilities.ts for the pattern.
+  addRoute(routes, "GET", "/workspace/:id/capabilities/search", "client", async (ctx) => {
+    await resolveWorkspace(config, ctx.params.id);
+    const query = ctx.url.searchParams.get("q")?.trim() ?? "";
+    const limitRaw = Number.parseInt(ctx.url.searchParams.get("limit") ?? "", 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 20) : 8;
+    return jsonResponse({ items: searchCapabilities(query, limit) });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/capabilities/execute", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const capabilityId = typeof body.id === "string" ? body.id.trim() : "";
+    if (!capabilityId) {
+      throw new ApiError(400, "invalid_payload", "Capability id is required");
+    }
+    const capability = getCapability(capabilityId);
+    if (!capability) {
+      throw new ApiError(404, "capability_not_found", `Unknown capability: ${capabilityId}`);
+    }
+    const args = readExecuteArgs(body.args);
+    const context = { serverConfig: config, workspaceId: workspace.id, workspaceRoot: workspace.path };
+
+    if (capability.effects !== "read") {
+      ensureWritable(config);
+      requireClientScope(ctx, "collaborator");
+      const approval = capability.approval?.(context, args);
+      await requireApproval(ctx, {
+        workspaceId: workspace.id,
+        action: `capabilities.${capabilityId}`,
+        summary: approval?.summary ?? `Execute capability ${capabilityId}`,
+        paths: approval?.paths ?? [],
+      });
+    }
+
+    const result = await capability.run(context, args);
+
+    if (capability.effects !== "read") {
+      await recordAudit(workspace.path, {
+        id: shortId(),
+        workspaceId: workspace.id,
+        actor: ctx.actor ?? { type: "remote" },
+        action: `capabilities.${capabilityId}`,
+        target: capabilityId,
+        summary: `Executed capability ${capabilityId}`,
+        timestamp: Date.now(),
+      });
+    }
+    if (result.reload) {
+      emitReloadEvent(ctx.reloadEvents, workspace, result.reload.reason, result.reload.detail);
+    }
+
+    return jsonResponse({ ok: true, id: capabilityId, effects: capability.effects, result: result.output });
   });
 
   addRoute(routes, "POST", "/workspace/:id/mcp", "client", async (ctx) => {
