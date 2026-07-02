@@ -62,6 +62,7 @@ import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import {
   mergeOpencodeConfigs,
+  mergeRuntimeProviderUpdate,
   readRuntimeOpencodeConfig,
   runtimeMcpMap,
   type RuntimeOpencodeConfig,
@@ -1831,13 +1832,13 @@ function createRoutes(
       const { permission, provider, ...topLevelUpdates } = nextOpencode;
       const logicalUpdates: Record<string, unknown> = { ...topLevelUpdates };
 
-      const providerUpdate = ensurePlainObject(provider);
+      // Per-provider merge: record values upsert, explicit `null` deletes
+      // (mergeRuntimeProviderUpdate) — so clients can remove runtime-managed
+      // providers (e.g. cloud imports) without read-modify-write races.
+      const providerUpdate = isRecord(provider) ? provider : {};
       if (Object.keys(providerUpdate).length) {
         const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-        logicalUpdates.provider = {
-          ...(ensurePlainObject(currentRuntime.provider)),
-          ...providerUpdate,
-        };
+        logicalUpdates.provider = mergeRuntimeProviderUpdate(currentRuntime.provider, providerUpdate);
       }
 
       const permissionUpdate = ensurePlainObject(permission);
