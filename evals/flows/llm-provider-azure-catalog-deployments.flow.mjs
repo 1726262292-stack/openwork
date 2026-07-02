@@ -109,13 +109,14 @@ export default {
         await ctx.waitFor(`(() => {
           const listbox = document.querySelector('[role="listbox"]');
           if (!listbox) return false;
-          const options = [...listbox.querySelectorAll('[role="option"], button, div')].filter(
+          const options = [...listbox.querySelectorAll('button[role="option"]')].filter(
             (el) => (el.textContent ?? "").includes("Azure"),
           );
           options.sort((a, b) => (a.textContent ?? "").length - (b.textContent ?? "").length);
           const option = options[0];
           if (!option) return false;
-          option.click();
+          // The combobox selects on mousedown, not click.
+          option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
           return true;
         })()`, { timeoutMs: 15_000, label: "Azure option" });
         await ctx.prove("Before credentials, the models.dev Azure catalog renders (gpt-4o included)", {
@@ -123,6 +124,14 @@ export default {
           assert: async () => {
             await ctx.waitForText(CATALOG_NOISE, { timeoutMs: 30_000 });
             await ctx.expectText(DEPLOYMENT, { timeoutMs: 10_000 });
+            // Bring the models list into view so the frame shows it.
+            await ctx.eval(`(() => {
+              const el = [...document.querySelectorAll("h2")].find((h) =>
+                (h.textContent ?? "").trim() === "Models",
+              );
+              el?.scrollIntoView({ block: "start" });
+              return true;
+            })()`);
           },
           screenshot: {
             name: "catalog-models-dev-list",
@@ -153,6 +162,14 @@ export default {
               await ctx.waitForText("available on your Azure resource.", { timeoutMs: 60_000 });
               await ctx.expectText(DEPLOYMENT, { timeoutMs: 10_000 });
               await ctx.expectNoText(CATALOG_NOISE);
+              // Bring the models section into view so the frame shows it.
+              await ctx.eval(`(() => {
+                const el = [...document.querySelectorAll("p")].find((p) =>
+                  (p.textContent ?? "").includes("available on your Azure resource."),
+                );
+                el?.scrollIntoView({ block: "center" });
+                return true;
+              })()`);
             },
             screenshot: {
               name: "deployments-only",
