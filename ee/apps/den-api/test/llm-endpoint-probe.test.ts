@@ -139,3 +139,84 @@ describe("probeEndpoint", () => {
     expect(result.hint).toContain("reach")
   })
 })
+
+import { verifyModels } from "../src/llm/endpoint-probe.js"
+
+const azureMaxTokensError = () =>
+  jsonResponse(400, {
+    error: {
+      message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
+      type: "invalid_request_error",
+      param: "max_tokens",
+      code: "unsupported_parameter",
+    },
+  })
+
+describe("verifyModels", () => {
+  test("a classic model passes with the compatible request shape", async () => {
+    const results = await verifyModels({
+      api: "https://llm.example.com/v1",
+      apiKey: "k",
+      modelIds: ["classic"],
+      allowLoopback: false,
+      fetchImpl: async (url, init) => {
+        expect(url).toBe("https://llm.example.com/v1/chat/completions")
+        const body = JSON.parse(String(init.body))
+        expect(body.max_tokens).toBe(16)
+        return jsonResponse(200, { choices: [{ message: { content: "ok" } }] })
+      },
+    })
+    expect(results).toEqual([
+      { id: "classic", status: "ok", npm: "@ai-sdk/openai-compatible", message: null },
+    ])
+  })
+
+  test("a GPT-5-style model is auto-adjusted to the OpenAI request shape", async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    const results = await verifyModels({
+      api: "https://r.services.ai.azure.com/openai/v1",
+      apiKey: "k",
+      modelIds: ["gpt-5-mini"],
+      allowLoopback: false,
+      fetchImpl: async (_url, init) => {
+        const body = JSON.parse(String(init.body))
+        bodies.push(body)
+        if (body.max_tokens !== undefined) return azureMaxTokensError()
+        expect(body.max_completion_tokens).toBe(16)
+        return jsonResponse(200, { choices: [{ message: { content: "ok" } }] })
+      },
+    })
+    expect(bodies.length).toBe(2)
+    expect(results[0].status).toBe("adjusted")
+    expect(results[0].npm).toBe("@ai-sdk/openai")
+  })
+
+  test("a model failing both shapes reports the upstream message", async () => {
+    const results = await verifyModels({
+      api: "https://llm.example.com/v1",
+      apiKey: "k",
+      modelIds: ["broken"],
+      allowLoopback: false,
+      fetchImpl: async () =>
+        jsonResponse(404, { error: { message: "The API deployment for this resource does not exist.", code: "DeploymentNotFound" } }),
+    })
+    expect(results[0].status).toBe("failed")
+    expect(results[0].message).toContain("deployment")
+  })
+
+  test("dedupes and caps the model list", async () => {
+    let calls = 0
+    const results = await verifyModels({
+      api: "https://llm.example.com/v1",
+      apiKey: "k",
+      modelIds: ["a", "a", "b"],
+      allowLoopback: false,
+      fetchImpl: async () => {
+        calls += 1
+        return jsonResponse(200, {})
+      },
+    })
+    expect(results.length).toBe(2)
+    expect(calls).toBe(2)
+  })
+})
