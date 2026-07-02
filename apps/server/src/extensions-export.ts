@@ -39,14 +39,19 @@ export type ExtensionsExportResult = {
 
 const REDACTED_VALUE = "<redacted>";
 const SECRET_RECORD_KEYS = ["headers", "environment", "env"] as const;
+// Within an `oauth` record only secret-bearing keys are redacted; clientId
+// and scope must survive the export so installers can complete their own
+// sign-in with the same OAuth app.
+const OAUTH_SECRET_KEY_RE = /secret|token|password/i;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
- * Redact all header/environment values from an MCP config. Values are
- * replaced (not removed) so consumers still see which keys a server needs.
+ * Redact all header/environment values plus OAuth secrets from an MCP
+ * config. Values are replaced (not removed) so consumers still see which
+ * keys a server needs.
  */
 export function redactMcpConfig(config: Record<string, unknown>): {
   config: Record<string, unknown>;
@@ -63,6 +68,19 @@ export function redactMcpConfig(config: Record<string, unknown>): {
       redactedKeys.push(`${recordKey}.${key}`);
     }
     output[recordKey] = redacted;
+  }
+  const oauth = output.oauth;
+  if (isRecord(oauth)) {
+    const redacted: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(oauth)) {
+      if (OAUTH_SECRET_KEY_RE.test(key)) {
+        redacted[key] = REDACTED_VALUE;
+        redactedKeys.push(`oauth.${key}`);
+      } else {
+        redacted[key] = value;
+      }
+    }
+    output.oauth = redacted;
   }
   return { config: output, redactedKeys };
 }

@@ -83,6 +83,44 @@ describe("redactMcpConfig", () => {
     expect(config).toEqual({ type: "remote", url: "https://example.com/mcp" });
     expect(redactedKeys).toEqual([]);
   });
+
+  test("redacts oauth secrets but keeps clientId and scope", () => {
+    const { config, redactedKeys } = redactMcpConfig({
+      type: "remote",
+      url: "https://example.com/mcp",
+      oauth: { clientId: "acme-client", clientSecret: "shh-secret", scope: "read:incidents" },
+    });
+    expect(config.oauth).toEqual({
+      clientId: "acme-client",
+      clientSecret: "<redacted>",
+      scope: "read:incidents",
+    });
+    expect(redactedKeys).toEqual(["oauth.clientSecret"]);
+  });
+
+  test("redacts snake_case and token-bearing oauth keys", () => {
+    const { config, redactedKeys } = redactMcpConfig({
+      type: "remote",
+      url: "https://example.com/mcp",
+      oauth: { client_secret: "shh", refreshToken: "rt-1", accessToken: "at-1", clientId: "id-1" },
+    });
+    expect(config.oauth).toEqual({
+      client_secret: "<redacted>",
+      refreshToken: "<redacted>",
+      accessToken: "<redacted>",
+      clientId: "id-1",
+    });
+    expect(redactedKeys.sort()).toEqual(["oauth.accessToken", "oauth.client_secret", "oauth.refreshToken"]);
+  });
+
+  test("leaves oauth booleans and empty objects alone", () => {
+    const withEmpty = redactMcpConfig({ type: "remote", url: "https://x.example/mcp", oauth: {} });
+    expect(withEmpty.config.oauth).toEqual({});
+    expect(withEmpty.redactedKeys).toEqual([]);
+    const withFalse = redactMcpConfig({ type: "remote", url: "https://x.example/mcp", oauth: false });
+    expect(withFalse.config.oauth).toBe(false);
+    expect(withFalse.redactedKeys).toEqual([]);
+  });
 });
 
 describe("exportExtensions", () => {
