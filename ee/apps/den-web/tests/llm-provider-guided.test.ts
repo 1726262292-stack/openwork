@@ -131,6 +131,7 @@ describe("readGuidedCustomProviderFields", () => {
             baseUrl: "https://x.example.com/v1",
             modelIds: ["m1", "m2"],
             envNames: ["AZURE_FOUNDRY_API_KEY"],
+            npm: "@ai-sdk/openai-compatible",
         });
     });
 
@@ -145,7 +146,32 @@ describe("readGuidedCustomProviderFields", () => {
             baseUrl: "https://x.example.com/v1",
             modelIds: ["m1"],
             envNames: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+            npm: "@ai-sdk/openai-compatible",
         });
+    });
+
+    test("round-trips a verification-adjusted (OpenAI package) config", () => {
+        const generated = buildGuidedCustomProviderConfig({
+            providerId: "blueyonder-foundry",
+            name: "Blue Yonder Azure Foundry",
+            baseUrl: "https://blueyonder.services.ai.azure.com/openai/v1",
+            modelIds: ["gpt-5-mini"],
+            npm: "@ai-sdk/openai",
+        });
+        expect(generated.npm).toBe("@ai-sdk/openai");
+        expect(generated.env).toEqual(["BLUEYONDER_FOUNDRY_API_KEY"]);
+        expect(readGuidedCustomProviderFields(generated)?.npm).toBe("@ai-sdk/openai");
+    });
+
+    test("ignores npm packages outside the guided set", () => {
+        const generated = buildGuidedCustomProviderConfig({
+            providerId: "gateway",
+            name: "Gateway",
+            baseUrl: "https://llm.example.com/v1",
+            modelIds: ["m1"],
+            npm: "@ai-sdk/azure",
+        });
+        expect(generated.npm).toBe("@ai-sdk/openai-compatible");
     });
 
     test("falls back to JSON for configs the form cannot represent", () => {
@@ -196,6 +222,7 @@ describe("readGuidedCustomProviderFieldsFromText", () => {
             baseUrl: "https://llm.example.com/v1",
             modelIds: ["m1"],
             envNames: [],
+            npm: "@ai-sdk/openai-compatible",
         });
     });
 
