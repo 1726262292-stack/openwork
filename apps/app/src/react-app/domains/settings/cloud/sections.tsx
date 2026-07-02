@@ -791,6 +791,8 @@ export interface CloudProvidersSectionProps {
   actionKind: ResourceActionKind | null;
   busy: boolean;
   rows: CloudProviderRow[];
+  /** e.g. "Synced 42s ago" — from the background cloud sync sweep. */
+  lastSyncedLabel?: string | null;
   onImport: (cloudProviderId: string, providerName: string) => void | Promise<void>;
   onRefresh: () => void | Promise<void>;
   onRemove?: (cloudProviderId: string, providerName: string) => void | Promise<void>;
@@ -803,6 +805,7 @@ export function CloudProvidersSection({
   actionKind,
   busy,
   rows,
+  lastSyncedLabel,
   onImport,
   onRefresh,
   onRemove,
@@ -828,6 +831,9 @@ export function CloudProvidersSection({
           <SettingsSectionHeaderDescription>{t("den.cloud_providers_hint")}</SettingsSectionHeaderDescription>
         </SettingsSectionHeaderContent>
         <SettingsSectionHeaderActions>
+          {lastSyncedLabel ? (
+            <span className="text-[11px] text-muted-foreground">{lastSyncedLabel}</span>
+          ) : null}
           <RefreshButton
             busy={busy}
             disabled={[busy, !hasActiveOrg].some(Boolean)}

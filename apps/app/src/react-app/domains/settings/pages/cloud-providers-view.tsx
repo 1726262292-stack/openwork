@@ -3,6 +3,11 @@ import * as React from "react";
 import { toast } from "@/components/ui/sonner";
 
 import type { CloudImportedProvider } from "@/app/cloud/import-state";
+import {
+  cloudProvidersSyncedEvent,
+  formatSyncedAgo,
+  readCloudProvidersSyncedAt,
+} from "@/app/cloud/sync/sync-state";
 import type { DenOrgLlmProvider } from "@/app/lib/den";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -35,6 +40,28 @@ const sortStrings = (values: string[]) => values.toSorted();
 const sameStringList = (a: string[], b: string[]) =>
   a.length === b.length && a.every((value, index) => value === b[index]);
 
+function computeSyncedLabel(): string | null {
+  const syncedAt = readCloudProvidersSyncedAt();
+  return syncedAt === null ? null : formatSyncedAgo(syncedAt);
+}
+
+/** "Synced Xs ago" label, refreshed on sweep completion and every 10s. */
+function useLastSyncedLabel(): string | null {
+  const [label, setLabel] = React.useState<string | null>(computeSyncedLabel);
+
+  React.useEffect(() => {
+    const update = () => setLabel(computeSyncedLabel());
+    window.addEventListener(cloudProvidersSyncedEvent, update);
+    const timer = window.setInterval(update, 10_000);
+    return () => {
+      window.removeEventListener(cloudProvidersSyncedEvent, update);
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  return label;
+}
+
 export function CloudProvidersView({
   cloudOrgProviders,
   connectCloudProvider,
@@ -47,6 +74,7 @@ export function CloudProvidersView({
   session,
 }: CloudProvidersViewProps) {
   const { activeOrganization: activeOrg, authToken, isSignedIn, user } = useCloudSession();
+  const lastSyncedLabel = useLastSyncedLabel();
   const [busy, setBusy] = React.useState(false);
   const [actionId, setActionId] = React.useState<string | null>(null);
   const [actionKind, setActionKind] = React.useState<ProviderActionKind | null>(null);
@@ -228,6 +256,7 @@ export function CloudProvidersView({
       actionKind={actionKind}
       busy={busy}
       rows={rows}
+      lastSyncedLabel={lastSyncedLabel}
       onImport={importProvider}
       onRefresh={refresh}
       onRemove={undefined}

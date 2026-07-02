@@ -1453,6 +1453,35 @@ export function SessionRoute() {
     },
   }), [reloadCoordinator.canReloadWorkspaceEngine, reloadCoordinator.reloadWorkspaceEngine]);
 
+  const syncCloudConfigPaletteItem = useMemo<PaletteItem>(() => ({
+    id: "cloud-sync.force",
+    title: "Sync cloud config",
+    detail: "Pull org providers and models from OpenWork Cloud now",
+    meta: "Cloud",
+    searchText: "sync cloud config pull force refresh den providers models org llm now",
+    action: () => {
+      setCommandPaletteOpen(false);
+      void (async () => {
+        const settings = readDenSettings();
+        if (!settings.authToken?.trim() || !settings.activeOrgId?.trim()) {
+          toast.info("Sign in to OpenWork Cloud with an active org to sync cloud config.");
+          return;
+        }
+        try {
+          await sessionProviderAuthStore.runCloudProviderSync("manual");
+          const error = sessionProviderAuthStore.getSnapshot().providerAuthError;
+          if (error) {
+            toast.error(error);
+          } else {
+            toast.success("Cloud config synced.");
+          }
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "Cloud sync failed.");
+        }
+      })();
+    },
+  }), [sessionProviderAuthStore]);
+
   const handleReorderWorkspaces = useCallback((workspaceIds: string[]) => {
     const activeWorkspaceIds = new Set(workspacesRef.current.map((workspace) => workspace.id));
     const nextOrderIds: string[] = [];
@@ -2004,7 +2033,7 @@ export function SessionRoute() {
       currentSessionForGroupMove={currentSessionForGroupMove}
       currentSessionGroupId={currentSessionGroupId}
       onMoveCurrentSessionToGroup={handleMoveCurrentSessionToGroup}
-      extraItems={[sessionSearchPaletteItem, ...terminalPaletteItems, developerModePaletteItem, nextSessionTabPaletteItem, prevSessionTabPaletteItem, reloadConfigPaletteItem]}
+      extraItems={[sessionSearchPaletteItem, ...terminalPaletteItems, developerModePaletteItem, nextSessionTabPaletteItem, prevSessionTabPaletteItem, reloadConfigPaletteItem, syncCloudConfigPaletteItem]}
       listAgents={listAgents}
       selectedAgent={selectedAgent}
       onSelectAgent={setSelectedAgent}
