@@ -193,12 +193,16 @@ export default {
               await ctx.expectText("@ai-sdk/openai", { timeoutMs: 15_000 });
               await ctx.expectText(HEALED_API, { timeoutMs: 15_000 });
               await ctx.expectText(DEPLOYMENT, { timeoutMs: 10_000 });
-              const config = await ctx.eval(`(async () => {
+              const persisted = await ctx.eval(`(async () => {
                 const list = await (await fetch("/api/den/v1/llm-providers", { credentials: "include" })).json();
                 const provider = (list.llmProviders ?? []).find((p) => p.name === ${JSON.stringify(PROVIDER_NAME)});
-                return provider?.config ?? null;
+                if (!provider) return null;
+                const raw = provider.providerConfig;
+                const config = typeof raw === "string" ? JSON.parse(raw) : raw;
+                return { config, modelIds: (provider.models ?? []).map((m) => m.id) };
               })()`, { awaitPromise: true });
-              ctx.assert(config !== null, "Saved provider config not found via the API.");
+              ctx.assert(persisted !== null, "Saved provider config not found via the API.");
+              const { config, modelIds } = persisted;
               ctx.assert(config.npm === "@ai-sdk/openai", `Wrong npm package persisted: ${config?.npm}`);
               ctx.assert(config.api === HEALED_API, `Wrong api persisted: ${config?.api}`);
               ctx.assert(
@@ -206,10 +210,8 @@ export default {
                 `Wrong env persisted: ${JSON.stringify(config?.env)}`,
               );
               ctx.assert(
-                Array.isArray(config.models) &&
-                  config.models.length === 1 &&
-                  config.models[0].id === DEPLOYMENT,
-                `Wrong models persisted: ${JSON.stringify(config?.models)}`,
+                JSON.stringify(modelIds) === JSON.stringify([DEPLOYMENT]),
+                `Wrong models persisted: ${JSON.stringify(modelIds)}`,
               );
             },
             screenshot: {

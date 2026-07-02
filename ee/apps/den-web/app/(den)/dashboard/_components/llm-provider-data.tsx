@@ -92,6 +92,15 @@ function asStringList(value: unknown): string[] {
 }
 
 function asJsonRecord(value: unknown): Record<string, unknown> {
+  // Depending on the MySQL driver, JSON columns can come back as strings.
+  if (typeof value === "string") {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return isRecord(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
   return isRecord(value) ? value : {};
 }
 
