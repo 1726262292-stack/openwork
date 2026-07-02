@@ -23,4 +23,28 @@ describe("guided custom provider form contract", () => {
       "my-deployment-name",
     ])
   })
+
+  test("a form-generated config with several env keys keeps them all", () => {
+    const customConfig = buildGuidedCustomProviderConfig({
+      providerId: "bedrock-gateway",
+      name: "Bedrock Gateway",
+      baseUrl: "https://bedrock.example.com/v1",
+      modelIds: ["claude-fable-5"],
+      envNames: [
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_REGION",
+        "AWS_BEARER_TOKEN_BEDROCK",
+      ],
+    })
+
+    const normalized = normalizeCustomProviderConfig({ customConfig })
+
+    expect(normalized.providerConfig.env).toEqual([
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_REGION",
+      "AWS_BEARER_TOKEN_BEDROCK",
+    ])
+  })
 })

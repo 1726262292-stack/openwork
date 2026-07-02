@@ -18,7 +18,7 @@ export type GuidedCustomProviderFields = {
     providerId: string;
     baseUrl: string;
     modelIds: string[];
-    envName: string | null;
+    envNames: string[];
 };
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -89,14 +89,17 @@ export function buildGuidedCustomProviderConfig(input: {
     name: string;
     baseUrl: string;
     modelIds: string[];
-    envName?: string | null;
+    envNames?: string[] | null;
 }): JsonRecord {
     const providerId = input.providerId.trim();
+    const envNames = (input.envNames ?? [])
+        .map((entry) => entry.trim())
+        .filter(Boolean);
     return {
         id: providerId,
         name: input.name.trim() || providerId,
         npm: GUIDED_PROVIDER_NPM,
-        env: [input.envName?.trim() || buildGuidedProviderEnvName(providerId)],
+        env: envNames.length > 0 ? envNames : [buildGuidedProviderEnvName(providerId)],
         api: input.baseUrl.trim().replace(/\/+$/, ""),
         models: input.modelIds.map((modelId) => ({ id: modelId, name: modelId })),
     };
@@ -139,9 +142,6 @@ export function readGuidedCustomProviderFields(
     const env = Array.isArray(config.env)
         ? config.env.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
         : [];
-    if (env.length > 1) {
-        return null;
-    }
 
     const models = Array.isArray(config.models) ? config.models : null;
     if (!models || models.length === 0) {
@@ -177,8 +177,41 @@ export function readGuidedCustomProviderFields(
         providerId,
         baseUrl,
         modelIds,
-        envName: env[0] ?? null,
+        envNames: env,
     };
+}
+
+/**
+ * Leniently pull the env var names out of pasted provider JSON so the editor
+ * can render one credential input per env key even for configs too rich for
+ * the guided form. Returns [] when the text is unparsable or lists no env.
+ */
+export function readEnvNamesFromCustomProviderText(text: string): string[] {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(text);
+    } catch {
+        return [];
+    }
+
+    if (!isRecord(parsed)) {
+        return [];
+    }
+
+    let block: JsonRecord = parsed;
+    if (isRecord(parsed.provider)) {
+        const entries = Object.values(parsed.provider).filter(isRecord);
+        if (entries.length !== 1) {
+            return [];
+        }
+        block = entries[0];
+    }
+
+    return Array.isArray(block.env)
+        ? block.env.filter(
+              (entry): entry is string => typeof entry === "string" && entry.trim().length > 0,
+          )
+        : [];
 }
 
 /**

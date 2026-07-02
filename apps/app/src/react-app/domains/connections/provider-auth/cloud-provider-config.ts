@@ -62,6 +62,33 @@ const addCloudProviderComment = (
 export const getCloudProviderEnv = (config: Record<string, unknown>) =>
   getStringList(config.env);
 
+/**
+ * Split a connect payload's credential into the opencode auth.json entry and
+ * the env vars to upsert. Multi-env providers (`apiKeys`) set every value as
+ * an env var and use the first env-ordered value as the auth entry, following
+ * the models.dev convention that `env[0]` is the primary credential. Legacy
+ * single-credential payloads (`apiKey`) keep today's auth-only behaviour.
+ */
+export const resolveCloudProviderCredentials = (
+  provider: Pick<
+    DenOrgLlmProviderConnection,
+    "apiKey" | "apiKeys" | "providerConfig"
+  >,
+) => {
+  const apiKeys = provider.apiKeys ?? {};
+  const envNames = getCloudProviderEnv(provider.providerConfig);
+  const orderedNames = [
+    ...envNames.filter((name) => name in apiKeys),
+    ...Object.keys(apiKeys).filter((name) => !envNames.includes(name)),
+  ];
+  const envEntries = orderedNames.flatMap((name) => {
+    const value = apiKeys[name]?.trim();
+    return value ? [{ key: name, value }] : [];
+  });
+  const primaryApiKey = provider.apiKey?.trim() || envEntries[0]?.value || "";
+  return { envEntries, primaryApiKey };
+};
+
 export const getCloudManagedProviderId = (
   provider: Pick<DenOrgLlmProvider, "id" | "providerId" | "source">,
 ) => (provider.source === "openwork" ? "openwork" : provider.id.trim());

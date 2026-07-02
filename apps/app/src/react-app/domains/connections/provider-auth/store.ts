@@ -66,6 +66,7 @@ import {
   getProviderModelIds,
   isCloudManagedProviderKey,
   isCloudProviderOutOfSync,
+  resolveCloudProviderCredentials,
 } from "./cloud-provider-config";
 import { refreshDesktopCloudSync } from "../../../../app/cloud/desktop-cloud-sync";
 import { dispatchNewProviders } from "../../../../app/lib/provider-events";
@@ -1289,20 +1290,31 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       assertProviderAllowedByDesktopPolicy(provider.providerId);
       const existingImported = state.importedCloudProviders[cloudProviderId] ?? null;
       const localProviderId = getCloudManagedProviderId(provider);
-      const apiKey = provider.apiKey?.trim() ?? "";
+      const { envEntries, primaryApiKey } = resolveCloudProviderCredentials(provider);
       const env = getCloudProviderEnv(provider.providerConfig);
-      if (!apiKey && env.length > 0) {
+      if (!primaryApiKey && env.length > 0) {
         throw new Error(`${provider.name} does not have a stored organization credential yet.`);
       }
 
       await assertCloudProviderImportSafe(provider);
 
-      if (apiKey) {
+      if (envEntries.length > 0) {
+        const openworkClient = options.openworkServer.getSnapshot().openworkServerClient;
+        if (!openworkClient) {
+          throw new Error(
+            `${provider.name} needs environment variables (${envEntries
+              .map((entry) => entry.key)
+              .join(", ")}) but the OpenWork server is not available.`,
+          );
+        }
+        await openworkClient.upsertUserEnv(envEntries);
+      }
+      if (primaryApiKey) {
         await c.auth.set({
           providerID: localProviderId,
-          auth: { type: "api", key: apiKey },
+          auth: { type: "api", key: primaryApiKey },
         });
-        await mirrorOpenWorkModelsVoiceEnv(provider, apiKey);
+        await mirrorOpenWorkModelsVoiceEnv(provider, primaryApiKey);
       }
       if (existingImported?.providerId && existingImported.providerId !== localProviderId) {
         try {

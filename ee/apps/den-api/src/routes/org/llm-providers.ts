@@ -15,6 +15,13 @@ import { z } from "zod"
 import { db } from "../../db.js"
 import { CustomProviderConfigError, normalizeCustomProviderConfig } from "../../llm/custom-provider.js"
 import {
+  ProviderCredentialError,
+  decodeProviderCredential,
+  listConfiguredEnvKeys,
+  readProviderEnvNames,
+  resolveProviderCredential,
+} from "../../llm/provider-credentials.js"
+import {
   jsonValidator,
   orgMemberRoute,
   paramValidator,
@@ -62,6 +69,7 @@ const llmProviderWriteSchema = z.object({
   customConfigText: z.string().trim().min(1).optional(),
   customConfig: z.unknown().optional(),
   apiKey: z.string().trim().max(65535).optional(),
+  apiKeys: z.record(z.string().trim().min(1).max(255), z.string().trim().max(65535)).optional(),
   memberIds: z.array(denTypeIdSchema("member")).max(500).optional().default([]),
   teamIds: z.array(denTypeIdSchema("team")).max(500).optional().default([]),
 }).superRefine((value, ctx) => {
@@ -258,7 +266,37 @@ async function resolveTeamIds(input: {
   return teamIds
 }
 
-async function normalizeLlmProviderInput(input: z.infer<typeof llmProviderWriteSchema>) {
+function resolveCredentialColumn(input: {
+  providerConfig: Record<string, unknown>
+  existingProvider: Pick<LlmProviderRow, "apiKey" | "providerConfig"> | null
+  apiKey?: string
+  apiKeys?: Record<string, string>
+}) {
+  try {
+    return resolveProviderCredential({
+      envNames: readProviderEnvNames(input.providerConfig),
+      existing: input.existingProvider
+        ? {
+            value: input.existingProvider.apiKey,
+            envNames: readProviderEnvNames(input.existingProvider.providerConfig ?? {}),
+          }
+        : null,
+      apiKey: input.apiKey,
+      apiKeys: input.apiKeys,
+    })
+  } catch (error) {
+    if (error instanceof ProviderCredentialError) {
+      throw createFailure(400, "invalid_api_keys", error.message)
+    }
+
+    throw error
+  }
+}
+
+async function normalizeLlmProviderInput(
+  input: z.infer<typeof llmProviderWriteSchema>,
+  existingProvider: Pick<LlmProviderRow, "apiKey" | "providerConfig"> | null = null,
+) {
   if (input.source === "models_dev") {
     const provider = await getModelsDevProvider(input.providerId ?? "")
     if (!provider) {
@@ -275,8 +313,6 @@ async function normalizeLlmProviderInput(input: z.infer<typeof llmProviderWriteS
       return model
     })
 
-    const apiKey = input.apiKey?.trim() || null
-
     return {
       source: input.source,
       providerId: provider.id,
@@ -287,7 +323,12 @@ async function normalizeLlmProviderInput(input: z.infer<typeof llmProviderWriteS
         name: model.name,
         config: model.config,
       })),
-      apiKey,
+      apiKey: resolveCredentialColumn({
+        providerConfig: provider.config,
+        existingProvider,
+        apiKey: input.apiKey,
+        apiKeys: input.apiKeys,
+      }),
     }
   }
 
@@ -303,7 +344,12 @@ async function normalizeLlmProviderInput(input: z.infer<typeof llmProviderWriteS
       name: input.name,
       providerConfig: customProvider.providerConfig,
       models: customProvider.models,
-      apiKey: input.apiKey?.trim() || null,
+      apiKey: resolveCredentialColumn({
+        providerConfig: customProvider.providerConfig,
+        existingProvider,
+        apiKey: input.apiKey,
+        apiKeys: input.apiKeys,
+      }),
     }
   } catch (error) {
     if (error instanceof CustomProviderConfigError) {
@@ -441,6 +487,7 @@ async function loadLlmProviders(input: {
   return providers.map((provider) => ({
     ...provider,
     hasApiKey: Boolean(provider.apiKey && provider.apiKey.trim().length > 0),
+    configuredEnvKeys: listConfiguredEnvKeys(provider.apiKey, readProviderEnvNames(provider.providerConfig ?? {})),
     models: (modelsByProviderId.get(provider.id) ?? [])
       .map((model) => ({
         id: model.modelId,
@@ -647,9 +694,17 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
         .from(LlmProviderModelTable)
         .where(eq(LlmProviderModelTable.llmProviderId, llmProviderId))
 
+      // Decode the stored credential so the wire format stays additive: legacy
+      // single-secret providers keep returning `apiKey`, multi-env providers
+      // return `apiKeys` with `apiKey: null` so old clients fail with their
+      // missing-credential error instead of applying a JSON blob as the key.
+      const credential = decodeProviderCredential(provider.apiKey)
+
       return c.json({
         llmProvider: {
           ...provider,
+          apiKey: credential.apiKey,
+          apiKeys: credential.apiKeys,
           models: models
             .map((model) => ({
               id: model.modelId,
@@ -756,6 +811,7 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
             name: normalized.name,
             providerConfig: normalized.providerConfig,
             hasApiKey: Boolean(normalized.apiKey),
+            configuredEnvKeys: listConfiguredEnvKeys(normalized.apiKey, readProviderEnvNames(normalized.providerConfig)),
             createdAt: now,
             updatedAt: now,
           },
@@ -828,7 +884,7 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
       }
 
       try {
-        const normalized = await normalizeLlmProviderInput(input)
+        const normalized = await normalizeLlmProviderInput(input, provider)
         const memberIds = await resolveMemberIds({
           organizationId: payload.organization.id,
           values: input.memberIds,
@@ -848,7 +904,7 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
               providerId: normalized.providerId,
               name: normalized.name,
               providerConfig: normalized.providerConfig,
-              apiKey: input.apiKey === undefined ? provider.apiKey : normalized.apiKey,
+              apiKey: normalized.apiKey,
               updatedAt,
             })
             .where(eq(LlmProviderTable.id, provider.id))
@@ -898,7 +954,9 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
             providerId: normalized.providerId,
             name: normalized.name,
             providerConfig: normalized.providerConfig,
-            hasApiKey: input.apiKey === undefined ? Boolean(provider.apiKey) : Boolean(normalized.apiKey),
+            apiKey: undefined,
+            hasApiKey: Boolean(normalized.apiKey),
+            configuredEnvKeys: listConfiguredEnvKeys(normalized.apiKey, readProviderEnvNames(normalized.providerConfig)),
             updatedAt,
           },
         })

@@ -25,7 +25,9 @@ import {
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import {
     buildGuidedCustomProviderConfig,
+    buildGuidedProviderEnvName,
     parseGuidedModelIds,
+    readEnvNamesFromCustomProviderText,
     readGuidedCustomProviderFields,
     readGuidedCustomProviderFieldsFromText,
     slugifyProviderId,
@@ -101,9 +103,10 @@ export function LlmProviderEditorScreen({
     const [customProviderIdTouched, setCustomProviderIdTouched] = useState(false);
     const [customBaseUrl, setCustomBaseUrl] = useState("");
     const [customModelsText, setCustomModelsText] = useState("");
-    const [customEnvName, setCustomEnvName] = useState<string | null>(null);
+    const [customEnvNames, setCustomEnvNames] = useState<string[]>([]);
     const [customJsonHint, setCustomJsonHint] = useState<string | null>(null);
     const [apiKey, setApiKey] = useState("");
+    const [apiKeyValues, setApiKeyValues] = useState<Record<string, string>>({});
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
     const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
     const [saveBusy, setSaveBusy] = useState(false);
@@ -175,13 +178,14 @@ export function LlmProviderEditorScreen({
                     setCustomProviderIdTouched(true);
                     setCustomBaseUrl(guided.baseUrl);
                     setCustomModelsText(guided.modelIds.join("\n"));
-                    setCustomEnvName(guided.envName);
+                    setCustomEnvNames(guided.envNames);
                 } else {
                     setCustomMode("json");
                 }
             }
             setCustomJsonHint(null);
             setApiKey("");
+            setApiKeyValues({});
             return;
         }
 
@@ -199,9 +203,10 @@ export function LlmProviderEditorScreen({
         setCustomProviderIdTouched(false);
         setCustomBaseUrl("");
         setCustomModelsText("");
-        setCustomEnvName(null);
+        setCustomEnvNames([]);
         setCustomJsonHint(null);
         setApiKey("");
+        setApiKeyValues({});
     }, [orgContext?.currentMember.id, provider]);
 
     useEffect(() => {
@@ -305,6 +310,24 @@ export function LlmProviderEditorScreen({
         ? customProviderId.trim()
         : slugifyProviderId(providerName);
 
+    // The env var names the selected provider reads. More than one name means
+    // the credential section renders one input per env key and saves them as
+    // an `apiKeys` map instead of the single legacy `apiKey` string.
+    const credentialEnvNames =
+        source === "models_dev"
+            ? catalogDetail
+                ? getProviderEnvNames(catalogDetail.config)
+                : provider && provider.source === "models_dev"
+                  ? getProviderEnvNames(provider.providerConfig)
+                  : []
+            : customMode === "form"
+              ? customEnvNames.length > 0
+                  ? customEnvNames
+                  : resolvedCustomProviderId
+                    ? [buildGuidedProviderEnvName(resolvedCustomProviderId)]
+                    : []
+              : readEnvNamesFromCustomProviderText(customConfigText);
+
     function switchCustomModeToJson() {
         const modelIds = parseGuidedModelIds(customModelsText);
         if (!validateGuidedCustomProvider({
@@ -319,7 +342,7 @@ export function LlmProviderEditorScreen({
                         name: providerName,
                         baseUrl: customBaseUrl,
                         modelIds,
-                        envName: customEnvName,
+                        envNames: customEnvNames,
                     }),
                     null,
                     2,
@@ -342,7 +365,7 @@ export function LlmProviderEditorScreen({
         setCustomProviderIdTouched(true);
         setCustomBaseUrl(guided.baseUrl);
         setCustomModelsText(guided.modelIds.join("\n"));
-        setCustomEnvName(guided.envName);
+        setCustomEnvNames(guided.envNames);
         setCustomJsonHint(null);
         setCustomMode("form");
     }
@@ -411,13 +434,22 @@ export function LlmProviderEditorScreen({
                     name: providerName,
                     baseUrl: customBaseUrl,
                     modelIds: parseGuidedModelIds(customModelsText),
-                    envName: customEnvName,
+                    envNames: customEnvNames,
                 });
             } else {
                 body.customConfigText = customConfigText;
             }
 
-            if (apiKey.trim() || !provider) {
+            if (credentialEnvNames.length > 1) {
+                // Per-env values. Blank inputs are omitted so the server keeps
+                // whatever is already stored for those env keys.
+                const entries = credentialEnvNames
+                    .map((envName) => [envName, (apiKeyValues[envName] ?? "").trim()] as const)
+                    .filter(([, value]) => value.length > 0);
+                if (entries.length > 0) {
+                    body.apiKeys = Object.fromEntries(entries);
+                }
+            } else if (apiKey.trim() || !provider) {
                 body.apiKey = apiKey.trim();
             }
 
@@ -810,21 +842,65 @@ export function LlmProviderEditorScreen({
                     ) : null}
                 </div>
 
-                <label className="grid gap-3">
-                    <span className="text-[14px] font-medium text-gray-700">
-                        API key / credential
-                    </span>
-                    <DenInput
-                        type="password"
-                        value={apiKey}
-                        onChange={(event) => setApiKey(event.target.value)}
-                        placeholder={
-                            provider?.hasApiKey
-                                ? "Leave blank to keep current credential"
-                                : "Paste the provider credential"
-                        }
-                    />
-                </label>
+                {credentialEnvNames.length > 1 ? (
+                    <div className="grid gap-6">
+                        <p className="text-[14px] text-gray-500">
+                            This provider reads several environment variables.
+                            Add a value for each one — values left blank keep
+                            what is already saved.
+                        </p>
+                        {credentialEnvNames.map((envName) => {
+                            const configured =
+                                provider?.configuredEnvKeys.includes(envName) ??
+                                false;
+                            return (
+                                <label key={envName} className="grid gap-3">
+                                    <span className="flex flex-wrap items-center gap-2 text-[14px] font-medium text-gray-700">
+                                        <code className="rounded bg-gray-100 px-2 py-0.5 font-mono text-[12px]">
+                                            {envName}
+                                        </code>
+                                        {configured ? (
+                                            <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700">
+                                                Saved
+                                            </span>
+                                        ) : null}
+                                    </span>
+                                    <DenInput
+                                        type="password"
+                                        value={apiKeyValues[envName] ?? ""}
+                                        onChange={(event) =>
+                                            setApiKeyValues((current) => ({
+                                                ...current,
+                                                [envName]: event.target.value,
+                                            }))
+                                        }
+                                        placeholder={
+                                            configured
+                                                ? "Leave blank to keep current value"
+                                                : `Paste the ${envName} value`
+                                        }
+                                    />
+                                </label>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <label className="grid gap-3">
+                        <span className="text-[14px] font-medium text-gray-700">
+                            API key / credential
+                        </span>
+                        <DenInput
+                            type="password"
+                            value={apiKey}
+                            onChange={(event) => setApiKey(event.target.value)}
+                            placeholder={
+                                provider?.hasApiKey
+                                    ? "Leave blank to keep current credential"
+                                    : "Paste the provider credential"
+                            }
+                        />
+                    </label>
+                )}
             </section>
 
             {source === "models_dev" ? (

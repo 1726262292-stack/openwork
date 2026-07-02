@@ -4,6 +4,7 @@ import {
     buildGuidedCustomProviderConfig,
     buildGuidedProviderEnvName,
     parseGuidedModelIds,
+    readEnvNamesFromCustomProviderText,
     readGuidedCustomProviderFields,
     readGuidedCustomProviderFieldsFromText,
     slugifyProviderId,
@@ -81,15 +82,30 @@ describe("buildGuidedCustomProviderConfig", () => {
         });
     });
 
-    test("preserves an existing env name when provided", () => {
+    test("preserves existing env names when provided", () => {
         const config = buildGuidedCustomProviderConfig({
             providerId: "renamed",
             name: "Renamed",
             baseUrl: "https://x.example.com/v1",
             modelIds: ["m"],
-            envName: "ORIGINAL_API_KEY",
+            envNames: ["ORIGINAL_API_KEY"],
         });
         expect(config.env).toEqual(["ORIGINAL_API_KEY"]);
+    });
+
+    test("preserves several env names when provided", () => {
+        const config = buildGuidedCustomProviderConfig({
+            providerId: "bedrock-gateway",
+            name: "Bedrock Gateway",
+            baseUrl: "https://x.example.com/v1",
+            modelIds: ["m"],
+            envNames: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"],
+        });
+        expect(config.env).toEqual([
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_REGION",
+        ]);
     });
 });
 
@@ -114,7 +130,21 @@ describe("readGuidedCustomProviderFields", () => {
             providerId: "azure-foundry",
             baseUrl: "https://x.example.com/v1",
             modelIds: ["m1", "m2"],
-            envName: "AZURE_FOUNDRY_API_KEY",
+            envNames: ["AZURE_FOUNDRY_API_KEY"],
+        });
+    });
+
+    test("keeps configs with several env names in the guided form", () => {
+        expect(
+            readGuidedCustomProviderFields({
+                ...simple,
+                env: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+            }),
+        ).toEqual({
+            providerId: "azure-foundry",
+            baseUrl: "https://x.example.com/v1",
+            modelIds: ["m1"],
+            envNames: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         });
     });
 
@@ -165,11 +195,39 @@ describe("readGuidedCustomProviderFieldsFromText", () => {
             providerId: "gateway",
             baseUrl: "https://llm.example.com/v1",
             modelIds: ["m1"],
-            envName: null,
+            envNames: [],
         });
     });
 
     test("returns null for invalid JSON", () => {
         expect(readGuidedCustomProviderFieldsFromText("{ nope")).toBeNull();
+    });
+});
+
+describe("readEnvNamesFromCustomProviderText", () => {
+    test("reads env names from a bare provider block", () => {
+        const text = JSON.stringify({
+            id: "bedrock",
+            env: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"],
+        });
+        expect(readEnvNamesFromCustomProviderText(text)).toEqual([
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_REGION",
+        ]);
+    });
+
+    test("reads env names through an opencode-style wrapper", () => {
+        const text = JSON.stringify({
+            provider: { bedrock: { env: ["AWS_BEARER_TOKEN_BEDROCK"] } },
+        });
+        expect(readEnvNamesFromCustomProviderText(text)).toEqual([
+            "AWS_BEARER_TOKEN_BEDROCK",
+        ]);
+    });
+
+    test("returns [] for invalid JSON or missing env", () => {
+        expect(readEnvNamesFromCustomProviderText("{ nope")).toEqual([]);
+        expect(readEnvNamesFromCustomProviderText(JSON.stringify({ id: "x" }))).toEqual([]);
     });
 });
