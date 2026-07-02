@@ -331,6 +331,9 @@ importers:
       '@opentui/core-linux-x64':
         specifier: 0.1.77
         version: 0.1.77
+      '@opentui/core-win32-arm64':
+        specifier: 0.1.77
+        version: 0.1.77
       '@opentui/core-win32-x64':
         specifier: 0.1.77
         version: 0.1.77
@@ -11824,8 +11827,7 @@ snapshots:
 
   '@opentui/core-linux-x64@0.1.77': {}
 
-  '@opentui/core-win32-arm64@0.1.77':
-    optional: true
+  '@opentui/core-win32-arm64@0.1.77': {}
 
   '@opentui/core-win32-x64@0.1.77': {}
 
