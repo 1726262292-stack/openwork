@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
     ArrowLeft,
     CodeXml,
@@ -35,9 +35,6 @@ import {
     buildCustomProviderTemplate,
     buildEditableCustomProviderText,
     getProviderApiBase,
-    requestLlmProviderTestConnection,
-    type LlmProviderModelVerification,
-    type LlmProviderProbeResult,
     getProviderDocUrl,
     getProviderEnvNames,
     getProviderNpmPackage,
@@ -106,22 +103,11 @@ export function LlmProviderEditorScreen({
     const [customModelsText, setCustomModelsText] = useState("");
     const [customEnvName, setCustomEnvName] = useState<string | null>(null);
     const [customJsonHint, setCustomJsonHint] = useState<string | null>(null);
-    const [probeState, setProbeState] = useState<"idle" | "probing" | "ok" | "failed">("idle");
-    const [probeResult, setProbeResult] = useState<LlmProviderProbeResult | null>(null);
-    const [selectedCustomModelIds, setSelectedCustomModelIds] = useState<string[]>([]);
-    const [customModelQuery, setCustomModelQuery] = useState("");
-    const [customManualModels, setCustomManualModels] = useState(false);
-    const lastProbeKeyRef = useRef("");
     const [apiKey, setApiKey] = useState("");
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
     const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
     const [saveBusy, setSaveBusy] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
-    const [verifyBusy, setVerifyBusy] = useState(false);
-    const [verifyFailures, setVerifyFailures] = useState<LlmProviderModelVerification[]>([]);
-    // Verification outcome for the exact inputs it ran against, so a second
-    // click ("Save anyway") does not re-run completions.
-    const verifiedRef = useRef<{ key: string; npm: string } | null>(null);
 
     useEffect(() => {
         if (!orgId) {
@@ -319,83 +305,8 @@ export function LlmProviderEditorScreen({
         ? customProviderId.trim()
         : slugifyProviderId(providerName);
 
-    // Models used for save/validation: picked from the probed endpoint list
-    // when available, or parsed from the manual text fallback.
-    const resolvedCustomModelIds =
-        probeState === "ok" && !customManualModels
-            ? selectedCustomModelIds
-            : parseGuidedModelIds(customModelsText);
-
-    // "Save anyway" stays armed only while the inputs still match the run
-    // that produced the failures; any edit re-verifies on the next save.
-    const currentVerifyKey = [
-        customBaseUrl.trim(),
-        apiKey.trim(),
-        resolvedCustomModelIds.join(","),
-    ].join("::");
-    const saveAnywayArmed =
-        verifyFailures.length > 0 && verifiedRef.current?.key === currentVerifyKey;
-
-    // Probe the endpoint as soon as base URL + key are present (debounced):
-    // heals common URL mistakes and loads the models the endpoint actually
-    // serves, so users pick deployments instead of guessing ids.
-    useEffect(() => {
-        if (source !== "custom" || customMode !== "form") return;
-        const api = customBaseUrl.trim();
-        const key = apiKey.trim();
-        if (!api || !key) {
-            setProbeState("idle");
-            setProbeResult(null);
-            return;
-        }
-        const probeKey = `${api}::${key}`;
-        if (lastProbeKeyRef.current === probeKey) return;
-        const timer = window.setTimeout(() => {
-            lastProbeKeyRef.current = probeKey;
-            setProbeState("probing");
-            requestLlmProviderTestConnection({ api, apiKey: key })
-                .then((result) => {
-                    if (lastProbeKeyRef.current !== probeKey) return;
-                    setProbeResult(result);
-                    setProbeState(result.ok ? "ok" : "failed");
-                    if (result.ok) {
-                        if (result.normalizedApi && result.normalizedApi !== api) {
-                            // Pre-mark the healed URL as probed so updating the
-                            // field does not schedule a redundant probe.
-                            lastProbeKeyRef.current = `${result.normalizedApi}::${key}`;
-                            setCustomBaseUrl(result.normalizedApi);
-                        }
-                        // Keep previously chosen/stored ids selected when they
-                        // still exist on the endpoint.
-                        setSelectedCustomModelIds((current) => {
-                            const base = current.length
-                                ? current
-                                : parseGuidedModelIds(customModelsText);
-                            return base.filter((id) =>
-                                result.models.some((model) => model.id === id),
-                            );
-                        });
-                    }
-                })
-                .catch(() => {
-                    if (lastProbeKeyRef.current !== probeKey) return;
-                    setProbeResult(null);
-                    setProbeState("failed");
-                });
-        }, 700);
-        return () => window.clearTimeout(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- probe on endpoint/key edits only
-    }, [source, customMode, customBaseUrl, apiKey]);
-
-    const filteredProbeModels = useMemo(() => {
-        const models = probeResult?.models ?? [];
-        const query = customModelQuery.trim().toLowerCase();
-        if (!query) return models;
-        return models.filter((model) => model.id.toLowerCase().includes(query));
-    }, [customModelQuery, probeResult?.models]);
-
     function switchCustomModeToJson() {
-        const modelIds = resolvedCustomModelIds;
+        const modelIds = parseGuidedModelIds(customModelsText);
         if (!validateGuidedCustomProvider({
             providerId: resolvedCustomProviderId,
             baseUrl: customBaseUrl,
@@ -467,7 +378,7 @@ export function LlmProviderEditorScreen({
             const validationError = validateGuidedCustomProvider({
                 providerId: resolvedCustomProviderId,
                 baseUrl: customBaseUrl,
-                modelIds: resolvedCustomModelIds,
+                modelIds: parseGuidedModelIds(customModelsText),
             });
             if (validationError) {
                 setSaveError(validationError);
@@ -478,59 +389,6 @@ export function LlmProviderEditorScreen({
         if (source === "custom" && customMode === "json" && !customConfigText.trim()) {
             setSaveError("Paste a custom provider config.");
             return;
-        }
-
-        // Verify-on-save: run one real completion per picked model. Models
-        // that reject max_tokens (GPT-5/o-series on Azure) silently switch
-        // the provider to the OpenAI request shape; models that fail both
-        // shapes surface a per-model message and require "Save anyway".
-        let guidedNpm: string | null = null;
-        if (source === "custom" && customMode === "form" && apiKey.trim()) {
-            const verifyKey = [
-                customBaseUrl.trim(),
-                apiKey.trim(),
-                resolvedCustomModelIds.join(","),
-            ].join("::");
-            if (verifiedRef.current?.key === verifyKey) {
-                guidedNpm = verifiedRef.current.npm;
-            } else {
-                setSaveError(null);
-                setVerifyBusy(true);
-                setSaveBusy(true);
-                try {
-                    const result = await requestLlmProviderTestConnection({
-                        api: customBaseUrl.trim(),
-                        apiKey: apiKey.trim(),
-                        modelIds: resolvedCustomModelIds,
-                    });
-                    const verifications = result.verifications;
-                    const npm = verifications.some(
-                        (entry) => entry.status === "adjusted",
-                    )
-                        ? "@ai-sdk/openai"
-                        : "@ai-sdk/openai-compatible";
-                    verifiedRef.current = { key: verifyKey, npm };
-                    guidedNpm = npm;
-                    const failures = verifications.filter(
-                        (entry) => entry.status === "failed",
-                    );
-                    setVerifyFailures(failures);
-                    if (failures.length > 0) {
-                        setSaveError(
-                            "Some models did not answer a test completion. Fix the model list, or press Save anyway to keep them.",
-                        );
-                        return;
-                    }
-                } catch {
-                    // Verification is a safety net, not a gate: if the check
-                    // itself errors (network, timeout), fall through to save.
-                    verifiedRef.current = { key: verifyKey, npm: "@ai-sdk/openai-compatible" };
-                    setVerifyFailures([]);
-                } finally {
-                    setVerifyBusy(false);
-                    setSaveBusy(false);
-                }
-            }
         }
 
         setSaveError(null);
@@ -552,9 +410,8 @@ export function LlmProviderEditorScreen({
                     providerId: resolvedCustomProviderId,
                     name: providerName,
                     baseUrl: customBaseUrl,
-                    modelIds: resolvedCustomModelIds,
+                    modelIds: parseGuidedModelIds(customModelsText),
                     envName: customEnvName,
-                    npm: guidedNpm,
                 });
             } else {
                 body.customConfigText = customConfigText;
@@ -688,29 +545,13 @@ export function LlmProviderEditorScreen({
                     loading={saveBusy}
                     onClick={() => void saveProvider()}
                 >
-                    {verifyBusy
-                        ? "Verifying models..."
-                        : saveAnywayArmed
-                          ? "Save anyway"
-                          : provider
-                            ? "Save Provider"
-                            : "Create Provider"}
+                    {provider ? "Save Provider" : "Create Provider"}
                 </DenButton>
             </div>
 
             {saveError ? (
                 <div className="mb-6 rounded-[28px] border border-red-200 bg-red-50 px-6 py-4 text-[14px] text-red-700">
-                    <p>{saveError}</p>
-                    {saveAnywayArmed ? (
-                        <ul className="mt-2 grid gap-1">
-                            {verifyFailures.map((failure) => (
-                                <li key={failure.id}>
-                                    <span className="font-medium">{failure.id}</span>
-                                    {failure.message ? ` — ${failure.message}` : null}
-                                </li>
-                            ))}
-                        </ul>
-                    ) : null}
+                    {saveError}
                 </div>
             ) : null}
 
@@ -892,115 +733,24 @@ export function LlmProviderEditorScreen({
                             ).
                         </p>
 
-                        {probeState === "probing" ? (
-                            <p className="-mt-2 text-[13px] text-gray-500">
-                                Checking the endpoint…
-                            </p>
-                        ) : null}
-                        {probeState === "ok" && probeResult ? (
-                            <p className="-mt-2 text-[13px] text-emerald-700">
-                                Endpoint reachable — {probeResult.models.length}{" "}
-                                {probeResult.models.length === 1 ? "model" : "models"} available.
-                            </p>
-                        ) : null}
-                        {probeState === "failed" ? (
-                            <p className="-mt-2 text-[13px] text-red-600">
-                                {probeResult?.hint ?? "Could not reach the endpoint with this URL and key."}
-                            </p>
-                        ) : null}
-                        {probeState === "idle" && customBaseUrl.trim() && !apiKey.trim() ? (
-                            <p className="-mt-2 text-[13px] text-gray-500">
-                                Enter the API key below to load the models this endpoint serves.
-                            </p>
-                        ) : null}
-
-                        {probeState === "ok" && probeResult && !customManualModels ? (
-                            <div className="grid gap-3">
-                                <div className="flex flex-wrap items-center gap-3">
-                                    <span className="text-[14px] font-medium text-gray-700">
-                                        Models
-                                    </span>
-                                    <span className="rounded-full bg-gray-200 px-3 py-1 text-[12px] font-medium text-gray-700">
-                                        {resolvedCustomModelIds.length}{" "}
-                                        {resolvedCustomModelIds.length === 1 ? "model selected" : "models selected"}
-                                    </span>
-                                </div>
-                                <DenInput
-                                    type="search"
-                                    icon={Search}
-                                    value={customModelQuery}
-                                    onChange={(event) => setCustomModelQuery(event.target.value)}
-                                    placeholder="Search models..."
-                                />
-                                {filteredProbeModels.length ? (
-                                    <div className="max-h-72 overflow-y-auto overflow-hidden rounded-[16px] border border-gray-200 bg-white divide-y divide-gray-200">
-                                        {filteredProbeModels.map((model) => {
-                                            const selected = selectedCustomModelIds.includes(model.id);
-                                            return (
-                                                <DenSelectableRow
-                                                    key={model.id}
-                                                    selected={selected}
-                                                    title={model.id}
-                                                    description={
-                                                        probeResult.vendor === "azure"
-                                                            ? "Deployment"
-                                                            : "Model"
-                                                    }
-                                                    onClick={() =>
-                                                        setSelectedCustomModelIds((current) =>
-                                                            current.includes(model.id)
-                                                                ? current.filter((entry) => entry !== model.id)
-                                                                : [...current, model.id],
-                                                        )
-                                                    }
-                                                />
-                                            );
-                                        })}
-                                    </div>
-                                ) : (
-                                    <p className="text-[13px] text-gray-500">
-                                        No models match &quot;{customModelQuery}&quot;.
-                                    </p>
-                                )}
-                                <button
-                                    type="button"
-                                    onClick={() => setCustomManualModels(true)}
-                                    className="justify-self-start text-[13px] font-medium text-gray-500 underline underline-offset-2 transition hover:text-gray-900"
-                                >
-                                    My model isn&apos;t listed — enter IDs manually
-                                </button>
-                            </div>
-                        ) : (
-                            <>
-                                <label className="grid gap-3">
-                                    <span className="text-[14px] font-medium text-gray-700">
-                                        Model IDs
-                                    </span>
-                                    <DenTextarea
-                                        value={customModelsText}
-                                        onChange={(event) =>
-                                            setCustomModelsText(event.target.value)
-                                        }
-                                        rows={4}
-                                        placeholder={"gpt-5.2\nmy-deployment-name"}
-                                    />
-                                </label>
-                                <p className="-mt-3 text-[13px] text-gray-500">
-                                    One per line (or comma-separated). Use the model IDs
-                                    the endpoint serves — on Azure AI Foundry these are
-                                    your deployment names.
-                                </p>
-                                {probeState === "ok" && probeResult ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => setCustomManualModels(false)}
-                                        className="-mt-2 justify-self-start text-[13px] font-medium text-gray-500 underline underline-offset-2 transition hover:text-gray-900"
-                                    >
-                                        Pick from the endpoint&apos;s model list instead
-                                    </button>
-                                ) : null}
-                            </>
-                        )}
+                        <label className="grid gap-3">
+                            <span className="text-[14px] font-medium text-gray-700">
+                                Model IDs
+                            </span>
+                            <DenTextarea
+                                value={customModelsText}
+                                onChange={(event) =>
+                                    setCustomModelsText(event.target.value)
+                                }
+                                rows={4}
+                                placeholder={"gpt-5.2\nmy-deployment-name"}
+                            />
+                        </label>
+                        <p className="-mt-3 text-[13px] text-gray-500">
+                            One per line (or comma-separated). Use the model IDs
+                            the endpoint serves — on Azure AI Foundry these are
+                            your deployment names.
+                        </p>
 
                         <button
                             type="button"

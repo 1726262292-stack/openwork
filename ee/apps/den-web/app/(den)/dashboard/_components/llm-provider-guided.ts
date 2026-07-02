@@ -10,9 +10,6 @@
 type JsonRecord = Record<string, unknown>;
 
 export const GUIDED_PROVIDER_NPM = "@ai-sdk/openai-compatible";
-export const GUIDED_PROVIDER_NPM_OPENAI = "@ai-sdk/openai";
-
-const GUIDED_PROVIDER_NPM_PACKAGES = new Set([GUIDED_PROVIDER_NPM, GUIDED_PROVIDER_NPM_OPENAI]);
 
 const GUIDED_PROVIDER_CONFIG_KEYS = new Set(["id", "name", "npm", "env", "api", "doc"]);
 const GUIDED_MODEL_KEYS = new Set(["id", "name"]);
@@ -22,7 +19,6 @@ export type GuidedCustomProviderFields = {
     baseUrl: string;
     modelIds: string[];
     envName: string | null;
-    npm: string;
 };
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -94,14 +90,12 @@ export function buildGuidedCustomProviderConfig(input: {
     baseUrl: string;
     modelIds: string[];
     envName?: string | null;
-    /** AI SDK package; verification may upgrade this to the OpenAI package. */
-    npm?: string | null;
 }): JsonRecord {
     const providerId = input.providerId.trim();
     return {
         id: providerId,
         name: input.name.trim() || providerId,
-        npm: input.npm && GUIDED_PROVIDER_NPM_PACKAGES.has(input.npm) ? input.npm : GUIDED_PROVIDER_NPM,
+        npm: GUIDED_PROVIDER_NPM,
         env: [input.envName?.trim() || buildGuidedProviderEnvName(providerId)],
         api: input.baseUrl.trim().replace(/\/+$/, ""),
         models: input.modelIds.map((modelId) => ({ id: modelId, name: modelId })),
@@ -126,8 +120,7 @@ export function readGuidedCustomProviderFields(
         return null;
     }
 
-    const npm = asString(config.npm);
-    if (!npm || !GUIDED_PROVIDER_NPM_PACKAGES.has(npm)) {
+    if (asString(config.npm) !== GUIDED_PROVIDER_NPM) {
         return null;
     }
 
@@ -185,7 +178,6 @@ export function readGuidedCustomProviderFields(
         baseUrl,
         modelIds,
         envName: env[0] ?? null,
-        npm,
     };
 }
 
