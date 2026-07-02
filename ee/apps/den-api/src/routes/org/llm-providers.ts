@@ -330,9 +330,16 @@ async function normalizeLlmProviderInput(
 
     const requestedModelIds = [...new Set(input.modelIds ?? [])]
     const modelsById = new Map(provider.models.map((model) => [model.id, model]))
+    // Azure model lists come from the resource's *deployments*, which admins
+    // can name anything — accept ids outside the models.dev catalog for
+    // Azure providers instead of rejecting the save.
+    const allowDeploymentIds = provider.npm === "@ai-sdk/azure"
     const models = requestedModelIds.map((modelId) => {
       const model = modelsById.get(modelId)
       if (!model) {
+        if (allowDeploymentIds) {
+          return { id: modelId, name: modelId, config: { id: modelId, name: modelId } }
+        }
         throw createFailure(404, "model_not_found", `Model ${modelId} is not available for ${provider.name}.`)
       }
       return model

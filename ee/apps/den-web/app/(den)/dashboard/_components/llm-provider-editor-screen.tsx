@@ -114,6 +114,12 @@ export function LlmProviderEditorScreen({
     const [customModelQuery, setCustomModelQuery] = useState("");
     const [customManualModels, setCustomManualModels] = useState(false);
     const lastProbeKeyRef = useRef("");
+    // Azure catalog providers: once resource name + key are present, the
+    // resource is asked for its deployments and those become the only
+    // pickable models (the models.dev list is ignored).
+    const [azureProbeState, setAzureProbeState] = useState<"idle" | "probing" | "ok" | "failed">("idle");
+    const [azureProbeResult, setAzureProbeResult] = useState<LlmProviderProbeResult | null>(null);
+    const lastAzureProbeKeyRef = useRef("");
     const [apiKey, setApiKey] = useState("");
     const [apiKeyValues, setApiKeyValues] = useState<Record<string, string>>({});
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
@@ -269,19 +275,98 @@ export function LlmProviderEditorScreen({
     const currentMemberId = orgContext?.currentMember.id ?? null;
     const lockedMemberId = getLockMemberId(provider, currentMemberId);
 
+    // Azure catalog providers: models.dev lists the whole Azure catalog, but
+    // chat/completions only accepts the *deployments* on the admin's
+    // resource. Read resource name + key from the credential inputs and ask
+    // the resource what it serves.
+    const isAzureCatalog =
+        source === "models_dev" &&
+        catalogDetail !== null &&
+        getProviderNpmPackage(catalogDetail.config) === "@ai-sdk/azure";
+    const azureCatalogEnvNames = isAzureCatalog
+        ? getProviderEnvNames(catalogDetail.config)
+        : [];
+    const azureResourceEnv =
+        azureCatalogEnvNames.find((name) => name.includes("RESOURCE_NAME")) ?? null;
+    const azureKeyEnv =
+        azureCatalogEnvNames.find((name) => name !== azureResourceEnv) ?? null;
+    const azureResourceName = azureResourceEnv
+        ? (apiKeyValues[azureResourceEnv] ?? "").trim()
+        : "";
+    const azureApiKey = azureKeyEnv ? (apiKeyValues[azureKeyEnv] ?? "").trim() : "";
+
+    useEffect(() => {
+        if (!isAzureCatalog) {
+            setAzureProbeState("idle");
+            setAzureProbeResult(null);
+            lastAzureProbeKeyRef.current = "";
+            return;
+        }
+        if (
+            !azureResourceName ||
+            !azureApiKey ||
+            !/^[a-z0-9][a-z0-9.-]*$/i.test(azureResourceName)
+        ) {
+            setAzureProbeState("idle");
+            setAzureProbeResult(null);
+            return;
+        }
+        const probeKey = `${azureResourceName}::${azureApiKey}`;
+        if (lastAzureProbeKeyRef.current === probeKey) return;
+        const timer = window.setTimeout(() => {
+            lastAzureProbeKeyRef.current = probeKey;
+            setAzureProbeState("probing");
+            requestLlmProviderTestConnection({
+                api: `https://${azureResourceName}.openai.azure.com`,
+                apiKey: azureApiKey,
+            })
+                .then((result) => {
+                    if (lastAzureProbeKeyRef.current !== probeKey) return;
+                    setAzureProbeResult(result);
+                    setAzureProbeState(result.ok ? "ok" : "failed");
+                    if (result.ok) {
+                        // Drop selections the resource does not actually serve.
+                        setSelectedModelIds((current) =>
+                            current.filter((id) =>
+                                result.models.some((model) => model.id === id),
+                            ),
+                        );
+                    }
+                })
+                .catch(() => {
+                    if (lastAzureProbeKeyRef.current !== probeKey) return;
+                    setAzureProbeResult(null);
+                    setAzureProbeState("failed");
+                });
+        }, 700);
+        return () => window.clearTimeout(timer);
+    }, [isAzureCatalog, azureResourceName, azureApiKey]);
+
+    // The models offered for a catalog provider: the resource's real
+    // deployments when the Azure probe succeeded, models.dev otherwise.
+    const catalogModelOptions = useMemo(() => {
+        if (isAzureCatalog && azureProbeState === "ok" && azureProbeResult) {
+            return azureProbeResult.models.map((model) => ({
+                id: model.id,
+                name: model.id,
+                config: {},
+            }));
+        }
+        return catalogDetail?.models ?? [];
+    }, [isAzureCatalog, azureProbeState, azureProbeResult, catalogDetail?.models]);
+
     const filteredModels = useMemo(() => {
-        const models = catalogDetail?.models ?? [];
         const normalizedQuery = modelQuery.trim().toLowerCase();
         if (!normalizedQuery) {
-            return models;
+            return catalogModelOptions;
         }
 
-        return models.filter(
+        return catalogModelOptions.filter(
             (model) =>
                 model.name.toLowerCase().includes(normalizedQuery) ||
                 model.id.toLowerCase().includes(normalizedQuery),
         );
-    }, [catalogDetail?.models, modelQuery]);
+    }, [catalogModelOptions, modelQuery]);
 
     const filteredTeams = useMemo(() => {
         const teams = orgContext?.teams ?? [];
@@ -1195,6 +1280,33 @@ export function LlmProviderEditorScreen({
                                 Pick the exact models this provider should
                                 allow.
                             </p>
+                            {isAzureCatalog ? (
+                                azureProbeState === "ok" && azureProbeResult ? (
+                                    <p className="mt-2 text-[13px] text-emerald-700">
+                                        Showing the {azureProbeResult.models.length}{" "}
+                                        {azureProbeResult.models.length === 1
+                                            ? "deployment"
+                                            : "deployments"}{" "}
+                                        available on your Azure resource.
+                                    </p>
+                                ) : azureProbeState === "probing" ? (
+                                    <p className="mt-2 text-[13px] text-gray-500">
+                                        Checking your Azure resource for
+                                        deployments…
+                                    </p>
+                                ) : azureProbeState === "failed" ? (
+                                    <p className="mt-2 text-[13px] text-red-600">
+                                        {azureProbeResult?.hint ??
+                                            "Could not list the deployments on this resource — check the resource name and key."}
+                                    </p>
+                                ) : (
+                                    <p className="mt-2 text-[13px] text-gray-500">
+                                        Enter the resource name and API key
+                                        above to list only the deployments your
+                                        resource actually serves.
+                                    </p>
+                                )
+                            ) : null}
                         </div>
 
                         <div className="mt-6">
