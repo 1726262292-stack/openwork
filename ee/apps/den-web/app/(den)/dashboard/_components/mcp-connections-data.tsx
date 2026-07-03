@@ -185,6 +185,40 @@ export function useDeleteMcpConnection() {
   });
 }
 
+export type SaveNativeProviderClientInput = {
+  providerId: string;
+  clientId: string;
+  clientSecret: string;
+};
+
+/**
+ * Native providers (google-workspace) are configured with an org OAuth
+ * client instead of a server URL. Saving one makes the provider appear in
+ * the usable connections list for every granted member.
+ */
+export function useSaveNativeProviderClient() {
+  const queryClient = useQueryClient();
+  const { runReauthableAction } = useOrgDashboard();
+
+  return useMutation({
+    mutationFn: async (input: SaveNativeProviderClientInput): Promise<void> => {
+      await runReauthableAction("save-native-oauth-client", async () => {
+        const { response, payload } = await requestJson(
+          `/v1/oauth-providers/${encodeURIComponent(input.providerId)}/client`,
+          { method: "POST", body: JSON.stringify({ clientId: input.clientId, clientSecret: input.clientSecret }) },
+          20000,
+        );
+        if (!response.ok) {
+          throw getRequestError(payload, response, `Failed to save the OAuth client (${response.status}).`);
+        }
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: mcpConnectionQueryKeys.all });
+    },
+  });
+}
+
 export function formatMcpConnectedTimestamp(value: string | null): string {
   if (!value) return "Not connected";
   const date = new Date(value);

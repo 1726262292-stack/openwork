@@ -18,6 +18,7 @@ import {
   useDeleteMcpConnection,
   useMcpConnectionPresets,
   useMcpConnections,
+  useSaveNativeProviderClient,
   useStartMcpConnectionOAuth,
 } from "./mcp-connections-data";
 
@@ -26,13 +27,17 @@ const OAUTH_POLL_TIMEOUT_MS = 90_000;
 
 export function McpConnectionsScreen() {
   const { data: connections = [], isLoading, error, refetch } = useMcpConnections();
+  const { data: usableConnections = [] } = useMcpConnections("usable");
   const { data: presets = [] } = useMcpConnectionPresets();
   const createConnection = useCreateMcpConnection();
   const startOAuth = useStartMcpConnectionOAuth();
   const deleteConnection = useDeleteMcpConnection();
+  const saveNativeClient = useSaveNativeProviderClient();
 
   const [formOpen, setFormOpen] = useState(false);
   const [formPreset, setFormPreset] = useState<ExternalMcpPreset | null>(null);
+  const [googleDialogOpen, setGoogleDialogOpen] = useState(false);
+  const googleConfigured = usableConnections.some((connection) => connection.id === "google-workspace");
   const [pollingConnectionId, setPollingConnectionId] = useState<string | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -120,6 +125,19 @@ export function McpConnectionsScreen() {
 
       <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">Quick add</h3>
       <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <button
+          type="button"
+          onClick={() => setGoogleDialogOpen(true)}
+          className="rounded-2xl border border-gray-100 bg-white px-4 py-4 text-left transition hover:border-gray-300 hover:shadow-sm"
+        >
+          <p className="text-[14px] font-semibold text-gray-900">Google Workspace</p>
+          <p className="mt-1 text-[12px] leading-[1.5] text-gray-500">
+            Your company&apos;s Google. Set it up once — every member connects their own account.
+          </p>
+          <p className="mt-2 text-[12px] font-medium text-violet-600">
+            {googleConfigured ? "Configured — tap to update" : "Tap to set up"}
+          </p>
+        </button>
         {presets.map((preset) => {
           const alreadyAdded = connections.some((connection) => connection.url === preset.url);
           return (
@@ -179,7 +197,98 @@ export function McpConnectionsScreen() {
         }}
         onSubmit={handleCreate}
       />
+
+      <GoogleWorkspaceDialog
+        open={googleDialogOpen}
+        submitting={saveNativeClient.isPending}
+        error={saveNativeClient.error}
+        onClose={() => setGoogleDialogOpen(false)}
+        onSubmit={async (input) => {
+          await saveNativeClient.mutateAsync({ providerId: "google-workspace", ...input });
+          setGoogleDialogOpen(false);
+        }}
+      />
     </DashboardPageTemplate>
+  );
+}
+
+function GoogleWorkspaceDialog({
+  open,
+  submitting,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  submitting: boolean;
+  error: unknown;
+  onClose: () => void;
+  onSubmit: (input: { clientId: string; clientSecret: string }) => void;
+}) {
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setClientId("");
+    setClientSecret("");
+  }, [open]);
+
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6" onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-[28px] border border-gray-200 bg-white p-6 shadow-[0_24px_80px_-32px_rgba(15,23,42,0.45)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2 className="text-[18px] font-semibold tracking-[-0.02em] text-gray-950">Set up Google Workspace</h2>
+        <p className="mt-1 text-[13px] leading-6 text-gray-600">
+          Paste the OAuth client from your company&apos;s Google Cloud project. Members then connect their own
+          Google account from Your Connections — sign-ins stay in your org&apos;s cloud.
+        </p>
+
+        <div className="mt-5 space-y-4">
+          <div>
+            <label className="mb-1.5 block text-[12px] font-medium text-gray-700">Client ID</label>
+            <DenInput
+              value={clientId}
+              onChange={(event) => setClientId(event.target.value)}
+              placeholder="1234567890-abc.apps.googleusercontent.com"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-[12px] font-medium text-gray-700">Client secret</label>
+            <DenInput
+              type="password"
+              value={clientSecret}
+              onChange={(event) => setClientSecret(event.target.value)}
+              placeholder="GOCSPX-…"
+            />
+          </div>
+        </div>
+
+        {error ? (
+          <p className="mt-3 text-[13px] text-red-600">{error instanceof Error ? error.message : "Failed to save the OAuth client."}</p>
+        ) : null}
+
+        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <DenButton variant="secondary" onClick={onClose} disabled={submitting}>
+            Cancel
+          </DenButton>
+          <DenButton
+            variant="primary"
+            loading={submitting}
+            disabled={!clientId.trim() || !clientSecret.trim()}
+            onClick={() => onSubmit({ clientId: clientId.trim(), clientSecret: clientSecret.trim() })}
+          >
+            Save
+          </DenButton>
+        </div>
+      </div>
+    </div>
   );
 }
 
