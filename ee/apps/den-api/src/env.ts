@@ -35,6 +35,9 @@ const EnvSchema = z.object({
   LOOPS_MARKETING_ENABLED: z.string().optional(),
   OPENWORK_DEV_MODE: z.string().optional(),
   DEN_ALLOW_PRIVATE_MCP_URLS: z.string().optional(),
+  DEN_GOOGLE_OAUTH_AUTHORIZE_URL: z.string().optional(),
+  DEN_GOOGLE_OAUTH_TOKEN_URL: z.string().optional(),
+  DEN_GOOGLE_API_BASE_URL: z.string().optional(),
   PORT: z.string().optional(),
   CORS_ORIGINS: z.string().optional(),
   DEN_API_PUBLIC_URL: z.string().optional(),
@@ -280,6 +283,12 @@ export const env = {
   workerProxyPort: Number(parsed.WORKER_PROXY_PORT ?? "8789"),
   corsOrigins,
   apiPublicUrl: optionalString(parsed.DEN_API_PUBLIC_URL),
+  // Google endpoint overrides for evals/self-host testing: point the native
+  // google-workspace provider at a protocol-identical mock instead of the
+  // real Google endpoints. Unset in production.
+  googleOAuthAuthorizeUrl: optionalString(parsed.DEN_GOOGLE_OAUTH_AUTHORIZE_URL),
+  googleOAuthTokenUrl: optionalString(parsed.DEN_GOOGLE_OAUTH_TOKEN_URL),
+  googleApiBaseUrl: optionalString(parsed.DEN_GOOGLE_API_BASE_URL),
   desktopDenBaseUrl: optionalString(parsed.DEN_DESKTOP_DEN_BASE_URL),
   marketingUrl: optionalString(parsed.DEN_MARKETING_URL),
   mcpClaimNamespace: normalizeOrigin(optionalString(parsed.DEN_MCP_CLAIM_NAMESPACE) ?? parsed.BETTER_AUTH_URL),

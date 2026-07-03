@@ -9,11 +9,15 @@
  * OAuth plumbing — `generic-oauth.ts` drives every provider the same way.
  */
 
+import { env } from "../env.js"
+
 export type NativeOAuthProviderConfig = {
   providerId: string
   displayName: string
   authorizeUrl: string
   tokenUrl: string
+  /** Display-only endpoint shown on connection cards. */
+  websiteUrl: string
   defaultScopes: string[]
   /** Google (and most modern providers) support PKCE even for confidential clients; harmless to always send. */
   usesPkce: boolean
@@ -25,8 +29,9 @@ export const NATIVE_OAUTH_PROVIDERS: Record<string, NativeOAuthProviderConfig> =
   "google-workspace": {
     providerId: "google-workspace",
     displayName: "Google Workspace",
-    authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-    tokenUrl: "https://oauth2.googleapis.com/token",
+    authorizeUrl: env.googleOAuthAuthorizeUrl ?? "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenUrl: env.googleOAuthTokenUrl ?? "https://oauth2.googleapis.com/token",
+    websiteUrl: "https://workspace.google.com",
     defaultScopes: [
       "openid",
       "email",

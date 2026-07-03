@@ -7,6 +7,7 @@ import type { OrgRouteVariables } from "./shared.js"
 import { registerOrgCoreRoutes } from "./core.js"
 import { registerOrgDesktopPolicyRoutes } from "./desktop-policies.js"
 import { registerOrgInvitationRoutes } from "./invitations.js"
+import { registerGoogleWorkspaceRoutes } from "./google-workspace.js"
 import { registerOrgInferenceRoutes } from "./inference.js"
 import { registerOrgLlmProviderRoutes } from "./llm-providers.js"
 import { registerOrgMemberRoutes } from "./members.js"
@@ -58,6 +59,7 @@ export function registerOrgRoutes<T extends { Variables: OrgRouteVariables }>(ap
   registerOrgLlmProviderRoutes(app)
   registerOrgMemberRoutes(app)
   registerOAuthProviderRoutes(app)
+  registerGoogleWorkspaceRoutes(app)
   registerMcpConnectionRoutes(app)
   registerPluginArchRoutes(app)
   registerOrgRoleRoutes(app)

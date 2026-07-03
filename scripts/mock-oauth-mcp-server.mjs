@@ -11,6 +11,7 @@ const clients = new Map();
 const codes = new Map();
 const tokens = new Set();
 const requests = [];
+const drafts = [];
 
 function json(res, status, body, headers = {}) {
   res.writeHead(status, {
@@ -316,6 +317,29 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === "/mcp") {
       await handleMcp(req, res);
+      return;
+    }
+
+    // Minimal Gmail drafts.create stand-in so the org Google Workspace flow
+    // can be proven end-to-end: requires a token this mock issued, records
+    // the request (external witness), returns Gmail-shaped ids.
+    if (url.pathname === "/gmail/v1/users/me/drafts" && req.method === "POST") {
+      if (!isAuthorized(req)) {
+        json(res, 401, { error: { code: 401, message: "Invalid Credentials" } });
+        return;
+      }
+      const body = await readJson(req).catch(() => ({}));
+      const raw = typeof body?.message?.raw === "string" ? body.message.raw : "";
+      drafts.push({ raw, at: new Date().toISOString() });
+      json(res, 200, {
+        id: `draft-${randomUUID()}`,
+        message: { id: `msg-${randomUUID()}`, threadId: `thread-${randomUUID()}` },
+      });
+      return;
+    }
+
+    if (url.pathname === "/gmail/drafts-log") {
+      json(res, 200, { drafts });
       return;
     }
 
