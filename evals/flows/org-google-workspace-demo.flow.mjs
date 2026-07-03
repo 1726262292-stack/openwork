@@ -592,11 +592,11 @@ export default {
     {
       name: "Frame 7",
       run: async (ctx) => {
-        await ctx.prove("The local solo Google Workspace extension is untouched next to the org card", {
+        await ctx.prove("The local solo Google Workspace extension is untouched by the org connection", {
           voiceover: vo[6],
           action: async () => {
             await openMcpSettings(ctx);
-            await clickTab(ctx, "My Extensions");
+            await clickTab(ctx, "Marketplace");
             await ctx.eval(`(() => {
               const el = [...document.querySelectorAll('button')].find((candidate) => candidate.textContent.includes('Google Workspace') && candidate.textContent.includes('View setup'));
               el?.scrollIntoView({ block: 'center' });
@@ -604,13 +604,18 @@ export default {
             })()`);
           },
           assert: async () => {
+            // The local built-in extension still offers its own setup in the
+            // Marketplace catalog, exactly as before the org connection.
             await ctx.waitFor(GOOGLE_CARD_EXPR("View setup"), { timeoutMs: 30_000, label: "local built-in Google Workspace card still renders" });
-            await ctx.waitFor(GOOGLE_CARD_EXPR("Connected with your own account"), { timeoutMs: 30_000, label: "org Google Workspace card coexists" });
+            // And the org connection stays connected server-side at the same time.
+            const server = await memberUsableConnections();
+            const entry = server.find((candidate) => candidate.id === "google-workspace");
+            ctx.assert(entry?.connectedForMe === true, "The org Google connection must still be connected for the member.");
           },
           screenshot: {
             name: "org-google-workspace-local-intact",
-            claim: "The local Google Workspace extension and the org connection render side by side.",
-            requireText: ["Google Workspace"],
+            claim: "The local Google Workspace extension still renders its own setup alongside the org connection.",
+            requireText: ["Google Workspace", "View setup"],
             rejectText: ["Something went wrong"],
           },
         });
