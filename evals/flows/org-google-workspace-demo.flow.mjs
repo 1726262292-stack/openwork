@@ -353,6 +353,11 @@ export default {
           assert: async () => {
             await ctx.expectText("Extension Marketplace", { timeoutMs: 30_000 });
             await ctx.waitFor(GOOGLE_CARD_EXPR("Connect your account"), { timeoutMs: 60_000, label: "org Google Workspace card with connect action" });
+            await ctx.eval(`(() => {
+              const card = [...document.querySelectorAll('button')].find((el) => el.textContent.includes('Google Workspace') && el.textContent.includes('Connect your account'));
+              card?.scrollIntoView({ block: 'center' });
+              return true;
+            })()`);
           },
           screenshot: {
             name: "org-google-workspace-marketplace",
