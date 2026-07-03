@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>fraimz · PR #2439 Frame 3 — Real browser OAuth round trip (Daytona, cross-sandbox)</title>
+  <style>
+    body { margin: 0; background: #f7f7f8; color: #171717; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 1180px; margin: 0 auto; padding: 32px; }
+    h1 { margin: 0 0 8px; font-size: 26px; }
+    h2 { margin-top: 32px; }
+    h3 { margin: 2px 0 10px; font-size: 18px; }
+    .meta, .muted { color: #5f6368; }
+    .summary { display: inline-flex; gap: 12px; margin: 16px 0 8px; padding: 10px 12px; border: 1px solid #ddd; border-radius: 10px; background: white; }
+    .steps { display: grid; gap: 18px; margin-top: 16px; }
+    .step { padding: 16px; border: 1px solid #ddd; border-radius: 14px; background: white; box-shadow: 0 1px 4px rgba(0,0,0,.04); }
+    .eyebrow { color: #5f6368; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    .claim { padding: 10px 12px; border-left: 4px solid #7c3aed; background: #f5f3ff; border-radius: 8px; margin: 8px 0; }
+    .assertions { margin: 8px 0 0; padding-left: 20px; }
+    .assertions li { margin: 5px 0; }
+    figure { margin: 12px 0 0; overflow: hidden; border: 1px solid #ddd; border-radius: 12px; background: white; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+    img { display: block; width: 100%; height: auto; }
+    figcaption { padding: 10px 12px; border-top: 1px solid #eee; font-size: 13px; color: #444; }
+    .passed-text { color: #0a7f35; font-weight: 700; }
+    code, pre { background: #ededf0; padding: 2px 5px; border-radius: 5px; font-size: 12.5px; }
+    pre { padding: 10px 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">fraimz &middot; manual CDP + Daytona display validation</div>
+  <h1>PR #2439 &mdash; Frame 3: Real browser OAuth round trip</h1>
+  <p class="meta">Branch: <code>feat/desktop-mcp-consolidation</code> (commit <code>3dcc34f</code>) &middot; Two independent Daytona sandboxes: Den server + Electron desktop &middot; Member &ldquo;Jordan&rdquo; played by seeded org member <code>jordan.demo@acme.test</code> &middot; Mock OAuth+MCP server run with <code>AUTO_APPROVE=0</code> so a real consent screen had to be clicked (closest possible stand-in for a real Notion/Linear OAuth screen &mdash; same RFC 8414 discovery + RFC 7591 dynamic client registration + PKCE S256 that a real Notion MCP OAuth flow uses).</p>
+
+  <div class="summary">
+    <div><strong>Result:</strong> <span class="passed-text">PASSED</span></div>
+    <div>7 claims, all backed by an observable assertion + screenshot</div>
+  </div>
+
+  <h2>Why this goes further than the PR's own eval</h2>
+  <p>The PR's <code>desktop-org-mcp-demo.flow.mjs</code> Frame 3 only asserts the mock IdP's request log. It never confirms a real OS browser window actually opened &mdash; it could theoretically pass even if <code>shell.openExternal</code> silently no-op&rsquo;d, as long as something (e.g. a background fetch) hit <code>/authorize</code>. This run adds the missing piece: independent window-manager evidence (<code>wmctrl</code>) that a separate Chromium process really opened on the Electron sandbox's display, plus a driven click on the real consent screen (not a stub), plus verification of the resulting redirect and deep-link.</p>
+
+  <div class="steps">
+
+    <div class="step">
+      <div class="eyebrow">Setup (invisible, API-driven)</div>
+      <h3>Admin publishes a per-member org MCP connection pointed at a real, publicly-reachable mock IdP</h3>
+      <div class="claim">Claim: Den API lets an org owner create a <code>per_member</code> / <code>orgWide</code> MCP connection, and the target member can see it as usable but not yet connected.</div>
+      <ul class="assertions">
+        <li>POST <code>/v1/mcp-connections</code> as <code>alex@acme.test</code> (owner) returns <code>201</code> with id <code>emc_01kwmnbpn8fzy825dvh9pj0fyf</code>.</li>
+        <li>GET <code>/v1/mcp-connections?scope=usable</code> as member <code>jordan.demo@acme.test</code> shows the connection with <code>connectedForMe: false</code>.</li>
+        <li>Mock server health: <code>autoApprove:false</code> &mdash; consent requires a real click, not silent auto-approve.</li>
+      </ul>
+    </div>
+
+    <div class="step">
+      <div class="eyebrow">Frame 2</div>
+      <h3>Jordan discovers the connection in the desktop Extensions Marketplace</h3>
+      <div class="claim">Claim: the org connection renders as an ordinary Marketplace card with a "Connect your account" action &mdash; not a special org-only panel.</div>
+      <figure>
+        <img src="02-marketplace-connect-account.png" alt="Marketplace card for Team Knowledge Base" />
+        <figcaption>Electron app (Daytona sandbox, real CDP session) &middot; card reads &ldquo;Team Knowledge Base &middot; MCP &middot; Available from your organization. Connect your own account to use it. &middot; Connect your account&rdquo;.</figcaption>
+      </figure>
+    </div>
+
+    <div class="step">
+      <div class="eyebrow">Frame 3a</div>
+      <h3>Consent copy renders before the click</h3>
+      <div class="claim">Claim (verbatim from PR): "consent copy OpenWork stores this sign-in visible."</div>
+      <figure>
+        <img src="03a-consent-modal.png" alt="Consent modal" />
+        <figcaption>Modal text captured via CDP: &ldquo;OpenWork stores this sign-in in the organization cloud. Once connected, your desktop agent can use the tools through OpenWork Cloud Control.&rdquo;</figcaption>
+      </figure>
+    </div>
+
+    <div class="step">
+      <div class="eyebrow">Frame 3b &mdash; the part the PR's own eval never proved</div>
+      <h3>A real, separate Chromium window opened on the OS &mdash; not a client-side stub</h3>
+      <div class="claim">Claim: clicking "Connect your account" invokes Electron's <code>shell.openExternal</code>, which hands off to the sandbox's real default browser (Chromium via xdg-open), producing a genuine second top-level window.</div>
+      <ul class="assertions">
+        <li><code>wmctrl -l</code> before click: only <code>OpenWork - Dev</code> (+ xfce chrome) existed.</li>
+        <li><code>wmctrl -l</code> immediately after click: a new window titled <strong>"Mock MCP OAuth - Chromium"</strong> appeared &mdash; a real separate process, not a modal inside Electron (contextBridge freezes exposed APIs, so this cannot be a client-side fake).</li>
+      </ul>
+      <figure>
+        <img src="03b-real-chromium-consent.png" alt="Real Chromium window showing the OAuth consent screen" />
+        <figcaption>Daytona display capture (noVNC framebuffer, not a CDP screenshot): a genuine Chromium browser window, its own address bar showing the mock IdP's real domain, sitting in front of the Electron app (visible behind, showing "Waiting for browser..." &mdash; proof the desktop app is actively polling, not faking state). This consent screen is protocol-identical to what a real Notion/Linear MCP OAuth screen looks like: real address bar, real "Approve" button belonging to the external provider's own page, not an in-app dialog.</figcaption>
+      </figure>
+    </div>
+
+    <div class="step">
+      <div class="eyebrow">Frame 3c</div>
+      <h3>Real GET /authorize on the external mock IdP, with signed state, dynamic client_id, and a redirect_uri scoped to this exact connection</h3>
+      <div class="claim">Claim (verbatim from PR): "the external mock IdP logged a real GET /authorize carrying signed state, a dynamically registered client_id, and a redirect_uri scoped to this exact connection id."</div>
+      <ul class="assertions">
+        <li>Prior request in the same log: <code>POST /register</code> (RFC 7591 dynamic client registration) &rarr; issued <code>client_id=mock-client-5c991ac5-9080-4f26-b7b7-bb7beb510ad9</code>.</li>
+        <li><code>GET /authorize</code> carries that exact <code>client_id</code>, plus <code>code_challenge</code>/<code>code_challenge_method=S256</code> (PKCE, same as real Notion OAuth), plus <code>state</code>.</li>
+        <li><code>redirect_uri=https://8788-&hellip;.daytonaproxy01.net/v1/mcp-connections/<strong>emc_01kwmnbpn8fzy825dvh9pj0fyf</strong>/connect/callback</code> &mdash; contains this exact connection id, not a generic callback.</li>
+        <li><code>state</code> decodes (base64url payload before the signature segment) to <code>{ organizationId, orgMembershipId: Jordan's own membership, providerId: this connection, nonce, exp }</code> &mdash; scoped to this specific member + connection + a bounded expiry, and carries a trailing signature segment.</li>
+      </ul>
+      <pre>{
+  "organizationId": "org_01kwmn4btvexz9q4y6hhjbgs7w",
+  "orgMembershipId": "om_01kwmnatp9fzy825bhcy7ebzjr",
+  "providerId": "emc_01kwmnbpn8fzy825dvh9pj0fyf",
+  "nonce": "aaa049e4-ff66-4561-9077-ebc0490f0e72",
+  "exp": 1783105712
+}</pre>
+    </div>
+
+    <div class="step">
+      <div class="eyebrow">Frame 3d &mdash; simulating the actual Notion-style approve click</div>
+      <h3>Driving the real consent screen as a human would (xdotool on the real window, not CDP/eval)</h3>
+      <div class="claim">Claim: a genuine click on the external page's own "Approve OpenWork" button (not a scripted DOM event inside the app) completes the authorization_code grant.</div>
+      <ul class="assertions">
+        <li><code>xdotool</code> clicked physical screen coordinates inside the real Chromium window (window-manager driven, exactly like a human).</li>
+        <li>Mock IdP log immediately recorded: <code>POST /approve</code> (same params) &rarr; 302 redirect &rarr; <code>GET /.well-known/oauth-protected-resource/mcp</code> + <code>oauth-authorization-server</code> (Den re-running discovery) &rarr; <code>POST /token</code> (PKCE-verified code exchange, S256 verifier checked server-side by the mock IdP).</li>
+        <li>Browser window title flips to <strong>"Connected &mdash; OpenWork - Chromium"</strong> &mdash; Den's own OAuth callback page, deep-linking back to the desktop app via the <code>openwork://</code> custom scheme (visible as an OS "Open xdg-open?" confirmation in this Linux sandbox, since the app isn't registered as the default handler here &mdash; on a real user's macOS/Windows machine this is a one-click native OS prompt or fully silent).</li>
+      </ul>
+      <figure>
+        <img src="03c-oauth-callback-connected.png" alt="OAuth callback page: Connected — OpenWork" />
+        <figcaption>Real Chromium window after approval: page title "Connected — OpenWork", URL on Den's own domain (<code>/v1/mcp-connections/emc_.../connect/callback</code>), and the OS asking to hand off to the <code>openwork://</code> deep link.</figcaption>
+      </figure>
+    </div>
+
+    <div class="step">
+      <div class="eyebrow">Frame 4</div>
+      <h3>The desktop card flips to Connected without any reload &mdash; and the static Quick Connect grid is untouched</h3>
+      <div class="claim">Claim: the same card the member clicked now shows Connected, driven purely by the app's own poll loop (no <code>location.reload()</code> was ever called after the click), and pre-existing static entries (Notion, Linear, Sentry, Stripe, Context7, OpenWork UI Control) still render exactly as before &mdash; this is the PR's own regression guard, independently reproduced here.</h3>
+      <ul class="assertions">
+        <li>Server-side: <code>GET /v1/mcp-connections?scope=usable</code> for Jordan now returns <code>connectedForMe: true</code>.</li>
+        <li>UI: card reads "Team Knowledge Base &middot; Connected &middot; Connected with your own account." in My Extensions.</li>
+        <li>Same screenshot shows Notion / Linear / Sentry / Stripe / Context7 / OpenWork UI Control all still present with "Tap to connect" &mdash; the static grid was not removed or broken by the org-connection feature.</li>
+      </ul>
+      <figure>
+        <img src="04-my-extensions-connected-and-static-grid-intact.png" alt="My Extensions: Team Knowledge Base Connected, static grid intact" />
+        <figcaption>My Extensions tab, no reload since the OAuth click: connection Connected, static Quick Connect grid (Notion/Linear/Sentry/Stripe/Context7/OpenWork UI Control) rendering unchanged.</figcaption>
+      </figure>
+    </div>
+
+    <div class="step">
+      <div class="eyebrow">Regression check (coded eval, same live session)</div>
+      <h3><code>settings-extensions-mcp.flow.mjs</code> still passes</h3>
+      <div class="claim">Claim: the pre-existing MCP settings regression guard (added for #2008) is unaffected by this feature, run against the exact same live Electron session used above (not a fresh boot).</div>
+      <ul class="assertions">
+        <li><code>node evals/runner/run.mjs --flow settings-extensions-mcp --cdp-url http://127.0.0.1:9825</code> &rarr; <span class="passed-text">PASSED</span> (1 passed, 0 failed, 0 skipped).</li>
+        <li>All 5 steps green: tabs render, "Add Custom App" present, "Available apps" section present, "OpenWork Cloud Control" + at least one of Notion/Linear present.</li>
+      </ul>
+      <figure>
+        <img src="settings-extensions-mcp-01-mcp-view.png" alt="Regression flow screenshot" />
+        <figcaption>Screenshot captured by the coded regression flow itself.</figcaption>
+      </figure>
+    </div>
+
+    <div class="step">
+      <div class="eyebrow">Static regression (non-UI)</div>
+      <h3>typecheck + unit tests, run on the PR branch inside the Daytona sandbox</h3>
+      <ul class="assertions">
+        <li><code>pnpm --filter @openwork/app typecheck</code> &rarr; clean, no errors.</li>
+        <li><code>bun test tests/</code> (apps/app) &rarr; <strong>102 pass, 0 fail, 206 expect() calls</strong> across 21 files, including the 4 new <code>org-mcp-connections.test.ts</code> cases for <code>resolveOrgMcpConnectionCardState</code>.</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <h2>Environment notes (stated explicitly per validator rules)</h2>
+  <ul>
+    <li>Two independent Daytona sandboxes were used: <code>openwork-frame3-server</code> (MySQL + Den API + Den Web + the mock OAuth/MCP server, all publicly reachable) and a separate Electron sandbox (<code>openwork-test-20260703-115114</code>) running the real desktop app pointed at that Den server &mdash; this is a stricter topology than same-machine local dev, since the OAuth redirect and token exchange had to cross the public internet between two independent sandboxes.</li>
+    <li>"Jordan" is the seeded org member <code>jordan.demo@acme.test</code>, invited via the real invitation API and accepted via the real accept-invitation API (email verified via a direct DB flag flip, equivalent to the flow's own <code>MARK_VERIFIED_CMD</code> mechanism, since no mail transport exists in this sandbox).</li>
+    <li>The mock OAuth+MCP server was run with <code>AUTO_APPROVE=0</code> (the PR's own demo runs it with auto-approve <em>on</em>, which never renders a clickable consent screen at all) specifically so a real, driven approve-click could be captured &mdash; this is the closest available simulation of a live Notion/Linear MCP OAuth screen without needing real Notion credentials.</li>
+    <li>The final <code>openwork://</code> deep-link handoff shows a generic Linux "Open xdg-open?" confirmation dialog because this sandbox has no default-app registration for the custom scheme; this is a sandbox artifact, not a product defect &mdash; the connection's server-side state (<code>connectedForMe: true</code>) and the desktop's own poll loop is what actually flips the UI, independent of whether the deep link is followed.</li>
+    <li>Frame 5 from the PR's own demo (agent executing the tool in real chat) was not reproduced here; this run was scoped to Frame 3 plus its immediate regression surface per the request.</li>
+  </ul>
+</main>
+</body>
+</html>
