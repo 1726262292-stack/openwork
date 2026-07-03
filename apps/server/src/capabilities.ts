@@ -18,11 +18,12 @@
  * - "read"            -> no approval, viewer scope
  * - "write:workspace" -> writable server, collaborator scope, approval
  */
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ReloadReason, ReloadTrigger, ServerConfig } from "./types.js";
 import { ApiError } from "./errors.js";
-import { exportExtensions, redactMcpConfig } from "./extensions-export.js";
+import { exportExtensions, redactMcpConfig, type ExportedMcp, type ExportedSkill } from "./extensions-export.js";
 import { listMcp } from "./mcp.js";
 import { listSkills, upsertSkill } from "./skills.js";
 
@@ -209,6 +210,212 @@ const DEFINITIONS: CapabilityDefinition[] = [
     },
   },
 ];
+
+const REDACTED_VALUE = "<redacted>";
+
+type SharePlanStep = {
+  note: string;
+  method: "GET" | "POST";
+  path: string;
+  body?: Record<string, unknown>;
+  /** Reuse an existing resource instead of creating a duplicate. */
+  findOrCreate?: { matchField: string; matchValue: string };
+};
+
+function slugify(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "shared-plugin";
+}
+
+/**
+ * Build the publish-ready MCP payload from a REDACTED export: every redacted
+ * value is dropped (never published, even as a placeholder) and reported as
+ * a required input the installer must provide — or, for OAuth, obtain by
+ * signing in as themselves.
+ */
+function publishableMcpConfig(mcp: ExportedMcp): { config: Record<string, unknown>; requiredInputs: string[] } {
+  const requiredInputs = [...mcp.redactedKeys];
+  const source = mcp.config;
+  const config: Record<string, unknown> = {};
+  if (typeof source.url === "string") {
+    config.type = "remote";
+    config.url = source.url;
+  } else {
+    config.type = "local";
+    if (Array.isArray(source.command)) config.command = source.command;
+  }
+  const oauth = source.oauth;
+  if (oauth && typeof oauth === "object" && !Array.isArray(oauth)) {
+    const kept = Object.fromEntries(Object.entries(oauth).filter(([, value]) => value !== REDACTED_VALUE));
+    config.oauth = kept;
+  } else if (oauth !== undefined) {
+    config.oauth = oauth;
+  }
+  return { config, requiredInputs };
+}
+
+function buildSharePlan(input: {
+  marketplace: string;
+  pluginName: string;
+  description: string;
+  skills: ExportedSkill[];
+  mcps: ExportedMcp[];
+}): { steps: SharePlanStep[]; requiredInputs: string[]; planFingerprint: string } {
+  const steps: SharePlanStep[] = [];
+  const requiredInputs: string[] = [];
+
+  steps.push({
+    note: `Find the marketplace named ${JSON.stringify(input.marketplace)}; reuse its id as {marketplaceId} if it exists.`,
+    method: "GET",
+    path: "/v1/marketplaces?status=active&limit=100",
+    findOrCreate: { matchField: "name", matchValue: input.marketplace },
+  });
+  steps.push({
+    note: "Create the marketplace only when the lookup found none; then grant org-wide viewer access so members can see it.",
+    method: "POST",
+    path: "/v1/marketplaces",
+    body: { name: input.marketplace },
+  });
+  steps.push({
+    note: "Org-wide viewer grant on the marketplace (only needed when it was just created).",
+    method: "POST",
+    path: "/v1/marketplaces/{marketplaceId}/access",
+    body: { orgWide: true, role: "viewer" },
+  });
+  steps.push({
+    note: "Create the plugin; use the returned id as {pluginId}.",
+    method: "POST",
+    path: "/v1/plugins",
+    body: { name: input.pluginName, description: input.description },
+  });
+  steps.push({
+    note: "Org-wide viewer grant on the plugin.",
+    method: "POST",
+    path: "/v1/plugins/{pluginId}/access",
+    body: { orgWide: true, role: "viewer" },
+  });
+
+  for (const skill of input.skills) {
+    steps.push({
+      note: `Skill config object for ${skill.name} (exported SKILL.md verbatim).`,
+      method: "POST",
+      path: "/v1/config-objects",
+      body: {
+        type: "skill",
+        sourceMode: "cloud",
+        pluginIds: ["{pluginId}"],
+        input: {
+          rawSourceText: skill.content,
+          metadata: { name: skill.name, description: skill.description },
+        },
+      },
+    });
+  }
+
+  for (const mcp of input.mcps) {
+    const publishable = publishableMcpConfig(mcp);
+    requiredInputs.push(...publishable.requiredInputs);
+    steps.push({
+      note: `MCP config object for ${mcp.name}. Secret values were removed at the source; installers provide required inputs or sign in as themselves.`,
+      method: "POST",
+      path: "/v1/config-objects",
+      body: {
+        type: "mcp",
+        sourceMode: "cloud",
+        pluginIds: ["{pluginId}"],
+        input: {
+          normalizedPayloadJson: { mcpServers: { [mcp.name]: publishable.config } },
+          metadata: { name: mcp.name, description: `Shared MCP connection ${mcp.name}` },
+        },
+      },
+    });
+  }
+
+  steps.push({
+    note: "Org-wide viewer grant on each created config object ({configObjectId} per creation response).",
+    method: "POST",
+    path: "/v1/config-objects/{configObjectId}/access",
+    body: { orgWide: true, role: "viewer" },
+  });
+  steps.push({
+    note: "Publish the plugin into the marketplace.",
+    method: "POST",
+    path: "/v1/marketplaces/{marketplaceId}/plugins",
+    body: { pluginId: "{pluginId}" },
+  });
+
+  const planFingerprint = createHash("sha256").update(JSON.stringify(steps)).digest("hex").slice(0, 16);
+  return { steps, requiredInputs, planFingerprint };
+}
+
+const SHARE_PLAN_DEFINITION: CapabilityDefinition = {
+  id: "marketplace.share_plan",
+  title: "Plan sharing skills + MCPs to a marketplace",
+  description: "Compiles a complete, secret-free publish plan: exports the requested skills and MCP connections (secrets removed at the source), wraps them as one plugin, and emits the exact ordered cloud requests (find-or-create marketplace, grants, config objects, publish) plus a plan fingerprint. Nothing is written by this capability.",
+  when: "Use when the user wants to share, publish, or distribute skills or MCP connections to their team or a marketplace. Execute this first, show the user the plan summary, then run the plan's steps with your OpenWork Cloud access after they approve.",
+  origin: "server",
+  effects: "read",
+  argsSchema: {
+    type: "object",
+    required: ["marketplace"],
+    properties: {
+      skills: { type: "array", items: { type: "string" }, description: "Skill names to include." },
+      mcps: { type: "array", items: { type: "string" }, description: "MCP server names to include." },
+      marketplace: { type: "string", description: "Target marketplace name, e.g. 'BY IT Marketplace'. Reused when it already exists." },
+      pluginName: { type: "string", description: "Plugin name; derived from the first component when omitted." },
+    },
+  },
+  related: ["extensions.export", "skills.list", "mcp.list"],
+  async run(context, args) {
+    const skills = stringList(args.skills);
+    const mcps = stringList(args.mcps);
+    const marketplace = typeof args.marketplace === "string" ? args.marketplace.trim() : "";
+    if (!marketplace) throw new ApiError(400, "invalid_args", "marketplace is required");
+    if (skills.length === 0 && mcps.length === 0) {
+      throw new ApiError(400, "invalid_args", "At least one skill or mcp name is required");
+    }
+    const exported = await exportExtensions({
+      serverConfig: context.serverConfig,
+      workspaceId: context.workspaceId,
+      workspaceRoot: context.workspaceRoot,
+      skills,
+      mcps,
+    });
+    if (exported.missing.skills.length > 0 || exported.missing.mcps.length > 0) {
+      throw new ApiError(
+        404,
+        "components_not_found",
+        `Not installed — skills: [${exported.missing.skills.join(", ")}], mcps: [${exported.missing.mcps.join(", ")}]`,
+      );
+    }
+    const exportedSkills = exported.components.filter((item): item is ExportedSkill => item.kind === "skill");
+    const exportedMcps = exported.components.filter((item): item is ExportedMcp => item.kind === "mcp");
+    const firstName = exportedSkills.at(0)?.name ?? exportedMcps.at(0)?.name ?? "shared";
+    const pluginName = typeof args.pluginName === "string" && args.pluginName.trim()
+      ? args.pluginName.trim()
+      : firstName.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+    const description = exportedSkills.at(0)?.description ?? `Shared bundle: ${slugify(pluginName)}`;
+    const plan = buildSharePlan({ marketplace, pluginName, description, skills: exportedSkills, mcps: exportedMcps });
+    return {
+      output: {
+        plan: {
+          pluginName,
+          marketplace,
+          components: {
+            skills: exportedSkills.map((item) => item.name),
+            mcps: exportedMcps.map((item) => item.name),
+          },
+          secretsExcluded: plan.requiredInputs,
+          installerNote: "Secret values never leave this machine. Installers provide the listed required inputs or sign in to OAuth connections as themselves.",
+          steps: plan.steps,
+          stepCount: plan.steps.length,
+          planFingerprint: plan.planFingerprint,
+        },
+      },
+    };
+  },
+};
+
+DEFINITIONS.push(SHARE_PLAN_DEFINITION);
 
 const definitionById = new Map(DEFINITIONS.map((definition) => [definition.id, definition]));
 

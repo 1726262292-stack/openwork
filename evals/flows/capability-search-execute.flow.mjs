@@ -25,7 +25,7 @@ const MCP_URL = "https://mcp.eval.example/cap";
 const SECRET = "cap-eval-oauth-secret-4242";
 
 const AGENT_MESSAGE = [
-  `I need a portable definition of the MCP server "${MCP_NAME}" so I can put it on a marketplace.`,
+  `I need a portable definition of the MCP server "${MCP_NAME}" so I can inspect it and move it to another machine.`,
   "Use openwork_search to find the right capability, then run it with openwork_execute.",
   "Reply with exactly one line: CAPABILITY-RESULT <the capability id you executed> <the exported MCP config url> <the redactedKeys entries joined with commas>.",
   "Write values verbatim without quotes or angle brackets. Do not run any other tools.",

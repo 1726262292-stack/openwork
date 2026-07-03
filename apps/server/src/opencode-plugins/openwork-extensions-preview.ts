@@ -585,30 +585,207 @@ async function exportOpenWorkExtensions(rawArgs: unknown, context: OpenCodeConte
   return Object.assign(base, { result: payload });
 }
 
+// ── Capability federation ──
+//
+// openwork_search / openwork_execute are the facade over the capability
+// index. The index is federated: each shard is owned by the boundary that
+// holds its data and credentials, and this plugin only routes.
+//   server shard -> /workspace/:id/capabilities/*  (skills, runtime MCPs)
+//   ui shard     -> the desktop UI control bridge  (navigation, settings)
+//   mcp shard    -> connected MCP servers          (native tools, pointers)
+// Cloud-origin cards federate in a follow-up.
+
+type FederatedCard = {
+  id: string;
+  title: string;
+  description: string;
+  when: string;
+  origin: "server" | "ui" | "mcp";
+  effects: string;
+  argsSchema?: unknown;
+  related?: string[];
+  disabled?: boolean;
+};
+
+function scoreFederatedCard(card: FederatedCard, terms: string[]): number {
+  const id = card.id.toLowerCase();
+  const title = card.title.toLowerCase();
+  const when = card.when.toLowerCase();
+  const description = card.description.toLowerCase();
+  return terms.reduce((score, term) => {
+    if (id.includes(term)) score += 8;
+    if (title.includes(term)) score += 6;
+    if (when.includes(term)) score += 4;
+    if (description.includes(term)) score += 2;
+    return score;
+  }, 0);
+}
+
+const federatedCardSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string(),
+  when: z.string(),
+  effects: z.string(),
+  argsSchema: z.unknown().optional(),
+  related: z.array(z.string()).optional(),
+}).passthrough();
+
+const serverCardsEnvelopeSchema = z.object({
+  items: z.array(federatedCardSchema),
+}).passthrough();
+
+async function collectServerCards(workspaceId: string): Promise<FederatedCard[]> {
+  try {
+    const payload = await serverGet(`/workspace/${encodeURIComponent(workspaceId)}/capabilities/search?q=&limit=20`);
+    return serverCardsEnvelopeSchema.parse(payload).items.map((item) => ({ ...item, origin: "server" as const }));
+  } catch {
+    return [];
+  }
+}
+
+const uiActionSchema = z.object({
+  id: z.string(),
+  label: z.string().optional(),
+  description: z.string().optional(),
+  sideEffect: z.string().optional(),
+  args: z.array(z.object({ name: z.string().optional(), description: z.string().optional() }).passthrough()).optional(),
+  disabled: z.boolean().optional(),
+}).passthrough();
+
+const uiActionsEnvelopeSchema = z.object({
+  actions: z.array(uiActionSchema),
+}).passthrough();
+
+async function collectUiCards(): Promise<FederatedCard[]> {
+  const payload = await uiBridgeRequest("/actions");
+  const parsed = uiActionsEnvelopeSchema.safeParse(payload);
+  if (!parsed.success) return [];
+  return parsed.data.actions.map((action) => ({
+    id: `ui.${action.id}`,
+    title: action.label ?? action.id,
+    description: action.description ?? `OpenWork app UI action ${action.id}.`,
+    when: `Use to ${(action.label ?? action.id).toLowerCase()} in the OpenWork desktop app UI.`,
+    origin: "ui" as const,
+    effects: action.sideEffect && action.sideEffect !== "none" ? `write:ui` : "read",
+    argsSchema: action.args && action.args.length > 0
+      ? {
+          type: "object",
+          properties: Object.fromEntries(action.args.map((arg, index) => [
+            arg.name ?? `arg${index}`,
+            { description: arg.description ?? "" },
+          ])),
+        }
+      : { type: "object", properties: {} },
+    disabled: action.disabled === true,
+  }));
+}
+
+const mcpItemSchema = z.object({
+  name: z.string(),
+  config: z.record(z.string(), z.unknown()).optional(),
+  source: z.string().optional(),
+}).passthrough();
+
+const mcpEnvelopeSchema = z.object({
+  items: z.array(mcpItemSchema),
+}).passthrough();
+
+async function collectMcpCards(workspaceId: string): Promise<FederatedCard[]> {
+  try {
+    const payload = await serverGet(`/workspace/${encodeURIComponent(workspaceId)}/mcp`);
+    const parsed = mcpEnvelopeSchema.safeParse(payload);
+    if (!parsed.success) return [];
+    return parsed.data.items.map((item) => {
+      const config = item.config ?? {};
+      const target = typeof config.url === "string" ? config.url : "local command";
+      const paused = config.enabled === false;
+      return {
+        id: `mcp:${item.name}`,
+        title: `Connected app ${item.name}`,
+        description: `MCP server ${item.name} (${target})${paused ? " — currently paused" : ""}. Its tools are exposed natively in your toolbox.`,
+        when: `Use the native ${item.name} tools directly for tasks involving this connected app; execute this card to see its connection details and auth state.`,
+        origin: "mcp" as const,
+        effects: "read",
+        argsSchema: { type: "object", properties: {} },
+        related: ["extensions.export"],
+        disabled: paused,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 async function searchOpenWorkCapabilities(rawArgs: unknown, context: OpenCodeContext): Promise<object> {
   const args = capabilitySearchArgsSchema.parse(rawArgs);
   const workspace = await resolveContextWorkspace(args.workspaceId, context);
-  const query = new URLSearchParams({ q: args.query, ...(args.limit ? { limit: String(args.limit) } : {}) });
-  const payload = await serverGet(`/workspace/${encodeURIComponent(workspace.id)}/capabilities/search?${query.toString()}`);
-  const base = { ok: true, workspaceId: workspace.id, workspace: workspaceLabel(workspace) };
-  if (typeof payload === "object" && payload !== null && !Array.isArray(payload)) {
-    return Object.assign(base, payload);
-  }
-  return Object.assign(base, { result: payload });
+  const limit = args.limit ?? 8;
+  const [serverCards, uiCards, mcpCards] = await Promise.all([
+    collectServerCards(workspace.id),
+    collectUiCards(),
+    collectMcpCards(workspace.id),
+  ]);
+  const cards = [...serverCards, ...uiCards.filter((card) => !card.disabled), ...mcpCards];
+  const terms = args.query.toLowerCase().split(/\s+/).filter(Boolean);
+  const items = terms.length === 0
+    ? cards.slice(0, limit)
+    : cards
+        .map((card) => ({ card, score: scoreFederatedCard(card, terms) }))
+        .filter((entry) => entry.score > 0)
+        .sort((left, right) => right.score - left.score || left.card.id.localeCompare(right.card.id))
+        .slice(0, limit)
+        .map((entry) => entry.card);
+  return {
+    ok: true,
+    workspaceId: workspace.id,
+    workspace: workspaceLabel(workspace),
+    origins: { server: serverCards.length, ui: uiCards.length, mcp: mcpCards.length },
+    items,
+  };
 }
 
 async function executeOpenWorkCapability(rawArgs: unknown, context: OpenCodeContext): Promise<object> {
   const args = capabilityExecuteArgsSchema.parse(rawArgs);
   const workspace = await resolveContextWorkspace(args.workspaceId, context);
+  const base = { ok: true, workspaceId: workspace.id, workspace: workspaceLabel(workspace) };
+
+  // ui shard: dispatch through the desktop UI control bridge.
+  if (args.id.startsWith("ui.")) {
+    const result = await uiBridgeRequest("/execute", {
+      method: "POST",
+      body: { actionId: args.id.slice(3), args: args.args ?? {} },
+    });
+    return Object.assign(base, { id: args.id, origin: "ui", result });
+  }
+
+  // mcp shard: pointer cards — the tools already exist natively.
+  if (args.id.startsWith("mcp:")) {
+    const name = args.id.slice(4);
+    const cards = await collectMcpCards(workspace.id);
+    const card = cards.find((entry) => entry.id === args.id);
+    if (!card) {
+      return { ok: false, error: `No connected MCP named ${name}.` };
+    }
+    return Object.assign(base, {
+      id: args.id,
+      origin: "mcp",
+      result: {
+        pointer: true,
+        message: `${card.description} Call its native tools directly instead of this card. To package or share it, execute extensions.export with mcps ["${name}"].`,
+      },
+    });
+  }
+
+  // server shard: the approval-gated execute gateway.
   const payload = await postJson(`/workspace/${encodeURIComponent(workspace.id)}/capabilities/execute`, {
     id: args.id,
     args: args.args ?? {},
   });
-  const base = { ok: true, workspaceId: workspace.id, workspace: workspaceLabel(workspace) };
   if (typeof payload === "object" && payload !== null && !Array.isArray(payload)) {
-    return Object.assign(base, payload);
+    return Object.assign(base, { origin: "server" }, payload);
   }
-  return Object.assign(base, { result: payload });
+  return Object.assign(base, { origin: "server", result: payload });
 }
 
 async function postJson(path: string, body: ExtensionActionPayload | Record<string, unknown>): Promise<unknown> {

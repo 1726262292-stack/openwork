@@ -69,7 +69,7 @@ describe("capability index", () => {
   });
 
   test("search ranks by intent terms", () => {
-    const exportHits = searchCapabilities("export mcp for marketplace");
+    const exportHits = searchCapabilities("portable export of an mcp");
     expect(exportHits.at(0)?.id).toBe("extensions.export");
     const skillHits = searchCapabilities("save repeatable work as a skill");
     expect(skillHits.map((card) => card.id)).toContain("skills.upsert");
@@ -192,6 +192,209 @@ describe("capability execution over HTTP", () => {
   });
 });
 
+describe("marketplace.share_plan", () => {
+  test("compiles a secret-free publish plan with required inputs and fingerprint", async () => {
+    await withWorkspace(async ({ root, config }) => {
+      await writeSkill(root, "plan-skill");
+      await addMcp(config, WORKSPACE_ID, "plan-mcp", {
+        type: "remote",
+        url: "https://mcp.example.com/plan",
+        enabled: false,
+        headers: { Authorization: SECRET },
+        oauth: { clientId: "plan-client", clientSecret: "plan-oauth-secret-999", scope: "plan.read" },
+      });
+
+      const server = await startServer(config) as Served;
+      try {
+        const response = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/capabilities/execute`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "marketplace.share_plan",
+            args: { skills: ["plan-skill"], mcps: ["plan-mcp"], marketplace: "BY IT Marketplace" },
+          }),
+        });
+        expect(response.status).toBe(200);
+        const raw = await response.text();
+        // Secrets are dropped, not placeholdered: neither the values nor
+        // the <redacted> marker may appear in a publishable plan.
+        expect(raw).not.toContain(SECRET);
+        expect(raw).not.toContain("plan-oauth-secret-999");
+        expect(raw).not.toContain("<redacted>");
+
+        const payload = JSON.parse(raw) as {
+          result: {
+            plan: {
+              pluginName: string;
+              stepCount: number;
+              secretsExcluded: string[];
+              planFingerprint: string;
+              steps: Array<{ method: string; path: string; body?: Record<string, unknown> }>;
+            };
+          };
+        };
+        const plan = payload.result.plan;
+        expect(plan.pluginName).toBe("Plan Skill");
+        expect(plan.secretsExcluded.sort()).toEqual(["headers.Authorization", "oauth.clientSecret"]);
+        expect(plan.planFingerprint).toMatch(/^[0-9a-f]{16}$/);
+        expect(plan.steps.at(0)?.path).toContain("/v1/marketplaces");
+        expect(plan.steps.at(-1)?.body?.pluginId).toBe("{pluginId}");
+        const mcpStep = plan.steps.find((step) => JSON.stringify(step).includes("mcpServers"));
+        const mcpJson = JSON.stringify(mcpStep);
+        expect(mcpJson).toContain("plan-client");
+        expect(mcpJson).toContain("plan.read");
+        expect(mcpJson).not.toContain("clientSecret");
+        // Skill content travels verbatim in its config object.
+        const skillStep = plan.steps.find((step) => JSON.stringify(step).includes("rawSourceText"));
+        expect(JSON.stringify(skillStep)).toContain("Test skill plan-skill");
+
+        // Same args -> same fingerprint (plan is deterministic).
+        const again = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/capabilities/execute`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "marketplace.share_plan",
+            args: { skills: ["plan-skill"], mcps: ["plan-mcp"], marketplace: "BY IT Marketplace" },
+          }),
+        });
+        const againPlan = (await again.json() as typeof payload).result.plan;
+        expect(againPlan.planFingerprint).toBe(plan.planFingerprint);
+      } finally {
+        await server.stop(true);
+      }
+    });
+  });
+
+  test("404s with the missing component names", async () => {
+    await withWorkspace(async ({ config }) => {
+      const server = await startServer(config) as Served;
+      try {
+        const response = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/capabilities/execute`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+          body: JSON.stringify({ id: "marketplace.share_plan", args: { skills: ["ghost"], marketplace: "M" } }),
+        });
+        expect(response.status).toBe(404);
+        expect(await response.text()).toContain("ghost");
+      } finally {
+        await server.stop(true);
+      }
+    });
+  });
+
+  test("search finds the plan capability for share intent", () => {
+    const hits = searchCapabilities("share this skill with my team marketplace");
+    expect(hits.at(0)?.id).toBe("marketplace.share_plan");
+  });
+});
+
+describe("federated search across server + ui + mcp shards", () => {
+  test("merges ui bridge actions and mcp pointer cards; execute dispatches by origin", async () => {
+    await withWorkspace(async ({ root, config }) => {
+      await addMcp(config, WORKSPACE_ID, "fed-mcp", {
+        type: "remote",
+        url: "https://mcp.example.com/fed",
+        enabled: false,
+      });
+
+      // Mock UI control bridge: /actions catalog + /execute echo.
+      const executed: Array<{ actionId: string; args: unknown }> = [];
+      const bridge = Bun.serve({
+        port: 0,
+        fetch: async (request) => {
+          const url = new URL(request.url);
+          if (url.pathname === "/actions") {
+            return Response.json({
+              ok: true,
+              actions: [
+                {
+                  id: "settings.panel.open",
+                  label: "Open settings panel",
+                  description: "Open a settings panel in the OpenWork app.",
+                  sideEffect: "navigation",
+                  args: [{ name: "panel", description: "Panel id, e.g. extensions." }],
+                  disabled: false,
+                },
+                { id: "hidden.action", label: "Hidden", sideEffect: "none", disabled: true },
+              ],
+            });
+          }
+          if (url.pathname === "/execute") {
+            const body = await request.json() as { actionId: string; args: unknown };
+            executed.push(body);
+            return Response.json({ ok: true, result: { route: "/settings/extensions" } });
+          }
+          return Response.json({ ok: false }, { status: 404 });
+        },
+      });
+      const discoveryPath = join(root, "ui-bridge.json");
+      await writeFile(discoveryPath, JSON.stringify({ baseUrl: `http://127.0.0.1:${bridge.port}`, token: "bridge-token" }), "utf8");
+
+      const server = await startServer(config) as Served;
+      const previous = {
+        url: process.env.OPENWORK_SERVER_URL,
+        token: process.env.OPENWORK_SERVER_TOKEN,
+        discovery: process.env.OPENWORK_UI_CONTROL_DISCOVERY,
+      };
+      process.env.OPENWORK_SERVER_URL = `http://127.0.0.1:${server.port}`;
+      process.env.OPENWORK_SERVER_TOKEN = config.token;
+      process.env.OPENWORK_UI_CONTROL_DISCOVERY = discoveryPath;
+      try {
+        const { OpenWorkExtensionsPreview } = await import("./opencode-plugins/openwork-extensions-preview.js");
+        const plugin = await OpenWorkExtensionsPreview();
+
+        const searchOutput = await plugin.tool.openwork_search.execute(
+          { query: "open the settings panel" },
+          { directory: root },
+        );
+        const search = JSON.parse(searchOutput) as {
+          ok: boolean;
+          origins: { server: number; ui: number; mcp: number };
+          items: Array<{ id: string; origin: string }>;
+        };
+        expect(search.ok).toBe(true);
+        expect(search.origins.ui).toBeGreaterThanOrEqual(2);
+        expect(search.origins.mcp).toBe(1);
+        expect(search.items.at(0)?.id).toBe("ui.settings.panel.open");
+        // Disabled UI actions never surface.
+        expect(search.items.some((item) => item.id === "ui.hidden.action")).toBe(false);
+
+        const mcpSearch = JSON.parse(await plugin.tool.openwork_search.execute(
+          { query: "fed-mcp connected app" },
+          { directory: root },
+        )) as { items: Array<{ id: string }> };
+        expect(mcpSearch.items.at(0)?.id).toBe("mcp:fed-mcp");
+
+        const uiExec = JSON.parse(await plugin.tool.openwork_execute.execute(
+          { id: "ui.settings.panel.open", args: { panel: "extensions" } },
+          { directory: root },
+        )) as { ok: boolean; origin: string };
+        expect(uiExec.ok).toBe(true);
+        expect(uiExec.origin).toBe("ui");
+        expect(executed).toEqual([{ actionId: "settings.panel.open", args: { panel: "extensions" } }]);
+
+        const pointer = JSON.parse(await plugin.tool.openwork_execute.execute(
+          { id: "mcp:fed-mcp" },
+          { directory: root },
+        )) as { ok: boolean; origin: string; result: { pointer: boolean; message: string } };
+        expect(pointer.ok).toBe(true);
+        expect(pointer.origin).toBe("mcp");
+        expect(pointer.result.pointer).toBe(true);
+        expect(pointer.result.message).toContain('extensions.export');
+      } finally {
+        if (previous.url === undefined) delete process.env.OPENWORK_SERVER_URL;
+        else process.env.OPENWORK_SERVER_URL = previous.url;
+        if (previous.token === undefined) delete process.env.OPENWORK_SERVER_TOKEN;
+        else process.env.OPENWORK_SERVER_TOKEN = previous.token;
+        if (previous.discovery === undefined) delete process.env.OPENWORK_UI_CONTROL_DISCOVERY;
+        else process.env.OPENWORK_UI_CONTROL_DISCOVERY = previous.discovery;
+        bridge.stop(true);
+        await server.stop(true);
+      }
+    });
+  });
+});
+
 describe("openwork_search + openwork_execute plugin tools", () => {
   test("agent finds extensions.export by intent and executes it", async () => {
     await withWorkspace(async ({ root, config }) => {
@@ -213,7 +416,7 @@ describe("openwork_search + openwork_execute plugin tools", () => {
         const plugin = await OpenWorkExtensionsPreview();
 
         const searchOutput = await plugin.tool.openwork_search.execute(
-          { query: "export mcp for marketplace" },
+          { query: "portable export of an mcp" },
           { directory: root },
         );
         const search = JSON.parse(searchOutput) as { ok: boolean; items: Array<{ id: string }> };
