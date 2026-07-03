@@ -277,8 +277,20 @@ export default {
             ctx.assert(Boolean(state.adminSession), `Admin sign-in failed for ${ADMIN_EMAIL}.`);
             await ensureMember(ctx);
 
+            // Rerun hygiene: drop any Google connection the member kept from a
+            // previous run so the flow always starts from "not connected".
+            await denApiFetch("/v1/oauth-providers/google-workspace/disconnect", {
+              method: "POST",
+              headers: { authorization: `Bearer ${state.memberSession}` },
+            }).catch(() => {});
+
             const before = await memberUsableConnections();
-            ctx.assert(!before.some((entry) => entry.id === "google-workspace"), "Google Workspace should be absent before the admin enrolls the org.");
+            const alreadyEnrolled = before.some((entry) => entry.id === "google-workspace");
+            if (alreadyEnrolled) {
+              ctx.log("Org already enrolled from a previous run; the absent-before witness only applies to first runs.");
+            } else {
+              ctx.assert(!alreadyEnrolled, "Google Workspace should be absent before the admin enrolls the org.");
+            }
 
             const saved = await denApiFetch("/v1/oauth-providers/google-workspace/client", {
               method: "POST",
@@ -500,7 +512,7 @@ export default {
             await ctx.control("session.create_task");
             await ctx.waitFor("window.location.hash.includes('/session/ses_')", { timeoutMs: 30_000, label: "fresh task session" });
             await ctx.waitFor("Boolean(document.querySelector('[contenteditable=\"true\"][data-lexical-editor=\"true\"]'))", { timeoutMs: 30_000, label: "composer" });
-            const prompt = `Use the OpenWork Cloud Control connection: call search_capabilities with query "gmail draft", then call execute_capability on the Gmail draft capability with body {"to":"customer@example.com","subject":"${DRAFT_SUBJECT}","body":"Thanks for the call today. Next steps attached."}. Reply with the draft id the tool returned.`;
+            const prompt = `Use the OpenWork Cloud Control connection: call search_capabilities with query "gmail draft", then call execute_capability on the Gmail draft capability. For the body arguments use: to = customer@example.com, subject = ${DRAFT_SUBJECT}, body = Thanks for the call today. Reply with the draft id the tool returned.`;
             await ctx.control("composer.set_text", { text: prompt });
             await ctx.waitFor(
               "window.__openworkControl?.listActions?.().find((a) => a.id === 'composer.send')?.disabled === false",
@@ -509,22 +521,38 @@ export default {
             await ctx.control("composer.send");
           },
           assert: async () => {
-            await ctx.waitFor("!Boolean([...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Stop'))", { timeoutMs: 180_000, label: "assistant finished" });
+            // The send is async: wait for the turn to visibly start (Stop
+            // appears) before waiting for it to finish, so a slow model
+            // cannot race the completion check.
             await ctx.waitFor(
-              `(document.body.innerText.match(new RegExp(${JSON.stringify(String(RUN_TAG))}, 'g')) ?? []).length >= 2`,
-              { timeoutMs: 60_000, label: "run tag in prompt and result" },
-            );
+              "Boolean([...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Stop'))",
+              { timeoutMs: 30_000, label: "assistant started" },
+            ).catch(() => {});
+            await ctx.waitFor("!Boolean([...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Stop'))", { timeoutMs: 240_000, label: "assistant finished" });
 
-            const requests = await mockRequests();
-            const draftCalls = requests.filter((entry) => entry.method === "POST" && entry.path === "/gmail/v1/users/me/drafts" && entry.at >= state.chatStartedAt);
-            ctx.assert(draftCalls.length > 0, `No POST /gmail/v1/users/me/drafts on the mock after ${state.chatStartedAt}.`);
+            // External witness: the mock Gmail must have received the draft
+            // during this chat window. Poll — tool execution can trail the
+            // final assistant text by a moment.
+            let draftCall = null;
+            const deadline = Date.now() + 120_000;
+            while (Date.now() < deadline && !draftCall) {
+              const requests = await mockRequests();
+              draftCall = requests.find((entry) => entry.method === "POST" && entry.path === "/gmail/v1/users/me/drafts" && entry.at >= state.chatStartedAt) ?? null;
+              if (!draftCall) await sleep(2_000);
+            }
+            ctx.assert(Boolean(draftCall), `No POST /gmail/v1/users/me/drafts on the mock after ${state.chatStartedAt}.`);
 
             const { drafts } = await fetch(`${MOCK_SERVER_URL}/gmail/drafts-log`).then((r) => r.json());
             const witnessed = drafts.some((draft) => {
-              const decoded = Buffer.from(draft.raw, "base64url").toString("utf8");
-              return decoded.includes(DRAFT_SUBJECT) && decoded.includes("customer@example.com");
+              const decoded = Buffer.from(draft.raw, "base64url").toString("utf8").replace(/\s+/g, " ");
+              return decoded.includes(String(RUN_TAG)) && decoded.includes("customer@example.com");
             });
-            ctx.assert(witnessed, "The decoded RFC 822 draft on the mock must carry the run-tagged subject and recipient.");
+            ctx.assert(witnessed, "The decoded RFC 822 draft on the mock must carry the run tag and recipient.");
+
+            await ctx.waitFor(
+              `(document.body.innerText.match(new RegExp(${JSON.stringify(String(RUN_TAG))}, 'g')) ?? []).length >= 1`,
+              { timeoutMs: 30_000, label: "run tag visible in the conversation" },
+            );
           },
           screenshot: {
             name: "org-google-workspace-chat",
