@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Layered rollback runbook for org MCP connections (PRs #2406 + #2439).
+# Layered rollback runbook for org MCP connections (PRs #2406 + #2451 (desktop PR #2439 was superseded by #2451)).
 #
 # Layer 0 — instant, no deploy (prefer this):
 #   pnpm --filter @openwork-ee/den-api exec tsx scripts/mcp-connections-rollout.ts disable <org-slug>
@@ -11,7 +11,7 @@ set -euo pipefail
 #
 # Layer 1 — code revert (this script): builds a revert branch from the squash
 # commits on origin/dev, newest first, and opens a PR. Desktop app code is
-# harmless while the server feature is dark, so reverting #2439 alone is
+# harmless while the server feature is dark, so reverting #2451 alone is
 # usually enough; --all also reverts the server/API PR #2406.
 #
 # DB note: #2406's tables (external MCP connections, grants) are additive.
@@ -19,18 +19,18 @@ set -euo pipefail
 # down-migrations as part of an emergency revert.
 #
 # Usage:
-#   bash scripts/revert-org-mcp-connections.sh            # revert #2439 only (dry run)
+#   bash scripts/revert-org-mcp-connections.sh            # revert #2451 only (dry run)
 #   bash scripts/revert-org-mcp-connections.sh --execute  # create the revert branch
 #   bash scripts/revert-org-mcp-connections.sh --all --execute
 #   bash scripts/revert-org-mcp-connections.sh --all --execute --push  # + push and open PR
 
-PRS=(2439)
+PRS=(2451)
 EXECUTE=0
 PUSH=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --all) PRS=(2439 2406) ;;
+    --all) PRS=(2451 2406) ;;
     --pr) shift; PRS+=("${1:?missing PR number}") ;;
     --execute) EXECUTE=1 ;;
     --push) PUSH=1 ;;
