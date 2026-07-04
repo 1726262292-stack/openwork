@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import {
   openworkExtensionsPreviewPluginPath,
   openworkCapabilitiesKnowledgePluginPath,
+  openworkCapabilityRouterPluginPath,
   openworkAnthropicAdaptiveThinkingPluginPath,
   openworkAnthropicToolSchemaPluginPath,
 } from "./openwork-extensions-plugin-path.js";
@@ -25,8 +26,8 @@ import type { ServerConfig } from "./types.js";
 import {
   onRuntimeOpencodeConfigWrite,
   readRuntimeOpencodeConfig,
+  engineRuntimeMcpMap,
   runtimeDisabledProviderList,
-  runtimeMcpMap,
   runtimePluginList,
   runtimeStorageDir,
 } from "./runtime-opencode-config-store.js";
@@ -103,12 +104,13 @@ export async function buildOpenworkRuntimeConfigObject(
       "opencode-chrome-devtools",
       openworkExtensionsPreviewPluginPath(),
       openworkCapabilitiesKnowledgePluginPath(),
+      openworkCapabilityRouterPluginPath(),
       openworkAnthropicAdaptiveThinkingPluginPath(),
       openworkAnthropicToolSchemaPluginPath(),
       ...runtimePluginList(runtimeConfig),
     ],
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
-    mcp: runtimeMcpMap(runtimeConfig),
+    mcp: engineRuntimeMcpMap(runtimeConfig),
   };
 }
 

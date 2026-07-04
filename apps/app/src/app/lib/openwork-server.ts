@@ -1504,6 +1504,17 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
           body: { enabled },
         },
       ),
+    setMcpRouting: (workspaceId: string, name: string, routing: "direct" | "search") =>
+      requestJson<{ items: OpenworkMcpItem[] }>(
+        baseUrl,
+        `/workspace/${workspaceId}/mcp/${encodeURIComponent(name)}/routing`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: { routing },
+        },
+      ),
 
     logoutMcpAuth: (workspaceId: string, name: string) =>
       requestJson<{ ok: true }>(baseUrl, `/workspace/${workspaceId}/mcp/${encodeURIComponent(name)}/auth`, {

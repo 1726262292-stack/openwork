@@ -111,6 +111,21 @@ describe("validateMcpConfig", () => {
     ).not.toThrow();
   });
 
+  test("accepts direct and search routing", () => {
+    expect(() =>
+      validateMcpConfig({ type: "remote", url: "https://example.com", routing: "direct" }),
+    ).not.toThrow();
+    expect(() =>
+      validateMcpConfig({ type: "remote", url: "https://example.com", routing: "search" }),
+    ).not.toThrow();
+  });
+
+  test("rejects unknown routing", () => {
+    expect(() => validateMcpConfig({ type: "remote", url: "https://example.com", routing: "lazy" })).toThrow(
+      "MCP routing must be direct or search",
+    );
+  });
+
   test("rejects unknown type", () => {
     expect(() => validateMcpConfig({ type: "unknown" })).toThrow();
   });

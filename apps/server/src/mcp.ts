@@ -23,6 +23,10 @@ function getMcpConfig(config: Record<string, unknown>): Record<string, Record<st
   return mcp as Record<string, Record<string, unknown>>;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function getDeniedToolPatterns(config: Record<string, unknown>): string[] {
   const tools = config.tools;
   if (!tools || typeof tools !== "object") return [];
@@ -135,6 +139,31 @@ export async function setMcpEnabled(
     return false;
   }
   mcpMap[name] = { ...(current as Record<string, unknown>), enabled };
+  await writeRuntimeOpencodeConfig(serverConfig, workspaceId, (currentConfig) => ({ ...currentConfig, mcp: mcpMap }));
+  return true;
+}
+
+export async function setMcpRouting(
+  serverConfig: ServerConfig,
+  workspaceId: string,
+  name: string,
+  routing: "direct" | "search",
+): Promise<boolean> {
+  validateMcpName(name);
+  const runtimeConfig = await readRuntimeOpencodeConfig(serverConfig, workspaceId);
+  const mcpMap = { ...runtimeMcpMap(runtimeConfig) };
+  if (!Object.prototype.hasOwnProperty.call(mcpMap, name)) return false;
+  const current = mcpMap[name];
+  if (!isRecord(current)) return false;
+  const next = { ...current };
+  if (routing === "search") next.routing = "search";
+  else delete next.routing;
+  try {
+    validateMcpConfig(next);
+  } catch {
+    return false;
+  }
+  mcpMap[name] = next;
   await writeRuntimeOpencodeConfig(serverConfig, workspaceId, (currentConfig) => ({ ...currentConfig, mcp: mcpMap }));
   return true;
 }

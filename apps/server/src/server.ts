@@ -7,8 +7,9 @@ import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor,
 import { ApprovalService } from "./approvals.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
-import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
+import { addMcp, listMcp, removeMcp, setMcpEnabled, setMcpRouting } from "./mcp.js";
 import { exportExtensions } from "./extensions-export.js";
+import { CapabilityRouterError, executeWorkspaceCapability, searchWorkspaceCapabilities } from "./capability-router.js";
 import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
 import { installHubSkill, listHubSkills } from "./skill-hub.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
@@ -65,6 +66,7 @@ import {
   mergeOpencodeConfigs,
   mergeRuntimeProviderUpdate,
   readRuntimeOpencodeConfig,
+  isSearchRoutedMcpConfig,
   runtimeMcpMap,
   type RuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
@@ -2146,6 +2148,59 @@ function createRoutes(
     return jsonResponse({ items, engineSync: engineMcpSyncState(workspace.id) });
   });
 
+  addRoute(routes, "GET", "/workspace/:id/capabilities/search", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const query = (ctx.url.searchParams.get("q") ?? "").trim();
+    if (!query) {
+      throw new ApiError(400, "invalid_query", "q is required");
+    }
+    const limit = parseOptionalPositiveInteger(ctx.url.searchParams.get("limit"), "limit");
+    return jsonResponse(await searchWorkspaceCapabilities({
+      serverConfig: config,
+      workspaceId: workspace.id,
+      workspaceRoot: workspace.path,
+      query,
+      limit,
+    }));
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/capabilities/execute", "client", async (ctx) => {
+    if (ctx.actor?.scope === "viewer") {
+      throw new ApiError(403, "forbidden", "Viewer tokens cannot execute capabilities");
+    }
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) {
+      throw new ApiError(400, "invalid_payload", "name is required");
+    }
+    const argumentsValue = body.arguments;
+    if (argumentsValue !== undefined && !isRecord(argumentsValue)) {
+      throw new ApiError(400, "invalid_payload", "arguments must be a plain object");
+    }
+    try {
+      return jsonResponse(await executeWorkspaceCapability({
+        serverConfig: config,
+        workspaceId: workspace.id,
+        workspaceRoot: workspace.path,
+        name,
+        ...(argumentsValue !== undefined ? { arguments: argumentsValue } : {}),
+      }));
+    } catch (error) {
+      if (error instanceof CapabilityRouterError) {
+        if (error.code === "unknown_capability") {
+          throw new ApiError(
+            404,
+            "unknown_capability",
+            `${error.message} Call search_capabilities before execute_capability.`,
+          );
+        }
+        throw new ApiError(502, "capability_unavailable", error.message);
+      }
+      throw error;
+    }
+  });
+
   // Portable export of installed skills and MCP servers (including
   // OpenWork-managed runtime MCPs that only live in the runtime DB), so
   // agents can package them into marketplace plugins. Read-only; MCP
@@ -2278,6 +2333,49 @@ function createRoutes(
       timestamp: Date.now(),
     });
     // ReloadTrigger.action only allows added/removed/updated, so toggle => "updated".
+    emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
+      type: "mcp",
+      name,
+      action: "updated",
+    });
+    const items = await listMcp(config, workspace.id, workspace.path);
+    return jsonResponse({ items });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/mcp/:name/routing", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const name = ctx.params.name ?? "";
+    const body = await readJsonBody(ctx.request);
+    if (!isRecord(body) || (body.routing !== "direct" && body.routing !== "search")) {
+      throw new ApiError(400, "invalid_payload", "routing must be direct or search");
+    }
+    const routing = body.routing;
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "mcp.routing",
+      summary: `Route MCP ${name} ${routing === "search" ? "on-demand via search" : "directly"}`,
+      paths: [openworkConfigPath(workspace.path)],
+    });
+    const updated = await setMcpRouting(config, workspace.id, name, routing);
+    if (!updated) {
+      throw new ApiError(404, "mcp_not_found", `MCP ${name} not found in workspace config`);
+    }
+    if (routing === "search") {
+      await disconnectMcpFromOpencodeEngine(config, workspace, name).catch(() => undefined);
+    } else {
+      await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]).catch(() => undefined);
+    }
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "mcp.routing",
+      target: openworkConfigPath(workspace.path),
+      summary: `Routed MCP ${name} ${routing === "search" ? "on-demand via search" : "directly"}`,
+      timestamp: Date.now(),
+    });
     emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
       type: "mcp",
       name,
@@ -2863,9 +2961,13 @@ async function syncRuntimeMcpToOpencodeEngine(
   if (!baseUrl) return;
 
   const runtimeConfig = await readRuntimeOpencodeConfig(config, workspace.id);
-  const entries = Object.entries(runtimeMcpMap(runtimeConfig)).filter(
-    ([name]) => !onlyNames || onlyNames.includes(name),
-  );
+  const entries: Array<[string, Record<string, unknown>]> = [];
+  for (const [name, mcpConfig] of Object.entries(runtimeMcpMap(runtimeConfig))) {
+    if (onlyNames && !onlyNames.includes(name)) continue;
+    if (isSearchRoutedMcpConfig(mcpConfig)) continue;
+    const { routing: _routing, ...engineConfig } = mcpConfig;
+    entries.push([name, engineConfig]);
+  }
   if (entries.length === 0) return;
 
   const url = new URL(baseUrl);

@@ -48,9 +48,11 @@ import type { McpServerEntry, McpStatusMap } from "../../../../app/types";
 import { formatRelativeTime, isDesktopRuntime, isWindowsPlatform } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
 import { ClaudePluginImportModal } from "../../connections/modals/claude-plugin-import-modal";
+import { CLOUD_MCP_SERVER_NAME } from "../../connections/cloud-mcp-user-state";
 import type { OpenworkClaudePluginPreview } from "../../../../app/lib/openwork-server";
 import {
   isOpenWorkExtensionEnabled,
@@ -112,6 +114,7 @@ export type McpViewProps = {
   logoutMcpAuth: (name: string) => Promise<void> | void;
   removeMcp: (name: string) => void;
   setMcpEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
+  setMcpRouting?: (name: string, routing: "direct" | "search") => Promise<void> | void;
   /** Return extension-specific config UI for the detail modal. */
   configSlotForEntry?: (entry: McpDirectoryInfo) => React.ReactNode | null;
   /** Check if an extension-kind entry is connected/active. */
@@ -129,6 +132,14 @@ export type McpViewProps = {
 };
 
 const builtInExtensionDisabledReason = "Disabled by organization";
+
+const mcpRouting = (config: McpServerEntry["config"]): "direct" | "search" => {
+  return "routing" in config && config.routing === "search" ? "search" : "direct";
+};
+
+const canRouteMcpViaSearch = (entry: McpServerEntry) => {
+  return entry.source === "config.remote" && entry.name !== CLOUD_MCP_SERVER_NAME;
+};
 
 const statusDot = (status: ReactMcpStatus) => {
   switch (status) {
@@ -654,6 +665,7 @@ export function McpView(props: McpViewProps) {
           setRemoveOpen(true);
         }}
         onToggleEnabled={props.setMcpEnabled}
+        onToggleRouting={props.setMcpRouting}
         onToggleBusy={setTogglingMcp}
       />
 
@@ -1038,6 +1050,7 @@ function McpConfiguredServersSection(props: {
   onRequestLogout: (name: string) => void;
   onRemove: (name: string) => void;
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
+  onToggleRouting?: (name: string, routing: "direct" | "search") => Promise<void> | void;
   onToggleBusy: (value: SetStateAction<string | null>) => void;
 }) {
   return (
@@ -1073,6 +1086,7 @@ function McpConfiguredServersSection(props: {
               onRequestLogout={props.onRequestLogout}
               onRemove={props.onRemove}
               onToggleEnabled={props.onToggleEnabled}
+              onToggleRouting={props.onToggleRouting}
               onToggleBusy={props.onToggleBusy}
             />
           ))}
@@ -1109,6 +1123,7 @@ function McpConfiguredServerRow(props: {
   onRequestLogout: (name: string) => void;
   onRemove: (name: string) => void;
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
+  onToggleRouting?: (name: string, routing: "direct" | "search") => Promise<void> | void;
   onToggleBusy: (value: SetStateAction<string | null>) => void;
 }) {
   const Icon = serviceIcon(props.entry.name);
@@ -1153,6 +1168,11 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
             {t("mcp.cap_signin")}
           </span>
         ) : null}
+        {canRouteMcpViaSearch(props.entry) && mcpRouting(props.entry.config) === "search" ? (
+          <span className="rounded-md border border-dls-border bg-dls-surface px-2 py-0.5 text-[10px] font-medium text-dls-text">
+            {t("mcp.routing_badge")}
+          </span>
+        ) : null}
       </div>
       {props.errorInfo ? <div className="rounded-lg border border-red-6 bg-red-2 px-3 py-2 text-xs text-red-11">{props.errorInfo}</div> : null}
       <details className="group">
@@ -1166,6 +1186,26 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
         </div>
       </details>
       <McpConfiguredServerAuthActions {...props} />
+      {props.onToggleRouting && canRouteMcpViaSearch(props.entry) ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-dls-border bg-dls-surface px-3 py-2">
+          <div className="space-y-0.5">
+            <div className="text-xs font-medium text-dls-text">{t("mcp.routing_search_label")}</div>
+            <div className="max-w-md text-[11px] leading-relaxed text-dls-secondary/70">
+              {t("mcp.routing_search_hint")}
+            </div>
+          </div>
+          <Switch
+            aria-label={t("mcp.routing_search_label")}
+            checked={mcpRouting(props.entry.config) === "search"}
+            disabled={props.busy || props.togglingMcp === props.entry.name}
+            onCheckedChange={(checked) => {
+              if (props.togglingMcp) return;
+              props.onToggleBusy(props.entry.name);
+              void Promise.resolve(props.onToggleRouting?.(props.entry.name, checked ? "search" : "direct")).finally(() => props.onToggleBusy(null));
+            }}
+          />
+        </div>
+      ) : null}
       <div className="flex justify-end gap-2 pt-1">
         {props.onToggleEnabled && props.entry.source !== "config.global" ? (
           <Button

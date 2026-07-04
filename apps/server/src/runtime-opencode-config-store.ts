@@ -147,6 +147,20 @@ export function runtimeMcpMap(config: RuntimeOpencodeConfig): Record<string, Rec
   return isRecord(config.mcp) ? config.mcp as Record<string, Record<string, unknown>> : {};
 }
 
+export function isSearchRoutedMcpConfig(entry: Record<string, unknown>): boolean {
+  return entry.routing === "search";
+}
+
+export function engineRuntimeMcpMap(config: RuntimeOpencodeConfig): Record<string, Record<string, unknown>> {
+  const result: Record<string, Record<string, unknown>> = {};
+  for (const [name, entry] of Object.entries(runtimeMcpMap(config))) {
+    if (isSearchRoutedMcpConfig(entry)) continue;
+    const { routing: _routing, ...engineEntry } = entry;
+    result[name] = engineEntry;
+  }
+  return result;
+}
+
 export function runtimeExternalDirectory(config: RuntimeOpencodeConfig): Record<string, unknown> {
   const permission = isRecord(config.permission) ? config.permission : null;
   const externalDirectory = permission && isRecord(permission.external_directory) ? permission.external_directory : null;

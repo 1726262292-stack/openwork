@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { addMcp, listMcp, setMcpEnabled } from "./mcp.js";
+import { addMcp, listMcp, setMcpEnabled, setMcpRouting } from "./mcp.js";
 import { buildOpenworkRuntimeConfig } from "./openwork-runtime-config.js";
 import { readOpenworkWorkspaceConfig } from "./openwork-workspace-config-store.js";
 import { addPlugin, listPlugins, removePlugin } from "./plugins.js";
-import { readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { engineRuntimeMcpMap, readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 
@@ -56,6 +56,21 @@ async function expectMissing(path: string): Promise<void> {
 }
 
 describe("runtime OpenCode config store", () => {
+  test("engineRuntimeMcpMap excludes search-routed MCPs and strips routing", () => {
+    const result = engineRuntimeMcpMap({
+      mcp: {
+        direct: { type: "remote", url: "https://direct.example/mcp", routing: "direct", enabled: true },
+        search: { type: "remote", url: "https://search.example/mcp", routing: "search", enabled: true },
+        plain: { type: "local", command: ["node", "server.mjs"], custom: "kept" },
+      },
+    });
+
+    expect(result).toEqual({
+      direct: { type: "remote", url: "https://direct.example/mcp", enabled: true },
+      plain: { type: "local", command: ["node", "server.mjs"], custom: "kept" },
+    });
+  });
+
   test("stores MCP changes in the OpenWork runtime DB without rewriting workspace files", async () => {
     await withWorkspace(async ({ root, config }) => {
       const opencodePath = join(root, "opencode.jsonc");
@@ -72,6 +87,20 @@ describe("runtime OpenCode config store", () => {
       const items = await listMcp(config, WORKSPACE_ID, root);
       expect(items.map((item) => `${item.name}:${item.source}`)).toContain("project:config.project");
       expect(items.map((item) => `${item.name}:${item.source}`)).toContain("runtime:config.remote");
+    });
+  });
+
+  test("setMcpRouting sets search routing and removes the direct key", async () => {
+    await withWorkspace(async ({ config }) => {
+      await addMcp(config, WORKSPACE_ID, "runtime", { type: "remote", url: "https://runtime.example/mcp", enabled: true });
+
+      expect(await setMcpRouting(config, WORKSPACE_ID, "runtime", "search")).toBe(true);
+      expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).mcp?.runtime?.routing).toBe("search");
+
+      expect(await setMcpRouting(config, WORKSPACE_ID, "runtime", "direct")).toBe(true);
+      expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).mcp?.runtime?.routing).toBeUndefined();
+
+      expect(await setMcpRouting(config, WORKSPACE_ID, "missing", "search")).toBe(false);
     });
   });
 

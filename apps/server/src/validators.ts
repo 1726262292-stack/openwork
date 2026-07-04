@@ -40,6 +40,10 @@ export function validateMcpName(name: string): void {
 }
 
 export function validateMcpConfig(config: Record<string, unknown>): void {
+  const routing = config.routing;
+  if (routing !== undefined && routing !== "direct" && routing !== "search") {
+    throw new ApiError(400, "invalid_mcp_config", "MCP routing must be direct or search");
+  }
   const type = config.type;
   if (type !== "local" && type !== "remote") {
     throw new ApiError(400, "invalid_mcp_config", "MCP config type must be local or remote");

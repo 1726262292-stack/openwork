@@ -2122,6 +2122,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                     ? (name, enabled) => connectionsStore.setMcpEnabled(name, enabled)
                     : undefined
                 }
+                setMcpRouting={
+                  routeOpenworkStatus === "connected" && routeOpenworkCapabilities?.mcp?.write
+                    ? (name, routing) => connectionsStore.setMcpRouting(name, routing)
+                    : undefined
+                }
                 readConfigFile={(scope) => connectionsStore.readMcpConfigFile(scope)}
                 installedSkills={extensionItems.installedSkills}
                 installedPlugins={extensionItems.installedCloudPlugins}

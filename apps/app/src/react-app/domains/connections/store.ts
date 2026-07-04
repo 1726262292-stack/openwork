@@ -1183,6 +1183,27 @@ export function createConnectionsStore(options: {
     }
   }
 
+  async function setMcpRouting(name: string, routing: "direct" | "search") {
+    try {
+      const { openworkClient, openworkWorkspaceId, canUseOpenworkServer } =
+        await resolveWritableOpenworkTarget();
+
+      if (!canUseOpenworkServer || !openworkClient || !openworkWorkspaceId) {
+        setStateField("mcpStatus", t("mcp.routing_requires_server"));
+        return;
+      }
+
+      await openworkClient.setMcpRouting(openworkWorkspaceId, name, routing);
+      options.markReloadRequired?.("mcp", { type: "mcp", name, action: "updated" });
+      await refreshMcpServers();
+    } catch (error) {
+      setStateField(
+        "mcpStatus",
+        error instanceof Error ? error.message : t("mcp.routing_failed"),
+      );
+    }
+  }
+
   function closeMcpAuthModal() {
     mutateState((current) => ({
       ...current,
@@ -1278,6 +1299,7 @@ export function createConnectionsStore(options: {
     logoutMcpAuth,
     removeMcp,
     setMcpEnabled,
+    setMcpRouting,
     notifyMcpReloading,
     pollMcpServersAfterReload,
     get mcpAuthModalOpen() {
