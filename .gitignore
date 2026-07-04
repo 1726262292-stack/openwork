@@ -6,6 +6,7 @@ apps/*/node_modules/
 ee/apps/*/node_modules/
 ee/packages/*/node_modules/
 .next/
+ee/apps/landing/.next-prod-eval/
 out/
 dist/
 packages/*/dist/
