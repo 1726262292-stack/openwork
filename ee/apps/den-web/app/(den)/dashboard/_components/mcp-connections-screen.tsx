@@ -131,7 +131,7 @@ export function McpConnectionsScreen() {
           className="rounded-2xl border border-gray-100 bg-white px-4 py-4 text-left transition hover:border-gray-300 hover:shadow-sm"
         >
           <div className="flex items-start gap-3">
-            <IntegrationIcon name="Google Workspace" simpleIconSlug="google" />
+            <IntegrationIcon name="Google Workspace" iconUrl="/integrations/google.svg" />
             <div className="min-w-0 flex-1">
               <p className="text-[14px] font-semibold text-gray-900">Google Workspace</p>
               <p className="mt-1 text-[12px] leading-[1.5] text-gray-500">
