@@ -2,10 +2,11 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { Columns2, FileText, Globe, Mic2, Settings2, X, Zap } from "lucide-react";
+import { Cloud, Columns2, FileText, Globe, Mic2, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { OPENWORK_EXTENSION_CATALOG } from "../../../../app/constants";
+import { buildDenAuthUrl, readDenBootstrapConfig } from "../../../../app/lib/den";
 import { type OpenworkServerClient, type OpenworkServerStatus } from "../../../../app/lib/openwork-server";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { BootPhase } from "../../../../app/lib/startup-boot";
@@ -30,6 +31,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
+import { usePlatform } from "../../../kernel/platform";
+import { useDenAuth } from "../../cloud/den-auth-provider";
 import ProviderAuthModal, { type ProviderAuthModalProps } from "../../connections/provider-auth/provider-auth-modal";
 import { RenameSessionModal } from "../modals/rename-session-modal";
 import { AppSidebar } from "../sidebar/app-sidebar";
@@ -284,6 +287,8 @@ function controlStringArg(args: unknown, key: string) {
 
 export function SessionPage(props: SessionPageProps) {
   const { config: shellConfig } = useShellConfig();
+  const platform = usePlatform();
+  const denAuth = useDenAuth();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
   const sessionSidePanel = useUiStateStore((state) => (
@@ -323,6 +328,12 @@ export function SessionPage(props: SessionPageProps) {
     [],
   );
   const voiceExtensionEnabled = voiceExtension ? isOpenWorkExtensionEnabled(voiceExtension) : false;
+  const showCloudSignIn = shellConfig.cloudSignin && !denAuth.isSignedIn && denAuth.status !== "checking";
+  const openCloudSignIn = useCallback(() => {
+    const baseUrl = readDenBootstrapConfig().baseUrl;
+    // Label stays "Sign in"; opens the sign-up tab so new users aren't defaulted into sign-in.
+    platform.openLink(buildDenAuthUrl(baseUrl, "sign-up"));
+  }, [platform]);
 
   useReactRenderWatchdog("SessionPage", {
     selectedSessionId: props.selectedSessionId,
@@ -899,6 +910,18 @@ export function SessionPage(props: SessionPageProps) {
             <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
               {/* Revert/redo moved to per-message actions */}
               <NotificationBell />
+              {showCloudSignIn ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={openCloudSignIn}
+                  title={t("den.signin_title")}
+                  aria-label={t("den.signin_title")}
+                >
+                  <Cloud className="size-3.5" />
+                  <span>{t("den.signin_button")}</span>
+                </Button>
+              ) : null}
               {props.developerMode ? (
                 <Button
                   variant="ghost"

@@ -1,13 +1,12 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, BookOpen, Cloud, MessageCircleMore, Settings, Sparkles, X } from "lucide-react";
+import { ArrowRight, BookOpen, MessageCircleMore, Settings, Sparkles, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
-import { buildDenAuthUrl, readDenBootstrapConfig } from "@/app/lib/den";
 import { usePlatform } from "../../../kernel/platform";
 import { useDenAuth } from "../../cloud/den-auth-provider";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
@@ -328,29 +327,6 @@ export function StatusBar(props: StatusBarProps) {
                 <X className="size-3" />
               </button>
             </div>
-          ) : null}
-          {shellConfig.cloudSignin && !denAuth.isSignedIn && denAuth.status !== "checking" ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={(
-                  <Button
-                    variant="secondary"
-                    size="xs"
-                    onClick={() => {
-                      const baseUrl = readDenBootstrapConfig().baseUrl;
-                      // Label stays "Sign in"; opens the sign-up tab so new
-                      // users aren't defaulted into sign-in (they can toggle).
-                      platform.openLink(buildDenAuthUrl(baseUrl, "sign-up"));
-                    }}
-                    aria-label={t("den.signin_title")}
-                  >
-                    <Cloud className="size-3.5" />
-                    <span>{t("den.signin_button")}</span>
-                  </Button>
-                )}
-              />
-              <TooltipContent>{t("den.signin_title")}</TooltipContent>
-            </Tooltip>
           ) : null}
           {shellConfig.docsButton ? (
             <Button
