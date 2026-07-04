@@ -77,7 +77,6 @@ import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-vi
 import { CloudAccountView } from "@/react-app/domains/settings/pages/cloud-account-view";
 import { CloudMarketplacesView } from "@/react-app/domains/settings/pages/cloud-marketplaces-view";
 import { CloudProvidersView } from "@/react-app/domains/settings/pages/cloud-providers-view";
-import { CloudWorkersView } from "@/react-app/domains/settings/pages/cloud-workers-view";
 import { MemoryView } from "@/react-app/domains/settings/pages/memory-view";
 import { useFeatureFlagsPreferences } from "@/react-app/domains/settings/state/feature-flags-preferences";
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
@@ -272,11 +271,11 @@ function parseSettingsPath(pathname: string): {
       return { tab: head, redirectPath: null };
     case "cloud-account":
     case "cloud-marketplaces":
-    case "cloud-workers":
     case "cloud-providers":
     case "memory":
       return { tab: head, redirectPath: null };
     case "den":
+    case "cloud-workers":
       return { tab: "cloud-account", redirectPath: "cloud-account" };
     case "extensions":
       if (tail === "mcp") return { tab: "extensions", redirectPath: null, extensionsSection: "mcp" };
@@ -2184,13 +2183,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             }}
             refreshOrgMcpConnections={orgMcpConnections.refresh}
             setBuiltInEnabled={setOpenWorkExtensionEnabled}
-          />
-        );
-      case "cloud-workers":
-        return (
-          <CloudWorkersView
-            connectRemoteWorkspace={async () => false}
-            onOpenAccount={openCloudAccountSettings}
           />
         );
       case "memory":

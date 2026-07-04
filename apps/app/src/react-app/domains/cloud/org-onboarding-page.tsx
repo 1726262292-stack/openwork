@@ -13,7 +13,6 @@ import {
 import {
   BuildingOffice2Icon,
   CloudIcon,
-  ServerStackIcon,
   Square3Stack3DIcon,
 } from "@heroicons/react/24/solid";
 
@@ -25,7 +24,6 @@ import {
   type DenOrgLlmProvider,
   type DenOrgMarketplace,
   type DenOrgSummary,
-  type DenWorkerSummary,
 } from "@/app/lib/den";
 import { getDesktopBootstrapConfig } from "@/app/lib/desktop";
 import { usePlatform } from "../../kernel/platform";
@@ -229,7 +227,7 @@ function markProvidersSeen(providers: DenOrgLlmProvider[]) {
 
 /**
  * Full-screen onboarding page shown after sign-in + org selection.
- * Fetches all org resources (providers, marketplaces, workers, skills)
+ * Fetches all org resources (providers, marketplaces, skills)
  * and shows them so the user knows what their org provides.
  *
  * Route: /onboarding
@@ -355,7 +353,7 @@ export function ResourceSelectionPage() {
     }
   }, [authToken, navigate, orgId]);
 
-  const { providers, marketplaces, workers, loading, error } = useQueries({
+  const { providers, marketplaces, loading, error } = useQueries({
     queries: [
       {
         queryKey: ["den-org-onboarding", settings.baseUrl, settings.apiBaseUrl, orgId, "providers"],
@@ -367,22 +365,12 @@ export function ResourceSelectionPage() {
         enabled: Boolean(authToken && orgId),
         queryFn: () => denClient.listOrgMarketplaces(orgId),
       },
-      {
-        queryKey: ["den-org-onboarding", settings.baseUrl, settings.apiBaseUrl, orgId, "workers"],
-        enabled: Boolean(authToken && orgId),
-        queryFn: () => denClient.listWorkers(orgId),
-      },
     ],
-    combine: ([providersQuery, marketplacesQuery, workersQuery]) => ({
+    combine: ([providersQuery, marketplacesQuery]) => ({
       providers: providersQuery.data ?? [],
       marketplaces: marketplacesQuery.data ?? [],
-      workers: workersQuery.data ?? [],
-      loading: providersQuery.isPending || marketplacesQuery.isPending || workersQuery.isPending,
-      error:
-        providersQuery.error?.message ??
-        marketplacesQuery.error?.message ??
-        workersQuery.error?.message ??
-        null,
+      loading: providersQuery.isPending || marketplacesQuery.isPending,
+      error: providersQuery.error?.message ?? marketplacesQuery.error?.message ?? null,
     }),
   });
 
@@ -406,7 +394,7 @@ export function ResourceSelectionPage() {
   }, [navigate, providers, selectedDefault]);
 
   const totalModels = providers.reduce((sum, provider) => sum + provider.models.length, 0);
-  const hasResources = providers.length > 0 || marketplaces.length > 0 || workers.length > 0;
+  const hasResources = providers.length > 0 || marketplaces.length > 0;
 
   return (
     <Page>
@@ -468,7 +456,7 @@ export function ResourceSelectionPage() {
               <EmptyHeader>
                 <EmptyTitle>No resources have been configured for this organization yet.</EmptyTitle>
                 <EmptyDescription>
-                  Add AI providers, marketplaces, or workers from the OpenWork Cloud dashboard.
+                  Add AI providers or marketplaces from the OpenWork Cloud dashboard.
                 </EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
@@ -523,19 +511,6 @@ export function ResourceSelectionPage() {
                     </Section>
                   ) : null}
 
-                  {/* Workers */}
-                  {workers.length > 0 ? (
-                    <Section
-                      icon={<ServerStackIcon className="size-5 text-foreground/60" />}
-                      title="Cloud Workers"
-                      description="Remote machines that can run tasks for you."
-                      count={`${workers.length} worker${workers.length === 1 ? "" : "s"}`}
-                    >
-                      {workers.map((worker) => (
-                        <WorkerCard key={worker.workerId} worker={worker} />
-                      ))}
-                    </Section>
-                  ) : null}
                 </Accordion>
               </ScrollAreaViewport>
             </ScrollArea>
@@ -553,7 +528,7 @@ export function ResourceSelectionPage() {
           {/* Footer hint */}
           {!loading && hasResources ? (
             <p className="text-center text-xs text-muted-foreground text-balance leading-relaxed tracking-wide">
-              Providers are added to your workspace automatically. Marketplaces and workers are available from Cloud settings.
+              Providers are added to your workspace automatically. Marketplaces are available from Cloud settings.
             </p>
           ) : null}
           <Button
@@ -590,23 +565,6 @@ function MarketplaceCard({ marketplace }: MarketplaceCardProps) {
         <span className="shrink-0 text-xs text-muted-foreground">
         {marketplace.pluginCount} plugin{marketplace.pluginCount === 1 ? "" : "s"}
       </span>
-    </div>
-  );
-}
-
-interface WorkerCardProps {
-  worker: DenWorkerSummary;
-}
-
-function WorkerCard({ worker }: WorkerCardProps) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-border px-3 py-3 -mx-2">
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-foreground">{worker.workerName}</div>
-        <div className="mt-0.5 text-xs text-muted-foreground">
-          {worker.status}{worker.provider ? ` · ${worker.provider}` : ""}
-        </div>
-      </div>
     </div>
   );
 }

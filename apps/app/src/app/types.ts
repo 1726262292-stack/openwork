@@ -185,7 +185,6 @@ export const SETTINGS_TAB_VALUES = [
   "shell",
   "cloud-account",
   "cloud-marketplaces",
-  "cloud-workers",
   "cloud-providers",
   "skills",
   "memory",

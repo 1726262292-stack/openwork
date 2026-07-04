@@ -7,7 +7,6 @@ import {
   ChevronDown,
   CloudCog,
   Cog,
-  Container,
   FolderLock,
   Info,
   Layout,
@@ -73,8 +72,6 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return UserCircle;
     case "cloud-marketplaces":
       return Store;
-    case "cloud-workers":
-      return Container;
     case "cloud-providers":
       return CloudCog;
     case "skills":
@@ -114,8 +111,6 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return t("settings.tab_cloud_account");
     case "cloud-marketplaces":
       return t("settings.tab_cloud_marketplaces");
-    case "cloud-workers":
-      return t("settings.tab_cloud_workers");
     case "cloud-providers":
       return t("settings.tab_cloud_providers");
     case "skills":
@@ -157,8 +152,6 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return t("settings.tab_description_cloud_account");
     case "cloud-marketplaces":
       return t("settings.tab_description_cloud_marketplaces");
-    case "cloud-workers":
-      return t("settings.tab_description_cloud_workers");
     case "cloud-providers":
       return t("settings.tab_description_cloud_providers");
     case "skills":
@@ -198,7 +191,6 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
 
 export const CLOUD_SETTINGS_TABS: SettingsTab[] = [
   "cloud-account",
-  "cloud-workers",
 ];
 
 /**

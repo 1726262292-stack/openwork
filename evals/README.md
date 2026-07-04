@@ -249,8 +249,6 @@ Before reporting a flow as passed:
   marketplace plugin import/update/removal sync between Den and the desktop.
 - [`cloud-org-membership-flows.md`](./cloud-org-membership-flows.md) — org
   invitations, role updates, member removal, and domain restrictions.
-- [`cloud-worker-flows.md`](./cloud-worker-flows.md) — legacy cloud worker
-  launch/connect flows (feature being sunset; kept for regression context).
 - [`daytona-server-failure-recovery-flows.md`](./daytona-server-failure-recovery-flows.md)
   — Den API/Web/proxy/MySQL outage and recovery behavior.
 - [`default-openwork-marketplace-onboarding-flow.md`](./default-openwork-marketplace-onboarding-flow.md)
