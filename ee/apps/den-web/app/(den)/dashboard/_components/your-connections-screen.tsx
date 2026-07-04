@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, Plug } from "lucide-react";
 import { DenButton } from "../../_components/ui/button";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
+import { IntegrationIcon } from "./integration-icon";
 import {
   type ExternalMcpConnection,
   useMcpConnections,
@@ -118,30 +119,33 @@ function YourConnectionRow({
 
   return (
     <div className="flex items-center justify-between gap-4 px-6 py-4">
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="truncate text-[14px] font-semibold text-gray-900">{connection.name}</p>
-          {connection.connectedForMe ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-              <Check className="h-3 w-3" />
-              {isPerMember ? "Connected as you" : "Connected"}
-            </span>
-          ) : polling ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Waiting for authorization…
-            </span>
-          ) : needsMyConnect ? (
-            <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-              Connect your account
-            </span>
-          ) : (
-            <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
-              Not connected yet
-            </span>
-          )}
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <IntegrationIcon name={connection.name} serviceUrl={connection.url} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-[14px] font-semibold text-gray-900">{connection.name}</p>
+            {connection.connectedForMe ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                <Check className="h-3 w-3" />
+                {isPerMember ? "Connected as you" : "Connected"}
+              </span>
+            ) : polling ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Waiting for authorization…
+              </span>
+            ) : needsMyConnect ? (
+              <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                Connect your account
+              </span>
+            ) : (
+              <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
+                Not connected yet
+              </span>
+            )}
+          </div>
+          <p className="mt-0.5 truncate text-[12px] text-gray-500">{connection.url}</p>
         </div>
-        <p className="mt-0.5 truncate text-[12px] text-gray-500">{connection.url}</p>
       </div>
 
       <div className="flex shrink-0 items-center gap-2">

@@ -5,6 +5,7 @@ import { Check, Loader2, Plug, Plus, Trash2, Users } from "lucide-react";
 import { DenButton } from "../../_components/ui/button";
 import { DenInput } from "../../_components/ui/input";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
+import { IntegrationIcon } from "./integration-icon";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import {
   type CreateMcpConnectionInput,
@@ -129,10 +130,15 @@ export function McpConnectionsScreen() {
           onClick={() => setGoogleDialogOpen(true)}
           className="rounded-2xl border border-gray-100 bg-white px-4 py-4 text-left transition hover:border-gray-300 hover:shadow-sm"
         >
-          <p className="text-[14px] font-semibold text-gray-900">Google Workspace</p>
-          <p className="mt-1 text-[12px] leading-[1.5] text-gray-500">
-            Your company&apos;s Google. Set it up once — every member connects their own account.
-          </p>
+          <div className="flex items-start gap-3">
+            <IntegrationIcon name="Google Workspace" simpleIconSlug="google" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[14px] font-semibold text-gray-900">Google Workspace</p>
+              <p className="mt-1 text-[12px] leading-[1.5] text-gray-500">
+                Your company&apos;s Google. Set it up once — every member connects their own account.
+              </p>
+            </div>
+          </div>
           <p className="mt-2 text-[12px] font-medium text-violet-600">
             {googleConfigured ? "Configured — tap to update" : "Tap to set up"}
           </p>
@@ -150,8 +156,13 @@ export function McpConnectionsScreen() {
               }}
               className="rounded-2xl border border-gray-100 bg-white px-4 py-4 text-left transition hover:border-gray-300 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <p className="text-[14px] font-semibold text-gray-900">{preset.displayName}</p>
-              <p className="mt-1 text-[12px] leading-[1.5] text-gray-500">{preset.description}</p>
+              <div className="flex items-start gap-3">
+                <IntegrationIcon name={preset.displayName} serviceUrl={preset.url} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[14px] font-semibold text-gray-900">{preset.displayName}</p>
+                  <p className="mt-1 text-[12px] leading-[1.5] text-gray-500">{preset.description}</p>
+                </div>
+              </div>
               <p className="mt-2 text-[12px] font-medium text-violet-600">
                 {alreadyAdded ? "Already added" : "Tap to add"}
               </p>
@@ -321,38 +332,41 @@ function ConnectionRow({
 
   return (
     <div className="flex items-center justify-between gap-4 px-6 py-4">
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="truncate text-[14px] font-semibold text-gray-900">{connection.name}</p>
-          {isPerMember ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">
-              <Users className="h-3 w-3" />
-              Per-member accounts
-            </span>
-          ) : connection.connected ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-              <Check className="h-3 w-3" />
-              Connected
-            </span>
-          ) : polling ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Waiting for authorization…
-            </span>
-          ) : (
-            <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
-              Not connected
-            </span>
-          )}
-          {connection.access ? (
-            <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
-              {accessSummaryLabel(connection)}
-            </span>
-          ) : null}
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <IntegrationIcon name={connection.name} serviceUrl={connection.url} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-[14px] font-semibold text-gray-900">{connection.name}</p>
+            {isPerMember ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">
+                <Users className="h-3 w-3" />
+                Per-member accounts
+              </span>
+            ) : connection.connected ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                <Check className="h-3 w-3" />
+                Connected
+              </span>
+            ) : polling ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Waiting for authorization…
+              </span>
+            ) : (
+              <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
+                Not connected
+              </span>
+            )}
+            {connection.access ? (
+              <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
+                {accessSummaryLabel(connection)}
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-0.5 truncate text-[12px] text-gray-500">
+            {connection.url} · {formatMcpConnectedTimestamp(connection.connectedAt)}
+          </p>
         </div>
-        <p className="mt-0.5 truncate text-[12px] text-gray-500">
-          {connection.url} · {formatMcpConnectedTimestamp(connection.connectedAt)}
-        </p>
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
