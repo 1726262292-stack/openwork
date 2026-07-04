@@ -274,7 +274,8 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
   }));
 
   return {
-    items: [...builtInItems, ...cloudPluginItems, ...importedPluginItems, ...orgMcpConnectionItems, ...standaloneMcpEntries.map((entry): ExtensionItem => ({
+    // Org-managed MCP connections are beta, so keep them last in unified lists.
+    items: [...builtInItems, ...cloudPluginItems, ...importedPluginItems, ...standaloneMcpEntries.map((entry): ExtensionItem => ({
       id: `mcp:${getMcpServerName(entry)}`,
       source: "mcp-directory",
       name: entry.name,
@@ -285,7 +286,7 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
       enablement: null,
       resources: [{ id: getMcpServerName(entry), type: "mcp", title: entry.name }],
       mcpEntry: entry,
-    })), ...standaloneSkillItems],
+    })), ...standaloneSkillItems, ...orgMcpConnectionItems],
     builtInItems,
     cloudPluginItems: [...cloudPluginItems, ...importedPluginItems],
     orgMcpConnectionItems,

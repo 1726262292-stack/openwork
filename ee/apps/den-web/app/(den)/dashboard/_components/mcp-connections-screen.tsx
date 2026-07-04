@@ -96,8 +96,9 @@ export function McpConnectionsScreen() {
     <DashboardPageTemplate
       icon={Plug}
       title="Connections"
+      badgeLabel="Beta"
       description="Connect any MCP server — Notion, Linear, Stripe, or a custom URL — once for the whole org. search_capabilities and execute_capability pick these up automatically."
-      colors={["#EDE9FE", "#4C1D95", "#7C3AED", "#C4B5FD"]}
+      colors={["#E2E8F0", "#020617", "#0F172A", "#94A3B8"]}
     >
       {error ? (
         <div className="mb-6 rounded-[24px] border border-red-200 bg-red-50 px-5 py-4 text-[14px] text-red-700">
@@ -139,7 +140,7 @@ export function McpConnectionsScreen() {
               </p>
             </div>
           </div>
-          <p className="mt-2 text-[12px] font-medium text-violet-600">
+          <p className="mt-2 text-[12px] font-medium text-gray-900">
             {googleConfigured ? "Configured — tap to update" : "Tap to set up"}
           </p>
         </button>
@@ -163,7 +164,7 @@ export function McpConnectionsScreen() {
                   <p className="mt-1 text-[12px] leading-[1.5] text-gray-500">{preset.description}</p>
                 </div>
               </div>
-              <p className="mt-2 text-[12px] font-medium text-violet-600">
+              <p className="mt-2 text-[12px] font-medium text-gray-900">
                 {alreadyAdded ? "Already added" : "Tap to add"}
               </p>
             </button>
@@ -338,7 +339,7 @@ function ConnectionRow({
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-[14px] font-semibold text-gray-900">{connection.name}</p>
             {isPerMember ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">
+              <span className="inline-flex items-center gap-1 rounded-full bg-gray-900 px-2 py-0.5 text-[11px] font-medium text-white">
                 <Users className="h-3 w-3" />
                 Per-member accounts
               </span>

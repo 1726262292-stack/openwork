@@ -839,6 +839,7 @@ export function McpView(props: McpViewProps) {
             kind="mcp"
             connected={true}
             connectedLabel={orgMcpConnectionActionLabel(connection)}
+            beta
             url={connection.url}
             oauth={connection.authType === "oauth"}
             showEnablementCard={false}
@@ -1003,6 +1004,7 @@ function McpQuickConnectSection(props: {
               url={connection.url}
               connected={true}
               connectedLabel={orgMcpConnectionActionLabel(connection)}
+              beta
               actionLabel="View details"
               onClick={() => props.onOrgMcpDetail?.(item)}
             />

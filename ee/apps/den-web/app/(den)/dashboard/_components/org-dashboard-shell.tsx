@@ -205,19 +205,19 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
 
   // Seven top-level rows: Dashboard, Your Connections, Extensions, Models,
   // Members, Analytics, Settings. Everything tool-shaped groups under
-  // Extensions (in pipeline order: connect tools, plugins come from Sources,
-  // fill the Plugins library, share via Marketplaces); model config groups
+  // Extensions (in pipeline order: Sources feed Plugins, share via
+  // Marketplaces, beta Connections last); model config groups
   // under Models; set-once governance groups under Settings.
   const extensionsGroup: DashboardNavItem | null = access.isAdmin && activeOrg
     ? {
-        href: getMcpConnectionsRoute(activeOrg.slug),
+        href: getIntegrationsRoute(activeOrg.slug),
         label: "Extensions",
         icon: Puzzle,
         children: [
-          { href: getMcpConnectionsRoute(activeOrg.slug), label: "Connections" },
           { href: getIntegrationsRoute(activeOrg.slug), label: "Sources" },
           { href: getPluginsRoute(activeOrg.slug), label: "Plugins" },
           { href: getMarketplacesRoute(activeOrg.slug), label: "Marketplaces" },
+          { href: getMcpConnectionsRoute(activeOrg.slug), label: "Connections", badge: "Beta" },
         ],
       }
     : null;
@@ -267,6 +267,7 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
       href: activeOrg ? getYourConnectionsRoute(activeOrg.slug) : "#",
       label: "Your Connections",
       icon: Plug,
+      badge: "Beta",
     },
     ...(extensionsGroup ? [extensionsGroup] : []),
     ...(modelsGroup ? [modelsGroup] : []),

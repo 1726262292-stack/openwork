@@ -322,7 +322,7 @@ export function CloudMarketplacesView({
     });
   }, [extensionItems]);
 
-  const rows = React.useMemo<MarketplaceRow[]>(() => canShowRows ? [...builtInRows, ...orgMcpRows, ...cloudRows] : [], [builtInRows, canShowRows, cloudRows, orgMcpRows]);
+  const rows = React.useMemo<MarketplaceRow[]>(() => canShowRows ? [...builtInRows, ...cloudRows, ...orgMcpRows] : [], [builtInRows, canShowRows, cloudRows, orgMcpRows]);
 
   React.useEffect(() => {
     if (detailRow?.source !== "org-mcp") return;
@@ -343,8 +343,8 @@ export function CloudMarketplacesView({
   const marketplaceOptions = React.useMemo(
     () => canShowRows ? [
       ...(builtInRows.length > 0 ? [{ id: "openwork-builtins", name: "OpenWork Built-ins" }] : []),
-      ...(orgMcpRows.length > 0 ? [{ id: "org-mcp-connections", name: "Organization MCP Connections" }] : []),
       ...marketplaces.map((marketplace) => ({ id: marketplace.marketplace.id, name: marketplace.marketplace.name })),
+      ...(orgMcpRows.length > 0 ? [{ id: "org-mcp-connections", name: "Organization MCP Connections" }] : []),
     ] : [],
     [builtInRows.length, canShowRows, marketplaces, orgMcpRows.length],
   );
@@ -745,6 +745,7 @@ function MarketplaceCard(props: {
           kind="mcp"
           url={row.connection.url}
           connected={false}
+          beta
           connecting={actionBusy}
           actionLabel={actionBusy ? "Waiting for browser..." : orgMcpConnectionActionLabel(row.connection)}
           onClick={() => onOpenDetail(row)}
@@ -842,6 +843,7 @@ function OrgMcpConnectionDetailModal(props: {
       description={row.item.description ?? "Available from your organization."}
       kind="mcp"
       connected={false}
+      beta
       connecting={connecting}
       connectLabel={orgMcpConnectionActionLabel(row.connection)}
       connectingLabel="Waiting for browser..."
