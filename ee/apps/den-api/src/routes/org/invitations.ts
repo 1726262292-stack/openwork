@@ -5,6 +5,7 @@ import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
+import { OPENWORK_DOWNLOAD_URL } from "../../CONSTS.js"
 import { db } from "../../db.js"
 import { jsonValidator, orgRoleRoute, paramValidator } from "../../middleware/index.js"
 import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
@@ -254,6 +255,7 @@ export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVaria
           invitedByEmail: user.email ?? "",
           organizationName: payload.organization.name,
           role,
+          downloadUrl: OPENWORK_DOWNLOAD_URL,
         },
       })
     } catch (error) {

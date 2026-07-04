@@ -727,6 +727,7 @@ export default {
   "welcome.subtitle": "Your computer, but it works for you.",
   "welcome.creating_workspace": "Creating workspace\u2026",
   "welcome.get_started": "Get started",
+  "welcome.team_signin": "Joining a team? Sign in",
   "welcome.pick_folder": "Pick a folder to get started",
   "welcome.capability_spreadsheets": "Edit spreadsheets",
   "welcome.capability_spreadsheets_desc": "Create, clean, and transform CSV and Excel files.",

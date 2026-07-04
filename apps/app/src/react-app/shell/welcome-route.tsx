@@ -28,6 +28,7 @@ import { useDenAuth } from "../domains/cloud/den-auth-provider";
 import { resolveOpenworkConnection } from "./openwork-connection";
 import { captureAnalyticsEvent } from "../../app/lib/analytics";
 import { buildOpenworkWorkspaceBaseUrl, createOpenworkServerClient } from "../../app/lib/openwork-server";
+import { buildDenAuthUrl, DEFAULT_DEN_BASE_URL, readDenSettings } from "../../app/lib/den";
 import { writeActiveWorkspaceId, writeLastSessionFor } from "./session-memory";
 import { workspaceSessionRoute } from "./workspace-routes";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
@@ -301,6 +302,11 @@ export function WelcomeRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [handleCreateWorkspace, manualFolder]);
 
+  const handleTeamSignIn = useCallback(() => {
+    const settings = readDenSettings();
+    platform.openLink(buildDenAuthUrl(settings.baseUrl || DEFAULT_DEN_BASE_URL, "sign-in"));
+  }, [platform]);
+
   const finishOnboarding = useCallback(() => {
     navigate(state.pendingRoute ?? "/session", { replace: true });
     if (state.pendingSessionId) focusPromptSoon();
@@ -336,6 +342,7 @@ export function WelcomeRoute() {
         onManualFolderChange={setManualFolder}
         onUseManualFolder={handleUseManualFolder}
         showManualFolder={import.meta.env.DEV && isDesktopRuntime()}
+        onTeamSignIn={handleTeamSignIn}
       />
       <CreateWorkspaceModal
         open={state.modalOpen}

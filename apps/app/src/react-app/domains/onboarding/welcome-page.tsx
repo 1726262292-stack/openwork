@@ -127,6 +127,7 @@ type WelcomePageProps = {
   onManualFolderChange?: (value: string) => void;
   onUseManualFolder?: () => void;
   showManualFolder?: boolean;
+  onTeamSignIn?: () => void;
 };
 
 type OnboardingStepProps = {
@@ -158,6 +159,7 @@ export function WelcomePage({
   onManualFolderChange,
   onUseManualFolder,
   showManualFolder,
+  onTeamSignIn,
 }: WelcomePageProps) {
   return (
     <Page className="min-h-screen">
@@ -204,6 +206,17 @@ export function WelcomePage({
                   >
                     {busy ? t("welcome.creating_workspace") : (getStartedLabel || t("welcome.get_started"))}
                   </Button>
+                  {onTeamSignIn ? (
+                    <Button
+                      type="button"
+                      variant="link"
+                      className="h-auto w-full p-0 text-sm text-muted-foreground"
+                      onClick={onTeamSignIn}
+                      data-testid="welcome-team-signin"
+                    >
+                      {t("welcome.team_signin")}
+                    </Button>
+                  ) : null}
                   {error ? (
                     <p className="text-center text-xs text-destructive">{error}</p>
                   ) : null}

@@ -1,10 +1,11 @@
 import { eq } from "@openwork-ee/den-db/drizzle"
-import { AuthAccountTable } from "@openwork-ee/den-db/schema"
-import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
+import { AuthAccountTable, RateLimitTable } from "@openwork-ee/den-db/schema"
+import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { desktopConfigSchema } from "@openwork/types/den/desktop-policies"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
+import { OPENWORK_DOWNLOAD_URL } from "../../CONSTS.js"
 import { db } from "../../db.js"
 import { authenticatedRoute, jsonValidator, orgMemberRoute, type OrganizationContextVariables, type UserOrganizationsContext } from "../../middleware/index.js"
 import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
@@ -12,6 +13,10 @@ import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import { resolveUserOrganizations, setSessionActiveOrganization } from "../../orgs.js"
 import type { AuthContextVariables } from "../../session.js"
 import { calculateDesktopPolicyForOrgMember } from "../../desktop-policies.js"
+import { DenEmailSendError, sendEmail } from "../../utils/email/send-email.js"
+
+const DOWNLOAD_LINK_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000
+const DOWNLOAD_LINK_RATE_LIMIT_MAX = 5
 
 const meResponseSchema = z.object({
   user: z.object({}).passthrough(),
@@ -30,6 +35,21 @@ const meOrganizationsResponseSchema = z.object({
 const meDesktopConfigResponseSchema = desktopConfigSchema.meta({
   ref: "CurrentUserDesktopConfigResponse",
 })
+
+const sendDownloadLinkResponseSchema = z.object({
+  ok: z.literal(true),
+}).meta({ ref: "SendDownloadLinkResponse" })
+
+const sendDownloadLinkRateLimitSchema = z.object({
+  error: z.literal("rate_limited"),
+  message: z.string(),
+}).meta({ ref: "SendDownloadLinkRateLimitError" })
+
+const sendDownloadLinkEmailFailedSchema = z.object({
+  error: z.literal("download_link_email_failed"),
+  reason: z.enum(["email_not_configured", "resend_rejected", "resend_network", "nodemailer_rejected"]),
+  message: z.string(),
+}).meta({ ref: "SendDownloadLinkEmailFailedError" })
 
 const setActiveOrganizationSchema = z.object({
   organizationId: denTypeIdSchema("organization").optional(),
@@ -55,6 +75,36 @@ function normalizeAuthProvider(providerId: string) {
     return "scim"
   }
   return normalized || "unknown"
+}
+
+async function checkDownloadLinkRateLimit(userId: string, now: number) {
+  const key = `me:send-download-link:${userId}`
+  const [row] = await db
+    .select({ id: RateLimitTable.id, count: RateLimitTable.count, lastRequest: RateLimitTable.lastRequest })
+    .from(RateLimitTable)
+    .where(eq(RateLimitTable.key, key))
+    .limit(1)
+
+  if (row && now - row.lastRequest <= DOWNLOAD_LINK_RATE_LIMIT_WINDOW_MS && row.count >= DOWNLOAD_LINK_RATE_LIMIT_MAX) {
+    return Math.max(1, Math.ceil((DOWNLOAD_LINK_RATE_LIMIT_WINDOW_MS - (now - row.lastRequest)) / 1000))
+  }
+
+  if (!row) {
+    await db.insert(RateLimitTable).values({
+      id: createDenTypeId("rateLimit"),
+      key,
+      count: 1,
+      lastRequest: now,
+    })
+    return null
+  }
+
+  await db
+    .update(RateLimitTable)
+    .set({ count: now - row.lastRequest > DOWNLOAD_LINK_RATE_LIMIT_WINDOW_MS ? 1 : row.count + 1, lastRequest: now })
+    .where(eq(RateLimitTable.id, row.id))
+
+  return null
 }
 
 export function registerMeRoutes<T extends { Variables: AuthContextVariables & Partial<UserOrganizationsContext> & Partial<OrganizationContextVariables> }>(app: Hono<T>) {
@@ -105,7 +155,7 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
     }),
     orgMemberRoute({ useUserOrganizations: true }),
     (c) => {
-    const orgs = (c.get("userOrganizations") ?? []) as NonNullable<UserOrganizationsContext["userOrganizations"]>
+    const orgs: UserOrganizationsContext["userOrganizations"] = c.get("userOrganizations") ?? []
 
     return c.json({
       orgs: orgs.map((org) => ({
@@ -115,6 +165,63 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
       activeOrgId: c.get("activeOrganizationId") ?? null,
       activeOrgSlug: c.get("activeOrganizationSlug") ?? null,
     })
+    },
+  )
+
+  app.post(
+    "/v1/me/send-download-link",
+    describeRoute({
+      tags: ["Users"],
+      summary: "Send current user the OpenWork desktop download link",
+      description: "Emails the authenticated user a link to download the OpenWork desktop app.",
+      responses: {
+        200: jsonResponse("Download link email sent successfully.", sendDownloadLinkResponseSchema),
+        400: jsonResponse("The signed-in account is missing an email address.", invalidRequestSchema),
+        401: jsonResponse("The caller must be signed in to request a download link.", unauthorizedSchema),
+        429: jsonResponse("The user has requested too many download links recently.", sendDownloadLinkRateLimitSchema),
+        502: jsonResponse("The download link email provider rejected or failed to deliver the email.", sendDownloadLinkEmailFailedSchema),
+      },
+    }),
+    authenticatedRoute(),
+    async (c) => {
+      const user = c.get("user")
+      const email = user.email?.trim()
+      if (!email) {
+        return c.json({ error: "user_email_required", message: "This account does not have an email address." }, 400)
+      }
+
+      const retryAfter = await checkDownloadLinkRateLimit(user.id, Date.now())
+      if (retryAfter !== null) {
+        c.header("Retry-After", String(retryAfter))
+        return c.json({ error: "rate_limited", message: "Too many download link emails. Try again later." }, 429)
+      }
+
+      try {
+        await sendEmail({
+          to: email,
+          template: "downloadLink",
+          props: {
+            downloadUrl: OPENWORK_DOWNLOAD_URL,
+          },
+        })
+      } catch (error) {
+        if (error instanceof DenEmailSendError) {
+          return c.json({
+            error: "download_link_email_failed",
+            reason: error.reason,
+            message:
+              error.reason === "email_not_configured"
+                ? "The download email provider is not configured on this deployment."
+                : error.reason === "resend_network"
+                  ? "Could not reach the download email provider. Try again later."
+                  : `The download email provider rejected the send${error.detail ? `: ${error.detail}` : "."}`,
+          }, 502)
+        }
+
+        throw error
+      }
+
+      return c.json({ ok: true })
     },
   )
 

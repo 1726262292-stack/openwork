@@ -15,6 +15,12 @@ import {
 } from "../_lib/den-org";
 import { useDenFlow } from "../_providers/den-flow-provider";
 import { AuthPanel } from "./auth-panel";
+import { JoinOrgSuccess } from "./join-org-success";
+
+type JoinedOrg = {
+  name: string;
+  slug: string;
+};
 
 function LoadingCard({ title, body }: { title: string; body: string }) {
   return (
@@ -56,6 +62,19 @@ function formatAllowedDomains(allowedEmailDomains: readonly string[] | null | un
     : allowedEmailDomains.join(", ");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function getStringProperty(value: unknown, key: string) {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const property = value[key];
+  return typeof property === "string" ? property : null;
+}
+
 export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
   const router = useRouter();
   const { user, sessionHydrated, signOut } = useDenFlow();
@@ -64,6 +83,7 @@ export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [joinBusy, setJoinBusy] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinedOrg, setJoinedOrg] = useState<JoinedOrg | null>(null);
 
   const invitedEmailMatches = preview && user
     ? preview.invitation.email.trim().toLowerCase() === user.email.trim().toLowerCase()
@@ -167,9 +187,11 @@ export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
         window.sessionStorage.removeItem(PENDING_ORG_INVITATION_STORAGE_KEY);
       }
 
-      const acceptedPayload = typeof payload === "object" && payload ? payload as { organizationSlug?: unknown } : null;
-      const organizationSlug = typeof acceptedPayload?.organizationSlug === "string" ? acceptedPayload.organizationSlug.trim() : "";
-      router.replace(organizationSlug ? getOrgDashboardRoute(organizationSlug) : "/dashboard");
+      const organizationSlug = getStringProperty(payload, "organizationSlug")?.trim() || preview?.organization.slug || "";
+      setJoinedOrg({
+        name: preview?.organization.name ?? "your team",
+        slug: organizationSlug,
+      });
     } catch (error) {
       setJoinError(error instanceof Error ? error.message : "Could not join the organization.");
     } finally {
@@ -187,6 +209,15 @@ export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
 
   if (!sessionHydrated || previewBusy) {
     return <LoadingCard title="Loading invite." body="Checking the invite details and your account state..." />;
+  }
+
+  if (joinedOrg) {
+    return (
+      <JoinOrgSuccess
+        organizationName={joinedOrg.name}
+        onContinueInBrowser={() => router.replace(joinedOrg.slug ? getOrgDashboardRoute(joinedOrg.slug) : "/dashboard")}
+      />
+    );
   }
 
   if (!preview) {
