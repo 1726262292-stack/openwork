@@ -92,6 +92,26 @@ const connectionListResponseSchema = z.object({
   connections: z.array(connectionResponseSchema),
 }).meta({ ref: "ExternalMcpConnectionListResponse" })
 
+const connectionCreatedResponseSchema = connectionResponseSchema.extend({
+  links: z.object({
+    /** Where members connect their own account for per_member connections. Share this with the team. */
+    yourConnections: z.string(),
+  }),
+}).meta({ ref: "ExternalMcpConnectionCreatedResponse" })
+
+/**
+ * The classical member handoff: after an admin (or their agent) publishes a
+ * connection, members connect their own account in the den-web dashboard.
+ * betterAuthUrl is the den-web public origin in every deployment layout.
+ */
+function memberConnectLinks() {
+  return { yourConnections: `${env.betterAuthUrl}/dashboard/your-connections` }
+}
+
+export function isAgentApiKeyConnection(input: { authType: string; sessionId?: string | null }) {
+  return input.authType === "apikey" && input.sessionId === "mcp_internal"
+}
+
 const listConnectionsQuerySchema = z.object({
   /** usable (default): connections the calling member has been granted. manageable: every org connection, admin-only. */
   scope: z.enum(["usable", "manageable"]).optional().default("usable"),
@@ -259,11 +279,15 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
   app.post(
     "/v1/mcp-connections",
     describeRoute({
-      tags: ["Authentication"],
-      summary: "Register a new External MCP Connection",
-      description: "Admin-only. Registers a third-party MCP server by name + URL. For authType=oauth, call connect/start next. For authType=apikey/none, the connection is validated immediately.",
+      // Tagged Capability Sources (not Authentication) on purpose: this is
+      // plain admin CRUD with no secrets for oauth/none connections, so an
+      // org admin can publish connections from chat. The OAuth plumbing
+      // (connect/start, callbacks, client secrets) stays agent-blocked.
+      tags: ["Capability Sources"],
+      summary: "Register a new External MCP Connection for the org",
+      description: "Admin-only. Registers a third-party MCP server by name + URL and grants access (org-wide, teams, or members). Use GET /v1/mcp-connections/presets for known server URLs (Notion, Linear, Stripe, Sentry, Context7). For credentialMode per_member, each member connects their own account afterwards — share links.yourConnections from the response so teammates know where to sign in. API-key connections cannot be created through the agent surface; use the dashboard.",
       responses: {
-        200: jsonResponse("Connection created.", connectionResponseSchema),
+        200: jsonResponse("Connection created.", connectionCreatedResponseSchema),
         400: jsonResponse("Invalid request.", invalidRequestSchema),
         401: jsonResponse("The caller must be signed in.", unauthorizedSchema),
         403: jsonResponse("Only workspace owners and admins can add MCP connections.", forbiddenSchema),
@@ -277,6 +301,11 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
       if (!admin.ok) return c.json(admin.response, orgAccessFailureStatus(admin.response))
 
       const body = c.req.valid("json")
+      // Secrets must not travel through chat transcripts: when the caller is
+      // the agent (internal MCP principal), refuse API-key connections.
+      if (isAgentApiKeyConnection({ authType: body.authType, sessionId: c.get("session")?.id })) {
+        return c.json({ error: "invalid_request", message: "API-key connections cannot be created from the agent. Add them in the OpenWork Cloud dashboard under Extensions." }, 400)
+      }
       if (body.authType === "apikey" && !body.apiKey) {
         return c.json({ error: "invalid_request", message: "apiKey is required when authType is apikey." }, 400)
       }
@@ -314,16 +343,21 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
       }
 
       const refreshed = await getExternalMcpConnection({ organizationId: payload.organization.id, connectionId: created.id })
-      return c.json(await toConnectionResponse(refreshed ?? created, { callerOrgMembershipId: payload.currentMember.id, includeAccess: true }))
+      const response = await toConnectionResponse(refreshed ?? created, { callerOrgMembershipId: payload.currentMember.id, includeAccess: true })
+      // The classical handoff: whoever created this (human or agent) gets
+      // the link where members connect their own account, ready to share.
+      return c.json({ ...response, links: memberConnectLinks() })
     },
   )
 
   app.put(
     "/v1/mcp-connections/:connectionId/access",
     describeRoute({
-      tags: ["Authentication"],
+      // Capability Sources (not Authentication): pure grant management, no
+      // credentials involved — lets an admin reshape access from chat.
+      tags: ["Capability Sources"],
       summary: "Replace who can use an External MCP Connection",
-      description: "Admin-only. Full-replace semantics: send the complete desired access set (orgWide, or memberIds + teamIds).",
+      description: "Admin-only. Full-replace semantics: send the complete desired access set (orgWide, or memberIds + teamIds). Team and member ids come from GET /v1/org.",
       responses: {
         200: jsonResponse("Access updated.", connectionResponseSchema),
         400: jsonResponse("Invalid request.", invalidRequestSchema),
