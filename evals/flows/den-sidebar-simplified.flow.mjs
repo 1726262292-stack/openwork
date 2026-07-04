@@ -88,6 +88,12 @@ async function goTo(ctx, path) {
 
 async function uiSignIn(ctx, email, password) {
   await goTo(ctx, "/");
+  // Idempotency: a previous run (or frame) may have left someone signed in,
+  // in which case "/" redirects straight to the dashboard.
+  if (await ctx.eval("location.pathname.startsWith('/dashboard')")) {
+    await uiSignOut(ctx);
+    await goTo(ctx, "/");
+  }
   await ctx.waitFor("document.body.innerText.includes('Sign in')", { timeoutMs: 30_000, label: "auth screen" });
   // Ensure the sign-in mode is selected (the screen defaults to sign-up).
   await ctx.eval(`(() => {
