@@ -31,6 +31,14 @@ export default {
             });
             const hasSelectedSession = await ctx.eval(`window.__openworkControl.snapshot().route.includes("/session/")`);
             if (!hasSelectedSession) {
+              // The app may have restored a route (e.g. settings) that does not
+              // mount the session shell, where session.create_task is not
+              // registered. Go home first, then wait for the action.
+              await ctx.navigateHash("/");
+              await ctx.waitFor(
+                `window.__openworkControl.listActions().some((a) => a.id === "session.create_task" && !a.disabled)`,
+                { timeoutMs: 45_000, label: "session.create_task action enabled" },
+              );
               await ctx.control("session.create_task");
               await ctx.waitFor(
                 `window.__openworkControl.snapshot().route.includes("/session/")`,
