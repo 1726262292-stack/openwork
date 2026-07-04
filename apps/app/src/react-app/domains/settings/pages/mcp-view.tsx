@@ -745,7 +745,6 @@ export function McpView(props: McpViewProps) {
             description={detailEntry.description}
             iconSlug={detailEntry.iconSlug}
             iconSrc={detailEntry.iconSrc}
-            fallbackIcon={serviceIcon(detailEntry.name)}
             kind={detailEntry.kind ?? "mcp"}
             connected={isConnected}
             connecting={props.mcpConnectingName === detailEntry.name}
@@ -933,9 +932,9 @@ function McpQuickConnectSection(props: {
           const configured = props.isConfigured(entry);
           const enablement = props.enablementForEntry?.(entry);
           const connecting = props.connectingName === entry.name;
-          const FallbackIcon = serviceIcon(entry.name);
           const hidden = props.isEntryHidden(entry);
           const disabledReason = props.disabledReasonForEntry(entry);
+          const entryUrl = typeof entry.url === "string" ? entry.url : undefined;
 
           return (
             <ExtensionCard
@@ -944,7 +943,7 @@ function McpQuickConnectSection(props: {
               description={entry.description}
               iconSlug={entry.iconSlug}
               iconSrc={entry.iconSrc}
-              fallbackIcon={FallbackIcon}
+              url={entryUrl}
               kind={entry.kind ?? "mcp"}
               connected={configured}
               enablement={enablement?.results}
@@ -1001,6 +1000,7 @@ function McpQuickConnectSection(props: {
               name={item.name}
               description={item.description ?? "Shared by your organization."}
               kind="mcp"
+              url={connection.url}
               connected={true}
               connectedLabel={orgMcpConnectionActionLabel(connection)}
               actionLabel="View details"

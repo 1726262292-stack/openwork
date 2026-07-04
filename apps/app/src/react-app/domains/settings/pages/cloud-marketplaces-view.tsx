@@ -712,6 +712,7 @@ function MarketplaceCard(props: {
 
   if (row.source === "built-in") {
     const actionBusy = props.builtInConnectingName === row.entry.name;
+    const entryUrl = typeof row.entry.url === "string" ? row.entry.url : undefined;
     return (
       <div ref={highlightRef} className={highlightClass}>
         <ExtensionCard
@@ -719,6 +720,7 @@ function MarketplaceCard(props: {
           description={row.entry.description}
           iconSlug={row.entry.iconSlug}
           iconSrc={row.entry.iconSrc}
+          url={entryUrl}
           kind={row.entry.kind ?? "extension"}
           preview={row.entry.preview}
           connected={row.active}
@@ -741,6 +743,7 @@ function MarketplaceCard(props: {
           name={row.item.name}
           description={row.item.description ?? "Available from your organization."}
           kind="mcp"
+          url={row.connection.url}
           connected={false}
           connecting={actionBusy}
           actionLabel={actionBusy ? "Waiting for browser..." : orgMcpConnectionActionLabel(row.connection)}
@@ -802,6 +805,7 @@ function BuiltInMarketplaceDetailModal(props: {
       description={entry.description}
       iconSlug={entry.iconSlug}
       iconSrc={entry.iconSrc}
+      url={typeof entry.url === "string" ? entry.url : undefined}
       kind={entry.kind ?? "extension"}
       connected={row.active}
       connectedLabel={entry.defaultEnabled ? "Ready" : "Active"}
