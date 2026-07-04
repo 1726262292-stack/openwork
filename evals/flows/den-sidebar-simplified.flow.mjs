@@ -162,6 +162,10 @@ async function navChildLabels(ctx) {
   })()`);
 }
 
+function stripBetaLabel(label) {
+  return label.replace(/beta$/i, "").trim();
+}
+
 export default {
   id: "den-sidebar-simplified",
   title: "Den sidebar: sixteen rows become seven — tools, models, people, settings",
@@ -172,7 +176,7 @@ export default {
     {
       name: "Frame 1",
       run: async (ctx) => {
-        await ctx.prove("The admin sidebar is seven top-level entries with no New badges", {
+        await ctx.prove("The admin sidebar is seven top-level entries with only Your Connections marked Beta", {
           voiceover: vo[0],
           action: async () => {
             await ensureJordanInAcme(ctx);
@@ -187,11 +191,13 @@ export default {
               ctx.assert(!nav.includes(retired), `Retired top-level label still in the resting sidebar: ${retired}`);
             }
             ctx.assert(!/\bnew\b/i.test(nav), "The sidebar must not show New badges anymore.");
-            ctx.assert(/\bbeta\b/i.test(nav), "Models keeps its single Beta badge.");
+            ctx.assert(/Your Connections\s*Beta/i.test(nav), "Your Connections keeps the visible Beta badge.");
+            const betaMatches = nav.match(/\bbeta\b/gi) ?? [];
+            ctx.assert(betaMatches.length === 1, `Only Your Connections should be badged at rest, saw ${betaMatches.length}: ${nav}`);
           },
           screenshot: {
             name: "sidebar-seven",
-            claim: "The admin sidebar shows exactly seven top-level entries and no New badges.",
+            claim: "The admin sidebar shows seven top-level entries, no New badges, and the remaining Beta badge on Your Connections.",
             requireText: ["Dashboard", "Your Connections", "Extensions", "Models", "Members", "Analytics", "Settings"],
             rejectText: ["MCP Connections", "SCIM"],
           },
@@ -201,22 +207,21 @@ export default {
     {
       name: "Frame 2",
       run: async (ctx) => {
-        await ctx.prove("Extensions opens on Connections — the org tools admins publish", {
+        await ctx.prove("Extensions opens on Sources — where plugins come from", {
           voiceover: vo[1],
           action: async () => {
             await clickNav(ctx, "Extensions");
           },
           assert: async () => {
-            await ctx.waitFor("location.pathname.includes('/mcp-connections')", { timeoutMs: 15_000, label: "connections route" });
-            await ctx.expectText("Google Workspace", { timeoutMs: 20_000 });
-            await ctx.expectText("Notion", { timeoutMs: 10_000 });
-            const children = await navChildLabels(ctx);
-            ctx.assert(children.includes("Connections"), `Extensions children missing Connections: ${JSON.stringify(children)}`);
+            await ctx.waitFor("location.pathname.includes('/integrations')", { timeoutMs: 15_000, label: "sources route (old integrations URL)" });
+            ctx.assert(!(await ctx.eval("location.pathname.includes('/mcp-connections')")), "Extensions must not land on the beta Connections route.");
+            await ctx.expectText("Sources", { timeoutMs: 15_000 });
+            await ctx.expectText("GitHub", { timeoutMs: 15_000 });
           },
           screenshot: {
-            name: "extensions-connections",
-            claim: "Extensions lands on Connections with the tool presets (Google Workspace, Notion) visible.",
-            requireText: ["Extensions", "Connections", "Google Workspace", "Notion"],
+            name: "extensions-sources-default",
+            claim: "Extensions lands on Sources, not the beta Connections page.",
+            requireText: ["Extensions", "Sources", "GitHub"],
             rejectText: ["Something went wrong"],
           },
         });
@@ -225,26 +230,27 @@ export default {
     {
       name: "Frame 3",
       run: async (ctx) => {
-        await ctx.prove("The Extensions children read in pipeline order and Sources is the plugin supply", {
+        await ctx.prove("Connections is last in Extensions, wearing a Beta badge", {
           voiceover: vo[2],
           action: async () => {
             const children = await navChildLabels(ctx);
+            const stripped = children.map(stripBetaLabel);
             ctx.assert(
-              JSON.stringify(children.map((label) => label.replace(/Beta$/, "").trim())) === JSON.stringify(["Connections", "Sources", "Plugins", "Marketplaces"]),
+              JSON.stringify(stripped) === JSON.stringify(["Sources", "Plugins", "Marketplaces", "Connections"]),
               `Extensions children must read in pipeline order, got ${JSON.stringify(children)}`,
             );
-            await clickNav(ctx, "Sources");
+            ctx.assert(/Connections\s*Beta/i.test(children[children.length - 1] ?? ""), `Connections child must carry the Beta badge, got ${JSON.stringify(children)}`);
+            await clickNav(ctx, "Connections");
           },
           assert: async () => {
-            await ctx.waitFor("location.pathname.includes('/integrations')", { timeoutMs: 15_000, label: "sources route (old integrations URL)" });
-            await ctx.expectText("Sources", { timeoutMs: 15_000 });
-            await ctx.expectText("GitHub", { timeoutMs: 15_000 });
-            await ctx.expectText("Plugins page", { timeoutMs: 15_000 });
+            await ctx.waitFor("location.pathname.includes('/mcp-connections')", { timeoutMs: 15_000, label: "connections route" });
+            await ctx.expectText("Google Workspace", { timeoutMs: 20_000 });
+            await ctx.expectText("Notion", { timeoutMs: 10_000 });
           },
           screenshot: {
-            name: "extensions-sources",
-            claim: "Sources explains where plugins come from, inside Extensions.",
-            requireText: ["Sources", "GitHub"],
+            name: "extensions-connections-beta-last",
+            claim: "Connections is reachable only after choosing the last Beta child in Extensions.",
+            requireText: ["Connections", "Google Workspace", "Notion"],
             rejectText: ["Something went wrong"],
           },
         });
@@ -336,7 +342,7 @@ export default {
             await ctx.waitFor("location.pathname.includes('/mcp-connections')", { timeoutMs: 15_000, label: "old URL renders" });
             await ctx.expectText("Google Workspace", { timeoutMs: 20_000 });
             const children = await navChildLabels(ctx);
-            ctx.assert(children.includes("Connections"), "The old URL must highlight the Extensions group with Connections active.");
+            ctx.assert(children.map(stripBetaLabel).includes("Connections"), "The old URL must highlight the Extensions group with Connections active.");
           },
           screenshot: {
             name: "old-bookmark",

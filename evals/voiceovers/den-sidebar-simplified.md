@@ -4,14 +4,15 @@ Cast is Alex (org admin) and Jordan (member), in OpenWork Cloud (den-web).
 Phase 1 scope: the grouped sidebar, the two renames ("MCP Connections" to
 "Connections", "Integrations" to "Sources"), badge cleanup, and old-URL
 compatibility. Page-level tab merges are phase 2 and not narrated here. All
-existing routes keep working — the final frame pins it. Extensions children
-are ordered in pipeline order: Connections, Sources, Plugins, Marketplaces.
+existing routes keep working — the final frame pins it. Extensions opens on
+Sources, and its children are ordered in pipeline order: Sources, Plugins,
+Marketplaces — with beta Connections last.
 
-1. Alex opens the company dashboard. The sidebar that used to be sixteen rows deep is now seven things he can say out loud: Dashboard, Your Connections, Extensions, Models, Members, Analytics, Settings. And the wall of NEW badges is gone.
+1. Alex opens the company dashboard. The sidebar that used to be sixteen rows deep is now seven things he can say out loud: Dashboard, Your Connections, Extensions, Models, Members, Analytics, Settings. The wall of NEW badges is gone, and the remaining badges are Beta tags on the untested Connections surfaces.
 
-2. He opens Extensions and lands on Connections — the tools he publishes for the whole team, like Google Workspace and Notion. It is the admin side of the same coin every member sees as Your Connections: he publishes once, they each sign in as themselves.
+2. He opens Extensions and lands on Sources, still on the old integrations URL. This is where plugins come from — starting with the company GitHub — so the default path starts with supply, not the beta Connections surface.
 
-3. The rest of Extensions is the plugin pipeline, laid out in the order it actually flows: Sources is where plugins come from — the company GitHub — Plugins is the library that fills up from it, and Marketplaces is how that library gets shared out to the team. One flow, left to right, instead of three unrelated rows scattered down a sidebar.
+3. The rest of Extensions is the plugin pipeline, laid out in the order it actually flows: Sources, Plugins, Marketplaces, and then Connections last with a Beta badge. Connections is still there — Google Workspace and Notion are ready to prove the page — but it is clearly untested and out of the default path.
 
 4. Models next: the managed OpenWork Models plan and the company own provider keys, side by side — one place to answer what the org can run.
 
