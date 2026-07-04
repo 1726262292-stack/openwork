@@ -78,13 +78,22 @@ export default {
               `Boolean(document.querySelector(${JSON.stringify(COPY_BUTTON_SELECTOR)}))`,
               { timeoutMs: 30_000, label: "Copy Prompt nav button" },
             );
+            // Freeze the recording stub onto window.posthog: PostHog's async
+            // array.js loader assigns window.posthog when it arrives, and on a
+            // fresh navigation that write can land after this step. A frozen
+            // property makes the late assignment a silent no-op, so captures
+            // deterministically reach the stub (and never real PostHog).
             await ctx.eval(`(() => {
               window.__capturedPosthogEvents = [];
-              window.posthog = {
-                capture: (event, properties) => {
-                  window.__capturedPosthogEvents.push({ event, properties });
+              Object.defineProperty(window, "posthog", {
+                value: {
+                  capture: (event, properties) => {
+                    window.__capturedPosthogEvents.push({ event, properties });
+                  },
                 },
-              };
+                writable: false,
+                configurable: false,
+              });
               return true;
             })()`);
             await grantClipboardPermissions(ctx);
@@ -99,7 +108,7 @@ export default {
                 const events = window.__capturedPosthogEvents || [];
                 return events.some((entry) => entry.event === ${JSON.stringify(POSTHOG_CLIENT_EVENT)}) && Boolean(document.querySelector('[data-feedback="true"]'));
               })()`,
-              { timeoutMs: 5_000, label: "client PostHog event and feedback state" },
+              { timeoutMs: 10_000, label: "client PostHog event and feedback state" },
             );
             // Let the 200ms copy-feedback morph settle so the frame shows a
             // clean "Copied" state instead of overlapping transition labels.
